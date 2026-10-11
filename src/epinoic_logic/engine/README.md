@@ -10,5 +10,9 @@
 | `statuses.py`, `errors.py`, `results.py` | Closed status taxonomy with `is_definitive`, stable diagnostic codes, and result models including the scope statement. |
 
 Resource bounds come from `SolverConfig` (per-check timeout, optional `rlimit`,
-seed, optional global memory cap). Stress results for this package are in
-`tests/stress/results/` and summarized in `docs/STRESS_RESULTS.md`.
+seed, optional memory budget). The memory budget is per verification while Z3's
+limit is process-global, so the engine applies the budget times the number of
+verifications running at once and only raises the limit while any runs; lowering
+it under load made Z3 abort and the next solver call crash the process. Stress
+results for this package are in `tests/stress/results/` and summarized in
+`docs/STRESS_RESULTS.md`.
