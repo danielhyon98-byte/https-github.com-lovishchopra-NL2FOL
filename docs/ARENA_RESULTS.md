@@ -12,11 +12,15 @@ definition in its docstring), `scripts/arena/list_claims.py` (claims as transmit
 `scripts/arena/stress_arena.py` (replayed load).
 
 A transmission counts as functional only when the hub produced a receipt without raising,
-the receipt status is consistent with the input (a genuine response is delivered; a
-response carrying an injected fault shows the expected finding; a deliberately broken
-response is REJECTED), and every translator output was decided by the engine or rejected
-with diagnostics (never INTERNAL_ERROR). Translation outcomes depend on the translation
-provider and are reported separately from the infrastructure rate.
+the receipt status is consistent with the input, and every translator output was decided by
+the engine or rejected with diagnostics (never INTERNAL_ERROR). A genuine response must not be
+REJECTED: every specialist file is treated as a genuine answer, so a deliberately broken input
+that the hub correctly rejects (the r1-adv empty response) is reported as a failure, not
+re-labelled. A response carrying an injected fault must show the expected finding, and since
+round 4 that finding must name the injection: a finding of the expected code that names an
+injected claim or quotes the injected words, and that the genuine record of the same task does
+not already carry. Translation outcomes depend on the translation provider and are reported
+separately from the infrastructure rate.
 
 ## Round 1 (four tasks: two English analytical paragraphs on a supplied extract, two History responses)
 
@@ -277,4 +281,72 @@ What the round-3 overseers found and what the fix round changed (all with regres
 
 Harness after the fix round: r3 41 / 41, r2 41 / 41, r1 26 / 26, r1-adv 150 / 151 (the empty
 response), with no genuine transmission carrying an error-level finding in rounds 1 to 3. The
-round-4 overseer verdicts are recorded here when they arrive.
+round-4 overseer verdicts are recorded below.
+
+## Round 4 (six fresh tasks, including a History-to-English peer exchange)
+
+Fresh outputs from the isolated agents: English paragraphs on Wordsworth's 'Composed upon
+Westminster Bridge' (personification and the turn) and on a comic narrator's voice in a novel
+opening, History responses on the Treaty of Versailles and Weimar instability (to what extent) and
+on the 1929 crash and German unemployment (dated and quantified), and a peer exchange: the History
+specialist's context paragraph on London in 1802 was relayed through the hub to the English
+specialist as the document peer:hi-p3 and quoted in its reading of the sonnet's 'smokeless air'.
+
+| Measure | Value |
+| --- | --- |
+| Harness, genuine outputs, 6 mutations each and the peer relay (r4), as run for the overseers | 41 / 41 functional (100%) |
+| Round-4 overseer verdicts (results-audit / communication-fidelity / adversarial-live), on the round-3 fixes | 0.387 / 0.575 / 0.89 (round 3: 0.727 / 0.769 / 0.871); 44 new findings (1 blocker, 26 majors, 17 minors) |
+
+The results audit found that the harness's own rule hid wrong receipts. A mutation counted as
+functional whenever the expected code appeared anywhere on the receipt: hi-p3's genuine text already
+raises CORE-SRC-003 for its own 'smokeless air', so its three quotation mutations would have passed
+even if the injected quotation had not been named. Findings a mutation carried beyond the genuine
+record were never reported, and the summary listed only the error codes of genuine transmissions,
+with no claim ids, messages or warnings. What the harness fix changed (`scripts/arena/run_arena.py`,
+regression tests in `scripts/arena/test_arena_rules.py`, run by path as
+`python -I -m pytest -q scripts/arena/test_arena_rules.py`):
+
+- **The expected finding must name the injection.** Each mutation knows what it injected (the
+  invented words, the altered quotation, the self-certification, the false arithmetic, the false
+  order). A delivered claim whose text or quotation excerpt carries those words is an injected claim
+  (`injected_claim_ids`). A mutation is functional only when a finding of the expected code (for the
+  self-certification, one of the self-report codes) names an injected claim, quotes the injected
+  words or, for the self-certification paragraph, names its place ('paragraph 5, sentence 1'), and
+  the genuine record of the same task does not already carry that finding. The findings that
+  qualified are kept as `named_by`; a failing record says why (`failure_reasons`).
+- **Findings beyond the genuine record are reported.** Each mutation record lists the findings the
+  genuine record does not carry and that do not name the injection (`unexplained_findings`; a
+  genuine finding that changed keeps its old message), and the errors and warnings of the genuine
+  record that the mutation lost (`baseline_findings_absent`). A crossed word bound carries the
+  genuine measurement and the number of words the mutation added, so it can be checked by
+  subtraction (hi-t8: 186 genuine words + 17 appended = 203 measured). These are listed in
+  results.json (`mutations_with_unexplained_findings`) and summary.md; they do not change the rate.
+- **The genuine section carries every error and warning** of each genuine transmission and peer
+  relay, with its claim ids and message (`genuine_with_errors`: `codes` are the error codes,
+  `warning_codes` the warning codes, `findings` the findings).
+- **A peer-dependent task's mutations are checked against the same pool as its genuine reply.**
+  On each mutation's own hub task the peer's genuine report is now verified with the peer's own
+  translations, as in the genuine pass. Before, it was verified with the dependent task's fixtures,
+  so the peer contributed nothing to the cross-agent pool and every r2 en-p1 mutation silently lost
+  the genuine cross-agent INT-GLOSSARY-005 between h1.1 and the English claims. The new diff
+  surfaced this.
+
+The same recorded rounds under the stricter rule, on the code as it stood during the round-4 fix
+round (the channel, History and English fixes were landing at the same time):
+
+| Set | Before the harness fix | After |
+| --- | --- | --- |
+| r4 | 41 / 41 | 41 / 41; every quotation mutation of hi-p3 is named on the injected claim, not by the genuine CORE-SRC-003 |
+| r3 | 41 / 41 | 41 / 41 |
+| r2 | 41 / 41 | 41 / 41 |
+| r1 | 26 / 26 | 26 / 26 |
+| r1-adv | 150 / 151 | 148 / 151 |
+
+The two new r1-adv failures are real receipt gaps that the old rule hid. hi-t2-long-bullets-nopunct
+is a 6,500-character bullet block with no sentence punctuation, so the wrong_arithmetic and
+chronology_error sentences join its last bullet. The History parser delivers that bullet as claim
+h2.62, but the formal check reads the whole block as one sentence. INT-SUBJ-001 is then raised with
+no claim ids and quotes only the first 160 characters of the block, so nothing on the receipt says
+which statement is false. The packs and the channel need to quote the clause the check was built
+from and carry the claim ids; that change is outside the harness and is handed to their owner. The
+empty response is still the third failure.

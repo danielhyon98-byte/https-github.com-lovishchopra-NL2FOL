@@ -2,9 +2,14 @@
 
 The History structural proxy (``HI-CHR-001``) and the core pack's formal chronology
 check must agree on which dated events a sentence orders, so both read the relations
-from :func:`chronology_relations`. A relation is a cue (``after``, ``before``,
-``followed``, ``followed by``, ``preceded``, ``preceded by``) with a dated event on
-each side. Every cue of a sentence is examined, not only the first.
+from :func:`chronology_relations`. A relation is a cue with a dated event on each side.
+After-type cues put the event before them later (``after``, ``followed``, ``preceded by``,
+``later than``, ``subsequent to``, ``postdated``, ``following``, ``in the wake of``, ``in the
+aftermath of``); before-type cues earlier (``before``, ``preceded``, ``followed by``,
+``earlier than``, ``sooner than``, ``prior to``, ``previous to``, ``predated``,
+``antedated``, ``ahead of``, ``on the eve of``, ``in the run-up to``, ``preceding``). ``no
+later than`` is a bound, ``the following year`` a date and ``followed from`` a consequence.
+Every cue of a sentence is examined, not only the first.
 
 Date tokens and their resolution:
 
@@ -40,11 +45,27 @@ Shapes recognised:
   rather than skipped.
 * leading cue: ``..., and after <event> in <D1>, <event> in <D2>`` (the cue opens its
   clause, which closes at the first comma; the main clause that follows must not open
-  with a relative marker). For ``after`` the cue clause names the earlier event; for
-  ``before`` the later one.
+  with a relative marker). For an after-type cue the cue clause names the earlier event;
+  for a before-type cue (``before``, ``prior to``) the later one.
+* intransitive ``followed``/``preceded`` directly before a date (``followed in July
+  1922``, ``followed, on 13 January 1923,``): the date is the cue's own subject's, and the
+  other event is the one dated last before the cue in the sentence (across a coordinate
+  clause or a leading ``After ...`` clause), else the one date of the previous sentence
+  (several dates there: undecided).
+* coordinated cues: in ``X in D0, after Y of D1 and before Z of D2`` the second cue orders
+  the clause's subject (D0), never the first cue's object (D1); with no subject date the
+  second relation is undecided.
+* an event named without a date (``That election came after ...``, ``... before the
+  treaty``): a definite noun phrase headed by an event noun is looked up in the paragraph's
+  other sentences (the one date given within a few words of the noun in its clause; a date
+  bounding a range such as ``up to 1923`` and a mention whose noun carries a modifier the side
+  does not are not used). Both sides dated: decided, the reason naming the sentence the date
+  came from. One side dated: undecided when the undated side is a demonstrative that must
+  refer back, or when the dated side's date came from another sentence (stated across
+  sentences); a dated and an undated, non-anaphoric event in one sentence state no checkable
+  order and yield nothing.
 
-A cue with no date on one side states no checkable order and yields nothing; a cue
-with dates on both sides that cannot be paired yields an undecided relation with the
+A cue with dates on both sides that cannot be paired yields an undecided relation with the
 reason, so the router sees that an order was stated but not checked. The engine's
 problem compares day ordinals (``(year*12+month)*32+day``, a missing month or day
 counting as 0); the month indices ``later``/``earlier`` (``year*12+month``) are kept for
@@ -73,7 +94,10 @@ _BARE_MONTH_RE = re.compile(
 _UNIT_WORDS = (r"per cent|percent|%|million|billion|thousand|trillion|seats|votes|tonnes|tons|marks|francs|dollars|pounds|shillings|men|women|people|troops|soldiers|dead|deaths|"
                r"casualties|killed|wounded|ships|aircraft|tanks|guns|acres|hectares|miles|km|kilometres|members|delegates|households|houses|workers|strikers|units|cases")
 _YEAR_ONLY_RE = re.compile(rf"(?<![\d,.$£€])\b(1[0-9]{{3}}|20[0-9]{{2}})\b(?![\d,.]?\d)(?!\s*(?:{_UNIT_WORDS})\b)")
-_CUE_RE = re.compile(r"(?<![\w-])(?P<cue>after|before|followed by|preceded by|followed|preceded)\b(?![-\w])(?!\s+(?:all|long)\b)", re.IGNORECASE)
+_CUE_RE = re.compile(
+    r"(?<![\w-])(?P<cue>after|before|followed\s+by|preceded\s+by|followed|preceded|(?:earlier|later|sooner)\s+than|prior\s+to|previous\s+to|subsequent\s+to|"
+    r"pre-?dated|predates|post-?dated|postdates|antedated|antedates|following|preceding|in\s+the\s+wake\s+of|in\s+the\s+aftermath\s+of|ahead\s+of|on\s+the\s+eve\s+of|"
+    r"in\s+the\s+run-up\s+to)\b(?![-\w])(?!\s+(?:all|long)\b)", re.IGNORECASE)
 #: 'named after', 'modelled after', 'look after', 'take after': not an ordering.
 _NOT_A_CUE_BEFORE_RE = re.compile(r"\b(?:named|modelled|modeled|look(?:s|ed|ing)?|called|take[sn]?|took|taking|chase[sd]?|pattern(?:ed)?|styled|sought|seek(?:s|ing)?|run|ran|running|go(?:es|ing)?|went)\s+$", re.IGNORECASE)
 _CLAUSE_BREAK_RE = re.compile(r";|:|,\s+(?:and|but|while|whereas|yet|so)\b|\b(?:but|while|whereas)\b", re.IGNORECASE)
@@ -298,10 +322,208 @@ def _resolve(cue: str, later: DateToken, earlier: DateToken, sentence: str, sent
     return ChronologyRelation(cue, later.text, earlier.text, None, None, False, f"the year of '{bare.text}' is not stated; read in {year}, {why}", sentence)
 
 
+#: After-type cues put the event before them later ('X after Y', 'X followed Y', 'X was preceded by Y'); before-type cues earlier.
+_AFTER_TYPE = frozenset({"after", "followed", "preceded by", "later than", "subsequent to", "postdated", "postdates", "post-dated", "following",
+                         "in the wake of", "in the aftermath of"})
+_BEFORE_TYPE = frozenset({"before", "preceded", "followed by", "earlier than", "sooner than", "prior to", "previous to", "predated", "predates", "pre-dated",
+                          "antedated", "antedates", "ahead of", "on the eve of", "in the run-up to", "preceding"})
+#: Cues that can open a clause as a preposition: 'After the riot of 1817, ...', 'Prior to the treaty of April 1922, ...'.
+_LEADING_CUES = frozenset({"after", "before", "prior to", "previous to", "subsequent to", "following", "in the wake of", "in the aftermath of", "ahead of",
+                           "on the eve of", "in the run-up to", "preceding"})
+#: 'followed in July 1922', 'followed, on 13 January 1923,': the cue's subject is dated by the date that follows (intransitive use).
+_INTRANSITIVE_HEAD_RE = re.compile(
+    r"^\s*,?\s*(?:(?:soon|shortly|quickly|swiftly|rapidly|only|later|immediately|closely|in turn|then)\s+)*,?\s*(?:in|on|by|during|at|within)\s+"
+    r"(?:(?:early|late|mid)[\s-]+|the\s+(?:end|start|beginning|middle|spring|summer|autumn|winter|first half|second half)\s+of\s+|(?:about|around|c\.|ca\.|circa)\s+)?$",
+    re.IGNORECASE)
+_BY_DATE_HEAD_RE = re.compile(r"^\s*(?:(?:early|late|mid)[\s-]+|the\s+(?:end|start|beginning|middle)\s+of\s+|(?:about|around|c\.|ca\.|circa)\s+)?$", re.IGNORECASE)
+#: Between a first cue's object and a second cue: 'after X of May 1921 and before Y of 1922' coordinates both cues on the clause subject.
+_COORDINATED_GAP_RE = re.compile(r"^\s*,?\s*(?:and|or|but|yet|as well as)\s+(?:(?:also|only|long|shortly|just|well|soon|immediately|not long|even)\s+)*$", re.IGNORECASE)
+#: A date that bounds a range is not the date of the event beside it ('instability up to 1923', 'since 1793').
+_RANGE_BEFORE_DATE_RE = re.compile(r"\b(?:up to|until|till|since|from|through|throughout|between|by)\s+(?:(?:early|late|mid)[\s-]+)?(?:the\s+)?$", re.IGNORECASE)
+#: Nouns that name a datable event: only these are looked up in the paragraph when a side of a cue carries no date of its own.
+_EVENT_NOUNS = frozenset("""election vote referendum plebiscite crisis crash collapse treaty war peace armistice truce putsch coup rising uprising revolt rebellion revolution
+    strike occupation invasion battle siege conference congress plenum meeting summit decree act law bill plan agreement pact settlement ultimatum default murder
+    assassination reform budget census purge famine flight letter broadcast speech declaration resignation dissolution devaluation moratorium holiday riot massacre
+    blockade landing offensive campaign surrender abdication coronation accession founding foundation partition annexation mutiny raid bombing election""".split())
+_DEMONSTRATIVES = frozenset({"that", "this", "these", "those"})
+_DEFINITES = frozenset({"the", "its", "their", "his", "her"}) | _DEMONSTRATIVES
+#: Words that end a noun phrase read after a cue, or that are stripped from the end of the clause before a cue.
+_NP_STOP = frozenset("""was were is are be been being had has have did do does came come comes began begun begins started occurred happened took take followed
+    ended broke arrived fell rose met collapsed erupted passed signed held declared announced issued resumed continued persisted emerged appeared developed grew
+    spread made led caused produced brought turned and or but so because which who whom whose when while as if than in on at by of for from to with into
+    only shortly soon immediately long just well not also even still already then again first finally later""".split())
+_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ'’-]+")
+#: 'Signed on ', 'held in ': a participial opener whose date is the noun's that follows the comma.
+_PARTICIPIAL_DATE_RE = re.compile(r"^\s*[A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:on|in|at|during|by)\s+(?:c\.\s+)?$", re.IGNORECASE)
+
+
+def _np_words(text: str, *, trailing: bool) -> list[str]:
+    """The noun phrase at the end (``trailing``) or the start of ``text``, as lower-case words with its determiner first.
+    At the end of a clause, a 'that' after the clause's first word is a complementizer or a relative, not a determiner."""
+    words = [w.lower().strip("'’") for w in _WORD_RE.findall(text)]
+    if trailing:
+        while words and (words[-1] in _NP_STOP or words[-1] == "that"):
+            words.pop()
+        out: list[str] = []
+        for i in range(len(words) - 1, -1, -1):
+            w = words[i]
+            if w in _NP_STOP or (w == "that" and i > 0):
+                break
+            out.insert(0, w)
+            if w in _DEFINITES and (w not in _DEMONSTRATIVES or i == 0):
+                break
+        return out[-6:]
+    out = []
+    for w in words:
+        if w in _NP_STOP and not (w in _DEFINITES and not out):
+            break
+        out.append(w)
+        if len(out) >= 6:
+            break
+    return out
+
+
+def _stem(word: str) -> str:
+    return word.lower().rstrip("'’").removesuffix("s") if len(word) > 3 else word.lower()
+
+
+def _np_head(words: list[str]) -> Optional[str]:
+    """The event noun of a noun phrase (its last event-noun word), or None."""
+    for w in reversed(words):
+        if _stem(w) in _EVENT_NOUNS or w in _EVENT_NOUNS:
+            return _stem(w)
+    return None
+
+
+def _premodifiers(text: str, head: str, near: int) -> list[str]:
+    """The words written directly before the occurrence of ``head`` nearest to offset ``near`` in
+    ``text`` (stems, back to a determiner; a date between them ends the run): 'The agrarian crisis'
+    -> ['agrarian'], 'the September 1930 election' -> []."""
+    words = list(_WORD_RE.finditer(text))
+    hits = [i for i, w in enumerate(words) if _stem(w.group(0)) == head]
+    if not hits:
+        return []
+    i = min(hits, key=lambda k: abs(words[k].start() - near))
+    out: list[str] = []
+    j = i - 1
+    while j >= 0:
+        w = words[j].group(0).lower()
+        gap = text[words[j].end(): words[j + 1].start()]
+        if gap.strip() or w in _DEFINITES or w in _NP_STOP or w in MONTHS:
+            break
+        out.insert(0, _stem(w))
+        j -= 1
+    return out
+
+
+@lru_cache(maxsize=64)
+def _paragraph_sentences(context: str) -> tuple[tuple[str, str, tuple[DateToken, ...]], ...]:
+    """``(sentence, whitespace-normalised sentence, date tokens)`` for every sentence of the paragraph,
+    memoised per paragraph: every cue of every sentence asks for the same paragraph."""
+    from .sentences import split_sentences
+    return tuple((s, " ".join(s.split()), tuple(_tokens(s))) for s in split_sentences(context))
+
+
+def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[set] = None) -> tuple[Optional[DateToken], str]:
+    """The one date the paragraph gives the event noun ``head`` outside ``sentence``: a date
+    within a few words of the noun in the same clause ('the September 1930 election', 'the
+    collapse of the Danatbank on 13 July 1931', 'Signed on 28 June 1919, the treaty'); a date
+    that bounds a range ('up to 1923') is not the event's date, and a mention whose noun carries a
+    modifier the side does not ('The agrarian crisis that began in 1928' for 'the crisis') may be
+    another event and is not used. Returns the token and the sentence it stands in, or None and a
+    reason (no mention, or several dates)."""
+    found: dict[int, tuple[DateToken, str]] = {}
+    target = " ".join(sentence.split())
+    for other, normalized, tokens in _paragraph_sentences(context):
+        if normalized == target or target in normalized:
+            continue
+        for tok in tokens:
+            if tok.year is None:
+                continue
+            before = other[: tok.start]
+            if _RANGE_BEFORE_DATE_RE.search(before):
+                continue
+            clause_before = re.split(r"[,;:()]", before)[-1]
+            after = other[tok.end:]
+            if _PARTICIPLE_OPENER_RE.match(clause_before) and _PARTICIPIAL_DATE_RE.match(clause_before):
+                window_after = " ".join(re.split(r"[;:()]", after)[0].split(",")[:2])  # 'Signed on 28 June 1919, the treaty': the noun follows the comma
+            else:
+                window_after = re.split(r"[,;:()]", after)[0]
+            words = [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
+            if head in words:
+                if side_words is not None and not set(_premodifiers(other, head, tok.start)) <= side_words:
+                    continue
+                found.setdefault(tok.ordinal(), (tok, other))
+    if not found:
+        return None, "no other sentence of the paragraph dates it"
+    if len(found) > 1:
+        return None, f"the paragraph gives it {len(found)} different dates"
+    tok, other = next(iter(found.values()))
+    return tok, other.strip()
+
+
+def _side_date(text: str, *, trailing: bool, context: Optional[str], sentence: str) -> tuple[Optional[DateToken], str, bool, str]:
+    """For a side of a cue that carries no date in the sentence: ``(token, phrase, anaphoric, how)``.
+    The token is the date the paragraph gives the side's event noun elsewhere (None when there is
+    none); ``anaphoric`` is True for a demonstrative ('that election'), which must refer back."""
+    words = _np_words(text, trailing=trailing)
+    phrase = " ".join(words)
+    head = _np_head(words)
+    anaphoric = bool(words) and words[0] in _DEMONSTRATIVES and head is not None
+    if head is None or not words or words[0] not in _DEFINITES or not context:
+        return None, phrase, anaphoric, ""
+    tok, where = _dated_mention(head, context, sentence, {_stem(w) for w in words})
+    if tok is None:
+        return None, phrase, anaphoric, where
+    return tok, phrase, anaphoric, f"the date of '{phrase}' ({tok.text}) was taken from another sentence of the paragraph: '{where[:120]}'"
+
+
+def _cue_name(m: "re.Match[str]") -> str:
+    return " ".join(m.group("cue").lower().split())
+
+
+def _is_after_type(cue: str) -> bool:
+    return cue in _AFTER_TYPE
+
+
+def _orient_cue(cue: str, left: DateToken, right: DateToken) -> tuple[DateToken, DateToken]:
+    """(later, earlier) for the standard shape '<left> <cue> <right>'."""
+    return (left, right) if _is_after_type(cue) else (right, left)
+
+
+def _previous_sentence_date(sentence: str, context: Optional[str]) -> tuple[Optional[DateToken], str]:
+    """The one dated item of the sentence before ``sentence`` in ``context`` (for 'Stabilisation followed in 1924.')."""
+    if not context:
+        return None, ""
+    sentences = _paragraph_sentences(context)
+    target = " ".join(sentence.split())
+    for i, (_s, normalized, _tokens_of) in enumerate(sentences):
+        if normalized == target:
+            if i == 0:
+                return None, ""
+            prev = [t for t in sentences[i - 1][2] if t.year is not None]
+            if len(prev) == 1:
+                return prev[0], sentences[i - 1][0].strip()
+            return None, f"the previous sentence states {len(prev)} dates" if prev else ""
+    return None, ""
+
+
 def chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
     """Every dated ordering the sentence asserts (see the module docstring). ``context``
     is the paragraph the sentence stands in; its only stated year, when the sentence
-    states none, supplies the year of a day-month or bare-month pair."""
+    states none, supplies the year of a day-month or bare-month pair, and its other
+    sentences date an event the sentence names without a date ('That election came after
+    the Danatbank collapse of July 1931'). The answer is memoised per (sentence, paragraph):
+    the History proxy, the formal check and the undecided report all ask for it."""
+    return list(_chronology_relations_cached(sentence, context))
+
+
+@lru_cache(maxsize=1024)
+def _chronology_relations_cached(sentence: str, context: Optional[str]) -> tuple[ChronologyRelation, ...]:
+    return tuple(_chronology_relations(sentence, context))
+
+
+def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
     out: list[ChronologyRelation] = []
     cues = list(_CUE_RE.finditer(sentence))
     if not cues:
@@ -309,11 +531,93 @@ def chronology_relations(sentence: str, context: Optional[str] = None) -> list[C
     sentence_years = years_in(sentence)
     context_years = years_in(context) if context else []
     dated_context_years = years_in(context, dated_only=True) if context else []
+    seen: set[tuple[str, str]] = set()
+
+    def emit(rel: ChronologyRelation) -> None:
+        key = (rel.later_text, rel.earlier_text)
+        if key in seen:
+            return  # one ordering read by two shapes is one relation
+        seen.add(key)
+        out.append(rel)
+
+    def resolve(cue: str, later: DateToken, earlier: DateToken, how: str = "") -> ChronologyRelation:
+        rel = _resolve(cue, later, earlier, sentence, sentence_years, context_years, dated_context_years)
+        if how:
+            rel = ChronologyRelation(rel.cue, rel.later_text, rel.earlier_text, rel.later, rel.earlier, rel.decided, f"{how}; {rel.reason}" if rel.reason else how,
+                                     rel.sentence, rel.later_ordinal, rel.earlier_ordinal)
+        return rel
+
+    def undecided(cue: str, later_txt: str, earlier_txt: str, reason: str) -> None:
+        emit(ChronologyRelation(cue, later_txt, earlier_txt, None, None, False, reason, sentence))
+
+    def across(cue: str, left_tok: Optional[DateToken], right_tok: Optional[DateToken], left_text: str, right_text: str) -> None:
+        """A cue with a side that carries no date in the sentence: look the side's event up in the paragraph."""
+        lhow = rhow = ""
+        l_anaphor = r_anaphor = False
+        l_phrase = r_phrase = ""
+        l_cross = r_cross = False
+        if left_tok is None:
+            left_tok, l_phrase, l_anaphor, lhow = _side_date(left_text, trailing=True, context=context, sentence=sentence)
+            l_cross = left_tok is not None
+        if right_tok is None:
+            right_tok, r_phrase, r_anaphor, rhow = _side_date(right_text, trailing=False, context=context, sentence=sentence)
+            r_cross = right_tok is not None
+        if left_tok is not None and right_tok is not None:
+            later, earlier = _orient_cue(cue, left_tok, right_tok)
+            emit(resolve(cue, later, earlier, "; ".join(h for h in (lhow if l_cross else "", rhow if r_cross else "") if h)))
+            return
+        if left_tok is None and right_tok is None:
+            return  # no dated event on either side: no checkable order
+        dated, dated_cross, how = (left_tok, l_cross, lhow) if left_tok is not None else (right_tok, r_cross, rhow)
+        missing, missing_anaphor, missing_how = (r_phrase, r_anaphor, rhow) if left_tok is not None else (l_phrase, l_anaphor, lhow)
+        if not (missing_anaphor or dated_cross):
+            return  # one dated event and an undated, non-anaphoric one in the same sentence: no checkable order (see the module docstring)
+        if missing_anaphor:
+            reason = f"'{missing}' refers to an event dated in another sentence, which could not be identified ({missing_how or 'no other sentence of the paragraph dates it'})"
+        else:
+            reason = f"stated across sentences: {how}, but '{missing or 'the other event'}' carries no date in this sentence or elsewhere in the paragraph"
+        dated_txt = dated.text if dated.year is not None else dated.text
+        if (left_tok is not None) == _is_after_type(cue):
+            undecided(cue, dated_txt, missing or "the other event", reason)
+        else:
+            undecided(cue, missing or "the other event", dated_txt, reason)
+
     for m in cues:
-        cue = m.group("cue").lower()
+        cue = _cue_name(m)
         left_text, right_text = sentence[: m.start()], sentence[m.end():]
         if _NOT_A_CUE_BEFORE_RE.search(left_text):
             continue
+        if cue in ("later than", "earlier than", "sooner than") and re.search(r"\b(?:no|not|nothing|none)\s+$", left_text, re.IGNORECASE):
+            continue  # 'no later than' is a bound, not an order
+        if cue in ("following", "preceding") and re.search(r"\b(?:the|a|an|in the|of the)\s+$", left_text, re.IGNORECASE):
+            continue  # 'the following year', 'the preceding months'
+        if cue == "followed" and re.match(r"\s+(?:from|suit|through|up)\b", right_text, re.IGNORECASE):
+            continue  # 'followed from' is a consequence, not an order
+        # intransitive 'followed in July 1922': the cue's subject is dated by the date after it; the other event is the one dated before the cue
+        if cue in ("followed", "preceded", "followed by", "preceded by"):
+            rt = _tokens(right_text)
+            head_re = _BY_DATE_HEAD_RE if cue.endswith(" by") else _INTRANSITIVE_HEAD_RE
+            if rt and head_re.match(right_text[: rt[0].start]):
+                subject = rt[0]
+                lt = _tokens(left_text)
+                if lt:
+                    other = lt[-1]
+                    how = ""
+                    if date_in_aside(left_text, other) and not _EVENT_VERB_RE.search(left_text[max(left_text[: other.start].rfind(","), 0): other.start]):
+                        undecided(cue, subject.text if cue.startswith("followed") else other.text, other.text if cue.startswith("followed") else subject.text,
+                                  f"'{cue} {right_text[: rt[0].end].strip()}' dates its own subject; the only earlier date ({other.text}) sits in an aside about the subject, not about another event")
+                        continue
+                else:
+                    other, where = _previous_sentence_date(sentence, context)
+                    if other is None:
+                        if where:  # the previous sentence dates several events: which one is followed is not stated
+                            later_txt, earlier_txt = (subject.text, "the previous sentence's event") if cue.startswith("followed") else ("the previous sentence's event", subject.text)
+                            undecided(cue, later_txt, earlier_txt, f"'{cue}' has no object here and {where}; which event it orders its subject against is not stated")
+                        continue  # no other dated event to order the subject against
+                    how = f"'{cue}' with no object orders its subject after the event of the previous sentence, dated {other.text} ('{where[:120]}')"
+                later, earlier = (subject, other) if cue.startswith("followed") else (other, subject)
+                emit(resolve(cue, later, earlier, how))
+                continue
         breaks = list(_CLAUSE_BREAK_RE.finditer(left_text))
         clause_start = breaks[-1].end() if breaks else 0
         left_clause = left_text[clause_start:]
@@ -325,33 +629,57 @@ def chronology_relations(sentence: str, context: Optional[str] = None) -> list[C
             d1 = left_tokens[-1]
             if _CUE_RE.search(left_clause[d1.end:]):
                 continue  # a nearer cue owns this date
+            # 'X in D0, after Y of D1 and before Z of D2': the second cue orders the clause's subject (D0), not Y
+            prior_cues = [c for c in _CUE_RE.finditer(left_clause[: d1.start])]
+            if prior_cues and _COORDINATED_GAP_RE.match(left_clause[d1.end:]):
+                c0 = prior_cues[-1]
+                between = [t for t in left_tokens if c0.end() <= t.start < d1.start]
+                if not between:
+                    subject_tokens = [t for t in left_tokens if t.end <= c0.start()]
+                    if not subject_tokens or _CUE_RE.search(left_clause[subject_tokens[-1].end: c0.start()]):
+                        if right_tokens:
+                            later_txt, earlier_txt = ("the clause's subject", right_tokens[0].text) if _is_after_type(cue) else (right_tokens[0].text, "the clause's subject")
+                            undecided(cue, later_txt, earlier_txt, f"'{cue}' is coordinated with '{_cue_name(c0)}' and orders the clause's subject, which carries no date in this sentence")
+                        continue
+                    d1 = subject_tokens[-1]
             if date_in_aside(left_clause, d1):
                 aside = left_clause[max(left_clause[: d1.start].rfind(","), left_clause[: d1.start].rfind(";")) + 1: d1.start]
                 if not (_EVENT_VERB_RE.search(aside) or _OCCURRENCE_BEFORE_CUE_RE.search(left_clause)):
                     if right_tokens:
-                        later_txt, earlier_txt = (d1.text, right_tokens[0].text) if cue in ("after", "followed", "preceded by") else (right_tokens[0].text, d1.text)
+                        later_txt, earlier_txt = (d1.text, right_tokens[0].text) if _is_after_type(cue) else (right_tokens[0].text, d1.text)
                         out.append(ChronologyRelation(cue, later_txt, earlier_txt, None, None, False,
                                                       f"the only dated item before '{cue}' ({d1.text}) sits in an aside about the subject, not about the event being ordered", sentence))
                     continue
             if not right_tokens:
+                across(cue, d1, None, left_clause, right_seg)
                 continue
             d2 = right_tokens[0]
             if _CUE_RE.search(right_seg[: d2.start]):
                 continue
-            later, earlier = _orient(cue, d1, d2)
-            out.append(_resolve(cue, later, earlier, sentence, sentence_years, context_years, dated_context_years))
-            continue
-        if cue not in ("after", "before"):
+            later, earlier = _orient_cue(cue, d1, d2)
+            emit(resolve(cue, later, earlier))
             continue
         lead = left_clause.strip(" ,")
-        if lead and not _LEAD_OK_RE.match(lead):
-            continue  # 'Britain after Waterloo': the cue modifies a noun; there is no dated left event
+        if cue not in _LEADING_CUES or (lead and not _LEAD_OK_RE.match(lead)):
+            # 'Britain after Waterloo' (the cue modifies a noun) or 'That election came after ...': the left side carries no date here
+            if right_tokens and not _CUE_RE.search(right_seg[: right_tokens[0].start]):
+                across(cue, None, right_tokens[0], left_clause, right_seg)
+            elif not right_tokens:
+                across(cue, None, None, left_clause, right_seg)
+            continue
         all_right = _tokens(right_text)
         if not all_right:
             continue
         d1 = all_right[0]
         head = right_text[: d1.start]
         if re.search(r"[,;:]", head) or _CUE_RE.search(head):
+            # 'After that election, the Act passed in March 1931': the cue clause names its event without a date
+            comma = head.find(",")
+            if comma > 0 and not re.search(r"[;:]", head[:comma]) and not _CUE_RE.search(head):
+                main_tokens = _tokens(right_text[comma:])
+                if main_tokens:
+                    main_first = DateToken(main_tokens[0].start + comma, main_tokens[0].end + comma, main_tokens[0].text, main_tokens[0].month, main_tokens[0].year, main_tokens[0].day)
+                    across(cue, main_first, None, "", head[:comma])
             continue
         tail = right_text[d1.end:]
         close = re.search(r"[,;:]", tail)
@@ -366,8 +694,8 @@ def chronology_relations(sentence: str, context: Optional[str] = None) -> list[C
         if not main_tokens or _CUE_RE.search(main_seg[: main_tokens[0].start]):
             continue
         d2 = main_tokens[0]
-        later, earlier = (d2, d1) if cue == "after" else (d1, d2)
-        out.append(_resolve(cue, later, earlier, sentence, sentence_years, context_years, dated_context_years))
+        later, earlier = (d2, d1) if _is_after_type(cue) else (d1, d2)
+        emit(resolve(cue, later, earlier))
     return out
 
 

@@ -9,7 +9,9 @@ policy and the engine treat as untrusted data.
 
 Segmentation rules
 ------------------
-* Blocks are separated by blank lines. Each block is classified by content:
+* Blocks are separated by blank lines; CRLF and a lone CR are line breaks, so a CR-only
+  paragraph break is a paragraph break, as the channel counts paragraphs. Each block is
+  classified by content:
 
   - ``meta``: a block that is a pasted JSON receipt or payload; a block whose every
     sentence is self-certification, narration of internal steps ("I have checked
@@ -46,7 +48,11 @@ Segmentation rules
   sentences around it and the quotations after it are still grounded.
 * Quotations are double-quoted spans and single-quoted spans of at least two words
   that open after whitespace or a bracket and close before whitespace or
-  punctuation (so possessives and contractions are not quotations). Every double
+  punctuation. Single marks are paired by context: an apostrophe inside a word
+  (don't, Scrooge's, Ne'er), an aphetic form ('tis, 'Change) and a plural possessive
+  followed by more of the sentence are not marks, so possessives and contractions are
+  not quotations and a quotation containing them ('I don't know what a door-nail is')
+  is still one quotation, checked against the supplied text. Every double
   mark is one class, curly, straight, guillemet or low-9, so a span opened with one
   kind and closed with another is still a quotation; two adjacent double marks that
   together open or close a quotation (dialogue copied verbatim with its own marks
@@ -70,13 +76,23 @@ Role rules (body paragraphs)
   with no source reference, wherever it stands, first sentence or not, quotation
   marks or not; the self-report travels in ``advisory_verification_status``;
 * a quotation-free sentence that is nothing but a note about the text (a from-memory
-  label, a task-setting note: :func:`is_note_only`) -> ``other``, wherever it stands,
-  so a disclaimer is never the paragraph's material point; a substantive sentence that
-  carries the label inline (a parenthetical, a sentence-initial "From memory,", a
-  comma-bounded ", from memory") keeps its role and records the label as an assumption;
+  label, a disclaimer, a task-setting note: :func:`is_note_only`) -> ``other``,
+  wherever it stands, so a disclaimer is never the paragraph's material point; a
+  substantive sentence that carries the label inline (a parenthetical, a
+  sentence-initial "From memory,", a comma-bounded ", from memory", a trailing
+  ", a figure I give from memory") keeps its role and records the label as an
+  assumption. Labels are read outside quotations, so a sentence quoting a colleague's
+  label ("whose "dates and figures" are, in its own words, "from memory ..."") is the
+  writer's analysis with no label assumption, and "from memory" as part of the
+  argument ("The speaker recalls the scene from memory, which ...") is not a label;
 * the first remaining sentence (neither meta nor a note) -> ``point``;
 * a sentence opening with ``Effectively``, ``Thus``, ``Ultimately``,
-  ``Therefore``, ``Consequently`` or ``Hence`` -> ``link``;
+  ``Therefore``, ``Consequently`` or ``Hence``, or with a lead that draws the
+  strands together (``Read together``, ``Taken together``, ``Together``, ``In this
+  light``, ``Read against``: :data:`LINK_LEADS`) -> ``link``; in a single-paragraph
+  answer the closing argued sentence that draws a claim over the paragraph's evidence
+  without quoting ("... suggest that the poem captures a suspended morning") is the
+  ``link`` too, so a combinator that drops it is named (``INT-LEDGER-002``);
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
   irony, imagery, syntax, semantic field, pronoun, verb, adjective, adverb, noun,
   declarative, parallel structure, employs) -> ``device``;
@@ -86,11 +102,13 @@ Role rules (body paragraphs)
   supplied text that contains it (in any recognised form); when several contain it, the
   one the sentence names (by title, author or, for a relayed peer report, the peer
   specialist) wins. When none contains it, the sentence's named text is cited when it
-  names exactly one; when it names none, the one literary (non-peer) text under analysis
+  names exactly one; when it names several, the one that governs the quotation in the
+  sentence (its possessive, "the History specialist's "..."", else the speaker of the
+  reporting clause, else the text named nearest before it); when it names none, the one literary (non-peer) text under analysis
   is cited, since an English analytical answer quotes the text it analyses; either way the
   claim records the assumption that the excerpt was found in none of the supplied texts
   (all ids listed) so the hub's own check runs and reports it (``INT-REQ-003``). Otherwise
-  (several literary texts and none named, only peer reports supplied, or several texts
+  (several literary texts and none named, or only peer reports supplied and none
   named) the quotation is credited to NO text: the claim carries no ``SourceRef`` and the
   assumption ``quotation with no supplied text to check it against: "..."``, which the core
   pack reports as unverifiable (``CORE-SRC-003``). A text is never cited for being supplied
@@ -116,7 +134,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterator, Literal, Optional
 
 from ...ir.schema import SourceRef
@@ -132,7 +150,7 @@ from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuati
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
-    "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS",
+    "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS", "LINK_LEADS",
     "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
     "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of",
 ]
@@ -142,8 +160,13 @@ DEFAULT_SUBJECT = "English A: Literature"
 ParagraphKind = Literal["thesis", "body", "conclusion", "meta", "list"]
 
 LINK_SIGNPOSTS: tuple[str, ...] = ("Effectively", "Thus", "Ultimately", "Therefore", "Consequently", "Hence")
+#: Sentence leads that draw the paragraph's strands together ("Read together, the clear air ... suggest that ..."): a link
+#: inside a body paragraph. They do not make a paragraph the conclusion.
+LINK_LEADS: tuple[str, ...] = ("Read together", "Taken together", "Seen together", "Considered together", "Together", "In this light", "Read against")
 _CONCLUSION_SIGNPOSTS: tuple[str, ...] = LINK_SIGNPOSTS + ("In conclusion", "Overall", "In sum", "To conclude", "Finally")
-_LINK_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in LINK_SIGNPOSTS) + r")\b")
+_LINK_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in LINK_SIGNPOSTS + LINK_LEADS) + r")\b")
+#: A closing sentence that draws a claim over the paragraph's evidence ("... suggest that the poem captures ...").
+_CLOSING_CLAIM_RE = re.compile(r"\b(?:suggests?|shows?|reveals?|indicates?|demonstrates?|implies|imply)\s+that\b", re.IGNORECASE)
 _CONCLUSION_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in _CONCLUSION_SIGNPOSTS) + r")\b")
 _DEVICE_RE = re.compile(
     r"\b(?:diction|metaphor\w*|paradox\w*|juxtapos\w*|iron(?:y|ic\w*)|imagery|syntax|syntactic\w*|"
@@ -478,7 +501,10 @@ def _prose_kinds(blocks: list[str]) -> list[ParagraphKind]:
 
 def segment(text: str) -> tuple[Paragraph, ...]:
     """Deterministically segment an answer into paragraphs, sentences and quotations."""
-    raw = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(text.replace("\r\n", "\n").replace("﻿", "")) if p.strip()]  # a byte-order mark is not a word
+    # CRLF and a lone CR are line breaks (a CR-only paragraph break is a paragraph break, as the channel counts it);
+    # a byte-order mark is not a word
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n").replace("\ufeff", "")
+    raw = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(normalised) if p.strip()]
     units: list[tuple[ParagraphKind, str]] = []
     for block in raw:
         if is_meta_block(block):
@@ -491,6 +517,7 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         else:
             units.append(("body", block))
     prose_kinds = iter(_prose_kinds([b for k, b in units if k == "body"]))
+    single_prose = sum(1 for k, _b in units if k == "body") == 1
     paragraphs: list[Paragraph] = []
     for i, (kind, block) in enumerate(units, start=1):
         if kind == "body":
@@ -510,8 +537,26 @@ def segment(text: str) -> tuple[Paragraph, ...]:
                 argued += 1
                 role = _role_for(argued, s, kind)
             sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s), notes=notes))
+        if kind == "body" and single_prose:
+            sentences = _closing_link(sentences)
         paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(sentences)))
     return tuple(paragraphs)
+
+
+def _closing_link(sentences: list[Sentence]) -> list[Sentence]:
+    """In a single-paragraph answer, the closing argued sentence that draws a claim over the
+    paragraph's evidence ("... the clear air, the sleeping houses and the calm suggest that the poem
+    captures a suspended morning ...") is the paragraph's link, signpost or not, as long as it is
+    the writer's own claim (no quotation) and not the point."""
+    argued = [k for k, s in enumerate(sentences) if s.role != "other"]
+    if len(argued) < 3:
+        return sentences
+    k = argued[-1]
+    last = sentences[k]
+    if last.role in ("interpretation", "device") and not last.quotations and _CLOSING_CLAIM_RE.search(last.text):
+        sentences = list(sentences)
+        sentences[k] = replace(last, role="link")
+    return sentences
 
 
 # -------------------------------------------------------------------- claims
@@ -591,15 +636,19 @@ def text_under_analysis(docs: dict[str, SuppliedText]) -> Optional[str]:
     return literary[0] if len(literary) == 1 else None
 
 
-def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
+def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText], sentence: Optional[str] = None) -> tuple[Optional[str], list[str]]:
     """``(document_id, assumptions)`` for a quotation, by the rule every parser shares
     (:func:`~epinoic_logic.adapters.sources.attribute_excerpt`): the located text wins (the
     named one when several hold the words, the discrepancy recorded when the named one does
-    not); a quotation located nowhere is credited to the one text the sentence names; when
-    the sentence names none, to the one literary text under analysis (so an altered quotation
-    of the poem is still refuted by the hub); otherwise to no text, with the assumption that the
-    core pack reports as unverifiable (``CORE-SRC-003``). Never to a text for being supplied first."""
-    return attribute_excerpt(excerpt, named, docs, text_under_analysis=text_under_analysis(docs))
+    not); a quotation located nowhere is credited to the one text the sentence names; when the
+    sentence names several, to the one that governs the quotation in ``sentence`` (its
+    possessive, the speaker of the reporting clause, the text named nearest before it:
+    ``sources.governing_document``), so an altered quotation of a colleague in a sentence that
+    also names the poet is still refuted by the hub; when the sentence names none, to the one
+    literary text under analysis (so an altered quotation of the poem is still refuted by the
+    hub); otherwise to no text, with the assumption that the core pack reports as unverifiable
+    (``CORE-SRC-003``). Never to a text for being supplied first."""
+    return attribute_excerpt(excerpt, named, docs, text_under_analysis=text_under_analysis(docs), sentence=sentence)
 
 
 def _claim_text(text: str) -> str:
@@ -758,7 +807,7 @@ def parse_response(
                     quotation_count += 1
                     qid = f"p{para.index}-q{quotation_count:02d}"
                     if q.delimited:
-                        doc_id, notes = _attribute(q.excerpt, named, docs)
+                        doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text)
                         refs = [SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else []
                     else:
                         doc_id, refs = None, []

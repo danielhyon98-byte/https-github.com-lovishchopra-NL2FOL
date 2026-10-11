@@ -83,7 +83,10 @@ class ClaimRecord(BaseModel):
 
 
 def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    """sha256 of ``text`` as UTF-8. A lone UTF-16 surrogate (a truncated emoji arriving as ``"\\ud83d"`` in an agent's
+    JSON) is not valid Unicode and has no UTF-8 form; it is encoded with ``surrogatepass`` so hashing agent text can never
+    raise (valid text hashes exactly as before). The channel rejects such text before parsing (INT-REQ-009)."""
+    return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 class SpecialistReport(BaseModel):

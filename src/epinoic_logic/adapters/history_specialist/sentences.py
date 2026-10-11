@@ -16,7 +16,11 @@ read the same sentence:
   ``Dr.``, ``St.`` and the like, or a single-letter initial (``A. J. P. Taylor``);
 * no break inside a quotation (``"like this." Then`` closes the quotation first);
 * a decimal (``4.2``) or a thousands group is never a boundary because no whitespace
-  follows the point.
+  follows the point;
+* a pasted JSON span (``markdown.find_json_spans``) is one sentence: the text is cut where
+  it opens and where it closes, never at the full stops inside its string values, and its
+  strings are masked before quotation marks are read, so a forged receipt glued to a
+  paragraph is one note sentence and none of its fragments becomes a claim.
 
 ``split_sentences`` is the parser's reading (the next sentence must open with a capital,
 a digit or an opening mark); ``split_clauses`` is the arithmetic extractor's reading
@@ -29,7 +33,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_left
 
-from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, find_quotation_spans, is_json_block
+from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, find_json_spans, find_quotation_spans, is_json_block
 
 __all__ = ["ABBREVIATIONS", "abbreviation_ends_at", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences", "strip_json_spans"]
 
@@ -107,14 +111,42 @@ def _inside_any(starts: list[int], furthest_end: list[int], start: int, end: int
     return i > 0 and furthest_end[i - 1] > end
 
 
+def _json_cuts(text: str) -> tuple[str, list[tuple[int, int]]]:
+    """``(masked, spans)``: ``text`` with every pasted JSON span (``markdown.find_json_spans``)
+    blanked character for character, and the spans. A JSON span is one sentence of its own: no
+    boundary is read inside it (its string values carry full stops), its strings are never
+    quotation marks, and the prose before and after it are cut at its edges."""
+    if "{" not in text and "[" not in text:
+        return text, []
+    spans = find_json_spans(text)
+    if not spans:
+        return text, []
+    chars = list(text)
+    for a, b in spans:
+        for i in range(a, b):
+            if chars[i] not in "\n":
+                chars[i] = " "
+    return "".join(chars), spans
+
+
 def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bool = True) -> list[int]:
     """Offsets in ``text`` at which a new sentence (or, with ``semicolons``, a new
     clause) starts. A boundary inside a quotation is ignored, as is one after an
     abbreviation or initial; with ``capital_next`` the next sentence must open with a
-    capital, a digit or an opening mark."""
+    capital, a digit or an opening mark. A pasted JSON span is one sentence: the text is cut
+    where it opens and where it closes, never inside it."""
+    original = text
+    text, json_spans = _json_cuts(text)
     spans = sorted(_quotation_spans(text))
     starts, furthest_end = _span_index(spans)
     out: list[int] = []
+    for a, b in json_spans:
+        if original[:a].strip():
+            out.append(a)
+        nxt = _WS_RE.match(original, b)
+        after = nxt.end() if nxt else b
+        if after < len(original):
+            out.append(after)
     pattern = re.compile(rf"[.?!;]+[{_CLOSERS}]*(?=\s+\S)") if semicolons else _END_RE
     for m in pattern.finditer(text):
         if spans and _inside_any(starts, furthest_end, m.start(), m.end()):

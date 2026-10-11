@@ -121,7 +121,16 @@ def test_orphan_synthesized_claim(two_reports):
 
 def test_cross_report_contradiction_named_and_disclosure_required(two_reports):
     phys, maths = two_reports
-    formalized = {"ph-1": physics_problem("ph-1", 15), "ma-1": physics_problem("ma-1", 16)}
+    # Round 4 (stricter than the rule it replaces): physics_problem("ma-1", 16) refutes itself (its own d = 120, t = 8 give
+    # v = 15), so the claim-minimal attribution names ma-1 ALONE (INT-CONFLICT-005) and never the innocent ph-1.
+    res, findings = check_cross_report_consistency([physics_problem("ph-1", 15), physics_problem("ma-1", 16)], request_id=REQ, config=CFG, signing_key=KEY)
+    assert res is not None and res.status.value == "INCONSISTENT_PREMISES"
+    assert [(f.code, f.claim_ids) for f in findings] == [("INT-CONFLICT-005", ["ma-1"])]
+    # a genuine two-claim contradiction: ma-1 is consistent on its own (its distance gives its speed) but contradicts ph-1
+    data = physics_problem("ma-1", 16).model_dump(mode="json", exclude_none=True)
+    data["premises"] = [{**a, "expr": cmp("eq", V("d"), R(128))} if a["id"] == "D" else a for a in data["premises"]]
+    other = Problem.model_validate(data)
+    formalized = {"ph-1": physics_problem("ph-1", 15), "ma-1": other}
     res, findings = check_cross_report_consistency(list(formalized.values()), request_id=REQ, config=CFG, signing_key=KEY)
     assert res is not None and res.status.value == "INCONSISTENT_PREMISES"
     conflict = [f for f in findings if f.code == "INT-CONFLICT-001"]

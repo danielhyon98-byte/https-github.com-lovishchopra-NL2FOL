@@ -23,10 +23,14 @@ same envelope, identity and ledger checks (the sender must be the payload's owne
 like the recipient, a party the plan selected), and cross-checks its formalized claims
 against every claim already transmitted in the same request so contradictions between
 agents are named, not reconciled. A synthesis is checked for undisclosed contradictions
-between the claims it accounts for (INT-CONFLICT-002), for figures and dates that occur
-in none of its sources, and, when a synthesized claim carries (or can be given) a formal
-conclusion, for entailment by its formalized sources; when that cannot be checked, the
-receipt says so instead of implying a check that nobody ran.
+between the claims it accounts for (INT-CONFLICT-002), for figures and dates (in digits or
+words, with their scale words) that occur in none of its sources or are re-paired between
+events, for quotations no supplied text or cited report holds (INT-LEDGER-025), for a
+reversed direction or a dropped negation (INT-LEDGER-026), and, when a synthesized claim
+carries (or can be given) a formal conclusion, for entailment by its formalized sources;
+when that cannot be checked, the receipt says so instead of implying a check that nobody
+ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
+surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router.
 """
 from __future__ import annotations
 
@@ -86,14 +90,33 @@ _ECHO_LENGTH_RATIO = 1.2
 _SCOPE_TAIL = "Formal results concern only the encoded checks under their premises; coverage is heuristic."
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
 _MAX_NAMED = 8
+#: A UTF-16 surrogate code point. In a Python string every one is unpaired as far as Unicode is concerned (a truncated
+#: emoji arriving in an agent's JSON as "\\ud83d"): it has no UTF-8 form and no contract accepts it, so text carrying one
+#: is rejected at the channel boundary (INT-REQ-009) before it is parsed or hashed.
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+#: A word for the coverage heuristic: letters with internal apostrophes or hyphens only, so a quotation mark or a closing
+#: single mark ("'smokeless air'") never sticks to a term.
+_TERM_RE = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
+
+
 def _terms(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z][a-z'-]{2,}", text.lower()) if w not in _STOP}
+    """Content terms of ``text`` for the coverage heuristic: quotation marks and a possessive ``'s`` stripped, function
+    words dropped, then light-stemmed (``light_stem``, the echo test's rule), so "the poem's 'smokeless air'" shares
+    ``poem``, ``smokeless`` and ``air`` with a claim about the smokeless air of the poem."""
+    out: set[str] = set()
+    for w in _TERM_RE.findall(text.casefold()):
+        if w.endswith(("'s", "’s")):
+            w = w[:-2]
+        if len(w) < 3 or w in _STOP:
+            continue
+        out.add(light_stem(w))
+    return out
 
 
 def _tokens(text: str) -> list[str]:
@@ -126,6 +149,22 @@ def _fit_summary(summary: str, limit: int = SUMMARY_MAX_CHARS) -> str:
     body = summary[: len(summary) - len(tail)]
     room = limit - len(tail) - len(_SUMMARY_TRUNCATED)
     return body[:room].rstrip() + _SUMMARY_TRUNCATED + tail
+
+
+def surrogate_offsets(text: str) -> list[int]:
+    """Character offsets of the UTF-16 surrogate code points in ``text`` (empty for valid Unicode text)."""
+    return [m.start() for m in _SURROGATE_RE.finditer(text)] if text else []
+
+
+def _scrub(text: str) -> str:
+    """``text`` with every surrogate code point replaced by U+FFFD, for identifiers echoed into findings and envelopes."""
+    return _SURROGATE_RE.sub("\ufffd", text) if text else text
+
+
+def _surrogate_message(what: str, offsets: list[int]) -> str:
+    shown = ", ".join(str(o) for o in offsets[:_MAX_NAMED]) + (f" and {len(offsets) - _MAX_NAMED} more" if len(offsets) > _MAX_NAMED else "")
+    return (f"{what} carries {len(offsets)} lone UTF-16 surrogate code point(s) at character offset(s) {shown} (a truncated or split "
+            f"character such as half an emoji): it is not valid Unicode text, so it was neither parsed nor delivered")
 
 
 def _named(ids: list[str]) -> str:
@@ -193,7 +232,8 @@ class TranslatorChannel:
         self.superseded: dict[str, str] = {}                 # report_id -> report id that superseded it (INT-HANDOFF-009)
         self.conflicts_seen: list[tuple[frozenset[str], Optional[str]]] = []  # INT-CONFLICT-001 claim sets named on this channel
         self.receipts: list[TransmissionReceipt] = []
-        self._seen_payloads: dict[str, str] = {}             # payload hash -> first message id
+        self._seen_payloads: dict[str, str] = {}             # payload hash|recipient -> first message id DELIVERED with it
+        self.report_recipients: dict[str, set[str]] = {}     # report_id -> recipients (role|agent) it was delivered to
 
     def _branch_for(self, agent_id: Optional[str]):
         """(branch, profile) serving ``agent_id``: its own subject's branch when the plan assigns one, else the task's."""
@@ -208,6 +248,9 @@ class TranslatorChannel:
     # ------------------------------------------------------------------ requests
     def request(self, from_agent_id: str, to_agent_id: str, user_input: str, supplied_texts: list[SuppliedText] = (),
                 *, items=None, constraints=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
+        bad_input = surrogate_offsets(user_input)
+        if bad_input:  # a request that is not valid Unicode is built on the scrubbed text for the record and REJECTED below
+            user_input = _scrub(user_input)
         req = TaskRequest(
             request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id,
             from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self._subject_for(to_agent_id), course_level=self.plan.course_level,
@@ -217,6 +260,8 @@ class TranslatorChannel:
             supplied_texts=list(supplied_texts), created_at=_now(),
         )
         findings: list[IntegrityFinding] = []
+        if bad_input:
+            findings.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("request text", bad_input), agent_ids=[to_agent_id]))
         if to_agent_id not in self.plan.selected_agent_ids:
             findings.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"router addressed {to_agent_id}, which the plan did not select", agent_ids=[to_agent_id]))
         if self.plan.allowed_document_ids:
@@ -247,10 +292,15 @@ class TranslatorChannel:
         with INT-REQ-009; nothing raises."""
         req = self.requests.get(request_message_id)
         texts = supplied_texts if supplied_texts is not None else (req.supplied_texts if req else [])
+        agent_id, report_id = _scrub(agent_id), _scrub(report_id)
         branch, _profile = self._branch_for(agent_id)
         identity = self._sender_identity(agent_id, req)
         if identity:
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=identity)
+        bad = surrogate_offsets(text)
+        if bad:  # not valid Unicode: no adapter or contract can take it, so it is refused before parsing (never an exception)
+            return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
+                IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("response text", bad), report_ids=[report_id], agent_ids=[agent_id])])
         parser = branch.parser()
         try:
             report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
@@ -319,7 +369,11 @@ class TranslatorChannel:
         if held_content == new_content:
             if any(f.code == "INT-ENV-001" for f in findings):
                 return []
-            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message=f"report {report.report_id!r} was already transmitted on this channel with identical content (duplicate delivery; only the timestamp differs); the first delivery is kept", **ids)]
+            if self._recipient_key(msg) not in self.report_recipients.get(report.report_id, set()):
+                return []  # the report handed on, unchanged, to a party that never received it (the specialist -> combinator hand-off)
+            same_time = held.created_at == report.created_at
+            how = "identical content and timestamp" if same_time else "identical content; only the timestamp differs"
+            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message=f"report {report.report_id!r} was already delivered to this recipient on this channel ({how}): a duplicate delivery; the first delivery is kept", **ids)]
         changed = sorted(k for k in held_content.keys() | new_content.keys() if held_content.get(k) != new_content.get(k))
         return [IntegrityFinding(code="INT-HANDOFF-015", severity="error", message=f"report id {report.report_id!r} reused with a DIFFERENT payload ({changed} differ): a report of agent {held.agent_id!r} was already transmitted under this id; the first delivery is kept and this transmission is not delivered (a revised report needs a new report id)", **ids)]
 
@@ -412,6 +466,7 @@ class TranslatorChannel:
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         covered, form_covered, source_findings = self._source_findings(report, supplied)
         findings += source_findings
+        findings += self._peer_figures(report, supplied)
         findings += self._fold_findings(report, supplied)
         echo = self._request_echo(req, report, supplied)
         if echo is not None:
@@ -508,7 +563,7 @@ class TranslatorChannel:
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
             scope = self._ledger_scope(payload_obj)
             findings += self._cited_superseded(payload_obj)
-            findings += self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj))
+            findings += self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj, extra_texts=self._request_texts()))
             conflict_findings, conflict_ids = self._synthesis_conflicts(payload_obj, scope)
             findings += conflict_findings
             branch_ids += conflict_ids
@@ -516,6 +571,7 @@ class TranslatorChannel:
             findings += ent_findings
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
+            findings += self._unchecked_paraphrases(payload_obj, scope, checked)
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
 
     def _relay_parties(self, msg: AgentMessage, from_role: AgentRole, to_agent_id: str, to_role: AgentRole, payload_obj: BaseModel) -> list[IntegrityFinding]:
@@ -576,7 +632,7 @@ class TranslatorChannel:
         ids: list[str] = []
         sets: list[tuple[frozenset[str], Optional[str]]] = []
         if len(pool) >= 2:
-            res, f = check_cross_report_consistency(pool, request_id=self.plan.request_id, config=self.config, signing_key=self.key)
+            res, f = check_cross_report_consistency(pool, request_id=self.plan.request_id, config=self.config, signing_key=self.key, assumed_readings=frozenset(self.ambiguous_pooled))
             if res is not None:
                 ids.append(res.result_id)
             f = self._with_report_ids(f)
@@ -623,6 +679,32 @@ class TranslatorChannel:
                     ids.append(res2.result_id)
         return out, ids, checked
 
+    def _request_texts(self) -> list[str]:
+        """Every text a request on this channel carried (user inputs and supplied texts): where a synthesized quotation
+        may legitimately come from besides the reports."""
+        out: list[str] = []
+        for req in self.requests.values():
+            out.append(req.user_input)
+            out += [t.text for t in req.supplied_texts]
+        return list(dict.fromkeys(out))
+
+    @staticmethod
+    def _unchecked_paraphrases(synthesis: Synthesis, scope: list[SpecialistReport], checked: dict[str, Optional[str]]) -> list[IntegrityFinding]:
+        """INT-SYNTH-012 (warning) on the channel: a material 'paraphrased' or 'narrowed' claim whose content change no
+        formal conclusion checked here, so the router never reads an unchecked rewording of material content as checked
+        (the rule ``run_integrity_checks`` applies, stated on the synthesis receipt)."""
+        sources = {c.claim_id: c for r in scope for c in r.claims}
+        out: list[IntegrityFinding] = []
+        for sc in synthesis.claims:
+            if sc.transformation not in ("paraphrased", "narrowed") or checked.get(sc.claim_id):
+                continue
+            known = [sources[x] for x in sc.source_claim_ids if x in sources]
+            if sc.materiality != "material" and not any(c.materiality == "material" for c in known):
+                continue
+            out.append(IntegrityFinding(code="INT-SYNTH-012", severity="warning", message=f"material claim produced by '{sc.transformation}' from {list(sc.source_claim_ids)}: its content change was NOT formally checked on this channel (no formal conclusion was supplied or could be formed), so the router must not treat the rewording as checked",
+                                        claim_ids=[sc.claim_id] + list(sc.source_claim_ids), agent_ids=[synthesis.combinator_agent_id]))
+        return out
+
     @staticmethod
     def _state_synthesis_checks(findings: list[IntegrityFinding], checked: dict[str, Optional[str]]) -> list[IntegrityFinding]:
         """The ledger's INT-LEDGER-011 says a formal check is required; the receipt must
@@ -639,14 +721,27 @@ class TranslatorChannel:
         return out
 
     # ------------------------------------------------------------------ internals
-    def _dedupe(self, msg: AgentMessage) -> list[IntegrityFinding]:
+    @staticmethod
+    def _recipient_key(msg: AgentMessage) -> str:
+        """The party a transmission reaches: its role and agent; the router of a channel is one party whatever agent id a
+        relay names it by (a response to the router carries none)."""
         role = getattr(msg.recipient_role, "value", str(msg.recipient_role))
-        key = f"{msg.payload_sha256}|{role}|{msg.recipient_agent_id or ''}"  # the same report forwarded to another recipient is a hand-off, not a replay
+        return f"{role}|" if msg.recipient_role is AgentRole.ROUTER else f"{role}|{msg.recipient_agent_id or ''}"
+
+    def _dedupe(self, msg: AgentMessage) -> list[IntegrityFinding]:
+        """INT-ENV-001 for a payload already DELIVERED to this recipient on this channel. Only delivered transmissions are
+        recorded (:meth:`_finish`), so a relay the channel refused is no precedent for the first legitimate one."""
+        key = f"{msg.payload_sha256}|{self._recipient_key(msg)}"  # the same report forwarded to another recipient is a hand-off, not a replay
         first = self._seen_payloads.get(key)
         if first is not None:
             return [IntegrityFinding(code="INT-ENV-001", severity="warning", message="identical payload already transmitted to this recipient on this channel (replay or duplicate delivery)", message_ids=[msg.message_id, first])]
-        self._seen_payloads[key] = msg.message_id
         return []
+
+    def _record_delivery(self, msg: AgentMessage) -> None:
+        self._seen_payloads.setdefault(f"{msg.payload_sha256}|{self._recipient_key(msg)}", msg.message_id)
+        rid = msg.payload.get("report_id") if isinstance(msg.payload, dict) and msg.contract.startswith("specialist_report") else None
+        if isinstance(rid, str):
+            self.report_recipients.setdefault(rid, set()).add(self._recipient_key(msg))
 
     def _source_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> tuple[set[str], set[str], list[IntegrityFinding]]:
         """Every source reference of every claim against the supplied texts. An excerpt the
@@ -686,6 +781,39 @@ class TranslatorChannel:
                 if out[-1].code == "INT-REQ-003":
                     not_found.add(c.claim_id)
         return covered, covered - not_found, out
+
+    @staticmethod
+    def _peer_figures(report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
+        """INT-REQ-014 (warning): a claim that credits a relayed peer specialist's report ("the History specialist gives
+        close to two million inhabitants": the clause after the peer's possessive or after the peer as the subject of a
+        reporting verb, :func:`~epinoic_logic.adapters.sources.credited_spans`) states there, outside its quotations,
+        figures or dates that occur in no supplied text, the peer's report included. Quotations of the peer are checked as quotations (INT-REQ-003); this names a
+        figure misreported in an unquoted paraphrase of the colleague. Figures in words count (the ledger's reader)."""
+        from ..adapters.markdown import find_quotation_spans
+        from ..adapters.sources import credited_spans
+        from ..integrity.ledger import figure_spellings
+        peers = [t for t in supplied if t.document_id.startswith("peer:") or (t.author or "").endswith("-specialist")]
+        if not peers:
+            return []
+        known: set[str] = set()
+        for t in supplied:
+            for _label, keys in figure_spellings(t.text):
+                known |= keys
+        out: list[IntegrityFinding] = []
+        for c in _material_claims(report):
+            text = c.claim_text
+            for start, end, _inner in reversed(find_quotation_spans(text)):  # quotations are checked as quotations
+                text = text[:start] + " " * (end - start) + text[end:]
+            spans = {p.document_id: credited_spans(text, p) for p in peers}
+            credited = sorted(d for d, sp in spans.items() if sp)
+            if not credited:
+                continue
+            stated = " ".join(text[a:b] for sp in spans.values() for a, b in sp)
+            unknown = sorted({label for label, keys in figure_spellings(stated) if not (keys & known)})
+            if unknown:
+                out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} but states figures or dates {unknown} that occur in neither the peer's report nor any other supplied text: a colleague's figure misreported in an unquoted paraphrase, or the agent's own unsupported figure",
+                                            claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=credited))
+        return out
 
     def _fold_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
         """INT-REQ-013 (warning): the branch adapter folded the claims beyond the contract limit into one tail claim
@@ -909,7 +1037,7 @@ class TranslatorChannel:
                     f = f.model_copy(update={"report_ids": rids, "agent_ids": sorted(set(f.agent_ids) | {self.formalized_by[cid][0] for cid in f.claim_ids if cid in self.formalized_by})})
             if f.code.startswith(("INT-GLOSSARY", "INT-CONFLICT")):
                 assumed = sorted(set(f.claim_ids) & self.ambiguous_pooled)
-                if assumed:
+                if assumed and "AMBIGUOUS_TRANSLATION" not in f.message:
                     f = f.model_copy(update={"message": f"{f.message} (claims {assumed} are AMBIGUOUS_TRANSLATION: their pooled formalization is one assumed reading, not a fixed one)"})
             out.append(f)
         return out
@@ -963,7 +1091,7 @@ class TranslatorChannel:
             if out.verification is not None and out.verification.status is S.INCONSISTENT_PREMISES:
                 findings.append(IntegrityFinding(code="INT-REQ-007", severity="error", message=f"claim {c.claim_id} rests on premises that contradict each other", claim_ids=[c.claim_id], formal_result_id=out.verification.result_id, deterministic=False))
         if contributed and len(self.formalized) >= 2:  # only a report that formalized something can be party to a conflict
-            res, f = check_cross_report_consistency(list(self.formalized.values()), request_id=self.plan.request_id, config=self.config, signing_key=self.key)
+            res, f = check_cross_report_consistency(list(self.formalized.values()), request_id=self.plan.request_id, config=self.config, signing_key=self.key, assumed_readings=frozenset(self.ambiguous_pooled))
             f = self._with_report_ids(f)
             findings.extend(f)
             self.conflicts_seen.extend((frozenset(x.claim_ids), x.formal_result_id) for x in f if x.code == "INT-CONFLICT-001")
@@ -974,6 +1102,8 @@ class TranslatorChannel:
         branch_key = branch_key or self.branch.key
         blocking = _is_blocking(findings)
         subject_flag = any(sf.severity in ("error", "warning") for sf in structural)
+        if not blocking:
+            self._record_delivery(msg)
         if blocking:
             status = TransmissionStatus.REJECTED
         elif findings or subject_flag or any(o.verification is not None and not is_definitive(o.verification.status) for o in outcomes):

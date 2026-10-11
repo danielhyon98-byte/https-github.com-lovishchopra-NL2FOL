@@ -174,9 +174,14 @@ def extract_items(text: str) -> list[RequestItem]:
     return items
 
 
+#: A word for a word bound. A figure written with internal separators ("1.9", "100,000", "63.2%", "1.9m") is ONE word,
+#: as in any word count; every other word is a run of letters, digits, apostrophes and hyphens.
+_WORD_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)+[\w%'’-]*|\b[\w'’-]+\b")
+
+
 def count_words(text: str) -> int:
-    """Every word of ``text``, notes included (the raw count)."""
-    return len(re.findall(r"\b[\w'’-]+\b", text))
+    """Every word of ``text``, notes included (the raw count); a decimal or thousands-separated figure is one word."""
+    return len(_WORD_TOKEN_RE.findall(text))
 
 
 def _note_core(sentence: str) -> str:

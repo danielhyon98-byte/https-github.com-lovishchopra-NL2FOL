@@ -132,9 +132,11 @@ def test_many_claims_accumulating_cross_check_scales_and_names_conflict():
     k = 0
     for r in range(rounds):
         for a in agents:
+            # the answer must not restate the request: "value 0" to "Give the shared value (round 0)" is an echo (INT-REQ-011),
+            # which is never pooled, so the 120th formalization would be missing for a reason this test does not measure
             m, _, _ = ch.request("router", a, f"Give the shared value (round {r}).")
             rid = f"rep-{a}-{r}"
-            rep = SpecialistReport(report_id=rid, request_id="req-s", task_id="task-s", agent_id=a, subject="Physics", task_type="analytical_paragraph", original_response=f"value {k}", response_sha256=sha256_text(f"value {k}"), created_at="2026-10-11T12:00:00Z",
+            rep = SpecialistReport(report_id=rid, request_id="req-s", task_id="task-s", agent_id=a, subject="Physics", task_type="analytical_paragraph", original_response=f"The computed value is {k}.", response_sha256=sha256_text(f"The computed value is {k}."), created_at="2026-10-11T12:00:00Z",
                                    claims=[ClaimRecord(request_id="req-s", task_id="task-s", report_id=rid, agent_id=a, subject="Physics", task_type="analytical_paragraph", claim_id=f"c{k}", claim_text=f"value {k}", claim_role="quantitative", proposed_claim_kind="arithmetic")])
             s = time.perf_counter()
             _, last = ch.respond(m.message_id, rep)

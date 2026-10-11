@@ -12,20 +12,35 @@ helpers so that
   that is segmented into sentences has the furniture removed;
 * a newline followed by a list marker ends a sentence, so a numbered item never
   becomes the paragraph's "point" and a bullet never glues onto its neighbour;
-* a note sentence (from-memory label, self-certification) is recognised by every
-  parser the same way, roled ``other`` and kept out of the material claims; a
-  substantive sentence that only carries the label inline (a parenthetical, a
-  clause after a semicolon or dash, a sentence-initial "From memory," or a
-  comma-bounded ", from memory") keeps its substance (:func:`split_note_clauses`);
+* a note sentence (from-memory label, disclaimer, self-certification, task note) is
+  recognised by every parser the same way, roled ``other`` and kept out of the
+  material claims; a substantive sentence that only carries the label inline (a
+  parenthetical, a clause before or after a semicolon or dash, a sentence-initial
+  "From memory,", a comma-bounded ", from memory", a trailing appositive or concessive
+  label such as ", a figure I give from memory" or ", though this date is from memory")
+  keeps its substance (:func:`split_note_clauses`). Labels are read with the
+  sentence's quotations masked (a colleague's label quoted is quotation), and only an
+  empty core makes a sentence a note: a label word inside a substantive sentence
+  ("recalls the scene from memory, which ...", "is illustrative of how ...") does not;
+* a disclaimer ("should be checked before they are cited", "have not been verified",
+  "must be verified") is a note, never a self-certification; a self-certification
+  (verification-status vocabulary, "I have checked ...", "all of these figures have
+  been verified", "the figures here are accurate", "can be relied upon", "appears
+  verbatim", "no errors were found", Z3 or the hub "proved" or "accepted" the answer)
+  is recognised by every branch the same way (:func:`is_self_certification`);
 * a pasted JSON span (a receipt, a payload) is found wherever it stands, glued to
   prose included (:func:`find_json_spans`), so its strings are never read as
-  quotations and the prose around it is segmented as prose;
+  quotations and the prose around it is segmented as prose; brackets are matched in
+  one linear pass per text (:func:`_json_span_ends`, :func:`bracket_match_ends`), so
+  brace-like text never makes the hub quadratic;
 * quotation marks are paired the same way everywhere: curly, straight, guillemet
   and low-9 double marks are one class (so a quotation opened with one kind and
   closed with another is still a quotation), two adjacent double marks that
   together open or close a quotation (dialogue copied with its own marks inside the
   writer's) are one nested mark, single marks around two or more words are
-  quotations, and a paragraph whose double marks cannot be paired names the one
+  quotations and are paired by context (an apostrophe inside a word, an aphetic
+  'tis or 'Change and a plural possessive are not marks, so 'I don't know' is one
+  quotation), and a paragraph whose double marks cannot be paired names the one
   mark that dangles so the spans around it are not mis-paired, while a pair whose
   marks contradict their context in such a paragraph is set aside as undelimited
   rather than delivered as a quotation (:func:`undelimited_quote_spans`);
@@ -35,6 +50,7 @@ Everything here is deterministic text handling; no finding is decided here.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 from typing import Optional
@@ -47,6 +63,7 @@ __all__ = [
     "is_note_sentence", "is_task_note", "split_note_clauses", "unbalanced_double_quotes", "normalize_double_marks",
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
+    "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE",
 ]
 
 BOM = "\ufeff"
@@ -67,13 +84,16 @@ EMPHASIS_RE = re.compile(r"(?<!\w)(\*\*|__|\*|_|`)(?=\S)(.+?)(?<=\S)\1(?!\w)")
 #: close), guillemets and the low-9 / high-reversed-9 marks of other typographic traditions.
 DOUBLE_QUOTE_MARKS = ('"', "\u201c", "\u201d", "\u00ab", "\u00bb", "\u201e", "\u201f")
 _DOUBLE_MARK_TRANSLATION = {ord(c): '"' for c in DOUBLE_QUOTE_MARKS}
+_DOUBLE_MARK_RE = re.compile("[" + "".join(DOUBLE_QUOTE_MARKS) + "]")
 #: Glyphs whose direction is unambiguous (used only to tell which mark of an unbalanced paragraph dangles).
 _OPENING_GLYPHS = frozenset({"\u201c", "\u00ab", "\u201e"})
 _CLOSING_GLYPHS = frozenset({"\u201d", "\u00bb", "\u201f"})
 #: A double-quoted span after :func:`normalize_double_marks`.
 DOUBLE_QUOTE_SPAN_RE = re.compile(r'"([^"\n]+)"')
 #: A single-quoted span of two or more words that opens after whitespace, a bracket or a dash
-#: and closes before whitespace or punctuation (so possessives and contractions are not quotations).
+#: and closes before whitespace or punctuation, with no single mark inside. Kept for callers; the
+#: parsers pair single marks by context instead (:func:`_single_quote_spans`), so a quotation whose
+#: words carry an apostrophe ('I don't know') is still one quotation.
 SINGLE_QUOTE_SPAN_RE = re.compile(
     r"(?:(?<=[\s(\[—–-])|^)'([^'\n]{2,}?[^\s'])'(?=[\s.,;:!?)\]]|$)"
     r"|(?:(?<=[\s(\[—–-])|^)\u2018([^\u2019\n]{2,}?[^\s\u2019])\u2019(?=[\s.,;:!?)\]]|$)"
@@ -98,10 +118,19 @@ TASK_NOTE_RE = re.compile(
     re.IGNORECASE,
 )
 _CHECK_WORDS = r"(?:accurate|correct|reliable|checked|verified|confirmed|validated|double[- ]checked|cross[- ]checked|re[- ]?checked|compared (?:with|against))"
-_ANSWER_ITSELF = r"(?:this (?:paragraph|answer|response|text|essay|report|outline|summary)|all of the above|the above|the foregoing|everything above)"
+_ANSWER_ITSELF = (r"(?:this (?:paragraph|answer|response|text|essay|report|outline|summary)|all of the above|the above|the foregoing|everything above"
+                  r"|the (?:argument|analysis|answer|paragraph|reasoning|claims?|points?) (?:above|here))")
 _ITEMS = r"(?:figures?|dates?|quotations?|quotes?|claims?|statistics?|numbers?|statements?|facts?|citations?|references?)"
-_EVERY_ITEM = rf"(?:every|each|all)(?: of the)? {_ITEMS}(?:,? (?:and|or) {_ITEMS})*(?: (?:in|of|from) (?:this|the) (?:paragraph|answer|response|text|essay|above))?"
+#: Every item of the answer: "every figure", "all of these figures", "each one of the quotations", "every date and figure in this paragraph".
+_EVERY_ITEM = (rf"(?:every|each|all)(?: one)?(?: of (?:the|these|those|my|our|its))? {_ITEMS}(?:,? (?:and|or) {_ITEMS})*"
+               rf"(?: (?:in|of|from) (?:this|the) (?:paragraph|answer|response|text|essay|above))?")
+#: The answer's items located in the answer itself: "the figures here", "these dates above", "the quotations given here".
+_ANCHORED_ITEMS = (rf"(?:the|these|those|my|our|all the|all these) {_ITEMS}(?:,? (?:and|or) {_ITEMS})*"
+                   r" (?:here|above|below|(?:given|cited|stated|quoted|used) (?:here|above|below)|in this (?:paragraph|answer|response|essay|text))")
 _COPULA = r"(?:is|are|was|were|has been|have been|has now been|have now been)\s+(?:all\s+|fully\s+|carefully\s+|now\s+|independently\s+)?"
+#: The verification infrastructure itself (an agent claiming that the engine, the solver or the hub already passed its answer).
+_INFRASTRUCTURE = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation)\s+)?(?:engine|solver|verifier)\b"
+                   r"|\bthe\s+(?:hub|channel|translator|overseer|router)\b)")
 #: Verification-status vocabulary in the body: an agent certifying its own output or
 #: imitating a channel receipt. Status words count only in capitals (a vote that "was
 #: accepted" is history, not a receipt); phrases are matched case-insensitively. The
@@ -112,7 +141,7 @@ _COPULA = r"(?:is|are|was|were|has been|have been|has now been|have now been)\s+
 SELF_CERT_RE = re.compile(
     r"\b(?:VERIFIED|ACCEPTED_WITH_FINDINGS|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE|INCONSISTENT_PREMISES)\b"
     r"|(?i:\ball (?:claims|dates|figures|facts|quotations)(?: and (?:figures|dates|quotations))?(?: (?:have been|were|are|was|is))? ?(?:checked|verified|confirmed|validated)\b"
-    r"|\b(?:verified|checked|confirmed|validated) by (?:the )?(?:z3|engine|solver|verifier|translator|overseer)\b"
+    r"|\b(?:verified|checked|confirmed|validated|proved|proven|accepted|certified|approved) by (?:the )?(?:(?:verification|logic|formal|z3) )?(?:z3|engine|solver|verifier|translator|overseer|hub)\b"
     r"|\bfact[- ]?checked\b|\bself[- ]?certif\w*|\bverification (?:complete|passed|status)\b|\bchecked and confirmed\b"
     r"|\bdouble[- ]checked\b|\bcross[- ]checked\b|\bcompared (?:with|against) the supplied\b|\bmatch(?:es|ed)? (?:it|them) exactly\b"
     r"|\bno findings\b|\bfindings:\s*none\b|\btransmission (?:accepted|rejected)\b|\bvia branch \w+\b|\bstatus:\s*(?:entailed|accepted|rejected|verified|ok)\b"
@@ -121,15 +150,44 @@ SELF_CERT_RE = re.compile(
     rf"|\b{_EVERY_ITEM}\s+{_COPULA}{_CHECK_WORDS}\b)",
 )
 #: The looser semantic rule of :func:`is_self_certification`: the sentence speaks of the answer
-#: itself (or of every figure, date or quotation in it) and, anywhere in the sentence, of a
-#: checking act or of the reader relying on it. A bare accuracy adjective ("is correct") counts
-#: only in the regex's immediate form, so "this paragraph argues that the court is correct to
-#: uphold the thesis" stays an argument.
-_SELF_SUBJECT_RE = re.compile(rf"\b(?:{_ANSWER_ITSELF}|{_EVERY_ITEM})\b", re.IGNORECASE)
+#: itself (or of every figure, date or quotation in it, or of its items "here" or "above") and,
+#: anywhere in the sentence, of a checking act, of the reader relying on it, of its quotations
+#: appearing verbatim, of no errors being found, or of the verification infrastructure passing
+#: it. A bare accuracy adjective ("is correct") counts only right after such a subject ("the
+#: figures here are accurate", "every one of them is correct"), so "this paragraph argues that
+#: the court is correct to uphold the thesis" stays an argument. Only a POSITIVE predicate
+#: counts: a check under negation or a deontic modal ("have not been checked", "should be
+#: checked before they are cited", "must be verified", "unverified") is a disclaimer, the
+#: opposite of a self-certification, and is read as a from-memory label instead.
+_SELF_SUBJECT_RE = re.compile(rf"\b(?:{_ANSWER_ITSELF}|{_EVERY_ITEM}|{_ANCHORED_ITEMS})\b", re.IGNORECASE)
 _SELF_PREDICATE_RE = re.compile(
     r"\b(?:checked|verified|confirmed|validated|double[- ]checked|cross[- ]checked|re[- ]?checked|compared (?:with|against))\b"
-    r"|\bmatch(?:es|ed)? (?:it|them|the \w+(?: \w+)?) (?:exactly|precisely|word for word)\b"
-    r"|\brely (?:on|upon) (?:it|them|these|this)\b|\bmay be relied (?:on|upon)\b|\btrustworthy\b|\berror[- ]free\b|\bfree of errors?\b",
+    r"|\bmatch(?:es|ed)? (?:it|them|the \w+(?: \w+)?) (?:exactly|precisely|word for word|verbatim)\b"
+    r"|\bappear(?:s|ed)? (?:verbatim|word for word|exactly as (?:written|printed|given))\b|\b(?:is|are) verbatim\b"
+    r"|\brely (?:on|upon) (?:it|them|these|this)\b|\b(?:may|can) be relied (?:on|upon)\b|\bcan be trusted\b|\btrustworthy\b|\berror[- ]free\b|\bfree of errors?\b"
+    r"|\bno (?:errors?|mistakes?|inaccuracies|problems)\s+(?:were|was|have been|has been|are|is)\s+(?:found|detected|identified|present)\b",
+    re.IGNORECASE,
+)
+#: A checking predicate under negation or a deontic modal: the words just before it make it a disclaimer.
+_NEGATED_OR_DEONTIC_RE = re.compile(
+    r"(?:\bnot|\bnever|n['’]t|\bcannot|\bno longer|\byet to|\bstill to)\s+(?:\w+\s+){0,3}$"
+    r"|\b(?:should|must|needs?\s+to|ought\s+to|has\s+to|have\s+to|had\s+to|are\s+to|is\s+to|to)\s+(?:(?:still|first|all|each|independently|carefully|also|then|now)\s+)*(?:have\s+)?(?:be|been)\s+(?:\w+ly\s+)?$",
+    re.IGNORECASE,
+)
+#: An accuracy adjective right after a self-subject (or "every one of them"): "the figures here are correct to the nearest tenth".
+_SELF_ACCURACY_RE = re.compile(
+    rf"\b(?:{_ANSWER_ITSELF}|{_EVERY_ITEM}|{_ANCHORED_ITEMS}|(?:every|each|all)(?: one)? of (?:them|these|those))\s+"
+    r"(?:is|are|was|were)\s+(?:all\s+|entirely\s+|fully\s+|completely\s+)?(?:accurate|correct|reliable|error[- ]free)\b",
+    re.IGNORECASE,
+)
+#: The writer narrating its own check: "I have checked ...", "I verified each figure", "we have confirmed".
+_FIRST_PERSON_CHECK_RE = re.compile(
+    r"(?:\bI|\b[Ww]e)(?:\s+have|['’]ve|\s+had)?\s+(?i:(?:(?:now|also|personally|carefully|independently|already|just|thoroughly|individually|myself)\s+)*"
+    r"(?:checked|verified|confirmed|validated|double[- ]checked|cross[- ]checked|fact[- ]checked|re-?checked))\b"
+)
+_INFRASTRUCTURE_RE = re.compile(_INFRASTRUCTURE, re.IGNORECASE)
+_INFRASTRUCTURE_VERB_RE = re.compile(
+    r"\b(?:prov(?:ed|en|es)|verif(?:ied|ies)|confirm(?:ed|s)|accept(?:ed|s)|validat(?:ed|es)|entail(?:ed|s)|certif(?:ied|ies)|approv(?:ed|es)|signed off|passed)\b",
     re.IGNORECASE,
 )
 #: A year, a capitalised month name (``may`` the modal verb is not a month) or a figure with a unit.
@@ -203,16 +261,42 @@ def is_memory_label(sentence: str) -> bool:
     return bool(MEMORY_LABEL_RE.search(sentence))
 
 
+def _positive(pattern: "re.Pattern[str]", sentence: str) -> bool:
+    """True when ``pattern`` matches ``sentence`` at least once outside negation and deontic
+    modals ("has not been checked", "should be checked", "must be verified" do not count)."""
+    for m in pattern.finditer(sentence):
+        if not _NEGATED_OR_DEONTIC_RE.search(sentence[max(0, m.start() - 60):m.start()]):
+            return True
+    return False
+
+
 def is_self_certification(sentence: str) -> bool:
     """True for verification-status vocabulary (:data:`SELF_CERT_RE`), for a sentence shaped
-    like a JSON receipt or payload, and for the semantic rule: the sentence's subject is the
-    answer itself ("this paragraph", "the above", "all of the above", "every figure and date")
-    with a checking or accuracy predicate and no dated item. A sentence that mentions only
-    its items ("every figure") needs a checking verb, not a bare accuracy adjective, so a
-    remark that "every figure in the painting is exact" stays an argument."""
+    like a JSON receipt or payload, for the writer narrating its own check ("I have checked
+    each of these dates", "I verified each figure", "we have confirmed": every branch, not the
+    English one only), and for the semantic rule: the sentence speaks of the answer itself
+    ("this paragraph", "the above", "the argument above"), of every item in it ("every figure
+    and date", "all of these figures", "each of these claims") or of its items located in it
+    ("the figures here", "every quotation above") with a positive checking predicate (checked,
+    verified, appears verbatim, can be relied upon, no errors were found), or with an accuracy
+    adjective right after that subject ("the figures here are accurate", "every one of them is
+    correct"), or says that the verification infrastructure (Z3, the engine, the solver, the
+    hub) passed it; with no dated item. A sentence that mentions only its items ("every figure")
+    needs a checking verb, not a bare accuracy adjective, so a remark that "every figure in the
+    painting is exact" stays an argument. A check under negation or a deontic modal ("The dates
+    in this paragraph have not been checked", "... are from memory and should be checked before
+    they are cited", "must be verified") is a disclaimer, never a self-certification."""
     if SELF_CERT_RE.search(sentence) or is_json_shaped(sentence):
         return True
-    return bool(_SELF_SUBJECT_RE.search(sentence) and _SELF_PREDICATE_RE.search(sentence) and not _DATED_ITEM_RE.search(sentence))
+    if _FIRST_PERSON_CHECK_RE.search(sentence):
+        return True
+    if not _SELF_SUBJECT_RE.search(sentence) and not _SELF_ACCURACY_RE.search(sentence):
+        return False
+    if _DATED_ITEM_RE.search(sentence):
+        return False
+    if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence):
+        return True
+    return bool(_INFRASTRUCTURE_RE.search(sentence) and _positive(_INFRASTRUCTURE_VERB_RE, sentence))
 
 
 def is_task_note(sentence: str) -> bool:
@@ -221,8 +305,11 @@ def is_task_note(sentence: str) -> bool:
 
 def is_note_sentence(sentence: str) -> bool:
     """A sentence that is a label about the text (from-memory disclaimer, self-certification,
-    or a note that the syllabus version, cohort, level or mark was not given) rather than part of the argument."""
-    return is_memory_label(sentence) or is_self_certification(sentence) or is_task_note(sentence)
+    or a note that the syllabus version, cohort, level or mark was not given) rather than part
+    of the argument: its core is empty once its note clauses are set aside
+    (:func:`split_note_clauses`, read outside quotations). A label word somewhere in a
+    substantive sentence, or inside its quotations, does not make it a note."""
+    return bool(sentence.strip()) and not split_note_clauses(sentence)[0]
 
 
 def is_json_shaped(sentence: str) -> bool:
@@ -236,76 +323,210 @@ def is_json_shaped(sentence: str) -> bool:
 
 def is_json_block(block: str) -> bool:
     """True when ``block`` is a pasted JSON document (parses as an object or array), or opens
-    and closes with brackets around at least one JSON key-value pair."""
+    and closes with brackets around at least one JSON key-value pair. The key-value shape is
+    tested first, so a deeply nested block is never handed to the JSON parser when its shape
+    already decides, and a block too deeply nested to parse is not JSON by parse."""
     s = block.strip()
     if not s or s[0] not in "{[" or s[-1] not in "}]":
         return False
+    if JSON_KEY_RE.search(s):
+        return True
     try:
         parsed = json.loads(s)
-        if isinstance(parsed, (dict, list)):
-            return True
-    except ValueError:
-        pass
-    return bool(JSON_KEY_RE.search(s))
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(parsed, (dict, list))
 
 
 # ------------------------------------------------------------------ pasted JSON spans
 
 _MAX_JSON_SPAN_CHARS = 60_000
 _BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
+_JSON_OPENER_RE = re.compile(r"[\[{]")
+#: The characters a bracket scan stops at outside a string, and inside one.
+_JSON_SCAN_RE = re.compile(r'["{}\[\]\n]')
+_JSON_STRING_SCAN_RE = re.compile(r'["\\\n]')
 
 
-def _balanced_json_end(text: str, start: int) -> int:
-    """Index just past the bracket that closes the one at ``start``, or ``-1`` when the span
-    does not close before a blank line, the end of ``text`` or the size cap. Straight
-    double-quoted strings (with backslash escapes) are skipped so brackets inside them do
-    not count; a string that runs over a line break is not JSON."""
-    depth = 0
-    i = start
-    n = min(len(text), start + _MAX_JSON_SPAN_CHARS)
-    in_string = False
-    while i < n:
-        ch = text[i]
-        if in_string:
-            if ch == "\\":
-                i += 2
-                continue
+def _json_span_ends(text: str, openers: list[int]) -> dict[int, tuple[int, int, bool]]:
+    """For every opening bracket offset in ``openers`` (ascending), ``(end, depth, object_child)``:
+    ``end`` is the index just past the bracket that closes it, or ``-1`` when the span does not
+    close before a blank line, the end of ``text`` or the size cap; ``depth`` is its bracket
+    nesting depth and ``object_child`` whether a ``{`` opens directly inside it (outside a
+    string). Straight double-quoted strings (with backslash escapes) are skipped so brackets
+    inside them do not count; a string that runs over a line break is not JSON.
+
+    One pass, right to left: a scan that meets a nested opener outside a string jumps straight
+    to the end already computed for it (or fails with it), so every character is read about
+    once whatever the nesting, and brace-like text (thousands of ``{``, unclosed fragments) can
+    never make the hub quadratic. ``end`` is the one a separate depth-counting scan from that
+    opener would give."""
+    n = len(text)
+    ends: dict[int, tuple[int, int, bool]] = {}
+    for start in reversed(openers):
+        limit = min(n, start + _MAX_JSON_SPAN_CHARS)
+        i = start + 1
+        end = -1
+        depth = 1
+        object_child = False
+        while True:
+            m = _JSON_SCAN_RE.search(text, i, limit)
+            if m is None:
+                break
+            i = m.start()
+            ch = text[i]
             if ch == '"':
-                in_string = False
-            elif ch == "\n":
-                return -1
-        elif ch == '"':
-            in_string = True
-        elif ch in "{[":
-            depth += 1
-        elif ch in "}]":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-            if depth < 0:
-                return -1
-        elif ch == "\n" and _BLANK_LINE_RE.match(text, i):
-            return -1
-        i += 1
-    return -1
+                j = i + 1
+                closed = False
+                while j < limit:
+                    s = _JSON_STRING_SCAN_RE.search(text, j, limit)
+                    if s is None:
+                        break
+                    j = s.start()
+                    c = text[j]
+                    if c == "\\":
+                        j += 2
+                        continue
+                    if c == '"':
+                        closed = True
+                    break  # a closing mark, or a line break inside the string: not JSON
+                if not closed:
+                    break
+                i = j + 1
+                continue
+            if ch in "{[":
+                nested, nested_depth, _child = ends.get(i, (-1, 0, False))
+                if nested < 0 or nested > limit:
+                    break
+                depth = max(depth, nested_depth + 1)
+                object_child = object_child or ch == "{"
+                i = nested
+                continue
+            if ch in "}]":
+                end = i + 1
+                break
+            if _BLANK_LINE_RE.match(text, i):  # a line break: a blank line ends the candidate span
+                break
+            i += 1
+        ends[start] = (end, depth, object_child)
+    return ends
 
 
-def _is_json_span(span: str) -> bool:
+#: A span nested deeper than this is judged by its shape alone: no JSON parser should be asked to recurse that far.
+_MAX_JSON_PARSE_DEPTH = 256
+
+
+def _is_json_span(span: str, *, depth: int = 0, object_child: bool = True) -> bool:
     """A pasted JSON span: parses as an object (or an array holding an object), or opens on a
     quoted key and carries a JSON key-value pair. A bracketed list of words or figures in
-    prose (``[1, 2]``, ``[sic]``) is not one."""
+    prose (``[1, 2]``, ``[sic]``) is not one; neither is bare nesting (``{{{...}}}``).
+
+    The answer is decided without parsing whenever the parse cannot change it (an object that
+    does not open on a key, a key-value shape already present, an array with no object directly
+    inside it), and a span nested deeper than :data:`_MAX_JSON_PARSE_DEPTH` is judged by its
+    shape alone, so deeply nested brace-like text costs one cheap test per bracket."""
     s = span.strip()
     if len(s) < 4 or s[0] not in "{[" or s[-1] not in "}]":
         return False
+    head = s[1:].lstrip()[:1]
+    keyed = head == '"' and bool(JSON_KEY_RE.search(s))
+    if s[0] == "{":
+        if head not in ('"', "}"):
+            return False  # an object opens on a key
+        if keyed:
+            return True  # an object with a key-value pair, parsed or not
+    elif not object_child or "{" not in s:
+        return keyed  # an array counts only when an object stands directly inside it; otherwise only the key-value shape
+    if depth > _MAX_JSON_PARSE_DEPTH:
+        return keyed
     try:
         parsed = json.loads(s)
-    except ValueError:
+    except (ValueError, RecursionError):
         parsed = None
     if isinstance(parsed, dict):
         return True
     if isinstance(parsed, list):
         return any(isinstance(item, dict) for item in parsed)
-    return s[1:].lstrip()[:1] == '"' and bool(JSON_KEY_RE.search(s))
+    return keyed
+
+
+#: Texts longer than this are scanned afresh rather than cached, so the caches stay small whatever the agents send.
+_CACHE_MAX_CHARS = 16_000
+
+
+@functools.lru_cache(maxsize=512)
+def _json_spans(text: str) -> tuple[tuple[int, int], ...]:
+    openers = [m.start() for m in _JSON_OPENER_RE.finditer(text)]
+    if not openers:
+        return ()
+    ends = _json_span_ends(text, openers)
+    spans: list[tuple[int, int]] = []
+    floor = 0
+    for start in openers:
+        if start < floor:
+            continue  # the brackets inside a span belong to it
+        end, depth, object_child = ends[start]
+        if end > start and _is_json_span(text[start:end], depth=depth, object_child=object_child):
+            spans.append((start, end))
+            floor = end
+    return tuple(spans)
+
+
+_BRACKET_SCAN_RE = re.compile(r'["{}\[\]]')
+_BRACKET_STRING_RE = re.compile(r'["\\]')
+
+
+def bracket_match_ends(text: str) -> dict[int, Optional[int]]:
+    """For every ``{`` and ``[`` of ``text``, the index just past the bracket of the same kind
+    that closes it, or ``None`` when it never closes or a bracket of the other kind closes first.
+    Straight double-quoted strings (backslash escapes honoured, line breaks allowed) are skipped,
+    so brackets inside them do not count.
+
+    One right-to-left pass: a scan that meets a nested opener jumps to the end already computed
+    for it, so the whole map costs about one read of ``text`` however deeply or often brackets
+    nest. It gives, for each opener, the answer of a separate stack-based scan from that opener
+    (the History sentence splitter's ``_balanced_end``), without that scan's quadratic cost on
+    brace-like text."""
+    openers = [m.start() for m in _JSON_OPENER_RE.finditer(text)]
+    n = len(text)
+    ends: dict[int, Optional[int]] = {}
+    for start in reversed(openers):
+        want = "}" if text[start] == "{" else "]"
+        i = start + 1
+        end: Optional[int] = None
+        while True:
+            m = _BRACKET_SCAN_RE.search(text, i)
+            if m is None:
+                break
+            i = m.start()
+            ch = text[i]
+            if ch == '"':
+                j = i + 1
+                while True:
+                    q = _BRACKET_STRING_RE.search(text, j)
+                    if q is None:
+                        j = n
+                        break
+                    j = q.start()
+                    if text[j] == "\\":
+                        j += 2
+                        continue
+                    break
+                if j >= n:
+                    break  # the string never closes
+                i = j + 1
+                continue
+            if ch in "{[":
+                nested = ends.get(i)
+                if nested is None:
+                    break
+                i = nested
+                continue
+            if ch == want:
+                end = i + 1
+            break  # the closing bracket, or one of the other kind
+        ends[start] = end
+    return ends
 
 
 def find_json_spans(text: str) -> list[tuple[int, int]]:
@@ -316,19 +537,12 @@ def find_json_spans(text: str) -> list[tuple[int, int]]:
     glued to prose included; the brackets inside a span belong to it. Parsers cut
     sentences at these spans and mask them before reading quotation marks, so a pasted
     receipt's strings are never quotations and the prose around it is segmented as prose.
+    Bracket matching is one linear pass per text (:func:`_json_span_ends`) and the answer is
+    cached per text, since every parser and pack asks it of the same paragraphs and sentences.
     """
-    spans: list[tuple[int, int]] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        if text[i] in "{[":
-            end = _balanced_json_end(text, i)
-            if end > i and _is_json_span(text[i:end]):
-                spans.append((i, end))
-                i = end
-                continue
-        i += 1
-    return spans
+    if "{" not in text and "[" not in text:
+        return []
+    return list(_json_spans(text) if len(text) <= _CACHE_MAX_CHARS else _json_spans.__wrapped__(text))
 
 
 def mask_json_spans(text: str, fill: str = " ") -> str:
@@ -365,7 +579,8 @@ def split_json_spans(text: str) -> list[tuple[str, bool]]:
 
 # ------------------------------------------------------------------ note clauses
 
-#: A parenthetical or a clause after a semicolon/dash that can carry a note inside a longer sentence.
+#: A parenthetical or a clause after a semicolon/dash that can carry a note inside a longer sentence (kept for callers;
+#: :func:`split_note_clauses` reads the same shapes on the sentence with its quotations masked).
 _CLAUSE_RE = re.compile(r"\s*\([^()]*\)|\s*[;—–]\s*[^;—–()]+")
 #: A sentence-initial label ("From memory, the mark stood at ...", "Quoting from memory, the king boasts ..."): the
 #: words up to the comma or colon.
@@ -373,6 +588,126 @@ LEADING_MEMORY_LABEL_RE = re.compile(r"^\s*(?:\w+ing\s+)?(?:from (?:memory|recol
 #: A comma-bounded label inside a sentence (", from memory about 800 million gold marks," or ", from memory,"):
 #: only the label words are removed, so the figure that follows stays in the substance.
 INLINE_MEMORY_LABEL_RE = re.compile(r",\s*(?:from (?:memory|recollection)|as (?:I|far as I) recall|if memory serves)\b(?=[\s,.;:])", re.IGNORECASE)
+_CHECK_PARTICIPLE = r"(?:checked|verified|confirmed|corroborated|validated|cross[- ]checked|double[- ]checked|re-?checked)"
+#: What a check is made against ("against your notes", "with the statistical yearbooks"): part of the label phrase.
+_CHECK_COMPLEMENT = r"(?:\s+(?:against|with)\s+[^,;:.()!?]{1,80}?(?=\s+before\b|\s*[,;:.()!?]|\s*$))?"
+#: The phrases that make a clause the method's own label rather than part of the argument: a from-memory phrase
+#: ("from memory", "given from memory", "as I recall"), an instruction to check ("verify them against your notes",
+#: "; check your notes", ", so check them"), a deontic or negated check, which is a disclaimer ("should be checked",
+#: "must be verified", "have not been checked", "unverified"), and "illustrative". A phrase alone never makes a sentence
+#: a note: :func:`_label_shaped` also asks that nothing but label filler is left once the phrases are removed.
+LABEL_PHRASE_RE = re.compile(
+    r"\b(?:(?:quoted|quoting|given|giving|cited|citing|stated|recalled|written|reproduced|taken)\s+)?from (?:memory|recollection)\b"
+    r"|\bas (?:I|far as I) (?:can )?(?:recall|remember)\b|\bif memory serves\b|\bto (?:the best of )?my (?:recollection|memory)\b"
+    r"|(?:^|(?<=[(;:,—–])|\b(?:so|and|then|please|but)\s)\s*(?:please\s+)?(?:verify|check|confirm|cross[- ]check|double[- ]check|corroborate)\b"
+    rf"(?:\s+(?:them|these|this|it|those|each|all|every|any|one)\b(?:\s+(?:one|ones|of|them|these|{_ITEMS})\b)*)?{_CHECK_COMPLEMENT}"
+    r"|\b(?:should|must|needs?\s+to|ought\s+to|has\s+to|have\s+to|will\s+need\s+to|are\s+to|is\s+to|yet\s+to|still\s+to|to)\s+"
+    rf"(?:(?:still|first|all|each|independently|carefully|also|then)\s+)*(?:have\s+)?be(?:en)?\s+(?:\w+ly\s+)?{_CHECK_PARTICIPLE}{_CHECK_COMPLEMENT}"
+    rf"|\b(?:has|have|had|is|are|was|were)(?:\s+not|n['’]t)\s+(?:yet\s+)?(?:been\s+)?(?:\w+ly\s+)?{_CHECK_PARTICIPLE}{_CHECK_COMPLEMENT}"
+    rf"|\bnot\s+(?:yet\s+)?(?:been\s+)?{_CHECK_PARTICIPLE}{_CHECK_COMPLEMENT}"
+    r"|\bun(?:verified|checked|confirmed|corroborated)\b|\billustrative\b",
+    re.IGNORECASE,
+)
+#: Words a label may carry besides its label phrase: determiners, pronouns, auxiliaries, connectives, the answer's own
+#: items ("dates", "figures", "quotations") and parts ("this paragraph"), and the verbs of giving and citing.
+_LABEL_FILLER = frozenset("""
+a an the this that these those all each every any some both its it their them they i we my our your his her own one ones
+of in on at to for from with against by about before after until unless when once as so and or but nor though although while
+which who whom whose is are was were be been being am has have had do does did will would shall should must may might can could
+need needs ought not no yet still also only just here above below given cited quoted stated recalled recall recalls give gives
+gave giving cite cites citing quote quotes quoting state states stating taken take takes use used using rely relied relying
+reproduce reproduced written write wrote put figure figures date dates number numbers statistic statistics quotation quotations
+fact facts detail details data year years total totals estimate estimates item items value values citation citations reference
+references source sources claim claims example examples statement statements paragraph paragraphs answer answers response text
+essay report outline summary section passage note notes examination exam assessment please accordingly therefore further
+independently carefully first again thereby then verify verified check checked confirm confirmed memory recollection
+""".split())
+_NOTE_TOKEN_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
+#: "<subject> is/are (given) from memory" as the clause's whole predicate: "The causes of the banking crisis of 1931 are
+#: from memory", "Dates other than the poem's own are from memory, so check your notes".
+_PREDICATE_LABEL_RE = re.compile(
+    r"^\s*(?P<subject>[^,;:()]{1,160}?)\s+(?:is|are|was|were|has been|have been)\s+(?:(?:all|largely|mostly|partly|entirely|wholly|only|both)\s+)?"
+    r"(?:(?:given|quoted|cited|stated|recalled|taken|reproduced)\s+)?from (?:memory|recollection)\b(?P<rest>[^;]*)$",
+    re.IGNORECASE,
+)
+#: A subject that is itself a clause ("Wordsworth wrote that the images ...") is not a label's subject.
+_SUBORDINATE_RE = re.compile(r"\b(?:that|which|who|whom|because|since|when|while|whether|if|although|though|where)\b", re.IGNORECASE)
+#: A bare "from memory" closing a dated sentence ("... in February 1932 from memory.").
+_TRAILING_BARE_LABEL_RE = re.compile(r"\s+(?:(?:quoted|given|cited|stated|recalled)\s+)?from (?:memory|recollection)(?=[.!?]?[\"'”’»)\]]*\s*$)", re.IGNORECASE)
+_PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
+_PAREN_INNER_RE = re.compile(r"\([^()]*\)")
+_CLAUSE_SEPARATOR_RE = re.compile(r"[;—–]")
+_TERMINAL_RE = re.compile(r"[.!?…]*[\"'”’»)\]]*\s*$")
+_LETTER_RE = re.compile(r"[^\W\d_]")
+
+
+def _filler_only(masked: str) -> bool:
+    """True when every word of ``masked`` is label filler (:data:`_LABEL_FILLER`); a masked quotation, a figure or
+    any content word is not."""
+    return all(w.lower() in _LABEL_FILLER for w in _NOTE_TOKEN_RE.findall(masked))
+
+
+def _label_shaped(masked: str) -> bool:
+    """A clause (quotations masked) that is nothing but the method's own label: it carries a label phrase
+    (:data:`LABEL_PHRASE_RE`) and either nothing but filler is left once the phrases are removed ("Dates and figures are
+    from memory", "a figure I give from memory", "though this date is from memory", "The dates in this paragraph have
+    not been checked", "These examples are illustrative"), or "from memory" is the clause's whole predicate ("The causes
+    of the banking crisis of 1931 are from memory"). A label word somewhere in a substantive clause ("The speaker
+    recalls the scene from memory, which explains ...", "The collapse of the Danatbank in July 1931 is illustrative of
+    how ...") does not make it a label."""
+    if not LABEL_PHRASE_RE.search(masked):
+        return False
+    if _filler_only(LABEL_PHRASE_RE.sub(" ", masked)):
+        return True
+    m = _PREDICATE_LABEL_RE.match(masked)
+    return bool(m and len(m.group("subject").split()) <= 16 and not _SUBORDINATE_RE.search(m.group("subject"))
+                and _filler_only(LABEL_PHRASE_RE.sub(" ", m.group("rest"))))
+
+
+def _note_clause(masked: str, *, parenthetical: bool) -> bool:
+    """A clause (quotations masked) that is a note: label-shaped, a self-certification or a task note; inside a
+    parenthetical a from-memory label word anywhere also counts ("(c. 1.9 million, from memory)")."""
+    if parenthetical and MEMORY_LABEL_RE.search(masked):
+        return True
+    return _label_shaped(masked) or is_self_certification(masked) or bool(TASK_NOTE_RE.search(masked))
+
+
+def mask_quotations(text: str, fill: str = "x") -> str:
+    """``text`` with every quotation span (:func:`find_quotation_spans`, marks included) filled with ``fill``
+    character for character, whitespace kept, so offsets into the result are offsets into ``text``. Notes and labels
+    are read on this: a colleague's words quoted ("whose dates are, in its own words, "from memory"") are the
+    colleague's label, not the quoter's."""
+    spans = find_quotation_spans(text)
+    if not spans:
+        return text
+    out = list(text)
+    for a, b, _inner in spans:
+        for i in range(a, b):
+            if not out[i].isspace():
+                out[i] = fill
+    return "".join(out)
+
+
+def _cut(orig: str, masked: str, cuts: list[tuple[int, int]]) -> tuple[str, str]:
+    """``orig`` and ``masked`` (same length) with the ``cuts`` removed from both (overlapping cuts merged)."""
+    if not cuts:
+        return orig, masked
+    merged: list[list[int]] = []
+    for a, b in sorted(cuts):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([max(0, a), b])
+    keep_o: list[str] = []
+    keep_m: list[str] = []
+    cursor = 0
+    for a, b in merged:
+        keep_o.append(orig[cursor:a])
+        keep_m.append(masked[cursor:a])
+        cursor = max(cursor, b)
+    keep_o.append(orig[cursor:])
+    keep_m.append(masked[cursor:])
+    return "".join(keep_o), "".join(keep_m)
 
 
 def _dedupe(notes: list[str]) -> list[str]:
@@ -386,43 +721,98 @@ def _dedupe(notes: list[str]) -> list[str]:
     return out
 
 
+@functools.lru_cache(maxsize=4096)
+def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
+    orig = sentence
+    masked = mask_quotations(sentence)
+    notes: list[str] = []
+    # 1. parentheticals: a from-memory label word anywhere inside the brackets, a label, a self-report or a task note
+    cuts = [(m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(masked) if _note_clause(m.group(0), parenthetical=True)]
+    notes += [orig[a:b].strip(" ;—–()\t\n") for a, b in cuts]
+    orig, masked = _cut(orig, masked, cuts)
+    # 2. clauses between semicolons and dashes (outside any bracket that stays): a clause that is label-shaped
+    shielded = _PAREN_INNER_RE.sub(lambda m: "x" * len(m.group(0)), masked)
+    seps = [m.start() for m in _CLAUSE_SEPARATOR_RE.finditer(shielded)]
+    if seps:
+        bounds = [-1, *seps, len(masked)]
+        segments = [(bounds[k] + 1, bounds[k + 1]) for k in range(len(bounds) - 1)]
+        labels = [bool(masked[a:b].strip()) and _note_clause(masked[a:b], parenthetical=False) for a, b in segments]
+        if all(labels):
+            return "", (sentence.strip(),)
+        cuts = []
+        body_end = len(masked) - len(_TERMINAL_RE.search(masked).group(0))  # the sentence's closing stop stays with the core
+        for k, (a, b) in enumerate(segments):
+            if labels[k]:
+                b = max(a, min(b, body_end)) if k == len(segments) - 1 else b
+                cuts.append((0, b + 1) if k == 0 else (a - 1, b))
+                notes.append(orig[a:b].strip(" ;—–()\t\n"))
+        orig, masked = _cut(orig, masked, cuts)
+    # 3. a sentence-initial label ("From memory, ...", "Quoting from memory, ...")
+    lead = LEADING_MEMORY_LABEL_RE.match(masked)
+    if lead is not None:
+        notes.append(orig[:lead.end()].strip(" ,:\t\n"))
+        orig, masked = orig[lead.end():], masked[lead.end():]
+    # 4. a comma-bounded label (", from memory about 800 million gold marks,"): only the label words go
+    cuts = []
+    for m in INLINE_MEMORY_LABEL_RE.finditer(masked):
+        cuts.append((m.start() + 1, m.end()))
+        notes.append(orig[m.start():m.end()].strip(" ,"))
+    orig, masked = _cut(orig, masked, cuts)
+    # 5. trailing appositive or concessive labels (", a figure I give from memory", ", though this date is from memory",
+    #    ", so check your notes") and, in a dated sentence, a bare closing "from memory"
+    for _ in range(3):
+        body_end = len(masked) - len(_TERMINAL_RE.search(masked).group(0))
+        comma = _PAREN_INNER_RE.sub(lambda m: "x" * len(m.group(0)), masked).rfind(",", 0, body_end)
+        if comma < 0 or not masked[comma + 1:body_end].strip() or not _label_shaped(masked[comma + 1:body_end]):
+            break
+        notes.append(orig[comma + 1:body_end].strip())
+        orig, masked = _cut(orig, masked, [(comma, body_end)])
+    bare = _TRAILING_BARE_LABEL_RE.search(masked)
+    if bare is not None and _DATED_ITEM_RE.search(masked[:bare.start()]) and _LETTER_RE.search(masked[:bare.start()]):
+        notes.append(orig[bare.start():bare.end()].strip())
+        orig, masked = _cut(orig, masked, [(bare.start(), bare.end())])
+    # 6. what remains is itself a label, a self-report or a task note, or only filler around the labels removed:
+    #    the whole sentence is a note
+    if _LETTER_RE.search(masked) and (
+        _label_shaped(masked) or is_self_certification(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked)
+        or (notes and _filler_only(masked))
+    ):
+        return "", (sentence.strip(),)
+    core = re.sub(r",(?:\s*,)+", ",", orig)
+    core = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"\s{2,}", " ", core)).strip()
+    core = re.sub(r"^[,;:]\s*", "", core)
+    if core and not _LETTER_RE.search(core):
+        core = ""
+    return core, tuple(_dedupe(notes))
+
+
 def split_note_clauses(sentence: str) -> tuple[str, list[str]]:
     """Separate the note clauses of a sentence from its substance.
 
     A substantive sentence may carry the method's own label inline, as a parenthetical
-    ("(figures from memory; check your notes)"), a clause after a semicolon or dash
+    ("(figures from memory; check your notes)"), a clause before or after a semicolon or dash
     ("...; dates other than the poem's own are from memory"), a sentence-initial label
-    ("From memory, the mark stood at about 4.2 to the dollar ...") or a comma-bounded label
+    ("From memory, the mark stood at about 4.2 to the dollar ..."), a comma-bounded label
     ("the Dawes loan was, from memory about 800 million gold marks, the first ...": only the
-    label words go, the figure stays). Returns ``(core, notes)``: ``core`` is the sentence
-    with those clauses removed (whitespace tidied) and ``notes`` the removed labels in order,
-    each distinct label once. A sentence that is nothing but a note returns an empty core.
-    Parsers keep the verbatim sentence as the claim text, classify ``core`` and record
-    ``notes`` as assumptions; only an empty core makes the sentence a note.
+    label words go, the figure stays) or a trailing appositive or concessive label ("...
+    in February 1932, a figure I give from memory", "..., though this date is from memory").
+    Returns ``(core, notes)``: ``core`` is the sentence with those clauses removed (whitespace
+    tidied) and ``notes`` the removed labels in order, each distinct label once. Parsers keep
+    the verbatim sentence as the claim text, classify ``core`` and record ``notes`` as
+    assumptions; only an empty core makes the sentence a note.
+
+    Everything is read with the sentence's quotations masked (:func:`mask_quotations`): a
+    quoted colleague's label ("whose "dates and figures" are, in its own words, "from memory
+    and should be checked"") is quotation, not a note, so the sentence keeps its role, its
+    words count toward a word bound, and no label assumption is recorded. The core is empty
+    only when what remains is itself label-shaped (:func:`_label_shaped`: the label is the
+    sentence's predicate, or nothing but label filler is left once the label phrase is
+    removed), a self-certification or a task note, never because a label word occurs
+    somewhere: "The speaker recalls the scene from memory, which explains ..." and "The
+    collapse of the Danatbank in July 1931 is illustrative of how ..." keep their substance.
     """
-    notes: list[str] = []
-    def take(m: "re.Match[str]") -> str:
-        clause = m.group(0)
-        if is_note_sentence(clause):
-            notes.append(clause.strip(" ;—–()"))
-            return ""
-        return clause
-    core = _CLAUSE_RE.sub(take, sentence)
-    lead = LEADING_MEMORY_LABEL_RE.match(core)
-    if lead is not None:
-        notes.append(lead.group(0).strip(" ,:\t\n"))
-        core = core[lead.end():]
-    def take_inline(m: "re.Match[str]") -> str:
-        notes.append(m.group(0).strip(" ,"))
-        return ","
-    core = INLINE_MEMORY_LABEL_RE.sub(take_inline, core)
-    core = re.sub(r",(?:\s*,)+", ",", core)
-    core = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"\s{2,}", " ", core)).strip()
-    if core and is_note_sentence(core):  # what remains is itself a label: the whole sentence is a note
-        return "", [sentence.strip()]
-    if core and not re.search(r"[^\W\d_]", core):
-        core = ""
-    return core, _dedupe(notes)
+    core, notes = _split_note_clauses(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _split_note_clauses.__wrapped__(sentence)
+    return core, list(notes)
 
 
 # ------------------------------------------------------------------ quotation marks
@@ -489,7 +879,7 @@ def _mark_units(text: str) -> list[tuple[int, int, str]]:
     """``(first_offset, last_offset, kind)`` for every double mark of ``text`` in order, two
     adjacent marks that together open or close a nested quotation collapsed into one unit
     (:func:`_unit_kind`); ``kind`` is ``open``, ``close`` or ``either`` (:func:`_mark_kind`)."""
-    positions = [i for i, ch in enumerate(text) if ch in DOUBLE_QUOTE_MARKS]
+    positions = [m.start() for m in _DOUBLE_MARK_RE.finditer(text)]
     units: list[tuple[int, int, str]] = []
     i = 0
     while i < len(positions):
@@ -574,6 +964,126 @@ def _paired_units(units: list[tuple[int, int, str]], dangling: Optional[tuple[in
     return out
 
 
+#: Single marks: the straight apostrophe, and the curly opening and closing marks.
+_SINGLE_MARK_RE = re.compile("['\u2018\u2019]")
+#: Aphetic forms written with a leading apostrophe ('tis, 'twas, 'em, 'gainst, Dickens's 'Change for the Exchange) and
+#: elided years ('90s): the mark is part of the word, not an opening quotation mark.
+_APHETIC_RE = re.compile(r"(?:tis|twas|twere|twill|twould|em|gainst|neath|tween|twixt|til|cause|bout|change|prentice|scape|mongst|midst|n)\b|\d\d(?:s\b|\b)", re.IGNORECASE)
+_SINGLE_OPEN_BEFORE = frozenset("([{—–-/\"\u201c\u00ab\u201e")
+_SINGLE_CLOSE_AFTER = frozenset(".,;:!?)]}—–-\"\u201d\u00bb…")
+
+
+def _single_mark_kind(text: str, pos: int) -> Optional[str]:
+    """``open``, ``soft`` (an opening mark that may be the apostrophe of an aphetic form: 'tis, 'em,
+    'Change, '90s), ``close``, ``weak`` (a closing mark that may be a plural possessive: ``s'`` before a
+    lower-case word) or ``None`` (an apostrophe or a stray mark) for the single mark at ``pos``.
+
+    An apostrophe stands between two letters or digits (don't, Scrooge's, Ne'er, o'er); an opening
+    mark follows the start, whitespace or an opening bracket, dash or double mark and precedes a
+    non-space; a closing mark follows a non-space and precedes whitespace, punctuation, a closing
+    bracket or the end. The curly opening mark only opens; the curly closing mark only closes (or
+    is an apostrophe)."""
+    ch = text[pos]
+    before = text[pos - 1] if pos > 0 else " "
+    after = text[pos + 1] if pos + 1 < len(text) else " "
+    if before.isalnum() and after.isalnum():
+        return None  # an apostrophe inside a word
+    opens = (before.isspace() or before in _SINGLE_OPEN_BEFORE) and not after.isspace() and after not in "'\u2019"
+    closes = not before.isspace() and before not in "(['\u2018" and (after.isspace() or after in _SINGLE_CLOSE_AFTER)
+    if ch == "\u2018":
+        if before.isalnum():
+            return None
+        return "soft" if _APHETIC_RE.match(text, pos + 1) else "open"
+    if ch == "\u2019":
+        opens = False
+    if opens and not closes:
+        return "soft" if _APHETIC_RE.match(text, pos + 1) else "open"
+    if closes and not opens:
+        if before in "sS" and after.isspace():
+            nxt = text[pos + 1:pos + 3].lstrip()[:1]
+            if nxt and (nxt.islower() or nxt.isdigit()):
+                return "weak"
+        return "close"
+    return None
+
+
+def _single_quote_spans(text: str, min_words: int) -> list[tuple[int, int]]:
+    """``(start, end)`` of the single-quoted spans of ``text`` (double-quoted spans already blanked).
+
+    Marks are classified by context (:func:`_single_mark_kind`), so a quotation whose words carry an
+    apostrophe ('I don't know what a door-nail is', 'Ne'er saw I', 'Scrooge's name was good upon
+    'Change') is still one quotation. An opening mark pairs with the next closing mark on its line;
+    an aphetic-looking mark ('Change, 'tis) inside an open quotation is its apostrophe, while
+    outside one it may open a quotation; a possible plural possessive (``the Brothers' house``)
+    closes the quotation only when another opening mark follows before any unambiguous closing
+    mark. An opening mark met before the current one closes means the current one never closed:
+    it is set aside and the new one is paired. A span shorter than ``min_words`` words is not a
+    quotation (its marks are still consumed)."""
+    marks = [(m.start(), k) for m in _SINGLE_MARK_RE.finditer(text) if (k := _single_mark_kind(text, m.start())) is not None]
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < len(marks):
+        start, kind = marks[i]
+        if kind not in ("open", "soft"):
+            i += 1
+            continue
+        chosen: Optional[int] = None
+        fallback: Optional[int] = None
+        j = i + 1
+        while j < len(marks):
+            pos, k = marks[j]
+            if "\n" in text[start:pos]:
+                break  # a quotation never runs over a line break
+            if k == "close":
+                chosen = j
+                break
+            if k == "weak":
+                if fallback is None:
+                    fallback = j
+                j += 1
+                continue
+            if k == "soft" and fallback is None:
+                j += 1
+                continue  # 'Change inside the quotation: an apostrophe
+            break  # another opening mark: this one closes at its possessive-like mark, or never closed
+        if chosen is None:
+            chosen = fallback
+        if chosen is None:
+            i += 1
+            continue
+        end = marks[chosen][0]
+        inner = text[start + 1:end]
+        if inner.strip() and inner[0] != " " and len(inner.split()) >= min_words:
+            spans.append((start, end + 1))
+        i = chosen + 1
+    return spans
+
+
+@functools.lru_cache(maxsize=1024)
+def _quotation_spans(text: str, min_single_words: int) -> tuple[tuple[int, int, str], ...]:
+    masked_text = mask_json_spans(text)
+    units = _mark_units(masked_text)
+    spans: list[tuple[int, int, str]] = []
+    if units:
+        dangling = _dangling_unit(units)
+        for a, b, plausible in _paired_units(units, dangling):
+            inner = text[a[1] + 1:b[0]]
+            if plausible and inner.strip() and "\n" not in inner:
+                spans.append((a[0], b[1] + 1, inner))
+    if "'" in masked_text or "\u2018" in masked_text or "\u2019" in masked_text:
+        masked = list(masked_text)
+        for a, b, _inner in spans:
+            for i in range(a, b):
+                masked[i] = " "
+        for p, q, _k in units:
+            for i in range(p, q + 1):
+                masked[i] = " "
+        for a, b in _single_quote_spans("".join(masked), min_single_words):
+            spans.append((a, b, text[a + 1:b - 1]))
+    spans.sort(key=lambda s: s[0])
+    return tuple(spans)
+
+
 def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[int, int, str]]:
     """Quoted spans of ``text`` as ``(start, end, inner)`` in order of appearance.
 
@@ -584,33 +1094,18 @@ def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[
     unbalanced text a pair whose marks contradict their context is left out (it is an
     undelimited span, see :func:`undelimited_quote_spans`). The strings of a pasted JSON
     span are never quotations. Single marks (straight or curly) delimit a quotation only
-    around ``min_single_words`` or more words. ``inner`` is the writer's text between the
-    marks, verbatim.
+    around ``min_single_words`` or more words, and are paired by context
+    (:func:`_single_quote_spans`): an apostrophe inside a word (don't, Scrooge's, Ne'er), an
+    aphetic form ('tis, 'Change) and a plural possessive followed by more of the sentence
+    are not marks, so a single-quoted quotation that contains a contraction or a possessive
+    is still read, checked and attributed. ``inner`` is the writer's text between the
+    marks, verbatim. Answers are cached per text.
     """
-    masked_text = mask_json_spans(text)
-    norm = normalize_double_marks(masked_text)
-    units = _mark_units(masked_text)
-    dangling = _dangling_unit(units)
-    spans: list[tuple[int, int, str]] = []
-    for a, b, plausible in _paired_units(units, dangling):
-        inner = text[a[1] + 1:b[0]]
-        if plausible and inner.strip() and "\n" not in inner:
-            spans.append((a[0], b[1] + 1, inner))
-    masked = list(norm)
-    for a, b, _inner in spans:
-        for i in range(a, b):
-            masked[i] = " "
-    for p, q, _k in units:
-        for i in range(p, q + 1):
-            masked[i] = " "
-    for m in SINGLE_QUOTE_SPAN_RE.finditer("".join(masked)):
-        group = m.lastindex or 1
-        inner = m.group(group)
-        if inner is None or len(inner.split()) < min_single_words:
-            continue
-        spans.append((m.start(), m.end(), text[m.start(group):m.end(group)]))
-    spans.sort(key=lambda s: s[0])
-    return spans
+    if not _DOUBLE_MARK_RE.search(text) and "'" not in text and "\u2018" not in text and "\u2019" not in text:
+        return []
+    if len(text) > _CACHE_MAX_CHARS:
+        return list(_quotation_spans.__wrapped__(text, min_single_words))
+    return list(_quotation_spans(text, min_single_words))
 
 
 def _dangling_span(text: str, masked_text: str, units: list[tuple[int, int, str]], dangling: tuple[int, int, str]) -> Optional[tuple[int, int, str]]:

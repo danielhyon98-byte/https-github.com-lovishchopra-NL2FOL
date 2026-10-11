@@ -18,6 +18,15 @@ Paragraph classification is decided by content, never by paragraph count alone:
   when it has two or more sentences or opens with a concluding cue;
 * everything else is a ``body`` paragraph whose first substantive sentence is the point.
 
+Inside a body paragraph a sentence's function is read before its surface (:func:`classify`):
+a link lead ('Against this background, ...') is a ``link`` and a stated verdict ('The turning
+point was 1930.') a ``judgement``, both material whatever they date or quote; a counter-case
+is ``counter_evidence`` dated or not (unless a judgement cue weighs it), and the dated sentence
+right after an undated counter-case statement is its counter evidence; only then does a dated
+item make a sentence ``evidence``, and a year that only names an event ('the 1923 crisis')
+dates no statement. A pasted JSON receipt glued to the prose is one ``other`` sentence (the
+shared splitter never cuts inside it), so none of its fragments becomes a claim.
+
 Inside a body paragraph only the sentence that certifies the answer's own verification
 or is shaped like a receipt becomes a note (role ``other``, its self-report in the
 advisory field); the paragraph's other sentences keep their roles, and the demotion is
@@ -74,7 +83,8 @@ _FIGURE_RE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:per cent|percent|%|million|billio
 _MONTH_NAMES = "January|February|March|April|May|June|July|August|September|October|November|December"
 _DAY_MONTH_RE = re.compile(rf"\b\d{{1,2}}\s+(?:{_MONTH_NAMES})\b|\b(?:{_MONTH_NAMES})\s+\d{{1,2}}\b")
 #: Cues of a counter-case, a judgement, a criterion, an analysis step and a link, shared with the structural checks.
-COUNTER_CUES = ("the counter-case", "against this", "the distinction is right", "however", "on the other hand", "it could be argued")
+COUNTER_CUES = ("the counter-case", "counter-case is", "counter-argument is", "the strongest objection", "against this", "the distinction is right", "however",
+                "on the other hand", "it could be argued")
 CRITERION_CUES = ("by the criterion", "by the criteria", "criterion of", "criteria of", "weighed by", "measured by", "judged by", "by the test of", "by the standard of", "by the measure of")
 JUDGEMENT_CUES = ("by the criterion", "by the criteria", "criteria of", "weighed by", "weighs", "weighs more", "holds for", "decisive even if", "remains the precondition", "was therefore responsible", "fails, because",
                   "does not shift the weight", "necessary; it was not sufficient", "necessary but not sufficient", "to a degree",
@@ -92,6 +102,24 @@ _COUNTER = COUNTER_CUES
 _JUDGEMENT = JUDGEMENT_CUES
 _ANALYSIS = ("mattered because", "the mechanism was", "this shows", "which shows", "this mattered", "meant that", "so that", "revealed", "explains why", "this matters")
 _LINK = ("therefore", "thus", "in sum", "ultimately")
+#: A sentence that ties the paragraph's evidence back to the question or to a peer's text: a link, whatever it quotes or dates.
+_LINK_LEADS = ("against this background", "against that background", "in this light", "in that light", "seen in this light", "read against", "seen against",
+               "set against this", "in this context", "in that context", "this context explains", "this background explains", "this is why")
+#: A sentence that states the verdict a request asks for ('The turning point was 1930.', 'X mattered most'): a judgement, dated or not.
+_VERDICT_STATEMENT_RE = re.compile(
+    r"\b(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\s+(?:was|came|is|lay|fell)\b"
+    r"|\b(?:was|is|marked|became|proved)\s+(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\b"
+    r"|\bthe\s+(?:decisive|pivotal|critical|crucial)\s+(?:year|moment|month|factor|cause|event|turning point|break)\s+(?:was|is|came)\b"
+    r"|\b(?:was|is|proved|became)\s+the\s+(?:decisive|pivotal|critical|crucial)\s+(?:year|moment|month|factor|cause|event|break)\b"
+    r"|\bthe\s+most\s+(?:important|significant|decisive)\s+(?:year|cause|factor|event|reason|moment|effect|consequence)\s+(?:was|is)\b"
+    r"|\b(?:was|is)\s+the\s+most\s+(?:important|significant|decisive)\b"
+    r"|\b(?:the\s+)?watershed\s+(?:was|came)\b|\b(?:was|is|marked)\s+(?:the|a)\s+watershed\b"
+    r"|\b(?:mattered|matters)\s+most\b",
+    re.IGNORECASE)
+#: A year used as a modifier ('the 1923 crisis', 'the September 1930 election'): it names an event, it does not date a statement.
+_ATTRIBUTIVE_YEAR_RE = re.compile(
+    r"\b(?:the|a|an|its|their|this|that|his|her)\s+(?:(?:early|late|mid)[\s-]+)?(?:(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+)?"
+    r"(?:1[0-9]{3}|20[0-9]{2})\s+(?=[a-z])")
 _CONCLUSION_CUES = _LINK + ("overall", "in conclusion", "to conclude", "on balance")
 _ARGUMENT_CUES = _COUNTER + _JUDGEMENT + _ANALYSIS + _LINK + ("decisive", "responsible", "extent", "degree", "because", "caused")
 _PERSPECTIVE = ("historians who", "one historian", "some historians", "others describe", "historians argue", "has argued")
@@ -188,8 +216,35 @@ def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool =
     return level
 
 
-def classify(sentence: str, index: int, is_body: bool) -> str:
-    """Role of a substantive sentence (its note clauses already removed) by surface cues."""
+#: Causal or evaluative words that make a sentence a claim rather than a bare dated fact ('a major but partial cause of ...').
+CLAIM_WORD_RE = re.compile(
+    r"\b(?:responsible|because|caused?|causes|causing|led|leads?|made|makes?|turned|created|decisive|major|minor|partial|partly|significant|important|mainly|primarily|"
+    r"chiefly|largely|extent|degree|therefore|thus|explains?|shows?|reveals?|mattered|matters|crucial|central|key|chief|principal|considerable|limited|ultimately|"
+    r"undermined|weakened|strengthened|enabled|allowed|forced|ensured|meant|reason|consequence|result(?:ed)?|effect|impact|transformed|precondition)\b", re.IGNORECASE)
+def opens_with_fact(sentence: str) -> bool:
+    """A sentence that states only a dated fact: dated (not merely naming 'the 1923 crisis'), with no causal,
+    evaluative, argument or verdict word. The parser roles a body paragraph's first sentence 'point' by
+    position; the History pack's HI-STR-003 reads this predicate on that point, so the finding names a
+    point that is a bare fact and never contradicts a point that makes a claim."""
+    sentence = split_note_clauses(sentence)[0] or sentence
+    low = sentence.lower()
+    return states_dated_evidence(sentence) and not CLAIM_WORD_RE.search(sentence) and not any(c in low for c in _ARGUMENT_CUES) and not _VERDICT_STATEMENT_RE.search(sentence)
+
+
+def states_dated_evidence(sentence: str) -> bool:
+    """A dated item that dates the sentence's own statement: a year used only as a modifier
+    ('the 1923 crisis exploited ...') names an event and does not make the sentence evidence."""
+    return has_dated_item(_ATTRIBUTIVE_YEAR_RE.sub("the ", sentence))
+
+
+def classify(sentence: str, index: int, is_body: bool, *, after_counter_case: bool = False) -> str:
+    """Role of a substantive sentence (its note clauses already removed) by surface cues, its
+    function decided before its surface: a link lead ('Against this background, ...') is a link
+    and a stated verdict ('The turning point was 1930.') a judgement whatever they quote or date;
+    a counter-case ('The strongest counter-case is that ...') is counter evidence whether or not it
+    is dated, unless it also weighs the case by a judgement cue; the dated sentence that follows
+    a counter-case statement (``after_counter_case``) is its counter evidence. Only then does a
+    dated item make a sentence evidence."""
     if is_self_report(sentence):
         return "other"
     if is_peer_attribution(sentence):
@@ -199,17 +254,29 @@ def classify(sentence: str, index: int, is_body: bool) -> str:
         return "point"
     if any(c in low for c in _PERSPECTIVE):
         return "perspective"
-    if any(c in low for c in _COUNTER) and (has_dated_item(sentence) or "voted" in low):
+    if any(low.startswith(c) for c in _LINK_LEADS):
+        return "link"
+    if _VERDICT_STATEMENT_RE.search(sentence):
+        return "judgement"
+    judged = any(c in low for c in _JUDGEMENT)
+    if any(c in low for c in _COUNTER) and not judged:
         return "counter_evidence"
-    if any(c in low for c in _JUDGEMENT):
+    if judged:
         return "judgement"
     if any(low.startswith(c) for c in _LINK) or " therefore " in f" {low} ":
         return "link"
-    if has_dated_item(sentence):
-        return "evidence"
+    if states_dated_evidence(sentence):
+        return "counter_evidence" if after_counter_case else "evidence"
     if any(c in low for c in _ANALYSIS):
         return "analysis"
     return "analysis"
+
+
+def is_counter_case_statement(sentence: str) -> bool:
+    """A sentence that states a counter-case without dating or weighing it ('The strongest counter-case is
+    that instability began before the treaty.'): the dated sentence after it carries the counter evidence."""
+    low = sentence.lower()
+    return any(c in low for c in _COUNTER) and not any(c in low for c in _JUDGEMENT) and not states_dated_evidence(sentence)
 
 
 def classify_paragraphs(text: str) -> list[tuple[ParagraphKind, str]]:
@@ -290,6 +357,7 @@ class HistorySpecialistAdapter:
             para_claims: list[tuple[str, str]] = []   # (claim id, role)
             point_id: Optional[str] = None
             body_index = 0
+            after_counter_case = False
             for si, sent in enumerate(sentences):
                 cid = f"h{pi + 1}.{si + 1}"
                 core, notes = split_note_clauses(sent)
@@ -308,8 +376,10 @@ class HistorySpecialistAdapter:
                 elif attributed:
                     role = "perspective"   # the colleague's view, not the History specialist's own point
                 else:
-                    role = classify(body, body_index, True)
+                    role = classify(body, body_index, True, after_counter_case=after_counter_case)
                     body_index += 1
+                if not note:
+                    after_counter_case = role == "counter_evidence" and is_counter_case_statement(body)
                 refs: list[SourceRef] = []
                 assumptions: list[str] = []
                 quoted = False

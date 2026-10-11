@@ -13,7 +13,7 @@ from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncred
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from .base import FormalCheck
-from .quant import extract_quant_checks
+from .quant import extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
 _STUDY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+)?(?:\set\sal\.?)?)\s*\((\d{4})\)")
@@ -96,9 +96,13 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
 
 
 def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+    """The report's own arithmetic as engine problems. A relation stated across sentences (a
+    derived figure, 'rose in each year', 'the greatest rise' whose figures stand in another
+    sentence of the paragraph) says in its description where its year and figures were read."""
     out: list[FormalCheck] = []
     for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
-        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=f"report's own arithmetic: {qc.sentence[:160]}" + (f" [{qc.rule}]" if qc.rule else ""), problem=qc.problem))
+        description = f"report's own arithmetic: {qc.sentence[:160]}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
+        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem))
     return out
 
 
@@ -201,6 +205,23 @@ def _attributions(sentence: str, spans: list[tuple[int, int, str]], names: dict[
     return out
 
 
+def _claims_for_excerpt(report: SpecialistReport, sentence: str, excerpt: str, sentence_excerpts: list[str]) -> list[str]:
+    """The claims a finding about one quotation of ``sentence`` names: the claims whose source
+    reference carries that excerpt, and the sentence's own claim; a claim that carries only the
+    sentence's OTHER quotations (credited correctly) is not named."""
+    key = strip_trailing_punctuation(" ".join(excerpt.split()))
+    others = {strip_trailing_punctuation(" ".join(x.split())) for x in sentence_excerpts} - {key}
+
+    def carried(c) -> set[str]:
+        return {strip_trailing_punctuation(" ".join(r.excerpt.split())) for r in c.source_refs if r.excerpt}
+
+    carriers = [c.claim_id for c in report.claims if key in carried(c)]
+    mentioning = [c for c in report.claims if c.claim_id in set(_claims_mentioning(report, sentence))]
+    own = [c.claim_id for c in mentioning if not (carried(c) and carried(c) <= others) and not (" ".join(c.claim_text.split()).strip(" '\"“”‘’«».,;:") in others)]
+    ids = list(dict.fromkeys(carriers + own))
+    return ids or [c.claim_id for c in report.claims if excerpt in c.claim_text]
+
+
 def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
     frag = " ".join(fragment.split())
     return [c.claim_id for c in report.claims if frag and (frag in " ".join(c.claim_text.split()) or " ".join(c.claim_text.split()) in frag)]
@@ -208,7 +229,8 @@ def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
 
 class CorePack:
     """Runs for every subject: quotation grounding against supplied texts, numeric
-    self-consistency of the report's own figures, labelling of figures from memory,
+    self-consistency of the report's own figures (and CORE-QNT-001 for a stated derived
+    figure no check could be built for), labelling of figures from memory,
     unverifiable, undelimited or misattributed quotations, dated orderings that could
     not be decided, and self-certification language. Quotations are read in straight,
     curly or mixed double marks, guillemets and delimited single marks of two or more
@@ -233,6 +255,7 @@ class CorePack:
         f += self._unbalanced_quotation_marks(report)
         f += self._self_certification(report)
         f += self._undecided_chronology(report)
+        f += self._undecided_arithmetic(report)
         return f
 
     @staticmethod
@@ -318,7 +341,7 @@ class CorePack:
                     continue
                 seen.add(key)
                 shown = excerpt[:_EXCERPT_CHARS] + ("..." if len(excerpt) > _EXCERPT_CHARS else "")
-                claim_ids = (_claims_mentioning(report, sent) or [c.claim_id for c in report.claims if excerpt in c.claim_text])[:8]
+                claim_ids = _claims_for_excerpt(report, sent, excerpt, [x for _s2, _e2, x in spans])[:8]
                 competing = [(d, l) for d, l in others if d in located]
                 if competing:
                     both = " and ".join(f"{l} ({d})" for d, l in [(doc_id, label), *competing])
@@ -365,6 +388,25 @@ class CorePack:
                 out.append(StructuralFinding(code="CORE-CHR-001", severity="warning",
                                              message=f"paragraph {pi}, sentence {si} orders two dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}) but the order could not be decided: {rel.reason}; the stated order was not checked",
                                              claim_ids=_claims_mentioning(report, sent)[:8], rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
+        return out
+
+    @staticmethod
+    def _undecided_arithmetic(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-QNT-001: a stated derived figure ('a rise of 50 per cent', 'tripled', 'a change of
+        0 per cent') or a relation over dated figures ('rose in each year', 'the greatest rise of the
+        period') that no engine problem could be built for: the units of its pair cannot be compared,
+        or no pair stands in its clause and the paragraph's dated series does not supply one (none,
+        several, or a year that cannot be read). The arithmetic was stated and not checked; silence
+        would hide that (``quant.undecided_quant_statements``)."""
+        out: list[StructuralFinding] = []
+        grouped: dict[tuple[int, int, str], list] = {}
+        for u in undecided_quant_statements(report.original_response):
+            grouped.setdefault((u.paragraph, u.sentence, u.reason), []).append(u)
+        for (pi, si, reason), items in grouped.items():
+            phrases = "', '".join(dict.fromkeys(u.phrase[:120] for u in items))
+            out.append(StructuralFinding(code="CORE-QNT-001", severity="warning",
+                                         message=f"paragraph {pi}, sentence {si} states a derived figure or a relation over dated figures ('{phrases}') that could not be checked: {reason[:600]}; the stated arithmetic was not checked",
+                                         claim_ids=_claims_mentioning(report, items[0].sentence_text)[:8], rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
         return out
 
     @staticmethod

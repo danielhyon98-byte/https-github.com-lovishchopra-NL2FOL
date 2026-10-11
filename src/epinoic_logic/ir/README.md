@@ -9,7 +9,8 @@ inference, assumption) with a certainty level and a `verified` flag that only
 deterministic grounding checks may set. `Limits` bounds symbols, premises, nodes,
 depth, arity and numeral length, and gates nonlinear terms and division policy.
 
-`canonical.py` serializes a problem deterministically and hashes it. Any change,
+`canonical.py` serializes a problem deterministically and hashes it (`sha256_hex` encodes a lone UTF-16 surrogate with
+`surrogatepass`, so a digest of agent text never raises; valid text hashes as before). Any change,
 including a changed gloss, changes the digest, which is how old results are
 prevented from being reused for a modified representation.
 

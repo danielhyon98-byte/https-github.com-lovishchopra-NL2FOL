@@ -22,11 +22,16 @@ holds versioned prompt texts; the version string is bound into each result.
 `grounding.py` locates a quotation in tiers (verbatim; typographic normalisation, with
 quote marks folded and verse line breaks written as slashes; an elision within the window;
 then the form-difference tier: an initial capital, a line-break mark, diacritics folded
-with NFKD and combining marks dropped, a long elision). A form difference never verifies a
+with NFKD and combining marks dropped, a long elision). An elision mark written in the academic form, in brackets or
+parentheses (`[...]`, `[…]`, `[ . . . ]`, `(...)`), is read as the same ellipsis in every tier (`unbracket_elisions`), so
+a correct elided quotation is never reported as invented. A form difference never verifies a
 grounding but is reported as one ("differs in form", the channel's INT-REQ-010), never as an
 invented quotation; accents encoded differently (precomposed against combining) are the same
 letters and a normalised match. Each supplied text's normalised forms and offset maps are
 built once and cached per `(document_id, sha256 of the text)` in a bounded LRU
 (`TextForms`, `text_forms`), and every locating answer is memoised per excerpt and text, so
 a parse and its checks never locate one excerpt in one document twice; the caches are
-thread-safe and `clear_grounding_caches()` empties them.
+thread-safe and `clear_grounding_caches()` empties them. Hashing agent text never raises: `contracts.sha256_text`
+(like `ir.canonical.sha256_hex` and the grounding cache's `text_sha256`) encodes a lone UTF-16 surrogate with
+`surrogatepass`, so valid text hashes exactly as before and the channel can refuse such text (INT-REQ-009) instead of
+raising.

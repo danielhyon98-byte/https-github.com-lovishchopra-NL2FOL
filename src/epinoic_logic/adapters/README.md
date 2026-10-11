@@ -7,19 +7,39 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
 - `base.py` — the `SpecialistAdapter` protocol, `AdapterError`, and a registry by agent id
   (`register`, `get_adapter`, `registered_ids`).
 - `markdown.py` — the pre-segmentation rules every text parser shares: markdown furniture,
-  code fences and pasted JSON blocks removed before segmentation (`strip_markup`), a JSON span
-  glued to prose located wherever it stands (`find_json_spans`, `mask_json_spans`,
-  `split_json_spans`: parsers cut sentences at it and its strings are never quotations), list
-  markers as sentence ends, note sentences recognised one way (`is_note_sentence`: from-memory
-  label, self-certification including the semantic rule of `is_self_certification` for a
-  sentence whose subject is the answer itself, task-setting note), inline labels separated from
-  a substantive sentence (`split_note_clauses`: parentheticals, clauses after a semicolon or
-  dash, a sentence-initial "From memory," and a comma-bounded ", from memory" with the figure
-  that follows kept; each distinct label recorded once), and one quotation-mark discipline
+  code fences and pasted JSON blocks removed before segmentation (`strip_markup`; CRLF and a
+  lone CR are line breaks), a JSON span glued to prose located wherever it stands
+  (`find_json_spans`, `mask_json_spans`, `split_json_spans`: parsers cut sentences at it and its
+  strings are never quotations; brackets are matched in one linear pass per text and the answer
+  is cached, so thousands of braces cost milliseconds, and `bracket_match_ends` gives the
+  History splitter's typed bracket matching in the same linear time), list markers as sentence
+  ends, note sentences recognised one way (`is_note_sentence`: a sentence whose core is empty
+  once its labels are set aside, read with its quotations masked by `mask_quotations`, so a
+  colleague's from-memory label quoted by the writer is quotation and counts toward a word
+  bound; a label word inside a substantive sentence, "recalls the scene from memory, which
+  ...", "is illustrative of how ...", never makes it a note), disclaimers told apart from
+  self-certifications (`is_self_certification`: a positive check only, so "should be checked
+  before they are cited", "have not been verified", "must be verified" and "unverified" are
+  notes with no self-report; the semantic rule covers a sentence about the answer or its items,
+  "every figure", "all of these figures", "the figures here", "every quotation above", with a
+  checking predicate, "can be relied upon", "appears verbatim", "no errors were found" or an
+  accuracy adjective right after that subject, the writer narrating a check, "I have checked",
+  "I verified each figure", on every branch, and the infrastructure, "Z3 proved", "the hub has
+  accepted", passing the answer), inline labels separated from a substantive sentence
+  (`split_note_clauses`: parentheticals, clauses before or after a semicolon or dash, a
+  sentence-initial "From memory,", a comma-bounded ", from memory" with the figure that follows
+  kept, a trailing appositive or concessive label, ", a figure I give from memory", ", though
+  this date is from memory", ", so check your notes", and a closing "from memory" in a dated
+  sentence; a label is a clause carrying a label phrase, `LABEL_PHRASE_RE`, with nothing but
+  label filler left or "from memory" as its whole predicate; each distinct label recorded once),
+  and one quotation-mark discipline
   (`find_quotation_spans`: every double mark is one class, straight, curly, guillemet or low-9;
   two adjacent double marks that together open or close a quotation are one nested mark, so
   dialogue copied with its own marks inside the writer's is read as the dialogue pieces; single
-  marks around two or more words; the one dangling mark of an unbalanced paragraph is set aside
+  marks around two or more words, paired by context: an apostrophe inside a word, don't,
+  Scrooge's, Ne'er, an aphetic 'tis or 'Change and a plural possessive followed by more of the
+  sentence are not marks, so a single-quoted quotation with a contraction is read, checked and
+  attributed; the one dangling mark of an unbalanced paragraph is set aside
   by `dangling_quote_offset` so the marks around it still pair, `undelimited_quote_span` names
   the span it leaves unchecked, and `undelimited_quote_spans` adds every pair of an unbalanced
   paragraph whose marks contradict their context, so the writer's prose between quotations is
@@ -29,10 +49,13 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   mark, diacritics or a long elision is a located status, never "not found") used by every
   adapter's source-integrity findings, and the one attribution rule every parser applies
   (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text is
-  credited to the one text its sentence names, whether or not that text holds the words;
-  otherwise it is credited to no text and the assumption `quotation with no supplied text to
-  check it against: "..."` is recorded, which the core pack reports as `CORE-SRC-003`. A text
-  is never credited for being supplied first. Answers are cached per excerpt and document
+  credited to the one text its sentence names, whether or not that text holds the words; when
+  the sentence names several texts, the English and generic parsers pass the sentence and the
+  quotation is credited to the text whose possessive governs it, else the speaker of the
+  nearest reporting clause, else the text named nearest before it (`governing_document`), never
+  to none; otherwise it is credited to no text and the assumption `quotation with no supplied
+  text to check it against: "..."` is recorded, which the core pack reports as `CORE-SRC-003`.
+  A text is never credited for being supplied first. Answers are cached per excerpt and document
   text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
 - `generic_structured.py` — the integration contract for every specialist being
   built: accepts a report that is already structured JSON and checks source refs and
@@ -50,7 +73,13 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   wherever it stands, roles a quotation-free sentence that is nothing but a note about the
   text `other` wherever it stands (so a disclaimer is never the paragraph's point; a block of
   notes of any length is meta), keeps a substantive sentence that carries the label inline
-  and records the label as an assumption, segments the prose before and after a pasted JSON
+  and records the label as an assumption, roles a sentence that opens with a link signpost
+  or lead (`Thus`, `Ultimately`, `Read together`, `Taken together`, `Together`, `In this
+  light`, `Read against`: `LINK_LEADS`) and, in a single-paragraph answer, the closing claim
+  drawn over the evidence ("... suggest that ...") as the material `link`, reads a CR-only
+  paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
+  unlocated quotation, a quotation word in the writer's own words, or the method's own
+  label), not for "from memory" used in the argument, segments the prose before and after a pasted JSON
   span as prose (the span is one `other` sentence, and the quotations after it are grounded),
   attributes a quotation by the shared rule (the supplied text that holds it; the text the
   sentence names, by author, surname, title, or the peer specialist of a relayed

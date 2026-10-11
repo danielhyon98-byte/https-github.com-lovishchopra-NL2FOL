@@ -20,6 +20,9 @@ Matching is attempted in three tiers, reported through ``GroundingCheck.method``
    each fragment occurs in order in the normalized text AND the whole span stays
    within :data:`ELISION_WINDOW_CHARS` plus the excerpt's own length. Fragments that
    are far apart are a long elision, reported by the inexact tier, never as a match.
+   An elision mark in brackets or parentheses (``[...]``, ``[…]``, ``[ . . . ]``,
+   ``(...)``), the academic form, is read as the same ellipsis in every tier
+   (:func:`unbracket_elisions`).
 
 A fourth, *inexact* tier (:func:`locate_quotation_inexact`) finds the words after a
 conventional adjustment of written analysis: a changed initial capital (a sentence
@@ -55,6 +58,7 @@ cached answer is the answer the uncached code gives; both caches are thread-safe
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import unicodedata
 from array import array
@@ -222,6 +226,19 @@ def _extend_over_marks(text: str, end: int) -> int:
     return end
 
 
+#: An elision mark in brackets or parentheses, the academic form of an ellipsis: "[...]", "[…]", "[ . . . ]", "(...)".
+_BRACKETED_ELISION_RE = re.compile(r"\s*[\[(]\s*(?:(?:\.\s*){3}|…)\s*[\])]\s*")
+
+
+def unbracket_elisions(excerpt: str) -> str:
+    """``excerpt`` with every bracketed or parenthesised elision mark ("[...]", "[…]", "[ . . . ]", "(...)") written as
+    the plain ellipsis " ... " every tier reads as an elision, so a quotation in the standard academic form is located
+    like the same words with "..." (never reported as invented)."""
+    if "[" not in excerpt and "(" not in excerpt:
+        return excerpt
+    return _BRACKETED_ELISION_RE.sub(" ... ", excerpt).strip()
+
+
 def _strip_outer_quotes(excerpt: str) -> str:
     s = excerpt.strip()
     for left, right in _OUTER_QUOTES:
@@ -361,7 +378,7 @@ def text_sha256(text: str) -> str:
     """The sha256 of ``text`` (UTF-8), memoised per text so a large document is hashed once."""
     digest = _SHA_BY_TEXT.get(text)
     if digest is None:
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()  # never raises on a lone surrogate
         _SHA_BY_TEXT.put(text, digest, weight=len(text) + 1)
     return digest
 
@@ -513,6 +530,7 @@ def _locate_quotation(excerpt: str, forms: TextForms) -> Optional[QuotationMatch
     pos = text.find(ex)
     if pos >= 0:
         return QuotationMatch(pos, pos + len(ex), ex, "verbatim_match")
+    ex = unbracket_elisions(ex)  # "[...]" / "(...)" read as the ellipsis it is, in every tier below
     norm_text, idx = forms.norm()
     norm_ex = normalize_quote(ex)
     if not norm_ex:
@@ -651,7 +669,7 @@ def locate_quotation_inexact(excerpt: str, text: str, *, document_id: Optional[s
 
 def _locate_quotation_inexact(excerpt: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
     text = forms.text
-    ex = _strip_outer_quotes(excerpt)
+    ex = unbracket_elisions(_strip_outer_quotes(excerpt))
     if not ex:
         return None
     swapped = _swap_first_alpha_case(ex)
@@ -689,7 +707,7 @@ def locate_long_elision(excerpt: str, text: str, *, document_id: Optional[str] =
 
 
 def _locate_long_elision(excerpt: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
-    ex = _strip_outer_quotes(excerpt)
+    ex = unbracket_elisions(_strip_outer_quotes(excerpt))
     fragments = _elision_fragments(normalize_quote(ex)) if ex else []
     if len(fragments) < 2:
         return None

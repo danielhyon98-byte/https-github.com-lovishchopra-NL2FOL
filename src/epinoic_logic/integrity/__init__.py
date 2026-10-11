@@ -169,6 +169,8 @@ def run_integrity_checks(
             findings.extend(f)
             if res is not None:
                 formal_ids.append(res.result_id)
+            # claim-minimal attribution runs further checks (each claim alone, the rest re-checked); their results are cited
+            formal_ids.extend(rid for x in f for rid in [x.formal_result_id, *x.related_result_ids] if rid)
             for x in f:
                 if x.code == "INT-CONFLICT-001":
                     conflicting_sets.append((frozenset(x.claim_ids), x.formal_result_id))

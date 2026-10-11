@@ -1,0 +1,78 @@
+{
+ "en-p3": {
+  "task_id": "en-p3",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "You have received the History specialist's context paragraph through the hub; it is supplied to you as the document peer:hi-p3. Write one analytical paragraph on how the poem's 'smokeless air' and stillness can be read against that historical context. Quote exactly from the poem; where you draw on the History specialist's paragraph, quote it exactly and attribute it to the History specialist. Write no more than 300 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-wb",
+    "title": "Composed upon Westminster Bridge, September 3, 1802 (sonnet, supplied text)",
+    "author": "William Wordsworth",
+    "text": "Earth has not anything to show more fair:\nDull would he be of soul who could pass by\nA sight so touching in its majesty:\nThis City now doth, like a garment, wear\nThe beauty of the morning; silent, bare,\nShips, towers, domes, theatres, and temples lie\nOpen unto the fields, and to the sky;\nAll bright and glittering in the smokeless air.\nNever did sun more beautifully steep\nIn his first splendour, valley, rock, or hill;\nNe'er saw I, never felt, a calm so deep!\nThe river glideth at his own sweet will:\nDear God! the very houses seem asleep;\nAnd all that mighty heart is lying still!"
+   }
+  ],
+  "response_text": "Wordsworth presents the City in the morning as clear and still, and the History specialist's account of London in 1802 suggests that this clarity and calm are an exception rather than the city's usual state. The adjective \"smokeless\" defines the air by what it lacks, and the line \"All bright and glittering in the smokeless air\" makes that absence the condition for the city's surfaces to shine, so the reader sees the city with unusual clarity. The History specialist describes the ordinary condition: coal was burned in \"domestic grates and in breweries, glassworks, soap and lime works, so that a dense smoke hung over the city on most days\", and the smokeless air \"stands out as an exception to the city's ordinary condition\". Stillness works through personification: the houses \"seem asleep\" and \"all that mighty heart is lying still\". The scale of that heart matters, because the History specialist gives \"close to a million inhabitants\" and calls London \"the largest city in Europe\". The verb \"seem\" marks the calm as the speaker's perception, and \"lying\" reduces that vast body to a posture of rest, which the speaker's wonder, \"Ne'er saw I, never felt, a calm so deep!\", treats as unfamiliar. The History specialist's account of the peace points the same way: the Peace of Amiens, which it dates to \"25 March 1802\", was \"a lull rather than a settlement\". Read together, the clear air, the sleeping houses and the calm suggest that the poem captures a suspended morning rather than a permanent condition. The poem never mentions the war, so this reading rests on the History specialist's context, whose \"dates and figures\" are, in its own words, \"from memory and should be checked before they are cited\".",
+  "peer_of": "hi-p3"
+ },
+ "hi-p3": {
+  "task_id": "hi-p3",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "short_answer",
+  "question": "A literature student is reading Wordsworth's sonnet 'Composed upon Westminster Bridge, September 3, 1802'. In one paragraph of no more than 200 words, outline for that student the historical context of London in 1802: the city's size and growth, the coal smoke of its industry and homes, and the Peace of Amiens of that year, with dated evidence labelled from memory as your method requires.",
+  "supplied_texts": [],
+  "response_text": "The dates and figures in this paragraph are from memory and should be checked before they are cited. London in 1802 was the largest city in Europe, with close to a million inhabitants at the first national census of 1801. Its population had grown steadily through the eighteenth century as the built-up area spread from the City into Westminster, Southwark and the villages beyond. Much of its air came from coal. Sea-coal was carried to the Thames by colliers from Newcastle, roughly a million tons a year by about 1800, and it was burned in domestic grates and in breweries, glassworks, soap and lime works, so that a dense smoke hung over the city on most days; John Evelyn had complained of the same problem in 1661 in his Fumifugium. The Peace of Amiens, signed on 25 March 1802, ended a war that Britain had fought with France since 1793 and allowed British visitors to cross to Paris that summer, Wordsworth among them. It was a lull rather than a settlement, and war resumed in May 1803. Against this background, the \"smokeless air\" of Wordsworth's sonnet stands out as an exception to the city's ordinary condition."
+ },
+ "hi-t7": {
+  "task_id": "hi-t7",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "essay",
+  "question": "To what extent was the Treaty of Versailles responsible for the instability of the Weimar Republic up to 1923? Write one body paragraph only, following your method, in no more than 350 words, with dated and quantified evidence.",
+  "supplied_texts": [],
+  "response_text": "The Treaty of Versailles was a major but partial cause of the Weimar Republic's instability up to 1923. It supplied the grievance and fiscal burden that the republic's enemies and the 1923 crisis exploited, but the violence that began before the treaty was signed came mainly from domestic sources. Signed on 28 June 1919, the treaty took about 13 per cent of Germany's pre-war European territory and roughly a tenth of its population, limited the army to 100,000 men under Article 160, and under Article 231 placed responsibility for the war on Germany and its allies. The nationalist right used these terms to present the republic as the government that had accepted a diktat, so every concession became a humiliation. The reparations bill, fixed on 5 May 1921 at 132 billion gold marks, tied the state's finances to foreign transfers. The crisis came when deliveries fell into default: French and Belgian troops occupied the Ruhr on 11 January 1923, the government financed passive resistance by printing money, and by November 1923 one US dollar bought about 4.2 trillion marks. The occupation followed from the reparations regime, so the treaty did produce the crisis, but financing resistance by currency creation was a German decision. The strongest counter-case is that instability began before the treaty. The Spartacist rising of January 1919 and the Kapp Putsch of March 1920 came from the left and the right, and the murders of Matthias Erzberger in August 1921 and Walther Rathenau in June 1922 were carried out by the far right, with courts lenient towards such killers. By the criterion of timing, the domestic sources come first and explain the early violence; by the criterion of scale, reparations were the largest recurring drain on public finances that the 1923 crisis exposed. The treaty was therefore a considerable cause of the republic's economic and fiscal weakness and a smaller cause of its early violence, so its responsibility for instability up to 1923 is real but partial.\n\nDates and figures are from memory; verify them against your notes before use."
+ },
+ "hi-t8": {
+  "task_id": "hi-t8",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "short_answer",
+  "question": "Outline, with dated and quantified evidence, the impact of the 1929 crash on unemployment in Germany between 1929 and 1932. Write no more than 200 words and give a judgement on which year marked the turning point.",
+  "supplied_texts": [],
+  "response_text": "The Wall Street Crash of October 1929 led American lenders to recall the short-term credit on which the Weimar economy depended, and registered unemployment then rose in each year that followed. Annual averages climbed from about 1.9 million in 1929 to 3.1 million in 1930, 4.5 million in 1931 and 5.6 million in 1932, peaking at about 6.1 million in February 1932 (figures from memory; check them against your notes). Brüning's deflationary decrees of December 1930 and June 1931 cut wages and benefits and deepened the fall in demand, while the collapse of the Danatbank on 13 July 1931 turned the slump into a banking crisis. The turning point was 1930. The annual average grew by roughly 60 per cent that year, the greatest proportional rise of the period, and the increase became a sustained mass crisis rather than a cyclical dip, which fed the political break of the September 1930 election. The strongest counter-case is 1932, the peak year, but a peak within a rising trend marks the height of the crisis rather than the point at which its direction changed, so by the criterion of when the trajectory altered it weighs less."
+ },
+ "en-t7": {
+  "task_id": "en-t7",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "Write one analytical paragraph: how does Wordsworth use personification and the sonnet's turn to present the city as both alive and at rest? Quote exactly from the poem. Write no more than 300 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-wb",
+    "title": "Composed upon Westminster Bridge, September 3, 1802 (sonnet, supplied text)",
+    "author": "William Wordsworth",
+    "text": "Earth has not anything to show more fair:\nDull would he be of soul who could pass by\nA sight so touching in its majesty:\nThis City now doth, like a garment, wear\nThe beauty of the morning; silent, bare,\nShips, towers, domes, theatres, and temples lie\nOpen unto the fields, and to the sky;\nAll bright and glittering in the smokeless air.\nNever did sun more beautifully steep\nIn his first splendour, valley, rock, or hill;\nNe'er saw I, never felt, a calm so deep!\nThe river glideth at his own sweet will:\nDear God! the very houses seem asleep;\nAnd all that mighty heart is lying still!"
+   }
+  ],
+  "response_text": "Wordsworth presents the city as alive and at rest at once: personification animates its stillness, and the turn moves from the city's outward dress to the speaker's felt calm, so that rest reads as a form of life.\n\nThe city is first animated when it \"doth, like a garment, wear\" the morning's beauty. Conventionally, \"wear\" takes a person as its subject, so the verb makes the city an agent that dresses itself, and the garment simile makes its brightness something chosen and displayed. The animation passes to the buildings in \"the very houses seem asleep\". The verb \"seem\" is the crucial qualifier: it presents the sleep as the speaker's impression rather than a fact, so the sleeping body belongs to the observer as much as to the city.\n\nThe turn at \"Never did sun more beautifully steep\" moves from the city to the surrounding hills and valleys, and then to the speaker, whose first \"I\" arrives with \"Ne'er saw I, never felt, a calm so deep!\" The adjective \"deep\" gives the calm the depth of sleep, which the poem names outright in \"asleep\". Against this stillness, the one thing shown moving is the river: \"The river glideth at his own sweet will\". The verb \"glideth\" describes unhurried movement, and \"his own sweet will\" grants the river self-directed choice. The verb \"lie\" then returns, from the ships and buildings that \"lie / Open unto the fields\" to the city \"lying still\", its meaning shifting from exposure to quiescence, while \"mighty\" gives that stillness strength. The turn deepens the opening's silence rather than overturning it.\n\nTogether, the personification and the turn make rest a condition of held vitality, and the qualifier \"seem\" keeps visible that the speaker's perception supplies it."
+ },
+ "en-t8": {
+  "task_id": "en-t8",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "Write one analytical paragraph on how the narrator's voice in this opening establishes a comic relationship with the reader. Use quotations from the extract. Keep to about 250 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-cc",
+    "title": "A Christmas Carol, opening (extract, supplied text)",
+    "author": "Charles Dickens",
+    "text": "Marley was dead: to begin with. There is no doubt whatever about that. The register of his burial was signed by the clergyman, the clerk, the undertaker, and the chief mourner. Scrooge signed it: and Scrooge's name was good upon 'Change, for anything he chose to put his hand to. Old Marley was as dead as a door-nail.\n\nMind! I don't mean to say that I know, of my own knowledge, what there is particularly dead about a door-nail. I might have been inclined, myself, to regard a coffin-nail as the deadest piece of ironmongery in the trade. But the wisdom of our ancestors is in the simile; and my unhallowed hands shall not disturb it, or the Country's done for. You will therefore permit me to repeat, emphatically, that Marley was as dead as a door-nail."
+   }
+  ],
+  "response_text": "The narrator establishes the reader as a sceptic to be overwhelmed with mock-legal proof, and the reader becomes a partner in the joke at the narrator's own pedantry.\n\nThe opening anticipates doubt with \"There is no doubt whatever about that\", and then documents a single death as an official matter. The register of his burial \"was signed by the clergyman, the clerk, the undertaker, and the chief mourner.\" A register is conventionally a formal record, and the accumulation of signatories treats an ordinary fact as a legal case. The word \"whatever\" overstates the certainty, so the reader is positioned as someone who must be persuaded.\n\nThe second paragraph makes the relationship explicit through direct address. The imperative \"Mind!\", conventionally a call to take care, halts the reader, and the disclaimer \"I don't mean to say that I know, of my own knowledge\" borrows the phrasing of testimony to confess ignorance, undercutting the authority claimed earlier. The verb \"permit\" conventionally means to allow, yet the narrator seeks the reader's leave, \"You will therefore permit me\", before repeating a point the reader has not disputed. When the proverb recurs as \"Marley was as dead as a door-nail\", the added \"emphatically\" intensifies it, so repetition signals the narrator's performance rather than new information.\n\nThe mock-solemn stake, \"or the Country's done for\", completes the pattern: a trivial point is inflated into national survival, and the reader is kept in on the joke rather than asked to take it seriously. The comedy is complicated by its subject, a burial, yet that gap between solemnity and lightness draws the reader in."
+ }
+}

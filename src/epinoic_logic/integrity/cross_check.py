@@ -229,30 +229,171 @@ def _classify_failure(result: VerificationResult, jmap: JointMap, *, synthesized
     return out
 
 
-def _contradiction_findings(result: VerificationResult, jmap: JointMap, *, synthesized_claim_id: Optional[str]) -> list[IntegrityFinding]:
-    claims = claim_ids_from_core(result.premises_relied_on, jmap)
+#: Claim-minimal attribution solves one small problem per claim of a core (and one per deletion); beyond this many
+#: claims in a core the core's claims are named as found (a large cycle is not re-solved claim by claim).
+ATTRIBUTION_MAX_CLAIMS = 16
+#: Contradictions named in one joint check at most; each found is set aside and the rest re-checked, so a contradiction
+#: never hides a self-refutation or a second, disjoint contradiction.
+MAX_NAMED_CONFLICTS = 8
+
+
+def _core_assertions(result: VerificationResult, jmap: JointMap) -> list[str]:
+    return sorted({jmap.assertions[i][1] + (" (conclusion)" if jmap.assertions[i][2] else "") for i in result.premises_relied_on if i in jmap.assertions})
+
+
+def _self_inconsistent(claim_id: str, assertions: list[str], result_id: str, related: list[str], prefix: list[str], assumed_readings: frozenset[str]) -> IntegrityFinding:
+    """INT-CONFLICT-005 for one claim whose own assertions refute each other. When the claim's translation is an assumed
+    reading (AMBIGUOUS_TRANSLATION, ``assumed_readings``) the refutation exists only under that reading, which the
+    translator chose and the specialist did not state: the same code as a warning, never an error charged to the
+    specialist. Neither demands a disclosure."""
+    if claim_id in assumed_readings:
+        return IntegrityFinding(code="INT-CONFLICT-005", severity="warning", message=f"specialist claim {claim_id!r} refutes itself only under the assumed reading of its AMBIGUOUS_TRANSLATION: its own assertions {assertions} refute each other in the pooled formalization, which is one reading the translator chose, not a fixed one, so the specialist is not charged with an inconsistency (no other claim is involved; no disclosure is demanded)", claim_ids=prefix + [claim_id], formal_result_id=result_id, related_result_ids=related, deterministic=False)
+    return IntegrityFinding(code="INT-CONFLICT-005", severity="error", message=f"specialist claim {claim_id!r} is internally inconsistent: its own assertions {assertions} refute each other (no other claim is involved)", claim_ids=prefix + [claim_id], formal_result_id=result_id, related_result_ids=related, deterministic=False)
+
+
+def _conflict(claims: list[str], result_id: str, related: list[str], prefix: list[str], where: str, *, minimal: Optional[bool] = None) -> IntegrityFinding:
+    note = "" if minimal is None else (" (claim-minimal: the contradiction needs every claim named)" if minimal else f" (the unsat core's claims; more than {ATTRIBUTION_MAX_CLAIMS} claims, so the set was not minimised claim by claim)")
+    return IntegrityFinding(code="INT-CONFLICT-001", severity="error", message=f"specialist claims {where}contradict each other under the shared glossary; conflicting claims: {claims}{note}", claim_ids=prefix + claims, formal_result_id=result_id, related_result_ids=related, deterministic=False)
+
+
+def _without_conclusion(p: Problem) -> Problem:
+    """``p`` with its conclusion no longer pooled (a self-refuting conclusion is set aside for the joint re-check)."""
+    return p.model_copy(update={"query": "consistency", "conclusion": None})
+
+
+def _check_pool(problems: list[Problem], *, request_id: str, joint_id: str, cfg: SolverConfig, limits: Limits, signing_key: Optional[bytes]) -> tuple[Optional[VerificationResult], JointMap]:
+    joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id=joint_id)
+    if joint is None:
+        return None, jmap
+    return verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity"), jmap
+
+
+def _attribute_contradiction(problems: list[Problem], result: VerificationResult, jmap: JointMap, *, request_id: str, cfg: SolverConfig, limits: Limits,
+                             signing_key: Optional[bytes], synthesized_claim_id: Optional[str], assumed_readings: frozenset[str] = frozenset()) -> list[IntegrityFinding]:
+    """Name a contradiction claim-minimally, whatever the order the claims were pooled in.
+
+    The unsat core is a set of ASSERTIONS; when two claims carry identical premises (one report restating the same
+    figures in two claims) the core may use either claim's copy, so the claims it touches are not the claims the
+    contradiction needs. Each claim of a core of several claims is therefore checked alone (its premises with its pooled
+    conclusion): a claim that refutes itself is INT-CONFLICT-005 for that claim only (no disclosure is demanded), its
+    self-refuting conclusion (or the whole claim, when its premises alone already conflict) is set aside and the joint
+    check is re-run on the rest. A contradiction that remains is minimised over claims by deletion, so INT-CONFLICT-001
+    names a claim only when the contradiction needs it; its claims are then set aside and the rest re-checked, so one
+    contradiction never hides another (at most :data:`MAX_NAMED_CONFLICTS` are named)."""
     prefix = [synthesized_claim_id] if synthesized_claim_id else []
     where = "behind this synthesis " if synthesized_claim_id else ""
-    if not claims:
-        return [IntegrityFinding(code="INT-CONFLICT-004", severity="warning", message=f"the pooled claims {where}are contradictory but the conflicting set could not be attributed (no unsat core); all pooled claims are listed", claim_ids=prefix + sorted(set(jmap.claim_ids)), formal_result_id=result.result_id, deterministic=False)]
-    if len(claims) == 1:
-        orig = sorted({jmap.assertions[i][1] + (" (conclusion)" if jmap.assertions[i][2] else "") for i in result.premises_relied_on if i in jmap.assertions})
-        return [IntegrityFinding(code="INT-CONFLICT-005", severity="error", message=f"specialist claim {claims[0]!r} is internally inconsistent: its own assertions {orig} refute each other (no other claim is involved)", claim_ids=prefix + claims, formal_result_id=result.result_id, deterministic=False)]
-    return [IntegrityFinding(code="INT-CONFLICT-001", severity="error", message=f"specialist claims {where}contradict each other under the shared glossary; conflicting claims: {claims}", claim_ids=prefix + claims, formal_result_id=result.result_id, deterministic=False)]
+    active: dict[str, Problem] = {p.claim_id: p for p in problems}
+    reported: set[str] = set()
+    out: list[IntegrityFinding] = []
+    related: list[str] = []
+    res, jm = result, jmap
+    conflicts = 0
+
+    def _recheck() -> bool:
+        """Re-run the joint check on what is still active; True when it is still contradictory (``res``/``jm`` updated)."""
+        nonlocal res, jm
+        if not active or conflicts >= MAX_NAMED_CONFLICTS:
+            return False
+        res2, jm2 = _check_pool(list(active.values()), request_id=request_id, joint_id="cross-report-rest", cfg=cfg, limits=limits, signing_key=signing_key)
+        if res2 is None:
+            return False
+        related.append(res2.result_id)
+        if res2.status is S.INCONSISTENT_PREMISES:
+            res, jm = res2, jm2
+            return True
+        if res2.status is not S.CONSISTENT:
+            out.append(IntegrityFinding(code="INT-CONFLICT-004", severity="warning", message=f"after setting aside the contradictions already named, the joint check of the remaining claims {where}could not be decided ({res2.status.value})", claim_ids=prefix + sorted(active), formal_result_id=res2.result_id, related_result_ids=[result.result_id], deterministic=False))
+        return False
+
+    for _ in range(len(problems) + 1):
+        claims = claim_ids_from_core(res.premises_relied_on, jm)
+        if not claims:
+            out.append(IntegrityFinding(code="INT-CONFLICT-004", severity="warning", message=f"the pooled claims {where}are contradictory but the conflicting set could not be attributed (no unsat core); all pooled claims are listed", claim_ids=prefix + sorted(active), formal_result_id=res.result_id, related_result_ids=related, deterministic=False))
+            break
+        if len(claims) > ATTRIBUTION_MAX_CLAIMS:
+            out.append(_conflict(claims, res.result_id, list(related), prefix, where, minimal=False))
+            conflicts += 1
+            for cid in claims:
+                active.pop(cid, None)
+            if not _recheck():
+                break
+            continue
+        selfish: list[tuple[str, VerificationResult, JointMap]] = []
+        if len(claims) == 1:
+            selfish.append((claims[0], res, jm))
+        else:
+            for cid in claims:
+                alone, ajm = _check_pool([active[cid]], request_id=request_id, joint_id=f"alone-{sha256_hex(cid)[:24]}", cfg=cfg, limits=limits, signing_key=signing_key)
+                if alone is not None:
+                    related.append(alone.result_id)
+                    if alone.status is S.INCONSISTENT_PREMISES:
+                        selfish.append((cid, alone, ajm))
+        if not selfish:
+            minimal, rid = _minimise_by_deletion(claims, active, res, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, related=related)
+            out.append(_conflict(minimal, rid, [r for r in related if r != rid], prefix, where, minimal=True))
+            conflicts += 1
+            for cid in minimal:  # set this contradiction aside and look for another (a self-refutation it masked, a disjoint conflict)
+                active.pop(cid, None)
+            if not _recheck():
+                break
+            continue
+        for cid, alone, ajm in selfish:
+            if cid not in reported:
+                reported.add(cid)
+                out.append(_self_inconsistent(cid, _core_assertions(alone, ajm), alone.result_id, [r for r in [res.result_id] + related if r != alone.result_id], prefix, assumed_readings))
+            p = active[cid]
+            refuting_conclusion = p.conclusion is not None and p.query == "entailment" and bool(ajm.pooled_conclusions(list(alone.premises_relied_on)))
+            if refuting_conclusion:
+                active[cid] = _without_conclusion(p)
+            else:  # its premises alone conflict: nothing of it can stand in a joint check
+                del active[cid]
+        if not _recheck():
+            break
+    return out
 
 
-def check_cross_report_consistency(problems: list[Problem], *, request_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None, limits: Limits = JOINT_LIMITS) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
-    """Are all specialists' formalized claims jointly consistent? Names the conflict.
+def _minimise_by_deletion(claims: list[str], active: dict[str, Problem], res: VerificationResult, *, request_id: str, cfg: SolverConfig, limits: Limits,
+                          signing_key: Optional[bytes], related: list[str]) -> tuple[list[str], str]:
+    """A minimal set of claims (in claim-id order, so the answer does not depend on the pooling order) whose joint problem
+    is still contradictory, and the result id that establishes it. No claim of ``claims`` is self-inconsistent here, so a
+    pair is minimal as it stands."""
+    current = sorted(claims)
+    rid = res.result_id
+    if len(current) <= 2:
+        return current, rid
+    for cid in list(current):
+        trial = [c for c in current if c != cid]
+        r, jm = _check_pool([active[c] for c in trial], request_id=request_id, joint_id="cross-report-min", cfg=cfg, limits=limits, signing_key=signing_key)
+        if r is None:
+            continue
+        related.append(r.result_id)
+        if r.status is S.INCONSISTENT_PREMISES:
+            core = set(claim_ids_from_core(r.premises_relied_on, jm))
+            current = sorted(c for c in trial if c in core) if len(core) >= 2 else trial
+            rid = r.result_id
+            if len(current) <= 2:
+                break
+    return current, rid
+
+
+def check_cross_report_consistency(problems: list[Problem], *, request_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None, limits: Limits = JOINT_LIMITS,
+                                   assumed_readings: frozenset[str] | set[str] = frozenset()) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
+    """Are all specialists' formalized claims jointly consistent? Names the conflict claim-minimally
+    (:func:`_attribute_contradiction`): a claim that refutes itself is INT-CONFLICT-005 for that claim alone, and
+    INT-CONFLICT-001 names a claim only when the contradiction needs it.
 
     The unsat core is always requested, whatever the caller's configuration says,
-    because a contradiction without the conflicting claim ids is not actionable."""
+    because a contradiction without the conflicting claim ids is not actionable.
+    ``assumed_readings`` names pooled claims whose translation is AMBIGUOUS_TRANSLATION: a self-refutation of one of
+    them exists only under the translator's assumed reading and is INT-CONFLICT-005 as a warning, not an error. Returns the result of the joint check
+    over every problem; the findings cite the runs that established them."""
     joint, findings, jmap = joint_problem(problems, request_id=request_id, joint_id="cross-report")
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
     result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
     if result.status is S.INCONSISTENT_PREMISES:
-        findings += _contradiction_findings(result, jmap, synthesized_claim_id=None)
+        findings += _attribute_contradiction(problems, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
     elif result.status is not S.CONSISTENT:
         findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
     return result, findings
@@ -308,7 +449,7 @@ def check_synthesis_entailment(
             findings.append(IntegrityFinding(code="INT-SYNTH-001", severity="error", message=f"synthesized claim is NOT entailed by the cited source claims {pooled} (counterexample found): the combinator strengthened or invented content", claim_ids=[synthesized_claim_id] + pooled, formal_result_id=result.result_id, deterministic=False))
         return result, findings
     if result.status is S.INCONSISTENT_PREMISES:
-        findings += _contradiction_findings(result, jmap, synthesized_claim_id=synthesized_claim_id)
+        findings += _attribute_contradiction(source_problems, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=synthesized_claim_id)
     elif result.status is S.ENTAILED:
         findings += _reliance_findings(joint, result, jmap, source_problems, cfg, limits, signing_key, synthesized_claim_id, prior_results)
     else:

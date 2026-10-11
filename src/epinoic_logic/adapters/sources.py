@@ -57,7 +57,7 @@ from ..translate.grounding import (
 __all__ = [
     "ExcerptCheck", "ExcerptStatus", "FOUND_STATUSES", "check_excerpt", "strip_trailing_punctuation", "word_count",
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
-    "UNCREDITED_QUOTATION", "attribute_excerpt", "uncredited_assumption", "uncredited_excerpt",
+    "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -230,8 +230,95 @@ def uncredited_excerpt(assumption: str) -> Optional[str]:
     return (body[:cut] or None) if cut >= 0 else None
 
 
+#: Verbs of a reporting clause: "The English specialist argues that ... '...'" credits the outer speaker.
+_REPORTING_VERB_RE = re.compile(r"^\W*(?:\w+\W+){0,3}?(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claims?|claimed|suggests?|suggested|describes?|described|calls?|called|"
+                                r"observes?|observed|states?|stated|contends?|contended|reports?|reported|gives?|gave|records?|recorded|explains?|explained|remarks?|remarked|"
+                                r"quotes?|quoted|cites?|cited|insists?|insisted|maintains?|maintained|puts? it|points? out|dates?|dated|reads?)\b", re.IGNORECASE)
+_POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*[\"'“”‘’«»„]?\s*$")
+
+
+def _names_of(doc: SuppliedText) -> list[str]:
+    """How a sentence names ``doc``: its author (full name and surname; a specialist agent "history-specialist" also as
+    "history specialist"), and the title of a non-peer text up to any parenthesis, colon or comma."""
+    names: list[str] = []
+    author = (doc.author or "").strip()
+    if author:
+        names.append(author)
+        if author.endswith("-specialist"):
+            names.append(author.replace("-", " "))
+        parts = author.split()
+        if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
+            names.append(parts[-1])
+    peer = doc.document_id.startswith("peer:") or author.endswith("-specialist")
+    if doc.title and not peer:
+        title = re.split(r"[(:,]", doc.title)[0].strip()
+        if len(title) >= 3:
+            names.append(title)
+    return [n for n in names if len(n) >= 3]
+
+
+def _mentions(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for name in _names_of(doc):
+        out += [(m.start(), m.end()) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence, re.IGNORECASE)]
+    return sorted(set(out))
+
+
+def document_mentions(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
+    """Where ``sentence`` names ``doc`` (by author, surname, title, or a relayed specialist's name), as character spans."""
+    return _mentions(sentence, doc)
+
+
+_CLAUSE_END_RE = re.compile(r"[;:.!?]|,\s+(?:but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
+
+
+def credited_spans(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
+    """The spans of ``sentence`` it credits to ``doc``: after each mention of ``doc`` that is a possessive ("the History
+    specialist's figure of ...") or the subject of a reporting verb ("the History specialist gives ..."), the rest of
+    that clause. A figure inside such a span is stated as the colleague's."""
+    out: list[tuple[int, int]] = []
+    for _a, b in _mentions(sentence, doc):
+        rest = sentence[b:]
+        if not (rest.startswith(("'s", "’s", "'", "’")) or _REPORTING_VERB_RE.match(rest)):
+            continue
+        end = _CLAUSE_END_RE.search(rest)
+        out.append((b, b + (end.start() if end else len(rest))))
+    return out
+
+
+def governing_document(sentence: str, excerpt: str, named: Sequence[str], docs: Mapping[str, SuppliedText]) -> tuple[Optional[str], str]:
+    """Among the several texts a sentence names, the one its quotation of ``excerpt`` is credited to, and why: the text
+    whose possessive governs the quotation ("the History specialist's '...'"), else the outer speaker of a reporting
+    clause ("The English specialist argues that Blake presents ... '...'"), else the text named nearest before the
+    quotation, else the first text the sentence names. ``(None, "")`` when the sentence names none of ``named``."""
+    pos = sentence.find(excerpt.strip()) if excerpt.strip() else -1
+    if pos < 0:
+        pos = sentence.casefold().find(excerpt.strip().casefold()[:40]) if excerpt.strip() else -1
+    found: list[tuple[int, int, str]] = []
+    for doc_id in named:
+        doc = docs.get(doc_id)
+        if doc is None:
+            continue
+        found += [(a, b, doc_id) for a, b in _mentions(sentence, doc) if pos < 0 or not (pos <= a < pos + len(excerpt))]
+    if not found:
+        return None, ""
+    found.sort()
+    if pos >= 0:
+        before = [m for m in found if m[1] <= pos]
+        for a, b, doc_id in reversed(before):  # a possessive right before the opening mark governs the quotation
+            gap = sentence[b:pos].strip()
+            if gap.startswith(("'", "’")) and _POSSESSIVE_GAP_RE.match(gap):
+                return doc_id, "its possessive governs the quotation"
+        for a, b, doc_id in reversed(before):  # the nearest reporting clause: its speaker is the one quoted
+            if _REPORTING_VERB_RE.match(sentence[b:pos]):
+                return doc_id, "it is the speaker of the reporting clause that introduces the quotation"
+        if before:
+            return before[-1][2], "it is the text named nearest before the quotation"
+    return found[0][2], "it is the first text the sentence names"
+
+
 def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, SuppliedText], *,
-                      text_under_analysis: Optional[str] = None) -> tuple[Optional[str], list[str]]:
+                      text_under_analysis: Optional[str] = None, sentence: Optional[str] = None) -> tuple[Optional[str], list[str]]:
     """``(document_id, assumptions)`` for one quotation of a sentence that names the supplied
     texts ``named``. One rule for every parser:
 
@@ -249,7 +336,14 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
     ``text_under_analysis`` is a branch's own notion of what an unnamed quotation quotes: the
     English branch passes its one literary (non-peer) text, the text the analytical answer is
     about, so an altered quotation of the poem stays refutable (``INT-REQ-003``) when the
-    sentence names nothing; it is credited only when the sentence names no text at all."""
+    sentence names nothing; it is credited only when the sentence names no text at all.
+
+    ``sentence`` (the sentence with its quotation marks) lets a quotation located in no text,
+    in a sentence that names SEVERAL texts, be credited by the reporting-clause rule
+    (:func:`governing_document`: the possessive that governs it, the outer speaker, the text
+    named nearest before it), so an altered quotation of a colleague in a sentence that also
+    names the poet stays an ``INT-REQ-003`` error naming the claim; the assumption names every
+    text the sentence names. Without ``sentence`` such a quotation is credited to no text."""
     if not docs:
         return None, [uncredited_assumption(excerpt)]
     located = [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
@@ -262,6 +356,13 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
         return located[0], []
     if len(named) == 1:
         return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
+    if len(named) > 1 and sentence:
+        doc_id, why = governing_document(sentence, excerpt, named, docs)
+        if doc_id is None:  # named by a cue the name finder does not read ("the poem"): never credited to none
+            doc_id, why = named[0], "it is the first of the texts the sentence names"
+        if doc_id is not None:
+            return doc_id, [f"excerpt found in none of the supplied texts [{searched}]; the sentence names several supplied texts ({', '.join(named)}) "
+                            f"and it is attributed to {doc_id} because {why}"]
     if not named and text_under_analysis is not None and text_under_analysis in docs:
         return text_under_analysis, [f"excerpt found in none of the supplied texts [{searched}]; attributed to {text_under_analysis}, "
                                      "the one literary text under analysis, because the sentence names no supplied text"]

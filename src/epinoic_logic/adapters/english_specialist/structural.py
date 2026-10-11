@@ -24,6 +24,11 @@ Source integrity
                           outside the sentence's quotations, and a quotation located in a
                           supplied text (a colleague's own disclosure, quoted exactly) does
                           not count: the disclosure is the quoted author's, not the quoter's.
+                          The phrase must be a disclosure: an unlocated quotation in the
+                          sentence, a quotation word, or the method's own label set aside by
+                          ``split_note_clauses`` (not one about dates and figures only); "from
+                          memory" as part of the argument ("the speaker recalls the scene from
+                          memory") is not a finding.
 * ``ES-SRC-004`` warning a quotation with no supplied text to check it against.
 * ``ES-SRC-005`` warning a quotation found only by joining separate spans of the text
                           without marking the omission (formatting.md S12: quote exactly).
@@ -74,6 +79,7 @@ from typing import Iterable, Optional
 from ...translate.common import truncate
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ..generic_structured import generic_source_findings
+from ..markdown import split_note_clauses
 from ..sources import check_excerpt, strip_trailing_punctuation
 from .parser import (
     Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
@@ -414,10 +420,15 @@ def citation_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...
 
 def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
     """ES-SRC-003: the answer says a quotation is from memory. The phrase is searched with the
-    sentence's quotations masked (a quoted colleague's disclosure is the colleague's), and only
-    quotations NOT located in a supplied text count as the quoter's from-memory quotations. A
-    from-memory label that concerns dates or figures and names no quotation is not an English
-    source finding."""
+    sentence's quotations masked (a quoted colleague's disclosure is the colleague's), and it
+    counts only when it is the writer's own disclosure about quoting: the sentence has a
+    quotation NOT located in a supplied text, or names quoting ("quoting from memory", "the
+    quotation above is from memory"), or the phrase is the method's own label
+    (``markdown.split_note_clauses`` sets it aside: "As I recall, ...", "..., if memory serves,
+    ...", a note sentence) and that label does not concern dates or figures only. "From memory"
+    as part of the argument ("The speaker recalls the scene from memory, which explains ...",
+    "Wordsworth wrote the sonnet from memory of a single morning, so ...") is analysis, not a
+    disclosure, and a sentence whose only quotation is located in a supplied text is no finding."""
     out: list[StructuralFinding] = []
     docs = {t.document_id: t for t in report.supplied_texts}
     for para in paragraphs:
@@ -426,7 +437,10 @@ def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
             if not _FROM_MEMORY_RE.search(plain):
                 continue
             unlocated = [q for q in sentence.quotations if not q.delimited or not docs or not any(excerpt_located(q.excerpt, d, docs) for d in docs)]
-            if unlocated or _QUOTE_WORD_RE.search(plain) or not _DATES_FIGURES_RE.search(plain):
+            core, notes = split_note_clauses(sentence.text)
+            labelled = not core or any(_FROM_MEMORY_RE.search(n) for n in notes)
+            own = plain.replace("[quotation]", " ")  # the writer's own words: the placeholder is not a quotation word
+            if unlocated or _QUOTE_WORD_RE.search(own) or (labelled and not _DATES_FIGURES_RE.search(own)):
                 out.append(_finding(
                     "ES-SRC-003", "warning",
                     f"paragraph {para.index}, sentence {sentence.index} quotes from memory; such quotations are "

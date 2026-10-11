@@ -11,17 +11,28 @@ receipt-shaped sentence itself is demoted, the rest of its paragraph keeps its r
 the paragraph is nothing but notes or JSON (then every sentence is a note); every demotion
 for a self-report is named in an unresolved issue. A substantive sentence that carries an
 inline label ("(figures from memory; check your notes)", a sentence-initial "From memory,",
-a comma-bounded ", from memory") keeps its role with the label recorded once as an
-assumption. Quotations are found in double marks of any kind (straight, curly, guillemet,
-mixed, two adjacent marks as one nested mark) and in single marks around two or more words;
+a comma-bounded ", from memory", a trailing ", a figure I give from memory" or ", though this
+date is from memory") keeps its role with the label recorded once as an assumption; labels
+are read outside quotations, and only a sentence whose core is empty is a note, so a label
+word inside a substantive sentence ("... is illustrative of how ...") changes nothing. A
+disclaimer ("should be checked", "have not been verified") is a note, never a self-report;
+the self-certifications every branch recognises (``markdown.is_self_certification``: "I have
+checked ...", "all of these figures have been verified", "the figures here are accurate",
+"no errors were found", "Z3 proved the argument above") carry the advisory status.
+Quotations are found in double marks of any kind (straight, curly, guillemet, mixed, two
+adjacent marks as one nested mark) and in single marks around two or more words, paired by
+context so a quotation that carries an apostrophe ('I don't know') is still one quotation;
 a span the dangling mark of an unbalanced sentence leaves undelimited is recorded, not
 attributed. A quotation is attributed by the rule every parser shares
 (:func:`~epinoic_logic.adapters.sources.attribute_excerpt`): the supplied text that holds
 the words (in any recognised form) wins, the one the sentence names when several do; one
 held by no text is credited to the one text the sentence names (author, surname, title,
 a peer specialist by name, "the source text"), whether or not it holds the words; otherwise
-it is credited to no text and recorded as the assumption ``quotation with no supplied text
-to check it against: "..."``, which the core pack reports as unverifiable (``CORE-SRC-003``).
+when the sentence names several texts, to the one that governs the quotation in the sentence
+(``sources.governing_document``: its possessive, the reporting clause's speaker, the text named
+nearest before it); otherwise it is credited to no text and recorded as the assumption
+``quotation with no supplied text to check it against: "..."``, which the core pack reports as
+unverifiable (``CORE-SRC-003``).
 A text is never credited for being supplied first. Claim texts respect the contract limit,
 and sentences beyond the report's claim limit are merged into one ``other`` claim with an
 unresolved issue rather than crashing or vanishing. ``original_response`` is always verbatim."""
@@ -117,7 +128,7 @@ class GenericTextParser:
                 excerpts = quotations_in(sent)
                 named = documents_named(_mask_quotations(sent), docs) if (docs and excerpts) else []
                 for ex in excerpts:
-                    doc, notes_for_excerpt = attribute_excerpt(ex, named, docs)
+                    doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
                     if doc:
                         refs.append(SourceRef(document_id=doc, excerpt=ex[:2000]))
                     assumptions.extend(notes_for_excerpt)

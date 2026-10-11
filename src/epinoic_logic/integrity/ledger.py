@@ -26,11 +26,117 @@ _MONTHS = ("january", "february", "march", "april", "may", "june", "july", "augu
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
 #: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
 _EQUIVALENCE_LABELS = frozenset({"carried", "paraphrased"})
+#: Transformations that combine or widen sources: a figure or date of the sources they leave out is reported too (a
+#: warning; 'narrowed' removes content by definition and is exempt).
+_COMBINING_LABELS = frozenset({"merged", "generalized"})
+
+# --- figures written in words ---------------------------------------------------------------------------------------
+_ONES = {w: i for i, w in enumerate(("one", "two", "three", "four", "five", "six", "seven", "eight", "nine"), start=1)}
+_TEENS = {w: i for i, w in enumerate(("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"), start=10)}
+_TENS = {w: 10 * i for i, w in enumerate(("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"), start=2)}
+_SCALES = {"thousand": 10**3, "million": 10**6, "billion": 10**9, "trillion": 10**12}
+_FRACTION_NAMES = {"half": (1, 2), "halves": (1, 2), "third": (1, 3), "thirds": (1, 3), "quarter": (1, 4), "quarters": (1, 4), "fifth": (1, 5), "fifths": (1, 5),
+                   "sixth": (1, 6), "sixths": (1, 6), "eighth": (1, 8), "eighths": (1, 8), "tenth": (1, 10), "tenths": (1, 10)}
+
+
+def _alt(words) -> str:
+    return "|".join(sorted(words, key=len, reverse=True))
+
+
+_W_SMALL = rf"(?:(?:{_alt(_TENS)})(?:[-\s](?:{_alt(_ONES)}))?|{_alt(_TEENS)}|{_alt(_ONES)})"
+_W_HUNDREDS = rf"(?:(?:a|an|{_alt(_ONES)})\s+hundred(?:\s+(?:and\s+)?{_W_SMALL})?)"
+_W_NUMBER = rf"(?:{_W_HUNDREDS}|{_W_SMALL})"
+_W_SCALE = _alt(_SCALES)
+#: A figure written in words, in the contexts where words are a quantity and not prose ("one of", "the two poems"):
+#: a scale word ("a million", "two million", "half a million", "two hundred thousand"), a per-cent unit ("thirteen per
+#: cent"), a fraction ("two-thirds"; "a tenth" after a qualifier or before "of"), a number with "hundred" ("two hundred
+#: and sixty") or a lower-case tens or teens number ("forty-five", "twelve").
+_WORD_FIGURE_RE = re.compile(
+    rf"\b(?:(?P<half>half)\s+an?\s+(?P<hscale>{_W_SCALE})s?"
+    rf"|(?P<snum>{_W_NUMBER}|a|an)\s+(?P<scale>{_W_SCALE})s?"
+    rf"|(?P<pnum>{_W_NUMBER})(?=\s+(?:per\s?cent|percent)\b)"
+    rf"|(?P<fnum>two|three|four|five|seven|nine)[-\s](?P<fname>thirds|quarters|fifths|sixths|eighths|tenths)"
+    rf"|(?:about|roughly|nearly|almost|some|around|over|under|just|by|than|only|barely|approximately)\s+(?P<qart>a|an|one)\s+(?P<qname>{_alt(k for k in _FRACTION_NAMES if not k.endswith('s'))})"
+    rf"|(?:a|an|one)\s+(?P<oname>{_alt(k for k in _FRACTION_NAMES if not k.endswith('s'))})(?=\s+of\b)"
+    rf"|(?P<hnum>{_W_HUNDREDS})"
+    rf"|(?P<lnum>(?-i:(?:{_alt(_TENS)})(?:-(?:{_alt(_ONES)}))?|{_alt(set(_TEENS) - {'ten'})}))(?!-)"
+    rf")\b", re.IGNORECASE)
+
+
+def _small_value(words: str) -> int:
+    total = 0
+    for tok in re.split(r"[\s-]+", words.casefold()):
+        if tok in ("and", ""):
+            continue
+        if tok in ("a", "an"):
+            total += 1
+        elif tok == "hundred":
+            total = (total or 1) * 100
+        else:
+            total += _ONES.get(tok) or _TEENS.get(tok) or _TENS.get(tok, 0)
+    return total
+
+
+def _fmt(num: int, den: int = 1) -> str:
+    """Canonical text of the value ``num/den``: an integer, an exact short decimal, or a decimal to four places (a third
+    is "0.3333"), always a numeral the figure readers take as one token."""
+    from fractions import Fraction
+    v = Fraction(num, den)
+    if v.denominator == 1:
+        return str(v.numerator)
+    for places in range(1, 5):
+        if (v * 10**places).denominator == 1:
+            return f"{float(v):.{places}f}"
+    return f"{float(v):.4f}"
+
+
+def _word_figures(text: str) -> list[tuple[int, int, str, Optional[str], str]]:
+    """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``."""
+    out: list[tuple[int, int, str, Optional[str], str]] = []
+    for m in _WORD_FIGURE_RE.finditer(text):
+        g = m.groupdict()
+        if g["half"]:
+            out.append((m.start(), m.end(), "0.5", g["hscale"].casefold(), m.group(0)))
+        elif g["scale"]:
+            out.append((m.start(), m.end(), _fmt(_small_value(g["snum"])), g["scale"].casefold(), m.group(0)))
+        elif g["pnum"]:
+            out.append((m.start(), m.end(), _fmt(_small_value(g["pnum"])), None, m.group(0).strip()))
+        elif g["fnum"]:
+            num, den = _FRACTION_NAMES[g["fname"].casefold()]
+            out.append((m.start(), m.end(), _fmt(_small_value(g["fnum"]) * num, den), None, m.group(0)))
+        elif g["qname"]:  # the qualifier before the fraction is matched but is not part of the figure
+            num, den = _FRACTION_NAMES[g["qname"].casefold()]
+            out.append((m.start("qart"), m.end(), _fmt(num, den), None, text[m.start("qart"):m.end()]))
+        elif g["oname"]:
+            num, den = _FRACTION_NAMES[g["oname"].casefold()]
+            out.append((m.start(), m.end(), _fmt(num, den), None, m.group(0)))
+        elif g["hnum"] or g["lnum"]:
+            out.append((m.start(), m.end(), _fmt(_small_value(g["hnum"] or g["lnum"])), None, m.group(0)))
+    return out
+
+
+def _words_as_digits(text: str) -> str:
+    """``text`` with its figures written in words rewritten as digits ("close to a million" -> "close to 1 million",
+    "roughly a tenth" -> "roughly 0.1"), so the pairing and dating readers see them as figures."""
+    figs = _word_figures(text)
+    if not figs:
+        return text
+    out, cursor = [], 0
+    for start, end, mantissa, scale, _surface in figs:
+        out.append(text[cursor:start])
+        out.append(mantissa + (f" {scale}" if scale else ""))
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out)
 
 # --- figure pairing (INT-LEDGER-023, the swapped-figure case) -------------------------------------------------------
 #: Tokens of a clause: a numeral (thousands separators already removed), a word (apostrophes and hyphens inside), or a
 #: clause-breaking punctuation mark.
-_PAIR_TOKEN_RE = re.compile(r"[,;:()]|\d+(?:\.\d+)?|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+_PAIR_TOKEN_RE = re.compile(r"[,;:()]|[.!?](?=\s|$)|\d+(?:\.\d+)?|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+#: Words a clause of nothing but a date is made of ("On 27 October", "in July 1932"): such a clause is not cut from its
+#: event by a comma ("On 27 October, the day ..., a second message added a demand").
+_DATE_WORDS = frozenset(("on in by of at from since until till during around about early late mid the end start beginning middle "
+                         "c circa ca").split()) | frozenset(_MONTHS)
 #: Conjunctions and relative pronouns that start a new clause: a figure is paired only with the words of its own clause.
 #: Prepositions that attach a date to its event ("in force since 24 October", "before 1933") are deliberately not here, nor is
 #: "and", which joins the items of one dated statement ("37.3 per cent and 230 seats in July 1932").
@@ -70,7 +176,9 @@ def light_stem(word: str) -> str:
 
 
 def _plain_for_pairs(text: str) -> str:
-    return _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
+    """The text the pairing readers work on: list markers and thousands separators removed, figures written in words
+    rewritten as digits (so "roughly a tenth" pairs like "about 13 per cent")."""
+    return _words_as_digits(_THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text)))
 
 
 def _is_numeral(tok: str) -> bool:
@@ -90,48 +198,78 @@ def _figure_kind(tokens: list[str], i: int) -> str:
     return "quantity"
 
 
+def _date_only(clause: list[str]) -> bool:
+    return bool(clause) and any(_is_numeral(t) for t in clause) and all(_is_numeral(t) or t.casefold() in _DATE_WORDS for t in clause)
+
+
 def _clauses(text: str) -> list[list[str]]:
-    """The clauses of ``text`` as token lists (numerals, words); punctuation and clause-breaking words split."""
-    out: list[list[str]] = []
+    """The clauses of ``text`` as token lists (numerals, words); sentence ends, punctuation and clause-breaking words
+    split. A clause that is nothing but a date and ends at a comma joins the clause that follows it ("On 27 October,
+    the day ..., a second message added"), and one that closes its sentence after a comma joins the clause before it
+    ("peaked at 6.1 million, in February 1932"): a comma alone never cuts a date from its event."""
+    segments: list[tuple[list[str], str]] = []  # (tokens, the separator that ended them)
     cur: list[str] = []
     for tok in _PAIR_TOKEN_RE.findall(_plain_for_pairs(text)):
-        if tok in ",;:()" or (not _is_numeral(tok) and tok.casefold() in _CLAUSE_BREAK_WORDS):
-            if cur:
-                out.append(cur)
+        if tok in ",;:().!?" or (not _is_numeral(tok) and tok.casefold() in _CLAUSE_BREAK_WORDS):
+            segments.append((cur, tok if tok in ",;:().!?" else "word"))
             cur = []
             continue
         cur.append(tok)
-    if cur:
-        out.append(cur)
+    segments.append((cur, "end"))
+    out: list[list[str]] = []
+    carry: list[str] = []
+    prev_sep = "end"
+    for tokens, sep in segments:
+        tokens = carry + tokens
+        carry = []
+        if not tokens:
+            prev_sep = sep
+            continue
+        if _date_only(tokens) and sep == ",":
+            carry = tokens  # a leading date: it belongs to the clause after the comma
+        elif _date_only(tokens) and prev_sep == "," and out and sep in (".", "!", "?", "end", ";"):
+            out[-1] = out[-1] + tokens  # a trailing date after a comma: it belongs to the clause before
+        else:
+            out.append(tokens)
+        prev_sep = sep
+    if carry:
+        out.append(carry)
     return out
 
 
 def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], dict[str, str]]:
     """``(pairs, kinds, surface)``: every ``(figure, partner)`` of ``text``, the kind of each figure, and the word each
     stemmed partner was first seen as. A partner is an event word within :data:`_WORD_WINDOW` tokens of the figure in
-    the same clause (light-stemmed, prefixed ``w:``) or another figure within :data:`_FIGURE_WINDOW` tokens (prefixed
-    ``f:``). Unit words and function words are not partners."""
+    the same clause (light-stemmed, prefixed ``w:``) that has no nearer figure of the same kind, or another figure within
+    :data:`_FIGURE_WINDOW` tokens (prefixed ``f:``). Unit words and function words are not partners."""
     pairs: set[tuple[str, str]] = set()
     kinds: dict[str, str] = {}
     surface: dict[str, str] = {}
     for clause in _clauses(text):
-        for i, tok in enumerate(clause):
-            if not _is_numeral(tok):
+        figs = [(i, tok, _figure_kind(clause, i)) for i, tok in enumerate(clause) if _is_numeral(tok)]
+        for i, tok, kind in figs:
+            kinds.setdefault(tok, kind)
+            for j, other, _k in figs:
+                if j != i and abs(i - j) <= _FIGURE_WINDOW:
+                    pairs.add((tok, "f:" + other))
+        for j, word in enumerate(clause):
+            if _is_numeral(word):
                 continue
-            kinds.setdefault(tok, _figure_kind(clause, i))
-            for j, other in enumerate(clause):
-                if j == i:
+            low = word.casefold()
+            if low in _PARTNER_STOP or len(low) < 3:
+                continue
+            key = "w:" + light_stem(low)
+            # An event word is the partner of the NEAREST figure of each kind within the window (ties: each), so in
+            # "announced on 22 October and in force from 24 October" 'force' belongs to 24, not to 22 as well.
+            for kind in {k for _i, _t, k in figs}:
+                near = [(abs(i - j), tok) for i, tok, k in figs if k == kind and abs(i - j) <= _WORD_WINDOW]
+                if not near:
                     continue
-                if _is_numeral(other):
-                    if abs(i - j) <= _FIGURE_WINDOW:
-                        pairs.add((tok, "f:" + other))
-                elif abs(i - j) <= _WORD_WINDOW:
-                    low = other.casefold()
-                    if low in _PARTNER_STOP or len(low) < 3:
-                        continue
-                    key = "w:" + light_stem(low)
-                    surface.setdefault(key, low)
-                    pairs.add((tok, key))
+                best = min(d for d, _t in near)
+                for d, tok in near:
+                    if d == best:
+                        surface.setdefault(key, low)
+                        pairs.add((tok, key))
     return pairs, kinds, surface
 
 
@@ -178,6 +316,40 @@ def _partner_figures(*partners: str) -> set[str]:
     return {p[2:] for p in partners if p.startswith("f:")}
 
 
+def _event_words(pairs: set[tuple[str, str]], fig: str) -> set[str]:
+    """The event words ``fig`` stands with (month names are part of a date, not an event)."""
+    return {q for b, q in pairs if b == fig and q.startswith("w:") and q[2:] not in _MONTH_STEMS}
+
+
+_MONTH_STEMS = frozenset(light_stem(m) for m in _MONTHS)
+
+
+def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[str, str]], kinds: dict[str, str], src_kinds: dict[str, str],
+                          src_figures: set[str], exchanged: set[str], surface: dict[str, str]) -> list[str]:
+    """A figure moved onto another figure's event, the other leg left out: the synthesis states figure A with event word
+    P, where the sources pair P only with figure B of the same kind (never with A), the synthesis does not state B with
+    P, and A has left every event the sources pair it with ("The turning point was 1932" where the sources say "The
+    turning point was 1930" and state 1932 as "the strongest counter-case"). A figure the sources state with no event
+    word, or one that keeps one of its own events, is a merge, not a re-pairing."""
+    moved: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    for a, p in sorted(syn_pairs):
+        if not p.startswith("w:") or p[2:] in _MONTH_STEMS or a not in src_figures or a in exchanged or (a, p) in src_pairs:
+            continue
+        holders = tuple(sorted({b for b, q in src_pairs if q == p and b != a and src_kinds.get(b) == kinds.get(a)}))
+        if not holders or any((b, p) in syn_pairs for b in holders):
+            continue
+        own = _event_words(src_pairs, a)
+        if not own or own & _event_words(syn_pairs, a):
+            continue
+        moved.setdefault((a, holders), []).append(p)
+    out: list[str] = []
+    for (a, holders), words in sorted(moved.items()):
+        shown = ", ".join(_partner_label(p, surface) for p in words)
+        own = ", ".join(_partner_label(p, surface) for p in sorted(_event_words(src_pairs, a)))
+        out.append(f"'{a}' is stated with {shown}, where the cited sources pair {shown} only with {', '.join(repr(b) for b in holders)} and state '{a}' with {own} (re-paired)")
+    return out
+
+
 def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
     """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
     tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
@@ -185,6 +357,8 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
 
     * an exchange: figure A stands with event word (or figure) P and figure B with Q, where the sources state B with P
       and A with Q (A and B of the same kind: years, days of a month, or quantities);
+    * a one-sided re-pairing: A stands with event word P, which the sources pair only with B, and A has left every
+      event the sources state it with (:func:`_one_sided_repairings`);
     * a dated quantity ``<q> ... in [<month>] <year>`` that the sources date to another month or year;
     * a ``from X to Y`` pair the sources state as ``from Y to X``.
 
@@ -219,12 +393,101 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
             exchanged |= {a, b}
             out.append(f"'{a}' is stated with {_partner_label(p, surface)} and '{b}' with {_partner_label(swapped[0], surface)}, "
                        f"where the cited sources state '{b}' with {_partner_label(p, surface)} and '{a}' with {_partner_label(swapped[0], surface)} (exchanged)")
+    out += _one_sided_repairings(syn_pairs, src_pairs, kinds, src_kinds, src_figures, exchanged, surface)
     out += _redated_quantities(synthesized_text, source_texts, exchanged, src_figures)
     src_from_to = set().union(*(_from_to_pairs(t) for t in source_texts)) if source_texts else set()
     for a, b in sorted(_from_to_pairs(synthesized_text)):
         if (a, b) not in src_from_to and (b, a) in src_from_to:
             out.append(f"'from {a} to {b}' reverses the cited sources' 'from {b} to {a}'")
+    return _with_word_labels(out, [synthesized_text, *source_texts])
+
+
+def _with_word_labels(descriptions: list[str], texts: list[str]) -> list[str]:
+    """Show a figure written in words as the words, with the value the readers compared ("'a tenth' (0.1)")."""
+    labels: dict[str, str] = {}
+    for t in texts:
+        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t)):
+            labels.setdefault(mantissa, " ".join(surface.split()))
+    if not labels:
+        return descriptions
+    out = []
+    for d in descriptions:
+        for value, words in labels.items():
+            d = d.replace(f"'{value}'", f"'{words}' ({value})")
+        out.append(d)
     return out
+
+
+# --- what a paraphrase says, beyond its figures (INT-LEDGER-025 / INT-LEDGER-026) ------------------------------------
+_RISE_WORDS = frozenset(("rose rise rises risen rising grew grow grows growing grown growth increase increased increases increasing climbed climb climbs "
+                         "climbing soared soar soaring doubled tripled trebled gained gain expanded expansion higher").split())
+_FALL_WORDS = frozenset(("fell fall falls fallen falling declined decline declines declining decreased decrease decreases decreasing dropped drop drops "
+                         "dropping shrank shrink shrunk slumped slump collapsed collapse halved lower contracted contraction reduced reduction").split())
+_NEGATORS = frozenset("not never no nor neither none nothing nobody nowhere cannot without".split())
+_WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+_APPROX_RE = re.compile(r"\b(?:about|around|roughly|approximately|nearly|almost|some|close to|c\.|circa|ca\.|more than|over|under|less than|just over|just under)\s+(\d+(?:\.\d+)?)(?!\.\d)", re.IGNORECASE)
+_EXACT_RE = re.compile(r"\b(exactly|precisely|fully|a full|an exact)\s+(\d+(?:\.\d+)?)(?!\.\d)", re.IGNORECASE)
+
+
+def _words(text: str) -> list[str]:
+    return [w.casefold() for w in _WORD_RE.findall(text)]
+
+
+def _negations(text: str) -> int:
+    return sum(1 for w in _words(text) if w in _NEGATORS or w.endswith(("n't", "n’t")))
+
+
+def meaning_differences(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
+    """How a synthesized claim says something other than its cited sources beyond its figures, as plain descriptions:
+    the direction of a change reversed (a fall where every source states a rise, or the reverse), the polarity changed
+    under an equivalence label (a negation dropped or added by a 'carried' or 'paraphrased' claim), and an approximate
+    figure of the sources stated as exact ("exactly 60" where a source says "roughly 60"). Lexical, not a proof: the
+    findings built on it are warnings."""
+    out: list[str] = []
+    syn_words = set(_words(synthesized_text))
+    src_words = set().union(*(set(_words(t)) for t in source_texts)) if source_texts else set()
+    syn_rise, syn_fall = bool(syn_words & _RISE_WORDS), bool(syn_words & _FALL_WORDS)
+    src_rise, src_fall = bool(src_words & _RISE_WORDS), bool(src_words & _FALL_WORDS)
+    if syn_fall and not syn_rise and src_rise and not src_fall:
+        out.append(f"it states a fall ({sorted(syn_words & _FALL_WORDS)}) where its cited sources state a rise ({sorted(src_words & _RISE_WORDS)})")
+    elif syn_rise and not syn_fall and src_fall and not src_rise:
+        out.append(f"it states a rise ({sorted(syn_words & _RISE_WORDS)}) where its cited sources state a fall ({sorted(src_words & _FALL_WORDS)})")
+    if transformation in _EQUIVALENCE_LABELS and source_texts:
+        syn_neg, src_neg = _negations(synthesized_text), sum(_negations(t) for t in source_texts)
+        if (syn_neg == 0) != (src_neg == 0):
+            out.append("it drops the negation its cited sources state" if syn_neg == 0 else "it adds a negation its cited sources do not state")
+    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_THOUSANDS_RE.sub("", t))}
+    exact = sorted({(m.group(1).casefold(), m.group(2)) for m in _EXACT_RE.finditer(_THOUSANDS_RE.sub("", synthesized_text)) if m.group(2) in approx}, key=lambda x: x[1])
+    for word, fig in exact:
+        out.append(f"it states '{word} {fig}' where its cited sources give {fig} as an approximate figure")
+    return out
+
+
+def _quotation_corpus(reports: list[SpecialistReport], known: list[ClaimRecord], extra_texts: tuple[str, ...]) -> list[str]:
+    texts: list[str] = [c.claim_text for c in known]
+    seen: set[str] = set()
+    for r in reports:
+        for t in [r.original_response, *(x.text for x in r.supplied_texts)]:
+            if t not in seen:
+                seen.add(t)
+                texts.append(t)
+    texts += [t for t in extra_texts if t and t not in seen]
+    return texts
+
+
+def unlocated_quotations(text: str, corpus: list[str]) -> list[str]:
+    """The quotations of ``text`` whose words occur, in any recognised form (exact, normalised, elided, a form difference,
+    a long elision), in none of ``corpus``: invented or altered quotations."""
+    from ..adapters.markdown import find_quotation_spans
+    from ..translate.grounding import locate_long_elision, locate_quotation, locate_quotation_inexact
+    out: list[str] = []
+    for _s, _e, inner in find_quotation_spans(text):
+        q = inner.strip().strip(".,;:!?").strip()
+        if not q or not re.search(r"[^\W\d_]", q):
+            continue
+        if not any(locate_quotation(q, t) is not None or locate_quotation_inexact(q, t) is not None or locate_long_elision(q, t) is not None for t in corpus):
+            out.append(q)
+    return list(dict.fromkeys(out))
 
 
 def meaningful(text: Optional[str]) -> bool:
@@ -242,13 +505,81 @@ def _norm(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def figure_tokens(text: str) -> set[str]:
-    """The numerals (thousands separators removed) and month-year tokens of ``text``, the
-    units of a figure/date fidelity comparison between a synthesized claim and its sources."""
+#: A scale word right after a figure ("6.1 million"): part of the figure, so "6.1 billion" is not "6.1 million".
+_SCALE_AFTER_RE = re.compile(r"\s*(thousand|million|billion|trillion)s?\b", re.IGNORECASE)
+
+
+class _Figure:
+    """One figure or date of a text: ``keys`` are its equivalent spellings (the numeral; with a scale word also
+    "<numeral> <scale>" and the scaled value, so "a million" meets "1 million" and "1,000,000"), ``mantissa`` and
+    ``scale`` its parts, ``label`` how a finding shows it (the numeral, a month-year, or the words as written)."""
+    __slots__ = ("keys", "mantissa", "scale", "label")
+
+    def __init__(self, mantissa: str, scale: Optional[str], label: str, extra: tuple[str, ...] = ()) -> None:
+        from fractions import Fraction
+        keys = {mantissa, *extra}
+        if scale:
+            keys.add(f"{mantissa} {scale}")
+            try:
+                v = Fraction(mantissa) * _SCALES[scale]
+                keys.add(_fmt(v.numerator, v.denominator))
+            except (ValueError, ZeroDivisionError):
+                pass
+        self.keys = frozenset(keys)
+        self.mantissa = mantissa
+        self.scale = scale
+        self.label = label
+
+
+def _figures(text: str) -> list[_Figure]:
+    """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
+    figures written in words (:func:`_word_figures`), and month-year dates."""
     plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
-    tokens = {m.group(0) for m in _FIGURE_RE.finditer(plain)}
-    tokens |= {f"{m.group(1).casefold()} {m.group(2)}" for m in _MONTH_YEAR_RE.finditer(plain)}
-    return tokens
+    out: list[_Figure] = []
+    masked = plain
+    for start, end, mantissa, scale, surface in _word_figures(plain):
+        out.append(_Figure(mantissa, scale, " ".join(surface.split())))
+        masked = masked[:start] + " " * (end - start) + masked[end:]
+    for m in _FIGURE_RE.finditer(masked):
+        sc = _SCALE_AFTER_RE.match(masked, m.end())
+        out.append(_Figure(m.group(0), sc.group(1).casefold() if sc else None, m.group(0)))
+    out += [_Figure(f"{m.group(1).casefold()} {m.group(2)}", None, f"{m.group(1).casefold()} {m.group(2)}") for m in _MONTH_YEAR_RE.finditer(plain)]
+    return out
+
+
+def figure_spellings(text: str) -> list[tuple[str, frozenset[str]]]:
+    """``(label, spellings)`` for every figure and date of ``text`` (digits, words, scale words, month-years): two figures
+    are the same when their spellings meet ("a million", "1 million" and "1,000,000")."""
+    return [(f.label, f.keys) for f in _figures(text)]
+
+
+def figure_tokens(text: str) -> set[str]:
+    """The figures of ``text`` as tokens, the units of a figure/date fidelity comparison between a synthesized claim and
+    its sources: numerals (thousands separators removed), month-year tokens, and figures written in words as their value
+    ("two million" -> "2", "a tenth" -> "0.1")."""
+    return {f.mantissa for f in _figures(text)}
+
+
+def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """``(introduced, dropped, rescaled)``: the synthesized claim's figures that occur in no source under any spelling,
+    the sources' figures the claim does not state, and the claim's figures whose scale word differs from every scale the
+    sources state that numeral with ("6.1 billion" where the sources say "6.1 million"; a numeral the sources state
+    without a scale word is not held to one, since "from 1.9 to 6.1 million" elides the first figure's scale)."""
+    syn = _figures(synthesized_text)
+    src = [f for t in source_texts for f in _figures(t)]
+    src_keys = set().union(*(f.keys for f in src)) if src else set()
+    syn_keys = set().union(*(f.keys for f in syn)) if syn else set()
+    introduced = _sorted_tokens({f.label for f in syn if not (f.keys & src_keys)})
+    dropped = _sorted_tokens({f.label for f in src if not (f.keys & syn_keys)})
+    rescaled: list[str] = []
+    for f in syn:
+        if not f.scale or not (f.keys & src_keys) or (f.keys - {f.mantissa}) & src_keys:
+            continue
+        scales = sorted({g.scale for g in src if g.mantissa == f.mantissa and g.scale})
+        if scales and f.scale not in scales:
+            shown = f.label if f.label != f.mantissa else f"{f.mantissa} {f.scale}"
+            rescaled.append(f"'{shown}' where the cited sources state {f.mantissa} {' or '.join(scales)} (a changed scale word)")
+    return introduced, dropped, sorted(set(rescaled))
 
 
 def _sorted_tokens(tokens: set[str]) -> list[str]:
@@ -290,7 +621,9 @@ def _source_index(reports: list[SpecialistReport], colliding: set[str]) -> tuple
     return idx, report_of
 
 
-def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis) -> list[IntegrityFinding]:
+def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
+    """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
+    quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
     f: list[IntegrityFinding] = []
     sid = [synthesis.synthesis_id]
     report_ids = {r.report_id for r in reports}
@@ -339,23 +672,29 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         altered = sorted({c.claim_id for c in known for r in c.source_refs if (r.document_id, r.locator) in have and r.excerpt and have[(r.document_id, r.locator)].excerpt and _norm(r.excerpt) != _norm(have[(r.document_id, r.locator)].excerpt)})
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
-        source_figures = set().union(*(figure_tokens(c.claim_text) for c in known))
-        synthesized_figures = figure_tokens(sc.text)
-        introduced = _sorted_tokens(synthesized_figures - source_figures)
+        introduced, dropped_figures, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
         repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known])
-        if introduced or repaired:
-            # One finding per synthesized claim: the figures no source states, and the figures every source states but
-            # with another event (a swap passes a token-set comparison, so the pairing is compared too).
+        if introduced or rescaled or repaired:
+            # One finding per synthesized claim: the figures no source states, the figures stated with another scale word,
+            # and the figures every source states but with another event (a swap passes a token-set comparison, so the
+            # pairing is compared too). Figures written in words count like figures in digits.
             parts: list[str] = []
             if introduced:
                 parts.append(f"states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date")
+            if rescaled:
+                parts.append(f"changes the scale of figures of its cited sources {known_ids}: " + "; ".join(rescaled))
             if repaired:
                 parts.append(f"re-pairs figures or dates between events relative to its cited sources {known_ids}: " + "; ".join(repaired))
             f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') " + ", and ".join(parts) + ", whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        if sc.transformation in _EQUIVALENCE_LABELS:
-            dropped_figures = _sorted_tokens(source_figures - synthesized_figures)
-            if dropped_figures:
-                f.append(IntegrityFinding(code="INT-LEDGER-024", severity="warning", message=f"figures or dates {dropped_figures} of the cited sources {known_ids} do not appear in the '{sc.transformation}' synthesized claim; content was dropped under an equivalence label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        invented = unlocated_quotations(sc.text, _quotation_corpus(reports, known, tuple(extra_texts)))
+        if invented:
+            f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') quotes {[q[:80] for q in invented[:8]]}, which occur in none of the supplied texts, the cited reports or its cited source claims {known_ids}: an altered or invented quotation", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        changed_meaning = meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
+        if changed_meaning:
+            f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):
+            how = "content was dropped under an equivalence label" if sc.transformation in _EQUIVALENCE_LABELS else "the dated or quantified content of those sources was left out of the combined claim"
+            f.append(IntegrityFinding(code="INT-LEDGER-024", severity="warning", message=f"figures or dates {dropped_figures} of the cited sources {known_ids} do not appear in the '{sc.transformation}' synthesized claim; {how}", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if sc.transformation == "carried":
             if len(known) != 1 or len(sc.source_claim_ids) != 1:
                 f.append(IntegrityFinding(code="INT-LEDGER-010", severity="warning", message=f"claim marked 'carried' cites {len(sc.source_claim_ids)} sources; 'carried' requires exactly one source with identical text, use 'merged'", claim_ids=[sc.claim_id] + known_ids))

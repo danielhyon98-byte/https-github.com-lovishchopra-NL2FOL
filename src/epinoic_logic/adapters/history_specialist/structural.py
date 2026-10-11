@@ -16,6 +16,12 @@ nowhere is an error, and both name the excerpt and the documents searched.
 pack's formal chronology check (``history_specialist.chronology``), with the paragraph
 as context for a day-month date whose year the sentence does not state.
 
+``HI-STR-003`` (opens with evidence rather than a claim) is decided from the parsed role of
+the paragraph's first claim that is not a note: evidence or counter evidence opens with
+evidence; the positional point does only when the parser's own predicate
+(``parser.opens_with_fact``) reads it as a bare dated fact, and the finding says so, so the
+finding never contradicts a point that makes a claim ('a major but partial cause of ...').
+
 ``HI-STR-001`` (no judgement move) is decided from the parsed roles first: a paragraph
 with a judgement-role claim that states its criterion (``by the criteria of``, ``weighed
 by``), or a counter-case (role ``counter_evidence`` or a counter cue) together with a
@@ -31,7 +37,7 @@ from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import check_claim_sources
 from ..markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE
 from .chronology import chronology_relations
-from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, split_sentences
+from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, opens_with_fact, split_sentences
 
 # Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
 _NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
@@ -59,6 +65,25 @@ def judgement_move_present(paragraph: str, roles: list[str]) -> bool:
     if ("judgement" in roles and criterion) or (counter and verdict):
         return True
     return any(k in low for k in _JUDGEMENT_MOVE_WORDS)
+
+
+def _opening(first_sentence: str, para_claims: list) -> tuple[bool, list[str], str]:
+    """HI-STR-003 from the parsed role of the paragraph's first claim (notes aside), so the finding and
+    the role always agree: ``(opens with evidence, claim ids, how)``. An evidence or counter-evidence
+    opening is evidence; a judgement, thesis or link opening is a claim; the point, which the parser
+    takes by position, is a claim unless the parser's own predicate (``parser.opens_with_fact``) reads
+    it as a bare dated fact with no causal or evaluative word ('The sonnet was printed in January
+    1818.'); 'The Treaty of Versailles was a major but partial cause of ...' is a claim. Only when no
+    claim of the report stands in the paragraph (a structured report from another parser) is the
+    first sentence read alone."""
+    first = next((c for c in para_claims if c.claim_role != "other"), None)
+    if first is None:
+        return opens_with_fact(first_sentence), [], "its first sentence states a dated fact with no claim"
+    if first.claim_role in ("evidence", "counter_evidence"):
+        return True, [first.claim_id], f"its first claim is roled {first.claim_role}"
+    if first.claim_role == "point" and opens_with_fact(first.claim_text):
+        return True, [first.claim_id], "its first sentence, the paragraph's point by position, states a dated fact with no causal or evaluative word"
+    return False, [first.claim_id], ""
 
 
 def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
@@ -100,8 +125,9 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
             f.append(StructuralFinding(code="HI-STR-001", severity="warning", message=f"body paragraph {pi + 1} has no judgement move (counter-case weighed by a criterion)", claim_ids=ids, rule_source=_RULE.format("structures.md P9")))
         if sum(1 for s in sents if has_dated_item(s)) < 2:
             f.append(StructuralFinding(code="HI-STR-002", severity="info", message=f"body paragraph {pi + 1} has fewer than two dated or figured items", claim_ids=ids, rule_source=_RULE.format("structures.md P7")))
-        if sents and has_dated_item(sents[0]) and not re.search(r"\b(responsible|because|caused|led|made|turned|created)\b", sents[0], re.IGNORECASE):
-            f.append(StructuralFinding(code="HI-STR-003", severity="info", message=f"body paragraph {pi + 1} opens with evidence rather than a claim", claim_ids=ids[:1], rule_source=_RULE.format("structures.md P6")))
+        evidence_first, first_ids, how = _opening(sents[0], para_claims) if sents else (False, [], "")
+        if evidence_first:
+            f.append(StructuralFinding(code="HI-STR-003", severity="info", message=f"body paragraph {pi + 1} opens with evidence rather than a claim: {how}", claim_ids=first_ids or ids[:1], rule_source=_RULE.format("structures.md P6")))
         for s in sents:
             # The same extractor decides the core pack's formal chronology check, so the proxy and the engine agree.
             for rel in chronology_relations(s, para):

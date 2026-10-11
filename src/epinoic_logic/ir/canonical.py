@@ -35,7 +35,9 @@ def canonical_json(obj: Any) -> str:
 
 
 def sha256_hex(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    """sha256 of ``text`` as UTF-8; a lone surrogate is encoded with ``surrogatepass`` so a digest never raises (valid
+    text hashes exactly as before)."""
+    return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 def problem_digest(problem: BaseModel) -> str:

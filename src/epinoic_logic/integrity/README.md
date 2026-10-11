@@ -21,7 +21,9 @@ Overseer's report and the synthesis receipt apply one rule.
 
 ## Findings
 
-`IntegrityFinding` has one code per fault and one severity per code. Besides `message`
+`IntegrityFinding` has one code per fault and one severity per code (one exception: INT-CONFLICT-005 is a warning
+when the self-refuting formalization is the assumed reading of an AMBIGUOUS_TRANSLATION, an error otherwise; only the
+channel, which knows the translation status, emits the warning). Besides `message`
 (prose, truncated to 2000 characters) it carries the structured identifiers:
 `claim_ids`, `message_ids`, `report_ids`, `agent_ids`, `document_ids`,
 `formal_result_id` (the signed engine result that established a formal finding) and
@@ -34,8 +36,8 @@ emits from `run_integrity_checks`.
 | Envelope (`envelope.py`) | replayed, re-headed or tampered messages; unsigned/forged envelopes; role impersonation; replies from the wrong party or across request/task boundaries; messages for another request | deterministic (payload hash, envelope digest, HMAC signature, message log) |
 | Handoff (`handoff.py`) | a specialist answering the wrong task, an agent the router never selected, a selected agent that never reported, off-subject / wrong-level / wrong-type reports (the type planned for that agent, `agent_task_types`), wrong-task claims hidden inside a right-task report, citations outside the retrieval scope (reports, combinator and formalizations), late reports, unparseable timestamps, self-reported status | deterministic; timestamps compared as instants |
 | Staleness (`handoff.py`) | a result reused for a changed representation, another configuration or other component versions; unsigned, forged or unverifiable results; inconsistent bindings; duplicate result ids; formalizations or results for claims no report contains | digest and signature comparison |
-| Ledger (`ledger.py`) | material claims dropped without a meaningful record, orphaned synthesized claims, certainty inflated above the weakest source, evidence lost under any transformation, figures or dates that occur in none of the cited sources or that are swapped between events (and source figures dropped under an equivalence label), 'carried' claims whose text changed, ledger entries pointing nowhere, id collisions between reports and between the source and synthesis namespaces, student-facing text diverging from the ledger, conflicts "resolved" without a basis | deterministic accounting (token sets and figure pairing) |
-| Cross-report consistency (`cross_check.py`) | specialists contradicting each other under a shared glossary; a specialist claim refuting itself; glossary sort and meaning clashes; contradictions not disclosed in the synthesis | Z3 joint consistency; conflicting claims named from the unsat core through an alias table |
+| Ledger (`ledger.py`) | material claims dropped without a meaningful record, orphaned synthesized claims, certainty inflated above the weakest source, evidence lost under any transformation, figures or dates (digits, words, scale words) that occur in none of the cited sources, carry another scale word, or are swapped or re-paired between events (and source figures dropped under an equivalence label or left out of a merge), quotations in a synthesized claim that occur in no supplied text or cited report, a reversed direction, a dropped negation or an approximate figure made exact, 'carried' claims whose text changed, ledger entries pointing nowhere, id collisions between reports and between the source and synthesis namespaces, student-facing text diverging from the ledger, conflicts "resolved" without a basis | deterministic accounting (figure sets, figure pairing, quotation location, lexical comparison) |
+| Cross-report consistency (`cross_check.py`) | specialists contradicting each other under a shared glossary; a specialist claim refuting itself; glossary sort and meaning clashes; contradictions not disclosed in the synthesis | Z3 joint consistency; conflicting claims named claim-minimally (each claim of a core checked alone, the core minimised over claims by deletion) through an alias table |
 | Synthesis entailment (`cross_check.py`) | the combinator stating more than the sources support, a synthesis that follows only through unverified inferences or through unproven specialist conclusions, paraphrases weaker than their source, partial formal coverage, invalid synthesized conclusions, required checks not performed | Z3 entailment of the synthesized conclusion from the union of source premises, re-run without ungrounded premises; reverse entailment for paraphrases |
 
 ## Finding codes
@@ -104,13 +106,15 @@ emits from `run_integrity_checks`.
 | INT-LEDGER-020 | warning | evidence excerpt differs from the source's under the same (document, locator) |
 | INT-LEDGER-021 | warning | material sources became a 'supporting' synthesized claim |
 | INT-LEDGER-022 | info | supporting source claim neither carried, transformed nor recorded as dropped; a claim roled `other` (a from-memory label, a self-report, a task note) is not content and is not counted |
-| INT-LEDGER-023 | error | a synthesized claim states figures or dates (numerals, thousands separators removed; month-year tokens) that occur in none of its cited sources, or re-pairs figures or dates between events relative to its cited sources (`figure_pairing_differences`: two same-kind figures exchanged between their event words, a quantity dated to another month or year, a `from X to Y` reversed), whatever the transformation label: a changed, introduced or swapped figure or date. One finding per synthesized claim, naming both kinds |
-| INT-LEDGER-024 | warning | figures or dates of the cited sources do not appear in a 'carried' or 'paraphrased' synthesized claim: content dropped under an equivalence label |
-| INT-CONFLICT-001 | error | specialist claims contradict each other (two or more claims named from the core) |
+| INT-LEDGER-023 | error | a synthesized claim states figures or dates (numerals, thousands separators removed; figures written in words: "a million", "two million", "half a million", "two hundred and sixty", "thirteen per cent", "two-thirds", "a tenth" after a qualifier or before "of"; month-year tokens) that occur in none of its cited sources under any spelling ("a million" meets "1 million" and "1,000,000"), states a source's numeral with another scale word ("6.1 billion" where the sources say "6.1 million"; a numeral the sources state without a scale word is not held to one), or re-pairs figures or dates between events relative to its cited sources (`figure_pairing_differences`: two same-kind figures exchanged between their event words, a figure moved onto an event the sources pair only with another figure while it left every event of its own, a quantity dated to another month or year, a `from X to Y` reversed), whatever the transformation label: a changed, introduced, rescaled, swapped or re-paired figure or date. One finding per synthesized claim, naming every kind |
+| INT-LEDGER-024 | warning | figures or dates of the cited sources do not appear in a 'carried' or 'paraphrased' synthesized claim (content dropped under an equivalence label), or in a 'merged' or 'generalized' one (content of the sources left out of the combined claim; 'narrowed' removes content by definition and is exempt) |
+| INT-LEDGER-025 | error | a quotation in a synthesized claim occurs, in no recognised form (exact, normalised, elided, a form difference, a long elision), in any supplied text of the reports in scope, any of their responses, its cited source claims or (on the channel) the requests' texts: an altered or invented quotation |
+| INT-LEDGER-026 | warning | a synthesized claim may say something other than its cited sources, by a lexical comparison: a fall where every source states a rise (or the reverse), a negation dropped or added under 'carried' / 'paraphrased', or a figure the sources give as approximate ("roughly 60") stated as exact ("exactly 60"); not formally checked |
+| INT-CONFLICT-001 | error | specialist claims contradict each other: a claim-minimal set of two or more claims, each of which the contradiction needs (each claim of the unsat core is first checked alone; the set is minimised by deletion, in claim-id order, up to 16 claims; a larger core is named as found and says so). Once named, the set is set aside and the rest re-checked, so one contradiction never hides another (at most 8 per check) |
 | INT-CONFLICT-002 | error | formal contradiction not disclosed: no conflict record names at least two of the conflicting claims, and the records together do not name them all (synthesized ids are mapped to their sources). Raised by `run_integrity_checks` and, on the channel, on a synthesis receipt after a joint check over the formalized claims in the ledger scope plus the contradictions already named on the channel |
 | INT-CONFLICT-003 | error | conflict marked resolved without a meaningful basis |
 | INT-CONFLICT-004 | warning | joint consistency undecided (timeout/unknown) or contradiction unattributable |
-| INT-CONFLICT-005 | error | one specialist claim is internally inconsistent (its own assertions refute each other); no disclosure demanded |
+| INT-CONFLICT-005 | error / warning | one specialist claim is internally inconsistent (its own assertions, its pooled conclusion included, refute each other), found whether the unsat core used its own premises or another claim's identical copies; its self-refuting conclusion (or the whole claim, when its premises alone conflict) is set aside and the rest re-checked. No disclosure demanded. A warning when the claim's formalization is the assumed reading of an AMBIGUOUS_TRANSLATION (`assumed_readings`, passed by the channel): the refutation is the translator's reading, not the specialist's statement |
 | INT-GLOSSARY-001 | error | symbol declared with different sorts in two claims (both named); joint check withheld |
 | INT-GLOSSARY-002 | info | no formalized claims to cross-check |
 | INT-GLOSSARY-003 | error | synthesized conclusion uses a symbol no source defines |
@@ -129,7 +133,7 @@ emits from `run_integrity_checks`.
 | INT-SYNTH-009 | warning | not entailed by the formalized subset of the cited sources (some sources unformalized) |
 | INT-SYNTH-010 | error | synthesized conclusion is not a valid formalization (e.g. mixes Int and Real) |
 | INT-SYNTH-011 | info | partial formal coverage: k of n cited sources formalized |
-| INT-SYNTH-012 | warning | material narrowed/paraphrased claim without a formal conclusion |
+| INT-SYNTH-012 | warning | material narrowed/paraphrased claim without a formal conclusion (also raised on the channel's synthesis receipt when no formal conclusion was checked there) |
 | INT-INTERNAL-001 | error | an integrity check failed internally; its findings are missing |
 
 ## Design notes
@@ -159,8 +163,18 @@ always requested whatever the caller's `SolverConfig` says.
 
 **Disclosure.** A contradiction counts as disclosed only when some conflict record names at
 least two of the conflicting claims and the qualifying records together name them all;
-synthesized ids in a record stand for their `source_claim_ids`. A single-claim core is
+synthesized ids in a record stand for their `source_claim_ids`. A self-refuting claim is
 INT-CONFLICT-005 and demands no disclosure (a `ConflictRecord` needs two distinct ids).
+
+**Claim-minimal attribution.** An unsat core is a set of assertions, and two claims may carry
+identical premises (one report restating its figures in two claims), so the core can use an
+innocent claim's copies: the r4 hi-t8 point h1.1 was once named in a conflict that lived wholly
+inside h1.5. `check_cross_report_consistency` (and the entailment path) therefore checks each
+claim of a core of several claims alone; a claim that refutes itself is INT-CONFLICT-005 and its
+self-refuting conclusion is set aside before the rest is re-checked; a contradiction that remains
+is minimised over claims by deletion, so INT-CONFLICT-001 names a claim only when the
+contradiction needs it, whatever the pooling order. The extra engine runs are cited in each
+finding's `related_result_ids` (and `run_integrity_checks` lists them in `formal_result_ids`).
 
 **Envelopes.** `payload_sha256` is integrity only: a consistently forged envelope passes
 it. Authenticity comes from `sign_message`/`verify_message` (HMAC over the canonical
@@ -175,17 +189,25 @@ them keeps the digest it always had (`plan_digest` omits empty mappings).
 
 **Figure pairing.** A combinator that swaps two dates or two figures between events uses the same
 tokens as its sources, so INT-LEDGER-023 compares the pairing as well as the token set
-(`figure_pairing_differences`). Each figure of a clause (punctuation and the subordinating words
-split clauses; "and" does not, since it joins the items of one dated statement) is paired with the
-event words within four tokens (light-stemmed; unit and function words excluded) and the figures
-within four tokens. Three shapes are decided on the sources' own statements: an exchange (A stands
-with P and B with Q where the sources state B with P and A with Q; A and B of one kind: years, days
-of a month, or quantities, so a seat count is never "exchanged" with the year it was won), a dated
-quantity (`<q> ... in [<month>] <year>`) the sources date to another month or year, compared at the
-resolution both sides state, and a `from X to Y` the sources state reversed. A new pairing the
-sources do not contradict (a merge dating one source's figure with another's year) is not a swap
-and is not reported. `light_stem` (-s, -es, -ed, -ing, then a trailing e) is shared with the
-channel's request-echo test.
+(`figure_pairing_differences`). Figures written in words are read as digits first ("roughly a
+tenth" pairs like "about 13 per cent"; findings show the words with the value compared). Each
+figure of a clause (sentence ends, punctuation and the subordinating words split clauses; "and"
+does not, since it joins the items of one dated statement; a clause that is nothing but a date is
+not cut from its event by a comma: "On 27 October, the day ..., a second message added" keeps 27
+with its event) is paired with the figures within four tokens and with the event words within four
+tokens that have no nearer figure of the same kind ("announced on 22 October and in force from 24
+October": 'force' belongs to 24 only), light-stemmed, unit and function words excluded. Four shapes
+are decided on the sources' own statements: an exchange (A stands with P and B with Q where the
+sources state B with P and A with Q; A and B of one kind: years, days of a month, or quantities, so
+a seat count is never "exchanged" with the year it was won), a one-sided re-pairing (A stands with
+P, which the sources pair only with B, the synthesis does not state B with P, and A has left every
+event the sources state it with: "The turning point was 1932" where the sources say 1930 and state
+1932 as the counter-case), a dated quantity (`<q> ... in [<month>] <year>`) the sources date to
+another month or year, compared at the resolution both sides state, and a `from X to Y` the sources
+state reversed. A new pairing the sources do not contradict (a merge dating one source's figure
+with another's year; a figure the sources state with no event word) is not reported.
+`light_stem` (-s, -es, -ed, -ing, then a trailing e) is shared with the channel's request-echo and
+coverage tests.
 
 **Scope.** `WorkPlan.allowed_document_ids` empty means unrestricted. When set, it applies to
 report claims and supplied texts, to synthesized `evidence_refs`, and to the

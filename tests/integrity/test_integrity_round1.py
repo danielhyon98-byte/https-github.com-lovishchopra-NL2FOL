@@ -75,6 +75,15 @@ def phys(claim_id, speed, *, request_id=REQ, extra_symbols=(), extra_premises=()
         "conclusion": {"id": "C", "expr": cmp("eq", V("v"), R(speed))}})
 
 
+def phys_other_distance(claim_id, speed, distance=128):
+    """A claim consistent on its own (its own distance gives its own speed) that contradicts ``phys(..., 15)`` only through
+    the shared distance ``d``: a genuine two-claim contradiction. ``phys(..., 16)`` is not one, since its own premises
+    (d = 120, v = d/8) already refute its conclusion v = 16 (round 4: claim-minimal attribution names it alone)."""
+    data = phys(claim_id, speed).model_dump(mode="json", exclude_none=True)
+    data["premises"] = [{**a, "expr": cmp("eq", V("d"), R(distance))} if a["id"] == "D" else a for a in data["premises"]]
+    return Problem.model_validate(data)
+
+
 def two_reports():
     p = report("physics-specialist", "Physics", [
         dict(claim_id="ph-1", claim_text="The speed is 15 m/s and the motion is uniform.", claim_role="quantitative", certainty="established", source_refs=[DOC]),
@@ -100,9 +109,19 @@ def msg(message_id, payload, **over):
 def test_any_contract_claim_id_is_pooled_and_mapped_exactly(cid_a, cid_b):
     p = report("physics-specialist", "Physics", [dict(claim_id=cid_a, claim_text="The speed is 15 m/s.", claim_role="quantitative", source_refs=[DOC])])
     m = report("maths-specialist", "Physics", [dict(claim_id=cid_b, claim_text="The speed is 16 m/s.", claim_role="quantitative", source_refs=[DOC])])
-    formalized = {cid_a: phys(cid_a, 15), cid_b: phys(cid_b, 16)}
     syn = synthesis([carried("s-1", "The speed is 15 m/s.", cid_a)], ledger=[drop(cid_b, reason="duplicate arithmetic")],
                     conflicts=[ConflictRecord(conflict_id="cf", claim_ids=[cid_a, cid_b], description="speeds differ")])
+    # Round 4 (stricter than the pinned rule it replaces): cid_b's own premises refute its conclusion, so the claim-minimal
+    # attribution names cid_b ALONE (INT-CONFLICT-005), mapped exactly through the alias table, and never the innocent cid_a.
+    formalized = {cid_a: phys(cid_a, 15), cid_b: phys(cid_b, 16)}
+    rep = run_integrity_checks(plan(), [p, m], syn, formalized, {"s-1": Assertion(id="S1", expr=cmp("eq", V("v"), R(16)))}, signing_key=KEY, config=CFG)
+    c5 = by_code(rep.findings, "INT-CONFLICT-005")
+    assert c5 and c5[0].claim_ids == [cid_b] and c5[0].formal_result_id in rep.formal_result_ids
+    assert "INT-CONFLICT-001" not in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
+    assert any(f.code == "INT-SYNTH-001" and f.claim_ids[0] == "s-1" for f in rep.findings)
+    assert "INT-GLOSSARY-004" not in codes(rep.findings)
+    # a genuine two-claim contradiction (each claim consistent alone) is INT-CONFLICT-001 naming both, mapped exactly
+    formalized = {cid_a: phys(cid_a, 15), cid_b: phys_other_distance(cid_b, 16)}
     rep = run_integrity_checks(plan(), [p, m], syn, formalized, {"s-1": Assertion(id="S1", expr=cmp("eq", V("v"), R(16)))}, signing_key=KEY, config=CFG)
     c1 = by_code(rep.findings, "INT-CONFLICT-001")
     assert c1 and set(c1[0].claim_ids) == {cid_a, cid_b} and c1[0].formal_result_id in rep.formal_result_ids
@@ -135,23 +154,31 @@ def test_glossary_004_names_the_claims_when_the_joint_problem_cannot_be_built():
 # ------------------------------------------------------------------ disclosure of contradictions (blocker)
 def test_decoy_conflict_record_does_not_count_as_disclosure():
     p, m = two_reports()
-    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys("ma-1", 16)}
     syn = synthesis([carried("s-1", "The speed is 15 m/s and the motion is uniform.", "ph-1")], ledger=[drop("ma-1", "ph-2", "ph-3")],
                     conflicts=[ConflictRecord(conflict_id="decoy", claim_ids=["ph-1", "ph-2"], description="significant figures")])
+    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys_other_distance("ma-1", 16)}  # a genuine two-claim contradiction
     rep = run_integrity_checks(plan(), [p, m], syn, formalized, signing_key=KEY, config=CFG)
     c2 = by_code(rep.findings, "INT-CONFLICT-002")
     assert c2 and set(c2[0].claim_ids) == {"ph-1", "ma-1"} and c2[0].formal_result_id
+    # Round 4 (stricter): when ma-1 refutes itself (phys(..., 16)), the contradiction is ma-1's alone (INT-CONFLICT-005)
+    # and no disclosure of a conflict with the innocent ph-1 is demanded of the combinator.
+    rep = run_integrity_checks(plan(), [p, m], syn, {"ph-1": phys("ph-1", 15), "ma-1": phys("ma-1", 16)}, signing_key=KEY, config=CFG)
+    assert [f.claim_ids for f in by_code(rep.findings, "INT-CONFLICT-005")] == [["ma-1"]]
+    assert "INT-CONFLICT-001" not in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
     with pytest.raises(Exception):
         ConflictRecord(conflict_id="self", claim_ids=["ma-1", "ma-1"], description="n/a")
 
 
 def test_disclosure_through_synthesized_claim_ids_is_accepted():
     p, m = two_reports()
-    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys("ma-1", 16)}
+    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys_other_distance("ma-1", 16)}  # a genuine two-claim contradiction
     syn = synthesis([carried("s-1", "The speed is 15 m/s and the motion is uniform.", "ph-1"), carried("s-2", "120 divided by 8 equals 15.", "ma-1")], ledger=[drop("ph-2", "ph-3")],
                     conflicts=[ConflictRecord(conflict_id="cf", claim_ids=["s-1", "s-2"], description="the two computed speeds differ")])
     rep = run_integrity_checks(plan(), [p, m], syn, formalized, signing_key=KEY, config=CFG)
     assert "INT-CONFLICT-001" in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
+    # Round 4 (stricter): a self-refuting ma-1 (phys(..., 16)) is INT-CONFLICT-005 alone; no conflict naming ph-1
+    rep = run_integrity_checks(plan(), [p, m], syn, {"ph-1": phys("ph-1", 15), "ma-1": phys("ma-1", 16)}, signing_key=KEY, config=CFG)
+    assert [f.claim_ids for f in by_code(rep.findings, "INT-CONFLICT-005")] == [["ma-1"]] and "INT-CONFLICT-001" not in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
 
 
 def test_single_claim_core_is_internal_inconsistency_not_a_cross_specialist_conflict():
@@ -170,13 +197,17 @@ def test_undisclosed_contradiction_found_by_the_entailment_path_is_flagged():
     p, m = two_reports()
     third = report("physics-specialist", "Physics", [dict(claim_id="other", claim_text="v positive", claim_role="quantitative", source_refs=[DOC])], report_id="rep-third")
     other = Problem.model_validate({"problem_id": "x", "request_id": REQ, "claim_id": "other", "query": "consistency", "symbols": [{"name": "v", "sort": "Int"}], "premises": [{"id": "P", "expr": cmp("gt", V("v"), I(0))}]})
-    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys("ma-1", 16), "other": other}
+    formalized = {"ph-1": phys("ph-1", 15), "ma-1": phys_other_distance("ma-1", 16), "other": other}  # ph-1 and ma-1 genuinely contradict each other
     syn = synthesis([SynthesizedClaim(claim_id="s-1", text="The speed is 15 m/s.", source_claim_ids=["ph-1", "ma-1"], transformation="merged", evidence_refs=[DOC])],
                     ledger=[drop("other", "ph-2", "ph-3")], reports=("rep-physics-specialist", "rep-maths-specialist", "rep-third"))
     rep = run_integrity_checks(plan(), [p, m, third], syn, formalized, {"s-1": Assertion(id="S", expr=cmp("eq", V("v"), R(15)))}, signing_key=KEY, config=CFG)
     assert "INT-GLOSSARY-001" in codes(rep.findings)  # cross-report check withheld
     c2 = by_code(rep.findings, "INT-CONFLICT-002")
     assert c2 and set(c2[0].claim_ids) == {"ph-1", "ma-1"}
+    # Round 4 (stricter): on the entailment path too, a self-refuting ma-1 (phys(..., 16)) is named alone and demands no disclosure
+    rep = run_integrity_checks(plan(), [p, m, third], syn, {**formalized, "ma-1": phys("ma-1", 16)}, {"s-1": Assertion(id="S", expr=cmp("eq", V("v"), R(15)))}, signing_key=KEY, config=CFG)
+    assert [f.claim_ids for f in by_code(rep.findings, "INT-CONFLICT-005")] == [["s-1", "ma-1"]]
+    assert "INT-CONFLICT-001" not in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
 
 
 # ------------------------------------------------------------------ ledger accounting (blockers)
@@ -319,8 +350,11 @@ def test_non_verdict_statuses_name_the_responsible_party():
     big = [Problem.model_validate({"problem_id": f"b{i}", "request_id": REQ, "claim_id": f"b-{i}", "query": "consistency", "symbols": [{"name": f"s{i}_{j}", "sort": "Bool"} for j in range(11)], "premises": [{"id": "P", "expr": V(f"s{i}_0")}]}) for i in range(100)]
     res, f = check_cross_report_consistency(big, request_id=REQ, config=CFG)
     assert res is not None and codes(f) == ["INT-GLOSSARY-006"] and len(f[0].claim_ids) == 100 and "E300" in f[0].message
-    res, f = check_cross_report_consistency([phys("ph-1", 15), phys("ma-1", 16)], request_id=REQ, config=SolverConfig(timeout_ms=3000, memory_max_mb=None, produce_unsat_core=False))
+    res, f = check_cross_report_consistency([phys("ph-1", 15), phys_other_distance("ma-1", 16)], request_id=REQ, config=SolverConfig(timeout_ms=3000, memory_max_mb=None, produce_unsat_core=False))
     assert set(by_code(f, "INT-CONFLICT-001")[0].claim_ids) == {"ph-1", "ma-1"}, "cores are always requested"
+    # Round 4 (stricter): a self-refuting claim is attributed alone, also without the caller asking for cores
+    res, f = check_cross_report_consistency([phys("ph-1", 15), phys("ma-1", 16)], request_id=REQ, config=SolverConfig(timeout_ms=3000, memory_max_mb=None, produce_unsat_core=False))
+    assert codes(f) == ["INT-CONFLICT-005"] and f[0].claim_ids == ["ma-1"], "cores are always requested"
 
 
 def test_glossary_findings_name_both_parties():
