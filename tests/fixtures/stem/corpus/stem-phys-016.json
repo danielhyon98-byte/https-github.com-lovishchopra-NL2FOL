@@ -1,0 +1,30 @@
+{
+  "id": "stem-phys-016",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A current of 250 mA flows through a 12 Ω resistor. Calculate the potential difference across the resistor and the power dissipated in it.",
+  "supplied_texts": [],
+  "response_text": "Given: I = 250 mA = 2.5 A, R = 12 Ω.\n\nV = IR = 2.5 × 12 = 30 V\nP = I²R = 2.5² × 12 = 75 W\n\nThe resistor dissipates 75 W, which it transfers to the surroundings as thermal energy.",
+  "notation": [
+    "unicode",
+    "units_prefix",
+    "greek_symbols"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unit_conversion",
+        "step": "I = 250 mA = 2.5 A",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-cnv: 250 mA = 0.25 A exactly (factor 10⁻³); stated 2.5 A; tau = 0 and h(2.5) = 0.05. True V = 3.0 V and P = 0.75 W; the later arithmetic holds as written but carries the factor-of-ten slip. [computed: exact=0.25 stated=2.5 (in SI) h=0.05 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "R = 12 Ω",
+      "2.5 × 12 = 30 V",
+      "2.5² × 12 = 75 W"
+    ]
+  }
+}

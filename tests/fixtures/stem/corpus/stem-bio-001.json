@@ -1,0 +1,28 @@
+{
+  "id": "stem-bio-001",
+  "subject": "Biology",
+  "task_type": "short_answer",
+  "question": "A drawing of a cell is 25 mm long. The actual length of the cell is 50 µm. Calculate the magnification of the drawing.",
+  "supplied_texts": [],
+  "response_text": "Magnification = image size ÷ actual size, with both lengths in the same unit:\nimage size = 25 mm = 2500 µm\nmagnification = 2500 µm ÷ 50 µm = 50×\n\nThe drawing is fifty times larger than the cell.",
+  "notation": [
+    "unicode",
+    "units_prefix",
+    "magnification_suffix"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unit_conversion",
+        "step": "25 mm = 2500 µm",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-cnv: 1 mm = 1000 µm, so 25 mm = 25 000 µm exactly; stated 2500 µm; tau = 0. The true magnification is 500×; the division 2500 ÷ 50 = 50 holds as written but carries the factor of ten. [computed: exact=0.025 stated=0.0025 (in SI) h=5.000000e-05 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "2500 µm ÷ 50 µm = 50×"
+    ]
+  }
+}

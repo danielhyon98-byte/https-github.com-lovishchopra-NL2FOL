@@ -1,0 +1,22 @@
+{
+  "id": "stem-bio-005",
+  "subject": "Biology",
+  "task_type": "short_answer",
+  "question": "A trained athlete has a resting stroke volume of 90 cm³ and a resting heart rate of 50 beats per minute. Calculate the cardiac output in dm³ min⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Cardiac output = stroke volume × heart rate\nQ = 90 cm³ × 50 min⁻¹ = 4500 cm³ min⁻¹\n4500 cm³ min⁻¹ = 4.5 dm³ min⁻¹ (since 1 dm³ = 1000 cm³)\n\nA trained athlete pumps about 4.5 L of blood per minute at rest, from a large stroke volume and a low heart rate.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "Q = 90 cm³ × 50 min⁻¹ = 4500 cm³ min⁻¹",
+      "4500 cm³ min⁻¹ = 4.5 dm³ min⁻¹",
+      "1 dm³ = 1000 cm³",
+      "about 4.5 L of blood per minute"
+    ]
+  }
+}

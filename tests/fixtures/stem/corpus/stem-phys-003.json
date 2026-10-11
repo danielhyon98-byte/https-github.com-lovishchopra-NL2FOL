@@ -1,0 +1,30 @@
+{
+  "id": "stem-phys-003",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A car travelling at 25 m s⁻¹ brakes uniformly and stops in a distance of 50 m. Determine its acceleration.",
+  "supplied_texts": [],
+  "response_text": "Given: $u = 25\\ \\text{m s}^{-1}$, $v = 0$, $s = 50\\ \\text{m}$.\n\nStart from the suvat equation without time and rearrange for $a$:\n$$v^2 = u^2 + 2as \\;\\Rightarrow\\; a = \\frac{v^2 - u^2}{s}$$\nSubstituting the data:\n$$a = \\frac{0^2 - 25^2}{50} = -12.5\\ \\text{m s}^{-2}$$\nThe negative sign shows that the acceleration is opposite to the motion, so the car is slowing down.",
+  "notation": [
+    "latex_inline",
+    "latex_display",
+    "units_latex"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_rearrangement",
+        "step": "v^2 = u^2 + 2as \\;\\Rightarrow\\; a = \\frac{v^2 - u^2}{s}",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-alg: v^2 = u^2 + 2as gives a = (v^2 - u^2)/(2s); the factor 2 was dropped. A pure manipulation (a, u, v, s all occur in the premise), so error severity. Counterexample u = 25, v = 0, s = 50: the premise gives a = -6.25, the stated formula -12.5. The substitution and arithmetic that follow carry the wrong formula faithfully. [computed: premise a = -625/100 = -6.25, conclusion a = -625/50 = -12.5]"
+      }
+    ],
+    "correct_steps": [
+      "$u = 25\\ \\text{m s}^{-1}$",
+      "$s = 50\\ \\text{m}$",
+      "\\frac{0^2 - 25^2}{50} = -12.5"
+    ]
+  }
+}

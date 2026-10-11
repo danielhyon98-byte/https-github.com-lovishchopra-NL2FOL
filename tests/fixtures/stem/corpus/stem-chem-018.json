@@ -1,0 +1,32 @@
+{
+  "id": "stem-chem-018",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "25.0 cm³ of 0.100 mol dm⁻³ sodium hydroxide is exactly neutralised by 20.0 cm³ of sulfuric acid: 2NaOH + H₂SO₄ → Na₂SO₄ + 2H₂O. Calculate the concentration of the sulfuric acid.",
+  "supplied_texts": [],
+  "response_text": "2NaOH + H₂SO₄ → Na₂SO₄ + 2H₂O\n\nn(NaOH) = c × V = c × 0.0250 = 2.50 × 10⁻³ mol\nn(H₂SO₄) = ½ × 2.50 × 10⁻³ = 1.25 × 10⁻³ mol\n[H₂SO₄] = 1.25 × 10⁻³ / 0.0200 = 0.0625 mol dm⁻³\n\nThe acid is diprotic, so it needs only half as many moles as the alkali.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "concentration_brackets"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unstated_value",
+        "step": "c × 0.0250 = 2.50 × 10⁻³ mol",
+        "expected_codes": [
+          "ST-UNDEC-002"
+        ],
+        "note": "The working multiplies by a concentration c that the report never states, and c has no admissible data-booklet reading here (the booklet c is a speed; m s⁻¹ is not mol dm⁻³). The relation cannot be decided from what the report states, so it is named undecided. With the request's 0.100 mol dm⁻³ the arithmetic would hold. [computed: symbol c has no value anywhere in the report; C=0.0025 S=2.50e-3 h=5.000000e-06 tau=1/100 -> holds]"
+      }
+    ],
+    "correct_steps": [
+      "2NaOH + H₂SO₄ → Na₂SO₄ + 2H₂O",
+      "½ × 2.50 × 10⁻³ = 1.25 × 10⁻³ mol",
+      "1.25 × 10⁻³ / 0.0200 = 0.0625 mol dm⁻³"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "stem-math-007",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "show_that",
+  "question": "Show that the equation x² + 4x + 6 = 0 has no real roots, and write x² + 4x + 6 in the form (x + p)² + q.",
+  "supplied_texts": [],
+  "response_text": "Discriminant: b² − 4ac = 4² − 4 × 1 × 6 = 16 − 24 = −8\nSince −8 < 0, the equation has no real roots.\n\nCompleting the square: x² + 4x + 6 = (x + 2)² − 4 + 6 = (x + 2)² + 2, so p = 2 and q = 2.\nThe minimum value of the expression is 2 > 0, which confirms that the graph never meets the x-axis.",
+  "notation": [
+    "unicode",
+    "comparison",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "4² − 4 × 1 × 6 = 16 − 24 = −8",
+      "−8 < 0",
+      "x² + 4x + 6 = (x + 2)² − 4 + 6 = (x + 2)² + 2",
+      "p = 2 and q = 2",
+      "2 > 0"
+    ]
+  }
+}

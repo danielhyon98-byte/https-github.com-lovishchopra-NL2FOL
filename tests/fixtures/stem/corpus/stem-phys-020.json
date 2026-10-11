@@ -1,0 +1,30 @@
+{
+  "id": "stem-phys-020",
+  "subject": "Physics",
+  "task_type": "show_that",
+  "question": "Water waves of frequency 5.0 Hz travel across a ripple tank. The distance between a crest and the adjacent trough is 15 cm. Show that the speed of the waves is about 1.5 m s⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Given: f = 5.0 Hz and λ = 15 cm = 0.15 m.\nUsing v = fλ:\nv = 5.0 × 0.15 = 0.75 m s⁻¹, as required.",
+  "notation": [
+    "unicode",
+    "greek_symbols",
+    "units_unicode_exponent",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "show_that_mismatch",
+        "step": "v = 5.0 × 0.15 = 0.75 m s⁻¹, as required",
+        "expected_codes": [
+          "INT-SUBJ-004"
+        ],
+        "note": "stem-tgt: the final value 0.75 m s⁻¹ does not reach the show-that target of about 1.5 m s⁻¹, yet the answer claims it. The crest-to-trough distance is half a wavelength, so λ = 0.30 m and v = 1.5 m s⁻¹. The Given value 0.15 m matches the request's 15 cm, so stem-giv passes and only the target comparison (warning, D12) sees the fault. The conversion and the product hold as written. [computed: final 0.75 vs target 1.5: R8 fails, 5% band fails; C=0.75 S=0.75 h=0.005 tau=1/100 -> holds]"
+      }
+    ],
+    "correct_steps": [
+      "f = 5.0 Hz",
+      "15 cm = 0.15 m"
+    ]
+  }
+}

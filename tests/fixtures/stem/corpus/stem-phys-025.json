@@ -1,0 +1,34 @@
+{
+  "id": "stem-phys-025",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A car tyre contains air at 200 kPa and 7 °C. After a long drive the air temperature in the tyre is 47 °C. Assuming the volume stays constant, calculate the new pressure and state whether it exceeds the manufacturer's limit of 240 kPa.",
+  "supplied_texts": [],
+  "response_text": "Convert to kelvin: T₁ = 7 + 273 = 280 K and T₂ = 47 + 273 = 320 K.\nAt constant volume p₁/T₁ = p₂/T₂, so\np₂ = p₁ × T₂/T₁ = 200 × 320/280 = 228.6 kPa ≈ 229 kPa\nSince 229 kPa > 240 kPa, the pressure exceeds the manufacturer's limit and the tyre should be let down slightly.",
+  "notation": [
+    "unicode",
+    "subscripted_symbols",
+    "temperature_celsius_kelvin",
+    "units_prefix",
+    "derivation_lines",
+    "comparison"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_comparison",
+        "step": "229 kPa > 240 kPa",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-cmp (R6, exact): 229 > 240 is false. The new pressure is below the 240 kPa limit, so the conclusion drawn from it is wrong. [computed: 229 > 240 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "T₁ = 7 + 273 = 280 K",
+      "T₂ = 47 + 273 = 320 K",
+      "p₂ = p₁ × T₂/T₁ = 200 × 320/280 = 228.6 kPa",
+      "228.6 kPa ≈ 229 kPa"
+    ]
+  }
+}

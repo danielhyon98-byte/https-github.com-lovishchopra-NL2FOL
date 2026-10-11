@@ -1,0 +1,25 @@
+{
+  "id": "stem-phys-035",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A current of 6.0 mA flows for 2.5 minutes. Calculate the charge that passes and the number of electrons this represents (e = 1.60 × 10⁻¹⁹ C).",
+  "supplied_texts": [],
+  "response_text": "I = 6.0 mA = 6.0E-3 A, t = 2.5 min = 150 s\n\nQ = I*t = 6.0E-3 * 150 = 0.90 C\nNumber of electrons: N = Q/e = 0.90 / (1.60*10**-19) = 5.6*10**18\n\nAbout 5.6 x 10^18 electrons pass any point in the circuit in that time.",
+  "notation": [
+    "ascii",
+    "sci_e",
+    "sci_star",
+    "sci_ascii",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "I = 6.0 mA = 6.0E-3 A",
+      "t = 2.5 min = 150 s",
+      "Q = I*t = 6.0E-3 * 150 = 0.90 C",
+      "N = Q/e = 0.90 / (1.60*10**-19) = 5.6*10**18",
+      "About 5.6 x 10^18 electrons"
+    ]
+  }
+}

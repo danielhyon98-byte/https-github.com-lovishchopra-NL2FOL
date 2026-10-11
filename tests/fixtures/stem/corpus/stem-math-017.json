@@ -1,0 +1,23 @@
+{
+  "id": "stem-math-017",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "structured_answer",
+  "question": "Simplify √8 + √18, and rationalise the denominator of 2/(√3 − 1).",
+  "supplied_texts": [],
+  "response_text": "$\\sqrt{8} + \\sqrt{18} = 2\\sqrt{2} + 3\\sqrt{2} = 5\\sqrt{2} \\approx 7.07$\n\n$\\dfrac{2}{\\sqrt{3} - 1} = \\dfrac{2(\\sqrt{3} + 1)}{(\\sqrt{3} - 1)(\\sqrt{3} + 1)} = \\dfrac{2(\\sqrt{3} + 1)}{3 - 1} = \\sqrt{3} + 1$\n\nMultiplying by the conjugate removes the surd from the denominator because $(\\sqrt{3} - 1)(\\sqrt{3} + 1) = 3 - 1 = 2$.",
+  "notation": [
+    "latex_inline",
+    "fractions_surds",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "\\sqrt{8} + \\sqrt{18} = 2\\sqrt{2} + 3\\sqrt{2} = 5\\sqrt{2}",
+      "5\\sqrt{2} \\approx 7.07",
+      "\\dfrac{2}{\\sqrt{3} - 1} = \\dfrac{2(\\sqrt{3} + 1)}{(\\sqrt{3} - 1)(\\sqrt{3} + 1)}",
+      "\\dfrac{2(\\sqrt{3} + 1)}{3 - 1} = \\sqrt{3} + 1",
+      "because $(\\sqrt{3} - 1)(\\sqrt{3} + 1) = 3 - 1 = 2$"
+    ]
+  }
+}

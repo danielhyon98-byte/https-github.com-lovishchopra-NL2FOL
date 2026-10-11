@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-014",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Mars has mass 6.42 × 10²³ kg and radius 3.39 × 10⁶ m. Calculate the gravitational field strength at its surface. (G = 6.67 × 10⁻¹¹ N m² kg⁻²)",
+  "supplied_texts": [],
+  "response_text": "Given: M = 6.24 × 10²³ kg, R = 3.39 × 10⁶ m, G = 6.67 × 10⁻¹¹ N m² kg⁻².\n\ng = GM/R² = (6.67 × 10⁻¹¹ × 6.24 × 10²³) / (3.39 × 10⁶)² = 3.62 N kg⁻¹\n\nSo an object on the surface of Mars weighs 3.62 N for every kilogram of its mass.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "units_unicode_exponent"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "misstated_given",
+        "step": "M = 6.24 × 10²³ kg",
+        "expected_codes": [
+          "INT-SUBJ-004"
+        ],
+        "note": "stem-giv: the request states 6.42 × 10²³ kg; the Given line transposes two digits. Symbol identity across request and answer is a reading, so a failure is a warning (D12). The substitution and arithmetic are consistent with the misstated value (3.62 N kg⁻¹); with the request's mass g = 3.73 N kg⁻¹. [computed: substituted 6.24e23 vs binding 6.42e23: |diff|=18000000000000000000000 band=1000000000000000000000 -> does not hold; C=3.72615971 S=3.62 h=0.005 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "R = 3.39 × 10⁶ m, G = 6.67 × 10⁻¹¹ N m² kg⁻²",
+      "(6.67 × 10⁻¹¹ × 6.24 × 10²³) / (3.39 × 10⁶)² = 3.62 N kg⁻¹"
+    ]
+  }
+}

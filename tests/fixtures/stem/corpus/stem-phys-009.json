@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-009",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A motor uses 500 J of electrical energy and does 400 J of useful work. Calculate its efficiency. After servicing, its efficiency is measured at 90 per cent. Comment on the change.",
+  "supplied_texts": [],
+  "response_text": "Efficiency = useful energy output / total energy input × 100%\n= 400 J / 500 J × 100% = 80%.\n\nAfter servicing the efficiency rose from 80 per cent to 90 per cent, a rise of 20 per cent. More of the input energy now becomes useful work and less is dissipated as heat in the windings and bearings.",
+  "notation": [
+    "unicode",
+    "percent",
+    "prose_relation",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "prose_percent_change",
+        "step": "rose from 80 per cent to 90 per cent, a rise of 20 per cent",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "Prose relation (R9, quant): from 80 to 90 per cent is a relative rise of 12.5 per cent (10 percentage points); stated 20 per cent is outside the 5 per cent band and the 0.5-point floor. [computed: computed change 12.5 % vs stated 20 % (5 % band, 0.5-point floor) -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "400 J / 500 J × 100% = 80%"
+    ]
+  }
+}

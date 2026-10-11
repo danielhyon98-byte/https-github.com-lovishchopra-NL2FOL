@@ -1,0 +1,31 @@
+{
+  "id": "stem-phys-006",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A 5.0 kg box rests on a rough ramp inclined at 30° to the horizontal. Calculate the components of its weight parallel and perpendicular to the ramp. Take g = 9.81 m s⁻².",
+  "supplied_texts": [],
+  "response_text": "Weight: W = mg = 5.0 × 9.81 = 49.05 N ≈ 49 N.\n\nParallel to the ramp: W∥ = mg sin θ = 49.05 ÷ sin 30° = 24.5 N.\nPerpendicular to the ramp: W⊥ = mg cos θ = 49.05 × cos 30° = 42.5 N.\n\nSince the box is at rest, friction of 24.5 N acts up the ramp and the normal reaction is 42.5 N.",
+  "notation": [
+    "unicode",
+    "trig_degrees",
+    "greek_symbols"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_operator",
+        "step": "W∥ = mg sin θ = 49.05 ÷ sin 30° = 24.5 N",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "Written ÷ where × was meant: 49.05 ÷ sin 30° = 98.1, stated 24.5 (stem-eq), and mg sin θ = 24.525 under the bindings differs from the written 98.1 (stem-sub). Both links sit in the same statement; the intended value 24.5 N is right. [computed: C=98.1 S=24.5 h=0.05 tau=1/100 -> does not hold; mg sin θ = 24.525 vs written 98.1 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "W = mg = 5.0 × 9.81 = 49.05 N",
+      "49.05 N ≈ 49 N",
+      "W⊥ = mg cos θ = 49.05 × cos 30° = 42.5 N",
+      "friction of 24.5 N acts up the ramp and the normal reaction is 42.5 N"
+    ]
+  }
+}

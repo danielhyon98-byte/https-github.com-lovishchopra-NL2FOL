@@ -1,0 +1,26 @@
+{
+  "id": "stem-math-001",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "Make x the subject of the formula y = (3x − 2)/(x + 1), stating any restriction on y.",
+  "supplied_texts": [],
+  "response_text": "Multiply both sides by $(x + 1)$ and collect the $x$ terms:\n\\begin{align*}\ny(x + 1) &= 3x - 2 \\\\\nxy + y &= 3x - 2 \\\\\nxy - 3x &= -2 - y \\\\\nx(y - 3) &= -2 - y \\\\\nx &= \\frac{-2 - y}{y - 3} = \\frac{y + 2}{3 - y}\n\\end{align*}\nThis is valid for $y \\neq 3$; the line $y = 3$ is the horizontal asymptote of the original function.",
+  "notation": [
+    "latex_display",
+    "latex_inline",
+    "implicit_multiplication",
+    "derivation_lines",
+    "inequality"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "y(x + 1) &= 3x - 2",
+      "xy + y &= 3x - 2",
+      "xy - 3x &= -2 - y",
+      "x(y - 3) &= -2 - y",
+      "x &= \\frac{-2 - y}{y - 3} = \\frac{y + 2}{3 - y}",
+      "the line $y = 3$ is the horizontal asymptote"
+    ]
+  }
+}

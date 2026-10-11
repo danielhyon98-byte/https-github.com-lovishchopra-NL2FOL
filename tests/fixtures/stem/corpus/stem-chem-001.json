@@ -1,0 +1,31 @@
+{
+  "id": "stem-chem-001",
+  "subject": "Chemistry",
+  "task_type": "structured_answer",
+  "question": "Calculate the amount, in mol, of water in 36 g of H₂O, and the enthalpy change when 2.0 mol of hydrogen burns completely. ΔH_c(H₂) = −286 kJ mol⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Amount of water: n(H₂O) = m/M = 36 g ÷ 18.0 g mol⁻¹ = 3.0 mol.\n\nFor 2H₂ + O₂ → 2H₂O, burning 2.0 mol of hydrogen releases\nΔH = 2.0 × (−286 kJ mol⁻¹) = −572 kJ.\n\nThe negative sign shows the combustion is exothermic.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent",
+    "units_prefix",
+    "signed_values"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "36 g ÷ 18.0 g mol⁻¹ = 3.0 mol",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq: 36 ÷ 18.0 = 2.0 exactly; stated 3.0 mol; |2 − 3| = 1 exceeds h + tau*|C| = 0.05 + 0.02. [computed: C=2 S=3.0 h=0.05 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "2H₂ + O₂ → 2H₂O",
+      "2.0 × (−286 kJ mol⁻¹) = −572 kJ"
+    ]
+  }
+}
