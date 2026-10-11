@@ -140,3 +140,19 @@ def test_a_specialist_may_not_issue_the_forward_contract_and_a_router_may_not_is
     msg = AgentMessage(message_id="m-router-report", request_id=report.request_id, task_id=report.task_id, sender_agent_id="router", sender_role=AgentRole.ROUTER,
                        recipient_role=AgentRole.SPECIALIST, recipient_agent_id="english-specialist", contract="specialist_report/1.0", payload=payload, payload_sha256=payload_hash(payload), created_at="2026-10-11T11:00:00Z")
     assert [f.code for f in ch.log.accept(msg)] == ["INT-ENV-007"]
+
+
+# ----------------------------------------------------------- paragraph layout
+
+
+def test_paragraph_bound_overrun_is_a_layout_warning_but_a_word_bound_overrun_is_an_error():
+    hub = RouterHub(signing_key=KEY, config=CFG)
+    hub.open_task(WorkPlan(plan_id="plan-l", request_id="req-l", task_id=TASK, subject="English A: Literature", task_type="analytical_paragraph", selected_agent_ids=["english-specialist"], allowed_document_ids=["doc-poem"]))
+    m, req, _ = hub.dispatch(TASK, "english-specialist", "Write one analytical paragraph on power in the poem. Quote from the poem. Write no more than 20 words.", [POEM])
+    four_blocks = ('The boast "King of Kings" is hollow.\n\nThe "Works" are gone.\n\nOnly "Nothing beside remains".\n\nUltimately the sands win and the boast is answered by the ruin that frames it.')
+    reply, rc = hub.receive(TASK, m.message_id, four_blocks, agent_id="english-specialist", report_id="rep-layout")
+    assert reply is not None
+    para = [f for f in rc.findings if f.code == "INT-REQ-005" and "paragraphs" in f.message]
+    words = [f for f in rc.findings if f.code == "INT-REQ-005" and "words" in f.message]
+    assert para and all(f.severity == "warning" for f in para) and "blocks" in para[0].message
+    assert words and all(f.severity == "error" for f in words)

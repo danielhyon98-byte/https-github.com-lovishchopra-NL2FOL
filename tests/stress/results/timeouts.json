@@ -1,7 +1,7 @@
 {
   "n": 16,
   "timeout_ms": 100,
-  "worst_wall_ms": 523.1020900000658,
+  "worst_wall_ms": 308.0919519998133,
   "statuses": [
     "TIMEOUT"
   ]

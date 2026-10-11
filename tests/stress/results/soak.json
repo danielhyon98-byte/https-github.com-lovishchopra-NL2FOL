@@ -1,11 +1,11 @@
 {
-  "seconds": 45.0,
-  "verifications": 10201,
+  "seconds": 60.0,
+  "verifications": 14537,
   "statuses": {
-    "ENTAILED": 6121,
-    "COUNTEREXAMPLE": 3060,
-    "INVALID_FORMALIZATION": 927,
-    "UNSUPPORTED": 93
+    "ENTAILED": 8723,
+    "COUNTEREXAMPLE": 4361,
+    "INVALID_FORMALIZATION": 1321,
+    "UNSUPPORTED": 132
   },
-  "rss_growth_mb": 0.0234375
+  "rss_growth_mb": -0.984375
 }

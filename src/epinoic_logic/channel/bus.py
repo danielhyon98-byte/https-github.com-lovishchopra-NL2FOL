@@ -286,9 +286,15 @@ class TranslatorChannel:
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered))
         findings = self._name_branch_rules(findings, structural)
         formal_ids = list(formal_ids) + branch_ids
+        kinds = {c.constraint_id: c.kind for c in req.constraints}
         for cr in constraint_results:
             if cr.satisfied is False:
-                findings.append(IntegrityFinding(code="INT-REQ-005", severity="error", message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}", formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
+                # A paragraph bound is measured over blank-line blocks; a specialist may set one paragraph out as several blocks
+                # (point, strands, link), so an overrun is a layout warning for the router, not an error like a word limit.
+                layout = kinds.get(cr.constraint_id, "").endswith("paragraphs")
+                findings.append(IntegrityFinding(code="INT-REQ-005", severity="warning" if layout else "error",
+                                                 message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}" + (" (blank-line blocks; a paragraph set out in blocks counts as several)" if layout else ""),
+                                                 formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
         self._supersession(report, findings)
         outcomes = self._verify_claims(report, findings)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received

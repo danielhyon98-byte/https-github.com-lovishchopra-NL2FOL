@@ -145,7 +145,12 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
         out.update(delivered=False, error="request to the peer was rejected")
     else:
         reply, rc = hub.receive(group, m.message_id, peer_item["response_text"], agent_id=peer_item["agent_id"], report_id=f"rep-{peer}-0")
-        out["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary}
+        # the recipient sees what the hub attached to the delivery: every finding with its message, not just the codes
+        out["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary,
+                               "findings": [{"code": f.code, "severity": f.severity, "message": f.message, "claim_ids": list(f.claim_ids)} for f in rc.findings],
+                               "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
+                               "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
+                               "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
         rec, text, relayed = relay_from_peer(ch, items, item, {peer: reply} if reply is not None else {}, item["_path"].name)
         out["relay"] = {k: v for k, v in rec.items() if k != "file"}
         out["delivered"] = relayed is not None
