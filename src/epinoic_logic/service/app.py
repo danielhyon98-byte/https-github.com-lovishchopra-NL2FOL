@@ -55,7 +55,6 @@ from ..engine.provenance import verify_signature, z3_version
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..ir.schema import DEFAULT_LIMITS
-from ..translate.contracts import SpecialistReport
 from ..version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 from .settings import ServiceSettings
 
@@ -390,7 +389,10 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         admit(request)
         body = await _read_body(request, cfg.max_body_bytes)
         envelope = _parse_envelope(body, _OUTCOME_ENVELOPE_KEYS, frozenset({"report", "claim_id", "fixture_responses"}))
+        # The translation layer is imported lazily so the solver routes stay available even
+        # when the pipeline (built by another work stream) is missing or broken.
         try:
+            contracts = importlib.import_module("epinoic_logic.translate.contracts")
             pipeline = importlib.import_module("epinoic_logic.translate.pipeline")
             outcome_mod = importlib.import_module("epinoic_logic.translate.outcome")
             fixture_mod = importlib.import_module("epinoic_logic.translate.providers.fixture")
@@ -399,7 +401,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         if not isinstance(envelope["report"], dict):
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'report' must be a JSON object")
         try:
-            report = SpecialistReport.model_validate(envelope["report"])
+            report = contracts.SpecialistReport.model_validate(envelope["report"])
         except ValidationError:
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'report' does not match the SpecialistReport contract") from None
         claim_id = envelope["claim_id"]
@@ -424,7 +426,13 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             try:
                 adapter = adapters_base.get_adapter(adapter_id)
             except (KeyError, LookupError, ValueError):
-                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "unknown adapter_id") from None
+                # The registry may be populated only when the adapter's own module is imported.
+                with contextlib.suppress(ImportError):
+                    importlib.import_module(f"epinoic_logic.adapters.{adapter_id.replace('-', '_')}")
+                try:
+                    adapter = adapters_base.get_adapter(adapter_id)
+                except (KeyError, LookupError, ValueError):
+                    raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "unknown adapter_id") from None
             structural = list(adapter.structural_checks(report))
 
         def run() -> Any:

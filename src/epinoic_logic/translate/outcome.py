@@ -154,7 +154,7 @@ def _checked_lines(translation: TranslationResult) -> list[str]:
     return [text + "."]
 
 
-def _verification_lines(translation: TranslationResult, verification: Optional[VerificationResult], display: VerificationStatus) -> list[str]:
+def _verification_lines(translation: TranslationResult, verification: Optional[VerificationResult]) -> list[str]:
     lines: list[str] = []
     problem = translation.problem
     if verification is None or problem is None:
@@ -267,7 +267,7 @@ def build_summary(
     ]
     lines += _eligibility_lines(translation)
     lines += _checked_lines(translation)
-    lines += _verification_lines(translation, verification, display)
+    lines += _verification_lines(translation, verification)
     if translation.status is TranslationStatus.TRANSLATED and verification is None:
         lines.append("Engine result rejected: no engine result was produced for the translated problem.")
     lines += _grounding_lines(translation)

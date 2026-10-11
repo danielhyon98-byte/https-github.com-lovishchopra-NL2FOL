@@ -169,7 +169,11 @@ def test_config_is_applied_and_bound_into_the_result(client):
         (b'{"problem": {}, "config": 5}', "E100"),
         (b'{"problem": {}, "config": {"unknown_option": true}}', "E100"),
         (b"\xff\xfe{}", "E100"),
-        (b"[" * 100_000, "E100"),
+        (b"[" * 100_000, "E303"),  # parser recursion limit -> TOO_DEEP, as in the validator
+    ],
+    ids=[
+        "malformed", "nan", "array", "string", "missing-problem", "problem-not-object", "unknown-key",
+        "config-timeout-zero", "config-not-object", "config-unknown-option", "not-utf8", "deeply-nested",
     ],
 )
 def test_envelope_errors_are_400_without_echoing_the_body(client, content, code):

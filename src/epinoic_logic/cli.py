@@ -31,6 +31,7 @@ Output is JSON on stdout; errors are one-line JSON objects on stderr, never stac
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import json
 import sys
@@ -146,6 +147,13 @@ def _load_adapter(adapter_id: str) -> Optional[Any]:
         base = importlib.import_module("epinoic_logic.adapters.base")
     except ImportError:
         return None
+    try:
+        return base.get_adapter(adapter_id)
+    except (KeyError, LookupError, ValueError):
+        pass
+    # The registry may be populated only when the adapter's own module is imported.
+    with contextlib.suppress(ImportError):
+        importlib.import_module(f"epinoic_logic.adapters.{adapter_id.replace('-', '_')}")
     try:
         return base.get_adapter(adapter_id)
     except (KeyError, LookupError, ValueError):
