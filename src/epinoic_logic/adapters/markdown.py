@@ -25,7 +25,7 @@ __all__ = [
     "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
     "EMPHASIS_RE", "MEMORY_LABEL_RE", "SELF_CERT_RE", "TASK_NOTE_RE", "DOUBLE_QUOTE_MARKS",
     "strip_markup", "split_list_items", "truncate_claim_text", "is_memory_label", "is_self_certification",
-    "is_note_sentence", "is_task_note", "unbalanced_double_quotes",
+    "is_note_sentence", "is_task_note", "split_note_clauses", "unbalanced_double_quotes",
 ]
 
 BOM = "\ufeff"
@@ -122,6 +122,37 @@ def is_note_sentence(sentence: str) -> bool:
     """A sentence that is a label about the text (from-memory disclaimer, self-certification,
     or a note that the syllabus version, cohort, level or mark was not given) rather than part of the argument."""
     return is_memory_label(sentence) or is_self_certification(sentence) or is_task_note(sentence)
+
+
+#: A parenthetical or a clause after a semicolon/dash that can carry a note inside a longer sentence.
+_CLAUSE_RE = re.compile(r"\s*\([^()]*\)|\s*[;—–]\s*[^;—–()]+")
+
+
+def split_note_clauses(sentence: str) -> tuple[str, list[str]]:
+    """Separate the note clauses of a sentence from its substance.
+
+    A substantive sentence may carry the method's own label inline, as a parenthetical
+    ("(figures from memory; check your notes)") or a clause after a semicolon or dash
+    ("...; dates other than the poem's own are from memory"). Returns ``(core, notes)``:
+    ``core`` is the sentence with those clauses removed (whitespace tidied) and ``notes``
+    the removed clauses in order. A sentence that is nothing but a note returns an empty
+    core. Parsers keep the verbatim sentence as the claim text, classify ``core`` and
+    record ``notes`` as assumptions; only an empty core makes the sentence a note.
+    """
+    notes: list[str] = []
+    def take(m: "re.Match[str]") -> str:
+        clause = m.group(0)
+        if is_note_sentence(clause):
+            notes.append(clause.strip(" ;—–()"))
+            return ""
+        return clause
+    core = _CLAUSE_RE.sub(take, sentence)
+    core = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"\s{2,}", " ", core)).strip()
+    if core and is_note_sentence(core):  # what remains is itself a label: the whole sentence is a note
+        return "", [sentence.strip()]
+    if core and not re.search(r"[^\W\d_]", core):
+        core = ""
+    return core, notes
 
 
 def unbalanced_double_quotes(text: str) -> bool:
