@@ -83,7 +83,7 @@ class VerificationResult(BaseModel):
     request_id: str
     claim_id: str
     problem_id: str
-    query: QueryKind
+    query: Optional[QueryKind] = Field(default=None, description="None only when the payload could not be parsed into a problem")
     status: VerificationStatus
     scope_statement: str = SCOPE_STATEMENT
     binding: Binding
@@ -97,7 +97,11 @@ class VerificationResult(BaseModel):
     )
     ungrounded_dependencies: list[str] = Field(
         default_factory=list,
-        description="relied-on premise ids whose grounding is 'assumption' or 'specialist_inference', or whose grounding.verified is False",
+        description="relied-on premise ids whose grounding is missing, is 'assumption' or 'specialist_inference', or whose grounding.verified is False",
+    )
+    witness_model: Optional[list[ModelAssignment]] = Field(
+        default=None,
+        description="for CONSISTENT/SATISFIABLE: one assignment under which every premise holds",
     )
     diagnostics: list[Diagnostic] = Field(default_factory=list)
     timings: list[StageTiming] = Field(default_factory=list)
