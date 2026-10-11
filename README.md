@@ -55,6 +55,21 @@ assumptions, and what remains uncertain.
 | Advisory semantic review | An independent reviewer rates translation fidelity; the verdict is labelled advisory and never changes the formal status. | `review.py` |
 | Outcome for the Overseer | One record per claim: translation, signed engine result, structural findings, review, a derived display status and a plain-language summary ending with the scope statement. | `outcome.py` |
 
+## Communication between agents (`src/epinoic_logic/integrity/`)
+
+Miscommunication between the router, specialists, combinator and Overseer is
+checked as well as hallucination inside one answer. Deterministic code checks
+message envelopes (replay, tampering, mis-threaded replies), router hand-offs
+(wrong task, unselected agent, off-subject, citations outside the retrieval scope),
+result staleness (a verification result reused after the claim's representation
+changed, or unsigned), and the combinator's claim ledger (material claims dropped
+without record, claims with no source, certainty inflated above the weakest source,
+evidence references lost, conflicts "resolved" without a basis). Z3 then checks
+whether specialists' formalized claims contradict each other under a shared glossary,
+naming the conflicting claims, and whether each synthesized claim is actually
+entailed by the source claims it cites, producing a counterexample when the
+combinator stated more than its sources support. See `integrity/README.md`.
+
 ## The verification engine (`src/epinoic_logic/engine/`)
 
 Restricted IR 1.0 (Bool, Int, Real; 24 allowlisted operators; exact numerals as
@@ -70,6 +85,7 @@ only six are definitive and none means "the claim is true".
 - `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
 - `src/epinoic_logic/engine/` — validator, compiler, procedures, provenance, runner
 - `src/epinoic_logic/translate/` — contracts, eligibility, subjects, grounding, pipeline, providers, review, outcome
+- `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `tests/` — unit, end-to-end, service and `stress/` suites
