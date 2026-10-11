@@ -73,3 +73,39 @@ returns to the single budget when idle, and after a memory abort restores no les
 running need. A stress-marked subprocess test (`tests/engine/test_memory_budget.py`) runs 32
 concurrent verifications under the default budget; the unit tests cover the arithmetic.
 The stress-marked suite (`pytest -m stress`, 12 tests) passes after the fix.
+
+## Iteration 3: arena stress re-run after the round-2 fix round
+
+The same six round-2 outputs replayed through the hub after the round-2 fixes
+(`scripts/arena/stress_arena.py r2 30`, run alone on the container):
+
+| Leg | Result |
+| --- | --- |
+| Sequential, 180 transmissions | p50 37.3 ms, p95 75.5 ms, p99 98.7 ms; 24.7 transmissions/s; 90 ACCEPTED, 90 ACCEPTED_WITH_FINDINGS; 0 crashes; RSS growth 27.8 MB (receipts and ledger retained by design) |
+| 16 threads, one hub each, 672 transmissions | 0 REJECTED, 0 crashes; 336 ACCEPTED, 336 ACCEPTED_WITH_FINDINGS; wall 54.2 s |
+| Service, 400 concurrent verify requests under the admission bound of 64 the harness sets | 400 served with 200, 0 shed; wall 12.5 s (after the memory-budget fix of iteration 2, 64 concurrent verifications no longer exhaust the process-global solver limit) |
+
+Two changes from iteration 2. The statuses moved from 60/120 to 90/90: three of the six
+outputs now cross with no finding (the History peer paragraph with an information-level
+HI-STR-003 only, the History crash paragraph, and the peer-dependent English paragraph
+whose false ES-SRC-003 is gone); the remaining findings are the English answers' four
+blank-line blocks against "one analytical paragraph" (INT-REQ-005) and the famine
+paragraph's quotation with no text to check it against (CORE-SRC-003), both genuine
+properties of the outputs. The per-cycle cost rose from p50 18.6 ms
+to 37.3 ms: a profile of 30 cycles puts most of the increase in quotation location
+(`translate/grounding.locate_quotation` via `adapters/sources.check_excerpt`, about 1,500
+calls), because the English parser's attribution step and the new attribution checks now
+locate every excerpt in every supplied text and the normalised document text is rebuilt
+for each excerpt. Caching the normalised document per supplied text is the next
+optimisation; the engine's own share (90 bound checks, 0.7 s of 2.3 s profiled) is
+unchanged.
+
+Crash counting. The adversarial overseer found that one input that made the hub raise
+aborted the whole run before `stress.json` was written. `one_cycle` now runs every hub call
+(open_task, dispatch, receive) under try/except: a raising input is counted under the status
+`CRASH:<ExceptionType>` (and a rejected request under `REQUEST_REJECTED`), the `crashes`
+count is reported for the sequential and threaded legs, the run continues, and the script
+prints where `stress.json` was written. Verified by injecting a raising `receive`: the cycle
+returns `CRASH:RuntimeError` and the next cycle runs. The input the overseer used (about 600
+arithmetic sentences, which overflowed the receipt summary) no longer raises after the
+channel's summary fix, so this run counts 0 crashes.

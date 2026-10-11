@@ -65,6 +65,14 @@ channel carries agent-to-agent transmissions, such as the English specialist's o
 reaching the combinator, with the claim ledger checked on the way. See
 `channel/README.md` and `integrity/README.md`.
 
+Integrity properties the channel holds on every transmission and relay:
+
+- The envelope's sender is bound to the payload's owner: a specialist cannot relay a colleague's report, or a copy of it, under its own name (INT-ENV-008).
+- A report the router already holds is never overwritten: a report id re-delivered with a different payload is refused and the first delivery kept (INT-HANDOFF-015).
+- A response that merely echoes the request is named as such and counts for no request item (INT-REQ-011).
+- A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision) is a warning, never an invented quotation (INT-REQ-010).
+- A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
+
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 
 | Feature | What it does | Where |
