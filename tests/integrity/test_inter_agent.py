@@ -214,5 +214,10 @@ def test_envelope_replay_tamper_and_reply_chain():
         AgentMessage(**{**m1.model_dump(), "message_id": "m2", "payload": tampered})  # hash no longer matches
     orphan = AgentMessage(**{**m1.model_dump(), "message_id": "m3", "in_reply_to": "never-sent"})
     assert [f.code for f in log.accept(orphan)] == ["INT-ENV-003"]
-    cross = AgentMessage(**{**m1.model_dump(), "message_id": "m4", "task_id": "task-other", "in_reply_to": "m1"})
+    # a role-consistent reply (from the combinator m1 was addressed to) that crosses the task boundary
+    cross = AgentMessage(**{**m1.model_dump(), "message_id": "m4", "task_id": "task-other", "in_reply_to": "m1", "sender_agent_id": "combinator",
+                            "sender_role": AgentRole.COMBINATOR, "recipient_role": AgentRole.SPECIALIST, "contract": "synthesis/1.0"})
     assert [f.code for f in log.accept(cross)] == ["INT-ENV-004"]
+    # the same reply from a role m1 was NOT addressed to is a reply-chain fault as well
+    wrong_role = AgentMessage(**{**m1.model_dump(), "message_id": "m5", "task_id": "task-other", "in_reply_to": "m1"})
+    assert [f.code for f in log.accept(wrong_role)] == ["INT-ENV-004", "INT-ENV-010"]
