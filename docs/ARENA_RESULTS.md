@@ -28,7 +28,7 @@ separately from the infrastructure rate.
 | --- | --- | --- |
 | Harness, genuine outputs and 5 fault mutations each (r1) | 20 / 22 functional (90.9%) | 22 / 22 (100%) |
 | Harness, adversarial variants built from the same outputs (r1-adv: markdown, CRLF, zero-width, 530 sentences, 1,189-word bullet block, empty, fake receipt, contradictions, unbalanced quotes) | 108 / 127 (85.0%) | 126 / 127 (99.2%) |
-| Overseer verdicts (results-audit / communication-fidelity / adversarial-live) | 0.909 / 0.909 / 0.850, 23 bugs (6 blockers, 11 majors, 6 minors) | round 2 below |
+| Overseer verdicts (results-audit / communication-fidelity / adversarial-live) | 0.909 / 0.909 / 0.850, 33 bugs (8 blockers, 15 majors, 10 minors) | round 2 below |
 
 The one remaining r1-adv record is the empty response: the hub REJECTS it with INT-REQ-009
 (the right outcome), and the harness's conservative "a genuine response is delivered" rule

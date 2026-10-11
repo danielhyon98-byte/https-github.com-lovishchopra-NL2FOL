@@ -151,3 +151,5 @@ fidelity and fault naming, and fixes are regression-tested before the next round
 harness, the peer-exchange relay and the recorded rounds are described in
 `docs/ARENA_RESULTS.md`; stress figures for the engine, channel and hub are in
 `docs/STRESS_RESULTS.md`.
+
+Bug testing and stress testing results (test layers, every overseer round's verdicts and findings, harness and stress numbers) are reported in `tests/README.md`.
