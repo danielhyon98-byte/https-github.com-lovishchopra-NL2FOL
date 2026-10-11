@@ -51,3 +51,25 @@ from/to clauses, zero denominators, overflow-like literals): 3150 formal checks 
 
 Service-level load (concurrent HTTP clients, rate limiting, semaphore) is measured
 in the clearance-gate iterations once the service exists; see `docs/STATUS.md`.
+
+## Iteration 2: arena stress (real agent outputs replayed under load)
+
+Replays of the six round-2 specialist outputs (including the History-to-English peer exchange)
+through the hub, `scripts/arena/stress_arena.py <round> 30`:
+
+| Leg | Result |
+| --- | --- |
+| Sequential, 180 transmissions | p50 18.6 ms, p95 26.7 ms, p99 33.8 ms; 56.6 transmissions/s; 60 ACCEPTED, 120 ACCEPTED_WITH_FINDINGS; RSS growth 27.9 MB (receipts and ledger retained by design) |
+| 16 threads, one hub each, 672 transmissions | 0 REJECTED; statuses identical in kind to the sequential run |
+| Service, 400 concurrent verify requests, admission bounded at 4 | 4 served, 396 shed with 503 and Retry-After (load shedding by design, not failures) |
+
+Finding and fix. Raising the service's admission bound to 64 made the same run **segfault**:
+`SolverConfig.memory_max_mb` is the budget of one verification, but Z3's `memory_max_size`
+is process-global, so 32 concurrent verifications under the 512 MB default exhausted it
+together, Z3 aborted and the next solver call crashed the process (reproduced engine-only:
+32 threads x 512 MB crash, 16 x 512 and 32 x 1024 pass). The engine now counts active
+verifications and applies budget x active, only raises the limit while anything runs,
+returns to the single budget when idle, and after a memory abort restores no less than the
+running need. A stress-marked subprocess test (`tests/engine/test_memory_budget.py`) runs 32
+concurrent verifications under the default budget; the unit tests cover the arithmetic.
+The stress-marked suite (`pytest -m stress`, 12 tests) passes after the fix.

@@ -32,7 +32,8 @@ only_eligible = "--eligible" in sys.argv
 as_json = "--json" in sys.argv
 branch, profile = default_registry().for_subject(item["subject"])
 texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
-report = branch.parser().parse_response(item["response_text"], request_id=f"req-{item['task_id']}", task_id=item["task_id"], report_id=f"rep-{item['task_id']}-0",
+group = item.get("group", item["task_id"])  # tasks of one group share one hub task and request, as in run_arena.py
+report = branch.parser().parse_response(item["response_text"], request_id=f"req-{group}", task_id=group, report_id=f"rep-{item['task_id']}-0",
                                         subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"), supplied_texts=texts, agent_id=item["agent_id"])
 rows = []
 for c in report.claims:

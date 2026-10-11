@@ -153,13 +153,17 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             f.append(IntegrityFinding(code="INT-LEDGER-012", severity="error", message=f"ledger entry '{entry.transformation}' says {not_cited} went into synthesized claim {target.claim_id!r}, but that claim does not cite them; the sources are NOT accounted for", claim_ids=not_cited + [target.claim_id], agent_ids=[synthesis.combinator_agent_id]))
         accounted.update(s for s in entry_ids if s in target.source_claim_ids)
 
+    unaccounted_supporting: dict[str, list[str]] = {}
     for cid, c in sources.items():
         if cid in accounted:
             continue
         if c.materiality == "material":
             f.append(IntegrityFinding(code="INT-LEDGER-002", severity="error", message="material source claim is neither carried, transformed nor recorded as dropped", claim_ids=[cid], report_ids=[report_of[cid]], agent_ids=[c.agent_id]))
         else:
-            f.append(IntegrityFinding(code="INT-LEDGER-022", severity="info", message="supporting source claim is neither carried, transformed nor recorded as dropped", claim_ids=[cid], report_ids=[report_of[cid]], agent_ids=[c.agent_id]))
+            unaccounted_supporting.setdefault(report_of[cid], []).append(cid)
+    for rid, cids in unaccounted_supporting.items():  # one note per report: supporting claims need not be carried, the router is told which were not
+        agent = next(r.agent_id for r in reports if r.report_id == rid)
+        f.append(IntegrityFinding(code="INT-LEDGER-022", severity="info", message=f"{len(cids)} supporting source claim(s) of report {rid} are neither carried, transformed nor recorded as dropped: {cids[:12]}{'...' if len(cids) > 12 else ''}", claim_ids=cids, report_ids=[rid], agent_ids=[agent]))
     for r in reports:
         for c in r.claims:
             if c.claim_id in colliding:

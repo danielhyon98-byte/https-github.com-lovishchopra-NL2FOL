@@ -345,12 +345,23 @@ class TranslatorChannel:
             if not _is_blocking(findings):
                 self.transmitted_reports[payload_obj.report_id] = payload_obj
         else:
-            findings += check_synthesis_ledger(list(self.transmitted_reports.values()), payload_obj)
+            findings += check_synthesis_ledger(self._ledger_scope(payload_obj), payload_obj)
             ent_findings, ent_ids, checked = self._synthesis_entailment(payload_obj)
             findings += ent_findings
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
+
+    def _ledger_scope(self, synthesis: Synthesis) -> list[SpecialistReport]:
+        """Reports a synthesis must account for: every report it cites plus each agent's
+        CURRENT report (the last one delivered). An earlier report the same agent
+        superseded (INT-HANDOFF-009) is out of scope unless the synthesis cites it, in
+        which case mixing it with the current one is reported by the ledger (INT-LEDGER-014)."""
+        latest: dict[str, str] = {}
+        for r in self.transmitted_reports.values():  # delivery order
+            latest[r.agent_id] = r.report_id
+        cited = set(synthesis.source_report_ids)
+        return [r for r in self.transmitted_reports.values() if r.report_id in cited or latest.get(r.agent_id) == r.report_id]
 
     def _synthesis_entailment(self, synthesis: Synthesis) -> tuple[list[IntegrityFinding], list[str], dict[str, Optional[str]]]:
         """For each synthesized claim with formalized sources: obtain a formal conclusion

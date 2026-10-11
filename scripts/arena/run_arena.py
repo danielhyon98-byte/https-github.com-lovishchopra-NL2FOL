@@ -162,6 +162,27 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
     return out
 
 
+def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan):
+    """The dummy combinator's synthesis for a hub task: the per-report syntheses of every delivered member of the
+    group, merged, citing each delivered report (a peer exchange is one task with two reports)."""
+    members = [it for it in items if it.get("group", it["task_id"]) == group and it["task_id"] in delivered and it["task_id"] in syntheses]
+    if not members:
+        return None
+    s_claims, ledger, source_ids = [], [], []
+    for it in members:
+        tid, syn, reply = it["task_id"], syntheses[it["task_id"]], delivered[it["task_id"]]
+        claim_ids = [c["claim_id"] for c in reply.payload["claims"]]
+        prefix = "" if len(members) == 1 else f"{tid}-"
+        for i, c in enumerate(syn["claims"]):
+            s_claims.append(SynthesizedClaim(claim_id=f"{prefix}s{i}", text=c["text"], certainty=c.get("certainty", "established"),
+                                             source_claim_ids=[x for x in c.get("source_claim_ids", []) if x in claim_ids] or c.get("source_claim_ids", []), transformation=c.get("transformation", "paraphrased")))
+        ledger += [LedgerEntry(source_claim_ids=d["source_claim_ids"], transformation="dropped", reason=d.get("reason")) for d in syn.get("dropped", [])]
+        source_ids.append(reply.payload["report_id"])
+    s_text = " ".join(c.text for c in s_claims) or "(empty)"
+    return Synthesis(synthesis_id=f"syn-{group}", request_id=plan.request_id, task_id=plan.task_id, combinator_agent_id="dummy-combinator", source_report_ids=source_ids,
+                     claims=s_claims, ledger=ledger, text=s_text, text_sha256=sha256_text(s_text), created_at="2026-10-11T15:00:00Z")
+
+
 def run_round(round_dir: Path) -> dict:
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
@@ -172,7 +193,14 @@ def run_round(round_dir: Path) -> dict:
     items = load_items(spec_dir)
     channels: dict[str, object] = {}
     delivered: dict[str, object] = {}  # task_id -> AgentMessage delivered to the router for the genuine reply
-    for item in items:
+    peer_docs: dict[str, SuppliedText] = {}
+    last_in_group: dict[str, str] = {}
+    for it in items:
+        last_in_group[it.get("group", it["task_id"])] = it["task_id"]
+    # Two passes: every genuine reply (with peer relays and the combinator's synthesis) first, then the fault
+    # mutations, so a synthesis is judged against the reports actually delivered for the task, not against the
+    # mutated re-statements that follow.
+    for pass_kind, item in [(pk, it) for pk in ("genuine", "mutations") for it in items]:
         sp = item["_path"]
         task_id = item["task_id"]
         agent = item["agent_id"]
@@ -192,17 +220,23 @@ def run_round(round_dir: Path) -> dict:
             def verify_fn(claim, report, _t=translator):
                 return verify_claim(claim, report, _t, config=CFG, signing_key=KEY) if claim.claim_id in tr["claims"] else None
         ch.verify_claim_fn = verify_fn
-        peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name)
-        if peer_rec is not None:
-            records.append(peer_rec)
-            if peer_text is None:
-                continue  # the peer's report never reached this agent through the hub; it has nothing to answer with
-            texts = [*texts, peer_text]
+        if pass_kind == "genuine":
+            peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name)
+            if peer_rec is not None:
+                records.append(peer_rec)
+                if peer_text is None:
+                    continue  # the peer's report never reached this agent through the hub; it has nothing to answer with
+                peer_docs[task_id] = peer_text
+                texts = [*texts, peer_text]
+        elif task_id in peer_docs:
+            texts = [*texts, peer_docs[task_id]]
+        elif item.get("peer_of"):
+            continue
         variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k) for k in ("invented_quotation", "altered_quotation", "self_certification", "wrong_arithmetic", "chronology_error")]
         if not texts:  # without a supplied text a quotation is unverifiable rather than refuted
             variants = [(k, t, ("CORE-SRC-003" if k in ("invented_quotation", "altered_quotation") and e != "SKIP" else e)) for k, t, e in variants]
         for vi, (kind, text, expected) in enumerate(variants):
-            if expected == "SKIP":
+            if expected == "SKIP" or (kind == "genuine") != (pass_kind == "genuine"):
                 continue
             rec = {"file": sp.name, "task_id": task_id, "subject": item["subject"], "variant": kind, "expected": expected}
             t0 = time.perf_counter()
@@ -216,6 +250,9 @@ def run_round(round_dir: Path) -> dict:
                 if kind == "genuine" and reply is not None:
                     delivered[task_id] = reply
                 codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings})
+                rec["findings"] = [{"code": f.code, "severity": f.severity, "message": f.message[:300], "claim_ids": list(f.claim_ids)} for f in rc.findings]
+                rec["subject_findings"] = [{"code": sf.code, "severity": sf.severity, "message": sf.message[:300], "claim_ids": list(sf.claim_ids)} for sf in rc.structural_findings]
+                rec["outcome_diagnostics"] = {o.claim_id: [d.message[:200] for d in (o.verification.diagnostics if o.verification else [])][:3] for o in rc.outcomes if o.display_status.value not in ("ENTAILED",)}
                 outcomes = [(o.claim_id, o.display_status.value) for o in rc.outcomes]
                 internal = [o for o in rc.outcomes if o.display_status.value == "INTERNAL_ERROR"] + [fc for fc in rc.formal_checks if fc.formal_status == "INTERNAL_ERROR"]
                 ok = rc.status is not TransmissionStatus.REJECTED and not internal
@@ -230,17 +267,12 @@ def run_round(round_dir: Path) -> dict:
                 rec.update(functional=ok, status=rc.status.value, branch=rc.branch, codes=codes, outcomes=outcomes, formal_checks=[(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks],
                            constraints=[(c.constraint_id, c.satisfied) for c in rc.constraint_results], coverage=[(c.item_id, c.addressed) for c in rc.coverage], claims=len(reply.payload["claims"]) if reply else None,
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
-                if kind == "genuine" and sp.stem in syntheses and reply is not None:
-                    syn = syntheses[sp.stem]
-                    claim_ids = [c["claim_id"] for c in reply.payload["claims"]]
-                    s_claims = [SynthesizedClaim(claim_id=f"s{i}", text=c["text"], certainty=c.get("certainty", "established"), source_claim_ids=[x for x in c.get("source_claim_ids", []) if x in claim_ids] or c.get("source_claim_ids", []),
-                                                 transformation=c.get("transformation", "paraphrased")) for i, c in enumerate(syn["claims"])]
-                    ledger = [LedgerEntry(source_claim_ids=d["source_claim_ids"], transformation="dropped", reason=d.get("reason")) for d in syn.get("dropped", [])]
-                    s_text = " ".join(c.text for c in s_claims) or "(empty)"
-                    synthesis = Synthesis(synthesis_id=f"syn-{task_id}", request_id=plan.request_id, task_id=task_id, combinator_agent_id="dummy-combinator", source_report_ids=[f"rep-{task_id}-{vi}"],
-                                          claims=s_claims, ledger=ledger, text=s_text, text_sha256=sha256_text(s_text), created_at="2026-10-11T15:00:00Z")
+                if kind == "genuine" and reply is not None and task_id == last_in_group[group] and syntheses:
+                    synthesis = group_synthesis(items, group, syntheses, delivered, plan)
+                    if synthesis is None:
+                        raise RuntimeError("no synthesis for a delivered group")
                     relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, synthesis)
-                    rec["synthesis"] = {"status": rr.status.value, "codes": sorted({f.code for f in rr.findings}), "delivered": relayed is not None}
+                    rec["synthesis"] = {"status": rr.status.value, "codes": sorted({f.code for f in rr.findings}), "delivered": relayed is not None, "findings": [{"code": f.code, "severity": f.severity, "message": f.message[:300]} for f in rr.findings]}
             except Exception as exc:  # a crash is a translator bug
                 rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
             records.append(rec)

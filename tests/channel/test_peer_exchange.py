@@ -156,3 +156,48 @@ def test_paragraph_bound_overrun_is_a_layout_warning_but_a_word_bound_overrun_is
     words = [f for f in rc.findings if f.code == "INT-REQ-005" and "words" in f.message]
     assert para and all(f.severity == "warning" for f in para) and "blocks" in para[0].message
     assert words and all(f.severity == "error" for f in words)
+
+
+# ------------------------------------------------------- ledger scope on revision
+
+
+def _synthesis_citing(report_ids: list[str], claims: list[tuple[str, str, list[str]]]) -> "Synthesis":
+    from epinoic_logic.integrity import Synthesis, SynthesizedClaim
+    text = " ".join(t for _, t, _ in claims)
+    return Synthesis(synthesis_id="syn-1", request_id="req-p", task_id=TASK, combinator_agent_id="dummy-combinator", source_report_ids=report_ids,
+                     claims=[SynthesizedClaim(claim_id=cid, text=t, certainty="probable", source_claim_ids=src, transformation="paraphrased") for cid, t, src in claims],
+                     ledger=[], text=text, text_sha256=sha256_text(text), created_at="2026-10-11T12:00:00Z")
+
+
+def test_synthesis_accounts_for_the_agents_current_report_not_the_superseded_one():
+    hub = RouterHub(signing_key=KEY, config=CFG)
+    ch = hub.open_task(two_subject_plan())
+    first = "The sonnet was printed in January 1818. Egyptian antiquities had reached Britain in quantity. Dates other than the poem's own are from memory; check your notes."
+    m1, _, _ = hub.dispatch(TASK, "history-specialist", "Outline the context in one paragraph.")
+    hub.receive(TASK, m1.message_id, first, agent_id="history-specialist", report_id="rep-hi-1")
+    m2, _, _ = hub.dispatch(TASK, "history-specialist", "Outline the context in one paragraph.")
+    reply2, rc2 = hub.receive(TASK, m2.message_id, HISTORY, agent_id="history-specialist", report_id="rep-hi-2")
+    assert any(f.code == "INT-HANDOFF-009" for f in rc2.findings)  # the agent re-stated its claim ids: rep-hi-1 is superseded
+    material = [c["claim_id"] for c in reply2.payload["claims"] if c["materiality"] == "material"]
+    syn = _synthesis_citing(["rep-hi-2"], [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(reply2.payload["claims"]) if c["claim_id"] in material])
+    relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, syn)
+    codes = {f.code for f in rr.findings}
+    assert relayed is not None and not codes & {"INT-LEDGER-014", "INT-LEDGER-002", "INT-LEDGER-008"}, [f.message for f in rr.findings]
+    # citing the superseded report alongside the current one mixes two versions of the same claim ids
+    mixed = _synthesis_citing(["rep-hi-1", "rep-hi-2"], [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(reply2.payload["claims"]) if c["claim_id"] in material])
+    _, rr2 = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, mixed)
+    assert any(f.code == "INT-LEDGER-014" for f in rr2.findings)
+
+
+def test_unaccounted_supporting_claims_are_one_note_per_report():
+    hub = RouterHub(signing_key=KEY, config=CFG)
+    ch = hub.open_task(two_subject_plan())
+    _, _, reply, _ = deliver_history(hub)
+    claims = reply.payload["claims"]
+    material = [c for c in claims if c["materiality"] == "material"]
+    supporting = [c for c in claims if c["materiality"] != "material"]
+    assert material and len(supporting) >= 2
+    syn = _synthesis_citing(["rep-hi"], [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(material)])
+    _, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, syn)
+    notes = [f for f in rr.findings if f.code == "INT-LEDGER-022"]
+    assert len(notes) == 1 and set(notes[0].claim_ids) == {c["claim_id"] for c in supporting} and notes[0].severity == "info"

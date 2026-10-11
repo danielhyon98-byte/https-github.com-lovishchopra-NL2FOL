@@ -65,8 +65,11 @@ paragraph; the hub then checked those quotations of the peer like any other.
 
 | Measure | Value |
 | --- | --- |
-| Harness, genuine outputs, 5 mutations each and the peer relay (r2) | 34 / 34 functional (100%) |
+| Harness, genuine outputs, 5 mutations each and the peer relay (r2), with translator output for 24 eligible claims and a dummy combinator's syntheses | 34 / 34 functional (100%) |
+| Translation outcomes (provider-dependent, reported separately) | 17 ENTAILED, 113 AMBIGUOUS_TRANSLATION, 0 INTERNAL_ERROR |
 | Peer relay | delivered; a forward altered in transit or never delivered is refused (INT-HANDOFF-013) |
+| Group synthesis for the peer exchange (both reports cited) | delivered with information-level ledger notes only |
+| Round-1 sets re-run on the round-2 code | r1 22 / 22; r1-adv 126 / 127 (the empty response, correctly REJECTED) |
 | Overseer verdicts | pending (see below) |
 
 Round-2 overseer verdicts and the bugs they raised are recorded here when the round closes.
