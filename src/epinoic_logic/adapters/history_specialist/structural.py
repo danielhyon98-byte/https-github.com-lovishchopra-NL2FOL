@@ -1,0 +1,61 @@
+"""Deterministic structural and source-integrity checks for History specialist output.
+
+Rule sources are the pack's own working rules (Response application §3, §5, §8;
+Structures P6, P7, P9, P15; Sources L5), never official IB rules.
+"""
+from __future__ import annotations
+
+import re
+
+from ...translate.contracts import SpecialistReport, StructuralFinding
+from ...translate.grounding import find_quotation
+from .parser import _DATE_RE, _MONTH_YEAR_RE, _QUOTE_RE, chronology_findings_in, has_dated_item, split_sentences
+
+_HISTORIAN_RE = re.compile(r"\b([A-Z]\.(?:\s?[A-Z]\.)*\s?[A-Z][a-z]+|[A-Z][a-z]+\s[A-Z][a-z]+)\s+(?:has\s+)?(?:argue[sd]|prove[sd]|show[s]?|claim[s]?|concluded|demonstrated)\b")
+_MEMORY_LABEL_RE = re.compile(r"from memory|verify (?:them|these|this)|illustrative", re.IGNORECASE)
+_RULE = "history_specialist/{} (working rule, not an official IB rule)"
+
+
+def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
+    f: list[StructuralFinding] = []
+    text = report.original_response
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    multi = len(paragraphs) >= 3
+    docs = {t.document_id: t for t in report.supplied_texts}
+
+    for c in report.claims:
+        for ref in c.source_refs:
+            doc = docs.get(ref.document_id)
+            if ref.excerpt and doc is not None and find_quotation(ref.excerpt, doc.text) is None:
+                f.append(StructuralFinding(code="HI-SRC-001", severity="error", message="quotation not found in the supplied source", claim_ids=[c.claim_id], rule_source=_RULE.format("application.md §8.2")))
+        if re.search(r"\bprove[sd]?\b", c.claim_text, re.IGNORECASE) and c.claim_role != "evidence":
+            f.append(StructuralFinding(code="HI-SRC-002", severity="warning", message="'proves' used of a historical claim; the pack allows 'establishes' or 'shows' only at certainty 1-2", claim_ids=[c.claim_id], rule_source=_RULE.format("application.md §5")))
+        if _HISTORIAN_RE.search(c.claim_text) and not c.source_refs:
+            f.append(StructuralFinding(code="HI-SRC-003", severity="warning", message="a named historian is attributed a position without knowledge-document or library grounding", claim_ids=[c.claim_id], rule_source=_RULE.format("application.md §8.2; master prompt resolved conflict 5")))
+
+    dated_claims = [c for c in report.claims if has_dated_item(c.claim_text)]
+    if dated_claims and not _MEMORY_LABEL_RE.search(text) and not any(c.source_refs for c in dated_claims):
+        f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label", claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
+
+    for pi, para in enumerate(paragraphs):
+        is_body = not multi or 0 < pi < len(paragraphs) - 1
+        if not is_body:
+            continue
+        sents = split_sentences(para)
+        low = para.lower()
+        ids = [c.claim_id for c in report.claims if c.claim_text in para]
+        if not any(k in low for k in ("counter-case", "against this", "however", "by the criterion", "weigh", "on the other hand")):
+            f.append(StructuralFinding(code="HI-STR-001", severity="warning", message=f"body paragraph {pi + 1} has no judgement move (counter-case weighed by a criterion)", claim_ids=ids, rule_source=_RULE.format("structures.md P9")))
+        if sum(1 for s in sents if has_dated_item(s)) < 2:
+            f.append(StructuralFinding(code="HI-STR-002", severity="info", message=f"body paragraph {pi + 1} has fewer than two dated or figured items", claim_ids=ids, rule_source=_RULE.format("structures.md P7")))
+        if sents and has_dated_item(sents[0]) and not re.search(r"\b(responsible|because|caused|led|made|turned|created)\b", sents[0], re.IGNORECASE):
+            f.append(StructuralFinding(code="HI-STR-003", severity="info", message=f"body paragraph {pi + 1} opens with evidence rather than a claim", claim_ids=ids[:1], rule_source=_RULE.format("structures.md P6")))
+        for s in sents:
+            viol = chronology_findings_in(s)
+            if viol is not None:
+                f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message="a sentence says one dated event came after another, but the dates it gives are not in that order", claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
+
+    words = len(re.findall(r"\b[\w'’-]+\b", text))
+    if multi and report.task_type == "essay" and not (800 <= words <= 1100):
+        f.append(StructuralFinding(code="HI-STR-004", severity="info", message=f"essay length {words} words is outside the pack's exam-length guide (800-1,000 for Paper 2)", rule_source=_RULE.format("structures.md P15")))
+    return f

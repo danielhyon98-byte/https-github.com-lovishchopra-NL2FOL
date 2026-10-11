@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..ir.canonical import sha256_hex
 from ..integrity.contracts import IntegrityFinding
-from ..translate.contracts import ClaimVerificationOutcome, SuppliedText
+from ..translate.contracts import ClaimVerificationOutcome, StructuralFinding, SuppliedText
 
 ConstraintKind = Literal["max_words", "min_words", "max_paragraphs", "min_paragraphs", "must_cite_supplied_text", "must_address_all_items", "other"]
 
@@ -104,6 +104,9 @@ class TransmissionReceipt(BaseModel):
     coverage: list[CoverageRecord] = Field(default_factory=list)
     constraint_results: list[ConstraintResult] = Field(default_factory=list)
     outcomes: list[ClaimVerificationOutcome] = Field(default_factory=list)
+    branch: Optional[str] = Field(default=None, description="subject branch that handled the message")
+    structural_findings: list[StructuralFinding] = Field(default_factory=list, description="branch integrity-pack findings (deterministic)")
+    formal_checks: list[ConstraintResult] = Field(default_factory=list, description="branch formal checks decided by the engine about the report's own statements")
     formal_result_ids: list[str] = Field(default_factory=list)
     summary: str = Field(max_length=8000)
     created_at: str

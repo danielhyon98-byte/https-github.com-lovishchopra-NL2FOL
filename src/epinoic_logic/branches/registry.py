@@ -1,0 +1,48 @@
+"""Default branch registry: which subjects route to which branch, with which packs."""
+from __future__ import annotations
+
+from .base import BranchRegistry, SubjectBranch
+from .packs import BusinessPack, CorePack, EconomicsPack, EnglishPack, GenericPack, HistoryPack, PsychologyPack
+
+
+def _english_parser():
+    try:
+        from ..adapters.english_specialist.parser import EnglishSpecialistAdapter  # type: ignore
+        return EnglishSpecialistAdapter()
+    except Exception:
+        from .generic_parser import GenericTextParser
+        return GenericTextParser(agent_id="english-specialist")
+
+
+def _history_parser():
+    from ..adapters.history_specialist.parser import HistorySpecialistAdapter
+    return HistorySpecialistAdapter()
+
+
+def _generic_parser(agent_id: str):
+    def make():
+        from .generic_parser import GenericTextParser
+        return GenericTextParser(agent_id=agent_id)
+    return make
+
+
+CORE = CorePack()
+
+BRANCHES = [
+    SubjectBranch(key="english", display_name="Studies in Language and Literature", profile_keys=("english_a_literature", "english_a_language_literature", "literature_performance", "language_a_other", "english"),
+                  parser_factory=_english_parser, packs=(CORE, EnglishPack()), notes="Device-Interpretation-Effect inside Point-strand-Link; quotation integrity is the central check."),
+    SubjectBranch(key="history", display_name="History and argued humanities", profile_keys=("history", "global_politics"),
+                  parser_factory=_history_parser, packs=(CORE, HistoryPack()), notes="Claim-Evidence-Analysis-Judgement-Link; dates and figures checked for exact consistency and chronology."),
+    SubjectBranch(key="psychology", display_name="Psychology", profile_keys=("psychology",),
+                  parser_factory=_generic_parser("psychology-specialist"), packs=(CORE, PsychologyPack()), notes="Claim-Study-Link-Evaluation; study attributions need grounding."),
+    SubjectBranch(key="economics", display_name="Economics", profile_keys=("economics",),
+                  parser_factory=_generic_parser("economics-specialist"), packs=(CORE, EconomicsPack()), notes="Define-Model-Mechanism-Apply-Evaluate; elasticity and percentage arithmetic decided by the engine."),
+    SubjectBranch(key="business_management", display_name="Business Management", profile_keys=("business_management",),
+                  parser_factory=_generic_parser("business-specialist"), packs=(CORE, BusinessPack()), notes="Define-Apply-Analyse-Evaluate; ratios and margins decided by the engine."),
+    SubjectBranch(key="generic", display_name="Generic (any other subject)", profile_keys=("unknown",),
+                  parser_factory=_generic_parser("specialist"), packs=(CORE, GenericPack()), notes="Shared hub integrity plus numeric self-consistency; subject pack to be added."),
+]
+
+
+def default_registry() -> BranchRegistry:
+    return BranchRegistry(BRANCHES, default_key="generic")
