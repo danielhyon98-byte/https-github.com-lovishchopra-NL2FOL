@@ -39,6 +39,22 @@ statement. This is deliberate: the system is not a universal hallucination
 detector; it is an auditable way to show what was checked, how, under which
 assumptions, and what remains uncertain.
 
+## The primary feature: every message between agents goes through the translator
+
+Agents do not pass raw text to each other. The `channel` package
+(`src/epinoic_logic/channel/`) sits on the communication path. When the router sends
+a student's request to a specialist, the request is made explicit (what is asked,
+word and paragraph limits, which texts may be used) and wrapped in a hashed envelope.
+When the specialist answers, the response must reply to that exact request and is
+checked before the router sees it: right task and agent, no replay or tampering,
+quotations found in the supplied texts, numeric constraints decided by the engine as
+signed results, eligible claims verified, items of the request covered, and
+contradictions with claims already transmitted by other agents named. The router
+receives the report together with a receipt, or a rejection and no report. The same
+channel carries agent-to-agent transmissions, such as the English specialist's output
+reaching the combinator, with the claim ledger checked on the way. See
+`channel/README.md` and `integrity/README.md`.
+
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 
 | Feature | What it does | Where |
@@ -85,6 +101,7 @@ only six are definitive and none means "the claim is true".
 - `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
 - `src/epinoic_logic/engine/` — validator, compiler, procedures, provenance, runner
 - `src/epinoic_logic/translate/` — contracts, eligibility, subjects, grounding, pipeline, providers, review, outcome
+- `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through (primary feature)
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line

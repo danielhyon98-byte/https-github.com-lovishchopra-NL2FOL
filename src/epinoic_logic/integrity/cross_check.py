@@ -19,10 +19,13 @@ from typing import Optional
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S
-from ..ir.schema import Assertion, Problem, Symbol
+from ..ir.schema import Assertion, Limits, Problem, Symbol
 from .contracts import IntegrityFinding
 
 SEP = "::"
+# Joint problems union many claims; the per-claim shape limits would make cross-agent
+# checks silently stop working at scale, so they get their own, larger bounds.
+JOINT_LIMITS = Limits(max_symbols=1024, max_premises=4096, max_nodes=200_000, max_depth=40, max_nary_args=64)
 
 
 def _merge_symbols(problems: list[Problem]) -> tuple[list[Symbol], list[IntegrityFinding]]:
@@ -93,12 +96,12 @@ def _needed_symbols(a: Assertion) -> set[str]:
     return out
 
 
-def check_cross_report_consistency(problems: list[Problem], *, request_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
+def check_cross_report_consistency(problems: list[Problem], *, request_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None, limits: Limits = JOINT_LIMITS) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
     """Are all specialists' formalized claims jointly consistent? Names the conflict."""
     joint, findings = joint_problem(problems, request_id=request_id, joint_id="cross-report")
     if joint is None:
         return None, findings
-    result = verify(joint, config, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, config, limits, signing_key=signing_key, key_id="integrity")
     if result.status is S.INCONSISTENT_PREMISES:
         claims = claim_ids_from_core(result.premises_relied_on)
         findings.append(IntegrityFinding(code="INT-CONFLICT-001", severity="error", message=f"specialist claims contradict each other under the shared glossary; conflicting claims: {claims}", claim_ids=claims, formal_result_id=result.result_id, deterministic=False))
@@ -107,12 +110,12 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     return result, findings
 
 
-def check_synthesis_entailment(source_problems: list[Problem], synthesized_conclusion: Assertion, *, request_id: str, synthesized_claim_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
+def check_synthesis_entailment(source_problems: list[Problem], synthesized_conclusion: Assertion, *, request_id: str, synthesized_claim_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None, limits: Limits = JOINT_LIMITS) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
     """Does the synthesized claim follow from what the specialists actually asserted?"""
     joint, findings = joint_problem(source_problems, request_id=request_id, joint_id=synthesized_claim_id, query="entailment", conclusion=synthesized_conclusion)
     if joint is None:
         return None, findings
-    result = verify(joint, config, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, config, limits, signing_key=signing_key, key_id="integrity")
     if result.status is S.COUNTEREXAMPLE:
         findings.append(IntegrityFinding(code="INT-SYNTH-001", severity="error", message="synthesized claim is NOT entailed by the cited source claims (counterexample found): the combinator strengthened or invented content", claim_ids=[synthesized_claim_id], formal_result_id=result.result_id, deterministic=False))
     elif result.status is S.INCONSISTENT_PREMISES:
