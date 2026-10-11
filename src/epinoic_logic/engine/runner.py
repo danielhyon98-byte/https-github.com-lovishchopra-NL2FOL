@@ -26,6 +26,7 @@ from typing import Optional, Union
 import z3
 
 from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol
+from . import sink as _sink
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
 from .procedures import (
@@ -178,18 +179,23 @@ def verify(
     versions = compute_versions()
     result_id = uuid.uuid4().hex
     base = dict(result_id=result_id, versions=versions, solver_config=config, issued_at=_now())
+    problem: Optional[Problem] = None  # the problem actually validated and compiled; the result sink records it
 
     def finish(result: VerificationResult) -> VerificationResult:
         result.timings = timings + result.timings
         if signing_key:
-            return sign_result(result, signing_key, key_id or "default")
+            result = sign_result(result, signing_key, key_id or "default")
+        try:  # the Overseer's result sink: a no-op unless a capture is active; it never changes or blocks the result
+            _sink.emit(result, problem)
+        except Exception:
+            pass
         return result
 
     try:
         t0 = time.perf_counter()
         trust_notes: list[Diagnostic] = []
         if isinstance(problem_or_raw, Problem):
-            problem: Optional[Problem] = problem_or_raw
+            problem = problem_or_raw
             outcome = validate_problem(problem, limits)
         else:
             problem, outcome = parse_and_validate(problem_or_raw, limits)
