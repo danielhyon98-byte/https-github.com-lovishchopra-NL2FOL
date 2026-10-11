@@ -5,9 +5,10 @@ Usage: list_claims.py <specialist.json> [--eligible] [--json]
 
 A peer-dependent task (``peer_of``) is listed with the peer's report supplied as the document
 ``peer:<task>`` when <round>/relayed/<task_id>.json exists, as the hub supplies it. Every source
-reference says whether its excerpt was LOCATED in the named document; an unlocated excerpt is
-attributed to the first document only so the hub can report it (INT-REQ-003), not as a claim
-that the words are there. Each claim's ``assumptions`` are printed under its row (the History
+reference says whether its excerpt was LOCATED in the named document. An excerpt no text holds is
+attributed to the text the sentence names (so the hub reports a wrong credit, INT-REQ-003) and
+otherwise carries no source reference: the parser records an assumption and the core pack reports
+it as unverifiable (CORE-SRC-003). Each claim's ``assumptions`` are printed under its row (the History
 parser records inline from-memory labels and single-quoted spans with no text to check them
 against there) and a claim that is an agent self-report shows its ``advisory_verification_status``
 (recorded for audit, never trusted). With ``--json`` every claim also carries ``claim_text_sha256``,
