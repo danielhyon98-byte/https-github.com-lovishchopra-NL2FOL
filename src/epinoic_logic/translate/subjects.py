@@ -135,6 +135,15 @@ for _k, _n, _al in (
     ("geography", "Geography", ("geography",)),
     ("psychology", "Psychology", ("psychology",)),
     ("global_politics", "Global Politics", ("global politics",)),
+):
+    _add(SubjectProfile(
+        key=_k, display_name=_n, group="individuals_societies",
+        eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
+        aliases=_al,
+        can_check="argument structure (claim -> evidence -> analysis -> judgement -> link), internal consistency of the report, exact consistency of the dates, figures, percentages and chronology it states (ordering, differences, totals), and structural constraints",
+        cannot_check=_ARG_CANNOT + "; whether a stated date, figure or attribution is historically accurate (that is for the evidence service and the approved library)",
+    ))
+for _k, _n, _al in (
     ("philosophy", "Philosophy", ("philosophy",)),
     ("social_anthropology", "Social and Cultural Anthropology", ("anthropology",)),
     ("world_religions", "World Religions", ("world religions",)),

@@ -22,7 +22,7 @@ from .statuses import VerificationStatus
 from .validator import parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
-UNGROUNDED_KINDS = frozenset({"assumption", "specialist_inference"})
+UNGROUNDED_KINDS = frozenset({"assumption", "specialist_inference", "general_knowledge"})
 
 
 def _now() -> str:

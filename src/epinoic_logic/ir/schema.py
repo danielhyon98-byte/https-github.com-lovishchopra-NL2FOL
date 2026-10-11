@@ -29,6 +29,9 @@ GroundingKind = Literal[
     "arithmetic_fact",      # a numeric fact given in the task or report
     "specialist_inference", # an inferential step asserted by the specialist agent
     "assumption",           # an explicit assumption with no textual support
+    "knowledge_document",   # a fact held in the specialist's own knowledge documents (source boundary (a))
+    "library_source",       # a fact retrieved from the approved library, cited by title and locator (source boundary (b))
+    "general_knowledge",    # standard subject knowledge stated from memory at a labelled certainty; never a specific figure, date or quotation
 ]
 Certainty = Literal["established", "probable", "possible"]
 

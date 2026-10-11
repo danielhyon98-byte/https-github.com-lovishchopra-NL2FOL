@@ -13,8 +13,11 @@ Summary of the rules (applied in this order; the first match decides):
                                      else NOT_ELIGIBLE_OTHER ("no supporting claims")
 4. role structural | quantitative -> ARITHMETIC_CONSTRAINT | QUANTITATIVE_CLAIM when the
                                      text has numerals or comparatives, else NOT_ELIGIBLE_OTHER
-5. role interpretation | effect | device (standalone) -> NOT_ELIGIBLE_INTERPRETIVE, route ``subject_evaluator``
-6. role evidence                  -> NOT_ELIGIBLE_FACTUAL, route ``evidence_service`` (grounding checks it)
+5. role interpretation | effect | device | analysis | perspective | value | limitation (standalone)
+                                  -> NOT_ELIGIBLE_INTERPRETIVE, route ``subject_evaluator``
+6. role evidence | counter_evidence | origin | purpose | content
+                                  -> QUANTITATIVE_CLAIM when the text carries dates/figures (exact consistency
+                                     is checkable; truth is not), else NOT_ELIGIBLE_FACTUAL, route ``evidence_service``
 7. role other: by kind            -> formal_logic: PROPOSITIONAL_ARGUMENT; arithmetic: QUANTITATIVE_CLAIM
                                      (with cues); interpretive: NOT_ELIGIBLE_INTERPRETIVE; unknown: NOT_ELIGIBLE_OTHER
 """
@@ -26,9 +29,10 @@ from typing import Optional
 from ..version import POLICY_VERSION
 from .contracts import ClaimRecord, EligibilityClass, EligibilityDecision
 
-ARGUMENT_ROLES = frozenset({"point", "thesis", "link"})
+ARGUMENT_ROLES = frozenset({"point", "thesis", "link", "judgement"})           # a judgement is an argued position on degree
 COUNT_ROLES = frozenset({"structural", "quantitative"})
-INTERPRETIVE_ROLES = frozenset({"interpretation", "effect", "device"})
+INTERPRETIVE_ROLES = frozenset({"interpretation", "effect", "device", "analysis", "perspective", "value", "limitation"})
+FACTUAL_ROLES = frozenset({"evidence", "counter_evidence", "origin", "purpose", "content"})  # checked by grounding/evidence, not the solver
 
 _NUMERAL_RE = re.compile(r"\d")
 _NUMBER_WORDS = (
@@ -146,9 +150,12 @@ def decide_eligibility(claim: ClaimRecord, policy_version: str = POLICY_VERSION)
     if role in COUNT_ROLES:
         return _count_role(claim, reasons, policy_version)
     if role in INTERPRETIVE_ROLES:
-        reasons.append(f"standalone {role} claim: literary interpretation is not a solver question")
+        reasons.append(f"standalone {role} claim: interpretation, analysis or evaluation is not a solver question")
         return _decision(EligibilityClass.NOT_ELIGIBLE_INTERPRETIVE, False, reasons, policy_version, "subject_evaluator")
-    if role == "evidence":
-        reasons.append("evidence claims are checked by deterministic grounding against the supplied text, not by the solver")
+    if role in FACTUAL_ROLES:
+        if role in ("evidence", "counter_evidence") and (has_numeral(claim.claim_text) or has_comparative(claim.claim_text)):
+            reasons.append(f"{role} with dates or figures: the stated quantities can be checked for exact consistency; their truth is checked by evidence")
+            return _decision(EligibilityClass.QUANTITATIVE_CLAIM, True, reasons, policy_version)
+        reasons.append(f"{role} claims are checked by deterministic grounding or the evidence service, not by the solver")
         return _decision(EligibilityClass.NOT_ELIGIBLE_FACTUAL, False, reasons, policy_version, "evidence_service")
     return _other_role(claim, reasons, policy_version)

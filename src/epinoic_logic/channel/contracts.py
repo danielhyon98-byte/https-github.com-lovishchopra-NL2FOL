@@ -28,6 +28,8 @@ class RequestItem(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     kind: Literal["question", "instruction"] = "instruction"
     required: bool = True
+    command_term: Optional[str] = Field(default=None, description="IB command term detected in the item, e.g. 'to what extent'")
+    level: Optional[int] = Field(default=None, ge=1, le=3, description="command-term level: 1 recall, 2 apply/explain, 3 analyse/evaluate (needs a judgement)")
 
 
 class Constraint(BaseModel):

@@ -97,7 +97,7 @@ class VerificationResult(BaseModel):
     )
     ungrounded_dependencies: list[str] = Field(
         default_factory=list,
-        description="relied-on premise ids whose grounding is missing, is 'assumption' or 'specialist_inference', or whose grounding.verified is False",
+        description="relied-on premise ids whose grounding is missing, is 'assumption', 'specialist_inference' or 'general_knowledge', or whose grounding.verified is False",
     )
     witness_model: Optional[list[ModelAssignment]] = Field(
         default=None,

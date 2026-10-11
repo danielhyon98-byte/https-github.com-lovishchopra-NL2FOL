@@ -21,6 +21,27 @@ _CITE_RE = re.compile(r"\b(quote|quotations?|cite|citing|textual evidence|refer(
 _IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(])")
 _WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+
+# IB command terms by level (shared command-terms document, C1-C3). Longest match wins.
+COMMAND_TERMS: dict[str, int] = {
+    **{t: 1 for t in ("define", "state", "write down", "list", "label", "draw", "measure", "identify", "recall")},
+    **{t: 2 for t in ("outline", "describe", "distinguish", "annotate", "calculate", "find", "determine", "estimate", "sketch", "apply", "explain", "suggest", "compare and contrast", "compare", "contrast", "interpret", "solve", "formulate", "classify", "comment", "demonstrate", "analyse how", "analyze how")},
+    **{t: 3 for t in ("analyse", "analyze", "deduce", "derive", "show that", "prove", "verify", "predict", "design", "discuss", "examine", "explore", "evaluate", "assess", "justify", "to what extent", "recommend", "synthesise", "synthesize", "investigate")},
+}
+_TERM_RE = re.compile(r"\b(" + "|".join(sorted((re.escape(t) for t in COMMAND_TERMS), key=len, reverse=True)) + r")\b", re.IGNORECASE)
+LEVEL3_VERDICT_TERMS = frozenset({"evaluate", "discuss", "to what extent", "assess", "examine", "justify", "recommend"})
+
+
+def detect_command_term(sentence: str) -> tuple[str | None, int | None]:
+    """First IB command term in the sentence (longest match preferred) and its level."""
+    m = _TERM_RE.search(sentence)
+    if not m:
+        return None, None
+    term = m.group(1).lower()
+    if term in ("analyse how", "analyze how"):
+        term = term.split()[0]
+        return term, 3
+    return term, COMMAND_TERMS[term]
 _CONTENT_CUES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "comment on", "how ", "why ", "what ")
 
 
@@ -81,7 +102,8 @@ def extract_items(text: str) -> list[RequestItem]:
         is_q = sent.endswith("?") or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways"))
         is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES)
         if is_q or is_imp:
-            items.append(RequestItem(item_id=f"i{len(items) + 1}", text=sent, kind="question" if is_q else "instruction"))
+            term, level = detect_command_term(sent)
+            items.append(RequestItem(item_id=f"i{len(items) + 1}", text=sent, kind="question" if is_q else "instruction", command_term=term, level=level))
     if not items:
         items.append(RequestItem(item_id="i1", text=text.strip()[:4000], kind="instruction"))
     return items

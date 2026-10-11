@@ -35,7 +35,7 @@ from ..ir.schema import Problem
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, SuppliedText
 from ..translate.grounding import check_claim_sources
 from .contracts import Constraint, ConstraintResult, CoverageRecord, TaskRequest, TransmissionReceipt, TransmissionStatus
-from .request_parser import count_paragraphs, count_words, extract_constraints, extract_items
+from .request_parser import LEVEL3_VERDICT_TERMS, count_paragraphs, count_words, extract_constraints, extract_items
 
 VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
 ParseFn = Callable[..., SpecialistReport]
@@ -131,6 +131,10 @@ class TranslatorChannel:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
                 findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)", claim_ids=[]))
+        verdict_roles = {"judgement", "point", "thesis", "link"}
+        for item in req.items:
+            if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not any(c.claim_role in verdict_roles for c in report.claims):
+                findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._constraints(req, report)
         for cr in constraint_results:
             if cr.satisfied is False:

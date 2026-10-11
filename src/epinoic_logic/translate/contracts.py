@@ -24,8 +24,14 @@ from ..engine.statuses import VerificationStatus
 from ..ir.schema import Certainty, Grounding, GroundingKind, Problem, SourceRef
 
 ClaimRole = Literal[
-    "thesis", "point", "evidence", "device", "interpretation", "effect", "link",
-    "structural", "quantitative", "other",
+    # shared
+    "thesis", "point", "evidence", "link", "structural", "quantitative", "other",
+    # English (Device -> Interpretation -> Effect)
+    "device", "interpretation", "effect",
+    # History and other argued subjects (Claim -> Evidence -> Analysis -> Judgement -> Link)
+    "analysis", "judgement", "counter_evidence", "perspective",
+    # source operation (Origin, Purpose, Content -> Value, Limitation)
+    "origin", "purpose", "content", "value", "limitation",
 ]
 ProposedClaimKind = Literal[
     "formal_logic", "arithmetic", "factual", "interpretive", "rubric_judgment", "unknown",
