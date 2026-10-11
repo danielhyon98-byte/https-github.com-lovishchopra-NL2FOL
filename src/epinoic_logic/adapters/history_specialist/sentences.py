@@ -27,10 +27,11 @@ strings are never read as quotations.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 
 from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, find_quotation_spans, is_json_block
 
-__all__ = ["ABBREVIATIONS", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences", "strip_json_spans"]
+__all__ = ["ABBREVIATIONS", "abbreviation_ends_at", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences", "strip_json_spans"]
 
 #: Tokens after which a full stop is an abbreviation, not a sentence end (lower-case, without the stop).
 ABBREVIATIONS = frozenset({
@@ -48,15 +49,31 @@ _STARTS_SENTENCE_RE = re.compile(r"[A-ZÀ-ÖØ-Þ0-9\"'(“‘«„\[{]")
 _WS_RE = re.compile(r"\s+")
 
 
+#: How far before a full stop the abbreviation test looks: longer than any abbreviation or initial with its
+#: closing marks, so a word cut at the window's edge is known to be neither (and the test stays linear).
+_ABBREVIATION_WINDOW = 48
+
+
 def is_abbreviation_before(prefix: str) -> bool:
     """True when ``prefix`` (the text up to and including a full stop) ends in an
     abbreviation or a single-letter initial, so the stop is not a sentence end."""
-    stripped = prefix.rstrip(_CLOSERS)
+    return abbreviation_ends_at(prefix, len(prefix))
+
+
+def abbreviation_ends_at(text: str, end: int) -> bool:
+    """:func:`is_abbreviation_before` for ``text[:end]`` without copying the prefix: only the
+    last :data:`_ABBREVIATION_WINDOW` characters before ``end`` are read. A word that runs
+    past the window's edge is longer than any abbreviation and is not an initial, so it is
+    never one; the answer is the same as for the whole prefix."""
+    window_start = max(0, end - _ABBREVIATION_WINDOW)
+    stripped = text[window_start:end].rstrip(_CLOSERS)
     if not stripped.endswith("."):
         return False
     m = _LAST_WORD_RE.search(stripped)
     if m is None:
         return False
+    if m.start() == 0 and window_start > 0:
+        return False  # the word reaches the window's edge: longer than any abbreviation, not an initial
     word = m.group(1)
     if len(word) == 1:
         return True  # an initial ('A. J. P.'), 'c.', 'p.'
@@ -69,18 +86,40 @@ def _quotation_spans(text: str) -> list[tuple[int, int]]:
     return [(s, e) for s, e, _inner in find_quotation_spans(text)]
 
 
+def _span_index(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
+    """``(starts, furthest_end)`` over ``spans`` sorted by start: ``furthest_end[i]`` is the
+    largest close offset among ``spans[: i + 1]``, so whether any span opening before an
+    offset closes after another is one bisection, however many spans the text has."""
+    starts: list[int] = []
+    furthest: list[int] = []
+    best = -1
+    for s, e in spans:
+        starts.append(s)
+        best = max(best, e)
+        furthest.append(best)
+    return starts, furthest
+
+
+def _inside_any(starts: list[int], furthest_end: list[int], start: int, end: int) -> bool:
+    """True when some span opens before ``start`` and closes after ``end`` (the boundary lies
+    inside an open quotation); same answer as testing every span."""
+    i = bisect_left(starts, start)  # spans[:i] open before ``start``
+    return i > 0 and furthest_end[i - 1] > end
+
+
 def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bool = True) -> list[int]:
     """Offsets in ``text`` at which a new sentence (or, with ``semicolons``, a new
     clause) starts. A boundary inside a quotation is ignored, as is one after an
     abbreviation or initial; with ``capital_next`` the next sentence must open with a
     capital, a digit or an opening mark."""
-    spans = _quotation_spans(text)
+    spans = sorted(_quotation_spans(text))
+    starts, furthest_end = _span_index(spans)
     out: list[int] = []
     pattern = re.compile(rf"[.?!;]+[{_CLOSERS}]*(?=\s+\S)") if semicolons else _END_RE
     for m in pattern.finditer(text):
-        if any(s < m.start() and m.end() < e for s, e in spans):
+        if spans and _inside_any(starts, furthest_end, m.start(), m.end()):
             continue
-        if m.group(0)[0] != ";" and is_abbreviation_before(text[: m.end()]):
+        if m.group(0)[0] != ";" and abbreviation_ends_at(text, m.end()):
             continue
         nxt = _WS_RE.match(text, m.end())
         start = nxt.end() if nxt else m.end()
@@ -90,7 +129,7 @@ def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bo
             continue
         out.append(start)
     for m in _JSON_END_RE.finditer(text):
-        if any(s < m.start() and m.end() < e for s, e in spans):
+        if spans and _inside_any(starts, furthest_end, m.start(), m.end()):
             continue
         nxt = _WS_RE.match(text, m.end())
         start = nxt.end() if nxt else m.end()

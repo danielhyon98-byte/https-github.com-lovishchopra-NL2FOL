@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional
 
 __all__ = ["ChronologyRelation", "DateToken", "MONTH_YEAR_RE", "MONTHS", "chronology_findings_in", "chronology_relations", "date_in_aside", "month_index", "years_in"]
@@ -166,15 +167,22 @@ def _day(*groups: Optional[str]) -> Optional[int]:
 
 def _tokens(text: str) -> list[DateToken]:
     """Every date token of ``text`` in order: month-year (with a day when written), day-month,
-    bare month after a preposition, year-only."""
+    bare month after a preposition, year-only. A candidate that starts inside a token already
+    read, or ends inside one, is not a second token. The coverage test is a position mask, so
+    a paragraph of hundreds of dates is read in one pass, not one pass per date."""
     out: list[DateToken] = []
-    for m in MONTH_YEAR_RE.finditer(text):
-        out.append(DateToken(m.start(), m.end(), m.group(0), MONTHS[m.group("month").lower()], int(m.group("year")), _day(m.group("day"), m.group("day2"))))
-    covered = [(t.start, t.end) for t in out]
+    covered = bytearray(len(text) + 1)  # covered[i] == 1 when character i belongs to a token already read
+
+    def cover(s: int, e: int) -> None:
+        covered[s:e] = b"\x01" * (e - s)
 
     def taken(s: int, e: int) -> bool:
-        return any(a <= s < b or a < e <= b for a, b in covered)
+        # the candidate starts inside a token (a <= s < b) or ends inside one (a < e <= b, i.e. e - 1 is covered)
+        return bool(covered[s]) or (e > s and bool(covered[e - 1]))
 
+    for m in MONTH_YEAR_RE.finditer(text):
+        out.append(DateToken(m.start(), m.end(), m.group(0), MONTHS[m.group("month").lower()], int(m.group("year")), _day(m.group("day"), m.group("day2"))))
+        cover(m.start(), m.end())
     for m in _DAY_MONTH_RE.finditer(text):
         if taken(m.start(), m.end()):
             continue
@@ -183,27 +191,33 @@ def _tokens(text: str) -> list[DateToken]:
         if day is None:
             continue
         out.append(DateToken(m.start(), m.end(), m.group(0), MONTHS[month], None, day))
-        covered.append((m.start(), m.end()))
+        cover(m.start(), m.end())
     for m in _BARE_MONTH_RE.finditer(text):
         s, e = m.start(1), m.end(1)
         if taken(s, e):
             continue
         out.append(DateToken(s, e, m.group(1), MONTHS[m.group(1).lower()], None))
-        covered.append((s, e))
+        cover(s, e)
     for m in _YEAR_ONLY_RE.finditer(text):
         if taken(m.start(), m.end()):
             continue
         out.append(DateToken(m.start(), m.end(), m.group(0), None, int(m.group(1))))
-        covered.append((m.start(), m.end()))
+        cover(m.start(), m.end())
     out.sort(key=lambda t: t.start)
     return out
+
+
+@lru_cache(maxsize=256)
+def _years_in_cached(text: str, dated_only: bool) -> tuple[int, ...]:
+    return tuple(sorted({t.year for t in _tokens(text) if t.year is not None and (t.month is not None or not dated_only)}))
 
 
 def years_in(text: str, *, dated_only: bool = False) -> list[int]:
     """The distinct years stated in ``text`` (month-year and year-only tokens), sorted; with
     ``dated_only`` only the years of month-year tokens (the years of dated events, not of a
-    publication year in parentheses)."""
-    return sorted({t.year for t in _tokens(text) if t.year is not None and (t.month is not None or not dated_only)})
+    publication year in parentheses). The answer is memoised per text (a bounded cache), since
+    every sentence of a paragraph asks for the paragraph's years."""
+    return list(_years_in_cached(text, dated_only))
 
 
 def _context_year(sentence_years: list[int], context_years: list[int], dated_context_years: list[int]) -> tuple[Optional[int], str]:
@@ -289,10 +303,13 @@ def chronology_relations(sentence: str, context: Optional[str] = None) -> list[C
     is the paragraph the sentence stands in; its only stated year, when the sentence
     states none, supplies the year of a day-month or bare-month pair."""
     out: list[ChronologyRelation] = []
+    cues = list(_CUE_RE.finditer(sentence))
+    if not cues:
+        return out  # no ordering cue: nothing to read, and the paragraph's years are not needed
     sentence_years = years_in(sentence)
     context_years = years_in(context) if context else []
     dated_context_years = years_in(context, dated_only=True) if context else []
-    for m in _CUE_RE.finditer(sentence):
+    for m in cues:
         cue = m.group("cue").lower()
         left_text, right_text = sentence[: m.start()], sentence[m.end():]
         if _NOT_A_CUE_BEFORE_RE.search(left_text):
