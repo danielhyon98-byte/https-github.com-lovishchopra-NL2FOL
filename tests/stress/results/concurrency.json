@@ -1,0 +1,5 @@
+{
+  "problems": 240,
+  "workers": 16,
+  "equal_to_sequential": true
+}

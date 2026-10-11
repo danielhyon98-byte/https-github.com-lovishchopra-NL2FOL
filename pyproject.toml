@@ -31,4 +31,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 120
-addopts = "-ra"
+addopts = "-ra -m 'not stress'"
+markers = ["stress: long-running load and soak tests (run with -m stress)"]

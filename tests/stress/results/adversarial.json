@@ -1,0 +1,9 @@
+{
+  "payloads": 12,
+  "rounds": 20,
+  "worst_ms": 70.96934999935911,
+  "statuses": {
+    "INVALID_FORMALIZATION": 220,
+    "UNSUPPORTED": 20
+  }
+}

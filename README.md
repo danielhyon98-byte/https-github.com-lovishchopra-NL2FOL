@@ -1,39 +1,92 @@
 # Epinoic AI — Logic Translator and Z3 Verification Engine
 
-Proprietary. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+Proprietary. See `LICENSE` and `THIRD_PARTY_NOTICES.md`. Status of every component
+(planned / implemented / tested / deployed) is in `docs/STATUS.md`. Nothing in this
+repository is deployed.
 
-This repository holds Epinoic AI's logic verification program: a restricted,
-typed, versioned intermediate representation (IR); a deterministic validator and
-compiler to Z3; consistency, entailment and counterexample procedures with
-provenance-bound results; and a translation layer that turns structured claims
-from subject-specialist agents into the IR, with deterministic grounding checks
-tailored to the International Baccalaureate tutoring use case.
+## What this program does, in plain language
 
-What a result means: a definitive verdict proves a property of the ENCODED
-problem under its ENCODED premises. It never establishes that the premises are
-factually true, that a natural-language claim was translated faithfully, or that
-a literary or historical interpretation is correct. The program is not a
-universal hallucination detector; it makes explicit what was checked, how, under
-which assumptions, and what remains unverified.
+Epinoic AI's tutor is a set of subject-specialist agents (English, Mathematics,
+Physics, Economics, History and so on) that write structured answers for
+International Baccalaureate students. Language models can state things confidently
+that do not follow from the evidence, invent quotations, or contradict themselves.
+This program makes those failures **visible and checkable** without pretending to
+judge whether an interpretation is "true".
 
-## Status
+It does three separate things and never blurs them:
 
-See `docs/STATUS.md` for what is planned, implemented, tested and deployed.
-Nothing in this repository is deployed.
+1. **Structural checks (deterministic code).** Is the specialist's report well
+   formed, are its claim ids stable, is the original text unchanged (hash), and does
+   every quotation it cites actually occur, word for word, in the text the student
+   supplied? Invented quotations and invented line citations are flagged here.
+2. **Translation (model-proposed, code-validated).** For claims that *can* be
+   formalized, a model proposes a small typed logic problem: the atomic propositions
+   the specialist relied on, where each one is grounded (a quotation, a task setting,
+   an inference the specialist made, an outright assumption), the inferential links
+   the specialist asserted, and the point being argued. The proposal is **data**: it
+   is parsed strictly, validated against a closed schema, and never executed.
+3. **Formal verification (Z3).** The engine checks whether the premises are
+   consistent, and if so whether they entail the point. It reports exactly which
+   premises the proof relied on and which of those are unverified inferences or
+   assumptions. If the point does not follow, it shows a concrete counterexample. If
+   the premises contradict each other, it names the conflicting ones.
 
-## Layout
+A verified result therefore says: *given these encoded premises, under this
+configuration, this conclusion does or does not follow*. It never says the premises
+are factually true, that the translation captured the claim faithfully, or that a
+literary or historical reading is correct. Every result carries that scope
+statement. This is deliberate: the system is not a universal hallucination
+detector; it is an auditable way to show what was checked, how, under which
+assumptions, and what remains uncertain.
 
-- `src/epinoic_logic/ir/` — IR schema v1 and canonical digests (data, never executed)
-- `src/epinoic_logic/engine/` — statuses, validator, compiler, Z3 procedures, provenance, results
-- `src/epinoic_logic/translate/` — claim contracts, eligibility, grounding checks, staged translation pipeline, replaceable model providers, advisory semantic-fidelity review
-- `src/epinoic_logic/adapters/` — specialist-agent adapters (English specialist first)
-- `src/epinoic_logic/service/` — authenticated HTTP service boundary
-- `tests/` — pytest suite
-- `docs/` — audit, plan, evidence, context pack
+## Features of the logic translator (`src/epinoic_logic/translate/`)
 
-## Development
+| Feature | What it does | Where |
+| --- | --- | --- |
+| Claim-record input | Works on structured claims from a specialist report (ids, role, subject, source refs, assumptions), not on raw student text. | `contracts.py` |
+| Deterministic eligibility | Code, not the model, decides whether a claim may be formalized: argument structure (point + supporting claims), structural counts, exact numeric claims. Interpretive, factual and rubric judgements are routed elsewhere. | `eligibility.py` |
+| IB subject policy | Per-subject profiles say which claim classes are allowed (quantitative claims in Mathematics, Sciences, Economics, Business; argument structure only in Literature, History, Arts, TOK). The profile text is injected into the prompt so the model knows what cannot be established in that subject. | `subjects.py` |
+| Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. | `prompts/translate_v1.md` |
+| Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization) against the supplied text; `verified` is set only by this code. | `grounding.py` |
+| Strict parsing | Model output is parsed with a plain JSON parser only (code fences stripped); anything else is a failed attempt. | `parsing.py` |
+| Bounded retries | Validation diagnostics are fed back for at most one retry; the status then becomes INVALID_FORMALIZATION rather than looping. | `pipeline.py` |
+| Ambiguity flags | The model must declare materially different readings; the result becomes AMBIGUOUS_TRANSLATION and is never shown as verified. | `pipeline.py` |
+| Replaceable providers | Fixture provider for tests; Anthropic and OpenAI-compatible adapters behind one interface (untested live here). | `providers/` |
+| Advisory semantic review | An independent reviewer rates translation fidelity; the verdict is labelled advisory and never changes the formal status. | `review.py` |
+| Outcome for the Overseer | One record per claim: translation, signed engine result, structural findings, review, a derived display status and a plain-language summary ending with the scope statement. | `outcome.py` |
+
+## The verification engine (`src/epinoic_logic/engine/`)
+
+Restricted IR 1.0 (Bool, Int, Real; 24 allowlisted operators; exact numerals as
+text) → validator (sorts, identifiers, limits, policy; collects all diagnostics) →
+compiler (one Z3 call per node, fresh context) → procedures (consistency first,
+then entailment with tracked unsat cores; exact models) → result bound to a digest of
+the exact problem, solver configuration and component versions, and HMAC-signed so
+the Overseer can reject anything an agent fabricates. Statuses form a closed set;
+only six are definitive and none means "the claim is true".
+
+## Repository layout
+
+- `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
+- `src/epinoic_logic/engine/` — validator, compiler, procedures, provenance, runner
+- `src/epinoic_logic/translate/` — contracts, eligibility, subjects, grounding, pipeline, providers, review, outcome
+- `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
+- `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
+- `tests/` — unit, end-to-end, service and `stress/` suites
+- `docs/` — audit, plan, design, status, stress results, evidence, context pack
+
+## Running
 
 ```
 python -m venv .venv && .venv/bin/pip install -e ".[dev,service,providers]"
-.venv/bin/pytest
+.venv/bin/pytest                      # unit, e2e and service tests
+.venv/bin/pytest -m stress tests/stress   # load, concurrency, adversarial volume, soak
+epinoic-logic verify problem.json     # one verification from the command line
 ```
+
+## What it does not do
+
+It does not decide literary, historical or rubric judgements; it does not check
+units, nonlinear algebra, quantifiers or symbolic calculus (these are reported as
+UNSUPPORTED); it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
+the runtime evidence); and it does not call any model provider in its tests.
