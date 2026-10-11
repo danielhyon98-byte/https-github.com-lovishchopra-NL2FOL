@@ -43,6 +43,8 @@ MEMORY_FLOOR_MB = 128
 DEFAULT_MEMORY_MB = 512
 _memory_lock = threading.Lock()
 _applied_memory_mb: Optional[int] = None
+#: Verifications currently between apply_global_memory_limit and release_global_memory_limit.
+_active_verifications = 0
 _TIMEOUT_REASONS = ("timeout", "canceled", "cancelled", "resource", "interrupted", "max. resource")
 _MEMOUT_REASONS = ("memout", "memory")
 
@@ -69,31 +71,56 @@ def _make_solver(compiled: Compiled, config: SolverConfig) -> z3.Solver:
 
 
 def apply_global_memory_limit(config: SolverConfig) -> None:
-    """Apply ``memory_max_mb`` as a Z3 global parameter, never below :data:`MEMORY_FLOOR_MB`.
+    """Enter one verification's memory budget; pair with :func:`release_global_memory_limit`.
 
-    Z3 memory limits are process-global, not per context, so the value is applied
-    under a lock and only when it changes. A request can never lower the budget
-    below the floor: a budget Z3 cannot work within aborts the solver and leaves the
-    process in a state where the next solver call may crash. The service refuses
-    client-supplied values altogether (see ``service.app``); library callers sharing a
-    process with other Z3 users should pass ``memory_max_mb=None``.
+    ``memory_max_mb`` is the budget of ONE verification, never below :data:`MEMORY_FLOOR_MB`.
+    Z3's ``memory_max_size`` is process-global (all contexts share it), so the limit applied
+    is that budget times the number of verifications running at once, and while any
+    verification runs the limit is only ever raised: 32 threads under a 512 MB limit meant
+    for one run exhaust it together, Z3 aborts, and the next solver call segfaults the
+    process. The limit falls back to the single budget only when no verification is
+    active. The service refuses client-supplied values (see ``service.app``); library
+    callers sharing a process with other Z3 users should pass ``memory_max_mb=None``
+    (the verification is still counted so colleagues' budgets scale).
     """
-    global _applied_memory_mb
-    if config.memory_max_mb is None:
-        return
-    budget = max(int(config.memory_max_mb), MEMORY_FLOOR_MB)
+    global _applied_memory_mb, _active_verifications
     with _memory_lock:
-        if _applied_memory_mb != budget:
+        _active_verifications += 1
+        if config.memory_max_mb is None:
+            return
+        budget = max(int(config.memory_max_mb), MEMORY_FLOOR_MB) * _active_verifications
+        if _applied_memory_mb is None or budget > _applied_memory_mb:
             z3.set_param("memory_max_size", budget)
             _applied_memory_mb = budget
 
 
+def release_global_memory_limit(config: SolverConfig) -> None:
+    """Leave one verification's budget. When nothing is running any more the process-wide
+    limit returns to the single budget (lowering it is safe only then)."""
+    global _applied_memory_mb, _active_verifications
+    with _memory_lock:
+        _active_verifications = max(0, _active_verifications - 1)
+        if _active_verifications == 0 and config.memory_max_mb is not None:
+            budget = max(int(config.memory_max_mb), MEMORY_FLOOR_MB)
+            if _applied_memory_mb != budget:
+                z3.set_param("memory_max_size", budget)
+                _applied_memory_mb = budget
+
+
 def reset_global_memory_limit() -> None:
-    """Restore the default Z3 memory budget after a memory abort."""
+    """After a memory abort: restore a budget no lower than what the verifications still
+    running need (the default budget per active verification); never lower under load."""
     global _applied_memory_mb
     with _memory_lock:
-        z3.set_param("memory_max_size", DEFAULT_MEMORY_MB)
-        _applied_memory_mb = DEFAULT_MEMORY_MB
+        budget = max(DEFAULT_MEMORY_MB * max(1, _active_verifications), _applied_memory_mb or 0)
+        z3.set_param("memory_max_size", budget)
+        _applied_memory_mb = budget
+
+
+def active_verifications() -> int:
+    """Verifications currently holding a memory budget (for tests and diagnostics)."""
+    with _memory_lock:
+        return _active_verifications
 
 
 def _classify_unknown(solver: z3.Solver) -> tuple[VerificationStatus, str, bool]:

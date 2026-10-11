@@ -20,7 +20,7 @@ class SolverConfig(BaseModel):
     random_seed: int = Field(default=0, ge=0)
     memory_max_mb: Optional[int] = Field(
         default=512, ge=128,
-        description="Z3 global memory budget in MB; process-wide, never below the engine floor (a lower budget aborts Z3 and corrupts the process)",
+        description="Z3 memory budget in MB for ONE verification, never below the engine floor (a lower budget aborts Z3 and corrupts the process). Z3's limit is process-wide, so the engine applies this times the number of verifications running at once and never lowers it while any runs",
     )
     model_completion: bool = True
     produce_unsat_core: bool = True

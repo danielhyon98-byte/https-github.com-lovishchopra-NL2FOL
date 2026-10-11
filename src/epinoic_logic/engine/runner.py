@@ -31,6 +31,7 @@ from .errors import DiagnosticCode
 from .procedures import (
     ProcedureOutcome,
     apply_global_memory_limit,
+    release_global_memory_limit,
     reset_global_memory_limit,
     run_consistency,
     run_entailment,
@@ -227,8 +228,8 @@ def verify(
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
         except z3.Z3Exception:
-            # Z3 aborted (its memory budget was exhausted). Restore the default budget so
-            # later calls in this process are not left under the exhausted one.
+            # Z3 aborted (its memory budget was exhausted). Restore a budget the running
+            # verifications can work within so later calls are not left under the exhausted one.
             reset_global_memory_limit()
             return finish(VerificationResult(
                 **base, **ids, status=VerificationStatus.UNKNOWN,
@@ -236,6 +237,8 @@ def verify(
                 diagnostics=trust_notes + [Diagnostic(code=DiagnosticCode.SOLVER_MEMOUT.value, message="solver aborted: memory budget exhausted")],
                 reason_unknown="memory budget exhausted",
             ))
+        finally:
+            release_global_memory_limit(config)
         relied = list(proc.core)
         diagnostics = trust_notes + _solver_diagnostics(proc)
         vacuous = _vacuous_diagnostic(problem, proc, config)
