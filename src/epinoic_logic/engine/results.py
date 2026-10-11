@@ -2,14 +2,20 @@
 component versions that produced it (``Binding``). Any change to any of them yields
 a different binding digest, so an old result can never be presented as covering a
 modified representation.
+
+A result decided under non-default ``Limits`` (for example the named ``nonlinear`` pack
+policy, see :mod:`.policies`) records them in ``VerificationResult.limits``. The record
+sits under the signature, beside the binding: the binding formula is unchanged. With the
+default ``Limits`` the field is ``None`` and is left out of every dump, so default results,
+their signatures and the hand-off binding check stay byte-identical.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
-from ..ir.schema import QueryKind, Sort
+from ..ir.schema import Limits, QueryKind, Sort
 from .statuses import SCOPE_STATEMENT, VerificationStatus
 
 
@@ -123,3 +129,20 @@ class VerificationResult(BaseModel):
     issued_at: str = Field(description="RFC 3339 UTC timestamp")
     signature: Optional[str] = Field(default=None, description="HMAC-SHA256 hex over the canonical result without signature fields; set by the service")
     signature_key_id: Optional[str] = None
+    limits: Optional[Limits] = Field(
+        default=None,
+        description=(
+            "the Limits the problem was validated under, recorded only when they differ from the engine "
+            "default (for example the 'nonlinear' pack policy); covered by the signature, not by the binding "
+            "digest. Absent from every dump when the default Limits were used"
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_default_limits(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Leave ``limits`` out of every dump while it is ``None``, so a default result serialises
+        (and is signed) exactly as before the field existed."""
+        data = handler(self)
+        if isinstance(data, dict) and "limits" in data and data["limits"] is None:
+            del data["limits"]
+        return data

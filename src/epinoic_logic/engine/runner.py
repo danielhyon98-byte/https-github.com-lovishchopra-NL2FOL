@@ -14,6 +14,18 @@ Trust rules enforced here:
   ``unverified_dependencies`` so a summary can never call them established;
 * a definitive status that used no premise at all carries ``E108`` (vacuous) so the
   outcome layer never displays a tautology as a verified claim.
+
+Limits and policies:
+
+* ``limits`` must be a :class:`~epinoic_logic.ir.schema.Limits`. Anything else is an
+  INTERNAL_ERROR result, never a run under guessed bounds;
+* every result path records ``limits`` on the result when they differ from
+  ``DEFAULT_LIMITS``, before signing. Default runs record nothing, so their results and
+  signatures are byte-identical to results from before the record existed;
+* when nonlinear terms are allowed, an assertion whose polynomial degree exceeds
+  :data:`~epinoic_logic.engine.policies.NONLINEAR_MAX_DEGREE` is UNSUPPORTED (``E201``)
+  before compilation, because Z3 cannot be interrupted inside some high-degree polynomial
+  operations and would overrun its timeout.
 """
 from __future__ import annotations
 
@@ -28,6 +40,7 @@ import z3
 from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
+from .policies import NONLINEAR_MAX_DEGREE, max_degree
 from .procedures import (
     ProcedureOutcome,
     apply_global_memory_limit,
@@ -40,7 +53,7 @@ from .procedures import (
 from .provenance import binding_for_unparsed, compute_binding, compute_versions, sign_result
 from .results import Counterexample, Diagnostic, ModelAssignment, SolverConfig, StageTiming, VerificationResult
 from .statuses import VerificationStatus
-from .validator import parse_and_validate, validate_problem
+from .validator import ValidationOutcome, parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
 #: Grounding kinds that never establish a premise: they are the specialist's own steps.
@@ -152,6 +165,36 @@ def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: Solver
     return None
 
 
+def _limits_record(limits: Limits) -> Optional[Limits]:
+    """What a result records about the Limits it was decided under: ``None`` for the default
+    values (so default results stay byte-identical), else a plain ``Limits`` copy of the values
+    that were enforced. Raises ``TypeError`` for anything that is not a ``Limits``."""
+    if not isinstance(limits, Limits):
+        raise TypeError("limits must be an epinoic_logic.ir.schema.Limits instance")
+    values = {name: getattr(limits, name) for name in Limits.model_fields}
+    if values == DEFAULT_LIMITS.model_dump():
+        return None
+    return Limits.model_validate(values)
+
+
+def _degree_diagnostic(problem: Problem, limits: Limits) -> Optional[Diagnostic]:
+    """``E201`` when nonlinear terms are allowed and an assertion's polynomial degree exceeds the
+    engine bound. Under the linear gate every degree is at most 1, so nothing is checked."""
+    if not limits.allow_nonlinear:
+        return None
+    degree, where = max_degree(problem)
+    if degree <= NONLINEAR_MAX_DEGREE:
+        return None
+    return Diagnostic(
+        code=DiagnosticCode.NONLINEAR_TERM.value,
+        message=(
+            f"polynomial degree {degree} exceeds the nonlinear policy bound {NONLINEAR_MAX_DEGREE}: "
+            "the solver cannot be interrupted reliably on higher degrees"
+        ),
+        path=where,
+    )
+
+
 def _assignments(problem: Problem, model: dict[str, str]) -> list[ModelAssignment]:
     sorts = {s.name: s.sort for s in problem.symbols}
     return [ModelAssignment(symbol=name, sort=sorts[name], value=value) for name, value in model.items() if name in sorts]
@@ -178,24 +221,34 @@ def verify(
     versions = compute_versions()
     result_id = uuid.uuid4().hex
     base = dict(result_id=result_id, versions=versions, solver_config=config, issued_at=_now())
+    record: Optional[Limits] = None
 
     def finish(result: VerificationResult) -> VerificationResult:
         result.timings = timings + result.timings
+        if record is not None:
+            result.limits = record  # before signing: the record is covered by the signature
         if signing_key:
             return sign_result(result, signing_key, key_id or "default")
         return result
 
     try:
+        record = _limits_record(limits)
+        enforced = record if record is not None else DEFAULT_LIMITS
         t0 = time.perf_counter()
         trust_notes: list[Diagnostic] = []
         if isinstance(problem_or_raw, Problem):
             problem: Optional[Problem] = problem_or_raw
-            outcome = validate_problem(problem, limits)
+            outcome = validate_problem(problem, enforced)
         else:
-            problem, outcome = parse_and_validate(problem_or_raw, limits)
+            problem, outcome = parse_and_validate(problem_or_raw, enforced)
             if problem is not None:
                 # Untrusted payload: nothing in this process checked its groundings.
                 problem, trust_notes = _demote_asserted_verification(problem)
+        if problem is not None and outcome.ok:
+            too_high = _degree_diagnostic(problem, enforced)
+            if too_high is not None:
+                outcome = ValidationOutcome(ok=False, status=VerificationStatus.UNSUPPORTED, diagnostics=[too_high],
+                                            node_count=outcome.node_count, max_depth=outcome.max_depth, sorts=outcome.sorts)
         timings.append(StageTiming(stage="validate", ms=(time.perf_counter() - t0) * 1000.0))
 
         if problem is None:
