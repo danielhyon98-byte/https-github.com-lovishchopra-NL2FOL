@@ -109,6 +109,7 @@ merged.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Iterator, Literal, Optional
 
@@ -278,18 +279,38 @@ def strip_quotations(text: str) -> str:
 # --------------------------------------------------------------- sentences
 
 
+#: How far before a boundary the abbreviation test reads: longer than any abbreviation with its closing marks,
+#: so a word cut at the window's edge is known to be neither an abbreviation nor a one-letter token.
+_ABBREVIATION_WINDOW = 48
+
+
 def _is_abbreviation(prefix: str) -> bool:
-    m = _LAST_WORD_RE.search(prefix.rstrip("\"”’')]»"))
+    """True when ``prefix`` ends in an abbreviation or a one-letter token (closing marks
+    ignored). Only the last :data:`_ABBREVIATION_WINDOW` characters are read: a word that
+    runs past the window's edge is longer than any abbreviation, so the answer is the same."""
+    tail = prefix[-_ABBREVIATION_WINDOW:].rstrip("\"”’')]»")
+    m = _LAST_WORD_RE.search(tail)
     if m is None:
         return False
+    if m.start() == 0 and len(prefix) > _ABBREVIATION_WINDOW:
+        return False  # the word reaches the window's edge: longer than any abbreviation, not one letter
     word = m.group(1)
     return len(word) == 1 or word.lower() in _ABBREVIATIONS
 
 
-def _inside_quotation(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
-    """True when a boundary at ``start``-``end`` lies inside an open quotation span
-    (it ends before the span's closing mark, so the quotation would be cut in two)."""
-    return any(s < start and end < e for s, e in spans)
+def _span_index(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
+    """``(starts, furthest_end)`` over ``spans`` sorted by start: ``furthest_end[i]`` is the
+    largest close offset among ``spans[: i + 1]``, so whether a boundary lies inside an open
+    quotation (it would cut the quotation in two) is one bisection whatever the number of
+    quotations in the paragraph."""
+    starts: list[int] = []
+    furthest: list[int] = []
+    best = -1
+    for s, e in spans:
+        starts.append(s)
+        best = max(best, e)
+        furthest.append(best)
+    return starts, furthest
 
 
 def split_sentences(paragraph: str) -> list[str]:
@@ -301,22 +322,25 @@ def split_sentences(paragraph: str) -> list[str]:
     text = " ".join(paragraph.split())
     if not text:
         return []
-    json_spans = find_json_spans(text)
+    json_spans = sorted(find_json_spans(text))
     masked = mask_json_spans(text) if json_spans else text
-    spans = [(s, e) for s, e, _ in _iter_quotes(masked)]
-    cuts: set[int] = set()
-    for a, b in json_spans:
-        cuts.add(a)
-        cuts.add(b)
+    spans = sorted((s, e) for s, e, _ in _iter_quotes(masked))
+    starts, furthest_end = _span_index(spans)
+    json_starts, json_furthest = _span_index(json_spans)
+    json_cuts = sorted({c for a, b in json_spans for c in (a, b)})
+    cuts: set[int] = set(json_cuts)
+    last_cut = 0  # the latest boundary cut so far; boundaries are visited in order, so it is the nearest one
     for m in _BOUNDARY_RE.finditer(masked):
-        if _inside_quotation(m.start(), m.end(), spans):
-            continue
-        if any(a < m.start() < b for a, b in json_spans):
-            continue
-        prev = max((c for c in cuts if c <= m.start()), default=0)
+        if spans and bisect_left(starts, m.start()) > 0 and furthest_end[bisect_left(starts, m.start()) - 1] > m.end():
+            continue  # inside an open quotation
+        if json_spans and bisect_left(json_starts, m.start()) > 0 and json_furthest[bisect_left(json_starts, m.start()) - 1] > m.start():
+            continue  # inside a pasted JSON span
+        k = bisect_right(json_cuts, m.start())
+        prev = max(last_cut, json_cuts[k - 1] if k else 0)
         if _is_abbreviation(masked[prev:m.start()]):
             continue
         cuts.add(m.end())
+        last_cut = m.end()
     pieces: list[str] = []
     start = 0
     for cut in sorted(cuts):
