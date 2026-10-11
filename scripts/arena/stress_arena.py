@@ -98,6 +98,7 @@ def main(round_dir: Path, replays: int) -> dict:
         os.environ.setdefault("EPINOIC_SIGNING_KEY", KEY.hex())
         os.environ.setdefault("EPINOIC_SIGNING_KEY_ID", "arena")
         os.environ.setdefault("EPINOIC_RATE_PER_MINUTE", "100000")
+        os.environ.setdefault("EPINOIC_MAX_CONCURRENCY", "64")  # the service sheds load above this with 503 + Retry-After; counted as "limited"
         app = create_app(ServiceSettings.from_env())
         client = TestClient(app)
         problem = {"problem_id": "arena-p", "request_id": "req-arena", "claim_id": "c", "query": "entailment",
@@ -114,7 +115,8 @@ def main(round_dir: Path, replays: int) -> dict:
             for code in pool.map(hit, range(400)):
                 codes[code] = codes.get(code, 0) + 1
                 n += 1
-        out["service"] = {"requests": n, "wall_s": time.perf_counter() - t2, "status_codes": codes}
+        out["service"] = {"requests": n, "wall_s": time.perf_counter() - t2, "status_codes": codes,
+                          "limited_503": codes.get(503, codes.get("503", 0)), "note": "503 = load shed by the bounded-concurrency admission with Retry-After, not a failure"}
     except Exception as exc:  # service optional in this harness
         out["service"] = {"error": f"{type(exc).__name__}: {exc}"}
     (round_dir / "stress.json").write_text(json.dumps(out, indent=2))
