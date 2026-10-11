@@ -1,0 +1,2 @@
+premises: sat
+entailment (expect unsat): unsat 377ms total incl init

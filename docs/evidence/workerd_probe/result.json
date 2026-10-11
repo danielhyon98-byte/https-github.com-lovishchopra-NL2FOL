@@ -1,0 +1,15 @@
+{
+  "SharedArrayBuffer": "function",
+  "Worker": "undefined",
+  "Atomics": "object",
+  "sharedWasmMemory": "ok",
+  "newSAB": "ok",
+  "atomicsWait": "ERR: Atomics.wait cannot be called in this context",
+  "z3ModuleType": "[object WebAssembly.Module]",
+  "z3Imports": [
+    "env.memory:memory"
+  ],
+  "z3ImportCount": 116,
+  "z3ExportCount": 850,
+  "instantiateWithSharedMem": "memory ok: SharedArrayBuffer"
+}

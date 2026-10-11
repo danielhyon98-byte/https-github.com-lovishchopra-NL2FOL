@@ -1,0 +1,11 @@
+import { init } from 'z3-solver';
+const t0 = performance.now();
+const { Context } = await init();
+const { Solver, Int, Not } = Context('main');
+const x = Int.const('x'), y = Int.const('y'), z = Int.const('z');
+const s = new Solver();
+s.add(x.gt(y), y.gt(z));
+console.log('premises:', await s.check());
+s.push(); s.add(Not(x.gt(z)));
+console.log('entailment (expect unsat):', await s.check(), `${(performance.now()-t0).toFixed(0)}ms total incl init`);
+process.exit(0);

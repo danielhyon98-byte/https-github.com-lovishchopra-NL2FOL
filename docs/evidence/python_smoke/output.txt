@@ -1,0 +1,9 @@
+z3py version: 5.1.0
+premises consistent: sat
+entailment (expect unsat): unsat 0.4ms
+counterexample case (expect sat): sat [y = -1, x = 0]
+inconsistent premises (expect unsat): unsat
+2x=1 over Int (expect unsat): unsat
+2x=1 over Real (expect sat): sat [rx = 1/2]
+nonlinear with 50ms timeout: unknown timeout 51.4ms
+quantified entailment (expect unsat): unsat

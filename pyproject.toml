@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epinoic-logic"
+version = "0.1.0"
+description = "Epinoic AI logic translator and Z3 verification engine: restricted typed IR, deterministic validator and compiler, Z3 procedures, provenance-bound results, specialist-claim translation with grounding checks."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+  "z3-solver>=4.13",
+  "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+service = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+providers = ["anthropic>=0.40", "httpx>=0.27"]
+dev = ["pytest>=8", "pytest-timeout>=2", "hypothesis>=6", "httpx>=0.27"]
+
+[project.scripts]
+epinoic-logic = "epinoic_logic.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"epinoic_logic" = ["translate/prompts/*.txt", "translate/prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+addopts = "-ra"
