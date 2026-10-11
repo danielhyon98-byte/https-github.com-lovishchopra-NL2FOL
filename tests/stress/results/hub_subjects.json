@@ -1,0 +1,30 @@
+{
+  "cycles_per_subject": 100,
+  "subjects": [
+    "History",
+    "Economics",
+    "Business Management",
+    "Psychology",
+    "English A: Literature"
+  ],
+  "p50_ms": {
+    "History": 11.5049630003341,
+    "Economics": 11.35074200010422,
+    "Business Management": 11.106040999948164,
+    "Psychology": 5.8896199998343945,
+    "English A: Literature": 0.7922940003481926
+  },
+  "p95_ms": {
+    "History": 15.913174999695912,
+    "Economics": 14.874904999487626,
+    "Business Management": 14.471533000687486,
+    "Psychology": 7.473491999917314,
+    "English A: Literature": 1.054218999342993
+  },
+  "formal_checks_decided": 700,
+  "statuses": {
+    "ACCEPTED_WITH_FINDINGS": 400,
+    "ACCEPTED": 100
+  },
+  "rss_growth_mb": 42.234375
+}

@@ -28,5 +28,26 @@ claims because every response re-runs the joint consistency check; at 120 claims
 is still well under the solver timeout. Incremental or pairwise checking is the next
 optimization if a task accumulates many hundreds of claims.
 
+## Iteration 1 — branching hub (2026-10-11)
+
+Five subject branches on one hub, 100 router→specialist→router cycles each (500 transmissions), every
+cycle running the branch's integrity pack and the report's own arithmetic and chronology checks through
+the engine (700 formal checks decided, all holding for the genuine texts).
+
+| Branch | p50 ms per cycle | p95 ms per cycle |
+| --- | --- | --- |
+| History | 11.5 | 15.9 |
+| Economics | 11.4 | 14.9 |
+| Business Management | 11.1 | 14.5 |
+| Psychology | 5.9 | 7.5 |
+| English A: Literature | 0.8 | 1.1 |
+
+Statuses: {'ACCEPTED_WITH_FINDINGS': 400, 'ACCEPTED': 100}; RSS growth 42.2 MB over 500 cycles (per-task channels retain
+their message logs and receipts by design).
+
+Adversarial numeric text (300 texts: 60-digit numerals, 400 random figures in one sentence, 50 repeated
+from/to clauses, zero denominators, overflow-like literals): 3150 formal checks produced,
+0 internal errors, worst text 387 ms.
+
 Service-level load (concurrent HTTP clients, rate limiting, semaphore) is measured
 in the clearance-gate iterations once the service exists; see `docs/STATUS.md`.
