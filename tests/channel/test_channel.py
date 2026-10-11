@@ -178,7 +178,8 @@ def test_agent_to_agent_relay_of_synthesis_checks_ledger():
 def test_request_parser_extracts_items_and_constraints():
     text = "Compare how both poets present loss. To what extent is memory reliable in each poem? Write between 300 and 400 words in three paragraphs, citing the texts."
     items = extract_items(text)
-    assert [i.kind for i in items] == ["instruction", "question", "instruction"]
+    # The third sentence only states constraints (length, paragraphs, citing); it is not a content item to cover.
+    assert [i.kind for i in items] == ["instruction", "question"]
     kinds = sorted((c.kind, c.value) for c in extract_constraints(text))
     assert ("min_words", "300") in kinds and ("max_words", "400") in kinds and ("min_paragraphs", "3") in kinds and ("max_paragraphs", "3") in kinds
     assert any(k == "must_cite_supplied_text" for k, _ in kinds)
