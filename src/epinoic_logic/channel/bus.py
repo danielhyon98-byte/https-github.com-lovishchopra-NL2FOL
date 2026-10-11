@@ -41,6 +41,8 @@ from .request_parser import LEVEL3_VERDICT_TERMS, count_paragraphs, count_words,
 VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
 ParseFn = Callable[..., SpecialistReport]
 
+# Cues that state a position on degree (a claim such as "X was responsible for Y" is not one).
+_VERDICT_CUE = __import__("re").compile(r"\b(therefore|thus|to a (?:large|great|limited|lesser|some|considerable) extent|to a degree|decisive|necessary (?:but|and) (?:not )?sufficient|outweigh(?:s|ed)?|on balance|more (?:significant|important|decisive) than|less (?:significant|important) than|holds for|does not hold|fails)\b", __import__("re").IGNORECASE)
 _STOP = frozenset("the a an and or of to in on for with by is are was were be this that these those as at from it its how why what does do into their there which who whom not".split())
 
 
@@ -165,9 +167,12 @@ class TranslatorChannel:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
                 findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)", claim_ids=[]))
-        verdict_roles = {"judgement", "point", "thesis", "link"}
+        # Command terms C6: evaluate / discuss / to what extent / assess / examine / justify / recommend need a
+        # judgement or position on degree. A judgement-role claim counts; so does a point, thesis or link that
+        # states a position (verdict cue); a bare claim does not.
+        verdict_present = any(c.claim_role == "judgement" or (c.claim_role in ("point", "thesis", "link") and _VERDICT_CUE.search(c.claim_text)) for c in report.claims)
         for item in req.items:
-            if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not any(c.claim_role in verdict_roles for c in report.claims):
+            if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._constraints(req, report)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings)

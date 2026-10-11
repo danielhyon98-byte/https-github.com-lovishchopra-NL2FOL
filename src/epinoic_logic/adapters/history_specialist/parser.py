@@ -29,8 +29,19 @@ _PROBABLE = ("suggests", "indicates", "is consistent with", "points to", "arguab
 _POSSIBLE = ("can be read as", "may have", "some historians argue", "it is possible that", "perhaps")
 
 
+_INITIAL_RE = re.compile(r"(?:^|\s)[A-Z]\.$")
+
+
 def split_sentences(paragraph: str) -> list[str]:
-    return [s.strip() for s in _SENT_RE.split(paragraph.strip()) if s.strip()]
+    """Sentence split that does not break after initials such as 'A. J. P.'."""
+    parts = [s.strip() for s in _SENT_RE.split(paragraph.strip()) if s.strip()]
+    merged: list[str] = []
+    for part in parts:
+        if merged and _INITIAL_RE.search(merged[-1]):
+            merged[-1] = merged[-1] + " " + part
+        else:
+            merged.append(part)
+    return merged
 
 
 def has_dated_item(sentence: str) -> bool:
@@ -85,6 +96,10 @@ def chronology_findings_in(sentence: str) -> Optional[tuple[int, int]]:
 
 class HistorySpecialistAdapter:
     agent_id = "history-specialist"
+
+    def structural_checks(self, report: SpecialistReport):
+        from .structural import structural_checks
+        return structural_checks(report)
 
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:

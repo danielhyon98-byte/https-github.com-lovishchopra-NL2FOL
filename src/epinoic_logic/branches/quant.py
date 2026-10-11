@@ -14,12 +14,12 @@ from typing import Optional
 
 from ..ir.schema import Problem
 
-_NUM = r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)"
+_NUM = r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
 _UNIT = r"(?:\s*(million|billion|thousand|per cent|percent|%|seats|votes|m|bn|k))?"
-_FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}\s+(?:to|and)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
-_PCT_CHANGE_RE = re.compile(r"(?:an?\s+)?(increase|rise|fall|decrease|decline|drop|growth)\s+of\s+(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:per cent|percent|%)", re.IGNORECASE)
+_FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}(?:\s+(?:in|by)\s+(?:early\s+|late\s+)?\d{{4}})?\s+(?:to|and)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
+_PCT_CHANGE_RE = re.compile(r"(?:an?\s+)?(increase|rise|fall|decrease|decline|drop|growth)\s+of\s+(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:per cent|percent|%)|(?:an?\s+)?(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:per cent|percent|%)\s+(increase|rise|fall|decrease|decline|drop|growth)", re.IGNORECASE)
 _FOLD_RE = re.compile(r"\b(doubled|trebled|tripled|quadrupled|halved|(\d+(?:\.\d+)?)-fold|(two|three|four|five|six|seven|eight|nine|ten)fold)\b", re.IGNORECASE)
-_SHARE_RE = re.compile(rf"\b{_NUM}\s*(?:per cent|percent|%)\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}\s*(?:[,(]|\bwas\b|\bis\b|\bor\b|\bthat is\b|\bi\.e\.)\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
+_SHARE_RE = re.compile(rf"\b{_NUM}\s*(?:per cent|percent|%)\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
 _TOTAL_RE = re.compile(rf"{_NUM}{_UNIT}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{_NUM}{_UNIT}[^.;]{{0,60}}?(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
 _FOLD_WORDS = {"doubled": 2, "trebled": 3, "tripled": 3, "quadrupled": 4, "halved": Fraction(1, 2), "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _SCALE = {"million": 10**6, "m": 10**6, "billion": 10**9, "bn": 10**9, "thousand": 10**3, "k": 10**3}
@@ -76,17 +76,18 @@ def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance
         fold = _FOLD_RE.search(sent)
         if pc and a != 0:
             n += 1
-            stated = Fraction(pc.group(2))
+            direction = (pc.group(1) or pc.group(4)).lower()
+            stated = Fraction(pc.group(2) or pc.group(3))
             lo, hi = stated * (1 - tolerance), stated * (1 + tolerance)
             # conclusion: 100*|b-a|/a within [lo, hi]
             change = {"op": "mul", "args": [_real(Fraction(100)), {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(a)}]}
-            if pc.group(1).lower() in ("fall", "decrease", "decline", "drop"):
+            if direction in ("fall", "decrease", "decline", "drop"):
                 change = {"op": "neg", "arg": change}
             concl = {"op": "and", "args": [{"op": "ge", "left": change, "right": _real(lo)}, {"op": "le", "left": change, "right": _real(hi)}]}
             checks.append(QuantCheck(f"quant-{n}", "percent_change", sent.strip(), _problem(f"quant-pct-{n}", claim_id, request_id,
                 [("before", "the earlier figure as stated"), ("after", "the later figure as stated")],
                 [("BEFORE", {"op": "eq", "left": _v("before"), "right": _real(a)}, f"before = {ft.group(1)} {ft.group(2) or ''}".strip()), ("AFTER", {"op": "eq", "left": _v("after"), "right": _real(b)}, f"after = {ft.group(3)} {ft.group(4) or ''}".strip())],
-                ("STATED_CHANGE", concl, f"stated {pc.group(1)} of {pc.group(2)} per cent (±{float(tolerance) * 100:.0f}% of that)"))))
+                ("STATED_CHANGE", concl, f"stated {direction} of {stated} per cent (±{float(tolerance) * 100:.0f}% of that)"))))
         elif fold and a != 0:
             n += 1
             word = fold.group(1).lower()

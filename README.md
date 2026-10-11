@@ -41,6 +41,16 @@ assumptions, and what remains uncertain.
 
 ## The primary feature: every message between agents goes through the translator
 
+The translator is a **branching infrastructure**: one hub that every specialist
+(English, History, Psychology, Economics, Business Management, and any subject
+added later) communicates with the primary router through, and one branch per
+subject carrying an **integrity pack** of subject-specific checks. The hub integrity
+(envelopes, hand-off, request fidelity, claim ledger, staleness, cross-agent
+consistency, signing) is shared; the packs add what each subject's knowledge
+documents demand, such as quotation integrity for literature, chronology and dated
+figures for history, study attributions for psychology, elasticity arithmetic for
+economics and margins for business. See `src/epinoic_logic/branches/README.md`.
+
 Agents do not pass raw text to each other. The `channel` package
 (`src/epinoic_logic/channel/`) sits on the communication path. When the router sends
 a student's request to a specialist, the request is made explicit (what is asked,
@@ -101,7 +111,8 @@ only six are definitive and none means "the claim is true".
 - `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
 - `src/epinoic_logic/engine/` — validator, compiler, procedures, provenance, runner
 - `src/epinoic_logic/translate/` — contracts, eligibility, subjects, grounding, pipeline, providers, review, outcome
-- `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through (primary feature)
+- `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
+- `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line

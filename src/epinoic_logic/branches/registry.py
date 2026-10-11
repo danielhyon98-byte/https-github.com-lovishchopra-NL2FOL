@@ -5,10 +5,21 @@ from .base import BranchRegistry, SubjectBranch
 from .packs import BusinessPack, CorePack, EconomicsPack, EnglishPack, GenericPack, HistoryPack, PsychologyPack
 
 
+class _EnglishParserWrapper:
+    """Adapts the agent-written English adapter (module-level parse_response without an
+    agent_id parameter) to the branch parser protocol."""
+    agent_id = "english-specialist"
+
+    def parse_response(self, text, *, request_id, task_id, report_id, subject, task_type, supplied_texts=(), course_level="unknown", agent_version=None, agent_id=None):
+        from ..adapters.english_specialist.parser import parse_response
+        return parse_response(text, request_id=request_id, task_id=task_id, report_id=report_id, subject=subject, task_type=task_type,
+                              supplied_texts=list(supplied_texts), course_level=course_level, agent_version=agent_version)
+
+
 def _english_parser():
     try:
-        from ..adapters.english_specialist.parser import EnglishSpecialistAdapter  # type: ignore
-        return EnglishSpecialistAdapter()
+        import epinoic_logic.adapters.english_specialist.parser  # noqa: F401
+        return _EnglishParserWrapper()
     except Exception:
         from .generic_parser import GenericTextParser
         return GenericTextParser(agent_id="english-specialist")
