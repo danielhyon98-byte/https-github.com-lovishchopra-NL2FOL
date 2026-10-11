@@ -48,12 +48,12 @@ def mutate(text: str, kind: str) -> tuple[str, str]:
     if kind == "invented_quotation":
         return text + ' The narrator also insists that "the river carried every secret of the town", which seals the point.', "INT-REQ-003"
     if kind == "altered_quotation":
-        # a real quotation: opens after a space, a bracket or the start of the text, begins with a letter and is not the
-        # prose BETWEEN two quotations (which also sits between two quotation marks)
-        m = next((x for x in re.finditer(r'(?:(?<=\s)|^|(?<=\())"([A-Za-z][^"\n]{11,})"', text) if not x.group(1).rstrip().endswith((":", ";", ","))), None)
-        if not m:
+        # alter a real quotation (any mark style, as the parsers delimit them), never the prose between two quotations
+        from epinoic_logic.adapters.markdown import find_quotation_spans
+        spans = [(a, b, inner) for a, b, inner in find_quotation_spans(text) if len(inner) >= 12 and inner[:1].isalpha()]
+        if not spans:
             return text, "SKIP"
-        q = m.group(1)
+        q = spans[0][2]
         words = q.split()
         words[len(words) // 2] = words[len(words) // 2] + "ly" if not words[len(words) // 2].endswith("ly") else words[len(words) // 2][:-2]
         return text.replace(q, " ".join(words), 1), "INT-REQ-003"
@@ -90,10 +90,16 @@ def load_items(spec_dir: Path, include_pending: bool = False) -> list[dict]:
     return items
 
 
+def group_of(item: dict) -> str:
+    """The hub task an input belongs to: its declared group, else its own file (variants of one task that share a
+    task_id are separate hub tasks, each with its own channel and report ids)."""
+    return item.get("group") or item["_path"].stem
+
+
 def group_plan(items: list[dict], group: str) -> WorkPlan:
     """One plan per group: the last task of the group is the deliverable (its subject is the plan's); every other
     agent of a different subject is listed in agent_subjects; peer documents are in scope."""
-    gitems = [it for it in items if it.get("group", it["task_id"]) == group] or [next(it for it in items if it["task_id"] == group)]
+    gitems = [it for it in items if group_of(it) == group] or [next(it for it in items if it["task_id"] == group)]
     primary = gitems[-1]
     agents: list[str] = []
     for it in gitems:
@@ -113,7 +119,7 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
         return None, None, None
     peer_item = next((it for it in items if it["task_id"] == peer), None)
     rec = {"file": file_name, "task_id": item["task_id"], "subject": item["subject"], "variant": "peer_relay", "expected": "NONE", "peer_of": peer}
-    pm = delivered.get(peer)
+    pm = delivered.get(peer_item["_path"].stem) if peer_item is not None else None
     if peer_item is None or pm is None:
         rec.update(functional=False, error=f"peer report {peer} was not delivered through the hub; nothing to relay")
         return rec, None, None
@@ -136,7 +142,7 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
     item = next(it for it in items if it["task_id"] == task_id)
     peer = item["peer_of"]
     peer_item = next(it for it in items if it["task_id"] == peer)
-    group = item.get("group", task_id)
+    group = group_of(item)
     hub = RouterHub(signing_key=KEY, config=CFG)
     ch = hub.open_task(group_plan(items, group))
     m, _req, rq = hub.dispatch(group, peer_item["agent_id"], peer_item["question"], supplied(peer_item))
@@ -151,7 +157,7 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
                                "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
                                "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
                                "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
-        rec, text, relayed = relay_from_peer(ch, items, item, {peer: reply} if reply is not None else {}, item["_path"].name)
+        rec, text, relayed = relay_from_peer(ch, items, item, {peer_item["_path"].stem: reply} if reply is not None else {}, item["_path"].name)
         out["relay"] = {k: v for k, v in rec.items() if k != "file"}
         out["delivered"] = relayed is not None
         if relayed is not None:
@@ -165,12 +171,12 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan):
     """The dummy combinator's synthesis for a hub task: the per-report syntheses of every delivered member of the
     group, merged, citing each delivered report (a peer exchange is one task with two reports)."""
-    members = [it for it in items if it.get("group", it["task_id"]) == group and it["task_id"] in delivered and it["task_id"] in syntheses]
+    members = [it for it in items if group_of(it) == group and it["_path"].stem in delivered and it["_path"].stem in syntheses]
     if not members:
         return None
     s_claims, ledger, source_ids = [], [], []
     for it in members:
-        tid, syn, reply = it["task_id"], syntheses[it["task_id"]], delivered[it["task_id"]]
+        tid, syn, reply = it["task_id"], syntheses[it["_path"].stem], delivered[it["_path"].stem]
         claim_ids = [c["claim_id"] for c in reply.payload["claims"]]
         prefix = "" if len(members) == 1 else f"{tid}-"
         for i, c in enumerate(syn["claims"]):
@@ -192,11 +198,11 @@ def run_round(round_dir: Path) -> dict:
     t_all = time.perf_counter()
     items = load_items(spec_dir)
     channels: dict[str, object] = {}
-    delivered: dict[str, object] = {}  # task_id -> AgentMessage delivered to the router for the genuine reply
+    delivered: dict[str, object] = {}  # file stem -> AgentMessage delivered to the router for the genuine reply
     peer_docs: dict[str, SuppliedText] = {}
     last_in_group: dict[str, str] = {}
     for it in items:
-        last_in_group[it.get("group", it["task_id"])] = it["task_id"]
+        last_in_group[group_of(it)] = it["task_id"]
     # Two passes: every genuine reply (with peer relays and the combinator's synthesis) first, then the fault
     # mutations, so a synthesis is judged against the reports actually delivered for the task, not against the
     # mutated re-statements that follow.
@@ -204,7 +210,7 @@ def run_round(round_dir: Path) -> dict:
         sp = item["_path"]
         task_id = item["task_id"]
         agent = item["agent_id"]
-        group = item.get("group", task_id)
+        group = group_of(item)
         texts = supplied(item)
         if group not in channels:
             channels[group] = hub.open_task(group_plan(items, group))
@@ -248,7 +254,7 @@ def run_round(round_dir: Path) -> dict:
                     continue
                 reply, rc = hub.receive(group, m.message_id, text, agent_id=agent, report_id=f"rep-{task_id}-{vi}")
                 if kind == "genuine" and reply is not None:
-                    delivered[task_id] = reply
+                    delivered[sp.stem] = reply
                 codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings})
                 rec["findings"] = [{"code": f.code, "severity": f.severity, "message": f.message[:300], "claim_ids": list(f.claim_ids)} for f in rc.findings]
                 rec["subject_findings"] = [{"code": sf.code, "severity": sf.severity, "message": sf.message[:300], "claim_ids": list(sf.claim_ids)} for sf in rc.structural_findings]
