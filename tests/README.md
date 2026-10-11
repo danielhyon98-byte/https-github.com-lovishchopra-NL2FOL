@@ -9,6 +9,26 @@ Every figure below was measured on the code at the commit named. This file is up
 each round. Last update: after the round-4 fix round (commit `a2d874d`), with the round-5
 overseer verdicts that had arrived.
 
+## Which model runs which role
+
+Deployment is kept as cheap as possible; checking during testing is done by the strongest
+model.
+
+- **Deployed agents run on the smallest, cheapest model tier.** This covers the subject
+  specialists (configured only from their knowledge documents), the combinator, the
+  translation provider and the logic-checking overseer agents. The test environment uses
+  the same tier for each of these roles, so the results show how the deployed system
+  behaves.
+- **The checks every transfer depends on use no model at all.** The translator turns each
+  output into IR, and the Z3 engine decides it. The engine results are signed, and they
+  are the only results the router and the overseers trust. Each transfer takes
+  milliseconds (see the stress tables below).
+- **The strongest model tier does the checking in testing.** That tier runs the arena
+  overseers and the judges of the overseer agents, plus the fixers. They check every output
+  the cheap agents produce against what the translator delivered and against the engine's
+  verdicts. That is, they confirm the logic recorded for each output is true to what the
+  agent actually wrote.
+
 ## How the infrastructure is tested
 
 Testing has three layers. A change is committed only when the first layer is green and the
