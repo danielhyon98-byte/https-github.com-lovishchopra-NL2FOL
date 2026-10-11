@@ -1,0 +1,321 @@
+{
+  "$defs": {
+    "Accusation": {
+      "additionalProperties": false,
+      "description": "One accusation: a kind from the closed list, the identifiers involved, at least one evidence item, and an\nadvisory statement (free text: never parsed for instructions, never copied into a finding).",
+      "properties": {
+        "accusation_id": {
+          "pattern": "^[A-Za-z0-9._-]{1,64}$",
+          "title": "Accusation Id",
+          "type": "string"
+        },
+        "claim_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "claimed_severity": {
+          "enum": [
+            "error",
+            "warning"
+          ],
+          "title": "Claimed Severity",
+          "type": "string"
+        },
+        "document_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Document Ids",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceItem"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "payload_altered",
+            "receipt_altered",
+            "receipt_status_wrong",
+            "finding_missing",
+            "result_unsigned_or_forged",
+            "result_from_other_problem",
+            "result_out_of_task",
+            "replay_differs",
+            "formal_status_wrong",
+            "claim_not_in_response",
+            "quotation_absent",
+            "figure_changed",
+            "self_certification_as_content",
+            "forward_altered",
+            "peer_document_altered",
+            "synthesis_ledger_fault",
+            "contradiction_unnamed",
+            "false_conflict",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Message Ids",
+          "type": "array"
+        },
+        "receipt_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Receipt Ids",
+          "type": "array"
+        },
+        "report_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Report Ids",
+          "type": "array"
+        },
+        "result_ids": {
+          "items": {
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Result Ids",
+          "type": "array"
+        },
+        "statement": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "accusation_id",
+        "kind",
+        "claimed_severity",
+        "evidence",
+        "statement"
+      ],
+      "title": "Accusation",
+      "type": "object"
+    },
+    "EngineStatement": {
+      "additionalProperties": false,
+      "description": "A status the agent read from ``results``: it names the result, copies the status exactly and points at the\nfield it read it from. It is compared with the stored, signature-verified result; a different status, or an unknown\nresult asserted as existing, is OVS-AGENT-001.",
+      "properties": {
+        "asserted_status": {
+          "enum": [
+            "ENTAILED",
+            "COUNTEREXAMPLE",
+            "INCONSISTENT_PREMISES",
+            "CONSISTENT",
+            "SATISFIABLE",
+            "UNSATISFIABLE",
+            "UNKNOWN",
+            "TIMEOUT",
+            "UNSUPPORTED",
+            "INVALID_FORMALIZATION",
+            "AMBIGUOUS_TRANSLATION",
+            "NOT_ELIGIBLE",
+            "INTERNAL_ERROR"
+          ],
+          "title": "Asserted Status",
+          "type": "string"
+        },
+        "pointer": {
+          "maxLength": 2048,
+          "minLength": 2,
+          "pattern": "^(/([^~/]|~[01])*)+$",
+          "title": "Pointer",
+          "type": "string"
+        },
+        "result_id": {
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+          "title": "Result Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result_id",
+        "asserted_status",
+        "pointer"
+      ],
+      "title": "EngineStatement",
+      "type": "object"
+    },
+    "EvidenceItem": {
+      "additionalProperties": false,
+      "description": "One evidence item: a JSON Pointer into the dossier and, optionally, an exact quote of part of that field.",
+      "properties": {
+        "pointer": {
+          "maxLength": 2048,
+          "minLength": 2,
+          "pattern": "^(/([^~/]|~[01])*)+$",
+          "title": "Pointer",
+          "type": "string"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote"
+        }
+      },
+      "required": [
+        "pointer"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "PackIdentity": {
+      "additionalProperties": false,
+      "description": "The knowledge pack a dossier was issued under and a verdict was produced under: name, version and the pack\ndigest (``pack_sha256`` of its manifest). Frozen and hashable, so a set of accepted packs is a set of these.",
+      "properties": {
+        "name": {
+          "description": "pack name, e.g. overseer-knowledge-docs",
+          "pattern": "^[a-z0-9-]{1,64}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "the pack digest (manifest pack_sha256), 64 lowercase hex",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "description": "pack version MAJOR.MINOR",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "sha256"
+      ],
+      "title": "PackIdentity",
+      "type": "object"
+    }
+  },
+  "$id": "urn:epinoic:overseer:verdict:1.0",
+  "additionalProperties": false,
+  "description": "``overseer_verdict/1.0``. The header (``contract``, ``pack``, ``agent_id``, ``task_id``, ``dossier_sha256``,\n``lens``) is copied from the dossier; the intake checks it against the issue record. The body is advisory data.",
+  "properties": {
+    "accusations": {
+      "items": {
+        "$ref": "#/$defs/Accusation"
+      },
+      "maxItems": 256,
+      "title": "Accusations",
+      "type": "array"
+    },
+    "agent_id": {
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,128}$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "contract": {
+      "const": "overseer_verdict/1.0",
+      "title": "Contract",
+      "type": "string"
+    },
+    "dossier_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dossier Sha256",
+      "type": "string"
+    },
+    "engine_statements": {
+      "items": {
+        "$ref": "#/$defs/EngineStatement"
+      },
+      "maxItems": 256,
+      "title": "Engine Statements",
+      "type": "array"
+    },
+    "lens": {
+      "enum": [
+        "custody_results",
+        "content_fidelity",
+        "peer_synthesis",
+        "general"
+      ],
+      "title": "Lens",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Notes",
+      "type": "string"
+    },
+    "pack": {
+      "$ref": "#/$defs/PackIdentity"
+    },
+    "task_id": {
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,128}$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "transfers_reviewed": {
+      "items": {
+        "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$",
+        "type": "string"
+      },
+      "maxItems": 4096,
+      "title": "Transfers Reviewed",
+      "type": "array"
+    },
+    "verdict_id": {
+      "pattern": "^[A-Za-z0-9._-]{1,128}$",
+      "title": "Verdict Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract",
+    "pack",
+    "verdict_id",
+    "agent_id",
+    "task_id",
+    "dossier_sha256",
+    "lens",
+    "transfers_reviewed",
+    "accusations",
+    "engine_statements"
+  ],
+  "title": "AgentVerdict",
+  "type": "object"
+}

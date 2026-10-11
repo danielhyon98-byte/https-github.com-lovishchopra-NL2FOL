@@ -9,8 +9,12 @@ a model's text.
 from __future__ import annotations
 
 import json
-from typing import Mapping, Optional, Union
+import re
+import threading
+from dataclasses import dataclass
+from typing import Mapping, Optional, Sequence, Union
 
+from ...ir.canonical import strict_object_pairs
 from .. import prompts
 from ..contracts import ProviderInfo, sha256_text
 from .base import ProviderError, ProviderResponse, ReviewRequest, TranslationRequest
@@ -115,4 +119,100 @@ class FixtureReviewProvider(_FixtureBase):
             temperature=0.0,
             attempts=1,
         )
+        return ProviderResponse(raw_text=text, info=info)
+
+
+@dataclass(frozen=True)
+class CompletionCall:
+    """One call a :class:`FixtureCompletionProvider` received, exactly as given."""
+    system: str
+    user: str
+    prompt_version: str
+
+
+_DATA_OPEN_RE = re.compile(r"^<<<DATA ([A-Za-z0-9_.-]+)>>>$")
+
+
+def dossier_digest_of(user: str) -> Optional[str]:
+    """The ``dossier_sha256`` of the dossier in a completion's user text: the JSON inside the ``dossier`` data block, or
+    the whole text when it is a bare JSON object. The text is parsed as JSON data only (duplicate keys refused); nothing
+    in it is evaluated. ``None`` when there is no dossier or no digest."""
+    if not isinstance(user, str):
+        return None
+    lines = user.split("\n")
+    body = user
+    if lines and _DATA_OPEN_RE.match(lines[0]):
+        label = _DATA_OPEN_RE.match(lines[0]).group(1)
+        if label != "dossier" or len(lines) < 3 or lines[-1] != f"<<<END {label}>>>":
+            return None
+        body = "\n".join(lines[1:-1])
+    try:
+        obj = json.loads(body, object_pairs_hook=strict_object_pairs)
+    except (ValueError, RecursionError):
+        return None
+    digest = obj.get("dossier_sha256") if isinstance(obj, dict) else None
+    return digest if isinstance(digest, str) else None
+
+
+class FixtureCompletionProvider:
+    """Completion provider (:class:`~epinoic_logic.translate.providers.base.CompletionProvider`) that serves canned
+    replies, for tests and contained runs: no network, no model.
+
+    ``replies`` is either a mapping from a dossier digest to a reply (the digest is read from the ``dossier`` data block
+    of the user text, or from a bare dossier JSON), or a sequence of replies served in order, one per call. A reply is
+    raw text, a dict (serialised to JSON) or a :class:`ProviderError` instance, which is raised when reached. A call with
+    no reply left (an unknown digest, an exhausted sequence) raises ``ProviderError``. Every call is recorded in
+    ``calls`` exactly as received. A canned reply never decides anything: it enters the verdict intake as untrusted text,
+    exactly like a model's reply.
+    """
+
+    name = FIXTURE_NAME
+
+    def __init__(self, replies: Union[Mapping[str, FixtureValue], Sequence[FixtureValue]], *, model_id: str = FIXTURE_NAME) -> None:
+        if isinstance(replies, Mapping):
+            self._by_digest: Optional[dict[str, FixtureValue]] = dict(replies)
+            self._in_order: list[FixtureValue] = []
+        elif isinstance(replies, (str, bytes)) or not isinstance(replies, Sequence):
+            raise TypeError("replies must be a mapping from dossier digest to reply, or a sequence of replies")
+        else:
+            self._by_digest = None
+            self._in_order = list(replies)
+        self.model_id = model_id
+        self.calls: list[CompletionCall] = []
+        self._next = 0
+        self._lock = threading.Lock()
+
+    @property
+    def keyed(self) -> bool:
+        """True when replies are keyed by dossier digest, False when they are served in order."""
+        return self._by_digest is not None
+
+    def remaining(self) -> int:
+        """Replies not yet served (in-order mode); keyed replies may be served any number of times."""
+        with self._lock:
+            return len(self._in_order) - self._next if self._by_digest is None else len(self._by_digest)
+
+    def _reply(self, user: str) -> FixtureValue:
+        if self._by_digest is not None:
+            digest = dossier_digest_of(user)
+            if digest is None:
+                raise ProviderError("fixture completion: the user text carries no dossier digest")
+            if digest not in self._by_digest:
+                raise ProviderError(f"fixture completion has no reply for dossier {digest[:16]}")
+            return self._by_digest[digest]
+        if self._next >= len(self._in_order):
+            raise ProviderError("fixture completion has no reply left")
+        value = self._in_order[self._next]
+        self._next += 1
+        return value
+
+    def complete(self, system: str, user: str, *, prompt_version: str) -> ProviderResponse:
+        """Record the call and return the next canned reply (raw text, never parsed here)."""
+        with self._lock:
+            self.calls.append(CompletionCall(system=system, user=user, prompt_version=prompt_version))
+            value = self._reply(user)
+        if isinstance(value, list):
+            raise ProviderError("fixture completion: a reply is text, a dict or a ProviderError, not a list")
+        text = _as_text(value, "completion")
+        info = ProviderInfo(provider_name=FIXTURE_NAME, model_id=self.model_id, prompt_version=prompt_version, temperature=0.0, attempts=1)
         return ProviderResponse(raw_text=text, info=info)

@@ -1,0 +1,875 @@
+{
+  "$defs": {
+    "DossierAuditor": {
+      "additionalProperties": false,
+      "properties": {
+        "findings": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Findings",
+          "type": "array"
+        }
+      },
+      "title": "DossierAuditor",
+      "type": "object"
+    },
+    "DossierBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_digest": {
+          "title": "Binding Digest",
+          "type": "string"
+        },
+        "config_digest": {
+          "title": "Config Digest",
+          "type": "string"
+        },
+        "problem_digest": {
+          "title": "Problem Digest",
+          "type": "string"
+        },
+        "versions_digest": {
+          "title": "Versions Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem_digest",
+        "config_digest",
+        "versions_digest",
+        "binding_digest"
+      ],
+      "title": "DossierBinding",
+      "type": "object"
+    },
+    "DossierLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "truncated_fields": {
+          "items": {
+            "$ref": "#/$defs/TruncatedField"
+          },
+          "title": "Truncated Fields",
+          "type": "array"
+        }
+      },
+      "title": "DossierLimits",
+      "type": "object"
+    },
+    "DossierLinks": {
+      "additionalProperties": false,
+      "properties": {
+        "forwards": {
+          "items": {
+            "$ref": "#/$defs/ForwardLink"
+          },
+          "title": "Forwards",
+          "type": "array"
+        },
+        "peer_documents": {
+          "items": {
+            "$ref": "#/$defs/PeerDocumentLink"
+          },
+          "title": "Peer Documents",
+          "type": "array"
+        },
+        "synthesis_citations": {
+          "items": {
+            "$ref": "#/$defs/SynthesisCitation"
+          },
+          "title": "Synthesis Citations",
+          "type": "array"
+        }
+      },
+      "title": "DossierLinks",
+      "type": "object"
+    },
+    "DossierParty": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        }
+      },
+      "title": "DossierParty",
+      "type": "object"
+    },
+    "DossierPoolEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "ambiguous": {
+          "title": "Ambiguous",
+          "type": "boolean"
+        },
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "problem_digest": {
+          "title": "Problem Digest",
+          "type": "string"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Id"
+        }
+      },
+      "required": [
+        "claim_id",
+        "problem_digest",
+        "ambiguous"
+      ],
+      "title": "DossierPoolEntry",
+      "type": "object"
+    },
+    "DossierReceipt": {
+      "additionalProperties": false,
+      "description": "The receipt as issued, minus its identifiers (on the transfer) and with signatures redacted.",
+      "properties": {
+        "constraint_results": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Constraint Results",
+          "type": "array"
+        },
+        "coverage": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Coverage",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "formal_checks": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Formal Checks",
+          "type": "array"
+        },
+        "formal_result_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Formal Result Ids",
+          "type": "array"
+        },
+        "outcomes": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Outcomes",
+          "type": "array"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "structural_findings": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Structural Findings",
+          "type": "array"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "title": "DossierReceipt",
+      "type": "object"
+    },
+    "DossierResult": {
+      "additionalProperties": false,
+      "description": "A retained engine result: its status and binding, with signature presence only (never the signature).",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/DossierBinding"
+        },
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "premises_relied_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Premises Relied On",
+          "type": "array"
+        },
+        "problem": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Problem"
+        },
+        "problem_id": {
+          "title": "Problem Id",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "signature_key_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Key Id"
+        },
+        "signature_present": {
+          "title": "Signature Present",
+          "type": "boolean"
+        },
+        "solver_config": {
+          "additionalProperties": true,
+          "title": "Solver Config",
+          "type": "object"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "ungrounded_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ungrounded Dependencies",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "claim_id",
+        "request_id",
+        "problem_id",
+        "binding",
+        "solver_config",
+        "signature_present"
+      ],
+      "title": "DossierResult",
+      "type": "object"
+    },
+    "DossierTask": {
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "DossierTask",
+      "type": "object"
+    },
+    "DossierTransfer": {
+      "additionalProperties": false,
+      "description": "One transfer. ``at`` is its own pointer; ``payload`` is the journaled payload (or the withheld record).",
+      "properties": {
+        "at": {
+          "pattern": "^/transfers/(0|[1-9][0-9]*)$",
+          "title": "At",
+          "type": "string"
+        },
+        "cited_result_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cited Result Ids",
+          "type": "array"
+        },
+        "contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Direction"
+        },
+        "in_reply_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Reply To"
+        },
+        "kind": {
+          "enum": [
+            "request",
+            "response",
+            "response_text",
+            "relay_forward",
+            "relay_report",
+            "relay_synthesis"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
+        },
+        "payload_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload Sha256"
+        },
+        "pool_after": {
+          "items": {
+            "$ref": "#/$defs/DossierPoolEntry"
+          },
+          "title": "Pool After",
+          "type": "array"
+        },
+        "raw_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Text"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DossierReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "receipt_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receipt Id"
+        },
+        "recipient": {
+          "$ref": "#/$defs/DossierParty"
+        },
+        "sender": {
+          "$ref": "#/$defs/DossierParty"
+        },
+        "seq": {
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "seq",
+        "kind",
+        "sender",
+        "recipient"
+      ],
+      "title": "DossierTransfer",
+      "type": "object"
+    },
+    "ForwardLink": {
+      "additionalProperties": false,
+      "properties": {
+        "delivering_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delivering Message Id"
+        },
+        "forward_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forward Message Id"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Id"
+        }
+      },
+      "title": "ForwardLink",
+      "type": "object"
+    },
+    "IndexEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Id"
+        },
+        "type": {
+          "enum": [
+            "message",
+            "receipt",
+            "report",
+            "claim",
+            "synthesized_claim",
+            "result",
+            "document",
+            "conflict"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "pointer"
+      ],
+      "title": "IndexEntry",
+      "type": "object"
+    },
+    "PackIdentity": {
+      "additionalProperties": false,
+      "description": "The knowledge pack a dossier was issued under and a verdict was produced under: name, version and the pack\ndigest (``pack_sha256`` of its manifest). Frozen and hashable, so a set of accepted packs is a set of these.",
+      "properties": {
+        "name": {
+          "description": "pack name, e.g. overseer-knowledge-docs",
+          "pattern": "^[a-z0-9-]{1,64}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "the pack digest (manifest pack_sha256), 64 lowercase hex",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "description": "pack version MAJOR.MINOR",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "sha256"
+      ],
+      "title": "PackIdentity",
+      "type": "object"
+    },
+    "PeerDocumentLink": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "earlier_forward_message_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Earlier Forward Message Ids",
+          "type": "array"
+        },
+        "request_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Message Id"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "title": "PeerDocumentLink",
+      "type": "object"
+    },
+    "SynthesisCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "delivering_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delivering Message Id"
+        },
+        "report_id": {
+          "title": "Report Id",
+          "type": "string"
+        },
+        "synthesis_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synthesis Message Id"
+        }
+      },
+      "required": [
+        "report_id"
+      ],
+      "title": "SynthesisCitation",
+      "type": "object"
+    },
+    "TruncatedField": {
+      "additionalProperties": false,
+      "properties": {
+        "chars": {
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "sha256",
+        "chars"
+      ],
+      "title": "TruncatedField",
+      "type": "object"
+    }
+  },
+  "$id": "urn:epinoic:overseer:dossier:1.0",
+  "additionalProperties": false,
+  "description": "Dossier ``1.0``. Validate the JSON object with ``Dossier.model_validate(obj)``; the digest is computed over the\nJSON object itself (:func:`dossier_digest`), never over a re-serialised model.",
+  "properties": {
+    "agent_id": {
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,128}$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "auditor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DossierAuditor"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "dossier_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Dossier Sha256",
+      "type": "string"
+    },
+    "dossier_version": {
+      "const": "1.0",
+      "title": "Dossier Version",
+      "type": "string"
+    },
+    "index": {
+      "items": {
+        "$ref": "#/$defs/IndexEntry"
+      },
+      "title": "Index",
+      "type": "array"
+    },
+    "lens": {
+      "enum": [
+        "custody_results",
+        "content_fidelity",
+        "peer_synthesis",
+        "general"
+      ],
+      "title": "Lens",
+      "type": "string"
+    },
+    "limits": {
+      "$ref": "#/$defs/DossierLimits"
+    },
+    "links": {
+      "$ref": "#/$defs/DossierLinks"
+    },
+    "mode": {
+      "enum": [
+        "blind",
+        "informed"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "pack": {
+      "$ref": "#/$defs/PackIdentity"
+    },
+    "results": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DossierResult"
+      },
+      "title": "Results",
+      "type": "object"
+    },
+    "task": {
+      "$ref": "#/$defs/DossierTask"
+    },
+    "transfers": {
+      "items": {
+        "$ref": "#/$defs/DossierTransfer"
+      },
+      "title": "Transfers",
+      "type": "array"
+    },
+    "verdict_contract": {
+      "const": "overseer_verdict/1.0",
+      "title": "Verdict Contract",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dossier_version",
+    "dossier_sha256",
+    "verdict_contract",
+    "agent_id",
+    "pack",
+    "mode",
+    "lens",
+    "task",
+    "transfers",
+    "results",
+    "links",
+    "index",
+    "limits"
+  ],
+  "title": "Dossier",
+  "type": "object"
+}

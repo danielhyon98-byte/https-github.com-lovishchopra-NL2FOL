@@ -26,7 +26,13 @@ epinoic-logic = "epinoic_logic.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"epinoic_logic" = ["translate/prompts/*.txt", "translate/prompts/*.md"]
+"epinoic_logic" = [
+  "translate/prompts/*.txt",
+  "translate/prompts/*.md",
+  "overseer/knowledge/*/*.txt",
+  "overseer/knowledge/*/*.md",
+  "overseer/knowledge/*/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

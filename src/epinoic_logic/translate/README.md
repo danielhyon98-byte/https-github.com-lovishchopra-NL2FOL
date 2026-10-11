@@ -19,6 +19,16 @@ from the signed engine result; summary ends with the scope statement) and offers
 Anthropic / OpenAI-compatible adapters (implemented, untested live). `prompts/`
 holds versioned prompt texts; the version string is bound into each result.
 
+The completion entry point `providers.base.CompletionProvider` (`complete(system, user, *,
+prompt_version) -> ProviderResponse`) is the public form of the `_complete` the vendor adapters
+already use: the caller supplies both texts and the provider adds nothing, while retries,
+timeouts, `ProviderInfo` (which records `prompt_version`) and `ProviderError` are reused
+unchanged. Both vendor adapters implement it; `propose` and `review` are unchanged. The overseer
+agent runner (`epinoic_logic.overseer.runner`) calls it with a knowledge pack's system text and one
+dossier, and its reply is untrusted data parsed only by the verdict intake.
+`FixtureCompletionProvider` serves canned replies keyed by dossier digest or in order, raises a
+canned `ProviderError` and records every call; no live provider is claimed.
+
 `grounding.py` locates a quotation in tiers (verbatim; typographic normalisation, with
 quote marks folded and verse line breaks written as slashes; an elision within the window;
 then the form-difference tier: an initial capital, a line-break mark, diacritics folded

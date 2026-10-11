@@ -183,6 +183,21 @@ class _AnthropicBase:
             return ProviderResponse(raw_text=text, info=info)
         raise ProviderError("Anthropic request failed: no attempt was made", transient=False)  # pragma: no cover
 
+    def complete(self, system: str, user: str, *, prompt_version: str) -> ProviderResponse:
+        """The completion entry point (:class:`~epinoic_logic.translate.providers.base.CompletionProvider`): sends
+        ``system`` and ``user`` exactly as given and returns the raw text unparsed. It delegates to the same
+        ``_complete`` as ``propose`` and ``review`` (retries, timeout, ``ProviderInfo``, ``ProviderError``); the output
+        budget is the ``max_tokens`` the provider was constructed with."""
+        _check_completion_args(system, user, prompt_version)
+        return self._complete(system, user, prompt_version)
+
+
+def _check_completion_args(system: object, user: object, prompt_version: object) -> None:
+    if not isinstance(system, str) or not isinstance(user, str):
+        raise ProviderError("complete() takes the system and user texts as strings")
+    if not isinstance(prompt_version, str) or not prompt_version.strip():
+        raise ProviderError("complete() needs a non-empty prompt_version")
+
 
 class AnthropicTranslationProvider(_AnthropicBase):
     """Translation provider on the Anthropic Messages API. Untested live in this repository.

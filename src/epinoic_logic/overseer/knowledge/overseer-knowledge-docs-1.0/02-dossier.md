@@ -97,6 +97,7 @@ Each entry of `transfers` has these fields:
 | `sender`, `recipient` | Each has `agent_id` and `role` (`router`, `specialist`, `combinator`, ...). |
 | `contract` | The payload's contract, for example `task_request/1.0`, `specialist_report/1.0`, `specialist_report_forward/1.0`, `synthesis/1.0`. |
 | `in_reply_to` | The message this one answers, or null. |
+| `created_at` | When the transfer's envelope was created (UTC). Order transfers by `seq`, never by this time. |
 | `payload_sha256` | The digest of the payload as issued. Two transfers that carry the same payload have the same digest. |
 | `payload` | The typed payload: a request, a specialist report, a forwarded report or a synthesis. For a withheld response it is `{"withheld": {"response_sha256", "response_chars"}}`: the text was refused and not parsed. |
 | `raw_text` | For `response_text` only: the specialist's text exactly as received, when retained. |

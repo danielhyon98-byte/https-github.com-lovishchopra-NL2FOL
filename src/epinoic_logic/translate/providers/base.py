@@ -66,6 +66,22 @@ class TranslationProvider(Protocol):
     def propose(self, request: TranslationRequest) -> ProviderResponse: ...
 
 
+@runtime_checkable
+class CompletionProvider(Protocol):
+    """The completion entry point: one system text and one user text in, the model's raw text out.
+
+    This is the public form of the ``_complete`` the vendor providers already use for ``propose`` and ``review``: the
+    same retries, timeouts, :class:`~epinoic_logic.translate.contracts.ProviderInfo` and :class:`ProviderError`. The
+    caller owns both texts (the overseer agent runner builds them from a knowledge pack and a dossier); the provider adds
+    no instruction of its own. ``prompt_version`` is recorded in ``ProviderInfo`` so every reply names the configuration
+    it was produced under. ``raw_text`` is untrusted data: the caller parses it strictly and never evaluates it. Model
+    settings (temperature, output budget) belong to the provider and are set when it is constructed.
+    """
+    name: str
+
+    def complete(self, system: str, user: str, *, prompt_version: str) -> ProviderResponse: ...
+
+
 class ReviewRequest(BaseModel):
     """Input to an independent semantic-fidelity reviewer."""
     model_config = ConfigDict(extra="forbid", frozen=True)
