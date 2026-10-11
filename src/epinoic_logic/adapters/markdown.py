@@ -26,8 +26,16 @@ helpers so that
   "must be verified") is a note, never a self-certification; a self-certification
   (verification-status vocabulary, "I have checked ...", "all of these figures have
   been verified", "the figures here are accurate", "can be relied upon", "appears
-  verbatim", "no errors were found", Z3 or the hub "proved" or "accepted" the answer)
-  is recognised by every branch the same way (:func:`is_self_certification`);
+  verbatim", "no errors were found", Z3 or the hub "proved" or "accepted" the answer, and
+  by the clause's structure: a subject that refers to the answer's own items, "every
+  mileage figure above", "each of the figures given above", "these quotations", "my
+  reading", with a checking participle, an accuracy adjective or "need no further
+  checking"; "Nothing in this answer needs checking"; "As verified, ..."; the router or the
+  Overseer passing the answer) is recognised by every branch the same way
+  (:func:`is_self_certification`);
+* a note on how the answer was composed ("The historical setting is my own addition, not
+  part of that paragraph.", "The English specialist's paragraph is from the hub") is a note
+  on every branch (:func:`is_provenance_note`);
 * a pasted JSON span (a receipt, a payload) is found wherever it stands, glued to
   prose included (:func:`find_json_spans`), so its strings are never read as
   quotations and the prose around it is segmented as prose; brackets are matched in
@@ -63,7 +71,7 @@ __all__ = [
     "is_note_sentence", "is_task_note", "split_note_clauses", "unbalanced_double_quotes", "normalize_double_marks",
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
-    "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE",
+    "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note",
 ]
 
 BOM = "\ufeff"
@@ -129,8 +137,8 @@ _ANCHORED_ITEMS = (rf"(?:the|these|those|my|our|all the|all these) {_ITEMS}(?:,?
                    r" (?:here|above|below|(?:given|cited|stated|quoted|used) (?:here|above|below)|in this (?:paragraph|answer|response|essay|text))")
 _COPULA = r"(?:is|are|was|were|has been|have been|has now been|have now been)\s+(?:all\s+|fully\s+|carefully\s+|now\s+|independently\s+)?"
 #: The verification infrastructure itself (an agent claiming that the engine, the solver or the hub already passed its answer).
-_INFRASTRUCTURE = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation)\s+)?(?:engine|solver|verifier)\b"
-                   r"|\bthe\s+(?:hub|channel|translator|overseer|router)\b)")
+_INFRASTRUCTURE = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation|integrity)\s+)?(?:engine|solver|verifier|checker)\b"
+                   r"|\b(?:the\s+)?(?:verification|integrity|formal)\s+(?:checks?|layer|pipeline)\b|\bthe\s+(?:hub|channel|translator|overseer|router|combinator)\b)")
 #: Verification-status vocabulary in the body: an agent certifying its own output or
 #: imitating a channel receipt. Status words count only in capitals (a vote that "was
 #: accepted" is history, not a receipt); phrases are matched case-insensitively. The
@@ -194,6 +202,132 @@ _INFRASTRUCTURE_VERB_RE = re.compile(
 _DATED_ITEM_RE = re.compile(
     r"\b(?:1[0-9]{3}|20[0-9]{2})\b|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b"
     r"|(?i:\b\d+(?:[.,]\d+)?\s*(?:per cent|percent|%|million|billion|thousand)\b)",
+)
+
+# ---- the structural self-certification rule (:func:`is_self_certification`): a SUBJECT that refers to the answer or to
+# its own items, followed by a PREDICATE that certifies them. Decided by the shape of the clause, not by listed sentences.
+#: The answer's own items. "lines" counts only as "quoted/cited lines" (a poem's lines are the text, not the answer's items).
+_SELF_ITEMS = (r"(?:figures?|dates?|quotations?|quotes?|claims?|statistics?|numbers?|statements?|facts?|citations?|references?|excerpts?"
+               r"|totals?|estimates?|details?|items?|(?:quoted|cited) lines?)")
+#: The items whose accuracy a bare adjective can certify ("these figures are accurate"); "these claims are reliable" may be
+#: a historian weighing a source, so claims, statements, facts and details need a checking predicate instead.
+_ACC_ITEM_RE = re.compile(r"(?:figures?|dates?|quotations?|quotes?|statistics?|numbers?|citations?|references?|excerpts?|totals?|(?:quoted|cited) lines?)\W*$",
+                          re.IGNORECASE)
+#: Up to two plain modifiers between a determiner and an item noun ("every mileage figure", "the key dates"); a modifier is
+#: never a verb, an auxiliary, a preposition, a conjunction or an anchor word.
+_SELF_MOD = (r"(?:(?!(?:is|are|was|were|has|have|had|been|be|being|and|or|but|nor|of|in|on|at|to|for|from|with|by|that|which|who|here"
+             r"|above|below|given|not|no|as|than|so|its|it|this|these|those|the|a|an)\b)[a-z][a-z'’-]*\s+){0,2}")
+#: Where the answer locates its own items: "here", "above", "given above", "in this answer", "of the paragraph above".
+_SELF_ANCHOR = (r"(?:here|above|below|(?:given|cited|stated|quoted|used|listed|presented|included|offered|mentioned|provided|reproduced|set out)"
+                r"\s+(?:here|above|below|in\s+(?:this|my|the)\s+(?:paragraph|answer|response|essay|analysis|outline|summary))"
+                r"|in\s+(?:this|my)\s+(?:paragraph|answer|response|essay|analysis|outline|summary|report)|(?:in|of)\s+the\s+(?:paragraph|answer|response|essay)\s+above)")
+_SELF_ITEM_LIST = rf"{_SELF_MOD}{_SELF_ITEMS}(?:,?\s+(?:and|or)\s+{_SELF_MOD}{_SELF_ITEMS})*"
+_SELF_UNIVERSAL_DET = r"(?:every|each(?:\s+one)?(?:\s+of\s+(?:the|these|those|my|our|its))?|all(?:\s+(?:of\s+)?(?:the|these|those|my|our|its))?)"
+#: The answer itself, as the writer names it: "this paragraph", "the argument above", "my reading", "the whole answer".
+_SELF_ANSWER = (rf"(?:{_ANSWER_ITSELF}|(?:my|our)\s+(?:own\s+)?(?:reading|argument|answer|analysis|interpretation|paragraph|essay|response|account"
+                r"|outline|summary|conclusion|judge?ment|work)|(?:the|this)\s+(?:whole|entire)\s+(?:answer|paragraph|response|essay|analysis|argument))")
+#: One subject, by kind: anchored items, the answer itself, every item, demonstrative items ("these figures", "my
+#: quotations") and bare definite items ("the quotations"). The kind decides which predicates certify (:func:`_structural_self_report`).
+_SELF_SUBJECT_KINDS_RE = re.compile(
+    rf"\b(?:(?P<anchored>(?:{_SELF_UNIVERSAL_DET}\s+|(?:the|these|those|my|our)\s+)?{_SELF_ITEM_LIST}\s+{_SELF_ANCHOR})"
+    rf"|(?P<answer>{_SELF_ANSWER})"
+    rf"|(?P<universal>{_SELF_UNIVERSAL_DET}\s+{_SELF_ITEM_LIST})"
+    rf"|(?P<demonstrative>(?:these|those|my|our)\s+{_SELF_ITEM_LIST})"
+    rf"|(?P<definite>the\s+{_SELF_ITEM_LIST}))\b",
+    re.IGNORECASE,
+)
+#: What follows the subject: a copula, then adverbs, then a checking participle or an accuracy adjective.
+_SELF_COPULA = r"\s+(?:is|are|was|were|has\s+been|have\s+been|had\s+been|has\s+now\s+been|have\s+now\s+been|remains?)\s+"
+_SELF_PERFECT_RE = re.compile(r"\s+(?:is|are|has\s+been|have\s+been|has\s+now\s+been|have\s+now\s+been)\s+", re.IGNORECASE)
+_SELF_ADVERBS = (r"(?:(?:all|now|fully|carefully|independently|formally|thoroughly|individually|each|already|also|both|entirely|completely"
+                 r"|wholly|perfectly|properly|rigorously|systematically|duly|personally|again)\s+)*")
+_SELF_CHECK = (r"(?:checked|verified|confirmed|validated|corroborated|audited|proof-?read|double[- ]checked|cross[- ]checked|fact[- ]checked"
+               r"|re-?checked|compared\s+(?:with|against)|matched\s+(?:against|with|to))")
+_SELF_ACCURACY = (r"(?:accurate|correct|exact|reliable|sound|right|error[- ]free|verbatim|trustworthy|faithful|free\s+(?:of|from)\s+errors?"
+                  r"|without\s+(?:any\s+)?errors?)")
+_SELF_PREDICATE_TAIL_RE = re.compile(
+    rf"{_SELF_COPULA}{_SELF_ADVERBS}(?:(?P<check>{_SELF_CHECK})|(?P<accuracy>{_SELF_ACCURACY}))\b",
+    re.IGNORECASE,
+)
+#: An accuracy adjective that closes the clause ("these figures are accurate.", "... are reliable and need no further
+#: checking"): "these figures are reliable because the Board of Trade ..." is a historian weighing a source, not a self-report.
+_SELF_CLOSING_RE = re.compile(
+    r"\s*(?:[.;!:)\]\"'”’]|$|,?\s+(?:and|so)\s+(?:can|may|might|could|need|needs|require|requires|has|have|is|are|was|were|match|matches"
+    r"|appear|appears|contain|contains|so|the\s+reader)\b)",
+    re.IGNORECASE,
+)
+#: A check credited to an agent that is neither the writer nor the infrastructure ("my reading is confirmed by the final
+#: stanza", "these figures were checked by the Registrar General"): an argument about evidence, not a self-report.
+_BY_OTHER_AGENT_RE = re.compile(
+    rf"\s+by\s+(?!(?:me|myself|us|ourselves|the\s+(?:writer|author|specialist)|this\s+specialist|{_INFRASTRUCTURE})\b)",
+    re.IGNORECASE,
+)
+#: Nothing further to check: "need no further checking", "require no verification", "need not be checked", "no further
+#: checking is needed".
+_NO_FURTHER_CHECK_RE = re.compile(
+    r"\b(?:needs?|requires?|calls?\s+for|merits?|warrants?)\s+no\s+(?:further\s+|more\s+|additional\s+|other\s+|independent\s+)?"
+    r"(?:check(?:ing|s)?|verification|verifying|confirmation|correction|cross[- ]checking)\b"
+    r"|\bneed\s+not\s+be\s+(?:re-?)?(?:checked|verified|confirmed)\b"
+    r"|\b(?:do|does)\s+not\s+need\s+(?:to\s+be\s+)?(?:further\s+|any\s+)?(?:re-?)?(?:checked|checking|verified|verifying|verification|confirmed)\b"
+    r"|\bno\s+(?:further\s+|more\s+|additional\s+)?(?:check(?:ing|s)?|verification|confirmation)\s+(?:is|are|was|were)\s+(?:needed|required|necessary)\b"
+    r"|\bbeyond\s+(?:the\s+need\s+(?:for|of)\s+)?(?:checking|verification)\b",
+    re.IGNORECASE,
+)
+#: "Nothing in this answer needs checking", "none of the figures above needs checking", "no quotation here requires checking".
+_NOTHING_NEEDS_CHECK_RE = re.compile(
+    rf"\b(?:nothing\s+(?:else\s+)?(?:(?:in|of)\s+(?:this|my|the)\s+(?:paragraph|answer|response|essay|analysis|argument|outline|report|summary)|here|above)"
+    rf"|none\s+of\s+(?:it|this|these|those|the\s+above|(?:the|these|those|my)\s+{_SELF_ITEM_LIST}(?:\s+{_SELF_ANCHOR})?)"
+    rf"|no\s+{_SELF_ITEM_LIST}\s+{_SELF_ANCHOR})"
+    r"\s+(?:needs?|requires?|calls?\s+for|merits?|warrants?)\s+(?:any\s+|further\s+|more\s+)?(?:check(?:ing)?|verification|correction|to\s+be\s+(?:re-?)?(?:checked|verified))\b",
+    re.IGNORECASE,
+)
+#: Items matched word for word, or checked against "the supplied" text: a check only the writer reports about its own quotations.
+_STRONG_MATCH_RE = re.compile(
+    r"\b(?:checked|verified|compared|matched|cross[- ]checked|collated)\s+(?:(?:word\s+for\s+word|verbatim|exactly|letter\s+for\s+letter|line\s+by\s+line"
+    r"|character\s+by\s+character|one\s+by\s+one|carefully|individually)\s+)*(?:against|with|to)\s+(?:the\s+)?(?:supplied|original|provided|given)\b"
+    r"|\b(?:checked|verified|compared|matched|collated)\s+(?:word\s+for\s+word|verbatim|letter\s+for\s+letter|line\s+by\s+line|character\s+by\s+character)\b",
+    re.IGNORECASE,
+)
+#: A sentence-initial lead that certifies what follows: "As verified, ...", "As checked above, ...", "As confirmed by the
+#: engine, ...", "As the hub has confirmed, ...". "As confirmed by Engels, ..." cites a source and is not one. At most one
+#: complement ("against the text") and a bounded run of place words, so a lead with no closing comma fails in linear time.
+_SELF_LEAD_RE = re.compile(
+    rf"^\W*As\s+(?:(?:already|now|formally|independently|previously|carefully|fully)\s+)?"
+    rf"(?:{_SELF_CHECK}|proved|proven|certified|accepted|approved)"
+    r"(?:\s+(?:above|here|below|earlier|before|already|throughout|in\s+full)){0,3}"
+    rf"(?:\s+(?:by\s+{_INFRASTRUCTURE}|(?:against|with)\s+[^,;:.]{{1,60}}))?\s*[,:]"
+    rf"|^\W*As\s+{_INFRASTRUCTURE}\s+(?:has\s+|have\s+|had\s+)?(?:already\s+)?(?:verified|checked|confirmed|proved|shown|accepted|certified|validated)\b",
+    re.IGNORECASE,
+)
+#: The infrastructure as the agent of a certifying verb: "the router has confirmed ...", "Z3 proved ...", "... signed off by the Overseer".
+_INFRA_AGENT_RE = re.compile(
+    rf"{_INFRASTRUCTURE}(?:\s+(?:has|have|had|already|now|also|itself|formally|independently|fully|duly))*\s+"
+    r"(?:prov(?:ed|en|es)|verif(?:ied|ies)|confirm(?:ed|s)|accept(?:ed|s)|validat(?:ed|es)|entail(?:ed|s)|certif(?:ied|ies)|approv(?:ed|es)|signed\s+off|passed|cleared)\b"
+    rf"|\b(?:proved|verified|confirmed|accepted|validated|certified|approved|signed\s+off|passed|cleared)\s+by\s+{_INFRASTRUCTURE}",
+    re.IGNORECASE,
+)
+#: What the infrastructure is said to have passed: the answer, its items, "every item", "everything".
+_INFRA_OBJECT_RE = re.compile(
+    r"\b(?:(?:this|my|our)\s+(?:answer|paragraph|response|report|essay|analysis|argument|reading|submission|work)"
+    r"|the\s+(?:answer|paragraph|response|essay|analysis|argument|reading|request|submission)"
+    rf"|every(?:thing|\s+(?:item|requirement|point|part|criterion))|all\s+(?:the\s+)?(?:items|requirements|points|parts|criteria))\b",
+    re.IGNORECASE,
+)
+#: Where a check closes for a subject that does not itself name the answer: the clause ends, or the check is made against
+#: something, word for word, or before use. "My reading is confirmed when the speaker ..." and "the claims have been
+#: verified in later scholarship" go on to argue, and are not self-reports.
+_CHECK_END_RE = re.compile(
+    r"\s*(?:[.;!:,)\]\"'”’]|$)|\s+(?:against|and|so|before|for\s+accuracy|word\s+for\s+word|line\s+by\s+line|one\s+by\s+one|individually"
+    r"|independently|carefully|thoroughly|twice|again|throughout|in\s+full|in\s+every\s+case|with\s+(?:the\s+)?(?:supplied|original|source))\b",
+    re.IGNORECASE,
+)
+#: "the quotations" with no modifier: a bare definite subject, whose accuracy adjective may certify the answer's items.
+_BARE_DEFINITE_RE = re.compile(rf"the\s+{_SELF_ITEMS}(?:,?\s+(?:and|or)\s+{_SELF_ITEMS})*", re.IGNORECASE)
+#: Cheap pre-filter for the structural rule: a sentence with none of these stems certifies nothing.
+_SELF_CUE_RE = re.compile(
+    r"check|verif|confirm|validat|corroborat|audit|proof|compar|match|accura|correct|exact|reliab|sound|right|error|faithful|verbatim|trust"
+    r"|need|requir|warrant|merit|call|prov|accept|certif|approv|signed|passed|clear|entail|beyond",
+    re.IGNORECASE,
 )
 
 
@@ -270,33 +404,109 @@ def _positive(pattern: "re.Pattern[str]", sentence: str) -> bool:
     return False
 
 
-def is_self_certification(sentence: str) -> bool:
-    """True for verification-status vocabulary (:data:`SELF_CERT_RE`), for a sentence shaped
-    like a JSON receipt or payload, for the writer narrating its own check ("I have checked
-    each of these dates", "I verified each figure", "we have confirmed": every branch, not the
-    English one only), and for the semantic rule: the sentence speaks of the answer itself
-    ("this paragraph", "the above", "the argument above"), of every item in it ("every figure
-    and date", "all of these figures", "each of these claims") or of its items located in it
-    ("the figures here", "every quotation above") with a positive checking predicate (checked,
-    verified, appears verbatim, can be relied upon, no errors were found), or with an accuracy
-    adjective right after that subject ("the figures here are accurate", "every one of them is
-    correct"), or says that the verification infrastructure (Z3, the engine, the solver, the
-    hub) passed it; with no dated item. A sentence that mentions only its items ("every figure")
-    needs a checking verb, not a bare accuracy adjective, so a remark that "every figure in the
-    painting is exact" stays an argument. A check under negation or a deontic modal ("The dates
-    in this paragraph have not been checked", "... are from memory and should be checked before
-    they are cited", "must be verified") is a disclaimer, never a self-certification."""
+def _structural_self_report(sentence: str) -> bool:
+    """The structural rule: a subject that refers to the answer or its own items (:data:`_SELF_SUBJECT_KINDS_RE`)
+    followed directly by a copula and a checking participle or an accuracy adjective. What certifies depends on how
+    firmly the subject names the answer:
+
+    * anchored items ("every mileage figure above", "each of the figures given above", "all of the quotations above"):
+      any checking participle or accuracy adjective;
+    * the answer itself ("my reading", "the whole answer"), every item ("every quoted line"), demonstrative items
+      ("these figures", "my quotations") and bare definite items ("the quotations"): a checking participle that closes the
+      clause or is made against something, never one credited to another agent ("confirmed by the final stanza", "checked
+      by the Registrar General": an argument about evidence); a definite subject only in the present or perfect ("the
+      figures were checked" narrates history); an accuracy adjective only when it closes the clause, and only for the
+      items an adjective can certify (figures, dates, quotations, statistics, ...; not claims or facts) with no modifier on
+      a definite subject ("the census figures are reliable" weighs a source)."""
+    for m in _SELF_SUBJECT_KINDS_RE.finditer(sentence):
+        tail = _SELF_PREDICATE_TAIL_RE.match(sentence, m.end())
+        if tail is None:
+            continue
+        kind = m.lastgroup
+        after = tail.end()
+        if tail.group("check"):
+            if kind == "anchored":
+                return True
+            if kind == "definite" and not _SELF_PERFECT_RE.match(sentence, m.end()):
+                continue
+            if _BY_OTHER_AGENT_RE.match(sentence, after):
+                continue
+            if tail.group("check").lower().endswith(("with", "against", "to")) or _CHECK_END_RE.match(sentence, after):
+                return True
+            continue
+        if kind == "anchored":
+            return True
+        if kind == "definite" and not _BARE_DEFINITE_RE.fullmatch(m.group(0)):
+            continue
+        if kind != "answer" and not _ACC_ITEM_RE.search(m.group(0)):
+            continue
+        if _SELF_CLOSING_RE.match(sentence, after):
+            return True
+    return False
+
+
+@functools.lru_cache(maxsize=8192)
+def _self_certification(sentence: str) -> bool:
     if SELF_CERT_RE.search(sentence) or is_json_shaped(sentence):
         return True
-    if _FIRST_PERSON_CHECK_RE.search(sentence):
+    if _FIRST_PERSON_CHECK_RE.search(sentence) or _SELF_LEAD_RE.match(sentence):
         return True
-    if not _SELF_SUBJECT_RE.search(sentence) and not _SELF_ACCURACY_RE.search(sentence):
-        return False
+    cue = _SELF_CUE_RE.search(sentence) is not None
+    if cue and (_positive(_NOTHING_NEEDS_CHECK_RE, sentence)
+                or (_SELF_SUBJECT_KINDS_RE.search(sentence) is not None and _positive(_NO_FURTHER_CHECK_RE, sentence))):
+        return True
     if _DATED_ITEM_RE.search(sentence):
         return False
-    if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence):
+    if _SELF_SUBJECT_RE.search(sentence) or _SELF_ACCURACY_RE.search(sentence):
+        if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence):
+            return True
+        if _INFRASTRUCTURE_RE.search(sentence) and _positive(_INFRASTRUCTURE_VERB_RE, sentence):
+            return True
+    if not cue:
+        return False
+    if _structural_self_report(sentence):
         return True
-    return bool(_INFRASTRUCTURE_RE.search(sentence) and _positive(_INFRASTRUCTURE_VERB_RE, sentence))
+    subjects = [m.lastgroup for m in _SELF_SUBJECT_KINDS_RE.finditer(sentence)]
+    if subjects and _positive(_STRONG_MATCH_RE, sentence):
+        return True
+    return bool(_positive(_INFRA_AGENT_RE, sentence) and (_INFRA_OBJECT_RE.search(sentence) or any(k != "definite" for k in subjects)))
+
+
+def is_self_certification(sentence: str) -> bool:
+    """True when the sentence certifies the answer's own checking, on every branch the same way:
+
+    * verification-status vocabulary (:data:`SELF_CERT_RE`) or the shape of a JSON receipt or payload;
+    * the writer narrating its own check ("I have checked each of these dates", "I verified each figure", "we have
+      confirmed"), or a certifying lead ("As verified, ...", "As checked above, ...", "As the hub has confirmed, ...";
+      "As confirmed by Engels, ..." cites a source and is not one);
+    * nothing left to check: a subject that refers to the answer or its items with "need(s) no further checking",
+      "require no verification", "need not be checked", or "nothing in this answer needs checking", "none of the figures
+      above needs checking";
+    * the semantic rule, with no dated item: the sentence speaks of the answer itself ("this paragraph", "the above",
+      "the argument above"), of every item in it ("every figure and date", "all of these figures") or of its items
+      located in it ("the figures here", "every quotation above") with a positive checking predicate anywhere (checked,
+      verified, appears verbatim, can be relied upon, no errors were found) or an accuracy adjective right after that
+      subject, or says that the verification infrastructure (Z3, the engine, the solver, the hub) passed it;
+    * the structural rule (:func:`_structural_self_report`), decided by the clause's shape rather than by listed phrases: a
+      subject that refers to the answer's own items, a determiner ("every", "each of the", "all of the", "these", "my",
+      "the") with up to two modifiers before an item noun ("every mileage figure", "each of the mileage figures given
+      above", "these quotations", "every quoted line above"), or the answer itself ("my reading", "the whole answer"),
+      followed directly by a copula and a checking participle ("has been verified", "have been formally verified") or an
+      accuracy or reliability adjective ("are exact", "are accurate", "are reliable"), with the limits that keep
+      arguments arguments: a check credited to another agent ("my reading is confirmed by the final stanza") or one that
+      goes on to argue ("verified in later scholarship") is not a self-report, an adjective must close the clause unless
+      the items are anchored in the answer ("here", "above", "in this answer"), and a subject that mentions only items
+      in general ("every figure in the sculpture is exact") needs a checking verb;
+    * items matched word for word or checked against "the supplied" text ("The quotations were matched word for word
+      against the supplied extract");
+    * the infrastructure (Z3, the engine, solver, verifier, checker, hub, channel, router, translator, Overseer,
+      combinator) as the agent of a certifying verb with the answer or its items as what it passed ("The router has
+      confirmed that every item is addressed", "The Overseer signed off on this answer").
+
+    Only a POSITIVE predicate counts: a check under negation or a deontic modal ("The dates in this paragraph have not
+    been checked", "... are from memory and should be checked before they are cited", "must be verified") is a
+    disclaimer, never a self-certification. Answers are cached per sentence (pure function of the text)."""
+    return _self_certification(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _self_certification.__wrapped__(sentence)
 
 
 def is_task_note(sentence: str) -> bool:
@@ -634,6 +844,45 @@ _PREDICATE_LABEL_RE = re.compile(
 _SUBORDINATE_RE = re.compile(r"\b(?:that|which|who|whom|because|since|when|while|whether|if|although|though|where)\b", re.IGNORECASE)
 #: A bare "from memory" closing a dated sentence ("... in February 1932 from memory.").
 _TRAILING_BARE_LABEL_RE = re.compile(r"\s+(?:(?:quoted|given|cited|stated|recalled)\s+)?from (?:memory|recollection)(?=[.!?]?[\"'”’»)\]]*\s*$)", re.IGNORECASE)
+#: A note on how the answer was composed (quotations masked, terminal punctuation removed): its subject is the answer, one of
+#: its parts or a received report ("The historical setting", "The judgement on which decade ...", "The English specialist's
+#: paragraph"), its whole predicate is authorship or provenance ("is my own addition", "is not part of that paragraph", "is
+#: from memory as well", "is from the hub", "was relayed through the hub"), optionally followed by ", not part of that
+#: paragraph". Anything else asserted about the subject ("..., and it shows that ...") keeps the sentence substantive.
+_PROVENANCE_REPORT_NOUNS = r"(?:paragraph|report|answer|response|analysis|account|contribution|material|outline|summary)"
+_PROVENANCE_NOT_PART = (rf"not\s+(?:part\s+of|from|in|taken\s+from|drawn\s+from|stated\s+in|given\s+in)\s+(?:that|this|the|his|her|its|their|my|our)\s+"
+                        rf"(?:[a-z'’-]+\s+){{0,2}}?{_PROVENANCE_REPORT_NOUNS}")
+_PROVENANCE_NOTE_RE = re.compile(
+    r"(?:(?:but|and|so|also|note(?:\s+that)?|please\s+note(?:\s+that)?)[,:\s]+)?"
+    r"(?:(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)\s+(?:paragraph|report|reading|analysis|account|words|quotations?|answer|contribution|material)"
+    r"|(?:the|this|my|our|that|these|those)\s+(?:[a-z'’-]+\s+){0,2}?"
+    r"(?:setting|context|background|judge?ments?|verdict|conclusion|outline|answer|paragraph|response|summary|framing|additions?|section|reading|analysis"
+    r"|interpretation|report|material)(?:\s+(?:on|of|about|for|in|above|below|here)\b[^,;:]{0,120}?)?)"
+    r"\s+(?:is|are|was|were)\s+(?:also\s+|entirely\s+|wholly\s+|all\s+|likewise\s+|itself\s+|simply\s+)?"
+    r"(?:(?:my|our)\s+own(?:\s+(?:addition|additions|work|view|judge?ment|reading|inference|framing|contribution|interpretation|summary|context|gloss))?"
+    r"|mine|ours|(?:an?|my|our)\s+(?:own\s+)?(?:addition|additions|supplement|gloss)"
+    rf"|{_PROVENANCE_NOT_PART}"
+    r"|from\s+(?:memory|recollection|the\s+hub|my\s+own\s+(?:knowledge|recollection|reading|memory)|that\s+paragraph|that\s+report"
+    r"|the\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)?(?:\s+(?:paragraph|report))?)"
+    r"|(?:taken|drawn|quoted|relayed|forwarded|supplied|received|passed\s+on)\s+(?:from|through|by|via)\s+(?:the\s+hub|that\s+paragraph|that\s+report"
+    r"|the\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer|router)(?:'s|’s)?(?:\s+(?:paragraph|report))?))"
+    r"(?:\s+(?:as\s+well|too|also|alone))?"
+    rf"(?:\s*,\s*(?:and\s+|but\s+)?(?:it\s+is\s+|they\s+are\s+)?{_PROVENANCE_NOT_PART})?",
+    re.IGNORECASE,
+)
+
+
+def is_provenance_note(sentence: str) -> bool:
+    """True when ``sentence`` speaks only of how the answer was composed: "The historical setting is my own addition,
+    not part of that paragraph.", "The judgement on which decade saw the most decisive expansion is from memory as well",
+    "The English specialist's paragraph is from the hub". Read with quotations masked. :func:`split_note_clauses` applies
+    it to what is left once the label clauses are set aside, so "...; verify it before use" or "...; I have not checked its
+    quotations" beside it still leaves a note, on every branch and in the channel's word count."""
+    masked = mask_quotations(sentence)
+    body = " ".join(masked[: len(masked) - len(_TERMINAL_RE.search(masked).group(0))].split())
+    return bool(body) and len(body) <= 400 and _PROVENANCE_NOTE_RE.fullmatch(body) is not None
+
+
 _PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
 _PAREN_INNER_RE = re.compile(r"\([^()]*\)")
 _CLAUSE_SEPARATOR_RE = re.compile(r"[;—–]")
@@ -771,11 +1020,11 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     if bare is not None and _DATED_ITEM_RE.search(masked[:bare.start()]) and _LETTER_RE.search(masked[:bare.start()]):
         notes.append(orig[bare.start():bare.end()].strip())
         orig, masked = _cut(orig, masked, [(bare.start(), bare.end())])
-    # 6. what remains is itself a label, a self-report or a task note, or only filler around the labels removed:
-    #    the whole sentence is a note
+    # 6. what remains is itself a label, a self-report, a task note or a note on how the answer was composed, or only
+    #    filler around the labels removed: the whole sentence is a note
     if _LETTER_RE.search(masked) and (
         _label_shaped(masked) or is_self_certification(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked)
-        or (notes and _filler_only(masked))
+        or (notes and _filler_only(masked)) or is_provenance_note(masked.strip(" ,;:"))
     ):
         return "", (sentence.strip(),)
     core = re.sub(r",(?:\s*,)+", ",", orig)

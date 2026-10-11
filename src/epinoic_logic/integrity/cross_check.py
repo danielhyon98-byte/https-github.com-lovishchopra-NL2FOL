@@ -77,6 +77,27 @@ def _norm_meaning(m: Optional[str]) -> str:
     return " ".join((m or "").split()).casefold()
 
 
+#: Words a gloss may add, drop or move without changing the quantity it names: articles, the prepositions that date a
+#: stock at a year ("in 1870", "by 1870", "at 1870"), approximation words and punctuation.
+_GLOSS_STOP = frozenset("the a an of in by at on about around roughly approximately approx c ca circa some nearly almost and or as for its so thus then that which is are was were be been".split())
+_GLOSS_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+
+
+def gloss_content(meaning: Optional[str]) -> frozenset[str]:
+    """The content of a symbol's gloss: its words (light-stemmed, case-folded) and figures (thousands separators removed),
+    without the words that never change the quantity named (:data:`_GLOSS_STOP`), in any order. 'pig iron output in 1928
+    (million tonnes, about 3.3)' and 'pig iron output in 1928 (about 3.3 million tonnes)' have the same content, as do
+    'route mileage in 1870' and 'route mileage by 1870'."""
+    from .ledger import light_stem
+    out: set[str] = set()
+    for tok in _GLOSS_TOKEN_RE.findall((meaning or "").casefold()):
+        if tok[0].isdigit():
+            out.add(re.sub(r"(?<=\d),(?=\d{3}\b)", "", tok))
+        elif tok not in _GLOSS_STOP:
+            out.add(light_stem(tok))
+    return frozenset(out)
+
+
 def _merge_symbols(problems: list[Problem]) -> tuple[list[Symbol], list[IntegrityFinding]]:
     seen: dict[str, tuple[Symbol, str]] = {}
     findings: list[IntegrityFinding] = []
@@ -91,8 +112,11 @@ def _merge_symbols(problems: list[Problem]) -> tuple[list[Symbol], list[Integrit
                 findings.append(IntegrityFinding(code="INT-GLOSSARY-001", severity="error", message=f"symbol {s.name!r} declared as {prior_sym.sort} in claim {prior_claim!r} and as {s.sort} in claim {p.claim_id!r}; shared glossary violated", claim_ids=sorted({prior_claim, p.claim_id})))
             else:
                 a, b = _norm_meaning(prior_sym.meaning), _norm_meaning(s.meaning)
-                if a and b and a != b:
-                    findings.append(IntegrityFinding(code="INT-GLOSSARY-005", severity="warning", message=f"symbol {s.name!r} ({s.sort}) is glossed differently across claims: {prior_sym.meaning!r} in {prior_claim!r} vs {s.meaning!r} in {p.claim_id!r}; the joint check assumes they denote the same quantity", claim_ids=sorted({prior_claim, p.claim_id})))
+                ca, cb = gloss_content(prior_sym.meaning), gloss_content(s.meaning)
+                if a and b and a != b and ca != cb:  # the same words and figures in another order or with another "in"/"by" are one meaning
+                    only_a, only_b = sorted(ca - cb), sorted(cb - ca)
+                    what = "; ".join(x for x in (f"only the first states {only_a}" if only_a else "", f"only the second states {only_b}" if only_b else "") if x)
+                    findings.append(IntegrityFinding(code="INT-GLOSSARY-005", severity="warning", message=f"symbol {s.name!r} ({s.sort}) is glossed with different meanings across claims: {prior_sym.meaning!r} in {prior_claim!r} vs {s.meaning!r} in {p.claim_id!r} ({what}); the joint check assumes they denote the same quantity", claim_ids=sorted({prior_claim, p.claim_id})))
             if not prior_sym.meaning and s.meaning:
                 seen[s.name] = (s, p.claim_id)
     return [v[0] for v in seen.values()], findings

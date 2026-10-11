@@ -20,9 +20,13 @@ Anthropic / OpenAI-compatible adapters (implemented, untested live). `prompts/`
 holds versioned prompt texts; the version string is bound into each result.
 
 `grounding.py` locates a quotation in tiers (verbatim; typographic normalisation, with
-quote marks folded and verse line breaks written as slashes; an elision within the window;
-then the form-difference tier: an initial capital, a line-break mark, diacritics folded
-with NFKD and combining marks dropped, a long elision). An elision mark written in the academic form, in brackets or
+quote marks folded, every dash variant read as one dash with the spaces on both sides of it dropped, in the text and
+the excerpt alike, so `like - just as I -` typed for the poem's `like—just as I—` is the same quotation, and verse line
+breaks written as slashes; an elision within the window; then the form-difference tier: an initial capital, a line-break
+mark, the text's own double speech mark at a line or stanza start or end left out of a quotation that runs across the
+break, with ` / `, ` // ` or no break mark (every stanza of 'The Man He Killed' opens with one: "omits the text's own
+speech mark at a line or stanza start or end"), diacritics folded with NFKD and combining marks dropped, a long
+elision). An elision mark written in the academic form, in brackets or
 parentheses (`[...]`, `[…]`, `[ . . . ]`, `(...)`), is read as the same ellipsis in every tier (`unbracket_elisions`), so
 a correct elided quotation is never reported as invented. A form difference never verifies a
 grounding but is reported as one ("differs in form", the channel's INT-REQ-010), never as an

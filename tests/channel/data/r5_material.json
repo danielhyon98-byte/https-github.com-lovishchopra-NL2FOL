@@ -1,0 +1,429 @@
+{
+ "specialists": {
+  "en-p4": {
+   "task_id": "en-p4",
+   "group": "p4",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "A History student is studying the Second Boer War (1899-1902) and the men who volunteered to fight in it. In one analytical paragraph of no more than 250 words, show how Hardy's 'The Man He Killed' (1902) uses a colloquial dramatic monologue to present the speaker's reasons for enlisting and his view of the man he shot. Quote exactly from the poem. The paragraph will be passed to the History specialist as context.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-mhk",
+     "title": "The Man He Killed (poem, supplied text)",
+     "author": "Thomas Hardy",
+     "text": "\"Had he and I but met\nBy some old ancient inn,\nWe should have sat us down to wet\nRight many a nipperkin!\n\n\"But ranged as infantry,\nAnd staring face to face,\nI shot at him as he at me,\nAnd killed him in his place.\n\n\"I shot him dead because—\nBecause he was my foe,\nJust so: my foe of course he was;\nThat's clear enough; although\n\n\"He thought he'd 'list, perhaps,\nOff-hand like—just as I—\nWas out of work—had sold his traps—\nNo other reason why.\n\n\"Yes; quaint and curious war is!\nYou shoot a fellow down\nYou'd treat if met where any bar is,\nOr help to half-a-crown.\""
+    }
+   ],
+   "response_text": "Hardy's dramatic monologue lets the speaker justify the killing in casual terms, and the casualness exposes a motive of poverty and a view of the enemy that his justification cannot sustain. The motive is presented through a colloquial parallel: \"He thought he'd 'list, perhaps, / Off-hand like—just as I— / Was out of work—had sold his traps—\". The clipped \"'list\" makes enlisting sound impulsive, while \"just as I\" implies that the speaker's own reason matches the enemy's. The key word \"traps\", which conventionally denotes snares but in colloquial use means a man's gear and belongings, suggests a man who has sold his belongings for want of work, so poverty becomes the motive, as the closing \"No other reason why\" confirms. The view of the enemy is built through the repetition of \"foe\": \"I shot him dead because— / Because he was my foe, / Just so: my foe of course he was\". Foe should supply a reason for killing, but it only restates the killing, so the justification becomes circular, and the unfinished \"although\" that ends the stanza shows a speaker who does not complete his argument. The opening conditional, \"Had he and I but met\", imagines the man as a drinking companion, which suggests the speaker sees the enemy as a man like himself. The final stanza sets the killing beside a social courtesy, \"You shoot a fellow down / You'd treat if met where any bar is\", so the colloquial voice comfortably holds a contradiction."
+  },
+  "en-t10": {
+   "task_id": "en-t10",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "Write one analytical paragraph on how Marvell uses hyperbole, and the turn at 'But at my back', to build the speaker's argument about time. Use quotations from the extract. Keep to about 250 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-coy",
+     "title": "To His Coy Mistress, lines 1-32 (extract, supplied text)",
+     "author": "Andrew Marvell",
+     "text": "Had we but world enough and time,\nThis coyness, lady, were no crime.\nWe would sit down, and think which way\nTo walk, and pass our long love's day.\nThou by the Indian Ganges' side\nShouldst rubies find; I by the tide\nOf Humber would complain. I would\nLove you ten years before the flood,\nAnd you should, if you please, refuse\nTill the conversion of the Jews.\nMy vegetable love should grow\nVaster than empires and more slow;\nAn hundred years should go to praise\nThine eyes, and on thy forehead gaze;\nTwo hundred to adore each breast,\nBut thirty thousand to the rest;\nAn age at least to every part,\nAnd the last age should show your heart.\nFor, lady, you deserve this state,\nNor would I love at lower rate.\n\nBut at my back I always hear\nTime's wingèd chariot hurrying near;\nAnd yonder all before us lie\nDeserts of vast eternity.\nThy beauty shall no more be found;\nNor, in thy marble vault, shall sound\nMy echoing song; then worms shall try\nThat long-preserved virginity,\nAnd your quaint honour turn to dust,\nAnd into ashes all my lust;\nThe grave's a fine and private place,\nBut none, I think, do there embrace."
+    }
+   ],
+   "response_text": "Marvell builds the speaker's argument about time on hyperbole, then reverses it at the turn, so that the time he has invented becomes the reason to act now. The courtship's extravagance sets up a premise of limitless time: \"An hundred years should go to praise / Thine eyes, and on thy forehead gaze;\" and \"Two hundred to adore each breast, / But thirty thousand to the rest\". The numbers measure love in years, and \"praise\" and \"adore\", which conventionally carry devotional meaning, become units of a time budget. The key word is \"rest\", a vague catch-all that absorbs the whole body into a sum so large that it is plainly absurd. Because the exaggeration is evidently impossible, the reader is encouraged to see the premise as a fantasy in which the lady's coyness \"were no crime\". The turn then arrives with the conjunction \"But\", which exposes that premise. The phrase \"at my back\" is spatially precise: time lies behind the speaker, sensed through hearing (\"I always hear\") rather than seen, and \"wingèd\" conventionally suggests speed, so time changes from something that can be stretched into a pursuer that cannot be outrun. The next line makes the future equally hostile: \"Deserts of vast eternity.\" The desert is conventionally barren, and \"vast\" repeats the scale of the hyperbole as a void rather than an abundance. The same magnitude that made love seem limitless now makes time's loss inescapable, so the argument moves from persuasion to urgency."
+  },
+  "en-t9": {
+   "task_id": "en-t9",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "Write one analytical paragraph: how does Carroll use direct speech and invented words to present the son's quest as both heroic and comic? Quote exactly from the poem, including its spoken lines. Write no more than 300 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-jab",
+     "title": "Jabberwocky (poem, supplied text)",
+     "author": "Lewis Carroll",
+     "text": "'Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe.\n\n\"Beware the Jabberwock, my son!\nThe jaws that bite, the claws that catch!\nBeware the Jubjub bird, and shun\nThe frumious Bandersnatch!\"\n\nHe took his vorpal sword in hand:\nLong time the manxome foe he sought—\nSo rested he by the Tumtum tree,\nAnd stood awhile in thought.\n\nAnd, as in uffish thought he stood,\nThe Jabberwock, with eyes of flame,\nCame whiffling through the tulgey wood,\nAnd burbled as it came!\n\nOne, two! One, two! And through and through\nThe vorpal blade went snicker-snack!\nHe left it dead, and with its head\nHe went galumphing back.\n\n\"And hast thou slain the Jabberwock?\nCome to my arms, my beamish boy!\nO frabjous day! Callooh! Callay!\"\nHe chortled in his joy.\n\n'Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe."
+    }
+   ],
+   "response_text": "Carroll presents the son's quest as a heroic rite whose solemnity is continually undercut by its own language, so that it reads as both grave duty and comic performance. The speaker's warning establishes the seriousness: \"Beware the Jabberwock, my son!\" The imperative and the direct address place the quest within a line of inherited instruction. The warning then makes the threat physical through ordinary words, \"The jaws that bite, the claws that catch!\", whose plain verbs of biting and catching imagine a real body. Yet the other enemies arrive as invented names, \"the Jubjub bird\" and \"The frumious Bandersnatch!\", which have no dictionary meaning. The adjective \"frumious\" sounds fierce while telling the listener nothing he can use, so the solemnity is attached to words that cannot be understood. This suggests that the authority of the warning outruns its content, and the reader is encouraged to see the danger as real and the instruction as empty. The speaker's welcome sustains the pattern. \"And hast thou slain the Jabberwock?\" adopts the archaic \"hast thou\" of heroic romance, and \"my beamish boy\" with \"O frabjous day! Callooh! Callay!\" sounds like a grand celebration. Yet \"beamish\" and \"frabjous\" are invented adjectives, and \"Callooh! Callay!\" refers to nothing, so the acclaim is ceremony without content. Carroll then reports the response, \"He chortled in his joy\", where a verb of gleeful laughter replaces the expected verb of triumph. Direct speech thus supplies the heroic form, a warning and a welcome, while invented words drain that form of content, so that admiration and laughter remain held together."
+  },
+  "hi-p4": {
+   "task_id": "hi-p4",
+   "group": "p4",
+   "peer_of": "en-p4",
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "short_answer",
+   "question": "You have received the English specialist's analytical paragraph on Hardy's 'The Man He Killed' (1902) through the hub; it is supplied to you as the document peer:en-p4. In one paragraph of no more than 220 words, outline for a literature student the historical context of what the English specialist identifies (the Second Boer War of 1899 to 1902, voluntary enlistment and unemployment among working-class recruits, and the scale of British losses), with dated evidence labelled from memory as your method requires. Where you draw on the English specialist's paragraph, quote it exactly and attribute it to the English specialist.",
+   "supplied_texts": [],
+   "response_text": "The English specialist's paragraph identifies the speaker's motive as poverty: the casualness \"exposes a motive of poverty\", and the key word \"traps\" suggests a man who \"sold his belongings for want of work\". The historical setting is my own addition, not part of that paragraph. The Second Boer War ran from 11 October 1899 to the Peace of Vereeniging on 31 May 1902 (from memory; check your notes), so the poem's 1902 date falls at the war's close. Reverses in December 1899, including the Highland Brigade's defeat at Magersfontein on 11 December (from memory), helped drive the call for volunteers, and the Imperial Yeomanry's first contingents sailed in early 1900 (from memory). A regular private's pay of about a shilling a day (from memory) was a real draw for men without work, though historians dispute how far unemployment, rather than patriotism or adventure, drove enlistment. The losses were heavy: roughly 22,000 British and imperial deaths, the large majority from disease, chiefly enteric fever (from memory; approximate, and sources differ). Against that toll, Hardy's speaker calls the conflict a \"quaint and curious war\", a line that reads as a sardonic frame for a war that killed far more men through disease than in battle."
+  },
+  "hi-t10": {
+   "task_id": "hi-t10",
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "short_answer",
+   "question": "Outline, with dated and quantified evidence, the growth of the railway network in Britain between 1830 and 1870. Write no more than 200 words and give a judgement on which decade saw the most decisive expansion.",
+   "supplied_texts": [],
+   "response_text": "Railway growth in Britain between 1830 and 1870 came in phases, and the 1840s gave the network its shape. The Liverpool and Manchester Railway opened in September 1830 over 31 miles, the first inter-city line worked by steam locomotives on a timetable. The network then grew from almost nothing: the London and Birmingham Railway opened in 1838, and the Great Western reached Bristol in 1841. Route mileage was about 1,500 by 1840 and about 6,000 by 1850 (from memory; check your notes). The 1840s, which included the Railway Mania of 1845 to 1847, added roughly 4,500 miles, more than any other decade of the period, and by 1848 a line ran from London through Carlisle to Glasgow. The 1850s and 1860s took the network to about 13,000 miles by 1870, but largely through branches and extensions to an existing framework. The 1840s were the most decisive decade. Measured by what the network could do, carrying traffic between the main cities, they created the trunk routes that later growth filled in, whereas the 1830s, though faster in relative terms, built only the first links."
+  },
+  "hi-t9": {
+   "task_id": "hi-t9",
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "essay",
+   "question": "To what extent did Stalin's Five-Year Plans transform Soviet heavy industry between 1928 and 1941? Write one body paragraph only, following your method, in no more than 350 words, with dated and quantified evidence.",
+   "supplied_texts": [],
+   "response_text": "The Five-Year Plans transformed Soviet heavy industry to a large extent in scale and geography, but far less in efficiency and in the quality of its output. Between 1928 and 1932 official figures show pig iron rising from about 3.3 million tonnes to about 6.2 million, steel from about 4.3 million to 5.9 million and coal from about 35 million tonnes to about 64 million. These totals fell short of the First Plan's original target of about 10 million tonnes of pig iron, and later Western reassessments reduced the growth that the official series claimed, yet the expansion was real and it was directed by state investment rather than by market demand. The geography changed as well. Magnitogorsk, built on an iron-ore mountain in the southern Urals, lit its first blast furnace in 1932, and the Second Five-Year Plan of 1933 to 1937 pushed coal output to about 128 million tonnes by 1937. The eastward shift meant that the Urals and the Kuznetsk basin could take on production when the German invasion of 22 June 1941 overran the Donbas and Ukrainian works. Against this, the growth was extensive rather than intensive: it relied on migrant peasant labour, on forced labour from the camps and on imported machinery and foreign engineers, and output per worker rose far more slowly than the tonnages on most estimates. Judged by the criterion of military and industrial capacity by 1941, the plans achieved a great deal; judged by efficiency, they achieved much less. The transformation was therefore largely quantitative and spatial, and it created a heavy-industrial base without yet making that base efficient. Dates and figures are from memory; verify them against your notes before use."
+  }
+ },
+ "syntheses": {
+  "en-p4": {
+   "report_id": "rep-en-p4-0",
+   "claims": [
+    {
+     "text": "Hardy's dramatic monologue lets the speaker justify the killing in casual terms, and the casualness exposes a motive of poverty and a view of the enemy that his justification cannot sustain.",
+     "source_claim_ids": [
+      "p1-point"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The clipped word 'list makes enlisting sound impulsive, 'just as I' implies that the speaker's own reason matches the enemy's, and 'traps', which in colloquial use means a man's gear and belongings, suggests a man who has sold his belongings for want of work, so poverty becomes the motive, as the closing 'No other reason why' confirms.",
+     "source_claim_ids": [
+      "p1-s03",
+      "p1-q02",
+      "p1-q03",
+      "p1-q04",
+      "p1-q05"
+     ],
+     "certainty": "probable",
+     "transformation": "paraphrased"
+    },
+    {
+     "text": "The view of the enemy is built through the repetition of 'foe', which should supply a reason for killing but only restates the killing, so the justification becomes circular, and the unfinished 'although' that ends the stanza shows a speaker who does not complete his argument.",
+     "source_claim_ids": [
+      "p1-s04",
+      "p1-q06",
+      "p1-q07",
+      "p1-s05",
+      "p1-q08"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "The opening conditional 'Had he and I but met' imagines the man as a drinking companion, which suggests the speaker sees the enemy as a man like himself, and the final stanza sets the killing beside a social courtesy, 'You shoot a fellow down / You'd treat if met where any bar is', so the colloquial voice comfortably holds a contradiction.",
+     "source_claim_ids": [
+      "p1-s06",
+      "p1-q09",
+      "p1-s07",
+      "p1-q10"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    }
+   ],
+   "dropped": []
+  },
+  "en-t10": {
+   "report_id": "rep-en-t10-0",
+   "claims": [
+    {
+     "text": "Marvell builds the speaker's argument about time on hyperbole, then reverses it at the turn, so that the time he has invented becomes the reason to act now.",
+     "source_claim_ids": [
+      "p1-point"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The courtship's extravagance sets up a premise of limitless time: 'An hundred years should go to praise / Thine eyes, and on thy forehead gaze;' and 'Two hundred to adore each breast, / But thirty thousand to the rest', where 'praise' and 'adore' become units of a time budget and 'rest', a vague catch-all, absorbs the whole body into a sum so large that it is plainly absurd.",
+     "source_claim_ids": [
+      "p1-s02",
+      "p1-q01",
+      "p1-q02",
+      "p1-s03",
+      "p1-q03",
+      "p1-q04",
+      "p1-s04",
+      "p1-q05"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "Because the exaggeration is evidently impossible, the reader is encouraged to see the premise as a fantasy in which the lady's coyness 'were no crime', the conjunction 'But' at the turn exposes that premise, and 'at my back' places time behind the speaker, sensed through hearing ('I always hear') rather than seen, with 'wingèd' suggesting speed, so time changes from something that can be stretched into a pursuer that cannot be outrun.",
+     "source_claim_ids": [
+      "p1-s05",
+      "p1-q06",
+      "p1-s06",
+      "p1-q07",
+      "p1-s07",
+      "p1-q08",
+      "p1-q09",
+      "p1-q10"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "The future is equally hostile, with 'Deserts of vast eternity' and 'vast' repeating the scale of the hyperbole as a void rather than an abundance, so the same magnitude that made love seem limitless now makes time's loss inescapable and the argument moves from persuasion to urgency.",
+     "source_claim_ids": [
+      "p1-s08",
+      "p1-q11",
+      "p1-s09",
+      "p1-q12",
+      "p1-s10"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    }
+   ],
+   "dropped": []
+  },
+  "en-t9": {
+   "report_id": "rep-en-t9-0",
+   "claims": [
+    {
+     "text": "Carroll presents the son's quest as a heroic rite whose solemnity is continually undercut by its own language, so that it reads as both grave duty and comic performance.",
+     "source_claim_ids": [
+      "p1-point"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The imperative warning 'Beware the Jabberwock, my son!' establishes seriousness and places the quest within a line of inherited instruction, and 'The jaws that bite, the claws that catch!' makes the threat physical through plain verbs of biting and catching.",
+     "source_claim_ids": [
+      "p1-q01",
+      "p1-s02",
+      "p1-s03",
+      "p1-q02",
+      "p1-s04"
+     ],
+     "certainty": "probable",
+     "transformation": "paraphrased"
+    },
+    {
+     "text": "Invented names, 'the Jubjub bird' and 'The frumious Bandersnatch!', have no dictionary meaning, and the adjective 'frumious' sounds fierce while telling the listener nothing he can use, so the solemnity attaches to words that cannot be understood.",
+     "source_claim_ids": [
+      "p1-q03",
+      "p1-q04",
+      "p1-s05",
+      "p1-q05",
+      "p1-s06"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "'And hast thou slain the Jabberwock?' adopts the archaic 'hast thou' of heroic romance, and the acclaim 'my beamish boy' and 'O frabjous day! Callooh! Callay!' rests on invented adjectives and a call that refers to nothing, so it is ceremony without content, while 'He chortled in his joy' replaces the expected verb of triumph with one of gleeful laughter, so that admiration and laughter remain held together.",
+     "source_claim_ids": [
+      "p1-q06",
+      "p1-q07",
+      "p1-q08",
+      "p1-q09",
+      "p1-s09",
+      "p1-q10",
+      "p1-q11",
+      "p1-q12",
+      "p1-s10",
+      "p1-q13",
+      "p1-s11",
+      "p1-s12"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    }
+   ],
+   "dropped": []
+  },
+  "hi-p4": {
+   "report_id": "rep-hi-p4-0",
+   "claims": [
+    {
+     "text": "The Second Boer War ran from 11 October 1899 to the Peace of Vereeniging on 31 May 1902, so the poem's 1902 date falls at the war's close.",
+     "source_claim_ids": [
+      "h1.3"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "Reverses in December 1899, including the Highland Brigade's defeat at Magersfontein on 11 December, helped drive the call for volunteers, and a regular private's pay of about a shilling a day was a real draw for men without work, though historians dispute how far unemployment, rather than patriotism or adventure, drove enlistment.",
+     "source_claim_ids": [
+      "h1.4",
+      "h1.5"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "The English specialist reads the casualness as exposing a motive of poverty, with the key word 'traps' suggesting a man who 'sold his belongings for want of work'.",
+     "source_claim_ids": [
+      "h1.1"
+     ],
+     "certainty": "probable",
+     "transformation": "paraphrased"
+    },
+    {
+     "text": "The losses were heavy, roughly 22,000 British and imperial deaths, the large majority from disease, chiefly enteric fever, with the figure approximate and sources differing; against that toll Hardy's speaker calls the conflict a 'quaint and curious war', a line that reads as a sardonic frame for a war that killed far more men through disease than in battle.",
+     "source_claim_ids": [
+      "h1.6",
+      "h1.7"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    }
+   ],
+   "dropped": [
+    {
+     "source_claim_ids": [
+      "h1.2"
+     ],
+     "reason": "Material claim is a self-description that the historical setting was the specialist's own addition, a note on how the report was built rather than a claim about the history; not carried as a claim."
+    }
+   ]
+  },
+  "hi-t10": {
+   "report_id": "rep-hi-t10-0",
+   "claims": [
+    {
+     "text": "Railway growth in Britain between 1830 and 1870 came in phases: the Liverpool and Manchester Railway opened over 31 miles in September 1830 as the first inter-city line worked by steam locomotives on a timetable, the London and Birmingham Railway opened in 1838, and the Great Western reached Bristol in 1841.",
+     "source_claim_ids": [
+      "h1.1",
+      "h1.2",
+      "h1.3"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "Route mileage was about 1,500 by 1840 and about 6,000 by 1850, and the 1840s, which included the Railway Mania of 1845 to 1847, added roughly 4,500 miles, more than any other decade of the period.",
+     "source_claim_ids": [
+      "h1.4",
+      "h1.5"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "The 1850s and 1860s took the network to about 13,000 miles by 1870, but largely through branches and extensions to an existing framework.",
+     "source_claim_ids": [
+      "h1.6"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "Measured by what the network could do, carrying traffic between the main cities, the 1840s gave the network its shape and were the most decisive decade, creating the trunk routes that later growth filled in, whereas the 1830s, though faster in relative terms, built only the first links.",
+     "source_claim_ids": [
+      "h1.1",
+      "h1.7",
+      "h1.8"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    }
+   ],
+   "dropped": []
+  },
+  "hi-t9": {
+   "report_id": "rep-hi-t9-0",
+   "claims": [
+    {
+     "text": "The Five-Year Plans transformed Soviet heavy industry to a large extent in scale and geography but far less in efficiency and in the quality of its output: judged by military and industrial capacity by 1941 they achieved a great deal, judged by efficiency much less, so the change was largely quantitative and spatial, creating a heavy-industrial base without yet making that base efficient.",
+     "source_claim_ids": [
+      "h1.1",
+      "h1.8",
+      "h1.9"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "Between 1928 and 1932 official figures show pig iron rising from about 3.3 million tonnes to about 6.2 million, steel from about 4.3 million to 5.9 million and coal from about 35 million tonnes to about 64 million, though these totals fell short of the First Plan's original target of about 10 million tonnes of pig iron, and later Western reassessments reduced the growth that the official series claimed, yet the expansion was real and directed by state investment rather than by market demand.",
+     "source_claim_ids": [
+      "h1.2",
+      "h1.3"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "The geography shifted eastward: Magnitogorsk, built on an iron-ore mountain in the southern Urals, lit its first blast furnace in 1932, the Second Five-Year Plan of 1933 to 1937 pushed coal output to about 128 million tonnes by 1937, and when the German invasion of 22 June 1941 overran the Donbas and Ukrainian works, the Urals and the Kuznetsk basin could take on production.",
+     "source_claim_ids": [
+      "h1.4",
+      "h1.5",
+      "h1.6"
+     ],
+     "certainty": "probable",
+     "transformation": "merged"
+    },
+    {
+     "text": "Against this, the growth was extensive rather than intensive: it relied on migrant peasant labour, forced labour from the camps and imported machinery and foreign engineers, and output per worker rose far more slowly than the tonnages on most estimates.",
+     "source_claim_ids": [
+      "h1.7"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    }
+   ],
+   "dropped": []
+  }
+ },
+ "adversarial": {
+  "en-t9-echo-quoted-long": {
+   "task_id": "en-t9-echo-quoted-long",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "Write one analytical paragraph: how does Carroll use direct speech and invented words to present the son's quest as both heroic and comic? Quote exactly from the poem, including its spoken lines. Write no more than 300 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-jab",
+     "title": "Jabberwocky (poem, supplied text)",
+     "author": "Lewis Carroll",
+     "text": "'Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe.\n\n\"Beware the Jabberwock, my son!\nThe jaws that bite, the claws that catch!\nBeware the Jubjub bird, and shun\nThe frumious Bandersnatch!\"\n\nHe took his vorpal sword in hand:\nLong time the manxome foe he sought—\nSo rested he by the Tumtum tree,\nAnd stood awhile in thought.\n\nAnd, as in uffish thought he stood,\nThe Jabberwock, with eyes of flame,\nCame whiffling through the tulgey wood,\nAnd burbled as it came!\n\nOne, two! One, two! And through and through\nThe vorpal blade went snicker-snack!\nHe left it dead, and with its head\nHe went galumphing back.\n\n\"And hast thou slain the Jabberwock?\nCome to my arms, my beamish boy!\nO frabjous day! Callooh! Callay!\"\nHe chortled in his joy.\n\n'Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe."
+    }
+   ],
+   "response_text": "Carroll uses direct speech and invented words to present \"the son's quest as both heroic and comic\", quoting exactly from the poem, including its spoken lines, in no more than 300 words, so the quest is both heroic and comic through direct speech and invented words, both heroic and comic."
+  },
+  "en-t7-echo": {
+   "task_id": "en-t7-echo",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "Write one analytical paragraph: how does Wordsworth use personification and the sonnet's turn to present the city as both alive and at rest? Quote exactly from the poem. Write no more than 300 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-wb",
+     "title": "Composed upon Westminster Bridge, September 3, 1802 (sonnet, supplied text)",
+     "author": "William Wordsworth",
+     "text": "Earth has not anything to show more fair:\nDull would he be of soul who could pass by\nA sight so touching in its majesty:\nThis City now doth, like a garment, wear\nThe beauty of the morning; silent, bare,\nShips, towers, domes, theatres, and temples lie\nOpen unto the fields, and to the sky;\nAll bright and glittering in the smokeless air.\nNever did sun more beautifully steep\nIn his first splendour, valley, rock, or hill;\nNe'er saw I, never felt, a calm so deep!\nThe river glideth at his own sweet will:\nDear God! the very houses seem asleep;\nAnd all that mighty heart is lying still!"
+    }
+   ],
+   "response_text": "Wordsworth uses personification and the sonnet's turn to present the city as both alive and at rest, quoting exactly from the poem in no more than 300 words; the city is presented as both alive and at rest through personification and the turn."
+  },
+  "en-t5-quotes-request-only": {
+   "task_id": "en-t5-quotes-request-only",
+   "subject": "English A: Literature",
+   "agent_id": "english-specialist",
+   "task_type": "analytical_paragraph",
+   "question": "Write one analytical paragraph: how does Blake use repetition and sound to present the city as a place of constraint? Quote exactly from the poem. Write no more than 300 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-london",
+     "title": "London (poem, supplied text)",
+     "author": "William Blake",
+     "text": "I wander thro' each charter'd street,\nNear where the charter'd Thames does flow,\nAnd mark in every face I meet\nMarks of weakness, marks of woe.\n\nIn every cry of every Man,\nIn every Infant's cry of fear,\nIn every voice, in every ban,\nThe mind-forg'd manacles I hear:\n\nHow the Chimney-sweeper's cry\nEvery blackning Church appalls;\nAnd the hapless Soldier's sigh\nRuns in blood down Palace walls.\n\nBut most thro' midnight streets I hear\nHow the youthful Harlot's curse\nBlasts the new born Infant's tear,\nAnd blights with plagues the Marriage hearse."
+    }
+   ],
+   "response_text": "Blake uses \"repetition and sound\" to present the city as \"a place of constraint\", quoting exactly from the poem in no more than 300 words. The poem presents the city as a place of constraint through repetition and sound."
+  }
+ }
+}

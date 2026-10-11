@@ -39,7 +39,9 @@ Segmentation rules
 
 * Sentences end at ``.``, ``!`` or ``?`` (closing quotation marks may follow) when
   the next word starts with a capital letter; one-letter tokens and common
-  abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence, and a
+  abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence (the ``s`` of
+  a sentence-final possessive, "... matches the enemy's.", or the ``d`` of a contraction
+  is the end of a word, not a one-letter token, and does), and a
   boundary inside an open quotation never splits it, so a quoted span that contains
   a full stop stays one quotation in one sentence. A pasted JSON span glued to the
   prose (:func:`~epinoic_logic.adapters.markdown.find_json_spans`) is one sentence of
@@ -90,9 +92,13 @@ Role rules (body paragraphs)
   ``Therefore``, ``Consequently`` or ``Hence``, or with a lead that draws the
   strands together (``Read together``, ``Taken together``, ``Together``, ``In this
   light``, ``Read against``: :data:`LINK_LEADS`) -> ``link``; in a single-paragraph
-  answer the closing argued sentence that draws a claim over the paragraph's evidence
-  without quoting ("... suggest that the poem captures a suspended morning") is the
-  ``link`` too, so a combinator that drops it is named (``INT-LEDGER-002``);
+  answer the closing argued sentence that draws the paragraph's conclusion, quoting or
+  not, is the ``link`` too, so a combinator that drops it is named (``INT-LEDGER-002``):
+  a claim over the paragraph's evidence ("... suggest that the poem captures a suspended
+  morning"), a conclusion marker anywhere in it ("Direct speech thus supplies ...", "...,
+  so that admiration and laughter remain held together", "..., so the argument moves from
+  persuasion to urgency") or a restatement of the point's terms; after a signposted link
+  only the quotation-free claim over the evidence is a second link;
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
   irony, imagery, syntax, semantic field, pronoun, verb, adjective, adverb, noun,
   declarative, parallel structure, employs) -> ``device``;
@@ -167,6 +173,24 @@ _CONCLUSION_SIGNPOSTS: tuple[str, ...] = LINK_SIGNPOSTS + ("In conclusion", "Ove
 _LINK_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in LINK_SIGNPOSTS + LINK_LEADS) + r")\b")
 #: A closing sentence that draws a claim over the paragraph's evidence ("... suggest that the poem captures ...").
 _CLOSING_CLAIM_RE = re.compile(r"\b(?:suggests?|shows?|reveals?|indicates?|demonstrates?|implies|imply)\s+that\b", re.IGNORECASE)
+#: A conclusion drawn anywhere in a closing sentence, read outside its quotations: "Direct speech thus supplies ...",
+#: "..., so that admiration and laughter remain held together", "..., so the argument moves from persuasion to urgency".
+#: ", so much" and ", so far" are degree words, not a conclusion.
+_CONCLUSION_MARKER_RE = re.compile(
+    r"\b(?:thus|therefore|hence|consequently|accordingly)\b|\bso\s+that\b|,\s*(?:and\s+)?so\b(?!\s+(?:much|many|far|long|too|as|to\s+speak)\b)"
+    r"|\bin\s+(?:this|that)\s+way\b|\bwhich\s+is\s+why\b",
+    re.IGNORECASE,
+)
+_CONTENT_WORD_RE = re.compile(r"[^\W\d_]{4,}")
+#: Words a closing sentence shares with the point without restating it.
+_RESTATEMENT_STOPWORDS = frozenset("""
+that this these those which while where when with from into onto upon than then their there them they what whose
+have been being were will would could should shall must might also only even more most much such very just both each
+every other another about above below between through because although though however does done make makes made
+poem poet speaker reader line lines word words stanza text sense phrase image images
+""".split())
+#: How many distinct content words a closing sentence must share with the point to restate it.
+_RESTATEMENT_MIN_SHARED = 3
 _CONCLUSION_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in _CONCLUSION_SIGNPOSTS) + r")\b")
 _DEVICE_RE = re.compile(
     r"\b(?:diction|metaphor\w*|paradox\w*|juxtapos\w*|iron(?:y|ic\w*)|imagery|syntax|syntactic\w*|"
@@ -316,7 +340,10 @@ _ABBREVIATION_WINDOW = 48
 def _is_abbreviation(prefix: str) -> bool:
     """True when ``prefix`` ends in an abbreviation or a one-letter token (closing marks
     ignored). Only the last :data:`_ABBREVIATION_WINDOW` characters are read: a word that
-    runs past the window's edge is longer than any abbreviation, so the answer is the same."""
+    runs past the window's edge is longer than any abbreviation, so the answer is the same.
+    A letter after an apostrophe is the end of a word, not an initial: the ``s`` of a
+    sentence-final possessive ("... matches the enemy's. The key word ...") or the ``d`` of a
+    contraction ends the sentence like any other word."""
     tail = prefix[-_ABBREVIATION_WINDOW:].rstrip("\"”’')]»")
     m = _LAST_WORD_RE.search(tail)
     if m is None:
@@ -324,6 +351,8 @@ def _is_abbreviation(prefix: str) -> bool:
     if m.start() == 0 and len(prefix) > _ABBREVIATION_WINDOW:
         return False  # the word reaches the window's edge: longer than any abbreviation, not one letter
     word = m.group(1)
+    if len(word) == 1 and m.start() > 0 and tail[m.start() - 1] in "'’" and m.start() > 1 and tail[m.start() - 2].isalpha():
+        return False  # "enemy's", "he'd": the end of a word, not a one-letter initial
     return len(word) == 1 or word.lower() in _ABBREVIATIONS
 
 
@@ -543,19 +572,55 @@ def segment(text: str) -> tuple[Paragraph, ...]:
     return tuple(paragraphs)
 
 
+def _content_words(text: str) -> set[str]:
+    """Distinct content words of ``text`` outside its quotations, lower-cased with a plural ``s`` dropped."""
+    words = set()
+    for w in _CONTENT_WORD_RE.findall(strip_quotations(text).replace("[quotation]", " ").lower()):
+        w = w[:-1] if w.endswith("s") and not w.endswith("ss") else w
+        if w not in _RESTATEMENT_STOPWORDS:
+            words.add(w)
+    return words
+
+
+def _draws_conclusion(sentence: Sentence, point: Optional[Sentence]) -> bool:
+    """True when ``sentence`` draws the paragraph's conclusion: a claim over the evidence ("... suggest that ..."), a
+    conclusion marker anywhere outside its quotations ("thus", "therefore", "so that", ", so the argument ..."), or a
+    restatement of the point's terms (at least :data:`_RESTATEMENT_MIN_SHARED` content words shared with the point, and
+    at least half of the sentence's own content words)."""
+    plain = strip_quotations(sentence.text)
+    if _CLOSING_CLAIM_RE.search(plain) or _CONCLUSION_MARKER_RE.search(plain):
+        return True
+    if point is None:
+        return False
+    own = _content_words(sentence.text)
+    shared = own & _content_words(point.text)
+    return len(shared) >= _RESTATEMENT_MIN_SHARED and 2 * len(shared) >= len(own)
+
+
 def _closing_link(sentences: list[Sentence]) -> list[Sentence]:
-    """In a single-paragraph answer, the closing argued sentence that draws a claim over the
-    paragraph's evidence ("... the clear air, the sleeping houses and the calm suggest that the poem
-    captures a suspended morning ...") is the paragraph's link, signpost or not, as long as it is
-    the writer's own claim (no quotation) and not the point."""
+    """In a single-paragraph answer, the closing argued sentence that draws the paragraph's
+    conclusion is its link, signpost or not, whether or not it quotes: a claim over the evidence
+    ("... the clear air, the sleeping houses and the calm suggest that the poem captures a suspended
+    morning ..."), a conclusion marker anywhere in it ("Direct speech thus supplies the heroic form
+    ..., so that admiration and laughter remain held together", "..., so the argument moves from
+    persuasion to urgency"), or a restatement of the point's terms. Delivered as the material
+    ``link``, it cannot be dropped by a combinator without a record (``INT-LEDGER-002``). When a
+    signposted link (``Read together, ...``) already carries the conclusion, only a quotation-free
+    closing claim over the evidence ("... suggest that ...") is a second link; any other closing
+    remark stays supporting."""
     argued = [k for k, s in enumerate(sentences) if s.role != "other"]
     if len(argued) < 3:
         return sentences
     k = argued[-1]
     last = sentences[k]
-    if last.role in ("interpretation", "device") and not last.quotations and _CLOSING_CLAIM_RE.search(last.text):
-        sentences = list(sentences)
-        sentences[k] = replace(last, role="link")
+    if last.role not in ("interpretation", "device"):
+        return sentences
+    if not last.quotations and _CLOSING_CLAIM_RE.search(last.text):
+        pass  # the closing claim over the evidence: the link whatever precedes it
+    elif any(s.role == "link" for s in sentences) or not _draws_conclusion(last, next((s for s in sentences if s.role == "point"), None)):
+        return sentences  # a signposted link already carries the conclusion; a remark after it ("The poem never mentions the war, so ...") stays supporting
+    sentences = list(sentences)
+    sentences[k] = replace(last, role="link")
     return sentences
 
 

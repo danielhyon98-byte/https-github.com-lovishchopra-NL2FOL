@@ -193,9 +193,9 @@ def _channel_with_formalized_source():
     return ch
 
 
-def _synthesis(text: str, **claim_fields) -> Synthesis:
+def _synthesis(text: str, synthesis_id: str = "syn-1", **claim_fields) -> Synthesis:
     sc = SynthesizedClaim(claim_id="s-1", text=text, source_claim_ids=["a-1"], transformation="merged", **claim_fields)
-    return Synthesis(synthesis_id="syn-1", request_id="req-r", task_id=TASK, combinator_agent_id="combinator", source_report_ids=["rep-a"], claims=[sc], text=text, text_sha256=sha256_text(text), created_at="2026-10-11T11:05:00Z")
+    return Synthesis(synthesis_id=synthesis_id, request_id="req-r", task_id=TASK, combinator_agent_id="combinator", source_report_ids=["rep-a"], claims=[sc], text=text, text_sha256=sha256_text(text), created_at="2026-10-11T11:05:00Z")
 
 
 def _speed_is(value: str) -> Assertion:
@@ -208,7 +208,12 @@ def test_synthesis_without_formal_conclusion_says_the_check_was_not_performed():
     assert relayed is not None
     ledger = [f for f in rr.findings if f.code == "INT-LEDGER-011"]
     assert ledger and "NOT performed on this channel" in ledger[0].message and "required" not in ledger[0].message
-    assert not rr.formal_result_ids and not [f for f in rr.findings if f.code.startswith("INT-SYNTH")]
+    # Rewritten in round 5 (an overseer reversed the rule this line pinned: a material merged claim with no formal
+    # conclusion must carry at least a warning, not only an info note): no engine run, and exactly one INT-SYNTH finding,
+    # the INT-SYNTH-012 warning naming the merged claim and its source and saying the check was not performed.
+    synth = [f for f in rr.findings if f.code.startswith("INT-SYNTH")]
+    assert not rr.formal_result_ids and [(f.code, f.severity) for f in synth] == [("INT-SYNTH-012", "warning")]
+    assert synth[0].claim_ids == ["s-1", "a-1"] and "NOT formally checked on this channel" in synth[0].message
 
 
 def test_synthesis_with_formal_conclusion_is_checked_by_the_engine():
@@ -217,7 +222,10 @@ def test_synthesis_with_formal_conclusion_is_checked_by_the_engine():
     ledger = [f for f in ok.findings if f.code == "INT-LEDGER-011"]
     assert ledger and "performed on this channel" in ledger[0].message and ledger[0].formal_result_id in ok.formal_result_ids
     assert not [f for f in ok.findings if f.code == "INT-SYNTH-001"]
-    _, bad = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, _synthesis("The speed is 20 m/s.", formal_conclusion=_speed_is("20")))
+    # (round 5: a second, different synthesis needs its own id; under the delivered id it is refused, INT-HANDOFF-015)
+    reused, rr_reused = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, _synthesis("The speed is 20 m/s.", formal_conclusion=_speed_is("20")))
+    assert reused is None and [f.code for f in rr_reused.findings if f.severity == "error"] == ["INT-HANDOFF-015"]
+    _, bad = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, _synthesis("The speed is 20 m/s.", synthesis_id="syn-2", formal_conclusion=_speed_is("20")))
     refuted = [f for f in bad.findings if f.code == "INT-SYNTH-001"]
     assert refuted and refuted[0].severity == "error" and "a-1" in refuted[0].claim_ids and refuted[0].formal_result_id in bad.formal_result_ids
 

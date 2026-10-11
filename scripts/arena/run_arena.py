@@ -20,6 +20,13 @@ Inputs (one round directory):
   (WorkPlan.agent_task_types), so a History peer asked for a short_answer on an analytical_paragraph task carries
   short_answer on its request, report and forward (INT-HANDOFF-010 compares against it). relay_peer.py builds the same plan
   through group_plan() and writes <round>/relayed/<task_id>.json, the only thing the peer-dependent agent may read.
+  A re-run never delivers that recorded payload in place of the peer task's reply: the genuine pass parses the raw
+  response_text with the code as it stands, like every other task, so a fix to a parser shows on the re-run's receipts.
+  The recording is used only for the document the peer-dependent agent read (peer:<task_id> is its original_response),
+  and each genuine record of a peer task carries ``recorded_relay_checks``: whether the recorded payload equals the
+  current parse (created_at aside) and, when it does not, the payload fields and the claims that differ, with both
+  values. results.json (``recorded_relay_checks``) and summary.md list every check, so a receipt that differs from the
+  recorded relay is never read as the receipt the agent was shown.
 Outputs: <round>/results.json and <round>/summary.md
 
 Fault mutations applied to every specialist text: invented_quotation (double marks), invented_quotation_single (the same
@@ -40,6 +47,15 @@ the genuine record of the same task does not already carry. A code that is prese
 the specialist's own text explains (hi-p3's CORE-SRC-003 for its own 'smokeless air') does not
 count. A failing record says why under ``failure_reasons``.
 
+The combinator's synthesis of a task (or of a peer group: one synthesis citing every delivered report) is a
+transmission of its own: a record of variant ``synthesis``, counted in the rate and in ``by_variant``. It is functional
+when the hub produced a receipt without raising, the synthesis was delivered (a genuine synthesis of the delivered
+reports is not REJECTED, by the same conservative rule as a genuine response) and no check on it failed internally
+(INT-SYNTH-013, or a joint check left undecided with INTERNAL_ERROR); a round that carries syntheses but none for a
+delivered group records that group's synthesis as a failure. The record keeps every finding with its claim ids and its
+full message (``finding_dict``), as do the genuine and peer-relay records (mutation records cut messages to 300
+characters).
+
 Each mutation record also keeps ``injected_claim_ids``, ``named_by`` (the findings that named the
 injection), ``unexplained_findings`` (findings the genuine record does not carry and that do not
 name the injection; a changed genuine finding keeps its old message as ``baseline_message``) and
@@ -47,9 +63,10 @@ name the injection; a changed genuine finding keeps its old message as ``baselin
 not change the functional rate: they are either consequences of the injected words (a word bound
 crossed, one more quotation in a paragraph) or wrong receipts, and results.json
 (``mutations_with_unexplained_findings``) and summary.md list them with their messages so a reader
-can tell which. ``genuine_with_errors`` lists every genuine transmission and peer relay whose
-receipt carries an error or a warning, with each finding's code, severity, claim ids and message
-(``codes`` keeps the error codes, ``warning_codes`` the warning codes).
+can tell which. ``genuine_with_errors`` lists every genuine transmission, peer relay and combinator
+synthesis whose receipt carries an error or a warning, with each finding's code, severity, claim ids
+and full message (``codes`` keeps the error codes, ``warning_codes`` the warning codes; a synthesis
+entry also names its ``synthesis_id``).
 
 Per claim outcome the record keeps the display status, the translation status, the interpretation's ambiguity flags
 (why a claim is AMBIGUOUS_TRANSLATION), the translation diagnostics, and for a verified problem the engine status with
@@ -301,9 +318,13 @@ def group_plan(items: list[dict], group: str) -> WorkPlan:
                     selected_agent_ids=[*agents, "dummy-combinator"], allowed_document_ids=doc_ids, agent_subjects=agent_subjects, agent_task_types=agent_task_types)
 
 
-def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_name: str):
+def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_name: str, document_text: str | None = None):
     """Relay the peer task's delivered report to this agent through the channel. Returns
-    (record, SuppliedText of the relayed report or None, relayed AgentMessage or None)."""
+    (record, SuppliedText of the relayed report or None, relayed AgentMessage or None).
+
+    The relay always forwards the report delivered on this channel (the current parse). ``document_text`` is the text the
+    peer-dependent agent actually read when relay_peer.py recorded the relay (the recorded payload's original_response);
+    when given it is the peer:<task> document, and the record says whether it equals the forwarded original_response."""
     peer = item.get("peer_of")
     if not peer:
         return None, None, None
@@ -319,10 +340,13 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
     relayed, rr = ch.relay("router", AgentRole.ROUTER, item["agent_id"], AgentRole.SPECIALIST, peer_report, in_reply_to=pm.message_id)
     rec.update(functional=relayed is not None and rr.status is not TransmissionStatus.REJECTED, status=rr.status.value, branch=rr.branch,
                codes=sorted({f.code for f in rr.findings} | {sf.code for sf in rr.structural_findings}), summary=rr.summary[:400],
-               findings=[brief(finding_dict(f)) for f in rr.findings], subject_findings=[brief(finding_dict(sf)) for sf in rr.structural_findings])
+               findings=[finding_dict(f) for f in rr.findings], subject_findings=[finding_dict(sf) for sf in rr.structural_findings],
+               document_source="recorded relay payload" if document_text is not None else "forwarded report",
+               document_matches_forward=document_text is None or document_text == peer_report.original_response)
     if relayed is None:
         return rec, None, None
-    text = SuppliedText(document_id=f"peer:{peer}", title=f"{peer_item['agent_id']} report {peer_report.report_id} relayed through the hub", author=peer_item["agent_id"], text=peer_report.original_response)
+    text = SuppliedText(document_id=f"peer:{peer}", title=f"{peer_item['agent_id']} report {peer_report.report_id} relayed through the hub", author=peer_item["agent_id"],
+                        text=document_text if document_text is not None else peer_report.original_response)
     return rec, text, relayed
 
 
@@ -382,6 +406,96 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
                      claims=s_claims, ledger=ledger, text=s_text, text_sha256=sha256_text(s_text), created_at="2026-10-11T15:00:00Z")
 
 
+def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:
+    """Peer-dependent task id -> {file, peer_of, payload} for every relay relay_peer.py recorded as delivered: the payload
+    is what that agent was shown of its peer when it answered."""
+    out: dict[str, dict] = {}
+    for it in items:
+        if not it.get("peer_of"):
+            continue
+        rel_path = round_dir / "relayed" / f"{it['task_id']}.json"
+        if rel_path.exists():
+            rel = json.loads(rel_path.read_text())
+            if rel.get("delivered") and rel.get("payload"):
+                out[it["task_id"]] = {"file": f"relayed/{rel_path.name}", "peer_of": it["peer_of"], "payload": rel["payload"]}
+    return out
+
+
+#: Payload fields a re-run legitimately changes: the delivery timestamp.
+VOLATILE_PAYLOAD_FIELDS = frozenset({"created_at"})
+
+
+def payload_differences(recorded: dict, current: dict | None) -> dict:
+    """How a recorded specialist_report/1.0 payload differs from the report the current code delivered for the same raw
+    text (``current`` None: the current code did not deliver it). ``fields``: top-level fields other than the claims that
+    differ; ``claims_only_recorded`` / ``claims_only_current``: claim ids on one side only; ``claims_changed``: per claim id
+    on both sides, each differing field with its recorded and current value; ``claim_order_changed``: the shared claims
+    come in another order. ``created_at`` is ignored. ``identical`` is True only when nothing else differs."""
+    if current is None:
+        return {"identical": False, "current_delivered": False, "fields": [], "claims_only_recorded": [c.get("claim_id") for c in recorded.get("claims", [])],
+                "claims_only_current": [], "claims_changed": {}, "claim_order_changed": False}
+    fields = sorted(k for k in (recorded.keys() | current.keys()) - VOLATILE_PAYLOAD_FIELDS - {"claims"} if recorded.get(k) != current.get(k))
+    rc = {c.get("claim_id"): c for c in recorded.get("claims", [])}
+    cc = {c.get("claim_id"): c for c in current.get("claims", [])}
+    changed: dict[str, dict] = {}
+    for cid in [c for c in rc if c in cc]:
+        diff = sorted(k for k in rc[cid].keys() | cc[cid].keys() if rc[cid].get(k) != cc[cid].get(k))
+        if diff:
+            changed[cid] = {k: {"recorded": rc[cid].get(k), "current": cc[cid].get(k)} for k in diff}
+    only_r = [c for c in rc if c not in cc]
+    only_c = [c for c in cc if c not in rc]
+    order_changed = [c for c in rc if c in cc] != [c for c in cc if c in rc]
+    return {"identical": not (fields or only_r or only_c or changed or order_changed), "current_delivered": True, "fields": fields,
+            "claims_only_recorded": only_r, "claims_only_current": only_c, "claims_changed": changed, "claim_order_changed": order_changed}
+
+
+_INTERNAL_RE = re.compile(r"\(INTERNAL_ERROR\)")
+
+
+def synthesis_failure_reasons(status: str | None, delivered: bool, findings: list[dict], internal_checks: int = 0) -> list[str]:
+    """Why a combinator synthesis transmission is not functional (empty when it is): it was not delivered (a synthesis of
+    the delivered reports is genuine traffic, so REJECTED is a failure, never re-labelled), or a check on it failed
+    internally (INT-SYNTH-013; a joint check undecided with INTERNAL_ERROR; ``internal_checks`` formal checks or outcomes
+    of the receipt with INTERNAL_ERROR)."""
+    reasons = []
+    if status == TransmissionStatus.REJECTED.value or not delivered:
+        reasons.append(f"synthesis receipt {status}: the combinator's synthesis of the delivered reports was not delivered")
+    internal = [f["code"] for f in findings if f["code"] == "INT-SYNTH-013" or _INTERNAL_RE.search(f["message"])]
+    if internal or internal_checks:
+        reasons.append(f"{len(internal) + internal_checks} check(s) on the synthesis failed internally (INTERNAL_ERROR){': ' + str(sorted(set(internal))) if internal else ''}")
+    return reasons
+
+
+def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: dict, delivered: dict) -> dict:
+    """The combinator's synthesis relay for ``group`` as a record of its own (variant ``synthesis``): the dummy combinator
+    sends the merged synthesis to the router on the group's channel. Every finding is kept with its claim ids and full
+    message. Never raises: a crash is recorded as a non-functional record."""
+    plan = ch.plan
+    rec = {"file": item["_path"].name, "task_id": item["task_id"], "subject": plan.subject, "variant": "synthesis", "expected": "NONE", "task_type": plan.task_type,
+           "channel": group, "group": group,
+           "synthesis_files": [f"syntheses/{it['_path'].stem}.json" for it in items if group_of(it) == group and it["_path"].stem in syntheses]}
+    t0 = time.perf_counter()
+    try:
+        synthesis = group_synthesis(items, group, syntheses, delivered, plan)
+        if synthesis is None:
+            rec.update(functional=False, error=f"no synthesis for the delivered group {group!r}: the round carries syntheses, but none for a delivered member of this group")
+            return rec
+        relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, synthesis)
+        findings = [finding_dict(f) for f in rr.findings]
+        subject = [finding_dict(sf) for sf in rr.structural_findings]
+        internal_checks = sum(1 for fc in rr.formal_checks if fc.formal_status == "INTERNAL_ERROR") + sum(1 for o in rr.outcomes if o.display_status.value == "INTERNAL_ERROR")
+        reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks)
+        rec.update(functional=not reasons, synthesis_id=synthesis.synthesis_id, source_report_ids=list(synthesis.source_report_ids), synthesized_claims=len(synthesis.claims),
+                   status=rr.status.value, branch=rr.branch, delivered=relayed is not None,
+                   codes=sorted({f["code"] for f in findings} | {sf["code"] for sf in subject}), findings=findings, subject_findings=subject,
+                   formal_result_ids=list(rr.formal_result_ids), latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rr.summary[:400])
+        if reasons:
+            rec["failure_reasons"] = reasons
+    except Exception as exc:  # a crash is a translator bug
+        rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
+    return rec
+
+
 def stale_fixture(o: ClaimVerificationOutcome) -> bool:
     """True when the fixture provider refused its fixture because the claim text differs from the one the fixture was
     produced for: the translation failed by design of the harness, not of the infrastructure."""
@@ -410,19 +524,59 @@ def _record_findings(r: dict) -> list[dict]:
     return r.get("findings", []) + r.get("subject_findings", [])
 
 
+#: Record variants whose receipts are genuine traffic: a specialist's own reply, the router's forward to a peer, and the
+#: combinator's synthesis of the delivered reports.
+GENUINE_VARIANTS = ("genuine", "peer_relay", "synthesis")
+
+
 def genuine_findings_summary(records: list[dict]) -> list[dict]:
-    """Every genuine transmission (and peer relay) whose receipt carries an error or a warning, with each such finding's
-    code, severity, claim ids and message: a correct finding against a specialist fault, or a false one."""
+    """Every genuine transmission, peer relay and combinator synthesis whose receipt carries an error or a warning, with
+    each such finding's code, severity, claim ids and full message: a correct finding against a specialist's or the
+    combinator's fault, or a false one."""
     out = []
     for r in records:
-        if r["variant"] not in ("genuine", "peer_relay"):
+        if r["variant"] not in GENUINE_VARIANTS:
             continue
         shown = [f for f in _record_findings(r) if f["severity"] in ("error", "warning")]
         if shown:
-            out.append({"file": r["file"], "variant": r["variant"], "status": r.get("status"),
-                        "codes": sorted({f["code"] for f in shown if f["severity"] == "error"}),
-                        "warning_codes": sorted({f["code"] for f in shown if f["severity"] == "warning"}), "findings": shown})
+            entry = {"file": r["file"], "variant": r["variant"], "status": r.get("status"),
+                     "codes": sorted({f["code"] for f in shown if f["severity"] == "error"}),
+                     "warning_codes": sorted({f["code"] for f in shown if f["severity"] == "warning"}), "findings": shown}
+            if r.get("synthesis_id"):
+                entry["synthesis_id"] = r["synthesis_id"]
+            if r.get("recorded_relays_differing"):
+                entry["recorded_relays_differing"] = list(r["recorded_relays_differing"])
+            out.append(entry)
     return out
+
+
+def _render_value(v) -> str:
+    return json.dumps(v, ensure_ascii=False, default=str)
+
+
+def recorded_relay_lines(checks: list[dict]) -> list[str]:
+    """summary.md lines for the recorded peer relays compared with the current parse."""
+    lines = []
+    for c in checks:
+        head = f"- {c['relayed_file']} ({c['peer_of']} relayed to {c['dependent_task_id']})"
+        if c["identical"]:
+            lines.append(f"{head}: identical to the current parse (created_at aside)")
+            continue
+        if not c.get("current_delivered", True):
+            lines.append(f"{head}: DIFFERS: the current code did not deliver {c['peer_of']}'s reply; the recorded payload was not delivered in its place")
+            continue
+        lines.append(f"{head}: DIFFERS from the current parse; the genuine pass delivered the current parse and used the recording only for the document the agent read")
+        if c["fields"]:
+            lines.append(f"  - payload fields that differ: {c['fields']}")
+        if c["claims_only_recorded"]:
+            lines.append(f"  - claims only in the recording: {c['claims_only_recorded']}")
+        if c["claims_only_current"]:
+            lines.append(f"  - claims only in the current parse: {c['claims_only_current']}")
+        if c.get("claim_order_changed"):
+            lines.append("  - the shared claims come in another order")
+        for cid, diff in c["claims_changed"].items():
+            lines += [f"  - {cid} {k}: recorded {_render_value(v['recorded'])} -> current {_render_value(v['current'])}" for k, v in diff.items()]
+    return lines
 
 
 def unexplained_summary(records: list[dict]) -> list[dict]:
@@ -448,6 +602,11 @@ def run_round(round_dir: Path) -> dict:
     records: list[dict] = []
     t_all = time.perf_counter()
     items = load_items(spec_dir)
+    # peer-dependent task id -> the relay relay_peer.py recorded: the document that agent read, compared below with the
+    # current parse of the peer's raw text (which is what the genuine pass delivers)
+    recorded_relays = load_recorded_relays(round_dir, items)
+    recorded_relay_checks: list[dict] = []
+    stale_relays_by_group: dict[str, list[str]] = {}  # group -> recorded relays of its reports that differ from the current parse
     channels: dict[str, object] = {}
     delivered: dict[str, object] = {}  # file stem -> AgentMessage delivered to the router for the genuine reply
     baseline: dict[str, list[dict]] = {}  # file stem -> every finding of the genuine receipt (full messages)
@@ -495,18 +654,13 @@ def run_round(round_dir: Path) -> dict:
         tr = translations.get(sp.stem)
         verify_fn = make_verify_fn(sp.stem, pass_kind == "genuine")
         ch.verify_claim_fn = verify_fn
-        # A delivered report recorded by relay_peer.py (the payload the peer-dependent agent actually read) is what the
-        # genuine pass delivers for that task, so the forward measured here is byte-identical to the recorded one.
-        recorded_payload = None
-        for other in items:
-            if other.get("peer_of") == task_id:
-                rel_path = round_dir / "relayed" / f"{other['task_id']}.json"
-                if rel_path.exists():
-                    rel = json.loads(rel_path.read_text())
-                    if rel.get("delivered") and rel.get("payload"):
-                        recorded_payload = rel["payload"]
+        # The genuine pass always parses the raw text with the current code. A relay relay_peer.py recorded for a task
+        # that depends on this one is compared with that parse after delivery (recorded_relay_checks); its payload is
+        # never delivered in place of the reply, and only its original_response is used, as the dependent's document.
+        recorded_here = [(dep, rel) for dep, rel in recorded_relays.items() if rel["peer_of"] == task_id]
+        recorded_doc = recorded_relays[task_id]["payload"].get("original_response") if task_id in recorded_relays else None
         if pass_kind == "genuine":
-            peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name)
+            peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name, recorded_doc)
             if peer_rec is not None:
                 records.append(peer_rec)
                 if peer_text is None:
@@ -545,23 +699,31 @@ def run_round(round_dir: Path) -> dict:
                     preply, _ = hub.receive(hub_key, pm_.message_id, SpecialistReport.model_validate(peer_payload.payload) if peer_payload is not None else peer_item["response_text"],
                                             agent_id=peer_item["agent_id"], report_id=f"rep-{peer_item['task_id']}-0")
                     vch.verify_claim_fn = verify_fn
-                    _r, ptext, _m = relay_from_peer(vch, items, item, {peer_item["_path"].stem: preply} if preply is not None else {}, sp.name)
+                    _r, ptext, _m = relay_from_peer(vch, items, item, {peer_item["_path"].stem: preply} if preply is not None else {}, sp.name, recorded_doc)
                     texts = [*supplied(item), *([ptext] if ptext is not None else [])]
             rec["channel"] = hub_key
+            synthesize = False
             try:
                 m, req, rq = hub.dispatch(hub_key, agent, item["question"], texts)
                 if m is None:
                     rec.update(functional=False, error=f"request rejected: {[f.code for f in rq.findings]}")
                     records.append(rec)
                     continue
-                payload_in = SpecialistReport.model_validate(recorded_payload) if (kind == "genuine" and recorded_payload is not None) else text
-                reply, rc = hub.receive(hub_key, m.message_id, payload_in, agent_id=agent, report_id=f"rep-{task_id}-{vi}")
+                reply, rc = hub.receive(hub_key, m.message_id, text, agent_id=agent, report_id=f"rep-{task_id}-{vi}")
                 if kind == "genuine" and reply is not None:
                     delivered[sp.stem] = reply
+                if kind == "genuine" and recorded_here:
+                    checks = [{"relayed_file": rel["file"], "peer_of": task_id, "dependent_task_id": dep, **payload_differences(rel["payload"], reply.payload if reply is not None else None)}
+                              for dep, rel in recorded_here]
+                    rec["recorded_relay_checks"] = checks
+                    recorded_relay_checks.extend(checks)
+                    stale_relays_by_group.setdefault(group, []).extend(c["relayed_file"] for c in checks if not c["identical"])
                 codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings})
                 found = [finding_dict(f) for f in rc.findings] + [finding_dict(sf) for sf in rc.structural_findings]
-                rec["findings"] = [brief(finding_dict(f)) for f in rc.findings]
-                rec["subject_findings"] = [brief(finding_dict(sf)) for sf in rc.structural_findings]
+                # the genuine record keeps every message whole; a mutation record (many per task) cuts them to 300 characters
+                keep = (lambda d: d) if kind == "genuine" else brief
+                rec["findings"] = [keep(finding_dict(f)) for f in rc.findings]
+                rec["subject_findings"] = [keep(finding_dict(sf)) for sf in rc.structural_findings]
                 outcomes = [outcome_record(o) for o in rc.outcomes]
                 stale = [o["claim_id"] for o in outcomes if o["stale_fixture_refused"]]
                 internal = [o for o in rc.outcomes if o.display_status.value == "INTERNAL_ERROR" and not stale_fixture(o)] + [fc for fc in rc.formal_checks if fc.formal_status == "INTERNAL_ERROR"]
@@ -603,15 +765,18 @@ def run_round(round_dir: Path) -> dict:
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
                 if kind == "genuine" and tr:
                     rec["fixture_claim_text_sha256"] = dict(fixture_digests.get(sp.stem, {}))
-                if kind == "genuine" and reply is not None and task_id == last_in_group[group] and syntheses:
-                    synthesis = group_synthesis(items, group, syntheses, delivered, plan)
-                    if synthesis is None:
-                        raise RuntimeError("no synthesis for a delivered group")
-                    relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, synthesis)
-                    rec["synthesis"] = {"status": rr.status.value, "codes": sorted({f.code for f in rr.findings}), "delivered": relayed is not None, "findings": [{"code": f.code, "severity": f.severity, "message": f.message[:300]} for f in rr.findings]}
+                synthesize = kind == "genuine" and reply is not None and task_id == last_in_group[group] and bool(syntheses)
             except Exception as exc:  # a crash is a translator bug
                 rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
             records.append(rec)
+            if synthesize:
+                # the combinator's synthesis of the group's delivered reports: a transmission of its own, counted and judged
+                srec = synthesis_record(ch, items, item, group, syntheses, delivered)
+                if stale_relays_by_group.get(group):
+                    # the combinator wrote its synthesis against the recorded parse; a finding on a claim whose role or id
+                    # changed since is read together with the recorded relay check
+                    srec["recorded_relays_differing"] = list(stale_relays_by_group[group])
+                records.append(srec)
     total = len(records)
     functional = sum(1 for r in records if r.get("functional"))
     # Translation outcomes: the genuine pass verifies every eligible claim with a fixture exactly once, so its counts are
@@ -651,6 +816,7 @@ def run_round(round_dir: Path) -> dict:
                                                        "entailed_dependencies": ungrounded_entailed},
            "translation_outcomes_by_variant": by_variant_outcomes, "translation_outcomes_all_variants": all_variants,
            "genuine_with_errors": genuine_findings_summary(records),
+           "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "failures": [r for r in records if not r.get("functional")], "records": records}
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
@@ -660,12 +826,16 @@ def run_round(round_dir: Path) -> dict:
     lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["(none)"]
     lines += [f"- ENTAILED verdicts resting only on ungrounded premises: {ungrounded_entailed['resting_only_on_ungrounded_premises']} of {ungrounded_entailed['entailed']}",
               f"- all variants together (the same claims repeated): {all_variants}"]
-    lines += ["", "## Genuine transmissions carrying error- or warning-level findings (correct against a specialist fault, or a false finding: read the message)", ""]
+    lines += ["", "## Genuine transmissions, peer relays and combinator syntheses carrying error- or warning-level findings (correct against a specialist's or the combinator's fault, or a false finding: read the message)", ""]
     for g in out["genuine_with_errors"]:
-        lines.append(f"- {g['file']} [{g['variant']}] {g['status']}: errors {g['codes']}, warnings {g['warning_codes']}")
+        tag = f"{g['variant']} {g['synthesis_id']}" if g.get("synthesis_id") else g["variant"]
+        stale = f" (cites a report whose recorded relay {g['recorded_relays_differing']} differs from the current parse: see the recorded peer relays below)" if g.get("recorded_relays_differing") else ""
+        lines.append(f"- {g['file']} [{tag}] {g['status']}: errors {g['codes']}, warnings {g['warning_codes']}{stale}")
         lines += [f"  - {f['severity']} {f['code']} {f['claim_ids']}: {f['message']}" for f in g["findings"]]
     if not out["genuine_with_errors"]:
         lines.append("(none)")
+    lines += ["", "## Recorded peer relays (relayed/<task>.json) compared with the current parse of the peer's raw text (the genuine pass delivers the current parse; the recording is the dependent agent's document only)", ""]
+    lines += recorded_relay_lines(out["recorded_relay_checks"]) or ["(no recorded relay)"]
     lines += ["", "## Mutations: findings beyond the genuine record that do not name the injection (a consequence of the injected words, such as a word bound crossed, or a wrong receipt: read the message)", ""]
     for u in out["mutations_with_unexplained_findings"]:
         lines.append(f"- {u['file']} [{u['variant']}] {u['status']}: injected claims {u['injected_claim_ids']}")
@@ -686,5 +856,6 @@ if __name__ == "__main__":
     res = run_round(rd)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
-    print("genuine transmissions with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
+    print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
+    print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]))
     print("results written to", rd / "results.json", "and", rd / "summary.md")

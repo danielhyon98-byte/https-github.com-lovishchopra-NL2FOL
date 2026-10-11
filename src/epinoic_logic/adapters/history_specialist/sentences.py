@@ -26,14 +26,17 @@ read the same sentence:
 a digit or an opening mark); ``split_clauses`` is the arithmetic extractor's reading
 (clauses after ``;`` are separate statements and the next character is unconstrained).
 ``strip_json_spans`` removes brace-balanced JSON fragments pasted into prose so their
-strings are never read as quotations.
+strings are never read as quotations; it reads every bracket's match from one linear pass
+(``markdown.bracket_match_ends``), so thousands of nested or unclosed brackets cost one read of
+the text. The JSON cuts of the splitter are memoised per text.
 """
 from __future__ import annotations
 
 import re
 from bisect import bisect_left
+from functools import lru_cache
 
-from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, find_json_spans, find_quotation_spans, is_json_block
+from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, bracket_match_ends, find_json_spans, find_quotation_spans, is_json_block  # noqa: F401
 
 __all__ = ["ABBREVIATIONS", "abbreviation_ends_at", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences", "strip_json_spans"]
 
@@ -115,18 +118,26 @@ def _json_cuts(text: str) -> tuple[str, list[tuple[int, int]]]:
     """``(masked, spans)``: ``text`` with every pasted JSON span (``markdown.find_json_spans``)
     blanked character for character, and the spans. A JSON span is one sentence of its own: no
     boundary is read inside it (its string values carry full stops), its strings are never
-    quotation marks, and the prose before and after it are cut at its edges."""
+    quotation marks, and the prose before and after it are cut at its edges. Memoised per text
+    (a bounded cache): the parser, the arithmetic reader and every core-pack check split the same
+    paragraphs, and a bracket-heavy paragraph should be scanned once, not once per reader."""
     if "{" not in text and "[" not in text:
         return text, []
+    masked, spans = _json_cuts_cached(text)
+    return masked, list(spans)
+
+
+@lru_cache(maxsize=64)
+def _json_cuts_cached(text: str) -> tuple[str, tuple[tuple[int, int], ...]]:
     spans = find_json_spans(text)
     if not spans:
-        return text, []
+        return text, ()
     chars = list(text)
     for a, b in spans:
         for i in range(a, b):
             if chars[i] not in "\n":
                 chars[i] = " "
-    return "".join(chars), spans
+    return "".join(chars), tuple(spans)
 
 
 def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bool = True) -> list[int]:
@@ -200,25 +211,44 @@ def strip_json_spans(text: str) -> tuple[str, int]:
     """Remove brace-balanced JSON fragments (``{"status": "ACCEPTED", ...}``) pasted into
     prose, so their strings are not quotations. A fragment must carry a JSON key-value pair
     (the shape of a receipt or payload); a bracket that opens no such JSON (a bracketed
-    year ``[1788]``, prose braces) is kept. Returns ``(text, number_removed)``."""
+    year ``[1788]``, prose braces) is kept. Returns ``(text, number_removed)``.
+
+    Linear in the length of ``text``: the bracket each opener's match is read from one pass
+    (``markdown.bracket_match_ends``, JSON strings honoured), and whether a key-value pair lies
+    inside a candidate span is one bisection over the key-value pairs found in one pass, so
+    thousands of nested or unclosed brackets cost one read of the text, not one read per
+    bracket. The answer is the same as a separate stack scan from every opener."""
+    if "{" not in text and "[" not in text:
+        return text, 0
+    keys = [(m.start(), m.end()) for m in JSON_KEY_RE.finditer(text)]
+    if not keys:
+        return text, 0
+    key_starts = [a for a, _b in keys]
+    ends = bracket_match_ends(text)
     out: list[str] = []
-    i, removed = 0, 0
-    n = len(text)
-    while i < n:
-        ch = text[i]
-        if ch in "{[":
-            end = _balanced_end(text, i)
-            if end is not None and JSON_KEY_RE.search(text[i:end]) and is_json_block(text[i:end]):
-                removed += 1
-                i = end
-                continue
-        out.append(ch)
-        i += 1
+    cursor, removed = 0, 0
+    for start in sorted(ends):
+        if start < cursor:
+            continue  # inside a fragment already removed
+        end = ends[start]
+        if end is None:
+            continue
+        k = bisect_left(key_starts, start)
+        if k < len(keys) and keys[k][1] <= end:
+            out.append(text[cursor:start])
+            cursor = end
+            removed += 1
+    if not removed:
+        return text, 0
+    out.append(text[cursor:])
     return "".join(out), removed
 
 
 def _balanced_end(text: str, start: int) -> "int | None":
-    """Offset just past the bracket matching ``text[start]``, skipping JSON strings; None when unbalanced."""
+    """Offset just past the bracket matching ``text[start]``, skipping JSON strings; None when
+    unbalanced. A separate stack scan from one opener, kept as the reference answer that
+    :func:`markdown.bracket_match_ends` reproduces for every opener in one pass;
+    :func:`strip_json_spans` no longer calls it, since a scan per opener is quadratic."""
     pairs = {"{": "}", "[": "]"}
     stack = [pairs[text[start]]]
     i = start + 1

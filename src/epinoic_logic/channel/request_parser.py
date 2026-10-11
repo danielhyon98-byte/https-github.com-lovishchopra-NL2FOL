@@ -10,6 +10,7 @@ be data validated here, never trusted.
 """
 from __future__ import annotations
 
+import math
 import re
 
 from .contracts import Constraint, RequestItem
@@ -108,6 +109,9 @@ def is_constraint_only(sentence: str) -> bool:
         return False
     return not _asks_for_content(*_residual(sentence))
 _MAX_Q = ("no more than", "at most", "maximum of", "max", "maximum", "up to", "under", "within")
+#: "about / around / approximately N words": a length on both sides, within 10 per cent of N (the first constraint the
+#: minimum, the second the maximum, as for "between A and B words").
+_ABOUT_Q = ("about", "around", "approximately")
 _MIN_Q = ("at least", "minimum of", "min", "minimum")
 
 
@@ -132,7 +136,10 @@ def extract_constraints(text: str) -> list[Constraint]:
         elif q == "exactly":
             add("min_words", m.group("n"), m.group(0))
             add("max_words", m.group("n"), m.group(0))
-        else:  # "in 350 words", "about 350 words": treated as a soft maximum with 10% tolerance
+        elif q in _ABOUT_Q:  # "about 250 words": bounded on both sides, 10% either way (225 to 275)
+            add("min_words", str(math.ceil(int(m.group("n")) * 0.9)), m.group(0))
+            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0))
+        else:  # "in 350 words": a soft maximum with 10% tolerance
             add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0))
     for m in _PARA_RE.finditer(text):
         raw = m.group("n").lower()

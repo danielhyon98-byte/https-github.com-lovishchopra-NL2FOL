@@ -19,8 +19,14 @@ that the hub correctly rejects (the r1-adv empty response) is reported as a fail
 re-labelled. A response carrying an injected fault must show the expected finding, and since
 round 4 that finding must name the injection: a finding of the expected code that names an
 injected claim or quotes the injected words, and that the genuine record of the same task does
-not already carry. Translation outcomes depend on the translation provider and are reported
-separately from the infrastructure rate.
+not already carry. Since round 5 the combinator's synthesis of each task (one synthesis per peer
+group, citing every delivered report) is a transmission of its own, counted in the rate under the
+same conservative rule: a synthesis of the delivered reports must be delivered (REJECTED is a
+failure, never re-labelled) and no check on it may fail internally. Its errors and warnings are
+listed with the genuine ones. A re-run parses every raw answer with the code as it stands; a
+peer relay recorded by an earlier run is compared with that parse, not delivered in its place.
+Translation outcomes depend on the translation provider and are reported separately from the
+infrastructure rate.
 
 ## Round 1 (four tasks: two English analytical paragraphs on a supplied extract, two History responses)
 
@@ -350,3 +356,64 @@ no claim ids and quotes only the first 160 characters of the block, so nothing o
 which statement is false. The packs and the channel need to quote the clause the check was built
 from and carry the claim ids; that change is outside the harness and is handed to their owner. The
 empty response is still the third failure.
+
+## Round 5 (six fresh tasks, including an English-to-History peer exchange)
+
+Fresh outputs from the isolated agents: English paragraphs on Carroll's 'Jabberwocky' (direct
+speech and invented words) and on lines 1-32 of Marvell's 'To His Coy Mistress' (hyperbole and the
+turn at 'But at my back'), History answers on Stalin's Five-Year Plans (one body paragraph, to what
+extent, 1928-1941) and on the growth of Britain's railway network from 1830 to 1870 (dated and
+quantified, with a judgement on the most decisive decade), and a peer exchange. In that exchange
+the English specialist's paragraph on Hardy's 'The Man He Killed' (1902) was relayed through the
+hub to the History specialist as the document peer:en-p4, and the History specialist outlined the
+Second Boer War context for it.
+
+| Measure | Value |
+| --- | --- |
+| Harness, genuine outputs, 6 mutations each and the peer relay (r5), as run for the overseers | 41 / 41 functional (100%) |
+| Round-5 overseer verdicts (results-audit / communication-fidelity / adversarial-live), on the round-4 fixes | 0.366 / 0.617 / 0.79 (round 4: 0.387 / 0.575 / 0.89); 45 findings (0 blockers, 27 majors, 18 minors); the three overseers confirmed 13, 12 and 16 earlier findings fixed |
+
+The results audit and the adversarial overseer each found a way the harness itself hid what the
+hub did. What the harness fix changed (`scripts/arena/run_arena.py`, regression tests in
+`scripts/arena/test_arena_rules.py`):
+
+- **The combinator's synthesis is a transmission of its own.** It had been kept inside the
+  genuine record of the group's last task: not counted, not judged, and absent from
+  `genuine_with_errors` and summary.md. Its findings were also kept without claim ids and cut to
+  300 characters. So the r5 summary did not show the warnings the overseers judged false on the
+  hi-p4 and hi-t10 syntheses. Each synthesis relay is now a record of variant `synthesis`,
+  counted in the rate and in `by_variant`. It is functional when the hub returned a receipt
+  without raising, the synthesis was delivered, and no check on it failed internally
+  (INT-SYNTH-013, or a joint check left undecided with INTERNAL_ERROR). A round with syntheses
+  but none for a delivered group records that group's synthesis as a failure. The genuine record
+  of the last task no longer fails in that case. Every error and warning of a synthesis is listed
+  in `genuine_with_errors` and summary.md with its claim ids and full message. The genuine and
+  peer-relay records now keep full messages too; mutation records still cut theirs to 300
+  characters.
+- **A re-run parses every raw answer with the current code.** For a peer group's source task, the
+  genuine pass used to deliver the payload `relay_peer.py` had recorded, so a re-run showed
+  whatever parser had run the relay. On the r4 re-run, hi-p3's genuine record and en-p3's forward
+  still carried INT-HANDOFF-006 on the from-memory sentence h1.1, which the round-4 parser fix had
+  removed. The genuine pass now delivers the current parse of `response_text`. The recording is
+  used only for the document the dependent agent read (`peer:<task>`, its `original_response`).
+  Each recorded relay is compared with the current parse (`recorded_relay_checks`, in the source
+  task's genuine record, results.json and summary.md). The comparison gives the payload fields and
+  the claims that differ, with both values, and ignores `created_at`. A synthesis whose group has
+  a differing recording names it (`recorded_relays_differing`), because the combinator wrote that
+  synthesis against the recorded claims.
+
+The recorded rounds before and after the harness fix, on the code as it stood during the round-5
+fix round (package fixes were landing at the same time; the figures before the fix round began
+were r1 26 / 26, r1-adv 148 / 151, r2 to r4 41 / 41):
+
+| Set | Before the harness fix | After |
+| --- | --- | --- |
+| r5 | 41 / 41 | 46 / 46: the 5 syntheses are counted, all delivered. The recorded relay of en-p4 equals the current parse |
+| r4 | 41 / 41 | 46 / 46. The recorded relay of hi-p3 differs from the current parse: h1.1's self-report status, h1.8's role, materiality and supports, and `unresolved_issues`. hi-p3's genuine record and en-p3's forward no longer carry the stale INT-HANDOFF-006. The group synthesis now carries INT-LEDGER-002 on h1.8, which the current parse makes a material link the recorded synthesis does not account for; its record names the differing relay |
+| r3 | 41 / 41 | 46 / 46. The recorded relay of en-p2 equals the current parse |
+| r2 | 41 / 41 | 46 / 46. The recorded relay of hi-p1 differs: h1.2's certainty (established, now probable) and the wording of its assumption. The group synthesis names the differing relay |
+| r1 | 26 / 26 | 30 / 30: the 4 syntheses are counted |
+| r1-adv | 150 / 151 | 150 / 151: no syntheses; the one failure is still the empty response, which the hub REJECTS with INT-REQ-009 |
+
+Apart from those two r4 records, every genuine, peer-relay and mutation record kept the same
+status and findings, and every synthesis kept the same status and codes.

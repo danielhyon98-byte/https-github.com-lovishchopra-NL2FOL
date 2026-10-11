@@ -58,6 +58,7 @@ __all__ = [
     "ExcerptCheck", "ExcerptStatus", "FOUND_STATUSES", "check_excerpt", "strip_trailing_punctuation", "word_count",
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
+    "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -317,6 +318,152 @@ def governing_document(sentence: str, excerpt: str, named: Sequence[str], docs: 
     return found[0][2], "it is the first text the sentence names"
 
 
+# ------------------------------------------------------------------ who a quotation is credited to (credit, not location)
+
+#: Verbs that credit the words after them to their subject: "Hardy's speaker admits that ...", "The poem says ...", "The
+#: English specialist argues that ...". Wider than the reporting verbs above (a speaker admits, confesses, declares, asks).
+_CREDIT_VERBS = (r"(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claims?|claimed|suggests?|suggested|describes?|described|calls?|called|"
+                 r"observes?|observed|states?|stated|contends?|contended|reports?|reported|explains?|explained|remarks?|remarked|insists?|insisted|"
+                 r"maintains?|maintained|admits?|admitted|confess(?:es|ed)?|declares?|declared|tells?|told|asks?|asked|answers?|answered|concedes?|"
+                 r"conceded|complains?|complained|recalls?|recalled|reflects?|reflected|wonders?|wondered|thinks?|thought|puts? it|points? out|adds?|added|"
+                 r"concludes?|concluded|identifies|identified|reads?|speaks? of|spoke of|refers? to|referred to|mentions?|mentioned|quotes?|quoted|cites?|"
+                 r"cited|presents?|presented|depicts?|depicted|portrays?|portrayed|labels?|labelled|labeled|terms?|termed|dubs?|dubbed|recounts?|recounted|"
+                 r"reveals?|revealed|confirms?|confirmed|acknowledges?|acknowledged|exclaims?|exclaimed|protests?|protested|replies|replied|announces?|announced|"
+                 r"dates?|dated|counts?|counted|gives?|gave|records?|recorded|estimates?|estimated|places?|placed|puts?|sees?|saw|treats?|treated|"
+                 r"interprets?|interpreted|attributes?|attributed|traces?|traced|finds?|found|judges?|judged|holds?|held)")
+#: Nouns a possessive may govern before the verb: "Hardy's speaker admits", "the English specialist's paragraph identifies".
+_CREDIT_NOUNS = (r"(?:speaker|narrator|persona|poem|poet|line|lines|words?|phrase|phrasing|text|voice|monologue|paragraph|reading|account|verse|"
+                 r"stanza|soldier|man|character|report|analysis|essay|view|argument|claim|note|sonnet|novel|play|story)")
+_CREDIT_ADVERBS = r"(?:himself|herself|itself|themselves|also|then|even|openly|plainly|bluntly|simply|directly|explicitly|rightly|famously|later|here|still)"
+#: The words between a credited name and its quotation: a bare possessive ("Hardy's '...'"), or an optional possessive
+#: noun, adverbs and a crediting verb, then the rest of the clause.
+_CREDIT_GAP_RE = re.compile(
+    r"^(?:['’]s?\s*[,:]?\s*$"
+    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b)",
+    re.IGNORECASE)
+#: Where a clause ends, so a verb never credits a quotation of the next clause ("Hardy's speaker calls the war 'quaint',
+#: and the casualness 'exposes ...'": the second quotation is not the speaker's).
+_CREDIT_CLAUSE_END_RE = re.compile(r"[;!?]|\.\s|:\s|,\s+(?:and|but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
+#: A text named by kind rather than by name: "the poem", "the poet", "the speaker".
+_GENERIC_LITERARY_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story)\b", re.IGNORECASE)
+_LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Credit:
+    """Who a quotation is credited to: ``document_id`` (None for a text named by kind, "the poem", when no one literary
+    text is known), the ``phrase`` of the sentence that names it, and whether it is a text named by kind."""
+    document_id: Optional[str]
+    phrase: str
+    generic: bool = False
+
+
+def is_peer_text(doc: SuppliedText) -> bool:
+    """A relayed specialist's report supplied as a document ('peer:<task>', or an author '<subject>-specialist')."""
+    author = (doc.author or "").strip().lower()
+    return doc.document_id.startswith("peer:") or author.endswith("-specialist") or author.endswith(" specialist")
+
+
+def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, SuppliedText], *, other_sources: Sequence[str] = ()) -> Optional[Credit]:
+    """The source ``sentence`` credits with the quotation that opens at ``quote_start``: the nearest text named before
+    it (by author, surname, title or specialist name, or by kind: "the poem", "the speaker") whose name is followed by a
+    possessive that governs the quotation ("Hardy's '...'") or by a crediting verb, through a possessive noun and adverbs
+    ("Hardy's speaker himself admits that ...", "The poem says that ...", "The English specialist argues that ..."), with
+    no clause boundary between the verb and the quotation; or a text after "according to". None when the sentence
+    credits the quotation to no text. Names inside quotations are not read. A text named by kind is the one non-peer
+    text of ``docs`` when there is exactly one, else a credit with no document. ``other_sources`` are further names
+    (an author a colleague's report discusses, "Hardy") that credit a text not among ``docs``: a credit with no document."""
+    from .markdown import find_quotation_spans
+    spans = [(a, b) for a, b, _inner in find_quotation_spans(sentence)]
+
+    def quoted(pos: int) -> bool:
+        return any(a <= pos < b for a, b in spans)
+
+    mentions: list[tuple[int, int, Optional[str], bool]] = []
+    for doc_id, doc in docs.items():
+        mentions += [(a, b, doc_id, False) for a, b in _mentions(sentence, doc) if not quoted(a)]
+    for name in other_sources:
+        if len(name) >= 3:
+            mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
+    literary = sorted({d for d, t in docs.items() if not is_peer_text(t)})
+    for m in _GENERIC_LITERARY_RE.finditer(sentence):
+        if not quoted(m.start()):
+            mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
+    before = sorted((m for m in mentions if m[1] <= quote_start), key=lambda m: (m[1], m[0]), reverse=True)
+    credits: list[tuple[Credit, bool]] = []  # nearest first; True when the verb opens a reported clause ("argues that")
+    for a, b, doc_id, generic in before:
+        gap = sentence[b:quote_start]
+        if _LEADING_CREDIT_RE.search(sentence[:a]) and re.fullmatch(r"\s*,?\s*", gap):
+            credits.append((Credit(doc_id, sentence[a:b], generic), False))
+            continue
+        m = _CREDIT_GAP_RE.match(gap)
+        if m is None or _CREDIT_CLAUSE_END_RE.search(gap[m.end():]):
+            continue
+        credits.append((Credit(doc_id, sentence[a:b + m.end()].strip(), generic), bool(re.match(r"\s+that\b", gap[m.end():], re.IGNORECASE))))
+    if not credits:
+        return None
+    # A reporting clause credits its OUTER speaker: in "The English specialist argues that Blake presents ... '...'" the
+    # words are the English specialist's report, not Blake's. The nearest speaker whose verb opens a reported clause wins.
+    reporting = [c for c, opens_report in credits if opens_report]
+    return reporting[0] if reporting else credits[0][0]
+
+
+def peer_prose_span(excerpt: str, doc: SuppliedText) -> bool:
+    """True when ``excerpt`` is located in the peer report ``doc`` in its own prose, outside the quotations the peer
+    itself makes (the colleague's own words, not a text the colleague quoted)."""
+    from .markdown import find_quotation_spans
+    match = locate_quotation(excerpt, doc.text, document_id=doc.document_id) or locate_quotation(strip_trailing_punctuation(excerpt), doc.text, document_id=doc.document_id)
+    if match is None:
+        inexact = locate_quotation_inexact(strip_trailing_punctuation(excerpt), doc.text, document_id=doc.document_id)
+        if inexact is None:
+            return False
+        match = inexact[0]
+    return not any(a <= match.start and match.end <= b for a, b, _inner in find_quotation_spans(doc.text))
+
+
+def credited_agents(text: str, agent_ids: Sequence[str]) -> list[str]:
+    """The agents ``text`` credits with a view: a specialist named (as "the English specialist" for the agent id
+    "english-specialist") with a possessive or as the subject of a crediting verb, outside quotations."""
+    from .markdown import find_quotation_spans
+    masked = text
+    for a, b, _inner in reversed(find_quotation_spans(text)):
+        masked = masked[:a] + " " * (b - a) + masked[b:]
+    out: list[str] = []
+    for agent in agent_ids:
+        doc = SuppliedText(document_id=f"agent:{agent}", title=None, author=agent, text=" ")
+        for _a, b in _mentions(masked, doc):
+            rest = masked[b:b + 200]
+            if re.match(r"['’]s?\b", rest) or re.match(r"\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b", rest, re.IGNORECASE):
+                out.append(agent)
+                break
+    return out
+
+
+#: A capitalised name a colleague's report uses as a possessive ("Hardy's dramatic monologue"): the author it discusses.
+_DISCUSSED_AUTHOR_RE = re.compile(r"(?<![\w'’])([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)['’]s\b")
+_NOT_AN_AUTHOR = frozenset("The This That These Those Its His Her Their Our History English Economics Psychology Business".split())
+
+
+def _credit_to_unsupplied(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText], located: Sequence[str]) -> Optional[str]:
+    """The assumption a parser records when ``sentence`` credits a quotation to a source that is not a supplied text (an
+    author the colleague's report discusses, "Hardy's speaker admits that ...", or a text named by kind, "The poem says")
+    while its words were located only in a relayed colleague's report, in the colleague's own prose: the credit is
+    wrong (``CORE-SRC-005`` / the channel's ``INT-REQ-015``). None when the sentence credits the colleague or nothing."""
+    from .markdown import find_quotation_spans
+    key = excerpt.strip().casefold()[:40]
+    span = next((s for s in find_quotation_spans(sentence) if key and key in s[2].casefold()), None)
+    if span is None:
+        return None
+    discussed = sorted({m.group(1) for d in located for m in _DISCUSSED_AUTHOR_RE.finditer(docs[d].text) if m.group(1).split()[0] not in _NOT_AN_AUTHOR})
+    credit = quotation_credit(sentence, span[0], docs, other_sources=discussed)
+    if credit is None or (credit.document_id is not None and is_peer_text(docs[credit.document_id])):
+        return None
+    if not any(peer_prose_span(excerpt, docs[d]) for d in located):
+        return None
+    return (f"the sentence credits this quotation to {credit.phrase!r}, which is not a supplied text, but the words were located only in "
+            f"{', '.join(located)}, in the colleague's own prose (a colleague's words credited to the source)")
+
+
 def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, SuppliedText], *,
                       text_under_analysis: Optional[str] = None, sentence: Optional[str] = None) -> tuple[Optional[str], list[str]]:
     """``(document_id, assumptions)`` for one quotation of a sentence that names the supplied
@@ -353,6 +500,10 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
             return named[0], []
         if len(named) == 1:
             return located[0], [f"the sentence attributes this quotation to {named[0]} but the words were located only in {', '.join(located)}"]
+        if sentence and not named and all(is_peer_text(docs[d]) for d in located):
+            note = _credit_to_unsupplied(sentence, excerpt, docs, located)
+            if note:
+                return located[0], [note]
         return located[0], []
     if len(named) == 1:
         return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]

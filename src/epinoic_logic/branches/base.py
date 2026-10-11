@@ -19,12 +19,16 @@ from ..translate.subjects import SubjectProfile, resolve_profile
 
 @dataclass(frozen=True)
 class FormalCheck:
-    """A problem the engine should decide about the report itself (no model involved)."""
+    """A problem the engine should decide about the report itself (no model involved).
+    ``claim_ids`` names the delivered claims whose text holds the statement the check was built
+    from, so a finding about the check (INT-SUBJ-001 / INT-SUBJ-002) can name the claim the router
+    holds; the description names them too."""
     check_id: str
     kind: str
     description: str
     problem: Problem
     expected_if_sound: str = "ENTAILED"
+    claim_ids: tuple[str, ...] = ()
 
 
 @runtime_checkable

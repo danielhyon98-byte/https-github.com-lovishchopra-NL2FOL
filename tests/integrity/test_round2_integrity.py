@@ -75,7 +75,9 @@ def test_a_source_figure_dropped_under_an_equivalence_label_is_a_warning(transfo
 
 def test_figure_tokens_cover_numerals_thousands_and_month_years_only():
     assert figure_tokens("Some 9,000 banks failed between 1930 and 1933; prices fell 25.5 per cent in January 1931.") == {"9000", "1930", "1933", "25.5", "1931", "january 1931"}
-    assert figure_tokens("1. The 1930s were hard; the 19th century ended.") == set()
+    # Rewritten in round 5 (an overseer reversed the rule this line pinned): a decade is a date of its own, read as the one
+    # token "1930s" (never the year 1930, never dropped); the list marker "1." and the ordinal "19th" are still no figures.
+    assert figure_tokens("1. The 1930s were hard; the 19th century ended.") == {"1930s"}
 
 
 # ------------------------------------------------------------ conflict disclosure

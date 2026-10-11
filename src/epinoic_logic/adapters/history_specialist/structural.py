@@ -132,9 +132,16 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
             # The same extractor decides the core pack's formal chronology check, so the proxy and the engine agree.
             for rel in chronology_relations(s, para):
                 if rel.violated:
-                    f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message=f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}" + (f" ({rel.reason})" if rel.reason else ""), claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
+                    if rel.kind == "order":
+                        what = f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}"
+                    elif rel.kind in ("within", "overlaps"):
+                        what = f"a sentence places a dated event within a dated period ('{rel.cue}'), but the dates it gives do not agree: {rel.later_text} does not fall within {rel.earlier_text}"
+                    else:
+                        what = f"a sentence places a date at a point of a dated period ('{rel.cue}'), but the years differ: {rel.statement} does not hold"
+                    f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message=what + (f" ({rel.reason})" if rel.reason else ""), claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
 
-    words = len(re.findall(r"\b[\w'’-]+\b", " ".join(para for _, _, para in prose)))
+    from ...channel.request_parser import count_words  # local: the channel package imports the branches, which import this module lazily
+    words = count_words(" ".join(para for _, _, para in prose))  # the channel's word: '1.9', '100,000' and '63.2%' are one word each
     if multi and report.task_type == "essay" and not (800 <= words <= 1100):
         f.append(StructuralFinding(code="HI-STR-004", severity="info", message=f"essay length {words} words is outside the pack's exam-length guide (800-1,000 for Paper 2)", rule_source=_RULE.format("structures.md P15")))
     return f

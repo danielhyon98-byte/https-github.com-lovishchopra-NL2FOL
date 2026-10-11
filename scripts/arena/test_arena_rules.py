@@ -7,11 +7,17 @@ Round-4 results audit: a mutation counted as functional whenever the expected co
 the receipt, so hi-p3's own CORE-SRC-003 for 'smokeless air' would have passed its three quotation
 mutations even if the injected quotation had not been named; findings beyond the genuine record were
 never reported; the genuine section listed error codes only, without claim ids, messages or warnings.
+
+Round-5 audits: the combinator's synthesis relay was kept inside the genuine record (not counted, not judged, findings
+without claim ids and cut to 300 characters, absent from genuine_with_errors and summary.md); and a re-run delivered the
+payload relay_peer.py had recorded for a peer group's source task instead of parsing its raw text with the current code,
+so a re-run's receipts showed the old parser's output (r4: INT-HANDOFF-006 on hi-p3's h1.1 after the parser fix).
 """
 from __future__ import annotations
 
 import json
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -153,3 +159,129 @@ def test_round_records_name_the_injection_and_report_the_rest(tmp_path):
     summary = (tmp_path / "summary.md").read_text()
     assert "warning CORE-SRC-003" in summary and "smokeless air" in summary
     assert "## Mutations: findings beyond the genuine record" in summary
+
+
+# --- round 5: the combinator's synthesis is a transmission of its own ----------------------------------------------
+
+SYNTH_REASON = "The link to the sonnet is left to the English specialist, who reads the poem itself; " * 5  # > 300 characters
+HISTORY_SYNTHESIS = {"report_id": f"rep-{TASK}-0",
+                     "claims": [{"text": "London in 1802 was the largest city in Europe, with close to a million inhabitants at the census of 1801.", "source_claim_ids": ["h1.1"], "transformation": "carried"},
+                                {"text": "The Peace of Amiens, signed in March 1802, briefly ended the war with France.", "source_claim_ids": ["h1.4"], "transformation": "carried"}],
+                     "dropped": [{"source_claim_ids": ["h1.3"], "reason": SYNTH_REASON}]}
+
+
+def test_synthesis_is_a_counted_record_with_claim_ids_and_full_messages(tmp_path):
+    """r5 results audit: the synthesis relay was a dict inside the genuine record, uncounted and unjudged, its findings
+    without claim ids and cut to 300 characters, and absent from genuine_with_errors and summary.md. It is now a record of
+    variant 'synthesis', counted in the rate, and its warning (here INT-LEDGER-019 for the dropped material h1.3, whose
+    message carries a recorded reason longer than 300 characters) is listed whole, with its claim ids, in both outputs."""
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "syntheses").mkdir()
+    (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    (tmp_path / "syntheses" / f"{TASK}.json").write_text(json.dumps(HISTORY_SYNTHESIS))
+    out = ra.run_round(tmp_path)
+    syn = [r for r in out["records"] if r["variant"] == "synthesis"]
+    assert len(syn) == 1 and out["by_variant"]["synthesis"] == {"functional": 1, "total": 1}
+    assert out["transmissions"] == 1 + len(ra.MUTATIONS) + 1  # genuine, the mutations and the synthesis
+    assert not any("synthesis" in r for r in out["records"] if r["variant"] != "synthesis"), "no synthesis hidden inside another record"
+    s = syn[0]
+    assert s["functional"] and s["delivered"] and s["synthesis_id"] == f"syn-{TASK}" and s["source_report_ids"] == [f"rep-{TASK}-0"]
+    assert s["synthesis_files"] == [f"syntheses/{TASK}.json"] and "failure_reasons" not in s
+    drop = next(f for f in s["findings"] if f["code"] == "INT-LEDGER-019")
+    assert drop["claim_ids"] == ["h1.3"] and SYNTH_REASON.strip() in drop["message"] and len(drop["message"]) > 300
+    g = next(x for x in out["genuine_with_errors"] if x["variant"] == "synthesis")
+    assert g["synthesis_id"] == f"syn-{TASK}" and "INT-LEDGER-019" in g["warning_codes"] and drop in g["findings"]
+    summary = (tmp_path / "summary.md").read_text()
+    assert f"- {TASK}.json [synthesis syn-{TASK}] ACCEPTED_WITH_FINDINGS" in summary
+    assert f"  - warning INT-LEDGER-019 ['h1.3']: {drop['message']}" in summary
+    assert "| synthesis | 1 | 1 |" in summary
+
+
+def test_synthesis_failure_reasons():
+    """A synthesis of the delivered reports is genuine traffic: REJECTED (not delivered) is a failure, as is a check that
+    failed internally; findings against the combinator's content are not."""
+    ok = [_f("INT-LEDGER-019", ["h1.3"], "MATERIAL source claims ['h1.3'] were dropped", "warning")]
+    assert ra.synthesis_failure_reasons("ACCEPTED_WITH_FINDINGS", True, ok) == []
+    assert ra.synthesis_failure_reasons("ACCEPTED_WITH_FINDINGS", True, [_f("INT-LEDGER-002", ["h1.8"], "material source claim is neither carried, transformed nor recorded as dropped")]) == []
+    assert "REJECTED" in ra.synthesis_failure_reasons("REJECTED", False, [_f("INT-HANDOFF-002", [], "synthesis names combinator 'x', which the plan did not select")])[0]
+    assert ra.synthesis_failure_reasons("ACCEPTED_WITH_FINDINGS", True, [_f("INT-SYNTH-013", ["s0"], "formalization of synthesized claim s0 failed internally (KeyError)", "warning")])
+    assert ra.synthesis_failure_reasons("ACCEPTED_WITH_FINDINGS", True, [_f("INT-CONFLICT-002", ["s0"], "joint check could not be decided (INTERNAL_ERROR): E900", "warning")])
+    assert ra.synthesis_failure_reasons("ACCEPTED", True, [], internal_checks=1)
+
+
+def test_missing_synthesis_for_a_delivered_group_is_a_failed_synthesis_record():
+    """A round that carries syntheses but none for a delivered group: the group's synthesis record fails (the genuine
+    record of the last task no longer does), and nothing raises."""
+    items = [{**HISTORY_ITEM, "_path": Path("specialists") / f"{TASK}.json"}]
+    ch = types.SimpleNamespace(plan=ra.group_plan(items, TASK))
+    rec = ra.synthesis_record(ch, items, items[0], TASK, {"hi-other": HISTORY_SYNTHESIS}, {TASK: object()})
+    assert rec["variant"] == "synthesis" and rec["functional"] is False and "no synthesis for the delivered group" in rec["error"]
+
+
+# --- round 5: a recorded peer relay is compared with the current parse, never delivered in its place ----------------
+
+def test_payload_differences_ignores_created_at_and_names_every_change():
+    base = {"report_id": "rep-a-0", "created_at": "2026-10-01T00:00:00Z", "unresolved_issues": [],
+            "claims": [{"claim_id": "h1.1", "claim_role": "point", "materiality": "material"}, {"claim_id": "h1.2", "claim_role": "evidence", "materiality": "supporting"}]}
+    same = {**base, "created_at": "2026-10-11T00:00:00Z"}
+    assert ra.payload_differences(base, same)["identical"] is True
+    cur = {**base, "unresolved_issues": ["x"], "claims": [{"claim_id": "h1.2", "claim_role": "link", "materiality": "material"}, {"claim_id": "h1.1", "claim_role": "point", "materiality": "material"},
+                                                            {"claim_id": "h1.3", "claim_role": "evidence", "materiality": "supporting"}]}
+    d = ra.payload_differences(base, cur)
+    assert d["identical"] is False and d["fields"] == ["unresolved_issues"] and d["claims_only_current"] == ["h1.3"] and d["claims_only_recorded"] == []
+    assert d["claims_changed"] == {"h1.2": {"claim_role": {"recorded": "evidence", "current": "link"}, "materiality": {"recorded": "supporting", "current": "material"}}}
+    assert d["claim_order_changed"] is True
+    gone = ra.payload_differences(base, None)
+    assert gone["identical"] is False and gone["current_delivered"] is False and gone["claims_only_recorded"] == ["h1.1", "h1.2"]
+
+
+ENGLISH_PEER_ITEM = {
+    "task_id": "en-y1", "subject": "English A: Literature", "agent_id": "english-specialist", "task_type": "analytical_paragraph", "group": "y1", "peer_of": "hi-y1",
+    "question": "Write one analytical paragraph of no more than 200 words: how does the History specialist's context change a reading of the "
+                "sonnet's 'smokeless air'? Quote the relayed report exactly.",
+    "supplied_texts": [],
+    "response_text": "The History specialist's report says that \"Coal smoke from homes and workshops hung over the city for much of the year.\" "
+                     "Read against that, the calm of the sonnet is an exception rather than the rule, so its praise records a moment of seeing the city differently.",
+}
+
+
+def test_recorded_relay_is_compared_with_the_current_parse_not_delivered(tmp_path):
+    """r5 adversarial-live: a re-run delivered the payload relay_peer.py had recorded for the peer group's source task, so
+    its receipts showed whatever parser ran the relay (r4: INT-HANDOFF-006 on hi-p3's from-memory h1.1 after the fix that
+    removed it). Here the recording is made to look like an older parse (h1.1 carries a self-report status). The genuine
+    pass must deliver the current parse of the raw text (no INT-HANDOFF-006 on h1.1 on the genuine record or the forward),
+    use the recording only for the peer document, and report the difference in results.json and summary.md; the group's
+    synthesis record names the differing relay."""
+    hi = {**HISTORY_ITEM, "task_id": "hi-y1", "group": "y1"}
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "syntheses").mkdir()
+    (tmp_path / "specialists" / "hi-y1.json").write_text(json.dumps(hi))
+    (tmp_path / "specialists" / "en-y1.json").write_text(json.dumps(ENGLISH_PEER_ITEM))
+    (tmp_path / "syntheses" / "hi-y1.json").write_text(json.dumps({**HISTORY_SYNTHESIS, "report_id": "rep-hi-y1-0", "dropped": [{"source_claim_ids": ["h1.3"], "reason": "the sonnet is the English specialist's"}]}))
+    (tmp_path / "syntheses" / "en-y1.json").write_text(json.dumps({"report_id": "rep-en-y1-0", "claims": [
+        {"text": "Read against that, the calm of the sonnet is an exception rather than the rule, so its praise records a moment of seeing the city differently.", "source_claim_ids": ["p1-s02"], "transformation": "carried"}]}))
+    ra.relay_peer(tmp_path, "en-y1")
+    rel_path = tmp_path / "relayed" / "en-y1.json"
+    rel = json.loads(rel_path.read_text())
+    h11 = next(c for c in rel["payload"]["claims"] if c["claim_id"] == "h1.1")
+    assert h11.get("advisory_verification_status") is None, "the current parser records no self-report on h1.1"
+    h11["advisory_verification_status"] = "verified"  # what an older parser recorded
+    rel_path.write_text(json.dumps(rel))
+
+    out = ra.run_round(tmp_path)
+    recs = {(r["file"], r["variant"]): r for r in out["records"]}
+    genuine, forward = recs[("hi-y1.json", "genuine")], recs[("en-y1.json", "peer_relay")]
+    for r in (genuine, forward):
+        assert not [f for f in r["findings"] if f["code"] == "INT-HANDOFF-006" and "h1.1" in f["claim_ids"]], r["findings"]
+    assert forward["functional"] and forward["document_source"] == "recorded relay payload" and forward["document_matches_forward"] is True
+    check = genuine["recorded_relay_checks"]
+    assert check == out["recorded_relay_checks"] and len(check) == 1
+    assert check[0]["relayed_file"] == "relayed/en-y1.json" and check[0]["peer_of"] == "hi-y1" and check[0]["dependent_task_id"] == "en-y1"
+    assert check[0]["identical"] is False and check[0]["fields"] == []
+    assert check[0]["claims_changed"] == {"h1.1": {"advisory_verification_status": {"recorded": "verified", "current": None}}}
+    syn = recs[("en-y1.json", "synthesis")]
+    assert syn["functional"] and syn["source_report_ids"] == ["rep-hi-y1-0", "rep-en-y1-0"] and syn["recorded_relays_differing"] == ["relayed/en-y1.json"]
+    assert out["by_variant"]["synthesis"] == {"functional": 1, "total": 1}
+    summary = (tmp_path / "summary.md").read_text()
+    assert "- relayed/en-y1.json (hi-y1 relayed to en-y1): DIFFERS from the current parse" in summary
+    assert '  - h1.1 advisory_verification_status: recorded "verified" -> current null' in summary

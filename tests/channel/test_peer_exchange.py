@@ -161,10 +161,10 @@ def test_paragraph_bound_overrun_is_a_layout_warning_but_a_word_bound_overrun_is
 # ------------------------------------------------------- ledger scope on revision
 
 
-def _synthesis_citing(report_ids: list[str], claims: list[tuple[str, str, list[str]]]) -> "Synthesis":
+def _synthesis_citing(report_ids: list[str], claims: list[tuple[str, str, list[str]]], synthesis_id: str = "syn-1") -> "Synthesis":
     from epinoic_logic.integrity import Synthesis, SynthesizedClaim
     text = " ".join(t for _, t, _ in claims)
-    return Synthesis(synthesis_id="syn-1", request_id="req-p", task_id=TASK, combinator_agent_id="dummy-combinator", source_report_ids=report_ids,
+    return Synthesis(synthesis_id=synthesis_id, request_id="req-p", task_id=TASK, combinator_agent_id="dummy-combinator", source_report_ids=report_ids,
                      claims=[SynthesizedClaim(claim_id=cid, text=t, certainty="probable", source_claim_ids=src, transformation="paraphrased") for cid, t, src in claims],
                      ledger=[], text=text, text_sha256=sha256_text(text), created_at="2026-10-11T12:00:00Z")
 
@@ -184,7 +184,11 @@ def test_synthesis_accounts_for_the_agents_current_report_not_the_superseded_one
     codes = {f.code for f in rr.findings}
     assert relayed is not None and not codes & {"INT-LEDGER-014", "INT-LEDGER-002", "INT-LEDGER-008"}, [f.message for f in rr.findings]
     # citing the superseded report alongside the current one mixes two versions of the same claim ids
-    mixed = _synthesis_citing(["rep-hi-1", "rep-hi-2"], [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(reply2.payload["claims"]) if c["claim_id"] in material])
+    # (round 5: a different synthesis needs its own synthesis id; the same id with other content is refused, INT-HANDOFF-015)
+    mixed_claims = [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(reply2.payload["claims"]) if c["claim_id"] in material]
+    reused, rr_reused = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, _synthesis_citing(["rep-hi-1", "rep-hi-2"], mixed_claims))
+    assert reused is None and any(f.code == "INT-HANDOFF-015" and "syn-1" in f.message for f in rr_reused.findings)
+    mixed = _synthesis_citing(["rep-hi-1", "rep-hi-2"], mixed_claims, synthesis_id="syn-2")
     _, rr2 = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, mixed)
     assert any(f.code == "INT-LEDGER-014" for f in rr2.findings)
 

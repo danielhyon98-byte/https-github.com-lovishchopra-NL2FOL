@@ -90,6 +90,9 @@ class ConstraintResult(BaseModel):
     detail: str = Field(max_length=2000)
     formal_result_id: Optional[str] = None
     formal_status: Optional[str] = None
+    claim_ids: list[str] = Field(default_factory=list, max_length=64, description=(
+        "for a check of the report's own statement (receipt.formal_checks): the delivered claims whose text holds the "
+        "clause the check was built from, so the router can tell which claim a failed or undecided check concerns"))
 
 
 class TransmissionReceipt(BaseModel):

@@ -65,6 +65,21 @@ Shapes recognised:
   sentences); a dated and an undated, non-anaphoric event in one sentence state no checkable
   order and yield nothing.
 
+* a side named by a proper name dated earlier in the same sentence (``the London and Birmingham
+  Railway opened in 1838, and the Great Western reached Bristol in 1841, three years before the
+  London and Birmingham opened``) takes that date; an interval with the cue (``three years
+  before``) against a named event the sentence never dates is undecided.
+
+Relations other than an ordering cue (``ChronologyRelation.kind``):
+
+* a duration (``ran from D1 to D2``, ``lasted from D1 until D2``) orders its ends (``order``);
+* containment (``X, including Y``, ``X, which included Y``: ``within``) puts the inner date or
+  range inside the outer period (a decade, a range, a month, a year); ``Y during X`` / ``within
+  X`` too, an inner range needing only to meet the period (``overlaps``); an inner date with no
+  year takes the period's one year, and an inner date coarser than the period is undecided;
+* ``<date> falls at the <period>'s close`` (``same_year``) shares its year with the end (or the
+  start, for ``outbreak``/``start``) of the duration the sentence or the paragraph states.
+
 A cue with dates on both sides that cannot be paired yields an undecided relation with the
 reason, so the router sees that an order was stated but not checked. The engine's
 problem compares day ordinals (``(year*12+month)*32+day``, a missing month or day
@@ -153,14 +168,40 @@ class ChronologyRelation:
     sentence: str = ""
     later_ordinal: Optional[int] = None    # day ordinal when decided (what the engine compares)
     earlier_ordinal: Optional[int] = None
+    #: ``order`` ('X after Y', a span 'from D1 to D2': ``later_text`` later than ``earlier_text``), ``within`` (``later_text``, the inner
+    #: date or range, lies within ``earlier_text``, the outer period: 'December 1899, including ... on 11 December'), ``overlaps`` (the
+    #: inner range meets the outer period: 'the famine of 1932-33 during the plan of 1928-32') or ``same_year`` (``later_text`` falls in
+    #: the year of ``earlier_text``: 'the poem's 1902 date falls at the war's close').
+    kind: str = "order"
+    #: For ``within`` / ``overlaps``: (inner_lo, inner_hi, outer_lo, outer_hi) day ordinals; for ``same_year``: (year, reference year).
+    bounds: Optional[tuple[int, ...]] = None
 
     @property
     def violated(self) -> bool:
         if not self.decided:
             return False
+        if self.kind == "within" and self.bounds:
+            ilo, ihi, olo, ohi = self.bounds
+            return not (olo <= ilo and ihi <= ohi)
+        if self.kind == "overlaps" and self.bounds:
+            ilo, ihi, olo, ohi = self.bounds
+            return not (ilo <= ohi and ihi >= olo)
+        if self.kind == "same_year" and self.bounds:
+            return self.bounds[0] != self.bounds[1]
         if self.later_ordinal is not None and self.earlier_ordinal is not None:
             return self.later_ordinal <= self.earlier_ordinal
         return self.later is not None and self.earlier is not None and self.later <= self.earlier
+
+    @property
+    def statement(self) -> str:
+        """What the sentence asserts, in words: 'X later than Y', 'X within Y', 'X in the same year as Y'."""
+        if self.kind == "within":
+            return f"{self.later_text} within {self.earlier_text}"
+        if self.kind == "overlaps":
+            return f"{self.later_text} during {self.earlier_text}"
+        if self.kind == "same_year":
+            return f"{self.later_text} in the same year as {self.earlier_text}"
+        return f"{self.later_text} later than {self.earlier_text}"
 
 
 def month_index(month_name: str, year: str) -> int:
@@ -524,6 +565,16 @@ def _chronology_relations_cached(sentence: str, context: Optional[str]) -> tuple
 
 
 def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
+    out = _cue_relations(sentence, context)
+    seen = {(r.later_text, r.earlier_text) for r in out}
+    for rel in _period_relations(sentence, context):
+        if (rel.later_text, rel.earlier_text) not in seen:
+            seen.add((rel.later_text, rel.earlier_text))
+            out.append(rel)
+    return out
+
+
+def _cue_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
     out: list[ChronologyRelation] = []
     cues = list(_CUE_RE.finditer(sentence))
     if not cues:
@@ -550,6 +601,8 @@ def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[
     def undecided(cue: str, later_txt: str, earlier_txt: str, reason: str) -> None:
         emit(ChronologyRelation(cue, later_txt, earlier_txt, None, None, False, reason, sentence))
 
+    cue_start = 0
+
     def across(cue: str, left_tok: Optional[DateToken], right_tok: Optional[DateToken], left_text: str, right_text: str) -> None:
         """A cue with a side that carries no date in the sentence: look the side's event up in the paragraph."""
         lhow = rhow = ""
@@ -568,9 +621,25 @@ def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[
             return
         if left_tok is None and right_tok is None:
             return  # no dated event on either side: no checkable order
+        # a side named by a proper name dated elsewhere in the sentence or the paragraph ('..., the Great Western reached Bristol in
+        # 1841, three years before the London and Birmingham opened', the London and Birmingham dated 1838 earlier in the sentence)
+        named_tok, named_how, named_phrase = _named_event_date(right_text if left_tok is not None else left_text, trailing=left_tok is None,
+                                                               sentence=sentence, context=context, cue_start=cue_start)
+        if named_tok is not None:
+            later, earlier = _orient_cue(cue, left_tok if left_tok is not None else named_tok, right_tok if right_tok is not None else named_tok)
+            emit(resolve(cue, later, earlier, named_how))
+            return
         dated, dated_cross, how = (left_tok, l_cross, lhow) if left_tok is not None else (right_tok, r_cross, rhow)
         missing, missing_anaphor, missing_how = (r_phrase, r_anaphor, rhow) if left_tok is not None else (l_phrase, l_anaphor, lhow)
         if not (missing_anaphor or dated_cross):
+            interval = _INTERVAL_BEFORE_CUE_RE.search(sentence[:cue_start])
+            if interval and named_phrase:
+                # 'three years before the London and Birmingham opened': an order with a stated interval, against an event the text never dates
+                reason = f"'{interval.group(0).strip()} {cue}' orders the dated event against '{named_phrase}', which the sentence does not date"
+                if (left_tok is not None) == _is_after_type(cue):
+                    undecided(cue, dated.text, named_phrase, reason)
+                else:
+                    undecided(cue, named_phrase, dated.text, reason)
             return  # one dated event and an undated, non-anaphoric one in the same sentence: no checkable order (see the module docstring)
         if missing_anaphor:
             reason = f"'{missing}' refers to an event dated in another sentence, which could not be identified ({missing_how or 'no other sentence of the paragraph dates it'})"
@@ -584,6 +653,7 @@ def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[
 
     for m in cues:
         cue = _cue_name(m)
+        cue_start = m.start()
         left_text, right_text = sentence[: m.start()], sentence[m.end():]
         if _NOT_A_CUE_BEFORE_RE.search(left_text):
             continue
@@ -707,3 +777,295 @@ def chronology_findings_in(sentence: str, context: Optional[str] = None) -> Opti
         if rel.violated:
             return rel.later, rel.earlier  # type: ignore[return-value]
     return None
+
+
+# ------------------------------------------------------------------ an event named by a proper name, dated elsewhere
+
+#: 'three years before', 'two months after', 'a decade before': an interval stated with a cue.
+_INTERVAL_BEFORE_CUE_RE = re.compile(r"\b(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|some|a few)\s+(?:years?|months?|weeks?|days?|decades?)\s+$", re.IGNORECASE)
+_PROPER_RE = re.compile(r"\b[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]+")
+_NOT_PROPER = frozenset({"The", "A", "An", "This", "That", "These", "Those", "It", "Its", "In", "On", "By", "Of", "And", "But", "After", "Before", "When", "While"}) | {m.capitalize() for m in MONTHS}
+
+
+def _proper_names(text: str, *, trailing: bool) -> tuple[list[str], str]:
+    """The proper names of the noun phrase at the start (or end, ``trailing``) of ``text`` ('the London and Birmingham opened' ->
+    ['London', 'Birmingham']) and the phrase they stand in; empty when the side names no proper noun."""
+    clause = re.split(r"[,;:()]", text)[-1 if trailing else 0]
+    words = clause.split()
+    if trailing:
+        words = words[-8:]
+    else:
+        words = words[:8]
+    phrase_words: list[str] = []
+    names: list[str] = []
+    for w in (reversed(words) if trailing else words):
+        bare = w.strip(".,;:'\"“”‘’()")
+        if _PROPER_RE.fullmatch(bare) and bare not in _NOT_PROPER:
+            names.append(bare)
+            phrase_words.append(w)
+        elif names and bare.lower() in ("and", "of", "&", "the", "de", "von", "van"):
+            phrase_words.append(w)
+        elif names:
+            break
+        elif bare.lower() in ("the", "a", "an"):
+            phrase_words.append(w)
+        else:
+            if not trailing:
+                break
+    if trailing:
+        names.reverse()
+        phrase_words.reverse()
+    while phrase_words and phrase_words[-1].strip(".,").lower() in ("and", "of", "&"):
+        phrase_words.pop()
+    return names, " ".join(phrase_words).strip(" ,.")
+
+
+def _named_event_date(side_text: str, *, trailing: bool, sentence: str, context: Optional[str], cue_start: int) -> tuple[Optional[DateToken], str, str]:
+    """For a side of a cue that carries no date: the one date the same sentence gives the same proper name earlier, outside the
+    cue's clause ('the London and Birmingham' -> 'the London and Birmingham Railway opened in 1838, and the Great Western reached
+    Bristol in 1841, three years before the London and Birmingham opened'). The whole name must recur as written, the date must
+    follow it in its clause, and a name carrying a number ('Article 48') is a reference, not an event. Returns ``(token, how,
+    phrase)``; the token is None when the name is dated nowhere in the sentence or more than once. ``context`` is unused: a
+    proper name dated only in another sentence is not looked up (another event may share the name)."""
+    names, phrase = _proper_names(side_text, trailing=trailing)
+    if not names:
+        return None, "", phrase
+    name_re = re.compile(r"\b" + r"(?:\s+(?:and|of|&|the|de|von|van)\s+|\s+)".join(re.escape(n) for n in names) + r"\b(?!\s*\d)")
+    found: dict[int, DateToken] = {}
+    earlier = sentence[:cue_start]
+    for clause in re.split(r";|:|,\s+(?:and|but|while|whereas|yet|so)\b", earlier):
+        m = name_re.search(clause)
+        if m is None:
+            continue
+        toks = [t for t in _tokens(clause) if t.year is not None and t.start >= m.end() and not _RANGE_BEFORE_DATE_RE.search(clause[: t.start])]
+        if len(toks) == 1:
+            found.setdefault(toks[0].ordinal(), toks[0])
+    if len(found) != 1:
+        return None, "", phrase
+    tok = next(iter(found.values()))
+    return tok, f"the date of '{phrase}' ({tok.text}) was read from its earlier mention in the same sentence", phrase
+
+
+# ------------------------------------------------------------------ spans, containment and same-year relations
+
+#: A duration: 'ran from D1 to D2', 'lasted from D1 until D2', 'was fought from D1 to D2'. The span orders its ends: D2 is later.
+_SPAN_VERB_RE = re.compile(
+    r"\b(?:ran|runs?|running|lasted|lasts?|lasting|continued|continues|continuing|stretched|stretches|stretching|extended|extends|extending|raged|rages|raging|"
+    r"endured|persisted|went\s+on|was\s+fought|were\s+fought|was\s+waged|were\s+waged|took\s+place|unfolded)\s+(?:[a-z]+\s+){0,2}?from\s+", re.IGNORECASE)
+_SPAN_SEP_RE = re.compile(r"\s+(?:to|until|till|through|up\s+to)\s+", re.IGNORECASE)
+#: 'X, including Y', 'X, which included Y': the inner date or range (after the cue) lies within the outer period (before it).
+_INCLUDE_CUE_RE = re.compile(r"(?:,\s*|\s+)(?:(?:which|that)\s+(?:had\s+)?(?:included|includes|include|encompassed|encompasses|took\s+in)|including|among\s+them)\b", re.IGNORECASE)
+#: 'Y during X', 'Y within X': the inner date (before the cue) lies within the outer period (after it); an inner range must meet it.
+_DURING_CUE_RE = re.compile(r"\b(?:during|within|in\s+the\s+course\s+of|in\s+the\s+midst\s+of|amid|amidst)\s+", re.IGNORECASE)
+#: 'the poem's 1902 date falls at the war's close': the date shares its year with the named point of a span the paragraph states.
+_FALLS_AT_RE = re.compile(
+    r"\b(?:date\s+)?(?:falls|fell|comes|came|sits|sat|lies|lay|stands|stood)\s+(?:right\s+|just\s+|squarely\s+)?(?:at|in|near|towards?|on)\s+(?:the\s+)?(?:very\s+)?"
+    r"(?:[\w'’]+\s+){0,2}?(?P<point>close|end|outbreak|start|beginning|opening|eve|conclusion|finish)\b", re.IGNORECASE)
+_DECADE_RE = re.compile(r"\b(?:the\s+)?(?P<decade>1[0-9]{2}0|20[0-9]0)s\b")
+_RANGE_JOIN_RE = re.compile(r"^\s*(?:-|–|—|to|until|till|and|through)\s*$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class _Period:
+    """A date or a period as an interval of day ordinals ((year*12+month)*32+day); ``lo``/``hi`` are None while a year is missing."""
+    start: int
+    end: int
+    text: str
+    first: Optional[DateToken]   # None for a decade
+    last: Optional[DateToken]
+    decade: Optional[int] = None
+
+    @property
+    def is_range(self) -> bool:
+        return self.decade is not None or (self.first is not None and self.last is not None and self.first is not self.last)
+
+    def bounds(self, year: Optional[int] = None) -> Optional[tuple[int, int]]:
+        if self.decade is not None:
+            return (self.decade * 12) * 32, ((self.decade + 9) * 12 + 12) * 32 + 31
+        assert self.first is not None and self.last is not None
+        y1 = self.first.year if self.first.year is not None else (self.last.year if self.last.year is not None else year)
+        y2 = self.last.year if self.last.year is not None else y1
+        if y1 is None or y2 is None:
+            return None
+        return _lo(self.first, y1), _hi(self.last, y2)
+
+    @property
+    def years(self) -> Optional[set]:
+        if self.decade is not None:
+            return set(range(self.decade, self.decade + 10))
+        ys = {t.year for t in (self.first, self.last) if t is not None and t.year is not None}
+        return ys or None
+
+
+def _lo(tok: DateToken, year: int) -> int:
+    return (year * 12 + (tok.month or 1)) * 32 + (tok.day or 1) if tok.month else (year * 12 + 1) * 32 + 1
+
+
+def _hi(tok: DateToken, year: int) -> int:
+    return (year * 12 + (tok.month or 12)) * 32 + (tok.day or 31) if tok.month else (year * 12 + 12) * 32 + 31
+
+
+def _periods(text: str) -> list[_Period]:
+    """The dates and periods of ``text`` in order: a decade ('the 1840s'), a range of two dates ('1845 to 1847', '1899-1902',
+    'from 11 October 1899 to 31 May 1902' is read as two dates by the span reader), and every other date token."""
+    out: list[_Period] = []
+    taken: list[tuple[int, int]] = []
+    for m in _DECADE_RE.finditer(text):
+        dec = int(m.group("decade"))
+        out.append(_Period(m.start(), m.end(), m.group(0), None, None, dec))
+        taken.append((m.start(), m.end()))
+    toks = [t for t in _tokens(text) if not any(a <= t.start < b for a, b in taken)]
+    # 'Y1-Y2' with a two-digit second year ('1899-02') is not a token pair; read it here
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if i + 1 < len(toks) and _RANGE_JOIN_RE.match(text[t.end: toks[i + 1].start]) and toks[i + 1].year is not None and (t.year is None or t.year <= toks[i + 1].year):
+            u = toks[i + 1]
+            out.append(_Period(t.start, u.end, text[t.start: u.end], t, u))
+            i += 2
+            continue
+        m = re.match(r"\s*[-–]\s*(\d{2})\b", text[t.end:])
+        if t.year is not None and t.month is None and m:
+            y2 = (t.year // 100) * 100 + int(m.group(1))
+            if y2 >= t.year:
+                end = t.end + m.end()
+                u = DateToken(t.end + m.start(1), end, m.group(1), None, y2)
+                out.append(_Period(t.start, end, text[t.start: end], t, u))
+                i += 1
+                continue
+        out.append(_Period(t.start, t.end, t.text, t, t))
+        i += 1
+    out.sort(key=lambda p: p.start)
+    return out
+
+
+def _clause_after(text: str) -> str:
+    brk = _CLAUSE_BREAK_RE.search(text)
+    return text[: brk.start()] if brk else text
+
+
+def _clause_before(text: str) -> str:
+    breaks = list(_CLAUSE_BREAK_RE.finditer(text))
+    return text[breaks[-1].end():] if breaks else text
+
+
+def _containment(cue: str, inner: _Period, outer: _Period, sentence: str, *, overlap_ok: bool) -> ChronologyRelation:
+    """The relation 'inner lies within outer' (or, for a range after 'during', 'inner meets outer'), decided at the resolution both state."""
+    year_note = ""
+    outer_years = outer.years
+    year = None
+    if inner.bounds() is None:
+        if outer_years and len(outer_years) == 1:
+            year = next(iter(outer_years))
+            year_note = f"the year of '{inner.text}' was read as {year}, the year of the period it is said to fall within"
+        else:
+            return ChronologyRelation(cue, inner.text, outer.text, None, None, False, f"the year of '{inner.text}' is not stated and '{outer.text}' spans several years", sentence, kind="within")
+    ib = inner.bounds(year)
+    ob = outer.bounds()
+    if ib is None or ob is None:
+        return ChronologyRelation(cue, inner.text, outer.text, None, None, False, f"'{outer.text}' carries no year", sentence, kind="within")
+    kind = "overlaps" if overlap_ok and inner.is_range else "within"
+    ilo, ihi = ib
+    olo, ohi = ob
+    inside = olo <= ilo and ihi <= ohi
+    meets = ilo <= ohi and ihi >= olo
+    if kind == "within" and not inside and meets and (ihi - ilo) > (ohi - olo):
+        # the inner date is coarser than the period (a year inside a month): the overlap neither confirms nor refutes containment
+        return ChronologyRelation(cue, inner.text, outer.text, None, None, False,
+                                  f"'{inner.text}' is stated more coarsely than '{outer.text}', so whether it falls within it is not stated", sentence, kind=kind)
+    return ChronologyRelation(cue, inner.text, outer.text, None, None, True, year_note, sentence, kind=kind, bounds=(ilo, ihi, olo, ohi))
+
+
+def _span_in(sentence: str) -> Optional[tuple[DateToken, DateToken, "re.Match[str]"]]:
+    """The first duration span of ``sentence`` ('ran from D1 to D2'): its two date tokens and the verb match."""
+    for m in _SPAN_VERB_RE.finditer(sentence):
+        rest = _clause_after(sentence[m.end():])
+        toks = _tokens(rest)
+        if len(toks) < 2:
+            continue
+        d1 = toks[0]
+        if _SPAN_SEP_RE.search(rest[: d1.start]) or re.search(r"[;:]", rest[: d1.start]):
+            continue
+        sep = _SPAN_SEP_RE.search(rest, d1.end)
+        if sep is None:
+            continue
+        after = [t for t in toks if t.start >= sep.end()]
+        if not after or re.search(r"[;:]", rest[d1.end: after[0].start]):
+            continue
+        between = [t for t in toks if d1.end <= t.start < sep.start()]
+        if between:
+            continue
+        shift = m.end()
+        return (DateToken(d1.start + shift, d1.end + shift, d1.text, d1.month, d1.year, d1.day),
+                DateToken(after[0].start + shift, after[0].end + shift, after[0].text, after[0].month, after[0].year, after[0].day), m)
+    return None
+
+
+def _period_relations(sentence: str, context: Optional[str]) -> list[ChronologyRelation]:
+    """Durations, containment and same-year relations of ``sentence`` (see the module docstring)."""
+    out: list[ChronologyRelation] = []
+    low = sentence.lower()
+    if not re.search(r"\d", sentence):
+        return out
+    sentence_years = years_in(sentence)
+    context_years = years_in(context) if context else []
+    dated_context_years = years_in(context, dated_only=True) if context else []
+    span = _span_in(sentence) if "from" in low else None
+    if span is not None:
+        d1, d2, verb = span
+        rel = _resolve("from ... to", d2, d1, sentence, sentence_years, context_years, dated_context_years)
+        out.append(ChronologyRelation(f"{verb.group(0).strip()} ... to", rel.later_text, rel.earlier_text, rel.later, rel.earlier, rel.decided,
+                                      rel.reason, sentence, rel.later_ordinal, rel.earlier_ordinal))
+    if any(c in low for c in ("includ", "among them", "encompass", "took in")):
+        for m in _INCLUDE_CUE_RE.finditer(sentence):
+            left = _clause_before(sentence[: m.start()])
+            right = _clause_after(sentence[m.end():])
+            outers = _periods(left)
+            inners = _periods(right)
+            if not outers or not inners:
+                continue
+            inner = inners[0]
+            if re.search(r"[;:]", right[: inner.start]):
+                continue
+            out.append(_containment(" ".join(m.group(0).strip(" ,").split()), inner, outers[-1], sentence, overlap_ok=False))
+    if any(c in low for c in ("during", "within", "in the course of", "in the midst of", "amid")):
+        for m in _DURING_CUE_RE.finditer(sentence):
+            left = _clause_before(sentence[: m.start()])
+            right = _clause_after(sentence[m.end():])
+            inners = _periods(left)
+            outers = _periods(right)
+            if not inners or not outers:
+                continue
+            inner, outer = inners[-1], outers[0]
+            if _CUE_RE.search(left[inner.end:]) or _CUE_RE.search(right[: outer.start]):
+                continue  # an ordering cue between them owns the dates
+            if re.search(r"\b(?:from|between)\s+$", left[: inner.start]) or _RANGE_BEFORE_DATE_RE.search(left[: inner.start]) and not inner.is_range:
+                continue  # a date that bounds a range ('since 1793') is not an event's date
+            out.append(_containment(m.group(0).strip(), inner, outer, sentence, overlap_ok=True))
+    if any(c in low for c in ("falls", "fell", "comes", "came", "sits", "sat", "lies", "lay", "stands", "stood")):
+        for m in _FALLS_AT_RE.finditer(sentence):
+            before = _clause_before(sentence[: m.start()])
+            toks = [t for t in _tokens(before) if t.year is not None]
+            if not toks:
+                continue
+            subject = toks[-1]
+            point = m.group("point").lower()
+            ref_span = span
+            where = "the same sentence"
+            if ref_span is None and context:
+                spans = [sp for other, _n, _t in _paragraph_sentences(context) for sp in [_span_in(other)] if sp is not None]
+                if len(spans) == 1:
+                    ref_span, where = spans[0], "another sentence of the paragraph"
+            cue = " ".join(m.group(0).split())
+            if ref_span is None:
+                out.append(ChronologyRelation(cue, subject.text, f"the {point}", None, None, False,
+                                              f"'{cue}' places {subject.text} at a point of a period whose dates the paragraph does not state as a span", sentence, kind="same_year"))
+                continue
+            ref = ref_span[1] if point in ("close", "end", "conclusion", "finish") else ref_span[0]
+            ref_year = ref.year if ref.year is not None else (ref_span[0].year if ref_span[0].year is not None else ref_span[1].year)
+            if ref_year is None:
+                out.append(ChronologyRelation(cue, subject.text, ref.text, None, None, False, f"the {point} of the span ({ref.text}) carries no year", sentence, kind="same_year"))
+                continue
+            out.append(ChronologyRelation(cue, subject.text, f"the {point} ({ref.text}{'' if ref.year is not None else f' {ref_year}'})", None, None, True,
+                                          f"the {point} of the period is the span stated in {where}", sentence, kind="same_year", bounds=(subject.year, ref_year)))
+    return out

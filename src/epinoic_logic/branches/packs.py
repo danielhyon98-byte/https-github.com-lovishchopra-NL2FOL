@@ -4,6 +4,7 @@ are problems the engine decides about the report's own statements."""
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Optional
 
 from ..adapters.history_specialist.chronology import chronology_relations
@@ -34,9 +35,17 @@ _ATTRIBUTION_RE = re.compile(
     r"explains?|explained|points? out|pointed out|adds?|added|concludes?|concluded|remarks?|remarked|insists?|insisted|tells?|told|puts? it|put it|claims?|claimed|asserts?|asserted|"
     r"answers?|answered|speaks? of|spoke of|refers? to|referred to|mentions?|mentioned|quotes?|quoted|cites?|cited|repeats?|repeated|opens? with|closes? with|ends? with|begins? with|reads?|"
     r"shows?|showed|presents?|presented|gives?|gave|offers?|offered|uses?|used|employs?|employed|contains?|contained|includes?|included|depicts?|depicted|portrays?|portrayed|"
+    r"admits?|admitted|identifies|identified|suggests?|suggested|implies|implied|concedes?|conceded|confesses|confessed|declares?|declared|recalls?|recalled|explains?|"
     r"in (?:his|her|its|their) words|(?:'s|’s) (?:words?|phrase|phrasing|paragraph|account|setting|description|point|claim|note|warning|line|lines|verdict))\b",
     re.IGNORECASE,
 )
+#: A credit to a source that was NOT supplied to this agent: '<Name>'s speaker / poem / narrator / lines' or '<Name> writes / admits / says'
+#: ('Hardy's speaker himself admits that ...', 'Hardy's poem identifies ...'), and, when no literary text was supplied, 'the poem', 'the poet',
+#: 'the speaker', 'the narrator'. Words credited this way that occur only in a colleague's own prose are the colleague's (CORE-SRC-005).
+_UNSUPPLIED_WORK_RE = re.compile(r"\b([A-ZÀ-ÖØ-Þ][\w'’-]+(?:\s+[A-ZÀ-ÖØ-Þ][\w'’-]+)?)(?:'s|’s)\s+(?:own\s+)?(speaker|poem|narrator|persona|poet|monologue|lines?|verse|stanza|text|novel|play|story|words|soldier|protagonist|character|sonnet|ode)\b")
+_UNSUPPLIED_AUTHOR_RE = re.compile(r"\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{2,})\s+(?:himself\s+|herself\s+|itself\s+)?(?=(?:writes|wrote|says|said|admits|admitted|identifies|identified|suggests|suggested|calls|called|describes|described|presents|presented|claims|claimed|insists|insisted|states|stated|declares|declared)\b)")
+_UNSUPPLIED_GENERIC = ("the poem", "the poet", "the speaker", "the narrator", "the persona", "the sonnet")
+_NOT_A_NAME = frozenset({"The", "This", "That", "These", "Those", "It", "Its", "He", "She", "They", "We", "I", "Against", "In", "On", "By", "And", "But", "Yet", "So", "Here", "There", "When", "While"})
 #: A reporting clause: '<outer speaker> argues/notes/writes ... that' introduces an inner subject whose words are the outer speaker's report.
 _REPORTING_RE = re.compile(r"\b(?:argues?|argued|notes?|noted|writes?|wrote|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested|holds?|held|maintains?|contends?|reports?|reported|concludes?|concluded|insists?|shows?|points? out|adds?)\s+that\b", re.IGNORECASE)
 #: An attribution phrase that precedes the source's name: 'according to the History specialist, "..."'.
@@ -56,42 +65,89 @@ def _paragraphs(text: str) -> list[tuple[int, str]]:
 
 def _sentences_with_paragraph(text: str) -> list[tuple[int, int, str, str]]:
     """(paragraph number, sentence number, sentence, paragraph) over the raw response, 1-based,
-    split with the shared abbreviation-aware splitter (``c.``, ``approx.``, initials never end a sentence)."""
+    split with the shared abbreviation-aware splitter (``c.``, ``approx.``, initials never end a sentence).
+    Memoised per text (a bounded cache): every check of the core pack walks the same sentences."""
+    return list(_sentences_with_paragraph_cached(text))
+
+
+@lru_cache(maxsize=32)
+def _sentences_with_paragraph_cached(text: str) -> tuple[tuple[int, int, str, str], ...]:
     out: list[tuple[int, int, str, str]] = []
     for pi, para in _paragraphs(text):
         for si, sent in enumerate(_split_sentences(para), start=1):
             out.append((pi, si, sent.strip(), para))
-    return out
+    return tuple(out)
 
 
 def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
-    """Every dated ordering a sentence asserts ('after', 'before', 'followed', 'preceded',
-    with or without 'by') becomes an entailment problem: the event the sentence places
-    later must have the later day ordinal ((year*12+month)*32+day). The relations come
-    from ``history_specialist.chronology.chronology_relations``, the extractor the History
-    proxy ``HI-CHR-001`` also reads, with the paragraph as context for a date whose year
-    the sentence does not state, so the proxy and the engine never disagree. A relation the
-    extractor could not pair (an aside date, an unstated year, two events in the same month
-    with no days) is not a problem here; ``CorePack`` reports it as ``CORE-CHR-001``."""
+    """Every dated relation a sentence asserts becomes an entailment problem. An ordering
+    ('after', 'before', 'followed', 'preceded', with or without 'by', and a duration 'ran from D1
+    to D2'): the event the sentence places later must have the later day ordinal
+    ((year*12+month)*32+day). A containment ('December 1899, including ... on 11 December', 'The
+    1840s, which included the Railway Mania of 1845 to 1847'): the inner interval of day ordinals
+    lies within the outer one; after 'during' an inner range must meet the outer period. A same-year
+    relation ('the poem's 1902 date falls at the war's close'): the two years are equal. The
+    relations come from ``history_specialist.chronology.chronology_relations``, the extractor the
+    History proxy ``HI-CHR-001`` also reads, with the paragraph as context for a date whose year the
+    sentence does not state, so the proxy and the engine never disagree. A relation the extractor
+    could not pair (an aside date, an unstated year, two events in the same month with no days) is
+    not a problem here; ``CorePack`` reports it as ``CORE-CHR-001``. Each check names the claims
+    whose text holds the sentence."""
     from ..ir.schema import Problem
     out: list[FormalCheck] = []
     n = 0
+    grounding = {"kind": "supplied_text", "verified": True}
+
+    def var(name: str) -> dict:
+        return {"op": "var", "name": name}
+
+    def eq(name: str, value: int, label: str, pid: str) -> dict:
+        return {"id": pid, "expr": {"op": "eq", "left": var(name), "right": {"op": "int", "value": str(value)}}, "label": label[:1000], "grounding": grounding}
+
     for _pi, _si, sent, para in _sentences_with_paragraph(report.original_response):
         for rel in chronology_relations(sent, para):
-            if not rel.decided or rel.later_ordinal is None or rel.earlier_ordinal is None:
+            if not rel.decided:
+                continue
+            ordinal_note = "as a day ordinal ((year*12+month)*32+day)"
+            if rel.kind in ("within", "overlaps") and rel.bounds:
+                ilo, ihi, olo, ohi = rel.bounds
+                symbols = [{"name": "inner_start", "sort": "Int", "meaning": f"first day of {rel.later_text} {ordinal_note}"},
+                           {"name": "inner_end", "sort": "Int", "meaning": f"last day of {rel.later_text} {ordinal_note}"},
+                           {"name": "outer_start", "sort": "Int", "meaning": f"first day of {rel.earlier_text} {ordinal_note}"},
+                           {"name": "outer_end", "sort": "Int", "meaning": f"last day of {rel.earlier_text} {ordinal_note}"}]
+                premises = [eq("inner_start", ilo, f"{rel.later_text} begins", "D1"), eq("inner_end", ihi, f"{rel.later_text} ends", "D2"),
+                            eq("outer_start", olo, f"{rel.earlier_text} begins", "D3"), eq("outer_end", ohi, f"{rel.earlier_text} ends", "D4")]
+                if rel.kind == "within":
+                    concl = {"op": "and", "args": [{"op": "ge", "left": var("inner_start"), "right": var("outer_start")}, {"op": "le", "left": var("inner_end"), "right": var("outer_end")}]}
+                    label = f"'{rel.later_text}' lies within '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+                else:
+                    concl = {"op": "and", "args": [{"op": "le", "left": var("inner_start"), "right": var("outer_end")}, {"op": "ge", "left": var("inner_end"), "right": var("outer_start")}]}
+                    label = f"'{rel.later_text}' falls during '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+                kind_word = "containment"
+            elif rel.kind == "same_year" and rel.bounds:
+                symbols = [{"name": "stated_year", "sort": "Int", "meaning": f"the year of {rel.later_text}"},
+                           {"name": "reference_year", "sort": "Int", "meaning": f"the year of {rel.earlier_text}"}]
+                premises = [eq("stated_year", rel.bounds[0], rel.later_text, "D1"), eq("reference_year", rel.bounds[1], rel.earlier_text, "D2")]
+                concl = {"op": "eq", "left": var("stated_year"), "right": var("reference_year")}
+                label = f"'{rel.later_text}' falls in the year of {rel.earlier_text}, as the sentence's '{rel.cue}' asserts"
+                kind_word = "same year"
+            elif rel.later_ordinal is not None and rel.earlier_ordinal is not None:
+                symbols = [{"name": "later_event", "sort": "Int", "meaning": f"{rel.later_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"},
+                           {"name": "earlier_event", "sort": "Int", "meaning": f"{rel.earlier_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"}]
+                premises = [eq("later_event", rel.later_ordinal, rel.later_text, "D1"), eq("earlier_event", rel.earlier_ordinal, rel.earlier_text, "D2")]
+                concl = {"op": "gt", "left": var("later_event"), "right": var("earlier_event")}
+                label = f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+                kind_word = "order"
+            else:
                 continue
             n += 1
-            problem = {
-                "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
-                "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{rel.later_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"},
-                            {"name": "earlier_event", "sort": "Int", "meaning": f"{rel.earlier_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"}],
-                "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(rel.later_ordinal)}}, "label": rel.later_text, "grounding": {"kind": "supplied_text", "verified": True}},
-                             {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(rel.earlier_ordinal)}}, "label": rel.earlier_text, "grounding": {"kind": "supplied_text", "verified": True}}],
-                "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}},
-                               "label": f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts" + (f" ({rel.reason})" if rel.reason else "")},
-            }
+            if rel.reason:
+                label += f" ({rel.reason})"
+            problem = {"problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
+                       "symbols": symbols, "premises": premises, "conclusion": {"id": "ORDER", "expr": concl, "label": label[:1000]}}
             out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
-                                   description=f"stated order of dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}): {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
+                                   description=f"stated {kind_word} of dated events ('{rel.cue}': {rel.statement}): {_excerpt_around(sent.strip(), rel.cue)}", problem=Problem.model_validate(problem),
+                                   claim_ids=tuple(_claims_for_statement(report, sent, rel.cue))))
     return out
 
 
@@ -101,9 +157,39 @@ def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
     sentence of the paragraph) says in its description where its year and figures were read."""
     out: list[FormalCheck] = []
     for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
-        description = f"report's own arithmetic: {qc.sentence[:160]}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
-        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem))
+        description = f"report's own arithmetic: {_excerpt_around(qc.sentence, qc.phrase)}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
+        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem,
+                               claim_ids=tuple(_claims_for_statement(report, qc.sentence, qc.phrase))))
     return out
+
+
+def _excerpt_around(statement: str, phrase: str, width: int = 160) -> str:
+    """``statement`` as quoted in a check's description: whole when short, otherwise a window of ``width`` characters around the
+    phrase the check reads, so a false phrase at the end of a long unpunctuated block is quoted, not cut off."""
+    statement = " ".join(statement.split())
+    if len(statement) <= width:
+        return statement
+    at = statement.find(" ".join(phrase.split())) if phrase else -1
+    if at < 0:
+        return statement[:width] + "..."
+    start = max(0, min(at - width // 3, len(statement) - width))
+    return ("..." if start else "") + statement[start: start + width] + ("..." if start + width < len(statement) else "")
+
+
+def _claims_for_statement(report: SpecialistReport, statement: str, phrase: str = "") -> list[str]:
+    """The delivered claims a formal check about ``statement`` names: the claims whose text holds the statement; else, when the
+    statement spans several claims (a long block the parser cut where the check did not), the claims inside it that hold the
+    phrase the check reads; else every claim holding the phrase."""
+    stmt = " ".join(statement.split())
+    key = " ".join(phrase.split())
+    texts = [(c.claim_id, " ".join(c.claim_text.split())) for c in report.claims]
+    holding = [cid for cid, t in texts if stmt and stmt in t]
+    if holding:
+        return holding[:8]
+    inside = [cid for cid, t in texts if t and t in stmt and (not key or key in t)]
+    if inside:
+        return inside[:8]
+    return [cid for cid, t in texts if key and key in t][:8]
 
 
 def _is_peer_text(t: SuppliedText) -> bool:
@@ -205,6 +291,65 @@ def _attributions(sentence: str, spans: list[tuple[int, int, str]], names: dict[
     return out
 
 
+def _quote_key(text: str) -> str:
+    """A quotation compared with an excerpt: whitespace collapsed, quotation marks and trailing punctuation stripped, case folded."""
+    return strip_trailing_punctuation(" ".join(text.split()).strip(" '\"“”‘’«»„")).casefold()
+
+
+def _is_english_subject(subject: Optional[str]) -> bool:
+    from ..translate.subjects import resolve_profile
+    try:
+        return resolve_profile(subject).key in ("english_a_literature", "english_a_language_literature", "literature_performance", "language_a_other", "english")
+    except Exception:
+        return False
+
+
+_UNSUPPLIED = "unsupplied:"
+
+
+def _with_unsupplied_credits(sentence: str, spans: list[tuple[int, int, str]], names: dict[str, tuple[str, str]], texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
+    """``names`` plus the sources ``sentence`` credits that were not supplied to this agent ('Hardy's speaker', 'Hardy's poem',
+    'Pakenham writes', and 'the poem' when no literary text was supplied), each under a pseudo document id; a name already
+    among the supplied texts' names is left to them."""
+    prose = list(sentence)
+    for s, e, _inner in spans:
+        for i in range(s, e):
+            prose[i] = " "
+    text = "".join(prose)
+    low_names = set(names)
+    extra: dict[str, tuple[str, str]] = {}
+    for m in _UNSUPPLIED_WORK_RE.finditer(text):
+        name = m.group(1)
+        if name.split()[0] in _NOT_A_NAME or name.lower() in low_names or name.split()[-1].lower() in low_names:
+            continue
+        phrase = " ".join(m.group(0).split()).lower()
+        extra.setdefault(phrase, (_UNSUPPLIED + phrase, " ".join(m.group(0).split())))
+    for m in _UNSUPPLIED_AUTHOR_RE.finditer(text):
+        name = m.group(1)
+        if name in _NOT_A_NAME or name.lower() in low_names:
+            continue
+        extra.setdefault(name.lower(), (_UNSUPPLIED + name.lower(), name))
+    if not any(not _is_peer_text(t) for t in texts) and not extra and not _named_mentions(text, names):
+        # 'the poem', 'the speaker' only when the sentence names no other source: 'The English specialist's paragraph identifies the
+        # speaker's motive' credits the colleague, not the speaker
+        for g in _UNSUPPLIED_GENERIC:
+            if g not in low_names:
+                extra.setdefault(g, (_UNSUPPLIED + g, g))
+    if not extra:
+        return names
+    return {**extra, **names}
+
+
+def _inside_peer_quotation(excerpt: str, doc: SuppliedText) -> bool:
+    """True when ``excerpt`` is located in the colleague's text inside one of the colleague's own quotations (the colleague quoting
+    the poem), so the words are the quoted author's, not the colleague's."""
+    hit = find_quotation(excerpt, doc.text, document_id=doc.document_id)
+    if hit is None:
+        return False
+    start, end = hit[0], hit[1]
+    return any(s <= start and end <= e for s, e, _inner in find_quotation_spans(doc.text))
+
+
 def _claims_for_excerpt(report: SpecialistReport, sentence: str, excerpt: str, sentence_excerpts: list[str]) -> list[str]:
     """The claims a finding about one quotation of ``sentence`` names: the claims whose source
     reference carries that excerpt, and the sentence's own claim; a claim that carries only the
@@ -249,7 +394,9 @@ class CorePack:
         has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
-        f += self._unverifiable_quotations(report, has_memory_label)
+        disagreeing, disputed = self._quotation_ref_disagreements(report) if report.supplied_texts else ([], frozenset())
+        f += disagreeing
+        f += self._unverifiable_quotations(report, has_memory_label, disputed)
         if report.supplied_texts:
             f += self._misattributed_quotations(report)
         f += self._unbalanced_quotation_marks(report)
@@ -259,7 +406,61 @@ class CorePack:
         return f
 
     @staticmethod
-    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool) -> list[StructuralFinding]:
+    def _quotation_ref_disagreements(report: SpecialistReport) -> tuple[list[StructuralFinding], frozenset]:
+        """CORE-SRC-006 (error): a claim whose text quotes words that no supplied text holds, while the claim (or a claim it rests on)
+        credits a supplied text through its source references and no reference or note records those words: the quotation in the
+        claim and the excerpt its source reference carries disagree ('"Had we two but met"' in the text, 'Had he and I but met' in the
+        reference), so the grounding check, which reads only the reference, would pass an altered quotation. On the English branch a
+        quotation with no reference at all in a report on one literary text is credited to that text, as the English parser credits it
+        (``attribute_excerpt``'s text under analysis). A parsed report never raises it: every quotation a parser reads is carried by a
+        source reference or recorded in an assumption. Returns the findings and the quotations they name (kept out of CORE-SRC-003)."""
+        docs = {t.document_id: t for t in report.supplied_texts}
+        by_id = {c.claim_id: c for c in report.claims}
+        literary = [d for d, t in docs.items() if not _is_peer_text(t)]
+        text_under_analysis = literary[0] if len(literary) == 1 and _is_english_subject(report.subject) else None
+        found: dict[str, dict] = {}
+        # quotations a parser recorded in an assumption anywhere in the report (credited to no text, found in none): accounted for
+        recorded = {_quote_key(ex) for c in report.claims for a in c.assumptions for ex in [uncredited_excerpt(a)] if ex}
+        all_notes = " ".join(a for c in report.claims for a in c.assumptions).casefold()
+        all_carried = {_quote_key(r.excerpt) for x in report.claims for r in x.source_refs if r.excerpt}
+        for c in report.claims:
+            if c.claim_role == "other":
+                continue
+            text, _removed = strip_json_spans(c.claim_text)
+            quotes = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= 4]
+            if not quotes:
+                continue
+            refs = [r for x in [c, *(by_id[i] for i in c.supporting_claim_ids if i in by_id)] for r in x.source_refs if r.excerpt and r.document_id in docs]
+            for q in quotes:
+                key = _quote_key(q)
+                if (not key or key in recorded or key in all_carried or any(len(k) >= 8 and (k in key or key in k) for k in all_carried)
+                        or " ".join(q.split()).casefold()[:60] in all_notes):
+                    continue
+                if any(check_excerpt(q, d, docs).located for d in docs):
+                    continue  # genuine words: the grounding of the reference is the channel's
+                if refs:
+                    rec = found.setdefault(key, {"quote": q, "claims": [], "refs": refs, "how": "refs"})
+                elif text_under_analysis is not None:
+                    rec = found.setdefault(key, {"quote": q, "claims": [], "refs": [], "how": "text"})
+                else:
+                    continue
+                rec["claims"].append(c.claim_id)
+        out: list[StructuralFinding] = []
+        rule = "source integrity (a claim's quotation must be the excerpt its source reference carries, and the excerpt must occur in the text credited)"
+        for rec in found.values():
+            shown = rec["quote"][:_EXCERPT_CHARS] + ("..." if len(rec["quote"]) > _EXCERPT_CHARS else "")
+            if rec["how"] == "refs":
+                cited = "; ".join(dict.fromkeys(f"'{r.excerpt[:_EXCERPT_CHARS]}' ({r.document_id})" for r in rec["refs"]))
+                message = (f"claim(s) {', '.join(rec['claims'][:8])} quote '{shown}', which no supplied text holds, while their source references carry {cited}: "
+                           f"the claim's quotation and its source reference disagree, so the reference's grounding does not vouch for the words the claim states")
+            else:
+                message = (f"claim(s) {', '.join(rec['claims'][:8])} quote '{shown}' with no source reference or note, in a report on one literary text "
+                           f"({text_under_analysis}), which does not hold the words: an unlocated quotation of the text under analysis")
+            out.append(StructuralFinding(code="CORE-SRC-006", severity="error", message=message, claim_ids=rec["claims"][:8], rule_source=rule))
+        return out, frozenset(found)
+
+    @staticmethod
+    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool, disputed: frozenset = frozenset()) -> list[StructuralFinding]:
         """CORE-SRC-003: every quotation with no text to check it against is reported: with
         no text supplied, every quotation; with texts supplied, a quotation that no supplied
         text holds and that no claim credits to a text (the parser found no named source for
@@ -288,7 +489,7 @@ class CorePack:
                     if strip_trailing_punctuation(ex) not in seen:
                         seen.add(strip_trailing_punctuation(ex))
                         quoted.append(ex)
-            quoted = [q for q in quoted if strip_trailing_punctuation(q) not in cited and not any(check_excerpt(q, d, docs).located for d in docs)]
+            quoted = [q for q in quoted if strip_trailing_punctuation(q) not in cited and not any(check_excerpt(q, d, docs).located for d in docs) and _quote_key(q) not in disputed]
         if not quoted:
             return []
         reported = {strip_trailing_punctuation(q) for q in quoted}
@@ -321,6 +522,8 @@ class CorePack:
         if not texts:
             return []
         names = _source_names(texts)
+        by_id = {t.document_id: t for t in texts}
+        by_claim = {c.claim_id: c.claim_text for c in report.claims}
         out: list[StructuralFinding] = []
         seen: set[tuple[str, str]] = set()
         rule = "source integrity (attribute every quotation to the text that holds it; a colleague's words are not the author's and the author's are not the colleague's)"
@@ -329,11 +532,25 @@ class CorePack:
             spans = [(s, e, inner.strip()) for s, e, inner in find_quotation_spans(sent) if len(inner.strip()) >= 4]
             if not spans:
                 continue
-            for (_s, _e, excerpt), attributed in zip(spans, _attributions(sent, spans, names)):
+            sentence_names = _with_unsupplied_credits(sent, spans, names, texts)
+            for (_s, _e, excerpt), attributed in zip(spans, _attributions(sent, spans, sentence_names)):
                 if attributed is None:
                     continue
                 doc_id, label, others = attributed
                 located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text, document_id=t.document_id))
+                if doc_id.startswith(_UNSUPPLIED):
+                    # credited to an author or work this agent was not given: wrong only when the words are a colleague's own prose
+                    own_prose = [d for d in located if _is_peer_text(by_id[d]) and not _inside_peer_quotation(excerpt, by_id[d])]
+                    if not located or len(own_prose) != len(located) or (excerpt, doc_id) in seen:
+                        continue
+                    seen.add((excerpt, doc_id))
+                    shown = excerpt[:_EXCERPT_CHARS] + ("..." if len(excerpt) > _EXCERPT_CHARS else "")
+                    out.append(StructuralFinding(code="CORE-SRC-005", severity="error",
+                                                 message=f"quotation '{shown}' is credited in its sentence to {label}, a source not supplied to this agent, but its words occur only in "
+                                                         f"{', '.join(own_prose)}, in the colleague's own prose rather than in a quotation the colleague makes: a colleague's words are credited to {label}",
+                                                 claim_ids=([c for c in _claims_mentioning(report, sent) if excerpt in by_claim.get(c, "")] or _claims_for_excerpt(report, sent, excerpt, [x for _s2, _e2, x in spans]))[:8],
+                                                 rule_source=rule))
+                    continue
                 if not located or doc_id in located:
                     continue
                 key = (excerpt, doc_id)
@@ -385,9 +602,11 @@ class CorePack:
             for rel in chronology_relations(sent, para):
                 if rel.decided:
                     continue
+                what = "orders two dated events" if rel.kind == "order" else "places a dated event within a dated period" if rel.kind in ("within", "overlaps") else "places a date at a point of a dated period"
                 out.append(StructuralFinding(code="CORE-CHR-001", severity="warning",
-                                             message=f"paragraph {pi}, sentence {si} orders two dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}) but the order could not be decided: {rel.reason}; the stated order was not checked",
-                                             claim_ids=_claims_mentioning(report, sent)[:8], rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
+                                             message=f"paragraph {pi}, sentence {si} {what} ('{rel.cue}': {rel.statement}) but the relation could not be decided: {rel.reason}; the stated relation was not checked",
+                                             claim_ids=(_claims_for_statement(report, sent, rel.cue) or _claims_mentioning(report, sent))[:8],
+                                             rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
         return out
 
     @staticmethod
@@ -406,7 +625,8 @@ class CorePack:
             phrases = "', '".join(dict.fromkeys(u.phrase[:120] for u in items))
             out.append(StructuralFinding(code="CORE-QNT-001", severity="warning",
                                          message=f"paragraph {pi}, sentence {si} states a derived figure or a relation over dated figures ('{phrases}') that could not be checked: {reason[:600]}; the stated arithmetic was not checked",
-                                         claim_ids=_claims_mentioning(report, items[0].sentence_text)[:8], rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
+                                         claim_ids=(_claims_for_statement(report, items[0].sentence_text, items[0].phrase) or _claims_mentioning(report, items[0].sentence_text))[:8],
+                                         rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
         return out
 
     @staticmethod

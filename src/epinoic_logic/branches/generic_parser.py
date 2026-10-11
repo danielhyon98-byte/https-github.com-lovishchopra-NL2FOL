@@ -18,7 +18,11 @@ word inside a substantive sentence ("... is illustrative of how ...") changes no
 disclaimer ("should be checked", "have not been verified") is a note, never a self-report;
 the self-certifications every branch recognises (``markdown.is_self_certification``: "I have
 checked ...", "all of these figures have been verified", "the figures here are accurate",
-"no errors were found", "Z3 proved the argument above") carry the advisory status.
+"no errors were found", "Z3 proved the argument above", and by the clause's structure "every
+mileage figure above has been checked", "these figures are reliable and need no further
+checking", "Nothing in this answer needs checking", "The router has confirmed that every item
+is addressed") carry the advisory status, and a note on how the answer was composed ("The
+historical setting is my own addition, not part of that paragraph.") is a note.
 Quotations are found in double marks of any kind (straight, curly, guillemet, mixed, two
 adjacent marks as one nested mark) and in single marks around two or more words, paired by
 context so a quotation that carries an apostrophe ('I don't know') is still one quotation;
