@@ -7,7 +7,12 @@ A peer-dependent task (``peer_of``) is listed with the peer's report supplied as
 ``peer:<task>`` when <round>/relayed/<task_id>.json exists, as the hub supplies it. Every source
 reference says whether its excerpt was LOCATED in the named document; an unlocated excerpt is
 attributed to the first document only so the hub can report it (INT-REQ-003), not as a claim
-that the words are there."""
+that the words are there. Each claim's ``assumptions`` are printed under its row (the History
+parser records inline from-memory labels and single-quoted spans with no text to check them
+against there) and a claim that is an agent self-report shows its ``advisory_verification_status``
+(recorded for audit, never trusted). With ``--json`` every claim also carries ``claim_text_sha256``,
+the digest a translation fixture file may record so run_arena.py refuses the fixture once the
+claim's text changes."""
 from __future__ import annotations
 
 import json
@@ -16,7 +21,7 @@ from pathlib import Path
 
 from epinoic_logic.adapters.sources import check_excerpt
 from epinoic_logic.branches import default_registry
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.translate.contracts import SuppliedText, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.subjects import resolve_profile
 
@@ -44,11 +49,15 @@ for c in report.claims:
     docs = {t.document_id: t for t in texts}
     refs = [{**r.model_dump(exclude_none=True), "located": bool(r.excerpt) and r.document_id in docs and check_excerpt(r.excerpt, r.document_id, docs).located} for r in c.source_refs]
     rows.append({"claim_id": c.claim_id, "role": c.claim_role, "materiality": c.materiality, "certainty": c.certainty, "eligible": eligible, "eligibility_class": e.eligibility_class.value,
-                 "supporting_claim_ids": c.supporting_claim_ids, "source_refs": refs, "text": c.claim_text})
+                 "supporting_claim_ids": c.supporting_claim_ids, "source_refs": refs, "assumptions": list(c.assumptions), "advisory_verification_status": c.advisory_verification_status,
+                 "claim_text_sha256": sha256_text(c.claim_text), "text": c.claim_text})
 if as_json:
     print(json.dumps({"report_id": report.report_id, "request_id": report.request_id, "branch": branch.key, "claims": rows}, indent=2, ensure_ascii=False))
 else:
     print(f"report_id={report.report_id} request_id={report.request_id} branch={branch.key} claims={len(report.claims)}")
     for r in rows:
         unlocated = [x["document_id"] for x in r["source_refs"] if not x["located"]]
-        print(f"{r['claim_id']:8} {r['role']:16} {r['materiality']:11} {'ELIGIBLE' if r['eligible'] else '-':9} {r['eligibility_class']:28} supports={r['supporting_claim_ids']}{' UNLOCATED-EXCERPT' if unlocated else ''} :: {r['text'][:140]}")
+        self_report = f" SELF-REPORT={r['advisory_verification_status']}" if r["advisory_verification_status"] else ""
+        print(f"{r['claim_id']:8} {r['role']:16} {r['materiality']:11} {'ELIGIBLE' if r['eligible'] else '-':9} {r['eligibility_class']:28} supports={r['supporting_claim_ids']}{' UNLOCATED-EXCERPT' if unlocated else ''}{self_report} :: {r['text'][:140]}")
+        for a in r["assumptions"]:
+            print(f"{'':8} assumption: {a[:220]}")

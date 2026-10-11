@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Stress the infrastructure with REAL specialist outputs: replay every transmission in a
 round many times, sequentially and on 16 threads, and drive the HTTP service with the
-same reports. Usage: stress_arena.py <round_dir> [replays=30]"""
+same reports. Usage: stress_arena.py <round_dir> [replays=30]
+
+Every hub call of a cycle runs under try/except: an input that makes the hub raise is counted
+under the status ``CRASH:<ExceptionType>`` (and a rejected request under ``REQUEST_REJECTED``)
+so the run continues and the crash count is part of the statuses instead of aborting the run
+before stress.json is written. Results go to <round_dir>/stress.json (the path is printed)."""
 from __future__ import annotations
 
 import json
@@ -51,15 +56,26 @@ def load(round_dir: Path):
 
 
 def one_cycle(hub: RouterHub, item: dict, i: int) -> tuple[str, float]:
+    """One router->specialist->router cycle. Returns (status, latency_ms); a hub call that raises yields the status
+    ``CRASH:<ExceptionType>`` and the run goes on, so a crashing input is counted rather than fatal."""
     texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
     task_id = f"{item['task_id']}-{i}"
-    hub.open_task(WorkPlan(plan_id=f"plan-{task_id}", request_id=f"req-{item['task_id']}", task_id=task_id, subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"),
-                           selected_agent_ids=[item["agent_id"]], allowed_document_ids=[t.document_id for t in texts]))
     t0 = time.perf_counter()
-    m, _, _ = hub.dispatch(task_id, item["agent_id"], item["question"], texts)
-    _, rc = hub.receive(task_id, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{task_id}")
-    hub.channels.pop(task_id, None)
-    return rc.status.value, (time.perf_counter() - t0) * 1000.0
+    try:
+        hub.open_task(WorkPlan(plan_id=f"plan-{task_id}", request_id=f"req-{item['task_id']}", task_id=task_id, subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"),
+                               selected_agent_ids=[item["agent_id"]], allowed_document_ids=[t.document_id for t in texts]))
+        t0 = time.perf_counter()
+        m, _, rq = hub.dispatch(task_id, item["agent_id"], item["question"], texts)
+        if m is None:
+            status = "REQUEST_REJECTED"
+        else:
+            _, rc = hub.receive(task_id, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{task_id}")
+            status = rc.status.value
+    except Exception as exc:  # counted, never fatal: the point of the run is to find exactly this
+        status = f"CRASH:{type(exc).__name__}"
+    finally:
+        hub.channels.pop(task_id, None)
+    return status, (time.perf_counter() - t0) * 1000.0
 
 
 def main(round_dir: Path, replays: int) -> dict:
@@ -74,7 +90,8 @@ def main(round_dir: Path, replays: int) -> dict:
             s, ms = one_cycle(hub, item, i)
             lat.append(ms)
             statuses[s] = statuses.get(s, 0) + 1
-    out["sequential"] = {"transmissions": len(lat), "throughput_per_s": len(lat) / (time.perf_counter() - t0), "p50_ms": pct(lat, 50), "p95_ms": pct(lat, 95), "p99_ms": pct(lat, 99), "statuses": statuses, "rss_growth_mb": rss_mb() - rss0}
+    out["sequential"] = {"transmissions": len(lat), "throughput_per_s": len(lat) / (time.perf_counter() - t0), "p50_ms": pct(lat, 50), "p95_ms": pct(lat, 95), "p99_ms": pct(lat, 99), "statuses": statuses,
+                         "crashes": sum(n for s, n in statuses.items() if s.startswith("CRASH:")), "rss_growth_mb": rss_mb() - rss0}
 
     def worker(k):
         h = RouterHub(signing_key=KEY, config=CFG)
@@ -86,7 +103,8 @@ def main(round_dir: Path, replays: int) -> dict:
     t1 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=16) as pool:
         results = [s for r in pool.map(worker, range(16)) for s in r]
-    out["threads16"] = {"transmissions": len(results), "wall_s": time.perf_counter() - t1, "rejected": results.count("REJECTED"), "statuses": {s: results.count(s) for s in set(results)}}
+    out["threads16"] = {"transmissions": len(results), "wall_s": time.perf_counter() - t1, "rejected": results.count("REJECTED"), "crashes": sum(1 for s in results if s.startswith("CRASH:")),
+                        "statuses": {s: results.count(s) for s in set(results)}}
 
     # service under load with the same reports (verify endpoint with problems from the formal checks is covered by tests/service; here: outcomes path if available)
     try:
@@ -119,6 +137,7 @@ def main(round_dir: Path, replays: int) -> dict:
                           "limited_503": codes.get(503, codes.get("503", 0)), "note": "503 = load shed by the bounded-concurrency admission with Retry-After, not a failure"}
     except Exception as exc:  # service optional in this harness
         out["service"] = {"error": f"{type(exc).__name__}: {exc}"}
+    out["written_to"] = str(round_dir / "stress.json")
     (round_dir / "stress.json").write_text(json.dumps(out, indent=2))
     return out
 
@@ -126,4 +145,6 @@ def main(round_dir: Path, replays: int) -> dict:
 if __name__ == "__main__":
     rd = Path(sys.argv[1]).resolve()
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 30
-    print(json.dumps(main(rd, n), indent=2))
+    res = main(rd, n)
+    print(json.dumps(res, indent=2))
+    print("stress results written to", res["written_to"])

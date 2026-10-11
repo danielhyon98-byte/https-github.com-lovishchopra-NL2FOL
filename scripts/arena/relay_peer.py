@@ -8,6 +8,12 @@ report to the requesting agent (agent-to-agent hand-off on the same ledger) and 
 <round_dir>/relayed/<task_id>.json: the relay receipt and the specialist_report/1.0
 payload exactly as delivered. That file is the only thing the peer-dependent agent may
 read of its peer; the agents never see each other's raw output.
+
+The group's plan is built by run_arena.group_plan, the same function run_arena.run_round
+uses, so the relay and the measured round agree on the selected agents, each agent's
+subject branch and each agent's own task type (WorkPlan.agent_task_types: the History
+peer's request, report and forward carry its short_answer, not the deliverable's
+analytical_paragraph). The plan as used is recorded in the output file.
 """
 from __future__ import annotations
 
