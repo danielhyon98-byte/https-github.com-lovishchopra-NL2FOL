@@ -27,7 +27,7 @@ def test_three_subjects_through_one_hub():
                  "The counter-case is that the unemployed often voted Communist. By the criterion of what made the breakthrough possible, the Depression was decisive. The vote fell in November 1932, after the party had become the largest in July 1932.")
     _, rh = hub.receive("t-hist", m1.message_id, hist_text, agent_id="history-specialist", report_id="rep-h")
     assert rh.branch == "history" and rh.status is not TransmissionStatus.REJECTED
-    assert any(fc.constraint_id.startswith("history-chronology") and fc.satisfied for fc in rh.formal_checks)
+    assert any(fc.constraint_id.startswith("core-chronology") and fc.satisfied for fc in rh.formal_checks)
     assert not any(f.code == "INT-REQ-008" for f in rh.findings)  # a judgement is present
 
     econ_text = "Quantity demanded fell by 10 per cent when price rose by 20 per cent, so the price elasticity of demand is 2. Demand is therefore elastic."

@@ -1,6 +1,6 @@
 """The report's own arithmetic, decided by the engine with no model involved, per subject pack."""
 from epinoic_logic.branches import default_registry, extract_quant_checks
-from epinoic_logic.branches.packs import BusinessPack, EconomicsPack, HistoryPack, PsychologyPack
+from epinoic_logic.branches.packs import BusinessPack, CorePack, EconomicsPack, PsychologyPack
 from epinoic_logic.engine import SolverConfig, verify
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
 
@@ -58,12 +58,12 @@ def test_psychology_study_attribution_and_significance():
     assert {"PS-SRC-001", "PS-STR-001"} <= codes
 
 
-def test_history_chronology_formal_check():
+def test_chronology_formal_check_runs_for_every_subject():
     ok = report("History", "history-specialist", "The vote fell in November 1932, after the party had become the largest in July 1932.")
     bad = report("History", "history-specialist", "The vote fell in November 1931, after the party had become the largest in July 1932.")
-    pack = HistoryPack()
-    assert status(pack.formal_checks(ok)[0].problem) == "ENTAILED"
-    assert status(pack.formal_checks(bad)[0].problem) == "COUNTEREXAMPLE"
+    pack = CorePack()
+    assert status([c for c in pack.formal_checks(ok) if c.kind == "chronology"][0].problem) == "ENTAILED"
+    assert status([c for c in pack.formal_checks(bad) if c.kind == "chronology"][0].problem) == "COUNTEREXAMPLE"
 
 
 def test_registry_routes_every_known_subject_and_falls_back():

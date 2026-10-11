@@ -20,6 +20,34 @@ _PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent|%)")
 _MEMORY_LABEL_RE = re.compile(r"from memory|illustrative|verify (?:them|these|this)", re.IGNORECASE)
 
 
+def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+    """'X ... came/was ... after ... Y' with two month-year dates -> X must be later than Y."""
+    from ..ir.schema import Problem
+    out: list[FormalCheck] = []
+    n = 0
+    for sent in _SENT_RE.split(report.original_response):
+        if " after " not in sent.lower():
+            continue
+        dates = _MONTH_YEAR_RE.findall(sent)
+        if len(dates) < 2:
+            continue
+        n += 1
+        a = int(dates[0][1]) * 12 + _MONTHS[dates[0][0].lower()]
+        b = int(dates[1][1]) * 12 + _MONTHS[dates[1][0].lower()]
+        problem = {
+            "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
+            "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{dates[0][0]} {dates[0][1]} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{dates[1][0]} {dates[1][1]}"}],
+            "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(a)}}, "grounding": {"kind": "supplied_text", "verified": True}},
+                         {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(b)}}, "grounding": {"kind": "supplied_text", "verified": True}}],
+            "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}}, "label": "the first-named event came after the second"},
+        }
+        out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology", description=f"stated order of dated events: {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
+    return out
+
+
+_QUOTE_SPAN_RE = re.compile(r"\"([^\"]{12,})\"|“([^”]{12,})”")
+
+
 def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
     out: list[FormalCheck] = []
     for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
@@ -40,10 +68,14 @@ class CorePack:
                     f.append(StructuralFinding(code="CORE-SRC-001", severity="error", message="cited excerpt not found in the supplied text", claim_ids=[c.claim_id], rule_source="source integrity (every pack's non-negotiable 2)"))
         if _PCT_RE.search(report.original_response) and not report.supplied_texts and not _MEMORY_LABEL_RE.search(report.original_response) and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
+        if not report.supplied_texts and not _MEMORY_LABEL_RE.search(report.original_response):
+            quoted = [m.group(1) or m.group(2) for m in _QUOTE_SPAN_RE.finditer(report.original_response)]
+            if quoted:
+                f.append(StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: no text was supplied and no from-memory label is present", claim_ids=[c.claim_id for c in report.claims if any(q in c.claim_text for q in quoted)][:8], rule_source="source integrity (quote from memory only with permission, and say so)"))
         return f
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        return _quant_formal(report, "core")
+        return _quant_formal(report, "core") + _chronology_formal(report, "core")
 
 
 class HistoryPack:
@@ -57,28 +89,7 @@ class HistoryPack:
         return structural_checks(report)
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        """Chronology: 'X ... came/was ... after ... Y' with two month-year dates -> X later than Y."""
-        out: list[FormalCheck] = []
-        n = 0
-        for sent in _SENT_RE.split(report.original_response):
-            if " after " not in sent.lower():
-                continue
-            dates = _MONTH_YEAR_RE.findall(sent)
-            if len(dates) < 2:
-                continue
-            n += 1
-            a = int(dates[0][1]) * 12 + _MONTHS[dates[0][0].lower()]
-            b = int(dates[1][1]) * 12 + _MONTHS[dates[1][0].lower()]
-            problem = {
-                "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
-                "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{dates[0][0]} {dates[0][1]} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{dates[1][0]} {dates[1][1]}"}],
-                "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(a)}}, "grounding": {"kind": "supplied_text", "verified": True}},
-                             {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(b)}}, "grounding": {"kind": "supplied_text", "verified": True}}],
-                "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}}, "label": "the first-named event came after the second"},
-            }
-            from ..ir.schema import Problem
-            out.append(FormalCheck(check_id=f"history-chronology-{n}", kind="chronology", description=f"stated order of dated events: {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
-        return out
+        return []  # chronology and numeric self-consistency run in CorePack for every subject
 
 
 class EnglishPack:
