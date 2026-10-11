@@ -20,7 +20,10 @@ Source integrity
                           declares (``locator_scheme``): the location cannot be
                           verified and must never be invented.
 * ``ES-SRC-003`` warning the answer says a quotation is from memory ("from memory",
-                          "as I recall", "if memory serves" ...).
+                          "as I recall", "if memory serves" ...). The phrase is searched
+                          outside the sentence's quotations, and a quotation located in a
+                          supplied text (a colleague's own disclosure, quoted exactly) does
+                          not count: the disclosure is the quoted author's, not the quoter's.
 * ``ES-SRC-004`` warning a quotation with no supplied text to check it against.
 * ``ES-SRC-005`` warning a quotation found only by joining separate spans of the text
                           without marking the omission (formatting.md S12: quote exactly).
@@ -28,21 +31,31 @@ Source integrity
                           (initial capital changed, verse line-break mark omitted): S12,
                           but not an invented quotation.
 * ``ES-SRC-007`` info    an elided quotation (``...``); the span it covers is stated.
+* ``ES-SRC-008`` error / warning a quotation attributed by the sentence to one supplied text
+                          (its author, title or the peer specialist named) but located only in
+                          another: an error when a relayed colleague's report is involved
+                          (the poem's words credited to the colleague, or the colleague's to
+                          the poet), a warning between two literary texts.
+  When no supplied text contains an excerpt, the ``ES-SRC-001`` message lists every text
+  searched.
 
 Structure (paragraphs.md)
 * ``ES-STR-001`` warning a body paragraph with fewer than two quotations of at least two
                           words: proxy for P7, one idea carried by two strands.
 * ``ES-STR-002`` info    a body paragraph outside 230-390 words: proxy for P13 ("the model
                           runs about 350 words. Paragraphs the user accepted ran from
-                          roughly 230 to 390 words").
+                          roughly 230 to 390 words"). Not raised when the request text
+                          passed to :func:`structural_checks` sets a word count.
   Neither applies to outline, plan or bullet deliverables (``task_type``) nor to
   heading, list or meta blocks.
 
 Meta-text (master_prompt.txt internal-processing visibility rule, non-negotiable 3)
-* ``ES-META-001`` warning a block or sentence that narrates checks or steps
-                          (``VERIFIED: all claims checked and confirmed.``, "I have
-                          checked ..."): it is not analysis, provides no evidence and
-                          plays no part in verification.
+* ``ES-META-001`` warning a block or sentence that narrates checks or steps, certifies the
+                          answer's own accuracy or is a pasted receipt (``VERIFIED: all claims
+                          checked and confirmed.``, "I have checked ...", "every figure in this
+                          paragraph is accurate", a JSON-shaped line): it is not analysis,
+                          provides no evidence and plays no part in verification, wherever it
+                          stands and whether or not it carries quotation marks.
 
 Style (formatting.md)
 * ``ES-STY-001`` info    first person (I, we, my, our, me, us) outside quotations: S2
@@ -59,11 +72,13 @@ from typing import Iterable, Optional
 from ...translate.common import truncate
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ..generic_structured import generic_source_findings
-from .parser import META_NARRATION_RE, Paragraph, Sentence, segment, strip_quotations
+from ..sources import check_excerpt
+from .parser import Paragraph, Sentence, documents_named, is_meta_sentence, is_peer_document, segment, strip_quotations
 
 __all__ = [
     "structural_checks", "RULE_SOURCES", "MIN_STRAND_QUOTATIONS", "MIN_QUOTATION_WORDS",
-    "BODY_WORDS_MIN", "BODY_WORDS_MAX", "OUTLINE_TASK_RE", "citation_schemes", "find_citations",
+    "BODY_WORDS_MIN", "BODY_WORDS_MAX", "OUTLINE_TASK_RE", "WORD_BOUND_RE", "citation_schemes", "find_citations",
+    "attribution_findings", "memory_findings", "source_findings",
 ]
 
 _WORKING = " (working rule, not an official IB rule)"
@@ -75,6 +90,7 @@ RULE_SOURCES: dict[str, str] = {
     "ES-SRC-005": "english_specialist/formatting.md S12" + _WORKING,
     "ES-SRC-006": "english_specialist/formatting.md S12, quotation form" + _WORKING,
     "ES-SRC-007": "english_specialist/formatting.md S12, elided quotation" + _WORKING,
+    "ES-SRC-008": "english_specialist/master_prompt.txt non-negotiable 1, attribution of quotations" + _WORKING,
     "ES-STR-001": "english_specialist/paragraphs.md P7" + _WORKING,
     "ES-STR-002": "english_specialist/paragraphs.md P13" + _WORKING,
     "ES-META-001": "english_specialist/master_prompt.txt visibility rule and non-negotiable 3" + _WORKING,
@@ -91,6 +107,8 @@ BODY_WORDS_MAX = 390
 _EXCERPT_CHARS = 80
 #: Deliverables whose blocks are not prose paragraphs; P7 and P13 do not apply to them.
 OUTLINE_TASK_RE = re.compile(r"outline|plan|bullet|notes?", re.IGNORECASE)
+#: A word count set by the request ("no more than 300 words", "about 250 words", "250-300 words"): P13 then yields to it.
+WORD_BOUND_RE = re.compile(r"\b\d{2,4}(?:\s*(?:-|–|to)\s*\d{2,4})?\s+words\b", re.IGNORECASE)
 
 # --- citations -----------------------------------------------------------------------
 _TOKEN_SCHEME: dict[str, str] = {
@@ -225,11 +243,14 @@ def _claims_for_sentence(report: SpecialistReport, sentence: Sentence) -> list[s
 
 
 def _claims_for_paragraph(report: SpecialistReport, para: Paragraph) -> list[str]:
-    """The paragraph's point claim (the claim whose text is its first sentence), when any."""
-    if not para.sentences:
-        return []
-    first = para.sentences[0].text.strip()
-    return [c.claim_id for c in report.claims if c.claim_role == "point" and c.claim_text.strip() == first]
+    """The paragraph's point claim (the point whose text is one of its sentences), when any."""
+    texts = {s.text.strip() for s in para.sentences}
+    return [c.claim_id for c in report.claims if c.claim_role == "point" and c.claim_text.strip() in texts][:1]
+
+
+def _located_in(excerpt: str, report: SpecialistReport) -> list[str]:
+    docs = {t.document_id: t for t in report.supplied_texts}
+    return [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
 
 
 # ------------------------------------------------------------------ citations
@@ -287,13 +308,56 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
             [c.claim_id for c in cited],
         )]
     out: list[StructuralFinding] = []
+    claims = {c.claim_id: c for c in report.claims}
     for f in generic_source_findings(
         report, code="ES-SRC-001", joined_code="ES-SRC-005", inexact_code="ES-SRC-006", elided_code="ES-SRC-007", locator_code="ES-SRC-002",
     ):
         message = f.message
         if f.code == "ES-SRC-001" and "not found in the document" in message:
+            searched = [t.document_id for t in report.supplied_texts]
+            claim = claims.get(f.claim_ids[0]) if f.claim_ids else None
+            excerpts = [r.excerpt for r in claim.source_refs if r.excerpt] if claim else []
+            elsewhere = sorted({d for ex in excerpts for d in _located_in(ex, report)})
+            if elsewhere:
+                message += f"; the words occur in {', '.join(elsewhere)}, not in the text cited"
+            else:
+                message += f"; searched every supplied text ({', '.join(searched)}): found in none"
             message += " (not in the supplied text: invented, altered, or quoted from memory without the required one-line disclosure)"
         out.append(f.model_copy(update={"rule_source": RULE_SOURCES[f.code], "message": truncate(message, 2000)}))
+    return out
+
+
+def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
+    """ES-SRC-008: a sentence names exactly one supplied text (author, surname, title, the peer
+    specialist, or "the poem" when one literary text was supplied) but its quotation is located
+    only in another supplied text. An error when a relayed colleague's report is on either side."""
+    docs = {t.document_id: t for t in report.supplied_texts}
+    if len(docs) < 2:
+        return []
+    out: list[StructuralFinding] = []
+    for para in paragraphs:
+        if para.kind == "meta":
+            continue
+        for sentence in para.sentences:
+            if not sentence.quotations or sentence.role == "other":
+                continue
+            named = documents_named(strip_quotations(sentence.text), docs)
+            if len(named) != 1:
+                continue
+            for q in sentence.quotations:
+                if not q.delimited:
+                    continue
+                located = [d for d in docs if check_excerpt(q.excerpt, d, docs).located]
+                if not located or named[0] in located:
+                    continue
+                peer = is_peer_document(docs[named[0]]) or any(is_peer_document(docs[d]) for d in located)
+                claim_ids = [c.claim_id for c in report.claims if any(r.excerpt == q.excerpt for r in c.source_refs)] or _claims_for_sentence(report, sentence)
+                out.append(_finding(
+                    "ES-SRC-008", "error" if peer else "warning",
+                    f"paragraph {para.index}, sentence {sentence.index} attributes the quotation '{truncate(q.excerpt, _EXCERPT_CHARS)}' to "
+                    f"{named[0]} but the words occur only in {', '.join(located)}; the quotation is real but credited to the wrong text",
+                    claim_ids,
+                ))
     return out
 
 
@@ -327,12 +391,20 @@ def citation_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...
 
 
 def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-SRC-003: the answer says a quotation is from memory. A from-memory label that
-    concerns dates or figures and names no quotation is not an English source finding."""
+    """ES-SRC-003: the answer says a quotation is from memory. The phrase is searched with the
+    sentence's quotations masked (a quoted colleague's disclosure is the colleague's), and only
+    quotations NOT located in a supplied text count as the quoter's from-memory quotations. A
+    from-memory label that concerns dates or figures and names no quotation is not an English
+    source finding."""
     out: list[StructuralFinding] = []
+    docs = {t.document_id: t for t in report.supplied_texts}
     for para in paragraphs:
         for sentence in para.sentences:
-            if _FROM_MEMORY_RE.search(sentence.text) and (sentence.quotations or _QUOTE_WORD_RE.search(sentence.text) or not _DATES_FIGURES_RE.search(sentence.text)):
+            plain = strip_quotations(sentence.text)
+            if not _FROM_MEMORY_RE.search(plain):
+                continue
+            unlocated = [q for q in sentence.quotations if not q.delimited or not docs or not any(check_excerpt(q.excerpt, d, docs).located for d in docs)]
+            if unlocated or _QUOTE_WORD_RE.search(plain) or not _DATES_FIGURES_RE.search(plain):
                 out.append(_finding(
                     "ES-SRC-003", "warning",
                     f"paragraph {para.index}, sentence {sentence.index} quotes from memory; such quotations are "
@@ -377,24 +449,25 @@ def length_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
 
 
 def meta_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-META-001: meta-text blocks, and prose sentences that narrate checks or steps."""
+    """ES-META-001: meta-text blocks, and prose sentences that narrate checks or steps, certify
+    the answer's own accuracy or have the shape of a pasted receipt (quotation marks or not)."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
         if para.kind == "meta":
             out.append(_finding(
                 "ES-META-001", "warning",
-                f"paragraph {para.index} is meta-text ('{truncate(para.text, _EXCERPT_CHARS)}'): a note about the text, a self-certification or a "
+                f"paragraph {para.index} is meta-text ('{truncate(para.text, _EXCERPT_CHARS)}'): a note about the text, a self-certification, a pasted receipt or a "
                 "narrated check is not analysis, provides no evidence and plays no part in verification",
             ))
             continue
+        if not para.is_prose:
+            continue
         for sentence in para.sentences:
-            if sentence.quotations:
-                continue
-            if META_NARRATION_RE.search(sentence.text):
+            if is_meta_sentence(sentence.text):
                 out.append(_finding(
                     "ES-META-001", "warning",
-                    f"paragraph {para.index}, sentence {sentence.index} narrates a check or an internal step "
-                    f"('{truncate(sentence.text, _EXCERPT_CHARS)}'); such assurance is not analysis and plays no part in verification",
+                    f"paragraph {para.index}, sentence {sentence.index} narrates a check, certifies the answer or imitates a receipt "
+                    f"('{truncate(sentence.text, _EXCERPT_CHARS)}'); such assurance is not analysis, counts as no material claim and plays no part in verification",
                     _claims_for_sentence(report, sentence),
                 ))
     return out
@@ -475,22 +548,25 @@ def bare_quotation_findings(report: SpecialistReport, paragraphs: tuple[Paragrap
     return out
 
 
-def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Paragraph, ...]] = None) -> list[StructuralFinding]:
+def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Paragraph, ...]] = None, request_text: Optional[str] = None) -> list[StructuralFinding]:
     """All English specialist structural findings for ``report`` (see module docstring).
 
     ``paragraphs`` may be passed when the caller already segmented the answer;
     otherwise ``report.original_response`` is segmented here. The paragraph working
-    rules (P7, P13) are skipped for outline, plan and bullet deliverables.
+    rules (P7, P13) are skipped for outline, plan and bullet deliverables, and the
+    length rule (P13) yields to a word count set in ``request_text`` when given.
     """
     if paragraphs is None:
         paragraphs = segment(report.original_response)
     findings: list[StructuralFinding] = []
     findings += source_findings(report, paragraphs)
+    findings += attribution_findings(report, paragraphs)
     findings += citation_findings(report, paragraphs)
     findings += memory_findings(report, paragraphs)
     if not OUTLINE_TASK_RE.search(report.task_type or ""):
         findings += strand_findings(report, paragraphs)
-        findings += length_findings(report, paragraphs)
+        if not (request_text and WORD_BOUND_RE.search(request_text)):
+            findings += length_findings(report, paragraphs)
     findings += meta_findings(report, paragraphs)
     findings += first_person_findings(report, paragraphs)
     findings += spelling_findings(report, paragraphs)

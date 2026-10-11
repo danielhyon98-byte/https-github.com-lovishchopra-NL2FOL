@@ -212,6 +212,10 @@ class TranslationResult(BaseModel):
     report_id: str
     status: TranslationStatus
     eligibility: EligibilityDecision
+    claim_text_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64, description=(
+        "sha256 of the claim_text this translation was produced for (set by the translator). A translation is bound to the "
+        "text it read, not only to (request_id, claim_id): the outcome composer and the channel reject one attached to a "
+        "claim whose text differs, so a stale translation is never displayed under another text"))
     problem: Optional[Problem] = None
     interpretation: Optional[Interpretation] = None
     grounding_checks: list[GroundingCheck] = Field(default_factory=list)

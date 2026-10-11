@@ -1,4 +1,4 @@
 """Translator channel: the path every inter-agent message takes."""
 from .bus import TranslatorChannel  # noqa: F401
 from .contracts import Constraint, ConstraintResult, CoverageRecord, RequestItem, TaskRequest, TransmissionReceipt, TransmissionStatus  # noqa: F401
-from .request_parser import count_paragraphs, count_words, extract_constraints, extract_items, is_constraint_only, detect_command_term, COMMAND_TERMS  # noqa: F401
+from .request_parser import count_answer_words, count_paragraphs, count_words, extract_constraints, extract_items, is_constraint_only, strip_constraint_spans, detect_command_term, COMMAND_TERMS  # noqa: F401

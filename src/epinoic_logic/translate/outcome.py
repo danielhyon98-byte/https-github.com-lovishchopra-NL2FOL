@@ -43,6 +43,7 @@ from .contracts import (
     StructuralFinding,
     TranslationResult,
     TranslationStatus,
+    sha256_text,
 )
 from .pipeline import Translator
 from .review import SemanticReviewer
@@ -353,9 +354,14 @@ def compose_outcome(
     claim, same problem id and digest) and, when ``signing_key`` is given, carries a
     signature that verifies under it; anything else is displayed as
     ``INTERNAL_ERROR`` and explained in the summary. Agent self-reports play no part.
+    A translation that carries ``claim_text_sha256`` must have been produced for this
+    claim's exact text; otherwise it is stale and ``ValueError`` is raised rather than
+    displaying it under another text.
     """
     if translation.claim_id != claim.claim_id or translation.request_id != claim.request_id:
         raise ValueError("translation does not belong to the claim")
+    if translation.claim_text_sha256 is not None and translation.claim_text_sha256 != sha256_text(claim.claim_text):
+        raise ValueError("translation was produced for a different text of this claim (stale translation); it is not displayed under the current text")
     if review is not None and review.translation_id != translation.translation_id:
         raise ValueError("review does not belong to the translation")
     findings = list(structural)

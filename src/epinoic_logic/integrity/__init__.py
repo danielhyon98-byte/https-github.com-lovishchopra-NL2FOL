@@ -19,8 +19,8 @@ from .contracts import (  # noqa: F401
     verify_message, verify_report_digest, envelope_digest, CERTAINTY_RANK, MESSAGE_MAX_CHARS,
 )
 from .cross_check import (  # noqa: F401
-    JointMap, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment, claim_ids_from_core,
-    joint_problem,
+    JointMap, check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment,
+    claim_ids_from_core, joint_problem,
 )
 from .envelope import MessageLog, bind_payload, ROLE_CONTRACTS  # noqa: F401
 from .handoff import check_report_against_plan, check_report_set, check_result_binding  # noqa: F401
@@ -219,28 +219,7 @@ def run_integrity_checks(
 
         guarded("required_formal_checks", required_checks)
 
-        def disclosure() -> None:
-            by_id = {c.claim_id: c for c in synthesis.claims}
-
-            def as_sources(ids: list[str]) -> set[str]:
-                out: set[str] = set()
-                for i in ids:
-                    sc = by_id.get(i)
-                    out.update(sc.source_claim_ids if sc is not None and sc.source_claim_ids else [i])
-                return out
-
-            records = [as_sources(list(c.claim_ids)) for c in synthesis.conflicts]
-            seen: set[frozenset[str]] = set()
-            for conflicting, rid in conflicting_sets:
-                if len(conflicting) < 2 or conflicting in seen:
-                    continue
-                seen.add(conflicting)
-                covering = [r for r in records if len(r & conflicting) >= 2]
-                disclosed = conflicting <= set().union(*covering) if covering else False
-                if not disclosed:
-                    findings.append(IntegrityFinding(code="INT-CONFLICT-002", severity="error", message=f"a formal contradiction between specialist claims {sorted(conflicting)} is not disclosed in the synthesis conflict records (a record counts only if it names at least two of the conflicting claims, and together the records must name them all)", claim_ids=sorted(conflicting), formal_result_id=rid, agent_ids=[synthesis.combinator_agent_id], deterministic=False))
-
-        guarded("conflict_disclosure", disclosure)
+        guarded("conflict_disclosure", lambda: findings.extend(check_conflict_disclosure(synthesis, conflicting_sets)))
 
     report = IntegrityReport(report_id=uuid.uuid4().hex, request_id=plan.request_id, task_id=plan.task_id, checks_run=checks, findings=findings, formal_result_ids=formal_ids, created_at=_now())
     report.report_sha256 = report_digest(report)

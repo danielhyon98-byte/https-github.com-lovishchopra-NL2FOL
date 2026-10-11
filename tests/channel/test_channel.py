@@ -23,7 +23,7 @@ USER_INPUT = ("Analyse how the writer presents the administration of justice in 
 
 def plan(**over):
     base = dict(plan_id="plan-9", request_id="req-9", task_id="task-9", subject="English A: Literature", task_type="analytical_paragraph",
-                selected_agent_ids=["english-specialist", "history-specialist"], allowed_document_ids=["doc-cdf"])
+                selected_agent_ids=["english-specialist", "history-specialist", "combinator"], allowed_document_ids=["doc-cdf"])
     base.update(over)
     return WorkPlan(**base)
 

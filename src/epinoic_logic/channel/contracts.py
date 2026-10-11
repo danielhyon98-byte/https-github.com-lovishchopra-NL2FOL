@@ -19,6 +19,8 @@ from ..integrity.contracts import IntegrityFinding
 from ..translate.contracts import ClaimVerificationOutcome, StructuralFinding, SuppliedText
 
 ConstraintKind = Literal["max_words", "min_words", "max_paragraphs", "min_paragraphs", "must_cite_supplied_text", "must_address_all_items", "other"]
+#: Longest receipt summary; the channel summarises per-check lists as counts and truncates defensively, never raising.
+SUMMARY_MAX_CHARS = 8000
 
 
 class RequestItem(BaseModel):
@@ -108,7 +110,7 @@ class TransmissionReceipt(BaseModel):
     structural_findings: list[StructuralFinding] = Field(default_factory=list, description="branch integrity-pack findings (deterministic)")
     formal_checks: list[ConstraintResult] = Field(default_factory=list, description="branch formal checks decided by the engine about the report's own statements")
     formal_result_ids: list[str] = Field(default_factory=list)
-    summary: str = Field(max_length=8000)
+    summary: str = Field(max_length=SUMMARY_MAX_CHARS)
     created_at: str
 
     @property

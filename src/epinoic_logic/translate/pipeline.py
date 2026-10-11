@@ -50,6 +50,7 @@ from .contracts import (
     SpecialistReport,
     TranslationResult,
     TranslationStatus,
+    sha256_text,
 )
 from .eligibility import decide_eligibility
 from .grounding import check_problem_grounding
@@ -324,6 +325,7 @@ class Translator:
             report_id=claim.report_id,
             status=status,
             eligibility=eligibility,
+            claim_text_sha256=sha256_text(claim.claim_text),
             problem=problem,
             interpretation=interpretation,
             grounding_checks=list(grounding_checks or []),

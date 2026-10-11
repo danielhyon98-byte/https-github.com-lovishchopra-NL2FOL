@@ -29,8 +29,9 @@ def check_report_against_plan(plan: WorkPlan, report: SpecialistReport) -> list[
     planned_subject = plan.agent_subjects.get(report.agent_id, plan.subject)
     if report.subject.strip().lower() != planned_subject.strip().lower():
         f.append(IntegrityFinding(code="INT-HANDOFF-003", severity="error", message=f"report subject {report.subject!r} differs from planned subject {planned_subject!r} for agent {report.agent_id}", **ids))
-    if report.task_type != plan.task_type:
-        f.append(IntegrityFinding(code="INT-HANDOFF-010", severity="warning", message=f"report task_type {report.task_type!r} differs from planned {plan.task_type!r}", **ids))
+    planned_task_type = plan.agent_task_types.get(report.agent_id, plan.task_type)
+    if report.task_type != planned_task_type:
+        f.append(IntegrityFinding(code="INT-HANDOFF-010", severity="warning", message=f"report task_type {report.task_type!r} differs from the task type planned for agent {report.agent_id} ({planned_task_type!r})", **ids))
     if plan.course_level not in (None, "unknown") and report.course_level not in (None, "unknown") and report.course_level != plan.course_level:
         f.append(IntegrityFinding(code="INT-HANDOFF-011", severity="error", message=f"report course_level {report.course_level!r} differs from planned {plan.course_level!r}", **ids))
     if plan.allowed_document_ids:

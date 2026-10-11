@@ -3,9 +3,13 @@
 Rule sources are the pack's own working rules (Response application §3, §5, §8;
 Structures P6, P7, P9, P15; Sources L5), never official IB rules. Paragraphs are
 classified exactly as the parser classifies them (``classify_paragraphs``), so the
-findings and the claim roles always agree: note paragraphs (from-memory labels,
-self-certification lines, short undated asides) are not body paragraphs and are not
-held to the body-paragraph rules.
+findings and the claim roles always agree: note paragraphs (from-memory labels, task
+notes, self-certification lines or forged receipt fragments, short undated asides) are
+not body paragraphs and are not held to the body-paragraph rules. ``HI-CHR-001`` reads
+the sentence's dated orderings from the same extractor as the core pack's formal
+chronology check (``history_specialist.chronology``). ``HI-STR-001`` (no judgement
+move) is raised here for every body paragraph; the History pack drops it when the
+request's command term asks for no verdict (level 1-2, or no verdict term).
 """
 from __future__ import annotations
 
@@ -13,12 +17,13 @@ import re
 
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import find_quotation
-from .parser import _DATE_RE, _MONTH_YEAR_RE, _QUOTE_RE, chronology_findings_in, classify_paragraphs, has_dated_item, split_sentences
+from ..markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE
+from .chronology import chronology_relations
+from .parser import classify_paragraphs, has_dated_item, split_sentences
 
 # Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
 _NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
 _HISTORIAN_RE = re.compile(rf"\b([A-Z]\.(?:\s?[A-Z]\.)*\s?{_NAME}|{_NAME}\s{_NAME})\s+(?:has\s+)?(?:argue[sd]|prove[sd]|show[s]?|claim[s]?|concluded|demonstrated)\b")
-_MEMORY_LABEL_RE = re.compile(r"from memory|verify (?:them|these|this)|illustrative", re.IGNORECASE)
 _RULE = "history_specialist/{} (working rule, not an official IB rule)"
 
 
@@ -57,9 +62,10 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
         if sents and has_dated_item(sents[0]) and not re.search(r"\b(responsible|because|caused|led|made|turned|created)\b", sents[0], re.IGNORECASE):
             f.append(StructuralFinding(code="HI-STR-003", severity="info", message=f"body paragraph {pi + 1} opens with evidence rather than a claim", claim_ids=ids[:1], rule_source=_RULE.format("structures.md P6")))
         for s in sents:
-            viol = chronology_findings_in(s)
-            if viol is not None:
-                f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message="a sentence says one dated event came after another, but the dates it gives are not in that order", claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
+            # The same extractor decides the core pack's formal chronology check, so the proxy and the engine agree.
+            for rel in chronology_relations(s):
+                if rel.violated:
+                    f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message=f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}", claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
 
     words = len(re.findall(r"\b[\w'’-]+\b", " ".join(para for _, _, para in prose)))
     if multi and report.task_type == "essay" and not (800 <= words <= 1100):

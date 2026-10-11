@@ -18,6 +18,10 @@ from .contracts import CERTAINTY_RANK, IntegrityFinding, Synthesis
 PLACEHOLDERS = frozenset({"n/a", "na", "-", ".", "tbd", "see above", "none", "null", "nil", "todo", "?", "x", "...", "as above", "same"})
 _NUMBER_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
 _LIST_MARKER_RE = re.compile(r"(?m)^\s*\(?\d{1,2}[.)]\s")
+_THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+_MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
+#: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
+_EQUIVALENCE_LABELS = frozenset({"carried", "paraphrased"})
 
 
 def meaningful(text: Optional[str]) -> bool:
@@ -33,6 +37,19 @@ def meaningful(text: Optional[str]) -> bool:
 
 def _norm(text: str) -> str:
     return " ".join(text.split()).casefold()
+
+
+def figure_tokens(text: str) -> set[str]:
+    """The numerals (thousands separators removed) and month-year tokens of ``text``, the
+    units of a figure/date fidelity comparison between a synthesized claim and its sources."""
+    plain = _THOUSANDS_RE.sub("", text)
+    tokens = {m.group(0) for m in _NUMBER_RE.finditer(plain)}
+    tokens |= {f"{m.group(1).casefold()} {m.group(2)}" for m in _MONTH_YEAR_RE.finditer(plain)}
+    return tokens
+
+
+def _sorted_tokens(tokens: set[str]) -> list[str]:
+    return sorted(tokens, key=lambda s: (len(s), s))
 
 
 def report_set_findings(reports: list[SpecialistReport]) -> tuple[list[IntegrityFinding], set[str]]:
@@ -119,6 +136,15 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         altered = sorted({c.claim_id for c in known for r in c.source_refs if (r.document_id, r.locator) in have and r.excerpt and have[(r.document_id, r.locator)].excerpt and _norm(r.excerpt) != _norm(have[(r.document_id, r.locator)].excerpt)})
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
+        source_figures = set().union(*(figure_tokens(c.claim_text) for c in known))
+        synthesized_figures = figure_tokens(sc.text)
+        introduced = _sorted_tokens(synthesized_figures - source_figures)
+        if introduced:
+            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date, whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        if sc.transformation in _EQUIVALENCE_LABELS:
+            dropped_figures = _sorted_tokens(source_figures - synthesized_figures)
+            if dropped_figures:
+                f.append(IntegrityFinding(code="INT-LEDGER-024", severity="warning", message=f"figures or dates {dropped_figures} of the cited sources {known_ids} do not appear in the '{sc.transformation}' synthesized claim; content was dropped under an equivalence label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if sc.transformation == "carried":
             if len(known) != 1 or len(sc.source_claim_ids) != 1:
                 f.append(IntegrityFinding(code="INT-LEDGER-010", severity="warning", message=f"claim marked 'carried' cites {len(sc.source_claim_ids)} sources; 'carried' requires exactly one source with identical text, use 'merged'", claim_ids=[sc.claim_id] + known_ids))

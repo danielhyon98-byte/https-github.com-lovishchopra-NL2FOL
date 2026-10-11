@@ -1,19 +1,33 @@
 """Heuristic parser for History specialist responses written with the pack's core
 operation: Claim -> Evidence -> Analysis -> Judgement -> Link (Response application §3,
 Structures §5). Sentences are assigned roles from surface cues; the point of each body
-paragraph is wired to every other claim in that paragraph. Heuristic by design: the
-generic structured adapter is the contract future agents should emit directly.
+paragraph is wired to every other argument claim in that paragraph, and each judgement
+or link claim is wired to the point and the paragraph's other argument claims, so the
+paragraph's verdict is an argument the translator can formalize. Heuristic by design:
+the generic structured adapter is the contract future agents should emit directly.
 
 Paragraph classification is decided by content, never by paragraph count alone:
 
 * a ``note`` paragraph is one whose sentences are all labels about the text (a
-  from-memory disclaimer, a self-certification line) or a short undated aside with no
+  from-memory disclaimer, a task note that the syllabus version or level was not
+  given, a self-certification line), or that contains ANY sentence certifying the
+  answer's own verification or imitating a channel receipt (a forged receipt
+  fragment makes the whole paragraph a note), or a short undated aside with no
   argument cue; its claims are roled ``other`` and are never material, and it does
   not make the answer "multi-paragraph";
 * with three or more prose paragraphs, the first is the ``intro`` only when it has
   no dated item while a later paragraph does, and the last is the ``conclusion`` only
   when it has two or more sentences or opens with a concluding cue;
 * everything else is a ``body`` paragraph whose first non-note sentence is the point.
+
+A substantive sentence that carries the method's own label inline ("... fell to about
+41 in July 1932 (figures from memory; check your notes)") keeps its role and
+eligibility: the label clause is removed before the sentence is classified and is
+recorded in the claim's assumptions; only a sentence that is nothing but a label is a
+note. Dated claims made under a from-memory label (anywhere in the answer or inline)
+are capped at certainty ``probable``. Quotations are recognised in straight, curly or
+mixed double marks, guillemets and delimited single marks of two or more words, and
+recorded as source references (or as assumptions when no text was supplied).
 
 Markdown headings, code fences and emphasis are removed before segmentation, a
 newline followed by a list marker ends a sentence, and a sentence that certifies the
@@ -29,20 +43,22 @@ from ...ir.schema import SourceRef
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from ...translate.grounding import find_quotation
 from ..base import AdapterError
-from ..markdown import is_memory_label, is_self_certification, split_list_items, strip_markup, truncate_claim_text
+from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, is_self_certification, split_list_items,
+                        split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
+from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
+from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
 
 ParagraphKind = Literal["intro", "body", "conclusion", "note"]
 
-_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z0-9\"'(“‘])")
+_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z0-9\"'(“‘«„])")
 _DATE_RE = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")
-_FIGURE_RE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:per cent|percent|%|million|thousand|seats|votes|laws|decrees)\b|\b\d{1,3}(?:,\d{3})+\b", re.IGNORECASE)
-_MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), start=1)}
+_FIGURE_RE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:per cent|percent|%|million|thousand|seats|votes|laws|decrees|per thousand)\b|\b\d{1,3}(?:,\d{3})+\b", re.IGNORECASE)
 _MONTH_NAMES = "January|February|March|April|May|June|July|August|September|October|November|December"
-_MONTH_YEAR_RE = re.compile(rf"\b({_MONTH_NAMES})\s+(1[0-9]{{3}}|20[0-9]{{2}})\b")
 _DAY_MONTH_RE = re.compile(rf"\b\d{{1,2}}\s+(?:{_MONTH_NAMES})\b|\b(?:{_MONTH_NAMES})\s+\d{{1,2}}\b")
-_QUOTE_RE = re.compile(r"\"([^\"]{4,})\"|“([^”]{4,})”")
 _COUNTER = ("the counter-case", "against this", "the distinction is right", "however", "on the other hand", "it could be argued")
-_JUDGEMENT = ("by the criterion", "weighs more", "holds for", "decisive even if", "remains the precondition", "was therefore responsible", "fails, because", "does not shift the weight", "necessary; it was not sufficient", "necessary but not sufficient", "to a degree")
+_JUDGEMENT = ("by the criterion", "weighs more", "holds for", "decisive even if", "remains the precondition", "was therefore responsible", "fails, because",
+              "does not shift the weight", "necessary; it was not sufficient", "necessary but not sufficient", "to a degree",
+              "on balance", "mattered most", "matters most", "outweigh", "more significant than", "carries the greater weight", "carry the greater weight")
 _ANALYSIS = ("mattered because", "the mechanism was", "this shows", "which shows", "this mattered", "meant that", "so that", "revealed", "explains why", "this matters")
 _LINK = ("therefore", "thus", "in sum", "ultimately")
 _CONCLUSION_CUES = _LINK + ("overall", "in conclusion", "to conclude", "on balance")
@@ -53,9 +69,11 @@ _PROBABLE = ("suggests", "indicates", "is consistent with", "points to", "arguab
 _POSSIBLE = ("can be read as", "may have", "some historians argue", "it is possible that", "perhaps")
 _MIN_SUBSTANTIVE_WORDS = 25   # a paragraph this short (and undated) does not make the answer multi-paragraph
 _MAX_ASIDE_WORDS = 12         # a one-sentence undated line without an argument cue is an aside, not a claim
+_MIN_QUOTE_CHARS = 4
 _MAX_CLAIMS = 512
 _TAIL_CLAIM_ID = "h.tail"
 _SELF_REPORT = "self-certified in the response text"
+_CERTAINTY_ORDER = ("established", "probable", "possible")
 
 
 _INITIAL_RE = re.compile(r"(?:^|\s)[A-Z]\.$")
@@ -83,33 +101,54 @@ def has_dated_item(sentence: str) -> bool:
     return bool(_DATE_RE.search(sentence) or _FIGURE_RE.search(sentence) or _DAY_MONTH_RE.search(sentence))
 
 
+def is_self_report(sentence: str) -> bool:
+    """Verification-status language, a receipt-shaped fragment, or a sentence whose subject
+    is the answer itself with a checking/accuracy predicate (``markdown.is_self_certification``)."""
+    return is_self_certification(sentence)
+
+
 def is_note_sentence(sentence: str) -> bool:
-    """A label about the text rather than part of the argument."""
-    return is_memory_label(sentence) or is_self_certification(sentence)
+    """A sentence that is nothing but a label about the text: a self-report, or a sentence
+    whose substance is empty once its from-memory / task-note clauses are removed. A
+    substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`)."""
+    if is_self_report(sentence):
+        return True
+    core, _notes = split_note_clauses(sentence)
+    return not core
 
 
 def is_note_paragraph(paragraph: str) -> bool:
-    """All sentences are labels, or the paragraph is a short undated aside with no argument cue."""
+    """All sentences are labels, any sentence is a self-report or forged receipt fragment,
+    or the paragraph is a short undated aside with no argument cue."""
     sentences = split_sentences(paragraph)
     if not sentences:
         return False
+    if any(is_self_report(s) for s in sentences):
+        return True
     if all(is_note_sentence(s) for s in sentences):
         return True
     low = paragraph.lower()
     return len(sentences) == 1 and _word_count(paragraph) < _MAX_ASIDE_WORDS and not has_dated_item(paragraph) and not any(c in low for c in _ARGUMENT_CUES)
 
 
-def certainty_of(sentence: str) -> str:
+def certainty_of(sentence: str, *, from_memory: bool = False) -> str:
+    """Agent-stated certainty from hedging cues; a dated claim made under a from-memory
+    label is capped at ``probable`` (``from_memory``), since the specialist itself says
+    the item is unverified recollection."""
     low = sentence.lower()
     if any(c in low for c in _POSSIBLE):
-        return "possible"
-    if any(c in low for c in _PROBABLE):
-        return "probable"
-    return "established"
+        level = "possible"
+    elif any(c in low for c in _PROBABLE):
+        level = "probable"
+    else:
+        level = "established"
+    if from_memory and level == "established":
+        level = "probable"
+    return level
 
 
 def classify(sentence: str, index: int, is_body: bool) -> str:
-    if is_self_certification(sentence) or is_memory_label(sentence):
+    if is_self_report(sentence) or is_memory_label(sentence):
         return "other"
     low = sentence.lower()
     if is_body and index == 0:
@@ -146,59 +185,10 @@ def classify_paragraphs(text: str) -> list[tuple[ParagraphKind, str]]:
     return list(zip(kinds, blocks))
 
 
-def month_index(month_name: str, year: str) -> int:
-    return int(year) * 12 + _MONTHS[month_name.lower()]
-
-
-_AFTER_PHRASE_RE = re.compile(
-    r"\b(?:came|happened|followed|occurred|arrived|fell|rose|began|ended)\s+(?:only\s+)?after\b|\bonly after\b",
-    re.IGNORECASE,
-)
-_CLAUSE_BREAK_RE = re.compile(r";|,\s+(?:and|but|while|whereas)\b|\bbut\b")
-_RELATIVE_CLAUSE_RE = re.compile(r"\b(?:which|who|whom|whose|that)\b", re.IGNORECASE)
-
-
-def date_in_aside(before: str, date: "re.Match[str]") -> bool:
-    """True when ``date`` sits inside a relative clause that closes before the ordering
-    verb: ``The party, which had been founded in January 1919, was banned after ...``.
-    The clause opens with a relative marker after the last comma before the date and a
-    comma follows the date. ``The vote fell in November 1931, which came only after
-    ...`` is not an aside: the marker follows the date and makes it the ordered event."""
-    pre = before[: date.start()]
-    opener = pre[max(pre.rfind(","), pre.rfind(";")) + 1:]
-    return bool(_RELATIVE_CLAUSE_RE.search(opener)) and "," in before[date.end():]
-
-
-def chronology_findings_in(sentence: str) -> Optional[tuple[int, int]]:
-    """Structural proxy for one chronology pattern inside a single sentence.
-
-    The pattern is ``<event> in <date1> ... (came|happened|followed|occurred) [only]
-    after ... <date2>``: ``date1`` is the nearest month-year before the ``after``
-    phrase and ``date2`` the nearest one after it, with no other date, no clause
-    boundary (``;``, ``, and``, ``but``) and no relative-clause marker (``which``,
-    ``who``, ``that``, ``whose``) in between. The sentence then asserts
-    ``date1 > date2``; return ``(date1, date2)`` as month indices when the dates it
-    gives violate that order, else ``None``. Dates that belong to different clauses of
-    a long sentence (``... in March 1930 ..., and his successor ... after ... July
-    1930``) or to an aside (``The party, which had been founded in January 1919, was
-    banned after the putsch of November 1923``) are not paired. Cross-sentence
-    chronology is left to the formal path.
-    """
-    m = _AFTER_PHRASE_RE.search(sentence)
-    if m is None:
-        return None
-    before, after = sentence[: m.start()], sentence[m.end():]
-    earlier_dates = list(_MONTH_YEAR_RE.finditer(before))
-    if not earlier_dates:
-        return None
-    date1 = earlier_dates[-1]
-    if _CLAUSE_BREAK_RE.search(before[date1.end():]) or date_in_aside(before, date1):
-        return None
-    date2 = _MONTH_YEAR_RE.search(after)
-    if date2 is None or _CLAUSE_BREAK_RE.search(after[: date2.start()]):
-        return None
-    first, second = month_index(*date1.groups()), month_index(*date2.groups())
-    return (first, second) if first <= second else None
+def quotations_in(sentence: str) -> list[str]:
+    """Quoted excerpts of ``sentence`` in order: straight, curly or mixed double marks,
+    guillemets, and single marks around two or more words; at least four characters."""
+    return [inner.strip() for _s, _e, inner in find_quotation_spans(sentence) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
 
 
 class HistorySpecialistAdapter:
@@ -218,31 +208,33 @@ class HistorySpecialistAdapter:
             raise AdapterError("the specialist answer is empty")
         agent = agent_id or self.agent_id
         paragraphs = classify_paragraphs(text)
+        has_label = bool(MEMORY_LABEL_RE.search(text))
         base = dict(request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level, task_type=task_type)
         pending: list[dict] = []
-        points: list[tuple[str, list[str]]] = []
+        supports_of: list[tuple[str, list[str]]] = []
         for pi, (kind, para) in enumerate(paragraphs):
             sentences = split_sentences(para)
-            para_ids: list[str] = []
+            para_claims: list[tuple[str, str]] = []   # (claim id, role)
             point_id: Optional[str] = None
             body_index = 0
             for si, sent in enumerate(sentences):
                 cid = f"h{pi + 1}.{si + 1}"
-                note = is_note_sentence(sent)
-                if note or kind == "note":
+                core, notes = split_note_clauses(sent)
+                note = kind == "note" or is_note_sentence(sent)
+                body = core or sent   # the substance the role is read from; the claim text stays verbatim
+                if note:
                     role = "other"
                 elif kind == "intro":
                     role = "thesis"
                 elif kind == "conclusion":
                     role = "judgement"
                 else:
-                    role = classify(sent, body_index, True)
+                    role = classify(body, body_index, True)
                     body_index += 1
                 refs: list[SourceRef] = []
                 assumptions: list[str] = []
                 quoted = False
-                for m in _QUOTE_RE.finditer(sent):
-                    excerpt = m.group(1) or m.group(2)
+                for excerpt in quotations_in(sent):
                     quoted = True
                     doc = next((t.document_id for t in supplied_texts if find_quotation(excerpt, t.text)), None) or (supplied_texts[0].document_id if supplied_texts else None)
                     if doc:
@@ -251,7 +243,15 @@ class HistorySpecialistAdapter:
                         assumptions.append(f"quotation with no supplied text to check it against: \"{excerpt[:200]}\"")
                     if role in ("analysis", "evidence"):
                         role = "evidence"
-                if role in ("evidence", "counter_evidence") and has_dated_item(sent):
+                if dangling_quote_offset(sent) is not None:
+                    span = undelimited_quote_span(sent)
+                    shown = (span[2].strip()[:120] if span else "")
+                    assumptions.append(f"a quotation mark in this sentence cannot be paired; the span '{shown}' was not delimited, was attributed to no text and was not checked")
+                if not note:
+                    for n in notes:
+                        assumptions.append(f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and its dated items are from memory")
+                dated = has_dated_item(body)
+                if role in ("evidence", "counter_evidence") and dated:
                     proposed = "arithmetic"
                 elif role == "evidence" and quoted:
                     proposed = "factual"
@@ -259,14 +259,19 @@ class HistorySpecialistAdapter:
                     proposed = "interpretive"
                 else:
                     proposed = "unknown"
-                pending.append(dict(claim_id=cid, claim_text=truncate_claim_text(sent), claim_role=role, proposed_claim_kind=proposed, certainty=certainty_of(sent),
-                                    source_refs=refs, assumptions=assumptions[:32], materiality="material" if role in ("point", "judgement", "link", "thesis") else "supporting",
-                                    advisory_verification_status=_SELF_REPORT if is_self_certification(sent) else None))
-                para_ids.append(cid)
+                pending.append(dict(claim_id=cid, claim_text=truncate_claim_text(sent), claim_role=role, proposed_claim_kind=proposed,
+                                    certainty=certainty_of(body, from_memory=dated and (has_label or bool(notes))),
+                                    source_refs=refs[:32], assumptions=assumptions[:32], materiality="material" if role in ("point", "judgement", "link", "thesis") else "supporting",
+                                    advisory_verification_status=_SELF_REPORT if is_self_report(sent) else None))
+                para_claims.append((cid, role))
                 if role == "point" and point_id is None:
                     point_id = cid
             if point_id is not None:
-                points.append((point_id, [c for c in para_ids if c != point_id]))
+                argument = [c for c, r in para_claims if r != "other"]   # notes are not supports
+                supports_of.append((point_id, [c for c in argument if c != point_id]))
+                for c, r in para_claims:
+                    if r in ("judgement", "link") and c != point_id:
+                        supports_of.append((c, [x for x in argument if x != c]))   # the point comes first: it is the first argument claim
         if not pending:
             raise AdapterError("the specialist answer yields no sentences")
         unresolved: list[str] = []
@@ -277,10 +282,10 @@ class HistorySpecialistAdapter:
             unresolved.append(f"{len(tail)} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {_TAIL_CLAIM_ID} and were not individually roled or checked")
             pending = head
         kept = {p["claim_id"] for p in pending}
-        supports = {pid: [s for s in ids if s in kept] for pid, ids in points}
+        supports = {pid: [s for s in ids if s in kept] for pid, ids in supports_of}
         claims = [ClaimRecord(**base, **{**p, "supporting_claim_ids": supports.get(p["claim_id"], [])}) for p in pending]
         if any(k == "note" for k, _ in paragraphs):
-            unresolved.append("the answer contains note paragraphs (a from-memory label or self-certification); their sentences are roled 'other' and are not material")
+            unresolved.append("the answer contains note paragraphs (a from-memory label, a task note or self-certification); their sentences are roled 'other' and are not material")
         return SpecialistReport(report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level,
                                 task_type=task_type, original_response=text, response_sha256=sha256_text(text), supplied_texts=list(supplied_texts), claims=claims,
                                 unresolved_issues=unresolved, created_at=_now())

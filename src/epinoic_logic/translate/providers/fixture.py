@@ -9,10 +9,10 @@ a model's text.
 from __future__ import annotations
 
 import json
-from typing import Mapping, Union
+from typing import Mapping, Optional, Union
 
 from .. import prompts
-from ..contracts import ProviderInfo
+from ..contracts import ProviderInfo, sha256_text
 from .base import ProviderError, ProviderResponse, ReviewRequest, TranslationRequest
 
 FixtureValue = Union[str, dict, list, ProviderError]
@@ -68,14 +68,22 @@ class FixtureTranslationProvider(_FixtureBase):
     maps to ``TRANSLATION_FAILED``. Every request is kept in ``calls`` for assertions.
     """
 
-    def __init__(self, responses: Mapping[str, FixtureValue]) -> None:
+    def __init__(self, responses: Mapping[str, FixtureValue], *, claim_text_sha256: Optional[Mapping[str, str]] = None) -> None:
         super().__init__(responses)
         self.calls: list[TranslationRequest] = []
+        #: claim_id -> sha256 of the claim text each fixture was produced for. When known, a request for the same
+        #: claim id with another text is refused (``ProviderError``), so a canned formalization is never attached to
+        #: a re-stated claim whose wording changed; a fixture without a digest is served by claim id as before.
+        self.claim_text_sha256: dict[str, str] = dict(claim_text_sha256 or {})
 
     def propose(self, request: TranslationRequest) -> ProviderResponse:
         """Return the next canned response for ``request.claim.claim_id``."""
         self.calls.append(request)
-        text = self._next_text(request.claim.claim_id)
+        claim_id = request.claim.claim_id
+        expected = self.claim_text_sha256.get(claim_id)
+        if expected is not None and expected != sha256_text(request.claim.claim_text):
+            raise ProviderError(f"fixture for claim {claim_id!r} was produced for a different claim text (stale fixture); it is not served for the current text")
+        text = self._next_text(claim_id)
         info = ProviderInfo(
             provider_name=FIXTURE_NAME,
             model_id=FIXTURE_NAME,

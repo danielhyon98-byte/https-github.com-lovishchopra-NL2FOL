@@ -11,17 +11,24 @@ Matching is attempted in three tiers, reported through ``GroundingCheck.method``
 2. ``normalized_match``: the excerpt occurs after typographic normalization of both
    sides (curly/straight quotes, dash variants, whitespace runs, ellipsis forms,
    invisible characters). Case is NOT folded: a changed word is a changed quotation.
+   Two further normalizations belong to this tier because they are the conventions
+   of quoting itself, not changes to the words: the quotation marks INSIDE an excerpt
+   are folded to one class (a quotation that nests the text's double marks as single
+   marks matches; ``QuotationMatch.note`` says so), and a line break of the document
+   may be written ``" / "`` in the excerpt (verse quoted in running prose).
 3. ``normalized_match`` with elision: an excerpt containing an ellipsis matches when
    each fragment occurs in order in the normalized text AND the whole span stays
    within :data:`ELISION_WINDOW_CHARS` plus the excerpt's own length. Fragments that
-   are far apart are a stitched quotation, not an elided one, and do not match.
+   are far apart are a long elision, reported by the inexact tier, never as a match.
 
-A fourth, *inexact* tier (:func:`locate_quotation_inexact`) finds the words after two
-conventional adjustments of written analysis: a changed initial capital (a sentence
-opening quoted mid-sentence) and omitted verse line-break marks (``/``). It never
-verifies a grounding: ``Grounding.verified`` stays ``False`` for the IR path, but the
-check's ``detail`` names the difference so the Overseer can tell a form problem from
-an invented quotation.
+A fourth, *inexact* tier (:func:`locate_quotation_inexact`) finds the words after a
+conventional adjustment of written analysis: a changed initial capital (a sentence
+opening quoted mid-sentence) or omitted or added verse line-break marks (``/``);
+:func:`locate_long_elision` finds an elision whose fragments all occur in order but span
+more than the elision window. Neither verifies a grounding: ``Grounding.verified`` stays
+``False`` for the IR path, but the check's ``detail`` says the quotation *differs in
+form* and names the difference, so the Overseer (and the channel) can tell a form
+problem from an invented quotation.
 
 Every grounding whose ``source_refs`` carry an excerpt is checked against the named
 document whatever its ``kind``; only groundings without an excerpt are
@@ -54,16 +61,26 @@ _OUTER_QUOTES = (('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"), ("«", 
 
 @dataclass(frozen=True)
 class QuotationMatch:
-    """Where an excerpt was found in the original text and how."""
+    """Where an excerpt was found in the original text and how. ``note`` names a
+    quoting convention the match relied on beyond typographic normalization."""
     start: int
     end: int
     matched: str
     method: MatchMethod
     elided: bool = False
+    note: Optional[str] = None
 
 
-def _normalize_indexed(text: str) -> tuple[str, list[int]]:
-    """Normalize ``text``; return the result and, per output char, its source offset."""
+NOTE_QUOTES_FOLDED = "quotation marks inside the excerpt folded to one class (the nesting level of the marks differs)"
+NOTE_LINEBREAK_SLASH = "line breaks of the document written as ' / ' in the excerpt"
+
+
+def _normalize_indexed(text: str, *, newline_as_slash: bool = False) -> tuple[str, list[int]]:
+    """Normalize ``text``; return the result and, per output char, its source offset.
+
+    With ``newline_as_slash`` every line break of ``text`` is rendered ``" / "``, the
+    convention for quoting verse in running prose, so an excerpt written that way
+    matches the document's lines."""
     out: list[str] = []
     idx: list[int] = []
     pending_space: Optional[int] = None
@@ -71,6 +88,13 @@ def _normalize_indexed(text: str) -> tuple[str, list[int]]:
         if ch in _INVISIBLE:
             continue
         if ch.isspace():
+            if newline_as_slash and ch == "\n" and out:
+                out.append(" ")
+                idx.append(pending_space if pending_space is not None else pos)
+                out.append("/")
+                idx.append(pos)
+                pending_space = pos
+                continue
             if out and pending_space is None:
                 pending_space = pos
             continue
@@ -123,7 +147,43 @@ def _span(idx: list[int], start: int, length: int) -> tuple[int, int]:
     return idx[start], idx[start + length - 1] + 1
 
 
-def _find_elided(fragments: list[str], norm_text: str, idx: list[int], text: str) -> Optional[QuotationMatch]:
+def _fold_quote_marks(normalized: str) -> str:
+    """After normalization every quotation mark is ``'`` or ``"``; fold both to one class.
+    The mapping is one character to one, so an offset map stays valid."""
+    return normalized.replace("'", '"')
+
+
+def _folded_candidates(norm_ex: str) -> list[str]:
+    """The excerpt with its quotation marks folded, and, when a mark sits at an edge, the
+    excerpt without that edge mark: a quoter who nests the text's quotation closes it at the
+    end of the excerpt even where the text's own quotation runs on."""
+    folded = _fold_quote_marks(norm_ex)
+    out = [folded]
+    trimmed = folded.strip('"').strip()
+    if trimmed and trimmed != folded:
+        out.append(trimmed)
+    return out
+
+
+def _find_folded(norm_ex: str, norm_text: str, idx: list[int], text: str, note: str) -> Optional[QuotationMatch]:
+    if "'" not in norm_ex and '"' not in norm_ex:
+        return None
+    folded_text = _fold_quote_marks(norm_text)
+    for cand in _folded_candidates(norm_ex):
+        pos = folded_text.find(cand)
+        if pos >= 0:
+            start, end = _span(idx, pos, len(cand))
+            return QuotationMatch(start, end, text[start:end], "normalized_match", note=note)
+    return None
+
+
+def _elision_fragments(norm_ex: str) -> list[str]:
+    return [f.strip() for f in norm_ex.split("...") if f.strip()] if "..." in norm_ex else []
+
+
+def _find_elided(fragments: list[str], norm_text: str, idx: list[int], text: str, *, window: Optional[int] = ELISION_WINDOW_CHARS) -> Optional[QuotationMatch]:
+    """Fragments in order within ``window`` characters beyond their own length; ``window``
+    None means any distance (used to tell a long elision from an invented quotation)."""
     cursor = 0
     first_start: Optional[int] = None
     end = 0
@@ -137,13 +197,17 @@ def _find_elided(fragments: list[str], norm_text: str, idx: list[int], text: str
         cursor = pos + len(frag)
     if first_start is None:
         return None
-    if end - first_start > ELISION_WINDOW_CHARS + sum(len(f) for f in fragments):
-        return None  # fragments this far apart are stitched together, not elided
+    if window is not None and end - first_start > window + sum(len(f) for f in fragments):
+        return None  # fragments this far apart are a long elision, not an elided quotation
     return QuotationMatch(first_start, end, text[first_start:end], "normalized_match", elided=True)
 
 
 def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
-    """Find ``excerpt`` in ``text`` (verbatim, then normalized, then elided)."""
+    """Find ``excerpt`` in ``text`` (verbatim, then normalized, then elided).
+
+    The normalized tier also folds the quotation marks inside the excerpt to one class
+    (nested marks) and reads ``" / "`` in the excerpt as a line break of the document;
+    a match that relied on either carries a ``note``."""
     ex = _strip_outer_quotes(excerpt)
     if not ex:
         return None
@@ -158,10 +222,28 @@ def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
     if pos >= 0:
         start, end = _span(idx, pos, len(norm_ex))
         return QuotationMatch(start, end, text[start:end], "normalized_match")
-    if "..." in norm_ex:
-        fragments = [f.strip() for f in norm_ex.split("...") if f.strip()]
-        if fragments:
-            return _find_elided(fragments, norm_text, idx, text)
+    folded = _find_folded(norm_ex, norm_text, idx, text, NOTE_QUOTES_FOLDED)
+    if folded is not None:
+        return folded
+    slash_text: Optional[str] = None
+    slash_idx: list[int] = []
+    if "/" in norm_ex and "\n" in text:
+        slash_text, slash_idx = _normalize_indexed(text, newline_as_slash=True)
+        pos = slash_text.find(norm_ex)
+        if pos >= 0:
+            start, end = _span(slash_idx, pos, len(norm_ex))
+            return QuotationMatch(start, end, text[start:end], "normalized_match", note=NOTE_LINEBREAK_SLASH)
+        folded = _find_folded(norm_ex, slash_text, slash_idx, text, NOTE_LINEBREAK_SLASH + "; " + NOTE_QUOTES_FOLDED)
+        if folded is not None:
+            return folded
+    fragments = _elision_fragments(norm_ex)
+    if fragments:
+        found = _find_elided(fragments, norm_text, idx, text)
+        if found is None and slash_text is not None:
+            found = _find_elided(fragments, slash_text, slash_idx, text)
+            if found is not None:
+                found = QuotationMatch(found.start, found.end, found.matched, found.method, elided=True, note=NOTE_LINEBREAK_SLASH)
+        return found
     return None
 
 
@@ -197,7 +279,8 @@ def locate_quotation_inexact(excerpt: str, text: str) -> Optional[tuple[Quotatio
     the first alphabetic character's case (``"for the immense majority"`` quoted from a
     sentence opening ``For``), and verse line-break marks omitted or added (``"mock the
     meat"`` for ``mock / The meat``, where the case of the word after the mark may also
-    differ). Anything else (a changed word, a reordering) is not found.
+    differ). Anything else (a changed word, a reordering) is not found; a long elision
+    is a separate question answered by :func:`locate_long_elision`.
     """
     ex = _strip_outer_quotes(excerpt)
     if not ex:
@@ -229,6 +312,24 @@ def locate_quotation_inexact(excerpt: str, text: str) -> Optional[tuple[Quotatio
     return None
 
 
+def locate_long_elision(excerpt: str, text: str) -> Optional[tuple[QuotationMatch, str]]:
+    """An elided excerpt whose fragments all occur in order but span more than
+    :data:`ELISION_WINDOW_CHARS` beyond the quoted words: ``(match, difference)`` naming the
+    omitted span, or None. The words were found, so this is a form difference (a long
+    elision), not an invented quotation; it never verifies a grounding."""
+    ex = _strip_outer_quotes(excerpt)
+    fragments = _elision_fragments(normalize_quote(ex)) if ex else []
+    if len(fragments) < 2:
+        return None
+    norm_text, idx = _normalize_indexed(text)
+    far = _find_elided(fragments, norm_text, idx, text, window=None)
+    if far is None:
+        return None
+    omitted = far.end - far.start - sum(len(f) for f in fragments)
+    return far, (f"elides about {omitted} characters of the document between its fragments, more than the "
+                 f"{ELISION_WINDOW_CHARS}-character window of an elided quotation (a long elision, not an invented quotation)")
+
+
 def find_quotation(excerpt: str, text: str) -> Optional[tuple[int, int, str]]:
     """Return ``(start, end, matched_text)`` in ``text`` for ``excerpt``, or ``None``."""
     match = locate_quotation(excerpt, text)
@@ -251,7 +352,7 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
         )
     match = locate_quotation(ref.excerpt, doc.text)
     if match is None:
-        inexact = locate_quotation_inexact(ref.excerpt, doc.text)
+        inexact = locate_quotation_inexact(ref.excerpt, doc.text) or locate_long_elision(ref.excerpt, doc.text)
         if inexact is not None:
             near, difference = inexact
             return GroundingCheck(
@@ -266,6 +367,8 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
     how = {"verbatim_match": "verbatim", "normalized_match": "after typographic normalization"}[match.method]
     if match.elided:
         how = f"as an elided quotation, fragments in order within {match.end - match.start} characters, after typographic normalization"
+    if match.note:
+        how += f" ({match.note})"
     return GroundingCheck(
         target_id=target_id, kind=kind, method=match.method, verified=True,  # type: ignore[arg-type]
         document_id=ref.document_id, detail=f"found {how} at characters {match.start}-{match.end}",

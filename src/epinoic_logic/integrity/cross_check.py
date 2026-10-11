@@ -37,7 +37,7 @@ from ..engine.runner import is_ungrounded, verify
 from ..engine.statuses import VerificationStatus as S
 from ..ir.canonical import problem_digest, sha256_hex
 from ..ir.schema import ASSERTION_ID_RE, Assertion, Grounding, Limits, Problem, Symbol
-from .contracts import IntegrityFinding
+from .contracts import IntegrityFinding, Synthesis
 
 SEP = "::"
 # Joint problems union many claims; the per-claim shape limits would make cross-agent
@@ -401,3 +401,34 @@ def check_paraphrase_coverage(source_problem: Problem, synthesized_conclusion: A
     elif result.status not in (S.ENTAILED, S.INCONSISTENT_PREMISES):
         findings.append(IntegrityFinding(code="INT-SYNTH-003", severity="warning", message=f"paraphrase coverage check could not be decided ({result.status.value})", claim_ids=[synthesized_claim_id, source_problem.claim_id], formal_result_id=result.result_id, deterministic=False))
     return result, findings
+
+
+def check_conflict_disclosure(synthesis: Synthesis, conflicting_sets: list[tuple[frozenset[str], Optional[str]]]) -> list[IntegrityFinding]:
+    """INT-CONFLICT-002: a formal contradiction between specialist claims that the synthesis
+    does not disclose. ``conflicting_sets`` are the claim-id sets named by INT-CONFLICT-001
+    findings (with the result id that established each). A contradiction counts as
+    disclosed only when some conflict record names at least two of the conflicting claims
+    and the qualifying records together name them all; a synthesized id in a record stands
+    for its ``source_claim_ids``. Shared by ``run_integrity_checks`` and the channel so the
+    Overseer's report and the synthesis receipt apply one rule."""
+    by_id = {c.claim_id: c for c in synthesis.claims}
+
+    def as_sources(ids: list[str]) -> set[str]:
+        out: set[str] = set()
+        for i in ids:
+            sc = by_id.get(i)
+            out.update(sc.source_claim_ids if sc is not None and sc.source_claim_ids else [i])
+        return out
+
+    records = [as_sources(list(c.claim_ids)) for c in synthesis.conflicts]
+    findings: list[IntegrityFinding] = []
+    seen: set[frozenset[str]] = set()
+    for conflicting, rid in conflicting_sets:
+        if len(conflicting) < 2 or conflicting in seen:
+            continue
+        seen.add(conflicting)
+        covering = [r for r in records if len(r & conflicting) >= 2]
+        disclosed = conflicting <= set().union(*covering) if covering else False
+        if not disclosed:
+            findings.append(IntegrityFinding(code="INT-CONFLICT-002", severity="error", message=f"a formal contradiction between specialist claims {sorted(conflicting)} is not disclosed in the synthesis conflict records (a record counts only if it names at least two of the conflicting claims, and together the records must name them all)", claim_ids=sorted(conflicting), formal_result_id=rid, agent_ids=[synthesis.combinator_agent_id], deterministic=False))
+    return findings

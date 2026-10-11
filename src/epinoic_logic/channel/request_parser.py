@@ -18,7 +18,8 @@ _WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to
 _RANGE_RE = re.compile(r"between\s+(?P<a>\d{1,5})\s+and\s+(?P<b>\d{1,5})\s+words", re.IGNORECASE)
 _PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in|write|produce|give|compose)\s+(?P<n>one|two|three|four|five|six|a single|\d{1,2})\s+(?:\w+\s+){0,2}?paragraphs?\b", re.IGNORECASE)
 _CITE_RE = re.compile(r"\b(quote|quotations?|cite|citing|textual evidence|refer(?:ring)? to the (?:text|passage|extract))\b", re.IGNORECASE)
-_IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are")
+_IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are",
+                "give", "judge", "recommend", "decide", "conclude", "label", "suggest", "interpret", "distinguish", "define", "summarise", "summarize", "argue", "consider")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(])")
 _WORD_NUM = {"one": 1, "a single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 
@@ -26,10 +27,11 @@ _WORD_NUM = {"one": 1, "a single": 1, "two": 2, "three": 3, "four": 4, "five": 5
 COMMAND_TERMS: dict[str, int] = {
     **{t: 1 for t in ("define", "state", "write down", "list", "label", "draw", "measure", "identify", "recall")},
     **{t: 2 for t in ("outline", "describe", "distinguish", "annotate", "calculate", "find", "determine", "estimate", "sketch", "apply", "explain", "suggest", "compare and contrast", "compare", "contrast", "interpret", "solve", "formulate", "classify", "comment", "demonstrate", "analyse how", "analyze how")},
-    **{t: 3 for t in ("analyse", "analyze", "deduce", "derive", "show that", "prove", "verify", "predict", "design", "discuss", "examine", "explore", "evaluate", "assess", "justify", "to what extent", "recommend", "synthesise", "synthesize", "investigate")},
+    **{t: 3 for t in ("analyse", "analyze", "deduce", "derive", "show that", "prove", "verify", "predict", "design", "discuss", "examine", "explore", "evaluate", "assess", "justify", "to what extent", "recommend", "synthesise", "synthesize", "investigate",
+                      "give a judgement", "give a judgment", "reach a judgement", "reach a judgment", "judge")},
 }
 _TERM_RE = re.compile(r"\b(" + "|".join(sorted((re.escape(t) for t in COMMAND_TERMS), key=len, reverse=True)) + r")\b", re.IGNORECASE)
-LEVEL3_VERDICT_TERMS = frozenset({"evaluate", "discuss", "to what extent", "assess", "examine", "justify", "recommend"})
+LEVEL3_VERDICT_TERMS = frozenset({"evaluate", "discuss", "to what extent", "assess", "examine", "justify", "recommend", "give a judgement", "give a judgment", "reach a judgement", "reach a judgment", "judge"})
 
 
 def detect_command_term(sentence: str) -> tuple[str | None, int | None]:
@@ -42,14 +44,68 @@ def detect_command_term(sentence: str) -> tuple[str | None, int | None]:
         term = term.split()[0]
         return term, 3
     return term, COMMAND_TERMS[term]
-_CONTENT_CUES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "comment on", "how ", "why ", "what ")
+#: Words that ask for content. A sentence that states a constraint AND carries one of these ("Write no more than 200 words
+#: and give a judgement on which effect mattered most") is a request item as well as a constraint.
+_CONTENT_CUE_RE = re.compile(
+    r"\b(?:analy[sz]e|discuss|compare|contrast|explain|evaluate|to what extent|examine|assess|describe|outline|calculate|show that|prove|justify|identify|comment on|how|why|what|"
+    r"give|judge|judge?ment|recommend|decide|conclude|label|suggest|interpret|distinguish|define|summari[sz]e|argue|consider)\b", re.IGNORECASE)
+#: Words a constraint clause leaves behind when its span is removed ("Write", "and", "of"), stripped from the front of the
+#: residual so the item reads as the content instruction it is.
+_RESIDUAL_LEAD_RE = re.compile(r"^(?:[\s,;:.\-]+|(?:write|produce|compose|keep|use|answer|respond|and|then|also|of|in|on|about|regarding|with|to|within)\b)+", re.IGNORECASE)
+_RESIDUAL_JOIN_RE = re.compile(r"\s+([.,;:!?])")
+#: A preposition or conjunction left dangling at the end once a constraint span is removed ("Give the speed of.").
+_RESIDUAL_TAIL_RE = re.compile(r"\s*\b(?:of|in|on|with|to|and|within|for)\s*([.,;:!?]*)$", re.IGNORECASE)
+#: "Write one paragraph ON <topic>": the words after the paragraph instruction are the topic asked for.
+_TOPIC_AFTER_RE = re.compile(r"^\s*(?:on|about|regarding)\s+\S")
+
+
+def _constraint_spans(sentence: str) -> list[tuple[int, int]]:
+    spans = [m.span() for rx in (_RANGE_RE, _WORD_RE, _PARA_RE, _CITE_RE) for m in rx.finditer(sentence)]
+    return sorted(spans)
+
+
+def _residual(sentence: str) -> tuple[str, bool]:
+    """``(residual, topic_follows)``: the sentence without its constraint spans, and whether a
+    paragraph instruction was followed by "on/about <topic>" (the topic is content asked for)."""
+    spans = _constraint_spans(sentence)
+    if not spans:
+        return sentence.strip(), False
+    topic = any(_TOPIC_AFTER_RE.match(sentence[m.end():]) is not None for m in _PARA_RE.finditer(sentence))
+    out: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if start >= cursor:
+            out.append(sentence[cursor:start])
+            cursor = end
+    out.append(sentence[cursor:])
+    residual = _RESIDUAL_JOIN_RE.sub(r"\1", re.sub(r"\s{2,}", " ", "".join(out))).strip()
+    residual = _RESIDUAL_LEAD_RE.sub("", residual).strip()
+    residual = _RESIDUAL_TAIL_RE.sub(r"\1", residual).strip()
+    if not re.search(r"[^\W\d_]", residual):
+        return "", topic
+    return residual[0].upper() + residual[1:], topic
+
+
+def strip_constraint_spans(sentence: str) -> str:
+    """The sentence without its constraint spans (word and paragraph bounds, citing clauses), tidied so the content
+    instruction that shared the sentence can be read on its own; empty when nothing but the constraint remains."""
+    return _residual(sentence)[0]
+
+
+def _asks_for_content(residual: str, topic_follows: bool) -> bool:
+    if not residual:
+        return False
+    if residual.endswith("?") or _CONTENT_CUE_RE.search(residual):
+        return True
+    return topic_follows and len(re.findall(r"[^\W\d_]+", residual)) >= 2
 
 
 def is_constraint_only(sentence: str) -> bool:
-    """True when a sentence only states a constraint (length, paragraphs, citing) and asks for no content."""
-    low = sentence.lower()
-    has_constraint = bool(_WORD_RE.search(sentence) or _RANGE_RE.search(sentence) or _PARA_RE.search(sentence) or _CITE_RE.search(sentence))
-    return has_constraint and not any(c in low for c in _CONTENT_CUES)
+    """True when a sentence only states a constraint (length, paragraphs, citing) and asks for no content: what is left
+    once the constraint spans are removed carries no content cue, is no question and names no topic."""
+    if not _constraint_spans(sentence):
+        return False
+    return not _asks_for_content(*_residual(sentence))
 _MAX_Q = ("no more than", "at most", "maximum of", "max", "maximum", "up to", "under", "within")
 _MIN_Q = ("at least", "minimum of", "min", "minimum")
 
@@ -94,23 +150,51 @@ def extract_constraints(text: str) -> list[Constraint]:
 
 
 def extract_items(text: str) -> list[RequestItem]:
+    """Questions and instructions of the request, one item each. A sentence that is only a
+    constraint is left to ``extract_constraints``; a sentence that mixes a constraint with a
+    content instruction ("Write no more than 200 words and give a judgement on which effect
+    mattered most") yields the content instruction as an item, with the constraint span
+    removed, so an answer that omits it is seen as not covering it."""
     items: list[RequestItem] = []
-    for i, sent in enumerate(s.strip() for s in _SENT_RE.split(text.strip()) if s.strip()):
+    for sent in (s.strip() for s in _SENT_RE.split(text.strip()) if s.strip()):
         if is_constraint_only(sent):
             continue  # captured by extract_constraints; not a content item to cover
-        low = sent.lower()
-        is_q = sent.endswith("?") or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways"))
-        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES)
+        item_text, topic_follows = _residual(sent)
+        if not item_text:
+            continue
+        low = item_text.lower()
+        is_q = item_text.endswith("?") or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways"))
+        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows)
         if is_q or is_imp:
-            term, level = detect_command_term(sent)
-            items.append(RequestItem(item_id=f"i{len(items) + 1}", text=sent, kind="question" if is_q else "instruction", command_term=term, level=level))
+            term, level = detect_command_term(item_text)
+            items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind="question" if is_q else "instruction", command_term=term, level=level))
     if not items:
         items.append(RequestItem(item_id="i1", text=text.strip()[:4000], kind="instruction"))
     return items
 
 
 def count_words(text: str) -> int:
+    """Every word of ``text``, notes included (the raw count)."""
     return len(re.findall(r"\b[\w'’-]+\b", text))
+
+
+def count_answer_words(text: str) -> tuple[int, int]:
+    """``(answer words, note words)``: the words of the answer proper and the words of the
+    blocks :func:`count_paragraphs` leaves out (from-memory labels, self-certification lines,
+    task notes), so a word bound is measured over the same text as a paragraph bound and the
+    receipt can say how many words were meta-text."""
+    from ..adapters.markdown import is_note_sentence, strip_markup
+    answer = notes = 0
+    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
+        if not p.strip():
+            continue
+        sentences = [s for s in _SENT_RE.split(p.strip()) if s.strip()]
+        n = count_words(p)
+        if sentences and all(is_note_sentence(s) for s in sentences):
+            notes += n
+        else:
+            answer += n
+    return answer, notes
 
 
 def count_paragraphs(text: str) -> int:

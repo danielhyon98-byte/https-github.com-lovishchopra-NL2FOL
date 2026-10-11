@@ -206,6 +206,10 @@ class WorkPlan(BaseModel):
         "subject served by a selected agent when it differs from the plan's subject (a History specialist consulted on a "
         "Literature task): the channel addresses that agent's requests, parses its reports and runs the integrity packs "
         "through that subject's branch, and INT-HANDOFF-003 compares the report against that subject"))
+    agent_task_types: dict[str, str] = Field(default_factory=dict, description=(
+        "task type set for a selected agent when it differs from the plan's task_type (a peer asked for a short_answer on an "
+        "analytical_paragraph task): the channel puts it on that agent's requests and parsed reports, and INT-HANDOFF-010 "
+        "compares the report against it"))
 
     @field_validator("deadline_at")
     @classmethod
@@ -214,11 +218,12 @@ class WorkPlan(BaseModel):
 
     @model_validator(mode="after")
     def _digest(self) -> "WorkPlan":
-        unknown = sorted(set(self.agent_subjects) - set(self.selected_agent_ids))
-        if unknown:
-            raise ValueError(f"agent_subjects names agents the plan did not select: {unknown}")
-        if any(not s.strip() or len(s) > 128 for s in self.agent_subjects.values()):
-            raise ValueError("agent_subjects values must be non-empty subject names of at most 128 characters")
+        for field_name, mapping, what in (("agent_subjects", self.agent_subjects, "subject names"), ("agent_task_types", self.agent_task_types, "task types")):
+            unknown = sorted(set(mapping) - set(self.selected_agent_ids))
+            if unknown:
+                raise ValueError(f"{field_name} names agents the plan did not select: {unknown}")
+            if any(not s.strip() or len(s) > 128 for s in mapping.values()):
+                raise ValueError(f"{field_name} values must be non-empty {what} of at most 128 characters")
         if self.plan_sha256 is not None and self.plan_sha256 != plan_digest(self):
             raise ValueError("plan_sha256 does not match the plan")
         return self
@@ -227,8 +232,9 @@ class WorkPlan(BaseModel):
 def plan_digest(plan: WorkPlan) -> str:
     data = plan.model_dump(mode="json", exclude_none=True)
     data.pop("plan_sha256", None)
-    if not data.get("agent_subjects"):
-        data.pop("agent_subjects", None)  # single-subject plans keep the digest they always had
+    for optional in ("agent_subjects", "agent_task_types"):
+        if not data.get(optional):
+            data.pop(optional, None)  # single-subject, single-task-type plans keep the digest they always had
     return sha256_hex(canonical_json(data))
 
 

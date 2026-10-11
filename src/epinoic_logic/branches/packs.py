@@ -6,81 +6,159 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from ..adapters.markdown import SELF_CERT_RE, is_memory_label, unbalanced_double_quotes
-from ..translate.contracts import SpecialistReport, StructuralFinding
-from ..translate.grounding import check_claim_sources
+from ..adapters.history_specialist.chronology import chronology_relations
+from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes
+from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
+from ..translate.grounding import check_claim_sources, find_quotation
 from .base import FormalCheck
 from .quant import extract_quant_checks
 
-_MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), start=1)}
-_MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(1[0-9]{3}|20[0-9]{2})\b")
-_YEAR_RE = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+")
 _PARA_RE = re.compile(r"\n\s*\n")
 _STUDY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+)?(?:\set\sal\.?)?)\s*\((\d{4})\)")
 _PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent(?!age)|%)")
-_MEMORY_LABEL_RE = re.compile(r"from memory|illustrative|verify (?:them|these|this)", re.IGNORECASE)
 #: A from-memory label that speaks of quotations (a figures label does not vouch for a quotation).
 _QUOTE_MEMORY_LABEL_RE = re.compile(r"quot(?:ation|e)s?[^.;\n]{0,60}\bfrom memory\b|\bquoted from memory\b|\bfrom memory\b[^.;\n]{0,60}quot(?:ation|e)", re.IGNORECASE)
-#: A relative clause between a date and 'after' means the date belongs to an aside, not to the ordered event.
-_RELATIVE_CLAUSE_RE = re.compile(r"\b(?:which|who|whom|whose|that)\b", re.IGNORECASE)
-_AFTER_RE = re.compile(r"\bafter\b", re.IGNORECASE)
-_QUOTE_SPAN_RE = re.compile(r"\"([^\"]{12,})\"|“([^”]{12,})”")
+#: Shortest quoted span the core pack reports as an unverifiable quotation (a title or a single term is not one).
+_MIN_QUOTE_CHARS = 12
 _EXCERPT_CHARS = 80
-
-
-def _date_in_aside(before: str, date: "re.Match[str]") -> bool:
-    """The date sits in a relative clause that closes before 'after' (a comma follows the
-    date and a relative marker opens the clause before it): it is an aside, not the
-    ordered event. Mirrors the History parser's rule so HI-CHR-001 and the formal check agree."""
-    pre = before[: date.start()]
-    opener = pre[max(pre.rfind(","), pre.rfind(";")) + 1:]
-    return bool(_RELATIVE_CLAUSE_RE.search(opener)) and "," in before[date.end():]
+#: A peer agent's report supplied as a document: 'peer:<task>' or an author of the form '<subject>-specialist'.
+_PEER_AUTHOR_RE = re.compile(r"^[a-z]+(?:[-_ ][a-z]+)*[-_ ]specialist$")
+#: 'the poem', 'the extract': the one non-peer supplied text, when there is exactly one; 'the colleague', 'the peer': the one peer text.
+_GENERIC_SOURCES = ("poem", "sonnet", "extract", "passage", "text", "novel", "play", "speech", "source", "document", "story", "essay", "article")
+_GENERIC_PEERS = ("peer", "colleague", "other specialist", "peer agent", "peer specialist")
+#: A saying verb or attribution phrase after a named source binds the quotation that follows to that source.
+_ATTRIBUTION_RE = re.compile(
+    r"\b(?:describes?|described|notes?|noted|writes?|wrote|says?|said|states?|stated|warns?|warned|argues?|argued|observes?|observed|calls?|called|records?|recorded|reports?|reported|"
+    r"explains?|explained|points? out|pointed out|adds?|added|concludes?|concluded|remarks?|remarked|insists?|insisted|tells?|told|puts? it|put it|claims?|claimed|asserts?|asserted|"
+    r"answers?|answered|speaks? of|spoke of|refers? to|referred to|mentions?|mentioned|quotes?|quoted|cites?|cited|repeats?|repeated|opens? with|closes? with|ends? with|begins? with|reads?|"
+    r"shows?|showed|presents?|presented|gives?|gave|offers?|offered|uses?|used|employs?|employed|contains?|contained|includes?|included|depicts?|depicted|portrays?|portrayed|"
+    r"in (?:his|her|its|their) words|(?:'s|’s) (?:words?|phrase|phrasing|paragraph|account|setting|description|point|claim|note|warning|line|lines|verdict))\b",
+    re.IGNORECASE,
+)
+#: An attribution phrase that precedes the source's name: 'according to the History specialist, "..."'.
+_LEADING_ATTRIBUTION_RE = re.compile(r"\b(?:according to|in the words of|as|per)\s+(?:the\s+|my\s+|our\s+)?$", re.IGNORECASE)
+#: A source named right after a quotation as its tag: '"...", the History specialist writes' / '"...", as Shelley puts it'.
+#: Nothing but punctuation, an optional saying verb or attribution phrase and an article may stand between the quotation and the name.
+_TAG_HEAD_RE = re.compile(
+    r"^[\s,;:—–-]*(?:(?:as|according to|in the words of|so|says|said|writes|wrote|notes|noted|observes|observed|argues|argued|remarks|remarked|adds|added|warns|warned|concludes|concluded|states|stated|in)\s+)?(?:the\s+|my\s+|our\s+)?$",
+    re.IGNORECASE,
+)
 
 
 def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
-    """'X ... came/was ... after ... Y' with month-year dates -> X must be later than Y.
-
-    The event ordered by 'after' is the one nearest to it: the LAST month-year before
-    'after' and the FIRST after it. A date separated from 'after' by a relative-clause
-    marker (which/who/that/whose) or a clause break (';') belongs to an aside
-    ("The party, which had been founded in January 1919, was banned after the putsch of
-    November 1923") and is not paired."""
+    """Every dated ordering a sentence asserts ('after', 'before', 'followed', 'preceded',
+    with or without 'by') becomes an entailment problem: the event the sentence places
+    later must have the later month index. The relations come from
+    ``history_specialist.chronology.chronology_relations``, the extractor the History
+    proxy ``HI-CHR-001`` also reads, so the proxy and the engine never disagree. A
+    relation the extractor could not pair (an aside date, a bare month whose year is not
+    stated) is not a problem here; ``CorePack`` reports it as ``CORE-CHR-001``."""
     from ..ir.schema import Problem
     out: list[FormalCheck] = []
     n = 0
     for sent in _SENT_RE.split(report.original_response):
-        m = _AFTER_RE.search(sent)
-        if m is None:
-            continue
-        before_dates = list(_MONTH_YEAR_RE.finditer(sent[: m.start()]))
-        after_date = _MONTH_YEAR_RE.search(sent[m.end():])
-        if not before_dates or after_date is None:
-            continue
-        first = before_dates[-1]
-        before = sent[: m.start()]
-        if ";" in before[first.end():] or _date_in_aside(before, first):
-            continue
-        if ";" in sent[m.end(): m.end() + after_date.start()]:
-            continue
-        n += 1
-        a = int(first.group(2)) * 12 + _MONTHS[first.group(1).lower()]
-        b = int(after_date.group(2)) * 12 + _MONTHS[after_date.group(1).lower()]
-        problem = {
-            "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
-            "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{first.group(1)} {first.group(2)} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{after_date.group(1)} {after_date.group(2)}"}],
-            "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(a)}}, "grounding": {"kind": "supplied_text", "verified": True}},
-                         {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(b)}}, "grounding": {"kind": "supplied_text", "verified": True}}],
-            "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}}, "label": "the event named before 'after' came after the event named after it"},
-        }
-        out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology", description=f"stated order of dated events: {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
+        for rel in chronology_relations(sent):
+            if not rel.decided:
+                continue
+            n += 1
+            problem = {
+                "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
+                "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{rel.later_text} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{rel.earlier_text} as year*12+month"}],
+                "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(rel.later)}}, "label": rel.later_text, "grounding": {"kind": "supplied_text", "verified": True}},
+                             {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(rel.earlier)}}, "label": rel.earlier_text, "grounding": {"kind": "supplied_text", "verified": True}}],
+                "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}},
+                               "label": f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts" + (f" ({rel.reason})" if rel.reason else "")},
+            }
+            out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
+                                   description=f"stated order of dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}): {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
     return out
 
 
 def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
     out: list[FormalCheck] = []
     for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
-        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=f"report's own arithmetic: {qc.sentence[:160]}", problem=qc.problem))
+        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=f"report's own arithmetic: {qc.sentence[:160]}" + (f" [{qc.rule}]" if qc.rule else ""), problem=qc.problem))
+    return out
+
+
+def _is_peer_text(t: SuppliedText) -> bool:
+    return t.document_id.startswith("peer:") or bool(t.author and _PEER_AUTHOR_RE.match(t.author.strip().lower()))
+
+
+def _source_names(texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
+    """Phrases that name a supplied text in prose -> (document_id, label): an author's full
+    name and surname, a title (parenthetical and subtitle removed), and for a peer agent's
+    report the agent spoken of as '<subject> specialist'."""
+    names: dict[str, tuple[str, str]] = {}
+    for t in texts:
+        if t.author:
+            author = " ".join(t.author.split())
+            if _is_peer_text(t):
+                phrase = re.sub(r"[-_]+", " ", author.lower())
+                names[phrase] = (t.document_id, f"the {phrase}")
+            else:
+                names[author.lower()] = (t.document_id, author)
+                surname = author.split()[-1]
+                if len(surname) >= 3 and surname.isalpha():
+                    names[surname.lower()] = (t.document_id, author)
+        if t.title and not _is_peer_text(t):
+            title = re.sub(r"\s*\([^)]*\)", "", t.title).split(",")[0].strip().strip("'\"“”‘’").lower()
+            if len(title) >= 4 and re.search(r"[^\W\d_]", title):
+                names[title] = (t.document_id, f"'{title}'")
+    non_peer = [t for t in texts if not _is_peer_text(t)]
+    peers = [t for t in texts if _is_peer_text(t)]
+    if len(non_peer) == 1:
+        for g in _GENERIC_SOURCES:
+            names.setdefault(f"the {g}", (non_peer[0].document_id, f"the {g}"))
+    if len(peers) == 1:
+        for g in _GENERIC_PEERS:
+            names.setdefault(f"the {g}", (peers[0].document_id, f"the {g}"))
+            names.setdefault(f"my {g}", (peers[0].document_id, f"my {g}"))
+    return names
+
+
+def _named_mentions(text: str, names: dict[str, tuple[str, str]]) -> list[tuple[int, int, str, str]]:
+    """(start, end, document_id, label) for every named source mentioned in ``text``, in order."""
+    low = text.lower()
+    found: list[tuple[int, int, str, str]] = []
+    for phrase, (doc_id, label) in names.items():
+        for m in re.finditer(rf"(?<![\w-]){re.escape(phrase)}(?![\w-])", low):
+            found.append((m.start(), m.end(), doc_id, label))
+    found.sort()
+    return found
+
+
+def _attributions(sentence: str, spans: list[tuple[int, int, str]], names: dict[str, tuple[str, str]]) -> list[Optional[tuple[str, str]]]:
+    """For each quotation span of ``sentence``, the (document_id, label) its sentence
+    credits it to, or None. A quotation is credited to the last named source before it
+    when a saying verb stands between the name and the quotation (``the History specialist
+    notes that "..."``) or an attribution phrase precedes the name (``according to X, "..."``);
+    the credit carries to the following quotations of the sentence until another source
+    is named. Failing that, a name right after the quotation with a saying verb (``"...",
+    Shelley writes``) credits it. ``Shelley's "Ozymandias"`` credits nothing: a possessive
+    before a title is a topic, not an attribution."""
+    prose = list(sentence)
+    for s, e, _inner in spans:
+        for i in range(s, e):
+            prose[i] = " "
+    text = "".join(prose)
+    out: list[Optional[tuple[str, str]]] = []
+    current: Optional[tuple[str, str]] = None
+    for idx, (s, e, _excerpt) in enumerate(spans):
+        prev_end = spans[idx - 1][1] if idx else 0
+        next_start = spans[idx + 1][0] if idx + 1 < len(spans) else len(text)
+        before, after = text[prev_end:s], text[e:next_start]
+        mentions = _named_mentions(before, names)
+        if mentions:
+            _ms, me, doc_id, label = mentions[-1]
+            current = (doc_id, label) if _ATTRIBUTION_RE.search(before[me:]) or _LEADING_ATTRIBUTION_RE.search(before[:mentions[-1][0]]) else None
+        attributed = current
+        if attributed is None:
+            following = _named_mentions(after[:80], names)
+            if following and _TAG_HEAD_RE.match(after[: following[0][0]]) and (_ATTRIBUTION_RE.search(after[following[0][1]: following[0][1] + 60]) or _LEADING_ATTRIBUTION_RE.search(after[: following[0][0]])):
+                attributed = (following[0][2], following[0][3])
+        out.append(attributed)
     return out
 
 
@@ -101,7 +179,10 @@ def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
 class CorePack:
     """Runs for every subject: quotation grounding against supplied texts, numeric
     self-consistency of the report's own figures, labelling of figures from memory,
-    unverifiable or undelimited quotations, and self-certification language."""
+    unverifiable, undelimited or misattributed quotations, dated orderings that could
+    not be decided, and self-certification language. Quotations are read in straight,
+    curly or mixed double marks, guillemets and delimited single marks of two or more
+    words, exactly as the parsers read them."""
     name = "core"
 
     def checks(self, report: SpecialistReport, request_text: Optional[str] = None) -> list[StructuralFinding]:
@@ -116,8 +197,11 @@ class CorePack:
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
         if not report.supplied_texts:
             f += self._unverifiable_quotations(report, has_memory_label)
+        else:
+            f += self._misattributed_quotations(report)
         f += self._unbalanced_quotation_marks(report)
         f += self._self_certification(report)
+        f += self._undecided_chronology(report)
         return f
 
     @staticmethod
@@ -127,7 +211,7 @@ class CorePack:
         quotations or sits in the same sentence as the quotation; a label about dates
         and figures does not vouch for a quotation."""
         text = report.original_response
-        quoted = [m.group(1) or m.group(2) for m in _QUOTE_SPAN_RE.finditer(text)]
+        quoted = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         if not quoted:
             return []
         quote_label = bool(_QUOTE_MEMORY_LABEL_RE.search(text))
@@ -140,17 +224,74 @@ class CorePack:
         return [StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: no text was supplied and {why}: {shown}", claim_ids=claim_ids, rule_source="source integrity (quote from memory only with permission, and say so)")]
 
     @staticmethod
+    def _misattributed_quotations(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-SRC-005: a quotation that the sentence attributes to a named source (a
+        supplied text's author or title, a peer agent such as 'the History specialist',
+        'the poem' when one non-peer text was supplied) with a saying verb, but whose
+        words occur only in a different supplied text. The words are real; the credit
+        is wrong, and a reader of the receipt must see which document actually holds
+        them. A quotation found in no text is left to the grounding check (INT-REQ-003)."""
+        texts = list(report.supplied_texts)
+        if not texts:
+            return []
+        names = _source_names(texts)
+        out: list[StructuralFinding] = []
+        seen: set[tuple[str, str]] = set()
+        for _pi, _si, sent in _sentences_with_paragraph(report.original_response):
+            spans = [(s, e, inner.strip()) for s, e, inner in find_quotation_spans(sent) if len(inner.strip()) >= 4]
+            if not spans:
+                continue
+            for (_s, _e, excerpt), attributed in zip(spans, _attributions(sent, spans, names)):
+                if attributed is None:
+                    continue
+                doc_id, label = attributed
+                located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text))
+                if not located or doc_id in located:
+                    continue
+                key = (excerpt, doc_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                shown = excerpt[:_EXCERPT_CHARS] + ("..." if len(excerpt) > _EXCERPT_CHARS else "")
+                out.append(StructuralFinding(code="CORE-SRC-005", severity="error",
+                                             message=f"quotation '{shown}' is attributed in its sentence to {label} ({doc_id}) but occurs only in {', '.join(located)}: the words are genuine, the source credited is not the one that holds them",
+                                             claim_ids=(_claims_mentioning(report, sent) or [c.claim_id for c in report.claims if excerpt in c.claim_text])[:8],
+                                             rule_source="source integrity (attribute every quotation to the text that holds it; a colleague's words are not the author's and the author's are not the colleague's)"))
+        return out
+
+    @staticmethod
     def _unbalanced_quotation_marks(report: SpecialistReport) -> list[StructuralFinding]:
-        """CORE-SRC-004: a paragraph whose double quotation marks cannot be paired; the
-        quotation there could not be delimited, so it was not checked against any text."""
+        """CORE-SRC-004: a paragraph whose double quotation marks (straight, curly, mixed,
+        guillemets) cannot be paired; the quotation at the dangling mark could not be
+        delimited, so it was not checked against any text. The dangling mark is located by
+        context (``markdown.dangling_quote_offset``), so the spans the writer did delimit
+        around it are still checked."""
         out: list[StructuralFinding] = []
         for pi, para in enumerate((p for p in _PARA_RE.split(report.original_response.strip()) if p.strip()), start=1):
-            if not unbalanced_double_quotes(para):
+            offset = dangling_quote_offset(para)
+            if offset is None and not unbalanced_double_quotes(para):
                 continue
-            last = max(para.rfind('"'), para.rfind("“"))
-            dangling = para[last + 1:].strip() if last >= 0 else ""
+            if offset is None:
+                offset = max(para.rfind(ch) for ch in ('"', "“", "«", "„"))
+            dangling = para[offset + 1:].strip() if offset >= 0 else ""
             shown = dangling[:_EXCERPT_CHARS] + ("..." if len(dangling) > _EXCERPT_CHARS else "")
             out.append(StructuralFinding(code="CORE-SRC-004", severity="warning", message=f"paragraph {pi} has an unbalanced quotation mark; the quotation opening at '{shown}' could not be delimited and was not checked against any text", claim_ids=_claims_mentioning(report, dangling[:60])[:8], rule_source="source integrity (quote exactly; every quotation must be checkable)"))
+        return out
+
+    @staticmethod
+    def _undecided_chronology(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-CHR-001: a sentence orders two dated events but the pair could not be
+        decided (the only date before the cue sits in an aside about the subject, or a
+        bare month's year is not stated and the same-year reading fails). The order was
+        stated and not checked; silence would hide that."""
+        out: list[StructuralFinding] = []
+        for pi, si, sent in _sentences_with_paragraph(report.original_response):
+            for rel in chronology_relations(sent):
+                if rel.decided:
+                    continue
+                out.append(StructuralFinding(code="CORE-CHR-001", severity="warning",
+                                             message=f"paragraph {pi}, sentence {si} orders two dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}) but the order could not be decided: {rel.reason}; the stated order was not checked",
+                                             claim_ids=_claims_mentioning(report, sent)[:8], rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
         return out
 
     @staticmethod
@@ -175,6 +316,26 @@ class CorePack:
 
 
 _ESSAY_BAND_WORDS = 800
+#: The request asks for a verdict in words other than a command term ('give a judgement on which effect mattered most').
+_JUDGEMENT_DEMAND_RE = re.compile(r"\b(?:judge|judg(?:e)?ments?|verdict|weigh(?:ing)? up|on balance|which [^.?!]{0,60}\b(?:mattered|matters) most)\b", re.IGNORECASE)
+
+
+def request_demands_judgement(request_text: str) -> bool:
+    """True when some sentence of the request carries a level-3 verdict command term
+    (evaluate, discuss, to what extent, assess, examine, justify, recommend) or asks for a
+    judgement in plain words. An 'outline' or 'describe' task (level 1-2) and a level-3 term
+    with no verdict ('analyse') do not demand the History pack's judgement move."""
+    from ..channel.request_parser import LEVEL3_VERDICT_TERMS, detect_command_term
+    for sent in re.split(r"(?<=[.?!])\s+", request_text.strip()):
+        term, level = detect_command_term(sent)
+        if level == 3 and term in LEVEL3_VERDICT_TERMS:
+            return True
+    return bool(_JUDGEMENT_DEMAND_RE.search(request_text))
+
+
+def request_sets_word_bound(request_text: str) -> bool:
+    from ..channel.request_parser import extract_constraints
+    return any(c.kind in ("max_words", "min_words") for c in extract_constraints(request_text))
 
 
 class HistoryPack:
@@ -188,6 +349,8 @@ class HistoryPack:
         findings = structural_checks(report)
         if request_text and self._request_bounds_below_essay_band(request_text):
             findings = [x for x in findings if x.code != "HI-STR-004"]  # the request set a shorter deliverable; the exam-length guide does not apply
+        if request_text and not request_demands_judgement(request_text):
+            findings = [x for x in findings if x.code != "HI-STR-001"]  # an outline/describe task asks for no verdict; the judgement-move rule does not apply
         return findings
 
     @staticmethod
@@ -213,9 +376,12 @@ class EnglishPack:
         except Exception:
             return []
         try:
-            return list(structural_checks(report))
+            findings = list(structural_checks(report))
         except Exception as exc:
             return [StructuralFinding(code="ES-INTERNAL-001", severity="warning", message=f"the English integrity pack failed internally ({type(exc).__name__}); its findings are missing from this receipt and the router must not treat the pack as passed", rule_source="hub integrity (a failing pack is reported, never silently skipped)")]
+        if request_text and request_sets_word_bound(request_text):
+            findings = [x for x in findings if x.code != "ES-STR-002"]  # the task set a word count; the working paragraph-length target does not apply
+        return findings
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         return []

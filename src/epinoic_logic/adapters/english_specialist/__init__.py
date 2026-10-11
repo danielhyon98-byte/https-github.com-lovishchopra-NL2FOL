@@ -37,11 +37,16 @@ class EnglishSpecialistAdapter:
         supplied_texts: list[SuppliedText],
         course_level: str = "unknown",
         agent_version: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> SpecialistReport:
-        """Parse an analytical answer into a report (see :func:`parser.parse_response`)."""
+        """Parse an analytical answer into a report (see :func:`parser.parse_response`).
+
+        ``agent_id`` is the sender identity the hub states; it is carried into the report
+        unchanged so the channel's identity checks compare who answered with who was asked."""
         return parser.parse_response(
             text, request_id=request_id, task_id=task_id, report_id=report_id, subject=subject or DEFAULT_SUBJECT,
             task_type=task_type, supplied_texts=supplied_texts, course_level=course_level, agent_version=agent_version,
+            agent_id=agent_id,
         )
 
     def structural_checks(self, report: SpecialistReport) -> list[StructuralFinding]:

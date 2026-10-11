@@ -11,11 +11,14 @@ Segmentation rules
 ------------------
 * Blocks are separated by blank lines. Each block is classified by content:
 
-  - ``meta``: a short block (at most 25 words, no quotation) that is a label such
-    as ``VERIFIED: ...`` or ``Word count: 341``, an all-caps label followed by a
-    colon, or narration of internal steps ("I have checked ..."). Meta blocks are
-    never part of the argument: they propose no claims and support nothing. The
-    structural checks flag them (``ES-META-001``).
+  - ``meta``: a block that is a pasted JSON receipt or payload; a block whose every
+    sentence is self-certification, narration of internal steps ("I have checked
+    ...") or JSON-shaped, quotation marks or not; or a short block (at most 25 words,
+    no quotation) that is a label such as ``VERIFIED: ...`` or ``Word count: 341``,
+    an all-caps label followed by a colon, or notes about the text (from-memory
+    label, task-setting note). Meta blocks are never part of the argument: they
+    propose no claims and support nothing. The structural checks flag them
+    (``ES-META-001``).
   - ``list``: a heading (``**bold**``, a short line ending with ``:``, or a short
     line with no sentence punctuation) or a bullet list. Consecutive list blocks
     form one ``list`` paragraph. Quotations in a list are still recorded as
@@ -34,15 +37,26 @@ Segmentation rules
   abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence, and a
   boundary inside an open quotation never splits it, so a quoted span that contains
   a full stop stays one quotation in one sentence.
-* Quotations are double-quoted spans (straight or curly) and single-quoted spans of
-  at least two words that open after whitespace or a bracket and close before
-  whitespace or punctuation (so possessives and contractions are not quotations).
-  Sentence punctuation written inside the closing mark (``"legitimate defense,"``)
-  is not part of the quoted words and is stripped from the recorded excerpt.
+* Quotations are double-quoted spans and single-quoted spans of at least two words
+  that open after whitespace or a bracket and close before whitespace or
+  punctuation (so possessives and contractions are not quotations). Every double
+  mark is one class, curly, straight, guillemet or low-9, so a span opened with one
+  kind and closed with another is still a quotation. When a paragraph's double
+  marks cannot be paired, the one dangling mark is set aside and the remaining
+  marks are paired around it (:func:`~epinoic_logic.adapters.markdown.dangling_quote_offset`);
+  the text the dangling mark opens (or closes) is recorded as an *undelimited*
+  quotation that is not attributed to any text and not checked. Sentence
+  punctuation written inside the closing mark (``"legitimate defense,"``) is not
+  part of the quoted words and is stripped from the recorded excerpt.
 
 Role rules (body paragraphs)
 ----------------------------
-* first sentence -> ``point``;
+* a sentence that certifies the answer's own checking (``SELF_CERT_RE``, including
+  the semantic rule of :func:`~epinoic_logic.adapters.markdown.is_self_certification`),
+  narrates an internal step (``META_NARRATION_RE``) or is JSON-shaped -> ``other``
+  with no source reference, wherever it stands, first sentence or not, quotation
+  marks or not; the self-report travels in ``advisory_verification_status``;
+* the first remaining sentence -> ``point``;
 * a sentence opening with ``Effectively``, ``Thus``, ``Ultimately``,
   ``Therefore``, ``Consequently`` or ``Hence`` -> ``link``;
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
@@ -50,7 +64,14 @@ Role rules (body paragraphs)
   declarative, parallel structure, employs) -> ``device``;
 * every other sentence -> ``interpretation``;
 * every quotation -> an ``evidence`` claim with a ``SourceRef`` into the supplied
-  text that contains it (the first supplied text when none does).
+  text that contains it. When several contain it, the one the sentence names
+  (by title, author or, for a relayed peer report, the peer specialist) wins.
+  When none contains it, the sentence's named text is cited when it names exactly
+  one, else the first supplied text, and the claim records the assumption that the
+  excerpt was found in none of the supplied texts (all ids listed) so the hub's
+  own check still runs. A quotation located only in a text other than the one the
+  sentence names keeps the located reference and records the discrepancy
+  (``ES-SRC-008`` names it).
 
 Thesis sentences get role ``thesis`` and are supported by the body points;
 conclusion sentences get role ``link`` and are likewise supported by the points.
@@ -59,7 +80,9 @@ claims; a device or interpretation sentence is supported by the quotations it
 contains; a link is supported by the point and the rest of its paragraph.
 
 Claim ids are stable functions of position: ``p{paragraph}-point``,
-``p{paragraph}-s{sentence}`` and ``p{paragraph}-q{quotation}``.
+``p{paragraph}-s{sentence}`` and ``p{paragraph}-q{quotation}``. Sentences beyond
+the report's claim limit are folded into one ``other`` claim (``p-tail``) with an
+unresolved issue rather than rejected.
 """
 from __future__ import annotations
 
@@ -71,13 +94,16 @@ from ...ir.schema import SourceRef
 from ...translate.common import utc_now_rfc3339
 from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
-from ..markdown import is_note_sentence, is_self_certification
+from ..markdown import (
+    find_quotation_spans, is_json_block, is_json_shaped, is_note_sentence, is_self_certification, undelimited_quote_span,
+)
 from ..sources import check_excerpt, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS",
-    "is_meta_block", "is_list_block", "META_LABEL_RE", "META_NARRATION_RE",
+    "is_meta_block", "is_list_block", "is_meta_sentence", "documents_named", "is_peer_document", "META_LABEL_RE", "META_NARRATION_RE",
+    "TAIL_CLAIM_ID",
 ]
 
 AGENT_ID = "english-specialist"
@@ -93,18 +119,10 @@ _DEVICE_RE = re.compile(
     r"semantic field\w*|pronouns?|verbs?|adjectives?|adverbs?|nouns?|declaratives?|parallel structure|employs)\b",
     re.IGNORECASE,
 )
-# Groups: 1 straight double, 2 curly double, 3 straight single, 4 curly single.
-_QUOTE_RE = re.compile(
-    r'"([^"\n]+)"'
-    r"|“([^”\n]+)”"
-    r"|(?:(?<=[\s(\[—–-])|^)'([^'\n]{2,}?[^\s'])'(?=[\s.,;:!?)\]]|$)"
-    r"|(?:(?<=[\s(\[—–-])|^)‘([^’\n]{2,}?[^\s’])’(?=[\s.,;:!?)\]]|$)"
-)
-_SINGLE_QUOTE_GROUPS = (3, 4)
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n[ \t]*\n+")
 _ALPHA_RE = re.compile(r"[^\W\d_]")
-_BOUNDARY_RE = re.compile(r"[.!?]+[\"”’')\]]*(?=\s+[\"“‘(\[]?[A-ZÀ-ÖØ-Þ])")
-_TERMINAL_RE = re.compile(r"[.!?][\"”’')\]]*$")
+_BOUNDARY_RE = re.compile(r"[.!?]+[\"”’')\]»]*(?=\s+[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ])")
+_TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
     "mr", "mrs", "ms", "dr", "st", "vs", "etc", "cf", "no", "l", "ll", "p", "pp", "ch", "vol", "ed", "eds",
@@ -126,11 +144,16 @@ META_NARRATION_RE = re.compile(
 )
 _BULLET_RE = re.compile(r"^\s*(?:[-*•–]|\d+[.)])\s+")
 _HEADING_RE = re.compile(r"^\*\*[^*\n]+\*\*\s*$|^#{1,6}\s")
+#: Generic ways a sentence names the one literary text supplied (never a relayed peer report).
+_TEXT_CUE_RE = re.compile(r"\bthe (?:poem|sonnet|extract|passage|novel|play|story|source text|supplied text)\b", re.IGNORECASE)
+_PEER_DOCUMENT_PREFIX = "peer:"
 _MAX_META_WORDS = 25
 _MAX_HEADING_WORDS = 12
 _MAX_EXCERPT_CHARS = 2000
 _MAX_CLAIM_TEXT_CHARS = 4000
 _MAX_CLAIMS = 512
+TAIL_CLAIM_ID = "p-tail"
+_SELF_REPORT = "self-certified in the response text"
 
 
 @dataclass(frozen=True)
@@ -141,6 +164,7 @@ class Quotation:
     excerpt: str   #: the words without trailing sentence punctuation
     start: int     #: offset of the opening mark within the sentence
     end: int       #: offset just past the closing mark
+    delimited: bool = True  #: False when one of the span's marks is the paragraph's dangling mark: the span is unchecked
 
     @property
     def words(self) -> int:
@@ -187,25 +211,28 @@ class Paragraph:
 
 
 def _iter_quotes(text: str) -> Iterator[tuple[int, int, str]]:
-    """Yield ``(start, end, inner)`` for every quotation span of ``text`` in order."""
-    for m in _QUOTE_RE.finditer(text):
-        group = m.lastindex or 1
-        inner = m.group(group)
-        if inner is None:
-            continue
-        if group in _SINGLE_QUOTE_GROUPS and len(inner.split()) < 2:
-            continue  # a single-quoted single word is too close to an apostrophe to trust
-        yield m.start(), m.end(), inner
+    """Yield ``(start, end, inner)`` for every delimited quotation span of ``text`` in order."""
+    yield from find_quotation_spans(text)
 
 
 def find_quotations(sentence: str) -> tuple[Quotation, ...]:
-    """Quoted spans of ``sentence`` in order (see the module docstring for the rules)."""
+    """Quoted spans of ``sentence`` in order (see the module docstring for the rules).
+
+    When the sentence holds the paragraph's dangling double mark, the text it opens
+    (or closes) is returned too, as an undelimited quotation (``delimited=False``)."""
     found: list[Quotation] = []
     for start, end, inner in _iter_quotes(sentence):
         excerpt = strip_trailing_punctuation(inner)
         if not excerpt or len(excerpt) > _MAX_EXCERPT_CHARS:
             continue
         found.append(Quotation(text=inner, excerpt=excerpt, start=start, end=end))
+    loose = undelimited_quote_span(sentence)
+    if loose is not None:
+        start, end, inner = loose
+        excerpt = strip_trailing_punctuation(inner)
+        if excerpt and len(excerpt) <= _MAX_EXCERPT_CHARS and _ALPHA_RE.search(excerpt):
+            found.append(Quotation(text=inner, excerpt=excerpt, start=start, end=end, delimited=False))
+            found.sort(key=lambda q: q.start)
     return tuple(found)
 
 
@@ -225,7 +252,7 @@ def strip_quotations(text: str) -> str:
 
 
 def _is_abbreviation(prefix: str) -> bool:
-    m = _LAST_WORD_RE.search(prefix.rstrip("\"”’')]"))
+    m = _LAST_WORD_RE.search(prefix.rstrip("\"”’')]»"))
     if m is None:
         return False
     word = m.group(1)
@@ -266,14 +293,34 @@ def _block_quotations(block: str) -> int:
     return sum(1 for _ in _iter_quotes(" ".join(block.split())))
 
 
+def is_meta_sentence(sentence: str) -> bool:
+    """True for a sentence that is never part of the argument wherever it stands: it
+    certifies the answer's own checking (``SELF_CERT_RE`` and the semantic rule), narrates
+    an internal step (``META_NARRATION_RE``) or has the shape of JSON. The vocabulary is
+    searched with the sentence's quotations masked, so quoting a colleague's label is not
+    the quoter's self-report; the JSON shape is judged on the full text."""
+    if is_json_shaped(sentence):
+        return True
+    plain = strip_quotations(sentence)
+    return is_self_certification(plain) or bool(META_NARRATION_RE.search(plain))
+
+
 def is_meta_block(block: str) -> bool:
-    """True for a short quotation-free block that is a check label or narrates internal steps."""
+    """True for a pasted JSON block, a block whose every sentence is meta-text, or a short
+    quotation-free block that is a check label, narrates internal steps or is only notes."""
     s = block.strip()
-    if not s or _block_quotations(s) or word_count(s) > _MAX_META_WORDS:
+    if not s:
+        return False
+    if is_json_block(s):
+        return True
+    sentences = split_sentences(s)
+    if sentences and all(is_meta_sentence(x) for x in sentences):
+        return True
+    if _block_quotations(s) or word_count(s) > _MAX_META_WORDS:
         return False
     if META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s):
         return True
-    sentences = split_sentences(s)  # a block that is only notes about the text (from-memory label, self-certification)
+    # a block that is only notes about the text (from-memory label, task-setting note, self-certification)
     return bool(sentences) and all(is_note_sentence(x) for x in sentences)
 
 
@@ -294,6 +341,7 @@ def is_list_block(block: str) -> bool:
 
 
 def _role_for(index: int, sentence: str, kind: ParagraphKind) -> ClaimRole:
+    """Role of the ``index``-th (1-based) non-meta sentence of a paragraph of ``kind``."""
     if kind == "thesis":
         return "thesis"
     if kind == "conclusion":
@@ -354,27 +402,118 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         if kind == "body":
             kind = next(prose_kinds)
         raw_sentences = _list_sentences(block) if kind == "list" else split_sentences(block)
-        sentences = tuple(
-            Sentence(index=j, text=s, role=_role_for(j, s, kind), quotations=find_quotations(s))
-            for j, s in enumerate(raw_sentences, start=1)
-        )
-        paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=sentences))
+        sentences: list[Sentence] = []
+        argued = 0  # non-meta sentences seen so far: the first of them is the point
+        for j, s in enumerate(raw_sentences, start=1):
+            if kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+                role: ClaimRole = "other"
+            else:
+                argued += 1
+                role = _role_for(argued, s, kind)
+            sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s)))
+        paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(sentences)))
     return tuple(paragraphs)
 
 
 # -------------------------------------------------------------------- claims
 
 
+def is_peer_document(doc: SuppliedText) -> bool:
+    """True for a colleague's report relayed through the hub (``peer:<task>``, authored by a specialist agent)."""
+    return doc.document_id.startswith(_PEER_DOCUMENT_PREFIX) or bool(doc.author and doc.author.endswith("-specialist"))
+
+
+def _document_names(doc: SuppliedText) -> list[str]:
+    """The ways a sentence can name ``doc``: its author (full name and surname), its title
+    (up to any parenthesis or comma) and, for a relayed peer report, the specialist's
+    name with the hyphen spelled as a space ("history-specialist" -> "history specialist")."""
+    names: list[str] = []
+    if doc.author:
+        author = doc.author.strip()
+        names.append(author)
+        if author.endswith("-specialist"):
+            names.append(author.replace("-", " "))
+        parts = author.split()
+        if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
+            names.append(parts[-1])
+    if doc.title and not is_peer_document(doc):
+        title = re.split(r"[(:,]", doc.title)[0].strip()
+        if len(title) >= 3:
+            names.append(title)
+    return [n for n in names if n]
+
+
+def documents_named(plain_sentence: str, docs: dict[str, SuppliedText]) -> list[str]:
+    """Ids of the supplied texts that ``plain_sentence`` (quotations already masked) names,
+    by author, surname, title or peer-specialist name, in supplied order. A generic cue
+    ("the poem", "the extract") names the one literary (non-peer) text when exactly one
+    was supplied."""
+    named: list[str] = []
+    for doc_id, doc in docs.items():
+        for name in _document_names(doc):
+            if re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", plain_sentence, re.IGNORECASE):
+                named.append(doc_id)
+                break
+    literary = [doc_id for doc_id, doc in docs.items() if not is_peer_document(doc)]
+    if len(literary) == 1 and literary[0] not in named and _TEXT_CUE_RE.search(plain_sentence):
+        named.append(literary[0])
+    return named
+
+
+def _located_in(excerpt: str, docs: dict[str, SuppliedText]) -> list[str]:
+    """Ids of the supplied texts in which ``excerpt`` was located (in any recognised form)."""
+    return [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
+
+
 def _document_for(excerpt: str, docs: dict[str, SuppliedText]) -> Optional[str]:
     """The supplied text in which ``excerpt`` was located (in any form), else the first one."""
-    for doc_id in docs:
-        if check_excerpt(excerpt, doc_id, docs).located:
-            return doc_id
-    return next(iter(docs), None)
+    located = _located_in(excerpt, docs)
+    return located[0] if located else next(iter(docs), None)
+
+
+def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
+    """``(document_id, assumptions)`` for a quotation: the located text (the named one when
+    several locate it), else the named text or the first one with the assumption that the
+    excerpt was found in none; a located text other than the one named is recorded too."""
+    if not docs:
+        return None, []
+    located = _located_in(excerpt, docs)
+    if located:
+        if len(named) == 1 and named[0] in located:
+            return named[0], []
+        if len(named) == 1:
+            return located[0], [f"the sentence attributes this quotation to {named[0]} but the words were located only in {', '.join(located)}"]
+        return located[0], []
+    searched = ", ".join(docs)
+    if len(named) == 1:
+        return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
+    return next(iter(docs)), [f"excerpt found in none of the supplied texts [{searched}]"]
 
 
 def _claim_text(text: str) -> str:
     return text if len(text) <= _MAX_CLAIM_TEXT_CHARS else text[: _MAX_CLAIM_TEXT_CHARS - 3] + "..."
+
+
+def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[ClaimRecord], list[str]]:
+    """Fold the claims beyond the report's limit into one ``other`` tail claim and prune
+    links to the folded claims, so an oversized answer is delivered, not rejected."""
+    if len(claims) <= _MAX_CLAIMS:
+        return claims, []
+    head, tail = claims[: _MAX_CLAIMS - 1], claims[_MAX_CLAIMS - 1:]
+    kept = {c.claim_id for c in head} | {TAIL_CLAIM_ID}
+    pruned = [
+        c.model_copy(update={
+            "supporting_claim_ids": [s for s in c.supporting_claim_ids if s in kept],
+            "parent_claim_id": c.parent_claim_id if c.parent_claim_id in kept else None,
+        }) for c in head
+    ]
+    pruned.append(ClaimRecord(
+        **ids, claim_id=TAIL_CLAIM_ID, claim_text=_claim_text(" ".join(c.claim_text for c in tail)), claim_role="other",  # type: ignore[arg-type]
+        proposed_claim_kind="unknown", materiality="supporting", certainty="possible",
+    ))
+    issue = (f"{len(tail)} claims beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {TAIL_CLAIM_ID} "
+             "and were not individually roled or checked")
+    return pruned, [issue]
 
 
 def parse_response(
@@ -388,30 +527,35 @@ def parse_response(
     supplied_texts: list[SuppliedText],
     course_level: str = "unknown",
     agent_version: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> SpecialistReport:
     """Parse an English specialist answer into an immutable :class:`SpecialistReport`.
 
-    ``text`` is kept verbatim as ``original_response`` and hashed. Claims are
-    proposed by the rules in the module docstring; meta blocks propose none and list
-    blocks propose evidence only. Raises :class:`AdapterError` when the text is
-    empty, yields no sentences, or yields more claims than a report may carry.
+    ``text`` is kept verbatim as ``original_response`` and hashed. ``agent_id`` is the
+    identity the hub states for the sender and is carried into the report unchanged
+    (default ``english-specialist``), so the channel's identity checks see who actually
+    answered. Claims are proposed by the rules in the module docstring; meta blocks
+    propose none and list blocks propose evidence only. Raises :class:`AdapterError`
+    when the text is empty or yields no sentences; claims beyond the report's limit are
+    folded into a tail claim.
     """
     if not text or not text.strip():
         raise AdapterError("the specialist answer is empty")
     paragraphs = segment(text)
     if not any(p.sentences for p in paragraphs):
         raise AdapterError("the specialist answer yields no sentences")
+    agent = agent_id or AGENT_ID
     docs = {t.document_id: t for t in supplied_texts}
     ids: dict[str, object] = dict(
-        request_id=request_id, task_id=task_id, report_id=report_id, agent_id=AGENT_ID, agent_version=agent_version,
+        request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version,
         subject=subject or DEFAULT_SUBJECT, course_level=course_level, task_type=task_type,
     )
     claims: list[ClaimRecord] = []
+    unresolved: list[str] = []
+    undelimited_paragraphs: list[int] = []
 
     def add(claim_id: str, claim_text: str, role: ClaimRole, *, at: Optional[int] = None, **fields: object) -> ClaimRecord:
         """Append (or insert at ``at``) one claim record built from the report identifiers."""
-        if len(claims) >= _MAX_CLAIMS:
-            raise AdapterError("the answer yields more claims than a report may carry")
         claim = ClaimRecord(**ids, claim_id=claim_id, claim_text=_claim_text(claim_text), claim_role=role, **fields)  # type: ignore[arg-type]
         if at is None:
             claims.append(claim)
@@ -426,40 +570,54 @@ def parse_response(
     for para in paragraphs:
         if not para.sentences or para.kind == "meta":
             continue  # meta-text is never part of the argument
-        point_id = f"p{para.index}-point" if para.kind == "body" else None
+        point_sentence = next((s for s in para.sentences if s.role == "point"), None) if para.kind == "body" else None
+        point_id = f"p{para.index}-point" if point_sentence is not None else None
         paragraph_start = len(claims)
         evidence_ids: dict[str, str] = {}
         support_ids: list[str] = []
         pending_links: list[tuple[str, str, list[str]]] = []
         quotation_count = 0
         for sentence in para.sentences:
+            sid = f"p{para.index}-s{sentence.index:02d}"
+            if para.is_prose and sentence.role == "other":
+                # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference
+                add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=None,
+                    advisory_verification_status=_SELF_REPORT if (is_json_shaped(sentence.text) or is_self_certification(strip_quotations(sentence.text))) else None)
+                continue
+            plain = strip_quotations(sentence.text)
+            named = documents_named(plain, docs)
             quote_ids: list[str] = []
             for q in sentence.quotations:
                 qid = evidence_ids.get(q.excerpt)
                 if qid is None:
                     quotation_count += 1
                     qid = f"p{para.index}-q{quotation_count:02d}"
-                    doc_id = _document_for(q.excerpt, docs)
+                    if q.delimited:
+                        doc_id, notes = _attribute(q.excerpt, named, docs)
+                        refs = [SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else []
+                    else:
+                        doc_id, refs = None, []
+                        notes = ["the paragraph has an unbalanced quotation mark; this span could not be delimited and was not attributed to or checked against any text"]
+                        if para.index not in undelimited_paragraphs:
+                            undelimited_paragraphs.append(para.index)
                     add(
                         qid, f'"{q.text}"', "evidence",
-                        proposed_claim_kind="factual", materiality="supporting", certainty="established",
-                        source_refs=[SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else [],
-                        parent_claim_id=point_id,
+                        proposed_claim_kind="factual", materiality="supporting", certainty="established" if q.delimited else "possible",
+                        source_refs=refs, assumptions=notes, parent_claim_id=point_id,
                     )
                     evidence_ids[q.excerpt] = qid
                     support_ids.append(qid)
                 quote_ids.append(qid)
             if para.kind == "list":
                 continue  # lists propose evidence only
-            if para.kind == "body" and sentence.index == 1:
+            if sentence is point_sentence:
                 continue  # the point is inserted once its supports are known
-            if quote_ids and not _ALPHA_RE.search(strip_quotations(sentence.text).replace("[quotation]", "")):
+            if quote_ids and not _ALPHA_RE.search(plain.replace("[quotation]", "")):
                 continue  # a sentence that is nothing but a quotation is already the evidence claim; no interpretation to propose
-            sid = f"p{para.index}-s{sentence.index:02d}"
             if not quote_ids and is_note_sentence(sentence.text):
                 add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=point_id,
-                    advisory_verification_status="self-certified in the response text" if is_self_certification(sentence.text) else None)
-                continue  # a label about the text (from-memory note, self-certification) is recorded but is not part of the argument
+                    advisory_verification_status=_SELF_REPORT if is_self_certification(sentence.text) else None)
+                continue  # a label about the text (from-memory note, task-setting note) is recorded but is not part of the argument
             if para.kind == "thesis":
                 pending_thesis.append((sid, sentence.text, quote_ids))
             elif para.kind == "conclusion":
@@ -473,48 +631,52 @@ def parse_response(
                     supporting_claim_ids=quote_ids, parent_claim_id=point_id,
                 )
                 support_ids.append(sid)
-        if point_id is not None:
+        if point_id is not None and point_sentence is not None:
             add(
-                point_id, para.sentences[0].text, "point", at=paragraph_start,
+                point_id, point_sentence.text, "point", at=paragraph_start,
                 proposed_claim_kind="unknown", materiality="material", certainty="probable",
-                supporting_claim_ids=support_ids,
+                supporting_claim_ids=support_ids[:_MAX_CLAIMS],  # a point supports at most a report's worth of claims
             )
             body_point_ids.append(point_id)
             for sid, stext, _quote_ids in pending_links:
                 add(
                     sid, stext, "link",
                     proposed_claim_kind="unknown", materiality="material", certainty="probable",
-                    supporting_claim_ids=[point_id, *support_ids], parent_claim_id=point_id,
+                    supporting_claim_ids=[point_id, *support_ids][:_MAX_CLAIMS], parent_claim_id=point_id,
                 )
     for sid, stext, quote_ids in pending_thesis:
         add(
             sid, stext, "thesis",
             proposed_claim_kind="unknown", materiality="material", certainty="probable",
-            supporting_claim_ids=[*body_point_ids, *quote_ids],
+            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS],
         )
     for sid, stext, quote_ids in pending_conclusion:
         add(
             sid, stext, "link",
             proposed_claim_kind="unknown", materiality="material", certainty="probable",
-            supporting_claim_ids=[*body_point_ids, *quote_ids],
+            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS],
         )
 
     assumptions = [
         "claims were proposed from prose by the english-specialist adapter's deterministic text rules; "
         "roles, links and certainty are parser proposals, not agent assertions",
-        "a quoted span (double marks, or single marks around two or more words) is treated as a quotation of the "
+        "a quoted span (double marks of any kind, or single marks around two or more words) is treated as a quotation of the "
         "supplied text; sentence punctuation inside the closing mark is not part of the recorded excerpt",
-        "headings, bullet lists and meta-text blocks (labels such as 'VERIFIED:') propose no argument claims; "
+        "headings, bullet lists and meta-text blocks (labels such as 'VERIFIED:', pasted receipts) propose no argument claims; "
         "quotations inside lists are still recorded as evidence",
     ]
-    unresolved: list[str] = []
     if not docs and any(p.quotations for p in paragraphs):
         unresolved.append("no supplied text was given: quotations could not be attributed to a document")
     if any(p.kind == "meta" for p in paragraphs):
-        unresolved.append("the answer contains meta-text (a check label or narrated step); it was excluded from the argument")
+        unresolved.append("the answer contains meta-text (a check label, a narrated step or a pasted receipt); it was excluded from the argument")
+    if undelimited_paragraphs:
+        shown = ", ".join(str(i) for i in undelimited_paragraphs[:8])
+        unresolved.append(f"paragraph(s) {shown} carry an unbalanced quotation mark; the span it opens or closes was recorded as an undelimited quotation and not checked against any text")
+    claims, folded = _fold_tail(claims, ids)
+    unresolved += folded
     return SpecialistReport(
-        report_id=report_id, request_id=request_id, task_id=task_id, agent_id=AGENT_ID, agent_version=agent_version,
+        report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version,
         subject=subject or DEFAULT_SUBJECT, course_level=course_level, task_type=task_type,  # type: ignore[arg-type]
         original_response=text, response_sha256=sha256_text(text), supplied_texts=list(supplied_texts),
-        claims=claims, assumptions=assumptions, unresolved_issues=unresolved, created_at=utc_now_rfc3339(),
+        claims=claims, assumptions=assumptions, unresolved_issues=unresolved[:64], created_at=utc_now_rfc3339(),
     )
