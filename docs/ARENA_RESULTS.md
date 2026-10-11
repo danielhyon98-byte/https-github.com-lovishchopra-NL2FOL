@@ -70,6 +70,36 @@ paragraph; the hub then checked those quotations of the peer like any other.
 | Peer relay | delivered; a forward altered in transit or never delivered is refused (INT-HANDOFF-013) |
 | Group synthesis for the peer exchange (both reports cited) | delivered with information-level ledger notes only |
 | Round-1 sets re-run on the round-2 code | r1 22 / 22; r1-adv 126 / 127 (the empty response, correctly REJECTED) |
-| Overseer verdicts | pending (see below) |
+| Overseer verdicts (results-audit / communication-fidelity / adversarial-live) | 0.56 / 0.488 / 0.612; 49 bugs (2 blockers, 24 majors, 23 minors); fix round in progress |
 
-Round-2 overseer verdicts and the bugs they raised are recorded here when the round closes.
+The harness rate and the overseers' rates differ because the overseers judge what the
+harness cannot: they read every delivered payload against the specialist's text and
+construct exchanges the harness does not (a specialist relaying a forged copy of a
+colleague's report, a combinator changing a figure, a response that only echoes the
+request, 600 arithmetic sentences, nested and mixed quotation marks). What they found, in
+summary (the full reports with reproductions are kept with the round's material):
+
+- Hand-off integrity: a specialist could relay an altered copy of a colleague's report
+  under the colleague's name and overwrite the report the router held; relays were not
+  checked against the plan's selected agents; the envelope sender was never bound to the
+  payload owner; the same report id re-delivered with a different payload replaced the
+  first silently.
+- Receipt robustness: a report with about 440 arithmetic sentences made the receipt
+  summary exceed its contract limit and the error escaped the hub.
+- Fidelity of the arithmetic and chronology checks: month-year dates between the
+  figures, shared units ("from 15 to 45 million"), per-thousand rates, word fractions and
+  an asymmetric tolerance band let wrong figures pass or flagged correct ones; chronology
+  was decided only for the first "after" in a sentence.
+- Parsing fidelity: self-certification phrased outside the recognised vocabulary, forged
+  receipt JSON and echoed requests became material claims; an evidence sentence with an
+  inline from-memory parenthetical was demoted to a note; single-quoted, guillemet and
+  mixed-mark quotations were invisible to the History branch; a quotation located in no
+  document was attributed to the first one; a colleague's located words were reported as
+  the quoter's own from-memory quotation.
+- Combinator checks: a synthesis that changed a figure or a date was not named, and a
+  synthesis citing two contradictory sources without disclosing the conflict passed.
+- Request fidelity: an instruction sharing a sentence with a word limit was dropped;
+  meta-text words counted against the word limit.
+
+Each finding is being fixed with a regression test before round 3; the round-3 verdicts
+are recorded here when they arrive.
