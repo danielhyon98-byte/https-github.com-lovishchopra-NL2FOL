@@ -22,6 +22,7 @@ as UNKNOWN otherwise. Neither is ever a success.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -34,6 +35,14 @@ from .results import SolverConfig, StageTiming
 from .statuses import VerificationStatus
 
 NEGATED_CONCLUSION_MARKER = "__negated_conclusion__"
+#: Lowest Z3 memory budget (MB) this engine will ever apply. Below it Z3 aborts with a
+#: ``Z3Exception`` and the next solver call in the same process can segfault; the
+#: schema minimum of ``SolverConfig.memory_max_mb`` matches this floor.
+MEMORY_FLOOR_MB = 128
+#: Budget restored after a memory abort (the ``SolverConfig`` default).
+DEFAULT_MEMORY_MB = 512
+_memory_lock = threading.Lock()
+_applied_memory_mb: Optional[int] = None
 _TIMEOUT_REASONS = ("timeout", "canceled", "cancelled", "resource", "interrupted", "max. resource")
 _MEMOUT_REASONS = ("memout", "memory")
 
@@ -60,14 +69,31 @@ def _make_solver(compiled: Compiled, config: SolverConfig) -> z3.Solver:
 
 
 def apply_global_memory_limit(config: SolverConfig) -> None:
-    """Apply ``memory_max_mb`` as a Z3 global parameter.
+    """Apply ``memory_max_mb`` as a Z3 global parameter, never below :data:`MEMORY_FLOOR_MB`.
 
-    Caveat: Z3 memory limits are process-global, not per context. In the service
-    this is acceptable because the solver runs in a dedicated process. Library
-    callers sharing a process with other Z3 users should pass ``memory_max_mb=None``.
+    Z3 memory limits are process-global, not per context, so the value is applied
+    under a lock and only when it changes. A request can never lower the budget
+    below the floor: a budget Z3 cannot work within aborts the solver and leaves the
+    process in a state where the next solver call may crash. The service refuses
+    client-supplied values altogether (see ``service.app``); library callers sharing a
+    process with other Z3 users should pass ``memory_max_mb=None``.
     """
-    if config.memory_max_mb is not None:
-        z3.set_param("memory_max_size", int(config.memory_max_mb))
+    global _applied_memory_mb
+    if config.memory_max_mb is None:
+        return
+    budget = max(int(config.memory_max_mb), MEMORY_FLOOR_MB)
+    with _memory_lock:
+        if _applied_memory_mb != budget:
+            z3.set_param("memory_max_size", budget)
+            _applied_memory_mb = budget
+
+
+def reset_global_memory_limit() -> None:
+    """Restore the default Z3 memory budget after a memory abort."""
+    global _applied_memory_mb
+    with _memory_lock:
+        z3.set_param("memory_max_size", DEFAULT_MEMORY_MB)
+        _applied_memory_mb = DEFAULT_MEMORY_MB
 
 
 def _classify_unknown(solver: z3.Solver) -> tuple[VerificationStatus, str, bool]:

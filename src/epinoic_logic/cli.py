@@ -51,7 +51,7 @@ EXIT_USAGE = 2
 EXIT_UNAVAILABLE = 3
 
 #: Adapter ids accepted by ``check-report``; they are looked up in the adapter registry.
-ADAPTER_IDS = ("generic-structured", "english-specialist")
+ADAPTER_IDS = ("generic-structured", "english-specialist", "history-specialist")
 
 
 class CliError(Exception):

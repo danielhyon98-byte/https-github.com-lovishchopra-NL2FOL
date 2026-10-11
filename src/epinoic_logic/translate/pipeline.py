@@ -162,7 +162,7 @@ class Translator:
             self._log(result, attempts=0)
             return result
 
-        supporting_ids = set(claim.supporting_claim_ids)
+        supporting_ids = set(claim.supporting_claim_ids) - {claim.claim_id}  # a claim never supports itself
         base = dict(
             claim=claim,
             supporting_claims=[c for c in report.claims if c.claim_id in supporting_ids],
@@ -252,6 +252,8 @@ class Translator:
             problem = Problem.model_validate(raw_problem)
         except ValidationError as exc:
             raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {_format_validation_error(exc, 'problem')}"], retryable=True) from None
+        except RecursionError:
+            raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: problem nesting is too deep to validate"], retryable=False) from None
 
         if problem.request_id != claim.request_id or problem.claim_id != claim.claim_id:
             raise _Rejected(
@@ -285,6 +287,8 @@ class Translator:
             interpretation = Interpretation.model_validate(obj["interpretation"])
         except ValidationError as exc:
             raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {_format_validation_error(exc, 'interpretation')}"], retryable=True) from None
+        except RecursionError:
+            raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: interpretation nesting is too deep to validate"], retryable=False) from None
 
         ambiguous = obj["ambiguous"]
         if not isinstance(ambiguous, bool):

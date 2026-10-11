@@ -10,6 +10,8 @@ import json
 import re
 from typing import Any
 
+from ..ir.canonical import strict_object_pairs
+
 _FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
 _INLINE_FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*(.*?)```", re.DOTALL)
 
@@ -40,7 +42,8 @@ def parse_json_object(text: str, max_bytes: int = 2_000_000) -> dict[str, Any]:
     """Parse ``text`` as exactly one JSON object.
 
     Raises :class:`ProviderOutputError` when the text is empty, too large, not valid
-    JSON, contains NaN/Infinity, or decodes to something other than an object.
+    JSON, nested too deeply to parse, repeats a key inside an object, contains
+    NaN/Infinity, or decodes to something other than an object.
     """
     if not isinstance(text, str):
         raise ProviderOutputError("provider output is not text")
@@ -50,11 +53,15 @@ def parse_json_object(text: str, max_bytes: int = 2_000_000) -> dict[str, Any]:
     if not body:
         raise ProviderOutputError("provider output is empty")
     try:
-        obj = json.loads(body, parse_constant=_reject_constant)
+        obj = json.loads(body, parse_constant=_reject_constant, object_pairs_hook=strict_object_pairs)
     except json.JSONDecodeError as exc:
         raise ProviderOutputError(
             f"provider output is not valid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})"
         ) from None
+    except RecursionError:
+        raise ProviderOutputError("provider output nesting is too deep") from None
+    except ValueError as exc:  # duplicate keys (strict pairs) or a rejected constant
+        raise ProviderOutputError(f"provider output is not acceptable JSON: {exc}") from None
     if not isinstance(obj, dict):
         raise ProviderOutputError(f"provider output must be a JSON object, got {type(obj).__name__}")
     return obj

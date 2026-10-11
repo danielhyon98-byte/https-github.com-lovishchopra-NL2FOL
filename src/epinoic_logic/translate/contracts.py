@@ -46,7 +46,13 @@ class SuppliedText(BaseModel):
     title: Optional[str] = Field(default=None, max_length=500)
     author: Optional[str] = Field(default=None, max_length=200)
     text: str = Field(min_length=1, max_length=400_000)
-    locator_scheme: LocatorScheme = "paragraph"
+    locator_scheme: LocatorScheme = Field(
+        default="none",
+        description=(
+            "how locations in this text may be cited; callers opt in to a scheme. The default 'none' means no "
+            "page, line or act citation can be checked against this text, so citations are reported as unverifiable"
+        ),
+    )
     provenance: Optional[str] = Field(default=None, max_length=1000, description="where the text came from; e.g. 'supplied by student'")
 
 

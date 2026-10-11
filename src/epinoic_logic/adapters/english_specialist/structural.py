@@ -9,24 +9,46 @@ says so in ``rule_source``.
 Codes (stable; add, never rename)
 ---------------------------------
 Source integrity
-* ``ES-SRC-001`` error   quotation not found in the supplied text it cites (verbatim or
-                          after typographic normalization), or cites an unknown document.
-* ``ES-SRC-002`` error   a line/act/page citation such as ``(l. 12)`` or ``Act 1.2.3``
-                          while no supplied text has a locator scheme: locations cannot be
+* ``ES-SRC-001`` error   quotation not found in the supplied text it cites (verbatim,
+                          normalized, or in any recognised adjusted form), or cites an
+                          unknown document. An undisclosed quotation from memory
+                          surfaces here: the message says the excerpt may be invented,
+                          altered, or quoted from memory without the disclosure.
+* ``ES-SRC-002`` error   a location citation (``(p. 48)``, ``(García Márquez, p. 48)``,
+                          ``(ch. 3, p. 49)``, ``Act 1 Scene 2``, ``(1.2.34)``, ``line 12``,
+                          ``page 48``, ``Chapter 3`` ...) whose scheme no supplied text
+                          declares (``locator_scheme``): the location cannot be
                           verified and must never be invented.
-* ``ES-SRC-003`` warning the phrase "from memory": the answer quotes without the text.
+* ``ES-SRC-003`` warning the answer says a quotation is from memory ("from memory",
+                          "as I recall", "if memory serves" ...).
 * ``ES-SRC-004`` warning a quotation with no supplied text to check it against.
 * ``ES-SRC-005`` warning a quotation found only by joining separate spans of the text
                           without marking the omission (formatting.md S12: quote exactly).
+* ``ES-SRC-006`` warning a quotation whose words are in the text but whose form differs
+                          (initial capital changed, verse line-break mark omitted): S12,
+                          but not an invented quotation.
+* ``ES-SRC-007`` info    an elided quotation (``...``); the span it covers is stated.
 
 Structure (paragraphs.md)
 * ``ES-STR-001`` warning a body paragraph with fewer than two quotations of at least two
                           words: proxy for P7, one idea carried by two strands.
-* ``ES-STR-002`` info    a body paragraph outside 250-450 words: proxy for P13 (~350 words).
+* ``ES-STR-002`` info    a body paragraph outside 230-390 words: proxy for P13 ("the model
+                          runs about 350 words. Paragraphs the user accepted ran from
+                          roughly 230 to 390 words").
+  Neither applies to outline, plan or bullet deliverables (``task_type``) nor to
+  heading, list or meta blocks.
+
+Meta-text (master_prompt.txt internal-processing visibility rule, non-negotiable 3)
+* ``ES-META-001`` warning a block or sentence that narrates checks or steps
+                          (``VERIFIED: all claims checked and confirmed.``, "I have
+                          checked ..."): it is not analysis, provides no evidence and
+                          plays no part in verification.
 
 Style (formatting.md)
-* ``ES-STY-001`` info    first person (I, we, my, our, me, us) outside quotations: S2.
-* ``ES-STY-002`` info    both -ise/-yse and -ize/-yze spellings in one answer: S18.
+* ``ES-STY-001`` info    first person (I, we, my, our, me, us) outside quotations: S2
+                          (a Roman numeral ``I`` after Act/Part/Book ... is not first person).
+* ``ES-STY-002`` info    British and American spellings mixed in one answer (-ise/-ize,
+                          -yse/-yze, -our/-or, -re/-er, -ce/-se and other paired forms): S18.
 * ``ES-STY-003`` warning a sentence that is only a quotation: S11, embed every quotation.
 """
 from __future__ import annotations
@@ -37,11 +59,11 @@ from typing import Iterable, Optional
 from ...translate.common import truncate
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ..generic_structured import generic_source_findings
-from .parser import Paragraph, Sentence, segment, strip_quotations
+from .parser import META_NARRATION_RE, Paragraph, Sentence, segment, strip_quotations
 
 __all__ = [
     "structural_checks", "RULE_SOURCES", "MIN_STRAND_QUOTATIONS", "MIN_QUOTATION_WORDS",
-    "BODY_WORDS_MIN", "BODY_WORDS_MAX",
+    "BODY_WORDS_MIN", "BODY_WORDS_MAX", "OUTLINE_TASK_RE", "citation_schemes", "find_citations",
 ]
 
 _WORKING = " (working rule, not an official IB rule)"
@@ -51,8 +73,11 @@ RULE_SOURCES: dict[str, str] = {
     "ES-SRC-003": "english_specialist/application.md section 8, source integrity" + _WORKING,
     "ES-SRC-004": "english_specialist/master_prompt.txt non-negotiable 1, source integrity" + _WORKING,
     "ES-SRC-005": "english_specialist/formatting.md S12" + _WORKING,
+    "ES-SRC-006": "english_specialist/formatting.md S12, quotation form" + _WORKING,
+    "ES-SRC-007": "english_specialist/formatting.md S12, elided quotation" + _WORKING,
     "ES-STR-001": "english_specialist/paragraphs.md P7" + _WORKING,
     "ES-STR-002": "english_specialist/paragraphs.md P13" + _WORKING,
+    "ES-META-001": "english_specialist/master_prompt.txt visibility rule and non-negotiable 3" + _WORKING,
     "ES-STY-001": "english_specialist/formatting.md S2" + _WORKING,
     "ES-STY-002": "english_specialist/formatting.md S18" + _WORKING,
     "ES-STY-003": "english_specialist/formatting.md S11" + _WORKING,
@@ -60,19 +85,55 @@ RULE_SOURCES: dict[str, str] = {
 
 MIN_STRAND_QUOTATIONS = 2
 MIN_QUOTATION_WORDS = 2
-BODY_WORDS_MIN = 250
-BODY_WORDS_MAX = 450
+#: paragraphs.md P13: the model runs about 350 words; accepted paragraphs ran from roughly 230 to 390.
+BODY_WORDS_MIN = 230
+BODY_WORDS_MAX = 390
 _EXCERPT_CHARS = 80
+#: Deliverables whose blocks are not prose paragraphs; P7 and P13 do not apply to them.
+OUTLINE_TASK_RE = re.compile(r"outline|plan|bullet|notes?", re.IGNORECASE)
 
-_CITATION_RE = re.compile(
-    r"\(\s*(?:l{1,2}\.?|lines?|p{1,2}\.?|pages?)\s*\d+(?:\s*[-–—]\s*\d+)?\s*\)"
-    r"|\bAct\s+(?:[IVXL]+|\d+)\s*[.,]\s*(?:[Ss]cene\s+)?(?:[IVXLivxl]+|\d+)(?:\s*[.,]\s*\d+(?:\s*[-–—]\s*\d+)?)?"
-    r"|\((?:\d+|[IVXivx]+)\.(?:\d+|[IVXivx]+)\.\d+(?:\s*[-–—]\s*\d+)?\)"
-    r"|\b(?:lines?|l{1,2}\.)\s*\d+(?:\s*[-–—]\s*\d+)?\b",
+# --- citations -----------------------------------------------------------------------
+_TOKEN_SCHEME: dict[str, str] = {
+    "p": "page", "pp": "page", "page": "page", "pages": "page",
+    "l": "line", "ll": "line", "line": "line", "lines": "line",
+    "para": "paragraph", "paras": "paragraph", "paragraph": "paragraph", "paragraphs": "paragraph",
+    "ch": "custom", "chapter": "custom", "chapters": "custom", "stanza": "custom", "stanzas": "custom",
+    "canto": "custom", "cantos": "custom", "verse": "custom", "verses": "custom", "part": "custom", "parts": "custom",
+    "book": "custom", "books": "custom", "sonnet": "custom",
+    "sc": "act_scene_line", "scene": "act_scene_line", "scenes": "act_scene_line", "act": "act_scene_line",
+}
+_LOCATOR_TOKEN = (
+    r"(?:pp?|pages?|ll?|lines?|paras?|paragraphs?|ch|chapters?|stanzas?|cantos?|verses?|parts?|books?|sonnet|sc|scenes?)"
+)
+_RANGE = r"\d+(?:\s*[-–—]\s*\d+)?"
+_TOKEN_IN_TEXT_RE = re.compile(r"\b(" + _LOCATOR_TOKEN + r")\.?\s*\d", re.IGNORECASE)
+_ACT_SCENE_RE = re.compile(r"\bAct\b|\b(?:\d+|[IVXivx]+)\.(?:\d+|[IVXivx]+)\.\d+")
+#: Generic words that look like "Name 12" inside parentheses but are not author-page citations.
+_NOT_AUTHORS = frozenset({
+    "example", "examples", "figure", "fig", "table", "question", "questions", "criterion", "criteria", "section",
+    "step", "steps", "option", "paper", "unit", "level", "grade", "mark", "marks", "point", "points", "sentence",
+    "note", "notes", "appendix", "group", "item", "task", "year", "week", "day", "number", "no",
+})
+_CITATION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # a locator token anywhere inside parentheses: (p. 48) (García Márquez, p. 48) (ch. 3, p. 49) (see pp. 12-13)
+    re.compile(r"\(\s*(?:[^()]{0,80}?[\s,;:]\s*)?" + _LOCATOR_TOKEN + r"\.?\s*" + _RANGE + r"[^()]*\)", re.IGNORECASE),
+    # Act 1, Scene 2 / Act 1 Scene 2 / Act 1.2.3 / Act I, scene ii, 45
+    re.compile(r"\bAct\s+(?:[IVXL]+|\d+)\s*[.,]?\s*(?:[Ss]cene\s+)?(?:[IVXLivxl]+|\d+)(?:\s*[.,]\s*" + _RANGE + r")?"),
+    # act.scene.line inside parentheses, optionally after an author: (1.2.34) (Shakespeare, 3.3.165)
+    re.compile(r"\((?:[^()]*?[\s,;:])?(?:\d+|[IVXivx]+)\.(?:\d+|[IVXivx]+)\.\d+(?:\s*[-–—]\s*\d+)?[^()]*\)"),
+    # author-page: (García Márquez 48) (Shelley, 102-3); every word capitalised, first word not a generic label
+    re.compile(r"\((?P<author>[A-ZÀ-Þ][\w'’.-]*(?:\s+[A-ZÀ-Þ][\w'’.-]*)*),?\s+\d{1,4}(?:\s*[-–—]\s*\d{1,4})?\)"),
+    # prose forms
+    re.compile(r"\b(?:lines?|ll?\.)\s*" + _RANGE + r"\b", re.IGNORECASE),
+    re.compile(r"\bpages?\s+" + _RANGE + r"\b", re.IGNORECASE),
+    re.compile(r"\b(?:chapters?|ch\.)\s*\d+\b", re.IGNORECASE),
+)
+_FROM_MEMORY_RE = re.compile(
+    r"\b(?:from (?:memory|recollection)|as I (?:recall|remember)|I recall|if memory serves|quoting from memory|recalled from memory)\b",
     re.IGNORECASE,
 )
-_FROM_MEMORY_RE = re.compile(r"\bfrom memory\b", re.IGNORECASE)
 _FIRST_PERSON_RE = re.compile(r"\b(?:I|[Ww]e|[Mm]y|[Oo]ur|[Mm]e|[Uu]s)\b")
+_ROMAN_NUMERAL_RE = re.compile(r"\b(?:Act|Part|Book|Scene|Chapter|Vol\.?|Volume|Section|Canto|Stanza)\s+[IVXL]+\b")
 # -ise/-ize and -yse/-yze (analyse/analyze) families; inflections included.
 _ISE_RE = re.compile(r"\b([A-Za-z]{3,}[iy]s(?:e|es|ed|ing|ation|ations))\b")
 _IZE_RE = re.compile(r"\b([A-Za-z]{3,}[iy]z(?:e|es|ed|ing|ation|ations))\b")
@@ -87,6 +148,59 @@ _IZE_FALSE_FRIENDS = frozenset({"size", "prize", "seize", "capsize", "resize", "
 _BARE_QUOTATION_RE = re.compile(r'^[\"“][^\"”]+[\"”][.!?,;:]?$')
 
 
+def _spelling_lexicon() -> tuple[frozenset[str], frozenset[str]]:
+    """Paired British / American word forms (with inflections) beyond the -ise/-ize families."""
+    british: set[str] = set()
+    american: set[str] = set()
+    our_words = ("honour", "colour", "behaviour", "labour", "favour", "neighbour", "humour", "flavour", "rumour", "odour",
+                 "vigour", "harbour", "armour", "savour", "valour", "endeavour", "splendour", "fervour", "candour", "clamour")
+    suffixes = ("", "s", "ed", "ing", "able", "ably", "ful", "fully", "less", "al", "ally", "ite", "ites", "ism", "ist", "ists")
+    for w in our_words:
+        am = w[:-3] + "or"
+        for suf in suffixes:
+            british.add(w + suf)
+            american.add(am + suf)
+    for w in ("centre", "theatre", "metre", "sombre", "spectre", "fibre", "calibre", "lustre", "meagre"):
+        am = w[:-2] + "er"
+        british.update({w, w + "s", w[:-1] + "ed", w[:-2] + "ring", w + "ly"})
+        american.update({am, am + "s", am + "ed", am + "ing", am + "ly"})
+    for w in ("defence", "offence", "pretence"):
+        am = w[:-2] + "se"
+        british.update({w, w + "s", w + "less"})
+        american.update({am, am + "s", am + "less"})
+    for w in ("analogue", "catalogue"):
+        british.update({w, w + "s"})
+        american.update({w[:-2], w[:-2] + "s"})
+    pairs = (
+        (("grey", "greys", "greyed", "greyer", "greyest", "greyness"), ("gray", "grays", "grayed", "grayer", "grayest", "grayness")),
+        (("judgement", "judgements"), ("judgment", "judgments")),
+        (("acknowledgement", "acknowledgements"), ("acknowledgment", "acknowledgments")),
+        (("travelling", "travelled", "traveller", "travellers"), ("traveling", "traveled", "traveler", "travelers")),
+        (("modelling", "modelled"), ("modeling", "modeled")),
+        (("labelling", "labelled"), ("labeling", "labeled")),
+        (("cancelled", "cancelling"), ("canceled", "canceling")),
+        (("jewellery",), ("jewelry",)),
+        (("mould", "moulds", "moulded", "mouldy"), ("mold", "molds", "molded", "moldy")),
+        (("plough", "ploughs", "ploughed", "ploughing"), ("plow", "plows", "plowed", "plowing")),
+        (("sceptical", "sceptic", "sceptics", "scepticism"), ("skeptical", "skeptic", "skeptics", "skepticism")),
+        (("fulfil", "fulfils", "fulfilment"), ("fulfill", "fulfills", "fulfillment")),
+        (("instalment", "instalments"), ("installment", "installments")),
+        (("skilful", "skilfully", "wilful", "wilfully"), ("skillful", "skillfully", "willful", "willfully")),
+        (("ageing",), ("aging",)),
+        (("manoeuvre", "manoeuvres", "manoeuvred", "manoeuvring"), ("maneuver", "maneuvers", "maneuvered", "maneuvering")),
+        (("cosy", "cosier", "cosiest"), ("cozy", "cozier", "coziest")),
+        (("pyjamas",), ("pajamas",)),
+    )
+    for brit, amer in pairs:
+        british.update(brit)
+        american.update(amer)
+    return frozenset(british), frozenset(american)
+
+
+BRITISH_FORMS, AMERICAN_FORMS = _spelling_lexicon()
+_WORD_RE = re.compile(r"[A-Za-z]+")
+
+
 def _finding(code: str, severity: str, message: str, claim_ids: Iterable[str] = ()) -> StructuralFinding:
     return StructuralFinding(
         code=code, severity=severity, message=truncate(message, 2000),  # type: ignore[arg-type]
@@ -95,9 +209,16 @@ def _finding(code: str, severity: str, message: str, claim_ids: Iterable[str] = 
 
 
 def _claims_for_sentence(report: SpecialistReport, sentence: Sentence) -> list[str]:
-    """Claims whose text is this sentence, or that contain it (sentence-level attribution)."""
+    """Claims whose text is this sentence, contain it, or are its truncated form."""
     text = sentence.text.strip()
-    return [c.claim_id for c in report.claims if c.claim_text.strip() == text or (len(text) > 20 and text in c.claim_text)]
+    out: list[str] = []
+    for c in report.claims:
+        body = c.claim_text.strip()
+        if body == text or (len(text) > 20 and text in body):
+            out.append(c.claim_id)
+        elif body.endswith("...") and len(body) > 3 and text.startswith(body[:-3]):
+            out.append(c.claim_id)
+    return out
 
 
 def _claims_for_paragraph(report: SpecialistReport, para: Paragraph) -> list[str]:
@@ -108,15 +229,44 @@ def _claims_for_paragraph(report: SpecialistReport, para: Paragraph) -> list[str
     return [c.claim_id for c in report.claims if c.claim_role == "point" and c.claim_text.strip() == first]
 
 
-def _no_locator_scheme(report: SpecialistReport) -> bool:
-    return all(t.locator_scheme == "none" for t in report.supplied_texts)
+# ------------------------------------------------------------------ citations
+
+
+def find_citations(text: str) -> list[str]:
+    """Location citations in ``text`` (quotations already masked), longest match first,
+    with matches contained in another match dropped."""
+    spans: list[tuple[int, int]] = []
+    for pattern in _CITATION_PATTERNS:
+        for m in pattern.finditer(text):
+            author = m.groupdict().get("author") if m.groupdict() else None
+            if author is not None and author.split()[0].lower().rstrip(".") in _NOT_AUTHORS:
+                continue
+            spans.append((m.start(), m.end()))
+    kept: list[tuple[int, int]] = []
+    for s, e in sorted(spans, key=lambda x: (x[0], -(x[1] - x[0]))):
+        if any(ks <= s and e <= ke for ks, ke in kept):
+            continue
+        kept.append((s, e))
+    return [text[s:e] for s, e in kept]
+
+
+def citation_schemes(citation: str) -> set[str]:
+    """The ``locator_scheme`` values a citation would need in order to be checkable."""
+    schemes: set[str] = set()
+    for m in _TOKEN_IN_TEXT_RE.finditer(citation):
+        schemes.add(_TOKEN_SCHEME[m.group(1).lower()])
+    if _ACT_SCENE_RE.search(citation):
+        schemes.add("act_scene_line")
+    if not schemes:
+        schemes.add("page")  # author-page form: a bare number after a name is a page
+    return schemes
 
 
 # ------------------------------------------------------------------ checks
 
 
 def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragraph, ...]] = None) -> list[StructuralFinding]:
-    """ES-SRC-001 / ES-SRC-005 from the shared excerpt check; ES-SRC-004 when nothing was supplied.
+    """ES-SRC-001 / 005 / 006 / 007 from the shared excerpt check; ES-SRC-004 when nothing was supplied.
 
     With no supplied text, quotations cannot be attributed to a document, so the
     parser records none; evidence claims and the quotations found in the prose are
@@ -134,27 +284,40 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
             [c.claim_id for c in cited],
         )]
     out: list[StructuralFinding] = []
-    for f in generic_source_findings(report, code="ES-SRC-001", joined_code="ES-SRC-005"):
-        out.append(f.model_copy(update={"rule_source": RULE_SOURCES[f.code]}))
+    for f in generic_source_findings(
+        report, code="ES-SRC-001", joined_code="ES-SRC-005", inexact_code="ES-SRC-006", elided_code="ES-SRC-007", locator_code="ES-SRC-002",
+    ):
+        message = f.message
+        if f.code == "ES-SRC-001" and "not found in the document" in message:
+            message += " (not in the supplied text: invented, altered, or quoted from memory without the required one-line disclosure)"
+        out.append(f.model_copy(update={"rule_source": RULE_SOURCES[f.code], "message": truncate(message, 2000)}))
     return out
 
 
 def citation_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-SRC-002: line/act/page citations while no supplied text has a locator scheme."""
-    if not _no_locator_scheme(report):
-        return []
+    """ES-SRC-002: a location citation whose scheme no supplied text declares."""
+    declared = {t.locator_scheme for t in report.supplied_texts} - {"none"}
     out: list[StructuralFinding] = []
     for para in paragraphs:
         for sentence in para.sentences:
-            cites = sorted({m.group(0) for m in _CITATION_RE.finditer(strip_quotations(sentence.text))})
-            if not cites:
+            unverifiable: dict[str, set[str]] = {}
+            for cite in find_citations(strip_quotations(sentence.text)):
+                missing = citation_schemes(cite) - declared
+                if missing:
+                    unverifiable[cite] = missing
+            if not unverifiable:
                 continue
+            cites = sorted(unverifiable)
             shown = "; ".join(truncate(c, 40) for c in cites[:4])
+            needed = ", ".join(sorted(set().union(*unverifiable.values())))
+            reason = (
+                f"no supplied text declares a matching locator scheme ({needed})" if report.supplied_texts
+                else "no text was supplied"
+            )
             out.append(_finding(
                 "ES-SRC-002", "error",
-                f"paragraph {para.index}, sentence {sentence.index} gives a location citation ({shown}) but "
-                + ("no supplied text has a locator scheme" if report.supplied_texts else "no text was supplied")
-                + "; line, act and page numbers cannot be verified and must not be invented",
+                f"paragraph {para.index}, sentence {sentence.index} gives a location citation ({shown}) but {reason}; "
+                "line, act, page and chapter numbers cannot be verified and must not be invented",
                 _claims_for_sentence(report, sentence),
             ))
     return out
@@ -164,6 +327,8 @@ def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
     """ES-SRC-003: the answer says a quotation is from memory."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
+        if para.kind == "meta":
+            continue  # meta-text is reported once, by ES-META-001
         for sentence in para.sentences:
             if _FROM_MEMORY_RE.search(sentence.text):
                 out.append(_finding(
@@ -193,7 +358,7 @@ def strand_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
 
 
 def length_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-STR-002: body paragraph outside the 250-450 word band (P13 proxy)."""
+    """ES-STR-002: body paragraph outside the accepted 230-390 word range (P13 proxy)."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
         if para.kind != "body":
@@ -202,10 +367,34 @@ def length_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
         if n < BODY_WORDS_MIN or n > BODY_WORDS_MAX:
             out.append(_finding(
                 "ES-STR-002", "info",
-                f"body paragraph {para.index} has {n} words; the working target is about 350 ({BODY_WORDS_MIN}-{BODY_WORDS_MAX}) "
-                "unless the task sets a count",
+                f"body paragraph {para.index} has {n} words; the working target is about 350 (accepted range about "
+                f"{BODY_WORDS_MIN}-{BODY_WORDS_MAX}) unless the task sets a count",
                 _claims_for_paragraph(report, para),
             ))
+    return out
+
+
+def meta_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
+    """ES-META-001: meta-text blocks, and prose sentences that narrate checks or steps."""
+    out: list[StructuralFinding] = []
+    for para in paragraphs:
+        if para.kind == "meta":
+            out.append(_finding(
+                "ES-META-001", "warning",
+                f"paragraph {para.index} is meta-text ('{truncate(para.text, _EXCERPT_CHARS)}'): a self-certification or "
+                "narrated check is not analysis, provides no evidence and plays no part in verification",
+            ))
+            continue
+        for sentence in para.sentences:
+            if sentence.quotations:
+                continue
+            if META_NARRATION_RE.search(sentence.text):
+                out.append(_finding(
+                    "ES-META-001", "warning",
+                    f"paragraph {para.index}, sentence {sentence.index} narrates a check or an internal step "
+                    f"('{truncate(sentence.text, _EXCERPT_CHARS)}'); such assurance is not analysis and plays no part in verification",
+                    _claims_for_sentence(report, sentence),
+                ))
     return out
 
 
@@ -213,8 +402,11 @@ def first_person_findings(report: SpecialistReport, paragraphs: tuple[Paragraph,
     """ES-STY-001: first person outside quotations (S2, formal third person)."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
+        if para.kind == "meta":
+            continue  # meta-text is reported once, by ES-META-001
         for sentence in para.sentences:
-            hits = sorted({m.group(0) for m in _FIRST_PERSON_RE.finditer(strip_quotations(sentence.text))})
+            plain = _ROMAN_NUMERAL_RE.sub(" ", strip_quotations(sentence.text))
+            hits = sorted({m.group(0) for m in _FIRST_PERSON_RE.finditer(plain)})
             if hits:
                 out.append(_finding(
                     "ES-STY-001", "info",
@@ -225,10 +417,18 @@ def first_person_findings(report: SpecialistReport, paragraphs: tuple[Paragraph,
 
 
 def _spelling_families(text: str) -> tuple[list[str], list[str]]:
+    """British and American forms found outside quotations: -ise/-ize families plus the paired lexicon."""
     plain = strip_quotations(text)
-    ise = sorted({m.group(1) for m in _ISE_RE.finditer(plain) if m.group(1).lower() not in _ISE_FALSE_FRIENDS and not _stem_false_friend(m.group(1), _ISE_FALSE_FRIENDS)})
-    ize = sorted({m.group(1) for m in _IZE_RE.finditer(plain) if m.group(1).lower() not in _IZE_FALSE_FRIENDS and not _stem_false_friend(m.group(1), _IZE_FALSE_FRIENDS)})
-    return ise, ize
+    british = {m.group(1) for m in _ISE_RE.finditer(plain) if m.group(1).lower() not in _ISE_FALSE_FRIENDS and not _stem_false_friend(m.group(1), _ISE_FALSE_FRIENDS)}
+    american = {m.group(1) for m in _IZE_RE.finditer(plain) if m.group(1).lower() not in _IZE_FALSE_FRIENDS and not _stem_false_friend(m.group(1), _IZE_FALSE_FRIENDS)}
+    for m in _WORD_RE.finditer(plain):
+        word = m.group(0)
+        low = word.lower()
+        if low in BRITISH_FORMS:
+            british.add(word)
+        elif low in AMERICAN_FORMS:
+            american.add(word)
+    return sorted(british), sorted(american)
 
 
 def _stem_false_friend(word: str, friends: frozenset[str]) -> bool:
@@ -243,13 +443,13 @@ def _stem_false_friend(word: str, friends: frozenset[str]) -> bool:
 
 
 def spelling_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-STY-002: both -ise and -ize spellings outside quotations (S18, one variety)."""
-    ise, ize = _spelling_families(report.original_response)
-    if not ise or not ize:
+    """ES-STY-002: British and American spellings mixed outside quotations (S18, one variety)."""
+    british, american = _spelling_families(report.original_response)
+    if not british or not american:
         return []
     return [_finding(
         "ES-STY-002", "info",
-        "the answer mixes spelling varieties: -ise forms (" + ", ".join(ise[:5]) + ") and -ize forms (" + ", ".join(ize[:5]) + ")",
+        "the answer mixes spelling varieties: British forms (" + ", ".join(british[:6]) + ") and American forms (" + ", ".join(american[:6]) + ")",
         [c.claim_id for c in report.claims if c.claim_role in ("point", "thesis")][:8],
     )]
 
@@ -258,6 +458,8 @@ def bare_quotation_findings(report: SpecialistReport, paragraphs: tuple[Paragrap
     """ES-STY-003: a sentence that is nothing but a quotation (S11, embed every quotation)."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
+        if not para.is_prose:
+            continue
         for sentence in para.sentences:
             if _BARE_QUOTATION_RE.match(sentence.text.strip()):
                 excerpts = {q.excerpt for q in sentence.quotations}
@@ -275,7 +477,8 @@ def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Parag
     """All English specialist structural findings for ``report`` (see module docstring).
 
     ``paragraphs`` may be passed when the caller already segmented the answer;
-    otherwise ``report.original_response`` is segmented here.
+    otherwise ``report.original_response`` is segmented here. The paragraph working
+    rules (P7, P13) are skipped for outline, plan and bullet deliverables.
     """
     if paragraphs is None:
         paragraphs = segment(report.original_response)
@@ -283,8 +486,10 @@ def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Parag
     findings += source_findings(report, paragraphs)
     findings += citation_findings(report, paragraphs)
     findings += memory_findings(report, paragraphs)
-    findings += strand_findings(report, paragraphs)
-    findings += length_findings(report, paragraphs)
+    if not OUTLINE_TASK_RE.search(report.task_type or ""):
+        findings += strand_findings(report, paragraphs)
+        findings += length_findings(report, paragraphs)
+    findings += meta_findings(report, paragraphs)
     findings += first_person_findings(report, paragraphs)
     findings += spelling_findings(report, paragraphs)
     findings += bare_quotation_findings(report, paragraphs)

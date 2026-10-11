@@ -161,7 +161,13 @@ for _k, _n, _al in (
     ("english_a_literature", "English A: Literature", ("english a: literature", "english literature", "literature")),
     ("english_a_language_literature", "English A: Language and Literature", ("language and literature", "english a: language", "lang lit", "english a")),
     ("literature_performance", "Literature and Performance", ("literature and performance",)),
-    ("language_a_other", "Language A (other languages)", ("language a",)),
+    ("language_a_other", "Language A (other languages)", (
+        "language a", "language a: literature", "language a: language and literature",
+        "spanish a", "french a", "german a", "italian a", "portuguese a", "chinese a", "mandarin a", "japanese a",
+        "korean a", "arabic a", "russian a", "hindi a", "dutch a", "swedish a", "norwegian a", "danish a",
+        "finnish a", "turkish a", "polish a", "greek a", "hebrew a", "indonesian a", "malay a", "thai a",
+        "vietnamese a", "swahili a", "afrikaans a",
+    )),
     ("english", "English (unspecified course)", ("english",)),
 ):
     _add(SubjectProfile(
@@ -223,19 +229,36 @@ UNKNOWN = SubjectProfile(
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9: ]+", " ", s.lower()).strip()
+    return re.sub(r" +", " ", re.sub(r"[^a-z0-9: ]+", " ", s.lower())).strip()
+
+
+#: A Language A course in a language other than English ("Spanish A: Literature"): the
+#: generic alias "literature" must not pull such a label onto the English profiles.
+_OTHER_LANGUAGE_A_RE = re.compile(
+    r"\b(?:spanish|french|german|italian|portuguese|chinese|mandarin|japanese|korean|arabic|russian|hindi|dutch|"
+    r"swedish|norwegian|danish|finnish|turkish|polish|greek|hebrew|indonesian|malay|thai|vietnamese|swahili|afrikaans) a\b"
+)
 
 
 def resolve_profile(subject: str | None) -> SubjectProfile:
     """Match a free-text subject label (e.g. 'English A: Language and Literature HL')
-    to a profile by longest alias contained in the label; fall back to UNKNOWN."""
+    to a profile by longest alias contained in the label; fall back to UNKNOWN.
+
+    Aliases and the label are normalized the same way (lower case, punctuation other
+    than ``:`` dropped, whitespace collapsed), so every profile's own display name
+    resolves to it. A non-English Language A label resolves to ``language_a_other``
+    even though it also contains "literature".
+    """
     if not subject:
         return UNKNOWN
     label = _norm(subject)
+    if "english" not in label and _OTHER_LANGUAGE_A_RE.search(label):
+        return PROFILES["language_a_other"]
     best: tuple[int, SubjectProfile] | None = None
     for p in PROFILES.values():
-        for a in p.aliases:
-            if a in label and (best is None or len(a) > best[0]):
+        for raw in p.aliases:
+            a = _norm(raw)
+            if a and a in label and (best is None or len(a) > best[0]):
                 best = (len(a), p)
     return best[1] if best else UNKNOWN
 

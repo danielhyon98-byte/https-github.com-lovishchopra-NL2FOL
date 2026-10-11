@@ -18,7 +18,10 @@ class SolverConfig(BaseModel):
     timeout_ms: int = Field(default=2000, ge=1, le=120_000)
     rlimit: Optional[int] = Field(default=None, ge=1, description="Z3 resource limit for deterministic cutoffs")
     random_seed: int = Field(default=0, ge=0)
-    memory_max_mb: Optional[int] = Field(default=512, ge=16)
+    memory_max_mb: Optional[int] = Field(
+        default=512, ge=128,
+        description="Z3 global memory budget in MB; process-wide, never below the engine floor (a lower budget aborts Z3 and corrupts the process)",
+    )
     model_completion: bool = True
     produce_unsat_core: bool = True
     produce_smt2: bool = True
@@ -97,7 +100,18 @@ class VerificationResult(BaseModel):
     )
     ungrounded_dependencies: list[str] = Field(
         default_factory=list,
-        description="relied-on premise ids whose grounding is missing, is 'assumption', 'specialist_inference' or 'general_knowledge', or whose grounding.verified is False",
+        description=(
+            "relied-on premise ids whose grounding is missing, is 'assumption', 'specialist_inference' or "
+            "'general_knowledge', whose grounding.verified is False, or whose quotation grounding was never "
+            "positively verified by a deterministic check"
+        ),
+    )
+    unverified_dependencies: list[str] = Field(
+        default_factory=list,
+        description=(
+            "relied-on premise ids (not already ungrounded) whose grounding is asserted but was not checked "
+            "(verified is None) and whose kind is not a task-given fact (arithmetic_fact, task_setting, rubric_rule)"
+        ),
     )
     witness_model: Optional[list[ModelAssignment]] = Field(
         default=None,

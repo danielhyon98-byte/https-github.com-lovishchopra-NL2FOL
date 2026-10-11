@@ -3,15 +3,25 @@
 
 Every model answer and source extract is lifted verbatim from blockquotes in
 examples.md by line range (the '> ' prefix is stripped; nothing else changes).
-Run:  python3 -I build_corpus.py
-"""
-import hashlib, json, re, os, sys, datetime
+Run:  python3 -I build_corpus.py --source-dir <knowledge docs 1.0 directory> [--out-dir DIR]
 
-SRC_DIR = ("/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/"
-           "english_specialist/english specialist knowledge docs 1.0")
-OUT_DIR = ("/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/"
-           "qa_corpus/english")
+The knowledge documents are supplied read-only alongside the project and are not
+part of this repository; the output directory defaults to the directory holding
+this script.
+"""
+import argparse, hashlib, json, re, os, sys, datetime
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_args = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+_args.add_argument("--source-dir", required=True, help="directory holding examples.md, master_prompt.txt, paragraphs.md, formatting.md")
+_args.add_argument("--out-dir", default=_HERE, help="where example_*.json, mutations/ and README.md are written (default: this directory)")
+_ns = _args.parse_args()
+SRC_DIR = _ns.source_dir
+OUT_DIR = _ns.out_dir
 EX = os.path.join(SRC_DIR, "examples.md")
+if not os.path.isfile(EX):
+    raise SystemExit(f"examples.md not found under --source-dir {SRC_DIR!r}")
+os.makedirs(os.path.join(OUT_DIR, "mutations"), exist_ok=True)
 
 lines = open(EX, encoding="utf-8").read().split("\n")
 
@@ -407,10 +417,12 @@ def esc(s):
 
 rd = []
 rd.append("# English Specialist QA corpus\n")
-rd.append(f"Built {today} by `build_corpus.py` in this directory (re-runnable: `python3 -I build_corpus.py`). "
+rd.append(f"Built {today} by `build_corpus.py` in this directory (re-runnable: `python3 -I build_corpus.py --source-dir <knowledge docs>`). "
           "Purpose: ground-truth inputs for overseer agents testing a logic-verification program against outputs of the IB English Specialist tutoring agent.\n")
 rd.append("## Provenance\n")
-rd.append("Source directory (read-only): `" + SRC_DIR + "/`\n")
+rd.append("Source: the English specialist knowledge documents 1.0 (`examples.md`, `master_prompt.txt`, `paragraphs.md`, "
+          "`formatting.md`), supplied read-only alongside the project and not part of this repository; rebuild with "
+          "`python3 -I build_corpus.py --source-dir <that directory>`.\n")
 rd.append("| File | MD5 | Used for |\n|---|---|---|")
 rd.append(f"| examples.md | {md5s['examples.md']} | all seven model answers, the two stored source texts, status labels, headers (read in full) |")
 rd.append(f"| master_prompt.txt | {md5s['master_prompt.txt']} | non-negotiables 1-3, visibility rule, resolved conflicts 11-12 (cited in expected detections) |")

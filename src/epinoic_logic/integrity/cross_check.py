@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..engine.results import SolverConfig, VerificationResult
-from ..engine.runner import UNGROUNDED_KINDS, verify
+from ..engine.runner import is_ungrounded, verify
 from ..engine.statuses import VerificationStatus as S
 from ..ir.canonical import problem_digest, sha256_hex
 from ..ir.schema import ASSERTION_ID_RE, Assertion, Grounding, Limits, Problem, Symbol
@@ -335,8 +335,7 @@ def _refutation(joint: Problem, cfg: SolverConfig, limits: Limits, signing_key: 
 
 
 def _is_ungrounded(a: Assertion) -> bool:
-    g = a.grounding
-    return g is None or g.kind in UNGROUNDED_KINDS or g.verified is False
+    return is_ungrounded(a.grounding)  # the engine's own rule, so the two never disagree
 
 
 def _reliance_findings(joint: Problem, result: VerificationResult, jmap: JointMap, source_problems: list[Problem], cfg: SolverConfig, limits: Limits, signing_key: Optional[bytes], scid: str, prior_results: Optional[dict[str, VerificationResult]]) -> list[IntegrityFinding]:

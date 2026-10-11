@@ -65,6 +65,7 @@ from ..ir.schema import (
     ToReal,
     Var,
 )
+from ..ir.canonical import strict_object_pairs
 from ..version import IR_VERSION
 from .errors import DiagnosticCode
 from .results import Diagnostic
@@ -554,6 +555,22 @@ def _assertions(problem: Problem) -> list[tuple[str, Assertion]]:
     return items
 
 
+def _mentions_symbol(expr: Any) -> bool:
+    """True when ``expr`` contains at least one ``var`` node (iterative walk; no recursion)."""
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op == "var":
+            return True
+        for name in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, name, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or [])
+    return False
+
+
 def validate_problem(problem: Problem, limits: Limits = DEFAULT_LIMITS) -> ValidationOutcome:
     """Validate a schema-conformant ``Problem`` against identifier, sort, policy and limit rules.
 
@@ -589,6 +606,12 @@ def validate_problem(problem: Problem, limits: Limits = DEFAULT_LIMITS) -> Valid
 
     if total_nodes > limits.max_nodes:
         diagnostics.append(_diag(DiagnosticCode.TOO_MANY_NODES, f"problem has {total_nodes} expression nodes; limit is {limits.max_nodes}", None))
+    if problem.conclusion is not None and not _mentions_symbol(problem.conclusion.expr):
+        diagnostics.append(_diag(
+            DiagnosticCode.CLOSED_CONCLUSION,
+            "conclusion is a closed term that mentions no declared symbol: it is a tautology or a contradiction, not a claim about the encoded premises",
+            "conclusion.expr",
+        ))
 
     status = _status_for(diagnostics)
     return ValidationOutcome(
@@ -610,13 +633,7 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"non-finite JSON number {name} is not allowed")
 
 
-def _strict_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate key {key!r} in JSON object")
-        result[key] = value
-    return result
+_strict_pairs = strict_object_pairs  # shared with the service envelope and provider-output parsers
 
 
 def _failed(diagnostics: list[Diagnostic]) -> ValidationOutcome:

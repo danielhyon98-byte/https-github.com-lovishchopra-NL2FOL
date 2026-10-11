@@ -80,17 +80,39 @@ def month_index(month_name: str, year: str) -> int:
     return int(year) * 12 + _MONTHS[month_name.lower()]
 
 
+_AFTER_PHRASE_RE = re.compile(
+    r"\b(?:came|happened|followed|occurred|arrived|fell|rose|began|ended)\s+(?:only\s+)?after\b|\bonly after\b",
+    re.IGNORECASE,
+)
+_CLAUSE_BREAK_RE = re.compile(r";|,\s+(?:and|but|while|whereas)\b|\bbut\b")
+
+
 def chronology_findings_in(sentence: str) -> Optional[tuple[int, int]]:
-    """For a sentence of the form '... came only after ...' with two month-year dates,
-    return (later_claimed, earlier_claimed) month indices when the stated order is violated."""
-    low = sentence.lower()
-    if " after " not in low:
+    """Structural proxy for one chronology pattern inside a single sentence.
+
+    The pattern is ``<event> in <date1> ... (came|happened|followed|occurred) [only]
+    after ... <date2>``: ``date1`` is the nearest month-year before the ``after``
+    phrase and ``date2`` the nearest one after it, with no other date and no clause
+    boundary (``;``, ``, and``, ``but``) in between. The sentence then asserts
+    ``date1 > date2``; return ``(date1, date2)`` as month indices when the dates it
+    gives violate that order, else ``None``. Dates that belong to different clauses of
+    a long sentence (``... in March 1930 ..., and his successor ... after ... July
+    1930``) are not paired. Cross-sentence chronology is left to the formal path.
+    """
+    m = _AFTER_PHRASE_RE.search(sentence)
+    if m is None:
         return None
-    dates = _MONTH_YEAR_RE.findall(sentence)
-    if len(dates) < 2:
+    before, after = sentence[: m.start()], sentence[m.end():]
+    earlier_dates = list(_MONTH_YEAR_RE.finditer(before))
+    if not earlier_dates:
         return None
-    first, second = month_index(*dates[0]), month_index(*dates[1])
-    # "X in <date1> ... came only after ... <date2>": date1 must be later than date2
+    date1 = earlier_dates[-1]
+    if _CLAUSE_BREAK_RE.search(before[date1.end():]):
+        return None
+    date2 = _MONTH_YEAR_RE.search(after)
+    if date2 is None or _CLAUSE_BREAK_RE.search(after[: date2.start()]):
+        return None
+    first, second = month_index(*date1.groups()), month_index(*date2.groups())
     return (first, second) if first <= second else None
 
 

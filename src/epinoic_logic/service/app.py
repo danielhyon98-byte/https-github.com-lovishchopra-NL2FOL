@@ -6,9 +6,13 @@ solver. It enforces, in this order for every ``/v1`` request:
 1. bearer authentication (constant-time comparison)            -> 401 ``E502``
 2. a per-token token bucket                                     -> 429 ``E503``
 3. the request-body size limit, checked before the body is read -> 413 ``E306``
-4. strict JSON envelope parsing (no NaN, object only)           -> 400 ``E100``
-5. rejection of self-certification fields                       -> 400 ``E505``
-6. bounded solver concurrency (non-blocking admission)          -> 503 ``E504``
+4. strict JSON envelope parsing (no NaN, no duplicate keys,
+   object only)                                                 -> 400 ``E100``
+5. rejection of self-certification fields, at the top level and
+   nested as ``grounding.verified: true`` inside the problem    -> 400 ``E505``
+6. rejection of client-supplied ``config.memory_max_mb`` (the
+   Z3 memory budget is process-global and server-controlled)    -> 400 ``E100``
+7. bounded solver concurrency (non-blocking admission)          -> 503 ``E504``
 
 Solver runs happen in a worker thread so the event loop stays responsive. Every
 response carries ``X-Request-Id`` (echoed from the request when well formed,
@@ -54,6 +58,7 @@ from ..engine.errors import DiagnosticCode
 from ..engine.provenance import verify_signature, z3_version
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
+from ..ir.canonical import strict_object_pairs
 from ..ir.schema import DEFAULT_LIMITS
 from ..version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 from .settings import ServiceSettings
@@ -61,6 +66,7 @@ from .settings import ServiceSettings
 __all__ = [
     "REQUEST_ID_HEADER",
     "SELF_CERTIFICATION_KEYS",
+    "SERVER_CONTROLLED_CONFIG_KEYS",
     "HttpError",
     "TokenBucketLimiter",
     "RequestIdMiddleware",
@@ -77,6 +83,8 @@ _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 SELF_CERTIFICATION_KEYS: frozenset[str] = frozenset({
     "advisory_verification_status", "verified", "self_certified", "status",
 })
+#: Solver options a client may not set: process-global, so one request could affect every other.
+SERVER_CONTROLLED_CONFIG_KEYS: frozenset[str] = frozenset({"memory_max_mb"})
 _VERIFY_ENVELOPE_KEYS = frozenset({"problem", "config"})
 _SIGNATURE_ENVELOPE_KEYS = frozenset({"result"})
 _OUTCOME_ENVELOPE_KEYS = frozenset({"report", "claim_id", "fixture_responses", "adapter_id"})
@@ -228,11 +236,11 @@ def _parse_envelope(body: bytes, allowed_keys: frozenset[str], required_keys: fr
     except UnicodeDecodeError:
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body is not UTF-8") from None
     try:
-        obj = json.loads(text, parse_constant=_reject_constant)
+        obj = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=strict_object_pairs)
     except RecursionError:
         raise HttpError(400, DiagnosticCode.TOO_DEEP, "request body nesting is too deep") from None
     except ValueError:
-        raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body is not valid JSON") from None
+        raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body is not valid JSON (or repeats a key)") from None
     if not isinstance(obj, dict):
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body must be a JSON object")
     _reject_self_certification(obj, "request body")
@@ -255,11 +263,47 @@ def _reject_self_certification(obj: Mapping[str, Any], where: str) -> None:
         )
 
 
+def _asserted_verified_paths(obj: Any, limit: int = 8) -> list[str]:
+    """Paths of every nested ``"verified": true`` in ``obj`` (iterative walk; bounded output)."""
+    found: list[str] = []
+    stack: list[tuple[Any, str]] = [(obj, "problem")]
+    while stack and len(found) < limit:
+        node, path = stack.pop()
+        if isinstance(node, dict):
+            if node.get("verified") is True:
+                found.append(f"{path}.verified")
+            for key, value in node.items():
+                if isinstance(value, (dict, list)):
+                    stack.append((value, f"{path}.{key}"))
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                if isinstance(value, (dict, list)):
+                    stack.append((value, f"{path}[{i}]"))
+    return sorted(found)
+
+
+def _reject_nested_self_certification(problem: Mapping[str, Any]) -> None:
+    """A client may not assert that a grounding was verified: only deterministic checks set it."""
+    paths = _asserted_verified_paths(problem)
+    if paths:
+        raise HttpError(
+            400, DiagnosticCode.SELF_CERTIFICATION_REJECTED,
+            f"self-certification is not accepted in the problem: grounding.verified=true at {', '.join(paths)}; "
+            "grounding is verified only by deterministic checks, never asserted by the caller",
+        )
+
+
 def _parse_config(raw: Any) -> SolverConfig:
     if raw is None:
         return SolverConfig()
     if not isinstance(raw, dict):
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'config' must be a JSON object")
+    reserved = sorted(SERVER_CONTROLLED_CONFIG_KEYS & set(raw))
+    if reserved:
+        raise HttpError(
+            400, DiagnosticCode.SCHEMA_VIOLATION,
+            f"'config' option(s) {', '.join(reserved)} are server-controlled and cannot be set by clients",
+        )
     try:
         return SolverConfig.model_validate(raw)
     except ValidationError as exc:
@@ -353,6 +397,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         if not isinstance(problem, dict):
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'problem' must be a JSON object")
         _reject_self_certification(problem, "problem")
+        _reject_nested_self_certification(problem)
         config = _parse_config(envelope.get("config"))
         async with _solver_slot(app.state.semaphore):
             result: VerificationResult = await asyncio.to_thread(

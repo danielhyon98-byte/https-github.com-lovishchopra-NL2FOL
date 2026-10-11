@@ -14,6 +14,8 @@ class DiagnosticCode(str, Enum):
     MISSING_CONCLUSION = "E105"
     UNEXPECTED_CONCLUSION = "E106"
     NON_BOOLEAN_ASSERTION = "E107"
+    VACUOUS_RESULT = "E108"         # a definitive status that used no premise (tautology / empty problem)
+    CLOSED_CONCLUSION = "E109"      # conclusion mentions no declared symbol
     # UNSUPPORTED (policy)
     UNKNOWN_OPERATOR = "E200"
     NONLINEAR_TERM = "E201"

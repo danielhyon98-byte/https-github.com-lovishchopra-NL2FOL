@@ -9,7 +9,8 @@ Summary of the rules (applied in this order; the first match decides):
 
 1. kind ``rubric_judgment``       -> NOT_ELIGIBLE_RUBRIC_JUDGMENT, route ``subject_evaluator``
 2. kind ``factual``               -> NOT_ELIGIBLE_FACTUAL, route ``evidence_service``
-3. role point | thesis | link     -> PROPOSITIONAL_ARGUMENT when supporting claims exist,
+3. role point | thesis | link     -> PROPOSITIONAL_ARGUMENT when supporting claims other than the
+                                     claim itself exist (a self-reference is discarded and recorded),
                                      else NOT_ELIGIBLE_OTHER ("no supporting claims")
 4. role structural | quantitative -> ARITHMETIC_CONSTRAINT | QUANTITATIVE_CLAIM when the
                                      text has numerals or comparatives, else NOT_ELIGIBLE_OTHER
@@ -91,13 +92,16 @@ def _by_kind_first(claim: ClaimRecord, reasons: list[str], pv: str) -> Optional[
 
 
 def _argument_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityDecision:
-    if claim.supporting_claim_ids:
+    supports = [s for s in claim.supporting_claim_ids if s != claim.claim_id]
+    if len(supports) != len(claim.supporting_claim_ids):
+        reasons.append("self-reference in supporting_claim_ids was discarded: a claim cannot support itself")
+    if supports:
         reasons.append(
-            f"role {claim.claim_role} with {len(claim.supporting_claim_ids)} supporting claim(s): "
+            f"role {claim.claim_role} with {len(supports)} supporting claim(s): "
             "argument structure (evidence -> inference -> point) can be encoded"
         )
         return _decision(EligibilityClass.PROPOSITIONAL_ARGUMENT, True, reasons, pv)
-    reasons.append("no supporting claims")
+    reasons.append("no supporting claims" + (" other than itself" if claim.supporting_claim_ids else ""))
     return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
 
 

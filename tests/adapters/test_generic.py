@@ -76,10 +76,30 @@ def test_contract_violation_names_the_location_only():
     assert "claims.0.claim_role" in str(info.value) and "sonnet" not in str(info.value)
 
 
-def test_document_supplied_texts_take_precedence_when_present():
+def test_document_supplied_texts_that_differ_from_the_callers_are_rejected():
+    # Corrected expectation: the caller's texts are the platform's ground truth; an agent-shipped
+    # "source" must never replace them (it could contain the agent's own invented quotation).
     doc = document(supplied_texts=[{"document_id": "doc-2", "text": "Another text.", "locator_scheme": "none"}])
+    with pytest.raises(AdapterError, match="supplied_texts do not match"):
+        parse(doc)
+    same_id_other_text = document(supplied_texts=[{"document_id": DOC_ID, "text": "Another text.", "locator_scheme": "none"}])
+    with pytest.raises(AdapterError, match="supplied_texts do not match"):
+        parse(same_id_other_text)
+
+
+def test_document_supplied_texts_matching_the_callers_are_accepted_and_the_callers_are_used():
+    doc = document(supplied_texts=[{"document_id": DOC_ID, "text": TEXT, "locator_scheme": "paragraph", "title": "agent copy"}])
     report = parse(doc)
+    assert [t.document_id for t in report.supplied_texts] == [DOC_ID]
+    assert report.supplied_texts[0].title is None and report.supplied_texts[0].locator_scheme == "none"  # the caller's record wins
+    assert not any("provided by the agent" in u for u in report.unresolved_issues)
+
+
+def test_agent_texts_are_accepted_only_when_the_caller_supplies_none_and_this_is_recorded():
+    doc = document(supplied_texts=[{"document_id": "doc-2", "text": "Another text.", "locator_scheme": "none"}])
+    report = parse(doc, supplied_texts=[])
     assert [t.document_id for t in report.supplied_texts] == ["doc-2"]
+    assert any("provided by the agent, not by the platform" in u for u in report.unresolved_issues)
 
 
 def test_gen_src_001_for_an_excerpt_not_in_the_text():

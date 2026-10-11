@@ -82,9 +82,13 @@ def test_example1_whole_essay_segments_into_thesis_bodies_and_conclusion():
     assert len([c for c in rep.claims if c.claim_role == "point"]) == 3
     thesis = [c for c in rep.claims if c.claim_role == "thesis"]
     assert thesis and all(c.supporting_claim_ids == ["p2-point", "p3-point", "p4-point"] for c in thesis)
-    errors = [f for f in ADAPTER.structural_checks(rep) if f.severity == "error"]
-    # Body 2 lowercases the first word of a sentence it quotes ("for the immense majority..."); case is never folded.
-    assert [f.code for f in errors] == ["ES-SRC-001"] and "immense majority" in errors[0].message
+    findings = ADAPTER.structural_checks(rep)
+    # Body 2 lowercases the first word of a sentence it quotes ("for the immense majority..."). The corpus marks it
+    # found (case-only difference): a quotation-form warning (ES-SRC-006), never an invented-quotation error.
+    assert not [f for f in findings if f.severity == "error"]
+    form = [f for f in findings if f.code == "ES-SRC-006"]
+    assert len(form) == 1 and form[0].severity == "warning" and "immense majority" in form[0].message
+    assert "initial capital" in form[0].message and form[0].claim_ids == ["p3-q06"]
 
 
 # (2) faithful chain

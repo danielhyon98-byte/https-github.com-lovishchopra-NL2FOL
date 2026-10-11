@@ -3,6 +3,17 @@
 ``verify`` never raises. Every failure mode becomes a result with a non-success
 status and diagnostics, so callers (the service, the Overseer) always receive a
 bound, auditable record of what happened.
+
+Trust rules enforced here:
+
+* a payload that arrives as bytes, text or a plain object is untrusted; any
+  ``grounding.verified=True`` it asserts is discarded (``E505`` diagnostic) because
+  only deterministic checks run in this process may set it;
+* a quotation grounding that no check verified positively is an ungrounded
+  dependency; other asserted-but-unchecked groundings are listed separately as
+  ``unverified_dependencies`` so a summary can never call them established;
+* a definitive status that used no premise at all carries ``E108`` (vacuous) so the
+  outcome layer never displays a tautology as a verified claim.
 """
 from __future__ import annotations
 
@@ -12,17 +23,31 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Union
 
-from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
+import z3
+
+from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
-from .procedures import ProcedureOutcome, apply_global_memory_limit, run_consistency, run_entailment, run_satisfiability
+from .procedures import (
+    ProcedureOutcome,
+    apply_global_memory_limit,
+    reset_global_memory_limit,
+    run_consistency,
+    run_entailment,
+    run_satisfiability,
+)
 from .provenance import binding_for_unparsed, compute_binding, compute_versions, sign_result
 from .results import Counterexample, Diagnostic, ModelAssignment, SolverConfig, StageTiming, VerificationResult
 from .statuses import VerificationStatus
 from .validator import parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
+#: Grounding kinds that never establish a premise: they are the specialist's own steps.
 UNGROUNDED_KINDS = frozenset({"assumption", "specialist_inference", "general_knowledge"})
+#: Kinds given with the task itself; when unchecked they are asserted facts of the task, not of a source.
+TASK_GIVEN_KINDS = frozenset({"arithmetic_fact", "task_setting", "rubric_rule"})
+#: Kinds a deterministic check can verify positively; unchecked, they count as ungrounded.
+CHECKABLE_KINDS = frozenset({"quotation"})
 
 
 def _now() -> str:
@@ -42,18 +67,88 @@ def _status_for_compile_error(code: str) -> VerificationStatus:
     return VerificationStatus.UNSUPPORTED if code.startswith("E2") else VerificationStatus.INVALID_FORMALIZATION
 
 
+def is_ungrounded(grounding: Optional[Grounding]) -> bool:
+    """True when a grounding does not establish its premise.
+
+    Missing grounding, the inferential kinds, a failed check (``verified is False``)
+    and a checkable kind (quotation) that no check verified positively are all
+    ungrounded. The engine never trusts an asserted ``verified=True`` on a quotation
+    unless a deterministic check set it; see :func:`verify` for the raw path.
+    """
+    if grounding is None or grounding.kind in UNGROUNDED_KINDS or grounding.verified is False:
+        return True
+    return grounding.kind in CHECKABLE_KINDS and grounding.verified is not True
+
+
+def is_unverified(grounding: Optional[Grounding]) -> bool:
+    """True for a grounding that is asserted but unchecked and is not a task-given fact."""
+    if grounding is None or is_ungrounded(grounding):
+        return False
+    return grounding.verified is None and grounding.kind not in TASK_GIVEN_KINDS
+
+
 def ungrounded_dependencies(problem: Problem, relied_on: list[str]) -> list[str]:
-    """Relied-on premises whose support is missing, inferential, assumed, or failed a grounding check."""
+    """Relied-on premises whose support is missing, inferential, assumed, failed a grounding
+    check, or (for checkable kinds) was never positively verified."""
     by_id = {p.id: p for p in problem.premises}
-    out: list[str] = []
-    for pid in relied_on:
-        premise = by_id.get(pid)
-        if premise is None:
-            continue
-        g = premise.grounding
-        if g is None or g.kind in UNGROUNDED_KINDS or g.verified is False:
-            out.append(pid)
-    return out
+    return [pid for pid in relied_on if pid in by_id and is_ungrounded(by_id[pid].grounding)]
+
+
+def unverified_dependencies(problem: Problem, relied_on: list[str]) -> list[str]:
+    """Relied-on premises whose grounding is asserted (supplied_text, knowledge_document,
+    library_source ...) but was not checked by any deterministic procedure."""
+    by_id = {p.id: p for p in problem.premises}
+    return [pid for pid in relied_on if pid in by_id and is_unverified(by_id[pid].grounding)]
+
+
+def _demote_asserted_verification(problem: Problem) -> tuple[Problem, list[Diagnostic]]:
+    """Discard ``grounding.verified=True`` on a problem that arrived as untrusted data.
+
+    Only deterministic checks run in this process may set ``verified``. A payload
+    that asserts it is self-certifying; the flag is reset to ``None`` (unchecked) and
+    an ``E505`` diagnostic records the discard. ``False`` is kept: it only weakens.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    def demote(owner: str, g: Optional[Grounding]) -> Optional[Grounding]:
+        if g is None or g.verified is not True:
+            return g
+        diagnostics.append(Diagnostic(
+            code=DiagnosticCode.SELF_CERTIFICATION_REJECTED.value,
+            message="grounding.verified=true was discarded: only deterministic grounding checks set it",
+            path=owner,
+        ))
+        return g.model_copy(update={"verified": None})
+
+    symbols: list[Symbol] = [s.model_copy(update={"grounding": demote(f"symbols[{i}].grounding", s.grounding)}) for i, s in enumerate(problem.symbols)]
+    premises: list[Assertion] = [p.model_copy(update={"grounding": demote(f"premises[{i}].grounding", p.grounding)}) for i, p in enumerate(problem.premises)]
+    conclusion = problem.conclusion.model_copy(update={"grounding": demote("conclusion.grounding", problem.conclusion.grounding)}) if problem.conclusion is not None else None
+    if not diagnostics:
+        return problem, []
+    return problem.model_copy(update={"symbols": symbols, "premises": premises, "conclusion": conclusion}), diagnostics
+
+
+def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig) -> Optional[Diagnostic]:
+    """``E108`` when a definitive status rests on no premise at all.
+
+    An ENTAILED proof whose unsat core contains only the negated conclusion holds under
+    every assignment (a tautological or self-grounded conclusion); CONSISTENT or
+    SATISFIABLE over zero premises asserts nothing. The status is still the solver's
+    verdict about the encoding, but the outcome layer must not display it as a result.
+    """
+    if proc.status is VerificationStatus.ENTAILED and config.produce_unsat_core and not proc.core:
+        return Diagnostic(
+            code=DiagnosticCode.VACUOUS_RESULT.value,
+            message="vacuous: the conclusion holds under every assignment; no premise was used in the proof",
+            path="conclusion",
+        )
+    if proc.status in (VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE) and not problem.premises:
+        return Diagnostic(
+            code=DiagnosticCode.VACUOUS_RESULT.value,
+            message=f"vacuous: the {problem.query} query has no premises, so {proc.status.value} asserts nothing",
+            path="premises",
+        )
+    return None
 
 
 def _assignments(problem: Problem, model: dict[str, str]) -> list[ModelAssignment]:
@@ -91,11 +186,15 @@ def verify(
 
     try:
         t0 = time.perf_counter()
+        trust_notes: list[Diagnostic] = []
         if isinstance(problem_or_raw, Problem):
             problem: Optional[Problem] = problem_or_raw
             outcome = validate_problem(problem, limits)
         else:
             problem, outcome = parse_and_validate(problem_or_raw, limits)
+            if problem is not None:
+                # Untrusted payload: nothing in this process checked its groundings.
+                problem, trust_notes = _demote_asserted_verification(problem)
         timings.append(StageTiming(stage="validate", ms=(time.perf_counter() - t0) * 1000.0))
 
         if problem is None:
@@ -110,7 +209,7 @@ def verify(
         if not outcome.ok:
             return finish(VerificationResult(
                 **base, **ids, status=outcome.status or VerificationStatus.INVALID_FORMALIZATION,
-                binding=compute_binding(problem, config, versions, None), diagnostics=outcome.diagnostics,
+                binding=compute_binding(problem, config, versions, None), diagnostics=trust_notes + outcome.diagnostics,
             ))
 
         t1 = time.perf_counter()
@@ -120,19 +219,35 @@ def verify(
             timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
             return finish(VerificationResult(
                 **base, **ids, status=_status_for_compile_error(exc.diagnostic.code),
-                binding=compute_binding(problem, config, versions, None), diagnostics=[exc.diagnostic],
+                binding=compute_binding(problem, config, versions, None), diagnostics=trust_notes + [exc.diagnostic],
             ))
         timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
 
         apply_global_memory_limit(config)
-        proc = _PROCEDURES[problem.query](compiled, config)
+        try:
+            proc = _PROCEDURES[problem.query](compiled, config)
+        except z3.Z3Exception:
+            # Z3 aborted (its memory budget was exhausted). Restore the default budget so
+            # later calls in this process are not left under the exhausted one.
+            reset_global_memory_limit()
+            return finish(VerificationResult(
+                **base, **ids, status=VerificationStatus.UNKNOWN,
+                binding=compute_binding(problem, config, versions, None),
+                diagnostics=trust_notes + [Diagnostic(code=DiagnosticCode.SOLVER_MEMOUT.value, message="solver aborted: memory budget exhausted")],
+                reason_unknown="memory budget exhausted",
+            ))
         relied = list(proc.core)
+        diagnostics = trust_notes + _solver_diagnostics(proc)
+        vacuous = _vacuous_diagnostic(problem, proc, config)
+        if vacuous is not None:
+            diagnostics.append(vacuous)
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2),
             premises_relied_on=relied,
             ungrounded_dependencies=ungrounded_dependencies(problem, relied),
-            diagnostics=_solver_diagnostics(proc),
+            unverified_dependencies=unverified_dependencies(problem, relied),
+            diagnostics=diagnostics,
             timings=proc.timings,
             reason_unknown=proc.reason_unknown,
         )

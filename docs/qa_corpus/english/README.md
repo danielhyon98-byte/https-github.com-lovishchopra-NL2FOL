@@ -1,10 +1,10 @@
 # English Specialist QA corpus
 
-Built 2026-10-11 by `build_corpus.py` in this directory (re-runnable: `python3 -I build_corpus.py`). Purpose: ground-truth inputs for overseer agents testing a logic-verification program against outputs of the IB English Specialist tutoring agent.
+Built 2026-10-11 by `build_corpus.py` in this directory (re-runnable: `python3 -I build_corpus.py --source-dir <knowledge docs>`). Purpose: ground-truth inputs for overseer agents testing a logic-verification program against outputs of the IB English Specialist tutoring agent.
 
 ## Provenance
 
-Source directory (read-only): `/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/english_specialist/english specialist knowledge docs 1.0/`
+Source: the English specialist knowledge documents 1.0 (`examples.md`, `master_prompt.txt`, `paragraphs.md`, `formatting.md`), supplied read-only alongside the project and not part of this repository; rebuild with `python3 -I build_corpus.py --source-dir <that directory>`.
 
 | File | MD5 | Used for |
 |---|---|---|

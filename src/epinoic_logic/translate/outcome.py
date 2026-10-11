@@ -9,7 +9,10 @@ Display rules (never relaxed):
 
 * ``TRANSLATED``             -> the engine's status, provided the engine result is
   bound to exactly the translated problem; a missing or mis-bound result is
-  ``INTERNAL_ERROR``.
+  ``INTERNAL_ERROR``. When the composer holds the signing key, a result whose
+  signature does not verify is likewise rejected (``E501``). A definitive status
+  that the engine marked vacuous (``E108``: no premise was used) is displayed as
+  ``INVALID_FORMALIZATION``, never as a verdict.
 * ``AMBIGUOUS_TRANSLATION``  -> ``AMBIGUOUS_TRANSLATION`` (the best-reading problem may
   have been verified for inspection, but an ambiguous claim is never displayed as
   a result).
@@ -24,6 +27,8 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
+from ..engine.errors import DiagnosticCode
+from ..engine.provenance import verify_signature
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify as engine_verify
 from ..engine.statuses import DEFINITIVE, SCOPE_STATEMENT, VerificationStatus
@@ -80,8 +85,18 @@ _TRANSLATION_DISPLAY: dict[TranslationStatus, VerificationStatus] = {
 }
 
 
-def _binding_problem(translation: TranslationResult, verification: Optional[VerificationResult]) -> Optional[str]:
-    """Why ``verification`` cannot be trusted for ``translation``; ``None`` when it binds."""
+def _binding_problem(
+    translation: TranslationResult,
+    verification: Optional[VerificationResult],
+    signing_key: Optional[bytes] = None,
+    key_id: Optional[str] = None,
+) -> Optional[str]:
+    """Why ``verification`` cannot be trusted for ``translation``; ``None`` when it binds.
+
+    With ``signing_key`` the result must also carry a signature that verifies under
+    that key (and, when ``key_id`` is given, name that key); a result whose status or
+    content was altered after signing is rejected here rather than displayed.
+    """
     if verification is None:
         return "no engine result was produced for the translated problem"
     problem = translation.problem
@@ -91,15 +106,33 @@ def _binding_problem(translation: TranslationResult, verification: Optional[Veri
         return "the engine result is for a different claim"
     if verification.problem_id != problem.problem_id or verification.binding.problem_digest != problem_digest(problem):
         return "the engine result is not bound to the translated problem (digest mismatch)"
+    if signing_key is not None:
+        if not verification.signature:
+            return f"the engine result is unsigned although a signing key is configured ({DiagnosticCode.SIGNATURE_INVALID.value})"
+        if key_id is not None and verification.signature_key_id != key_id:
+            return f"the engine result is signed with an unexpected key id ({DiagnosticCode.SIGNATURE_INVALID.value})"
+        if not verify_signature(verification, signing_key):
+            return f"the engine result's signature does not verify ({DiagnosticCode.SIGNATURE_INVALID.value})"
     return None
 
 
-def display_status_for(translation: TranslationResult, verification: Optional[VerificationResult]) -> VerificationStatus:
+def _is_vacuous(verification: VerificationResult) -> bool:
+    return verification.status in DEFINITIVE and any(d.code == DiagnosticCode.VACUOUS_RESULT.value for d in verification.diagnostics)
+
+
+def display_status_for(
+    translation: TranslationResult,
+    verification: Optional[VerificationResult],
+    signing_key: Optional[bytes] = None,
+    key_id: Optional[str] = None,
+) -> VerificationStatus:
     """Deterministic display status for a translation plus optional engine result."""
     if translation.status is TranslationStatus.TRANSLATED:
-        if _binding_problem(translation, verification) is not None:
+        if _binding_problem(translation, verification, signing_key, key_id) is not None:
             return VerificationStatus.INTERNAL_ERROR
         assert verification is not None
+        if _is_vacuous(verification):
+            return VerificationStatus.INVALID_FORMALIZATION
         return verification.status
     return _TRANSLATION_DISPLAY[translation.status]
 
@@ -154,12 +187,17 @@ def _checked_lines(translation: TranslationResult) -> list[str]:
     return [text + "."]
 
 
-def _verification_lines(translation: TranslationResult, verification: Optional[VerificationResult]) -> list[str]:
+def _verification_lines(
+    translation: TranslationResult,
+    verification: Optional[VerificationResult],
+    signing_key: Optional[bytes] = None,
+    key_id: Optional[str] = None,
+) -> list[str]:
     lines: list[str] = []
     problem = translation.problem
     if verification is None or problem is None:
         return lines
-    binding_issue = _binding_problem(translation, verification)
+    binding_issue = _binding_problem(translation, verification, signing_key, key_id)
     if binding_issue is not None:
         lines.append(f"Engine result rejected: {binding_issue}.")
         return lines
@@ -167,6 +205,12 @@ def _verification_lines(translation: TranslationResult, verification: Optional[V
         lines.append(
             f"The best-reading encoding was run for inspection and returned {verification.status.value}; "
             "because the claim is ambiguous this is not displayed as a result."
+        )
+    if _is_vacuous(verification):
+        vacuous = next(d for d in verification.diagnostics if d.code == DiagnosticCode.VACUOUS_RESULT.value)
+        lines.append(
+            f"Vacuous result: the engine returned {verification.status.value} but {truncate(vacuous.message, _DIAG_CHARS)} "
+            f"({vacuous.code}); it is displayed as INVALID_FORMALIZATION, not as a verdict."
         )
     if verification.premises_relied_on:
         lines.append("Premises relied on: " + _listed([f"{pid} ({_label(problem, pid)})" for pid in verification.premises_relied_on]) + ".")
@@ -178,16 +222,27 @@ def _verification_lines(translation: TranslationResult, verification: Optional[V
             + _listed([f"{pid} ({_grounding_note(problem, pid)})" for pid in verification.ungrounded_dependencies])
             + "."
         )
-    elif verification.premises_relied_on:
-        lines.append("Ungrounded dependencies: none.")
+    if verification.unverified_dependencies:
+        lines.append(
+            "Unverified dependencies (asserted by the translation, checked by no procedure): "
+            + _listed([f"{pid} ({_grounding_note(problem, pid)})" for pid in verification.unverified_dependencies])
+            + "."
+        )
+    if verification.premises_relied_on and not verification.ungrounded_dependencies and not verification.unverified_dependencies:
+        lines.append("Ungrounded dependencies: none; unverified dependencies: none.")
     if verification.counterexample is not None:
         lines.append("Counterexample: " + _listed([f"{a.symbol}={a.value}" for a in verification.counterexample.assignments]) + ".")
     if verification.witness_model:
         lines.append("Witness assignment: " + _listed([f"{a.symbol}={a.value}" for a in verification.witness_model]) + ".")
     if verification.status not in DEFINITIVE and verification.diagnostics:
         lines.append("Engine diagnostics: " + _listed([f"{d.code}: {truncate(d.message, _DIAG_CHARS)}" for d in verification.diagnostics]) + ".")
-    if verification.signature:
-        lines.append(f"Engine result {verification.result_id} is signed (key {verification.signature_key_id}); the Overseer must verify the signature before relying on it.")
+    if verification.signature and signing_key is not None:
+        lines.append(f"Engine result {verification.result_id} is signed (key {verification.signature_key_id}) and its signature was verified by this layer.")
+    elif verification.signature:
+        lines.append(
+            f"Engine result {verification.result_id} carries a signature (key {verification.signature_key_id}) that this layer did not verify; "
+            "the Overseer must verify it before relying on the result."
+        )
     else:
         lines.append(f"Engine result {verification.result_id} is unsigned.")
     return lines
@@ -258,6 +313,8 @@ def build_summary(
     review: Optional[SemanticFidelityReview],
     structural: list[StructuralFinding],
     display: VerificationStatus,
+    signing_key: Optional[bytes] = None,
+    key_id: Optional[str] = None,
 ) -> str:
     """Deterministic plain-language summary; ends with ``SCOPE_STATEMENT`` verbatim."""
     lines: list[str] = [
@@ -267,7 +324,7 @@ def build_summary(
     ]
     lines += _eligibility_lines(translation)
     lines += _checked_lines(translation)
-    lines += _verification_lines(translation, verification)
+    lines += _verification_lines(translation, verification, signing_key, key_id)
     if translation.status is TranslationStatus.TRANSLATED and verification is None:
         lines.append("Engine result rejected: no engine result was produced for the translated problem.")
     lines += _grounding_lines(translation)
@@ -287,11 +344,14 @@ def compose_outcome(
     verification: Optional[VerificationResult] = None,
     review: Optional[SemanticFidelityReview] = None,
     structural: Iterable[StructuralFinding] = (),
+    signing_key: Optional[bytes] = None,
+    key_id: Optional[str] = None,
 ) -> ClaimVerificationOutcome:
     """Assemble the Overseer-facing outcome for one claim.
 
     ``verification`` is used only when it binds to the translated problem (same
-    claim, same problem id and digest); anything else is displayed as
+    claim, same problem id and digest) and, when ``signing_key`` is given, carries a
+    signature that verifies under it; anything else is displayed as
     ``INTERNAL_ERROR`` and explained in the summary. Agent self-reports play no part.
     """
     if translation.claim_id != claim.claim_id or translation.request_id != claim.request_id:
@@ -299,8 +359,8 @@ def compose_outcome(
     if review is not None and review.translation_id != translation.translation_id:
         raise ValueError("review does not belong to the translation")
     findings = list(structural)
-    display = display_status_for(translation, verification)
-    summary = build_summary(claim, translation, verification, review, findings, display)
+    display = display_status_for(translation, verification, signing_key, key_id)
+    summary = build_summary(claim, translation, verification, review, findings, display, signing_key, key_id)
     return ClaimVerificationOutcome(
         outcome_id=new_id("oc"),
         request_id=claim.request_id,
@@ -343,4 +403,4 @@ def verify_claim(
     review: Optional[SemanticFidelityReview] = None
     if reviewer is not None and translation.problem is not None:
         review = reviewer.review(claim, translation)
-    return compose_outcome(claim, translation, verification, review, structural)
+    return compose_outcome(claim, translation, verification, review, structural, signing_key=signing_key, key_id=key_id)

@@ -13,6 +13,21 @@ from typing import Any
 from pydantic import BaseModel
 
 
+def strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` for :func:`json.loads` that refuses duplicate keys.
+
+    Every untrusted JSON boundary (engine payloads, the service envelope, provider
+    output) uses this hook so that a repeated key can never silently take a
+    "last one wins" value. Raises ``ValueError`` naming the duplicated key.
+    """
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate key {key!r} in JSON object")
+        result[key] = value
+    return result
+
+
 def canonical_json(obj: Any) -> str:
     if isinstance(obj, BaseModel):
         obj = obj.model_dump(mode="json", exclude_none=True)
