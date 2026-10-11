@@ -32,7 +32,7 @@ def data_block(label: str, obj: Any) -> str:
 
 
 def render_translation_user_prompt(request: TranslationRequest) -> str:
-    """User prompt for a translation attempt: claim, support, texts, eligibility, prior diagnostics."""
+    """User prompt for a translation attempt: claim, support, texts, eligibility, subject profile, prior diagnostics."""
     parts = [
         "Translate the claim below into an Epinoic IR 1.0 problem following the system instructions. "
         f"IR version: {request.ir_version}. Prompt version: {request.prompt_version}. "
@@ -42,6 +42,12 @@ def render_translation_user_prompt(request: TranslationRequest) -> str:
         data_block("supplied_texts", request.supplied_texts),
         data_block("eligibility", request.eligibility),
     ]
+    if request.subject_profile_text is not None:
+        parts.append(
+            "The subject profile below states which claim classes the formal check can represent "
+            "for this IB subject and what it can never establish. Encode only within that scope."
+        )
+        parts.append(data_block("subject_profile", request.subject_profile_text))
     if request.prior_diagnostics:
         parts.append(
             "The previous attempt was rejected by the validator for the reasons below. "

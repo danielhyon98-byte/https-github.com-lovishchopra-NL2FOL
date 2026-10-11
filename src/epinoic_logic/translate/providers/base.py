@@ -7,7 +7,7 @@ platform is not tied to one model vendor.
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,15 @@ class TranslationRequest(BaseModel):
     prior_diagnostics: list[str] = Field(
         default_factory=list,
         description="diagnostics from the previous attempt, so a retry can correct them (empty on the first attempt)",
+    )
+    subject_profile_text: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description=(
+            "model-facing description of the IB subject profile (what the formal check can and cannot "
+            "establish in this subject); produced by subjects.prompt_profile_text, rendered as the "
+            "'subject_profile' data block"
+        ),
     )
 
 
