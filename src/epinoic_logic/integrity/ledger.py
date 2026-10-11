@@ -19,6 +19,9 @@ PLACEHOLDERS = frozenset({"n/a", "na", "-", ".", "tbd", "see above", "none", "nu
 _NUMBER_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
 _LIST_MARKER_RE = re.compile(r"(?m)^\s*\(?\d{1,2}[.)]\s")
 _THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+#: A figure for the fidelity comparison: unlike ``_NUMBER_RE`` it accepts a sentence-final period after the numeral
+#: ("printed in 1818."), because list markers are removed before it runs.
+_FIGURE_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)(?!\.\d)")
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
 #: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
 _EQUIVALENCE_LABELS = frozenset({"carried", "paraphrased"})
@@ -42,8 +45,8 @@ def _norm(text: str) -> str:
 def figure_tokens(text: str) -> set[str]:
     """The numerals (thousands separators removed) and month-year tokens of ``text``, the
     units of a figure/date fidelity comparison between a synthesized claim and its sources."""
-    plain = _THOUSANDS_RE.sub("", text)
-    tokens = {m.group(0) for m in _NUMBER_RE.finditer(plain)}
+    plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
+    tokens = {m.group(0) for m in _FIGURE_RE.finditer(plain)}
     tokens |= {f"{m.group(1).casefold()} {m.group(2)}" for m in _MONTH_YEAR_RE.finditer(plain)}
     return tokens
 

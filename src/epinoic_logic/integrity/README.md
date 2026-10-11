@@ -15,7 +15,9 @@ prior_results, signing_key, config)` runs every applicable check and returns one
 `INT-INTERNAL-001` error finding naming the check. The report carries `report_sha256`
 (digest of the rest of the report; `verify_report_digest`). `checks_run` lists what ran:
 `handoff`, `ledger`, `formalization_binding`, `staleness`, `cross_report_consistency`,
-`synthesis_entailment`, `required_formal_checks`, `conflict_disclosure`.
+`synthesis_entailment`, `required_formal_checks`, `conflict_disclosure`. The disclosure rule is
+`check_conflict_disclosure(synthesis, conflicting_sets)` (`cross_check.py`), shared with the channel so the
+Overseer's report and the synthesis receipt apply one rule.
 
 ## Findings
 
@@ -30,9 +32,9 @@ emits from `run_integrity_checks`.
 | Check | Fault it exposes | Method |
 | --- | --- | --- |
 | Envelope (`envelope.py`) | replayed, re-headed or tampered messages; unsigned/forged envelopes; role impersonation; replies from the wrong party or across request/task boundaries; messages for another request | deterministic (payload hash, envelope digest, HMAC signature, message log) |
-| Handoff (`handoff.py`) | a specialist answering the wrong task, an agent the router never selected, a selected agent that never reported, off-subject / wrong-level / wrong-type reports, wrong-task claims hidden inside a right-task report, citations outside the retrieval scope (reports, combinator and formalizations), late reports, unparseable timestamps, self-reported status | deterministic; timestamps compared as instants |
+| Handoff (`handoff.py`) | a specialist answering the wrong task, an agent the router never selected, a selected agent that never reported, off-subject / wrong-level / wrong-type reports (the type planned for that agent, `agent_task_types`), wrong-task claims hidden inside a right-task report, citations outside the retrieval scope (reports, combinator and formalizations), late reports, unparseable timestamps, self-reported status | deterministic; timestamps compared as instants |
 | Staleness (`handoff.py`) | a result reused for a changed representation, another configuration or other component versions; unsigned, forged or unverifiable results; inconsistent bindings; duplicate result ids; formalizations or results for claims no report contains | digest and signature comparison |
-| Ledger (`ledger.py`) | material claims dropped without a meaningful record, orphaned synthesized claims, certainty inflated above the weakest source, evidence lost under any transformation, 'carried' claims whose text changed, ledger entries pointing nowhere, id collisions between reports and between the source and synthesis namespaces, student-facing text diverging from the ledger, conflicts "resolved" without a basis | deterministic accounting |
+| Ledger (`ledger.py`) | material claims dropped without a meaningful record, orphaned synthesized claims, certainty inflated above the weakest source, evidence lost under any transformation, figures or dates that occur in none of the cited sources (and source figures dropped under an equivalence label), 'carried' claims whose text changed, ledger entries pointing nowhere, id collisions between reports and between the source and synthesis namespaces, student-facing text diverging from the ledger, conflicts "resolved" without a basis | deterministic accounting |
 | Cross-report consistency (`cross_check.py`) | specialists contradicting each other under a shared glossary; a specialist claim refuting itself; glossary sort and meaning clashes; contradictions not disclosed in the synthesis | Z3 joint consistency; conflicting claims named from the unsat core through an alias table |
 | Synthesis entailment (`cross_check.py`) | the combinator stating more than the sources support, a synthesis that follows only through unverified inferences or through unproven specialist conclusions, paraphrases weaker than their source, partial formal coverage, invalid synthesized conclusions, required checks not performed | Z3 entailment of the synthesized conclusion from the union of source premises, re-run without ungrounded premises; reverse entailment for paraphrases |
 
@@ -48,12 +50,12 @@ emits from `run_integrity_checks`.
 | INT-ENV-006 | error | envelope unsigned or signature invalid (log constructed with `signing_key`) |
 | INT-ENV-007 | error | sender role may not issue this contract (`ROLE_CONTRACTS`), e.g. a specialist sending `verification_result/1.0` |
 | | | `specialist_report_forward/1.0` is the router's contract for handing a delivered report to another agent unchanged; only a router may send it, and the channel checks the payload against the delivery (INT-HANDOFF-013) |
-| INT-ENV-008 | error | envelope header does not match the payload it carries (`bind_payload`) |
+| INT-ENV-008 | error | envelope header does not match the payload it carries (`bind_payload`): request/task differ, or the sender is not the agent the payload claims to come from (`agent_id` of a report, `combinator_agent_id` of a synthesis); the channel runs it on every response and relay except the router's forward, so a specialist cannot relay a colleague's report under its own name |
 | INT-ENV-009 | error | message belongs to another request than the log (`MessageLog(request_id=...)`) |
 | INT-ENV-010 | error | reply from a role/agent the replied-to message was not addressed to |
 | INT-ENV-011 | error | idempotency key reused with a different payload |
 | INT-HANDOFF-001 | error | report answers another request/task than the plan |
-| INT-HANDOFF-002 | error | agent not selected by the router |
+| INT-HANDOFF-002 | error | agent not selected by the router: the report's agent, a raw-text sender (decided before parsing), the sender or recipient of a relay in a specialist or combinator role, or a synthesis's combinator (the router and the Overseer, Verifier, Retrieval and Gate roles are infrastructure parties and need no selection) |
 | INT-HANDOFF-003 | error | report subject differs from the subject the plan assigns that agent (`agent_subjects`, else the plan's subject) |
 | INT-HANDOFF-004 | error | citation outside the retrieval scope (report claims or supplied texts, synthesized evidence refs, or formalized grounding) |
 | INT-HANDOFF-005 | warning | report created after the plan deadline (instants compared) |
@@ -61,10 +63,12 @@ emits from `run_integrity_checks`.
 | INT-HANDOFF-007 | error | a selected agent delivered no report; the synthesis is incomplete |
 | INT-HANDOFF-008 | error | `created_at` / `deadline_at` is not an RFC 3339 timestamp with an explicit offset |
 | INT-HANDOFF-009 | warning | the same agent delivered several reports for one task |
-| INT-HANDOFF-010 | warning | report task_type differs from the plan |
+| INT-HANDOFF-010 | warning | report task_type differs from the type the plan sets for that agent (`agent_task_types`, else the plan's task_type) |
 | INT-HANDOFF-011 | error | report course_level differs from the plan (both set and not 'unknown') |
 | INT-HANDOFF-012 | error | a claim's provenance (request, task, agent, subject, task_type, level) differs from its report |
 | INT-HANDOFF-013 | error | the router forwarded a report that was never delivered on this channel, or whose payload differs from the delivered one (altered in transit); the forward is not transmitted |
+| INT-HANDOFF-014 | warning | a superseded report (INT-HANDOFF-009) remains in circulation: raised on the supersession naming the router's forwards of it and the reports that quote it as a peer document (whose excerpts are re-checked against the current text and named when they no longer occur), on a synthesis that cites it (an id collision with its successor is explained as a supersession, not blamed on the combinator), and on a router forward of it |
+| INT-HANDOFF-015 | error | a report id reused with a DIFFERENT payload (a re-delivery with changed text or timestamp, or a forged copy under a known id); the first delivery is kept, the later one is not delivered. The same payload again is INT-ENV-001 |
 | INT-HANDOFF-016 | warning | synthesis timestamped before a report it cites |
 | INT-HANDOFF-017 | warning | synthesis created after the plan deadline |
 | INT-STALE-001 | error | result produced for a different representation of the claim |
@@ -77,6 +81,7 @@ emits from `run_integrity_checks`.
 | INT-STALE-008 | error | one result id shared by several stored results |
 | INT-STALE-009 | error | formalization does not belong to this claim/request (map key, claim_id, request_id); excluded from joint checks |
 | INT-STALE-010 | error | formalization or stored result for a claim no specialist report contains |
+| INT-STALE-011 | error | (channel) a claim outcome whose translation does not bind to the claim as transmitted: claim id, request, report, or `TranslationResult.claim_text_sha256` of another text; stale, neither delivered nor pooled |
 | INT-LEDGER-000 | error | synthesis cites reports that were not provided |
 | INT-LEDGER-001 | error | unknown source claim cited by a synthesized claim, ledger entry or conflict record |
 | INT-LEDGER-002 | error | material source claim neither carried, transformed nor recorded as dropped (or unaccountable because its id collides) |
@@ -99,8 +104,10 @@ emits from `run_integrity_checks`.
 | INT-LEDGER-020 | warning | evidence excerpt differs from the source's under the same (document, locator) |
 | INT-LEDGER-021 | warning | material sources became a 'supporting' synthesized claim |
 | INT-LEDGER-022 | info | supporting source claim neither carried, transformed nor recorded as dropped |
+| INT-LEDGER-023 | error | a synthesized claim states figures or dates (numerals, thousands separators removed; month-year tokens) that occur in none of its cited sources, whatever the transformation label: a changed or introduced figure or date |
+| INT-LEDGER-024 | warning | figures or dates of the cited sources do not appear in a 'carried' or 'paraphrased' synthesized claim: content dropped under an equivalence label |
 | INT-CONFLICT-001 | error | specialist claims contradict each other (two or more claims named from the core) |
-| INT-CONFLICT-002 | error | formal contradiction not disclosed: no conflict record names at least two of the conflicting claims, and the records together do not name them all (synthesized ids are mapped to their sources) |
+| INT-CONFLICT-002 | error | formal contradiction not disclosed: no conflict record names at least two of the conflicting claims, and the records together do not name them all (synthesized ids are mapped to their sources). Raised by `run_integrity_checks` and, on the channel, on a synthesis receipt after a joint check over the formalized claims in the ledger scope plus the contradictions already named on the channel |
 | INT-CONFLICT-003 | error | conflict marked resolved without a meaningful basis |
 | INT-CONFLICT-004 | warning | joint consistency undecided (timeout/unknown) or contradiction unattributable |
 | INT-CONFLICT-005 | error | one specialist claim is internally inconsistent (its own assertions refute each other); no disclosure demanded |
@@ -161,6 +168,10 @@ envelope without the signature fields) and a `MessageLog(signing_key=...)`. A re
 message id is compared by `envelope_digest` (header and payload hash), so a changed header
 is INT-ENV-002, not a replay. `bind_payload(msg, model)` compares the header with the
 parsed contract inside.
+
+**Plan per agent.** `WorkPlan.agent_subjects` and `WorkPlan.agent_task_types` name a selected agent's own
+subject and task type when they differ from the plan's; both must name selected agents, and a plan without
+them keeps the digest it always had (`plan_digest` omits empty mappings).
 
 **Scope.** `WorkPlan.allowed_document_ids` empty means unrestricted. When set, it applies to
 report claims and supplied texts, to synthesized `evidence_refs`, and to the
