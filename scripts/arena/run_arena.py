@@ -300,6 +300,16 @@ def run_round(round_dir: Path) -> dict:
                     _capture[claim.claim_id] = sha256_text(claim.claim_text)
                 return verify_claim(claim, report, _t, config=CFG, signing_key=KEY)
         ch.verify_claim_fn = verify_fn
+        # A delivered report recorded by relay_peer.py (the payload the peer-dependent agent actually read) is what the
+        # genuine pass delivers for that task, so the forward measured here is byte-identical to the recorded one.
+        recorded_payload = None
+        for other in items:
+            if other.get("peer_of") == task_id:
+                rel_path = round_dir / "relayed" / f"{other['task_id']}.json"
+                if rel_path.exists():
+                    rel = json.loads(rel_path.read_text())
+                    if rel.get("delivered") and rel.get("payload"):
+                        recorded_payload = rel["payload"]
         if pass_kind == "genuine":
             peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name)
             if peer_rec is not None:
@@ -320,13 +330,33 @@ def run_round(round_dir: Path) -> dict:
                 continue
             rec = {"file": sp.name, "task_id": task_id, "subject": item["subject"], "variant": kind, "expected": expected, "task_type": plan.agent_task_types.get(agent, plan.task_type)}
             t0 = time.perf_counter()
+            hub_key = group
+            if kind != "genuine":
+                # every mutation gets its own hub task (same plan), so its receipt is that of a single delivery and never
+                # carries the supersession or stale-forward findings a re-statement on the genuine reply's channel would
+                hub_key = f"{group}::{kind}"
+                vch = hub.open_task(plan)  # the hub registers it under plan.task_id: put the group's channel back and key this one
+                hub.channels[plan.task_id] = channels[group]
+                hub.channels[hub_key] = vch
+                vch.verify_claim_fn = verify_fn
+                channels[hub_key] = vch
+                if item.get("peer_of"):  # the peer's genuine report is delivered and forwarded on this channel too
+                    peer_item = next(it for it in items if it["task_id"] == item["peer_of"])
+                    pm_, _, _ = hub.dispatch(hub_key, peer_item["agent_id"], peer_item["question"], supplied(peer_item))
+                    peer_payload = delivered.get(peer_item["_path"].stem)
+                    preply, _ = hub.receive(hub_key, pm_.message_id, SpecialistReport.model_validate(peer_payload.payload) if peer_payload is not None else peer_item["response_text"],
+                                            agent_id=peer_item["agent_id"], report_id=f"rep-{peer_item['task_id']}-0")
+                    _r, ptext, _m = relay_from_peer(vch, items, item, {peer_item["_path"].stem: preply} if preply is not None else {}, sp.name)
+                    texts = [*supplied(item), *([ptext] if ptext is not None else [])]
+            rec["channel"] = hub_key
             try:
-                m, req, rq = hub.dispatch(group, agent, item["question"], texts)
+                m, req, rq = hub.dispatch(hub_key, agent, item["question"], texts)
                 if m is None:
                     rec.update(functional=False, error=f"request rejected: {[f.code for f in rq.findings]}")
                     records.append(rec)
                     continue
-                reply, rc = hub.receive(group, m.message_id, text, agent_id=agent, report_id=f"rep-{task_id}-{vi}")
+                payload_in = SpecialistReport.model_validate(recorded_payload) if (kind == "genuine" and recorded_payload is not None) else text
+                reply, rc = hub.receive(hub_key, m.message_id, payload_in, agent_id=agent, report_id=f"rep-{task_id}-{vi}")
                 if kind == "genuine" and reply is not None:
                     delivered[sp.stem] = reply
                 codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings})
@@ -397,6 +427,8 @@ def run_round(round_dir: Path) -> dict:
                                                        "distinct_claims": {k: len(v) for k, v in distinct.items()}, "distinct_claims_total": len(set().union(*distinct.values())) if distinct else 0,
                                                        "entailed_dependencies": ungrounded_entailed},
            "translation_outcomes_by_variant": by_variant_outcomes, "translation_outcomes_all_variants": all_variants,
+           "genuine_with_errors": [{"file": r["file"], "codes": sorted({f["code"] for f in r.get("findings", []) if f["severity"] == "error"} | {f["code"] for f in r.get("subject_findings", []) if f["severity"] == "error"})}
+                                   for r in records if r["variant"] == "genuine" and any(f["severity"] == "error" for f in r.get("findings", []) + r.get("subject_findings", []))],
            "failures": [r for r in records if not r.get("functional")], "records": records}
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
     lines = [f"# Arena {round_dir.name}", "", f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%})", "", "| variant | functional | total |", "| --- | --- | --- |"]
@@ -405,6 +437,8 @@ def run_round(round_dir: Path) -> dict:
     lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["(none)"]
     lines += [f"- ENTAILED verdicts resting only on ungrounded premises: {ungrounded_entailed['resting_only_on_ungrounded_premises']} of {ungrounded_entailed['entailed']}",
               f"- all variants together (the same claims repeated): {all_variants}"]
+    lines += ["", "## Genuine transmissions carrying error-level findings (correct against a specialist fault, or a false error: read the receipt)", ""]
+    lines += [f"- {g['file']}: {g['codes']}" for g in out["genuine_with_errors"]] or ["(none)"]
     lines += ["", "## Failures", ""] + ([f"- {r['file']} [{r['variant']}]: {r.get('error') or ('status ' + str(r.get('status')) + ' codes ' + str(r.get('codes')))}" for r in out["failures"]] or ["(none)"])
     (round_dir / "summary.md").write_text("\n".join(lines))
     return out
