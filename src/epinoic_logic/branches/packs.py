@@ -9,9 +9,9 @@ from typing import Optional
 from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
 from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes
-from ..adapters.sources import check_excerpt, strip_trailing_punctuation
+from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncredited_excerpt
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
-from ..translate.grounding import check_claim_sources, find_quotation
+from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from .base import FormalCheck
 from .quant import extract_quant_checks
 
@@ -220,7 +220,9 @@ class CorePack:
         text = report.original_response
         for c in report.claims:
             for g in check_claim_sources(c, report.supplied_texts):
-                if g.verified is False:
+                # a quotation located in another form (initial capital, line-break mark, diacritics, long elision) is not
+                # 'not found': the hub names it INT-REQ-010 and the subject pack warns, so no error here contradicts them
+                if g.verified is False and FORM_DIFFERS not in (g.detail or ""):
                     f.append(StructuralFinding(code="CORE-SRC-001", severity="error", message="cited excerpt not found in the supplied text", claim_ids=[c.claim_id], rule_source="source integrity (every pack's non-negotiable 2)"))
         has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
@@ -238,24 +240,41 @@ class CorePack:
         """CORE-SRC-003: every quotation with no text to check it against is reported: with
         no text supplied, every quotation; with texts supplied, a quotation that no supplied
         text holds and that no claim credits to a text (the parser found no named source for
-        it), which the grounding check (INT-REQ-003) therefore never sees. A from-memory
-        label downgrades the finding to info only when it speaks of quotations or sits in the
-        same sentence as the quotation; a label about dates and figures does not vouch for a
-        quotation. Strings of a pasted JSON fragment are not quotations."""
+        it), which the grounding check (INT-REQ-003) therefore never sees. With texts supplied,
+        every quotation a parser recorded as credited to no text (the shared attribution rule's
+        assumption, ``sources.uncredited_assumption``) is reported whatever its length, so a
+        quotation the English, History or generic parser leaves without a source reference
+        never goes silent. A from-memory label downgrades the finding to info only when it
+        speaks of quotations or sits in the same sentence as the quotation; a label about dates
+        and figures does not vouch for a quotation. Strings of a pasted JSON fragment are not
+        quotations."""
         text, _removed = strip_json_spans(report.original_response)
         quoted = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         texts = list(report.supplied_texts)
+        recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text
         if texts:
             docs = {t.document_id: t for t in texts}
             cited = {strip_trailing_punctuation(r.excerpt) for c in report.claims for r in c.source_refs if r.excerpt}
+            seen = {strip_trailing_punctuation(q) for q in quoted}
+            for c in report.claims:
+                for a in c.assumptions:
+                    ex = uncredited_excerpt(a)
+                    if ex is None:
+                        continue
+                    recorded.append((c.claim_id, strip_trailing_punctuation(ex)))
+                    if strip_trailing_punctuation(ex) not in seen:
+                        seen.add(strip_trailing_punctuation(ex))
+                        quoted.append(ex)
             quoted = [q for q in quoted if strip_trailing_punctuation(q) not in cited and not any(check_excerpt(q, d, docs).located for d in docs)]
         if not quoted:
             return []
+        reported = {strip_trailing_punctuation(q) for q in quoted}
+        recorded_ids = [cid for cid, ex in recorded if ex in reported]
         quote_label = bool(_QUOTE_MEMORY_LABEL_RE.search(text))
         sentences = [s for _pi, _si, s, _p in _sentences_with_paragraph(text)]
         labelled_in_sentence = all(any((q in s) and is_memory_label(s) for s in sentences) for q in quoted)
         shown = "; ".join("'" + (q[:_EXCERPT_CHARS] + ("..." if len(q) > _EXCERPT_CHARS else "")) + "'" for q in quoted[:4])
-        claim_ids = [c.claim_id for c in report.claims if any(q in c.claim_text for q in quoted)][:8]
+        claim_ids = list(dict.fromkeys([c.claim_id for c in report.claims if any(q in c.claim_text for q in quoted)] + recorded_ids))[:8]
         where = f"no supplied text holds them and their sentences credit them to none of the supplied texts [{', '.join(t.document_id for t in texts)}]" if texts else "no text was supplied"
         rule = "source integrity (quote from memory only with permission, and say so)"
         if quote_label or labelled_in_sentence:
@@ -291,7 +310,7 @@ class CorePack:
                 if attributed is None:
                     continue
                 doc_id, label, others = attributed
-                located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text))
+                located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text, document_id=t.document_id))
                 if not located or doc_id in located:
                     continue
                 key = (excerpt, doc_id)

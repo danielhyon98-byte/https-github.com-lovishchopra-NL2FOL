@@ -37,7 +37,10 @@ Structural checks (codes are stable; add, never rename)
 * ``GEN-SRC-002`` (warning): a quotation found only by joining separate spans of
   the text without marking the omission.
 * ``GEN-SRC-003`` (warning): a quotation whose words occur but whose form differs
-  (initial capital, verse line-break mark); not an invented quotation.
+  (initial capital, verse line-break mark, diacritics, an elision longer than the elision
+  window): every located status of the shared excerpt check other than an exact match, an
+  elided quotation and a joined quotation; never an invented quotation, the same case the
+  channel reports as INT-REQ-010.
 * ``GEN-SRC-004`` (info): an elided quotation; the detail states the span covered.
 * ``GEN-SRC-005`` (warning): a locator cited on a document that declares no locator
   scheme, so the location cannot be checked.
@@ -222,7 +225,8 @@ def generic_source_findings(
 
     ``code`` (error) when an excerpt is not found or a document was not supplied;
     ``joined_code`` (warning) for a quotation joined from separate spans;
-    ``inexact_code`` (warning) when the words occur but the form differs;
+    ``inexact_code`` (warning) when the words occur but the form differs (any located
+    status other than these: initial capital, line-break mark, diacritics, long elision);
     ``elided_code`` (info) for an elided quotation; ``locator_code`` (warning) for a
     locator on a document that declares no locator scheme.
     """
@@ -252,10 +256,12 @@ def generic_source_findings(
             prefix = f"quotation '{shown}' cited by {who} in {ref.document_id or 'no document'}: {check.detail}"
             if check.status == "found_joined":
                 findings.append(StructuralFinding(code=joined_code, severity="warning", message=prefix, claim_ids=[claim.claim_id]))
-            elif check.status == "found_inexact":
-                findings.append(StructuralFinding(code=inexact_code, severity="warning", message=prefix, claim_ids=[claim.claim_id]))
             elif check.status == "found_elided":
                 findings.append(StructuralFinding(code=elided_code, severity="info", message=prefix, claim_ids=[claim.claim_id]))
+            elif check.located:
+                # found_inexact, found_long_elision and any other located status: the words occur in the document, so
+                # this is a form difference (a warning, as the channel's INT-REQ-010), never the invented-quotation error
+                findings.append(StructuralFinding(code=inexact_code, severity="warning", message=prefix, claim_ids=[claim.claim_id]))
             else:
                 findings.append(StructuralFinding(code=code, severity="error", message=prefix, claim_ids=[claim.claim_id]))
     return findings

@@ -132,9 +132,9 @@ can never disagree.
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
-| `CORE-SRC-001` | error | a cited excerpt was not found in the supplied text |
+| `CORE-SRC-001` | error | a cited excerpt was not found in the supplied text (an excerpt located in another form, such as an initial capital, a line-break mark, diacritics or a long elision, is not this finding: the channel names it `INT-REQ-010` and the subject pack warns) |
 | `CORE-SRC-002` | info | figures stated without sources, library references or a from-memory label |
-| `CORE-SRC-003` | warning / info | a quotation with no text to check it against: with no text supplied, every quotation; with texts supplied, a quotation that no supplied text holds and whose sentence credits it to no supplied text (the parser recorded no source reference, so the grounding check never sees it). Info only when the specialist's own label says the quotation is from memory (a label in the same sentence, or a label that speaks of quotations); a figures label does not vouch for a quotation. Quotations are read in straight, curly or mixed double marks, guillemets, and delimited single marks of two or more words, after JSON fragments are removed, exactly as the parsers read them. A quotation credited to a named text that does not hold it is the channel's `INT-REQ-003`, not this finding |
+| `CORE-SRC-003` | warning / info | a quotation with no text to check it against: with no text supplied, every quotation; with texts supplied, a quotation that no supplied text holds and whose sentence credits it to no supplied text (the parser recorded no source reference, so the grounding check never sees it), and every quotation a parser recorded as credited to no text (the shared attribution rule's assumption), whatever its length, on every branch, the English one included. Info only when the specialist's own label says the quotation is from memory (a label in the same sentence, or a label that speaks of quotations); a figures label does not vouch for a quotation. Quotations are read in straight, curly or mixed double marks, guillemets, and delimited single marks of two or more words, after JSON fragments are removed, exactly as the parsers read them. A quotation credited to a named text that does not hold it is the channel's `INT-REQ-003`, not this finding |
 | `CORE-SRC-004` | warning | a paragraph whose double marks (straight, curly, mixed, guillemets) cannot be paired; the dangling mark is located by context so the quotations the writer did delimit are still checked |
 | `CORE-SRC-005` | error / warning | a quotation credited in its sentence to a named source (a supplied text's author or title, a peer agent such as `the History specialist`, `the poem` when one text was supplied) with a saying verb, but located only in a different supplied text: the words are genuine, the credit is wrong. In a reporting clause (`The English specialist argues that Blake presents ... "..."`) the OUTER speaker is the credited source, so a colleague's words reported correctly are no finding. When the sentence names a second source before the quotation and that source holds the words, the credit is ambiguous: a warning naming both, not an error. A quotation found in no text is left to the grounding check (`INT-REQ-003`) or, when uncredited, to `CORE-SRC-003` |
 | `CORE-CHR-001` | warning | a sentence orders two dated events but the pair could not be decided (see above: an aside date, an unstated year, an equal month or year); the stated order was not checked |
@@ -144,7 +144,7 @@ can never disagree.
 
 The History pack reads every source reference through the same grounding check the
 channel uses, so it never contradicts the channel: an excerpt the channel locates in a
-different form (initial capital, verse line break, long elision: `INT-REQ-010`) is a
+different form (initial capital, verse line break, diacritics, long elision: `INT-REQ-010`) is a
 `HI-SRC-001` WARNING naming the difference, an excerpt found nowhere is an error. Both
 messages name the excerpt and the documents searched.
 
@@ -193,7 +193,9 @@ what a verdict looks like.
   attributed to the one text the sentence names (so `INT-REQ-003` reports the credit) and
   otherwise to NO text: the assumption `quotation with no supplied text to check it
   against: "..."` is recorded and the core pack reports `CORE-SRC-003`. A text is never
-  credited merely because it was supplied first.
+  credited merely because it was supplied first. The rule is `adapters/sources.attribute_excerpt`,
+  shared with the English parser (which adds one step: a sentence naming no text quotes the
+  one literary text under analysis) and the generic parser.
 * A sentence whose subject is a peer specialist's view (`The English specialist argues
   that ...`, `The English specialist's phrase "..." fits that record`) is roled
   `perspective` with certainty capped at `probable` and an attribution assumption; it is

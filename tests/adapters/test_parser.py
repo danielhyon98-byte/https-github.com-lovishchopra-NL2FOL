@@ -62,10 +62,24 @@ def test_excerpts_drop_sentence_punctuation_but_claim_text_keeps_the_span():
 def test_quotation_is_attributed_to_the_document_that_contains_it():
     other = supplied("A different text with a lonely lantern.", "doc-2")
     report = parse('The "lonely lantern" and the "clock ticks on" differ; "nowhere words" fall back.', [other, supplied()])
-    refs = {c.claim_text: c.source_refs[0].document_id for c in by_role(report, "evidence")}
-    assert refs['"lonely lantern"'] == "doc-2"
-    assert refs['"clock ticks on"'] == DOC_ID
-    assert refs['"nowhere words"'] == "doc-2"  # first supplied text when none contains it
+    evidence = {c.claim_text: c for c in by_role(report, "evidence")}
+    assert [(r.document_id, r.excerpt) for r in evidence['"lonely lantern"'].source_refs] == [("doc-2", "lonely lantern")]
+    assert [(r.document_id, r.excerpt) for r in evidence['"clock ticks on"'].source_refs] == [(DOC_ID, "clock ticks on")]
+    assert evidence['"lonely lantern"'].assumptions == [] and evidence['"clock ticks on"'].assumptions == []
+    # Consolidation rule (it replaces 'the first supplied text when none contains it'): two literary texts, none named
+    # by the sentence and none holding the words, so the quotation is credited to NO text. It carries no source
+    # reference, records the shared assumption, and the core pack reports it as unverifiable; nothing calls it a
+    # quotation of doc-2 merely because doc-2 was supplied first.
+    nowhere = evidence['"nowhere words"']
+    assert nowhere.source_refs == []
+    assert nowhere.assumptions == ['quotation with no supplied text to check it against: "nowhere words" '
+                                   '(the sentence names no supplied text and the words occur in none of [doc-2, doc-1])']
+    from epinoic_logic.adapters.english_specialist.structural import structural_checks
+    from epinoic_logic.branches.packs import CorePack
+    [core] = [f for f in CorePack().checks(report) if f.code == "CORE-SRC-003"]
+    assert core.severity == "warning" and "'nowhere words'" in core.message and nowhere.claim_id in core.claim_ids
+    assert "doc-2, doc-1" in core.message
+    assert not [f for f in structural_checks(report) if f.code == "ES-SRC-001"]  # no reference, so no 'not found in doc-2'
 
 
 def test_repeated_quotation_in_a_paragraph_is_one_evidence_claim():

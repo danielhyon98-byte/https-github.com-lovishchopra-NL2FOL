@@ -25,21 +25,42 @@ A fourth, *inexact* tier (:func:`locate_quotation_inexact`) finds the words afte
 conventional adjustment of written analysis: a changed initial capital (a sentence
 opening quoted mid-sentence) or omitted or added verse line-break marks (``/``);
 :func:`locate_long_elision` finds an elision whose fragments all occur in order but span
-more than the elision window. Neither verifies a grounding: ``Grounding.verified`` stays
-``False`` for the IR path, but the check's ``detail`` says the quotation *differs in
-form* and names the difference, so the Overseer (and the channel) can tell a form
-problem from an invented quotation.
+more than the elision window. The inexact tier also folds diacritics on both sides (each
+character decomposed with NFKD and its combining marks, Unicode category Mn, dropped, the
+offset map kept), so ``"Bayardo San Román"`` quoted from a text that prints ``Bayardo San
+Roman`` is located and reported as differing in diacritics. Neither verifies a grounding:
+``Grounding.verified`` stays ``False`` for the IR path, but the check's ``detail`` says the
+quotation *differs in form* and names the difference, so the Overseer (and the channel) can
+tell a form problem from an invented quotation.
+
+An excerpt that differs from the text only in how its accented letters are encoded
+(precomposed ``é`` against ``e`` plus a combining accent) has the same letters: the
+normalized tier finds it (``QuotationMatch.note`` says so), never the diacritics tier.
 
 Every grounding whose ``source_refs`` carry an excerpt is checked against the named
 document whatever its ``kind``; only groundings without an excerpt are
 ``not_checkable``.
 
 Offsets returned always refer to the ORIGINAL text.
+
+Cost. A supplied text's normalised forms (typographic, verse line breaks as slashes, quote
+marks folded, line-break marks dropped, diacritics folded) and their offset maps are built
+once per text, on first use, and kept in a bounded least-recently-used cache keyed by
+``(document_id, sha256 of the text)`` (:class:`TextForms`); every locating function answers
+from that cache and memoises its own answer per ``(excerpt, sha256 of the text)`` in a
+second bounded cache, so one parse or check never locates the same excerpt in the same
+document twice, whichever caller asks. Every cached value is a pure function of the excerpt and the text, so a
+cached answer is the answer the uncached code gives; both caches are thread-safe.
 """
 from __future__ import annotations
 
+import hashlib
+import threading
+import unicodedata
+from array import array
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Callable, Hashable, Literal, Optional, Sequence
 
 from ..ir.schema import Assertion, Grounding, Problem, SourceRef, Symbol
 from .contracts import ClaimRecord, GroundingCheck, SuppliedText
@@ -71,8 +92,11 @@ class QuotationMatch:
     note: Optional[str] = None
 
 
+#: Every grounding check whose quotation was located in another form says so in its detail with these words.
+FORM_DIFFERS = "differs in form"
 NOTE_QUOTES_FOLDED = "quotation marks inside the excerpt folded to one class (the nesting level of the marks differs)"
 NOTE_LINEBREAK_SLASH = "line breaks of the document written as ' / ' in the excerpt"
+NOTE_COMPOSITION = "accented letters encoded differently (precomposed against a letter plus a combining mark); the letters are the same"
 
 
 def _normalize_indexed(text: str, *, newline_as_slash: bool = False) -> tuple[str, list[int]]:
@@ -164,6 +188,40 @@ def _fold_slash_runs(chars: str, idx: Optional[list[int]] = None) -> tuple[str, 
     return "".join(out), out_idx
 
 
+def _fold_diacritics_indexed(chars: str, idx: Optional[Sequence[int]] = None) -> tuple[str, list[int]]:
+    """Fold diacritics: every non-ASCII character is decomposed (NFKD) and its combining
+    marks (Unicode category ``Mn``) are dropped, so ``Román`` and ``Roman`` compare equal.
+    The offset map (``idx``; an identity map when None) is kept in step: each character a
+    decomposition yields maps to the offset of the character it came from."""
+    if idx is None:
+        idx = range(len(chars))
+    out: list[str] = []
+    out_idx: list[int] = []
+    for ch, pos in zip(chars, idx):
+        if ch.isascii():
+            out.append(ch)
+            out_idx.append(pos)
+            continue
+        for part in unicodedata.normalize("NFKD", ch):
+            if unicodedata.category(part) != "Mn":
+                out.append(part)
+                out_idx.append(pos)
+    return "".join(out), out_idx
+
+
+def fold_diacritics(s: str) -> str:
+    """``s`` with its diacritics folded (see :func:`_fold_diacritics_indexed`)."""
+    return s if s.isascii() else _fold_diacritics_indexed(s)[0]
+
+
+def _extend_over_marks(text: str, end: int) -> int:
+    """Move ``end`` past combining marks that follow it in ``text`` (an accent written as a
+    letter plus a combining mark belongs to the letter it follows)."""
+    while end < len(text) and unicodedata.category(text[end]) == "Mn":
+        end += 1
+    return end
+
+
 def _strip_outer_quotes(excerpt: str) -> str:
     s = excerpt.strip()
     for left, right in _OUTER_QUOTES:
@@ -172,7 +230,7 @@ def _strip_outer_quotes(excerpt: str) -> str:
     return s
 
 
-def _span(idx: list[int], start: int, length: int) -> tuple[int, int]:
+def _span(idx: Sequence[int], start: int, length: int) -> tuple[int, int]:
     return idx[start], idx[start + length - 1] + 1
 
 
@@ -194,10 +252,13 @@ def _folded_candidates(norm_ex: str) -> list[str]:
     return out
 
 
-def _find_folded(norm_ex: str, norm_text: str, idx: list[int], text: str, note: str) -> Optional[QuotationMatch]:
+def _find_folded(norm_ex: str, norm_text: str, idx: Sequence[int], text: str, note: str, folded_text: Optional[str] = None) -> Optional[QuotationMatch]:
+    """The excerpt with its quotation marks folded to one class, found in the text folded the
+    same way (``folded_text``, when the caller already holds it, is ``_fold_quote_marks(norm_text)``)."""
     if "'" not in norm_ex and '"' not in norm_ex:
         return None
-    folded_text = _fold_quote_marks(norm_text)
+    if folded_text is None:
+        folded_text = _fold_quote_marks(norm_text)
     for cand in _folded_candidates(norm_ex):
         pos = folded_text.find(cand)
         if pos >= 0:
@@ -210,7 +271,7 @@ def _elision_fragments(norm_ex: str) -> list[str]:
     return [f.strip() for f in norm_ex.split("...") if f.strip()] if "..." in norm_ex else []
 
 
-def _find_elided(fragments: list[str], norm_text: str, idx: list[int], text: str, *, window: Optional[int] = ELISION_WINDOW_CHARS) -> Optional[QuotationMatch]:
+def _find_elided(fragments: list[str], norm_text: str, idx: Sequence[int], text: str, *, window: Optional[int] = ELISION_WINDOW_CHARS) -> Optional[QuotationMatch]:
     """Fragments in order within ``window`` characters beyond their own length; ``window``
     None means any distance (used to tell a long elision from an invented quotation)."""
     cursor = 0
@@ -231,19 +292,228 @@ def _find_elided(fragments: list[str], norm_text: str, idx: list[int], text: str
     return QuotationMatch(first_start, end, text[first_start:end], "normalized_match", elided=True)
 
 
-def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
+# ---------------------------------------------------------------- cached forms and memoised locating
+
+
+class BoundedLRU:
+    """A thread-safe least-recently-used map bounded by its number of entries and, when
+    ``max_weight`` is set, by the total weight of its entries (the characters of the texts
+    behind them). The least recently used entries are dropped first; the newest entry is
+    always kept, whatever its weight."""
+
+    def __init__(self, max_entries: int, max_weight: Optional[int] = None) -> None:
+        if max_entries < 1:
+            raise ValueError("max_entries must be at least 1")
+        self.max_entries = max_entries
+        self.max_weight = max_weight
+        self._data: "OrderedDict[Hashable, tuple[Any, int]]" = OrderedDict()
+        self._weight = 0
+        self._lock = threading.Lock()
+
+    def get(self, key: Hashable, default: Any = None) -> Any:
+        with self._lock:
+            item = self._data.get(key)
+            if item is None:
+                return default
+            self._data.move_to_end(key)
+            return item[0]
+
+    def put(self, key: Hashable, value: Any, weight: int = 1) -> None:
+        with self._lock:
+            old = self._data.pop(key, None)
+            if old is not None:
+                self._weight -= old[1]
+            self._data[key] = (value, weight)
+            self._weight += weight
+            while len(self._data) > self.max_entries or (self.max_weight is not None and self._weight > self.max_weight and len(self._data) > 1):
+                _key, (_value, w) = self._data.popitem(last=False)
+                self._weight -= w
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+            self._weight = 0
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._data)
+
+    @property
+    def weight(self) -> int:
+        with self._lock:
+            return self._weight
+
+
+#: Supplied texts whose forms are kept (entries) and the characters of text behind them (weight).
+TEXT_FORMS_MAX_ENTRIES = 64
+TEXT_FORMS_MAX_CHARS = 2_000_000
+#: Excerpt-in-document answers kept (entries), and the characters of excerpts and matched spans they hold (weight):
+#: a long elision's match can hold a large slice of the text, so the memo is bounded by size as well as by count.
+LOCATE_MEMO_MAX_ENTRIES = 16_384
+LOCATE_MEMO_MAX_CHARS = 8_000_000
+
+_SHA_BY_TEXT = BoundedLRU(TEXT_FORMS_MAX_ENTRIES, TEXT_FORMS_MAX_CHARS)  # the text itself -> its sha256 (str hashes are cached, so this is O(1) per call)
+_TEXT_FORMS = BoundedLRU(TEXT_FORMS_MAX_ENTRIES, TEXT_FORMS_MAX_CHARS)   # (document_id, sha256) -> TextForms
+_LOCATE_MEMO = BoundedLRU(LOCATE_MEMO_MAX_ENTRIES, LOCATE_MEMO_MAX_CHARS)  # (function, excerpt, sha256) -> (answer,)
+
+
+def text_sha256(text: str) -> str:
+    """The sha256 of ``text`` (UTF-8), memoised per text so a large document is hashed once."""
+    digest = _SHA_BY_TEXT.get(text)
+    if digest is None:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        _SHA_BY_TEXT.put(text, digest, weight=len(text) + 1)
+    return digest
+
+
+def _offsets(idx: Sequence[int]) -> Sequence[int]:
+    return array("i", idx)  # 4 bytes per offset (a supplied text is at most 400 000 characters) instead of a list of int objects
+
+
+class TextForms:
+    """The normalised forms of one supplied text and their offset maps into the ORIGINAL
+    text, each built once, on first use. Obtained through :func:`text_forms`, which keeps
+    one instance per ``(document_id, sha256 of the text)`` in a bounded LRU cache. Building a
+    form twice in two threads is harmless (the same value is assigned)."""
+
+    __slots__ = ("text", "_norm", "_quotes_folded", "_slash", "_slash_quotes_folded", "_no_marks", "_no_marks_casefold", "_has_newline", "_has_slash",
+                 "_is_ascii", "_diacritics")
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self._norm: Optional[tuple[str, Sequence[int]]] = None
+        self._quotes_folded: Optional[str] = None
+        self._slash: Optional[tuple[str, Sequence[int]]] = None
+        self._slash_quotes_folded: Optional[str] = None
+        self._no_marks: Optional[tuple[str, Sequence[int]]] = None
+        self._no_marks_casefold: Optional[str] = None
+        self._has_newline: Optional[bool] = None
+        self._has_slash: Optional[bool] = None
+        self._is_ascii: Optional[bool] = None
+        self._diacritics: Optional[tuple[str, Sequence[int]]] = None
+
+    @property
+    def is_ascii(self) -> bool:
+        if self._is_ascii is None:
+            self._is_ascii = self.text.isascii()
+        return self._is_ascii
+
+    @property
+    def has_newline(self) -> bool:
+        if self._has_newline is None:
+            self._has_newline = "\n" in self.text
+        return self._has_newline
+
+    @property
+    def has_slash(self) -> bool:
+        if self._has_slash is None:
+            self._has_slash = "/" in self.text
+        return self._has_slash
+
+    def norm(self) -> tuple[str, Sequence[int]]:
+        """Typographic normalisation (tier 2) and its offset map."""
+        if self._norm is None:
+            chars, idx = _normalize_indexed(self.text)
+            self._norm = (chars, _offsets(idx))
+        return self._norm
+
+    def quotes_folded(self) -> str:
+        """The normalised text with every quotation mark folded to one class (same offsets as :meth:`norm`)."""
+        if self._quotes_folded is None:
+            self._quotes_folded = _fold_quote_marks(self.norm()[0])
+        return self._quotes_folded
+
+    def slash(self) -> tuple[str, Sequence[int]]:
+        """Line breaks rendered ``" / "`` (a blank line ``" // "``), slash runs folded, and the offset map."""
+        if self._slash is None:
+            chars, idx = _fold_slash_runs(*_normalize_indexed(self.text, newline_as_slash=True))
+            self._slash = (chars, _offsets(idx))
+        return self._slash
+
+    def slash_quotes_folded(self) -> str:
+        if self._slash_quotes_folded is None:
+            self._slash_quotes_folded = _fold_quote_marks(self.slash()[0])
+        return self._slash_quotes_folded
+
+    def no_marks(self) -> tuple[str, Sequence[int]]:
+        """The normalised text with verse line-break marks dropped, and the offset map."""
+        if self._no_marks is None:
+            chars, idx = _drop_linebreak_marks(*self.norm())
+            self._no_marks = (chars, _offsets(idx))
+        return self._no_marks
+
+    def no_marks_casefold(self) -> str:
+        if self._no_marks_casefold is None:
+            self._no_marks_casefold = self.no_marks()[0].casefold()
+        return self._no_marks_casefold
+
+    def diacritics(self) -> tuple[str, Sequence[int]]:
+        """The normalised text with its diacritics folded (NFKD, combining marks dropped), and the offset map."""
+        if self._diacritics is None:
+            chars, idx = _fold_diacritics_indexed(*self.norm())
+            self._diacritics = (chars, _offsets(idx))
+        return self._diacritics
+
+
+def _text_key(text: str, document_id: Optional[str]) -> tuple[str, str]:
+    return (document_id or "", text_sha256(text))
+
+
+def text_forms(text: str, document_id: Optional[str] = None) -> TextForms:
+    """The cached :class:`TextForms` of ``text`` (keyed by ``(document_id, sha256)``)."""
+    key = _text_key(text, document_id)
+    forms = _TEXT_FORMS.get(key)
+    if forms is None:
+        forms = TextForms(text)
+        _TEXT_FORMS.put(key, forms, weight=len(text) + 1)
+    return forms
+
+
+def normalized_text(text: str, document_id: Optional[str] = None) -> str:
+    """:func:`normalize_quote` of a supplied text, from the cache."""
+    return text_forms(text, document_id).norm()[0]
+
+
+def _memoised(kind: str, excerpt: str, text: str, document_id: Optional[str], compute: Callable[[str, TextForms], Any]) -> Any:
+    """``compute(excerpt, forms)`` once per ``(kind, excerpt, sha256 of text)``: the answer is a
+    function of the excerpt and the words of the text only, so a caller that names the document
+    and one that does not share it, and the same excerpt is never located twice in one text."""
+    key = (kind, excerpt, text_sha256(text))
+    hit = _LOCATE_MEMO.get(key)
+    if hit is not None:
+        return hit[0]
+    answer = compute(excerpt, text_forms(text, document_id))
+    match = answer[0] if isinstance(answer, tuple) else answer
+    _LOCATE_MEMO.put(key, (answer,), weight=len(excerpt) + 1 + (len(match.matched) if isinstance(match, QuotationMatch) else 0))
+    return answer
+
+
+def clear_grounding_caches() -> None:
+    """Empty every cache of this module (tests; a process that wants its memory back)."""
+    _SHA_BY_TEXT.clear()
+    _TEXT_FORMS.clear()
+    _LOCATE_MEMO.clear()
+
+
+def locate_quotation(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[QuotationMatch]:
     """Find ``excerpt`` in ``text`` (verbatim, then normalized, then elided).
 
     The normalized tier also folds the quotation marks inside the excerpt to one class
     (nested marks) and reads ``" / "`` in the excerpt as a line break of the document;
-    a match that relied on either carries a ``note``."""
+    a match that relied on either carries a ``note``. ``document_id`` names the supplied
+    text for the cache key; the answer never depends on it."""
+    return _memoised("exact", excerpt, text, document_id, _locate_quotation)
+
+
+def _locate_quotation(excerpt: str, forms: TextForms) -> Optional[QuotationMatch]:
+    text = forms.text
     ex = _strip_outer_quotes(excerpt)
     if not ex:
         return None
     pos = text.find(ex)
     if pos >= 0:
         return QuotationMatch(pos, pos + len(ex), ex, "verbatim_match")
-    norm_text, idx = _normalize_indexed(text)
+    norm_text, idx = forms.norm()
     norm_ex = normalize_quote(ex)
     if not norm_ex:
         return None
@@ -251,24 +521,26 @@ def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
     if pos >= 0:
         start, end = _span(idx, pos, len(norm_ex))
         return QuotationMatch(start, end, text[start:end], "normalized_match")
-    folded = _find_folded(norm_ex, norm_text, idx, text, NOTE_QUOTES_FOLDED)
-    if folded is not None:
-        return folded
+    if "'" in norm_ex or '"' in norm_ex:
+        folded = _find_folded(norm_ex, norm_text, idx, text, NOTE_QUOTES_FOLDED, forms.quotes_folded())
+        if folded is not None:
+            return folded
     slash_text: Optional[str] = None
-    slash_idx: list[int] = []
+    slash_idx: Sequence[int] = ()
     slash_ex = norm_ex
-    if "/" in norm_ex and "\n" in text:
+    if "/" in norm_ex and forms.has_newline:
         # Line breaks of the document become " / " and a blank line " // "; slash runs are folded on both sides so a
         # stanza break written with one or two marks compares equal.
-        slash_text, slash_idx = _fold_slash_runs(*_normalize_indexed(text, newline_as_slash=True))
+        slash_text, slash_idx = forms.slash()
         slash_ex = _fold_slash_runs(norm_ex)[0]
         pos = slash_text.find(slash_ex)
         if pos >= 0:
             start, end = _span(slash_idx, pos, len(slash_ex))
             return QuotationMatch(start, end, text[start:end], "normalized_match", note=NOTE_LINEBREAK_SLASH)
-        folded = _find_folded(slash_ex, slash_text, slash_idx, text, NOTE_LINEBREAK_SLASH + "; " + NOTE_QUOTES_FOLDED)
-        if folded is not None:
-            return folded
+        if "'" in slash_ex or '"' in slash_ex:
+            folded = _find_folded(slash_ex, slash_text, slash_idx, text, NOTE_LINEBREAK_SLASH + "; " + NOTE_QUOTES_FOLDED, forms.slash_quotes_folded())
+            if folded is not None:
+                return folded
     fragments = _elision_fragments(norm_ex)
     if fragments:
         found = _find_elided(fragments, norm_text, idx, text)
@@ -276,7 +548,64 @@ def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
             found = _find_elided(_elision_fragments(slash_ex), slash_text, slash_idx, text)
             if found is not None:
                 found = QuotationMatch(found.start, found.end, found.matched, found.method, elided=True, note=NOTE_LINEBREAK_SLASH)
-        return found
+        if found is not None:
+            return found
+    return _composition_match(norm_ex, forms)
+
+
+def _diacritic_occurrences(norm_ex: str, forms: TextForms):
+    """Every ``(start, end)`` in the original text where ``norm_ex`` occurs once diacritics are
+    folded on both sides (``end`` extended over trailing combining marks), in order."""
+    folded_text, idx = forms.diacritics()
+    folded_ex = fold_diacritics(norm_ex)
+    if not folded_ex.strip():
+        return
+    pos = folded_text.find(folded_ex)
+    while pos >= 0:
+        start, end = _span(idx, pos, len(folded_ex))
+        yield start, _extend_over_marks(forms.text, end)
+        pos = folded_text.find(folded_ex, pos + 1)
+
+
+def _composition_match(norm_ex: str, forms: TextForms) -> Optional[QuotationMatch]:
+    """The excerpt where it differs from the text only in how accented letters are encoded
+    (precomposed against a letter plus a combining mark): the same letters, a normalized match."""
+    if norm_ex.isascii() and forms.is_ascii:
+        return None
+    composed = unicodedata.normalize("NFC", norm_ex)
+    for start, end in _diacritic_occurrences(norm_ex, forms):
+        if unicodedata.normalize("NFC", normalize_quote(forms.text[start:end])) == composed:
+            return QuotationMatch(start, end, forms.text[start:end], "normalized_match", note=NOTE_COMPOSITION)
+    return None
+
+
+def _diacritics_difference(norm_ex: str, norm_matched: str) -> str:
+    """'differs in diacritics', naming the words that differ when the two spans pair word for word."""
+    quoted, held = norm_ex.split(), norm_matched.split()
+    pairs = [(a, b) for a, b in zip(quoted, held) if a != b] if len(quoted) == len(held) else []
+    if not pairs:
+        return "differs in diacritics"
+    shown = "; ".join(f"'{a}' where the document has '{b}'" for a, b in pairs[:3])
+    return f"differs in diacritics ({shown})"
+
+
+def _diacritics_match(ex: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
+    """The excerpt located once diacritics are folded on both sides (contiguously, or as an
+    elided quotation within the elision window): ``(match, difference)``, or None."""
+    norm_ex = normalize_quote(ex)
+    if not norm_ex or (norm_ex.isascii() and forms.is_ascii):
+        return None
+    text = forms.text
+    for start, end in _diacritic_occurrences(norm_ex, forms):
+        return QuotationMatch(start, end, text[start:end], "normalized_match"), _diacritics_difference(norm_ex, normalize_quote(text[start:end]))
+    fragments = _elision_fragments(fold_diacritics(norm_ex))
+    if fragments:
+        folded_text, idx = forms.diacritics()
+        found = _find_elided(fragments, folded_text, idx, text)
+        if found is not None:
+            end = _extend_over_marks(text, found.end)
+            return (QuotationMatch(found.start, end, text[found.start:end], "normalized_match", elided=True),
+                    "differs in diacritics (an elided quotation whose fragments occur in order once accents are set aside)")
     return None
 
 
@@ -287,7 +616,7 @@ def _swap_first_alpha_case(s: str) -> str:
     return s
 
 
-def _drop_linebreak_marks(chars: str, idx: list[int]) -> tuple[str, list[int]]:
+def _drop_linebreak_marks(chars: str, idx: Sequence[int]) -> tuple[str, list[int]]:
     """Remove verse line-break marks (``/``) from normalized text, collapsing the spaces
     around them, while keeping the offset map into the original text."""
     out: list[str] = []
@@ -305,16 +634,23 @@ def _drop_linebreak_marks(chars: str, idx: list[int]) -> tuple[str, list[int]]:
     return "".join(out), out_idx
 
 
-def locate_quotation_inexact(excerpt: str, text: str) -> Optional[tuple[QuotationMatch, str]]:
+def locate_quotation_inexact(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[tuple[QuotationMatch, str]]:
     """Find ``excerpt`` after a conventional quotation-form adjustment; ``(match, difference)``.
 
-    Tried only after :func:`locate_quotation` failed. Two adjustments are recognised:
+    Tried only after :func:`locate_quotation` failed. Three adjustments are recognised:
     the first alphabetic character's case (``"for the immense majority"`` quoted from a
-    sentence opening ``For``), and verse line-break marks omitted or added (``"mock the
+    sentence opening ``For``), verse line-break marks omitted or added (``"mock the
     meat"`` for ``mock / The meat``, where the case of the word after the mark may also
-    differ). Anything else (a changed word, a reordering) is not found; a long elision
-    is a separate question answered by :func:`locate_long_elision`.
+    differ), and diacritics (``"Bayardo San Román"`` for ``Bayardo San Roman``: both sides
+    folded with NFKD and their combining marks dropped; the difference reads ``differs in
+    diacritics`` and names the words). Anything else (a changed word, a reordering) is not
+    found; a long elision is a separate question answered by :func:`locate_long_elision`.
     """
+    return _memoised("inexact", excerpt, text, document_id, _locate_quotation_inexact)
+
+
+def _locate_quotation_inexact(excerpt: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
+    text = forms.text
     ex = _strip_outer_quotes(excerpt)
     if not ex:
         return None
@@ -323,39 +659,42 @@ def locate_quotation_inexact(excerpt: str, text: str) -> Optional[tuple[Quotatio
         pos = text.find(swapped)
         if pos >= 0:
             return QuotationMatch(pos, pos + len(swapped), swapped, "verbatim_match"), "differs only in the initial capital"
-        norm_text, idx = _normalize_indexed(text)
+        norm_text, idx = forms.norm()
         norm_sw = normalize_quote(swapped)
         pos = norm_text.find(norm_sw)
         if pos >= 0 and norm_sw:
             start, end = _span(idx, pos, len(norm_sw))
             return QuotationMatch(start, end, text[start:end], "normalized_match"), "differs only in the initial capital"
-    if "/" in ex or "/" in text:
-        norm_text, idx = _normalize_indexed(text)
-        stripped_text, idx2 = _drop_linebreak_marks(norm_text, idx)
+    if "/" in ex or forms.has_slash:
+        stripped_text, idx2 = forms.no_marks()
         stripped_ex, _ = _drop_linebreak_marks(*_normalize_indexed(ex))
         if stripped_ex:
             pos = stripped_text.find(stripped_ex)
             how = "omits or adds a verse line-break mark"
             if pos < 0:
-                pos = stripped_text.casefold().find(stripped_ex.casefold())
+                pos = forms.no_marks_casefold().find(stripped_ex.casefold())
                 how = "omits or adds a verse line-break mark and differs in letter case at a line start"
             if pos >= 0:
                 start, end = _span(idx2, pos, len(stripped_ex))
                 return QuotationMatch(start, end, text[start:end], "normalized_match"), how
-    return None
+    return _diacritics_match(ex, forms)
 
 
-def locate_long_elision(excerpt: str, text: str) -> Optional[tuple[QuotationMatch, str]]:
+def locate_long_elision(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[tuple[QuotationMatch, str]]:
     """An elided excerpt whose fragments all occur in order but span more than
     :data:`ELISION_WINDOW_CHARS` beyond the quoted words: ``(match, difference)`` naming the
     omitted span, or None. The words were found, so this is a form difference (a long
     elision), not an invented quotation; it never verifies a grounding."""
+    return _memoised("long_elision", excerpt, text, document_id, _locate_long_elision)
+
+
+def _locate_long_elision(excerpt: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
     ex = _strip_outer_quotes(excerpt)
     fragments = _elision_fragments(normalize_quote(ex)) if ex else []
     if len(fragments) < 2:
         return None
-    norm_text, idx = _normalize_indexed(text)
-    far = _find_elided(fragments, norm_text, idx, text, window=None)
+    norm_text, idx = forms.norm()
+    far = _find_elided(fragments, norm_text, idx, forms.text, window=None)
     if far is None:
         return None
     omitted = far.end - far.start - sum(len(f) for f in fragments)
@@ -363,9 +702,9 @@ def locate_long_elision(excerpt: str, text: str) -> Optional[tuple[QuotationMatc
                  f"{ELISION_WINDOW_CHARS}-character window of an elided quotation (a long elision, not an invented quotation)")
 
 
-def find_quotation(excerpt: str, text: str) -> Optional[tuple[int, int, str]]:
+def find_quotation(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[tuple[int, int, str]]:
     """Return ``(start, end, matched_text)`` in ``text`` for ``excerpt``, or ``None``."""
-    match = locate_quotation(excerpt, text)
+    match = locate_quotation(excerpt, text, document_id=document_id)
     if match is None:
         return None
     return match.start, match.end, match.matched
@@ -383,15 +722,15 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
             target_id=target_id, kind=kind, method="verbatim_match", verified=False,  # type: ignore[arg-type]
             document_id=ref.document_id, detail="quotation grounding carries no excerpt",
         )
-    match = locate_quotation(ref.excerpt, doc.text)
+    match = locate_quotation(ref.excerpt, doc.text, document_id=doc.document_id)
     if match is None:
-        inexact = locate_quotation_inexact(ref.excerpt, doc.text) or locate_long_elision(ref.excerpt, doc.text)
+        inexact = locate_quotation_inexact(ref.excerpt, doc.text, document_id=doc.document_id) or locate_long_elision(ref.excerpt, doc.text, document_id=doc.document_id)
         if inexact is not None:
             near, difference = inexact
             return GroundingCheck(
                 target_id=target_id, kind=kind, method="normalized_match", verified=False,  # type: ignore[arg-type]
                 document_id=ref.document_id,
-                detail=f"quotation differs in form from the document: the words occur at characters {near.start}-{near.end} but the quotation {difference}",
+                detail=f"quotation {FORM_DIFFERS} from the document: the words occur at characters {near.start}-{near.end} but the quotation {difference}",
             )
         return GroundingCheck(
             target_id=target_id, kind=kind, method="normalized_match", verified=False,  # type: ignore[arg-type]

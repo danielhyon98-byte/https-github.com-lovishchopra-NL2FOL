@@ -241,11 +241,18 @@ def test_unlocated_excerpt_is_attributed_to_the_text_the_sentence_names_or_recor
     assert bad.source_refs[0].document_id == "peer:hi-p1" and any("found in none of the supplied texts [doc-ozy, peer:hi-p1]" in a for a in bad.assumptions)
     [f] = [f for f in structural_checks(named) if f.code == "ES-SRC-001"]
     assert f.claim_ids == [bad.claim_id] and "peer:hi-p1" in f.message and "doc-ozy" in f.message and "found in none" in f.message
-    anonymous = parse('A colleague notes that "the Corn Law kept wheat prices at 90 shillings" while the "lone and level sands" stretch away.', texts=[POEM, PEER])
-    bad2 = next(c for c in anonymous.claims if c.claim_role == "evidence" and "90 shillings" in c.claim_text)
-    assert bad2.source_refs and any(a == "excerpt found in none of the supplied texts [doc-ozy, peer:hi-p1]" for a in bad2.assumptions)
-    [f2] = [f for f in structural_checks(anonymous) if f.code == "ES-SRC-001"]
-    assert "searched every supplied text (doc-ozy, peer:hi-p1): found in none" in f2.message
+    # Consolidation rule (it replaces 'the first supplied text'): a sentence that names no supplied text credits an
+    # unlocated quotation to the one literary text under analysis, never to whichever text came first, so the peer's
+    # report is not credited even when it is supplied first; the hub still refutes the quotation against the poem.
+    for texts in ([POEM, PEER], [PEER, POEM]):
+        anonymous = parse('A colleague notes that "the Corn Law kept wheat prices at 90 shillings" while the "lone and level sands" stretch away.', texts=texts)
+        bad2 = next(c for c in anonymous.claims if c.claim_role == "evidence" and "90 shillings" in c.claim_text)
+        assert [(r.document_id, r.excerpt) for r in bad2.source_refs] == [("doc-ozy", "the Corn Law kept wheat prices at 90 shillings")]
+        searched = ", ".join(t.document_id for t in texts)
+        assert bad2.assumptions == [f"excerpt found in none of the supplied texts [{searched}]; attributed to doc-ozy, the one literary text under analysis, "
+                                    "because the sentence names no supplied text"]
+        [f2] = [f for f in structural_checks(anonymous) if f.code == "ES-SRC-001"]
+        assert f2.claim_ids == [bad2.claim_id] and f"searched every supplied text ({searched}): found in none" in f2.message
 
 
 def test_quotation_located_only_in_another_text_than_the_one_named_is_es_src_008():
@@ -309,8 +316,16 @@ def test_generic_parser_treats_single_quotes_guillemets_and_mixed_marks_as_quota
     assert len(quoted) == 3 and any("three years of natural disasters" in a for a in quoted) and any("walk on two legs" in a for a in quoted) and any("self-reliance" in a for a in quoted)
     doc = SuppliedText(document_id="d", text="They blamed three years of natural disasters and praised self-reliance.")
     rep2 = GenericTextParser("history-specialist").parse_response(text, request_id="r", task_id="t", report_id="rep", subject="History", task_type="short_answer", supplied_texts=[doc])
-    refs = {r.excerpt.strip() for c in rep2.claims for r in c.source_refs}
-    assert {"three years of natural disasters", "walk on two legs", "self-reliance"} <= refs
+    refs = {(r.document_id, r.excerpt.strip()) for c in rep2.claims for r in c.source_refs}
+    # all three mark styles are read as quotations; the two the text holds are credited to it, and the guillemet one, which
+    # no text holds and whose sentence names no text, is credited to no text under the shared attribution rule (it was
+    # credited to the first supplied text before the consolidation pass) and recorded for the core pack's CORE-SRC-003
+    assert refs == {("d", "three years of natural disasters"), ("d", "self-reliance")}
+    uncredited = [a for c in rep2.claims for a in c.assumptions if a.startswith("quotation with no supplied text")]
+    assert uncredited == ['quotation with no supplied text to check it against: " walk on two legs " (the sentence names no supplied text and the words occur in none of [d])']
+    from epinoic_logic.branches.packs import CorePack
+    [core] = [f for f in CorePack().checks(rep2) if f.code == "CORE-SRC-003"]
+    assert "'walk on two legs'" in core.message and core.severity == "warning"
 
 
 def test_generic_parser_makes_a_paragraph_with_a_self_certifying_sentence_a_note_paragraph():

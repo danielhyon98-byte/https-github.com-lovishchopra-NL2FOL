@@ -151,10 +151,12 @@ def _dedupe_ids(ids) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
-def _located(excerpt: str, text: str) -> bool:
-    """The quoted words occur in ``text`` in some form (exact, normalized, elided, a form difference or a long elision)."""
-    return bool(excerpt.strip()) and (locate_quotation(excerpt, text) is not None or locate_quotation_inexact(excerpt, text) is not None
-                                      or locate_long_elision(excerpt, text) is not None)
+def _located(excerpt: str, text: str, document_id: Optional[str] = None) -> bool:
+    """The quoted words occur in ``text`` in some form (exact, normalized, elided, a form difference or a long elision).
+    ``document_id`` names a supplied text for the grounding cache; the answer never depends on it."""
+    return bool(excerpt.strip()) and (locate_quotation(excerpt, text, document_id=document_id) is not None
+                                      or locate_quotation_inexact(excerpt, text, document_id=document_id) is not None
+                                      or locate_long_elision(excerpt, text, document_id=document_id) is not None)
 
 
 class TranslatorChannel:
@@ -675,7 +677,7 @@ class TranslatorChannel:
                 elif not (ref.excerpt or "").strip():
                     out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} to document {ref.document_id!r} carries no excerpt to check", **ids))
                 else:
-                    elsewhere = sorted(d for d, t in by_id.items() if d != ref.document_id and locate_quotation(ref.excerpt or "", t.text) is not None)
+                    elsewhere = sorted(d for d, t in by_id.items() if d != ref.document_id and locate_quotation(ref.excerpt or "", t.text, document_id=d) is not None)
                     if elsewhere:
                         out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} to document {ref.document_id!r} does not occur there; its words occur in {elsewhere} (misattributed)", **ids))
                     else:
@@ -703,7 +705,7 @@ class TranslatorChannel:
             cited = {(ref.excerpt or "").strip() for c in report.claims if c.claim_id != tail_id for ref in c.source_refs}
             quotes = _dedupe_ids(inner.strip() for _s, _e, inner in find_quotation_spans(report.original_response)
                                  if inner.strip() and inner.strip() not in head_text and inner.strip() not in cited)
-            unlocated = [q for q in quotes if not any(_located(q, t.text) for t in supplied)] if supplied else list(quotes)
+            unlocated = [q for q in quotes if not any(_located(q, t.text, t.document_id) for t in supplied)] if supplied else list(quotes)
             where = "in no supplied text" if supplied else "against no text (none was supplied)"
             detail = f"; {len(quotes)} quotation(s) in the merged text were not checked" + (f", of which {len(unlocated)} occur {where}: {[q[:60] for q in unlocated[:_MAX_NAMED]]}" if unlocated else (f" (all {len(quotes)} occur in a supplied text)" if quotes else ""))
             out.append(IntegrityFinding(code="INT-REQ-013", severity="warning",
@@ -751,7 +753,7 @@ class TranslatorChannel:
                 how = f"{overlap:.0%} of its distinct words (light stems) occur in the request and it is no longer than {_ECHO_LENGTH_RATIO}x the request"
             elif overlap >= _ECHO_OVERLAP_QUOTED:
                 echoed_quotes = [inner for _s, _e, inner in find_quotation_spans(report.original_response)
-                                 if _tokens(inner) and set(light_stem(t) for t in _tokens(inner)) <= ask_set and not any(_located(inner, t.text) for t in supplied)]
+                                 if _tokens(inner) and set(light_stem(t) for t in _tokens(inner)) <= ask_set and not any(_located(inner, t.text, t.document_id) for t in supplied)]
                 if echoed_quotes:
                     how = (f"{overlap:.0%} of its distinct words (light stems) occur in the request, it is no longer than {_ECHO_LENGTH_RATIO}x the request, and it quotes "
                            f"the request's own words as if they were the text's ({[q[:60] for q in echoed_quotes[:_MAX_NAMED]]} occur in the request and in no supplied text)")

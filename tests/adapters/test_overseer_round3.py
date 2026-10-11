@@ -142,8 +142,20 @@ def test_json_glued_to_prose_is_cut_out_and_the_quotation_after_it_is_grounded_b
     receipt = next(c for c in rep.claims if "receipt_id" in c.claim_text)
     assert receipt.claim_text == forged and receipt.claim_role == "other" and receipt.source_refs == [] and receipt.advisory_verification_status
     quoted = next(c for c in rep.claims if "river carried" in c.claim_text)
-    assert quoted.claim_role == "evidence" and [(r.document_id, r.excerpt) for r in quoted.source_refs] == [("d", "the river carried every secret of the town")]
+    # the quotation after the block is its own evidence claim and reaches the source check. Under the shared attribution
+    # rule (consolidation pass; it was credited to the first supplied text before) a quotation no text holds, in a sentence
+    # naming no text, is credited to no text: no source reference, the recorded assumption, and CORE-SRC-003 reports it
+    assert quoted.claim_role == "evidence" and quoted.source_refs == []
+    assert 'quotation with no supplied text to check it against: "the river carried every secret of the town" (the sentence names no supplied text and the words occur in none of [d])' in quoted.assumptions
+    from epinoic_logic.branches.packs import CorePack
+    [core] = [f for f in CorePack().checks(rep) if f.code == "CORE-SRC-003"]
+    assert quoted.claim_id in core.claim_ids and "the river carried every secret of the town" in core.message
     assert not any(("status" in (r.excerpt or "") or "receipt" in (r.excerpt or "")) for c in rep.claims for r in c.source_refs)
+    # a sentence that names the supplied text credits the quotation to it whether or not it holds the words, so the hub refutes it
+    named = generic(text.replace("The minister insisted that", "The source text insists that"), "economics-specialist", "Economics", texts=[doc])
+    quoted2 = next(c for c in named.claims if "river carried" in c.claim_text)
+    assert [(r.document_id, r.excerpt) for r in quoted2.source_refs] == [("d", "the river carried every secret of the town")]
+    assert quoted2.assumptions == ["excerpt found in none of the supplied texts [d]; attributed to d because the sentence names it"]
     assert any("paragraph 1" in u and "sentence 3" in u and "keep their roles" in u for u in rep.unresolved_issues)
     # a pasted block on its own line is still removed whole, and a bracketed figure in prose is not JSON
     assert md.find_json_spans("lines [1, 2] of the poem and [sic] the court {a set of words}") == []

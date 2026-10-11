@@ -42,7 +42,9 @@ when that text holds the words, else to a text that holds them; a quotation held
 text is attributed to the one text the sentence names (so the hub reports the credit) and
 otherwise to NO text: it is recorded as an assumption so the core pack can report it as
 unverifiable (``CORE-SRC-003``). It is never attributed to the first supplied text merely
-because that text came first.
+because that text came first. The rule is the shared one of
+:func:`~epinoic_logic.adapters.sources.attribute_excerpt`, which the English and generic
+parsers apply too (re-exported here as ``attribute_excerpt``).
 
 Markdown headings, code fences and emphasis are removed before segmentation, sentences
 are split with the shared abbreviation-aware splitter (``c.``, ``approx.``, initials never
@@ -60,7 +62,7 @@ from ..base import AdapterError
 from ..english_specialist.parser import documents_named
 from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, is_self_certification, split_list_items,  # noqa: F401
                         split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
-from ..sources import check_excerpt
+from ..sources import attribute_excerpt, check_excerpt  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
 from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
 from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
 from .sentences import split_sentences as _split_sentences, strip_json_spans
@@ -247,29 +249,6 @@ def _mask_quotations(sentence: str) -> str:
         for i in range(s, e):
             chars[i] = " "
     return "".join(chars)
-
-
-def attribute_excerpt(excerpt: str, named: list[str], docs: dict[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
-    """``(document_id, assumptions)`` for one quotation of a sentence that names the
-    supplied texts ``named``. The located text wins (the named one when several hold the
-    words); a quotation located in none is credited to the one text the sentence names,
-    with the assumption that it was not found there, and otherwise to no text at all: the
-    assumption records it for the core pack's unverifiable-quotation finding. A text is
-    never credited merely for being supplied first."""
-    if not docs:
-        return None, [f"quotation with no supplied text to check it against: \"{excerpt[:200]}\""]
-    located = [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
-    searched = ", ".join(docs)
-    if located:
-        if len(named) == 1 and named[0] in located:
-            return named[0], []
-        if len(named) == 1:
-            return located[0], [f"the sentence attributes this quotation to {named[0]} but the words were located only in {', '.join(located)}"]
-        return located[0], []
-    if len(named) == 1:
-        return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
-    why = "the sentence names no supplied text" if not named else f"the sentence names several supplied texts ({', '.join(named)})"
-    return None, [f"quotation with no supplied text to check it against: \"{excerpt[:200]}\" ({why} and the words occur in none of [{searched}])"]
 
 
 def _dedupe(items: list[str]) -> list[str]:

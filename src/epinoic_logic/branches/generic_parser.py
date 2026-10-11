@@ -15,9 +15,16 @@ a comma-bounded ", from memory") keeps its role with the label recorded once as 
 assumption. Quotations are found in double marks of any kind (straight, curly, guillemet,
 mixed, two adjacent marks as one nested mark) and in single marks around two or more words;
 a span the dangling mark of an unbalanced sentence leaves undelimited is recorded, not
-attributed. Claim texts respect the contract limit, and sentences beyond the report's claim
-limit are merged into one ``other`` claim with an unresolved issue rather than crashing or
-vanishing. ``original_response`` is always verbatim."""
+attributed. A quotation is attributed by the rule every parser shares
+(:func:`~epinoic_logic.adapters.sources.attribute_excerpt`): the supplied text that holds
+the words (in any recognised form) wins, the one the sentence names when several do; one
+held by no text is credited to the one text the sentence names (author, surname, title,
+a peer specialist by name, "the source text"), whether or not it holds the words; otherwise
+it is credited to no text and recorded as the assumption ``quotation with no supplied text
+to check it against: "..."``, which the core pack reports as unverifiable (``CORE-SRC-003``).
+A text is never credited for being supplied first. Claim texts respect the contract limit,
+and sentences beyond the report's claim limit are merged into one ``other`` claim with an
+unresolved issue rather than crashing or vanishing. ``original_response`` is always verbatim."""
 from __future__ import annotations
 
 import re
@@ -25,13 +32,14 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ..adapters.base import AdapterError
+from ..adapters.english_specialist.parser import documents_named
 from ..adapters.markdown import (
     dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, split_json_spans, split_list_items,
     split_note_clauses, strip_markup, truncate_claim_text,
 )
+from ..adapters.sources import attribute_excerpt
 from ..ir.schema import SourceRef
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
-from ..translate.grounding import find_quotation
 
 #: A sentence ends at ``.``, ``?``, ``!`` or at the ``}`` / ``]`` closing a pasted JSON fragment, before a capital, a digit,
 #: an opening mark or an opening bracket.
@@ -57,6 +65,14 @@ def split_sentences(paragraph: str) -> list[str]:
     return out
 
 
+def _mask_quotations(sentence: str) -> str:
+    """``sentence`` with its quoted spans blanked, so a name inside a quotation never names a source."""
+    out = list(sentence)
+    for start, end, _inner in find_quotation_spans(sentence):
+        out[start:end] = " " * (end - start)
+    return "".join(out)
+
+
 def quotations_in(sentence: str) -> list[str]:
     """The quoted excerpts of ``sentence``: double marks of any kind (paired around the
     dangling mark of an unbalanced sentence, two adjacent marks as one nested mark) and
@@ -77,6 +93,7 @@ class GenericTextParser:
         pending: list[dict] = []
         points: list[tuple[str, list[str]]] = []
         unresolved: list[str] = []
+        docs = {t.document_id: t for t in supplied_texts}
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", strip_markup(text).strip()) if p.strip()]
         for pi, para in enumerate(paragraphs):
             sents = split_sentences(para)
@@ -98,12 +115,12 @@ class GenericTextParser:
                 refs: list[SourceRef] = []
                 assumptions: list[str] = []
                 excerpts = quotations_in(sent)
+                named = documents_named(_mask_quotations(sent), docs) if (docs and excerpts) else []
                 for ex in excerpts:
-                    doc = next((t.document_id for t in supplied_texts if find_quotation(ex, t.text)), None) or (supplied_texts[0].document_id if supplied_texts else None)
+                    doc, notes_for_excerpt = attribute_excerpt(ex, named, docs)
                     if doc:
                         refs.append(SourceRef(document_id=doc, excerpt=ex[:2000]))
-                    else:
-                        assumptions.append(f"quotation with no supplied text to check it against: \"{ex[:200]}\"")
+                    assumptions.extend(notes_for_excerpt)
                 if dangling_quote_offset(sent) is not None:
                     assumptions.append("the sentence has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
                 core, notes = split_note_clauses(sent)

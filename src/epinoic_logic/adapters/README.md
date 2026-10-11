@@ -25,10 +25,20 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   paragraph whose marks contradict their context, so the writer's prose between quotations is
   neither delivered as a quotation nor reported as invented).
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
-  joined-span tolerance) used by every adapter's source-integrity findings.
+  joined-span tolerance; a form difference such as an initial capital, a verse line-break
+  mark, diacritics or a long elision is a located status, never "not found") used by every
+  adapter's source-integrity findings, and the one attribution rule every parser applies
+  (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text is
+  credited to the one text its sentence names, whether or not that text holds the words;
+  otherwise it is credited to no text and the assumption `quotation with no supplied text to
+  check it against: "..."` is recorded, which the core pack reports as `CORE-SRC-003`. A text
+  is never credited for being supplied first. Answers are cached per excerpt and document
+  text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
 - `generic_structured.py` — the integration contract for every specialist being
   built: accepts a report that is already structured JSON and checks source refs and
-  claim links. New specialists should emit this format directly.
+  claim links. New specialists should emit this format directly. Every located form
+  difference of the shared check (long elision included) is the inexact warning code
+  (`GEN-SRC-003`, `ES-SRC-006` for the English pack), never the not-found error.
 - `english_specialist/` — the worked example: a heuristic parser for PETAL-style
   analytical paragraphs (point, evidence quotations, device, interpretation, link),
   structural checks derived from the agent's own knowledge documents (quotation not
@@ -42,10 +52,13 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   notes of any length is meta), keeps a substantive sentence that carries the label inline
   and records the label as an assumption, segments the prose before and after a pasted JSON
   span as prose (the span is one `other` sentence, and the quotations after it are grounded),
-  attributes a quotation to the supplied text the sentence names (author, surname, title, or
-  the peer specialist of a relayed `peer:<task>` report) when several or none contain it,
-  records an excerpt found in none of the supplied texts as an assumption listing every text
-  searched, reports an elided quotation whose fragments span more than the elision window as
+  attributes a quotation by the shared rule (the supplied text that holds it; the text the
+  sentence names, by author, surname, title, or the peer specialist of a relayed
+  `peer:<task>` report, when several or none hold it; when the sentence names none, the one
+  literary text under analysis; otherwise no text, recorded for `CORE-SRC-003`), records an
+  excerpt found in none of the supplied texts as an assumption listing every text searched,
+  reports a quotation differing only in diacritics as a form warning (`ES-SRC-006`), reports
+  an elided quotation whose fragments span more than the elision window as
   a form warning (`ES-SRC-006`, as the channel's INT-REQ-010) rather than an invented
   quotation, and folds claims beyond the report limit into a tail claim instead of raising,
   interpretation before evidence and evidence before material claims, carrying the source

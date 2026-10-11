@@ -81,15 +81,21 @@ Role rules (body paragraphs)
   irony, imagery, syntax, semantic field, pronoun, verb, adjective, adverb, noun,
   declarative, parallel structure, employs) -> ``device``;
 * every other sentence -> ``interpretation``;
-* every quotation -> an ``evidence`` claim with a ``SourceRef`` into the supplied
-  text that contains it. When several contain it, the one the sentence names
-  (by title, author or, for a relayed peer report, the peer specialist) wins.
-  When none contains it, the sentence's named text is cited when it names exactly
-  one, else the first supplied text, and the claim records the assumption that the
-  excerpt was found in none of the supplied texts (all ids listed) so the hub's
-  own check still runs. A quotation located only in a text other than the one the
-  sentence names keeps the located reference and records the discrepancy
-  (``ES-SRC-008`` names it).
+* every quotation -> an ``evidence`` claim, attributed by the rule every parser shares
+  (:func:`~epinoic_logic.adapters.sources.attribute_excerpt`): a ``SourceRef`` into the
+  supplied text that contains it (in any recognised form); when several contain it, the
+  one the sentence names (by title, author or, for a relayed peer report, the peer
+  specialist) wins. When none contains it, the sentence's named text is cited when it
+  names exactly one; when it names none, the one literary (non-peer) text under analysis
+  is cited, since an English analytical answer quotes the text it analyses; either way the
+  claim records the assumption that the excerpt was found in none of the supplied texts
+  (all ids listed) so the hub's own check runs and reports it (``INT-REQ-003``). Otherwise
+  (several literary texts and none named, only peer reports supplied, or several texts
+  named) the quotation is credited to NO text: the claim carries no ``SourceRef`` and the
+  assumption ``quotation with no supplied text to check it against: "..."``, which the core
+  pack reports as unverifiable (``CORE-SRC-003``). A text is never cited for being supplied
+  first. A quotation located only in a text other than the one the sentence names keeps the
+  located reference and records the discrepancy (``ES-SRC-008`` names it).
 
 Thesis sentences get role ``thesis`` and are supported by the body points;
 conclusion sentences get role ``link`` and are likewise supported by the points.
@@ -122,12 +128,12 @@ from ..markdown import (
     find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_note_sentence, is_self_certification, mask_json_spans,
     split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
-from ..sources import check_excerpt, strip_trailing_punctuation, word_count
+from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS",
-    "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "META_LABEL_RE", "META_NARRATION_RE",
+    "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
     "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of",
 ]
 
@@ -566,7 +572,7 @@ def long_elision_of(excerpt: str, document_id: str, docs: dict[str, SuppliedText
         return check.detail
     if check.status != "not_found":
         return None
-    found = locate_long_elision(check.excerpt_checked or excerpt, doc.text)
+    found = locate_long_elision(check.excerpt_checked or excerpt, doc.text, document_id=document_id)
     if found is None:
         return None
     near, difference = found
@@ -578,34 +584,22 @@ def excerpt_located(excerpt: str, document_id: str, docs: dict[str, SuppliedText
     return check_excerpt(excerpt, document_id, docs).located or long_elision_of(excerpt, document_id, docs) is not None
 
 
-def _located_in(excerpt: str, docs: dict[str, SuppliedText]) -> list[str]:
-    """Ids of the supplied texts in which ``excerpt`` was located (in any recognised form)."""
-    return [doc_id for doc_id in docs if excerpt_located(excerpt, doc_id, docs)]
-
-
-def _document_for(excerpt: str, docs: dict[str, SuppliedText]) -> Optional[str]:
-    """The supplied text in which ``excerpt`` was located (in any form), else the first one."""
-    located = _located_in(excerpt, docs)
-    return located[0] if located else next(iter(docs), None)
+def text_under_analysis(docs: dict[str, SuppliedText]) -> Optional[str]:
+    """The one literary (non-peer) supplied text, which an English analytical answer is about,
+    or None when there are none or several. A relayed colleague's report is never it."""
+    literary = [doc_id for doc_id, doc in docs.items() if not is_peer_document(doc)]
+    return literary[0] if len(literary) == 1 else None
 
 
 def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
-    """``(document_id, assumptions)`` for a quotation: the located text (the named one when
-    several locate it), else the named text or the first one with the assumption that the
-    excerpt was found in none; a located text other than the one named is recorded too."""
-    if not docs:
-        return None, []
-    located = _located_in(excerpt, docs)
-    if located:
-        if len(named) == 1 and named[0] in located:
-            return named[0], []
-        if len(named) == 1:
-            return located[0], [f"the sentence attributes this quotation to {named[0]} but the words were located only in {', '.join(located)}"]
-        return located[0], []
-    searched = ", ".join(docs)
-    if len(named) == 1:
-        return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
-    return next(iter(docs)), [f"excerpt found in none of the supplied texts [{searched}]"]
+    """``(document_id, assumptions)`` for a quotation, by the rule every parser shares
+    (:func:`~epinoic_logic.adapters.sources.attribute_excerpt`): the located text wins (the
+    named one when several hold the words, the discrepancy recorded when the named one does
+    not); a quotation located nowhere is credited to the one text the sentence names; when
+    the sentence names none, to the one literary text under analysis (so an altered quotation
+    of the poem is still refuted by the hub); otherwise to no text, with the assumption that the
+    core pack reports as unverifiable (``CORE-SRC-003``). Never to a text for being supplied first."""
+    return attribute_excerpt(excerpt, named, docs, text_under_analysis=text_under_analysis(docs))
 
 
 def _claim_text(text: str) -> str:
