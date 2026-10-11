@@ -13,12 +13,15 @@ Segmentation rules
 
   - ``meta``: a block that is a pasted JSON receipt or payload; a block whose every
     sentence is self-certification, narration of internal steps ("I have checked
-    ...") or JSON-shaped, quotation marks or not; or a short block (at most 25 words,
-    no quotation) that is a label such as ``VERIFIED: ...`` or ``Word count: 341``,
-    an all-caps label followed by a colon, or notes about the text (from-memory
-    label, task-setting note). Meta blocks are never part of the argument: they
-    propose no claims and support nothing. The structural checks flag them
-    (``ES-META-001``).
+    ...") or JSON-shaped, quotation marks or not; a quotation-free block whose every
+    sentence is a note about the text (from-memory label, task-setting note),
+    whatever its length; or a short block (at most 25 words, no quotation) that is a
+    label such as ``VERIFIED: ...`` or ``Word count: 341`` or an all-caps label
+    followed by a colon. Meta blocks are never part of the argument: they propose no
+    claims and support nothing. The structural checks flag them (``ES-META-001``).
+    A JSON span glued to prose inside a block does not make the block meta: the
+    span is one ``other`` sentence of its own and the prose before and after it is
+    segmented as prose (see the sentence rules).
   - ``list``: a heading (``**bold**``, a short line ending with ``:``, or a short
     line with no sentence punctuation) or a bullet list. Consecutive list blocks
     form one ``list`` paragraph. Quotations in a list are still recorded as
@@ -36,18 +39,28 @@ Segmentation rules
   the next word starts with a capital letter; one-letter tokens and common
   abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence, and a
   boundary inside an open quotation never splits it, so a quoted span that contains
-  a full stop stays one quotation in one sentence.
+  a full stop stays one quotation in one sentence. A pasted JSON span glued to the
+  prose (:func:`~epinoic_logic.adapters.markdown.find_json_spans`) is one sentence of
+  its own, cut from the prose before and after it, and a ``}`` or ``]`` followed by
+  a capital ends a sentence too, so a receipt pasted mid-paragraph never swallows the
+  sentences around it and the quotations after it are still grounded.
 * Quotations are double-quoted spans and single-quoted spans of at least two words
   that open after whitespace or a bracket and close before whitespace or
   punctuation (so possessives and contractions are not quotations). Every double
   mark is one class, curly, straight, guillemet or low-9, so a span opened with one
-  kind and closed with another is still a quotation. When a paragraph's double
-  marks cannot be paired, the one dangling mark is set aside and the remaining
-  marks are paired around it (:func:`~epinoic_logic.adapters.markdown.dangling_quote_offset`);
-  the text the dangling mark opens (or closes) is recorded as an *undelimited*
-  quotation that is not attributed to any text and not checked. Sentence
-  punctuation written inside the closing mark (``"legitimate defense,"``) is not
-  part of the quoted words and is stripped from the recorded excerpt.
+  kind and closed with another is still a quotation; two adjacent double marks that
+  together open or close a quotation (dialogue copied verbatim with its own marks
+  inside the writer's) are one nested mark. The strings of a pasted JSON span are
+  not quotations. When a paragraph's double marks cannot be paired, the one dangling
+  mark is set aside and the remaining marks are paired around it
+  (:func:`~epinoic_logic.adapters.markdown.dangling_quote_offset`); the text the
+  dangling mark opens (or closes), and every pair around it whose marks contradict
+  their context, is recorded as an *undelimited* quotation that is not attributed to
+  any text and not checked (:func:`~epinoic_logic.adapters.markdown.undelimited_quote_spans`),
+  so the writer's own prose between quotations is never delivered as a quotation nor
+  reported as an invented one. Sentence punctuation written inside the closing mark
+  (``"legitimate defense,"``) is not part of the quoted words and is stripped from the
+  recorded excerpt.
 
 Role rules (body paragraphs)
 ----------------------------
@@ -56,7 +69,12 @@ Role rules (body paragraphs)
   narrates an internal step (``META_NARRATION_RE``) or is JSON-shaped -> ``other``
   with no source reference, wherever it stands, first sentence or not, quotation
   marks or not; the self-report travels in ``advisory_verification_status``;
-* the first remaining sentence -> ``point``;
+* a quotation-free sentence that is nothing but a note about the text (a from-memory
+  label, a task-setting note: :func:`is_note_only`) -> ``other``, wherever it stands,
+  so a disclaimer is never the paragraph's material point; a substantive sentence that
+  carries the label inline (a parenthetical, a sentence-initial "From memory,", a
+  comma-bounded ", from memory") keeps its role and records the label as an assumption;
+* the first remaining sentence (neither meta nor a note) -> ``point``;
 * a sentence opening with ``Effectively``, ``Thus``, ``Ultimately``,
   ``Therefore``, ``Consequently`` or ``Hence`` -> ``link``;
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
@@ -80,9 +98,13 @@ claims; a device or interpretation sentence is supported by the quotations it
 contains; a link is supported by the point and the rest of its paragraph.
 
 Claim ids are stable functions of position: ``p{paragraph}-point``,
-``p{paragraph}-s{sentence}`` and ``p{paragraph}-q{quotation}``. Sentences beyond
-the report's claim limit are folded into one ``other`` claim (``p-tail``) with an
-unresolved issue rather than rejected.
+``p{paragraph}-s{sentence}`` and ``p{paragraph}-q{quotation}``. Claims beyond the
+report's claim limit are folded into one ``other`` claim (``p-tail``) with an
+unresolved issue rather than rejected: interpretation and note claims are folded
+before evidence claims and evidence before material claims, and the source references
+of any evidence claim folded all the same are carried on the tail claim so the hub
+still checks those quotations; the issue states how many claims and quotations were
+merged.
 """
 from __future__ import annotations
 
@@ -93,17 +115,19 @@ from typing import Iterator, Literal, Optional
 from ...ir.schema import SourceRef
 from ...translate.common import utc_now_rfc3339
 from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, SuppliedText, sha256_text
+from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_quotation_spans, is_json_block, is_json_shaped, is_note_sentence, is_self_certification, undelimited_quote_span,
+    find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_note_sentence, is_self_certification, mask_json_spans,
+    split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
 from ..sources import check_excerpt, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS",
-    "is_meta_block", "is_list_block", "is_meta_sentence", "documents_named", "is_peer_document", "META_LABEL_RE", "META_NARRATION_RE",
-    "TAIL_CLAIM_ID",
+    "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "META_LABEL_RE", "META_NARRATION_RE",
+    "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of",
 ]
 
 AGENT_ID = "english-specialist"
@@ -121,7 +145,9 @@ _DEVICE_RE = re.compile(
 )
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n[ \t]*\n+")
 _ALPHA_RE = re.compile(r"[^\W\d_]")
-_BOUNDARY_RE = re.compile(r"[.!?]+[\"”’')\]»]*(?=\s+[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ])")
+#: A sentence ends at ``.``, ``!`` or ``?`` (closing marks may follow), or at the ``}`` / ``]`` that closes a
+#: pasted JSON fragment, when the next word starts with a capital or opens a JSON object (``{"``).
+_BOUNDARY_RE = re.compile(r"(?:[.!?]+[\"”’')\]»]*|[}\]])(?=\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ]|[{\[]\s*\"))")
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
@@ -180,6 +206,7 @@ class Sentence:
     text: str
     role: ClaimRole                 #: proposed role
     quotations: tuple[Quotation, ...]
+    notes: tuple[str, ...] = ()     #: the method's own labels carried inline (from-memory, task note), kept out of the role
 
 
 @dataclass(frozen=True)
@@ -226,13 +253,13 @@ def find_quotations(sentence: str) -> tuple[Quotation, ...]:
         if not excerpt or len(excerpt) > _MAX_EXCERPT_CHARS:
             continue
         found.append(Quotation(text=inner, excerpt=excerpt, start=start, end=end))
-    loose = undelimited_quote_span(sentence)
-    if loose is not None:
-        start, end, inner = loose
+    # the span the dangling mark opens or closes, and in an unbalanced sentence every pair whose marks
+    # contradict their context: recorded, attributed to no text, never reported as invented
+    for start, end, inner in undelimited_quote_spans(sentence):
         excerpt = strip_trailing_punctuation(inner)
         if excerpt and len(excerpt) <= _MAX_EXCERPT_CHARS and _ALPHA_RE.search(excerpt):
             found.append(Quotation(text=inner, excerpt=excerpt, start=start, end=end, delimited=False))
-            found.sort(key=lambda q: q.start)
+    found.sort(key=lambda q: q.start)
     return tuple(found)
 
 
@@ -266,20 +293,37 @@ def _inside_quotation(start: int, end: int, spans: list[tuple[int, int]]) -> boo
 
 
 def split_sentences(paragraph: str) -> list[str]:
-    """Split ``paragraph`` into sentences (see module docstring)."""
+    """Split ``paragraph`` into sentences (see module docstring).
+
+    A pasted JSON span glued to the prose (``... answers. {"receipt_id": ...} The narrator
+    ...``) is one sentence of its own: the prose before it and after it are split as prose,
+    and the JSON's strings are not read as quotation marks."""
     text = " ".join(paragraph.split())
     if not text:
         return []
-    spans = [(s, e) for s, e, _ in _iter_quotes(text)]
-    pieces: list[str] = []
-    start = 0
-    for m in _BOUNDARY_RE.finditer(text):
+    json_spans = find_json_spans(text)
+    masked = mask_json_spans(text) if json_spans else text
+    spans = [(s, e) for s, e, _ in _iter_quotes(masked)]
+    cuts: set[int] = set()
+    for a, b in json_spans:
+        cuts.add(a)
+        cuts.add(b)
+    for m in _BOUNDARY_RE.finditer(masked):
         if _inside_quotation(m.start(), m.end(), spans):
             continue
-        if _is_abbreviation(text[start:m.start()]):
+        if any(a < m.start() < b for a, b in json_spans):
             continue
-        pieces.append(text[start:m.end()].strip())
-        start = m.end()
+        prev = max((c for c in cuts if c <= m.start()), default=0)
+        if _is_abbreviation(masked[prev:m.start()]):
+            continue
+        cuts.add(m.end())
+    pieces: list[str] = []
+    start = 0
+    for cut in sorted(cuts):
+        piece = text[start:cut].strip()
+        if piece:
+            pieces.append(piece)
+        start = cut
     tail = text[start:].strip()
     if tail:
         pieces.append(tail)
@@ -305,9 +349,27 @@ def is_meta_sentence(sentence: str) -> bool:
     return is_self_certification(plain) or bool(META_NARRATION_RE.search(plain))
 
 
+def is_note_only(sentence: str) -> bool:
+    """True for a sentence that is nothing but a label about the text (a from-memory
+    disclaimer, a task-setting note, a self-certification) and carries no quotation: its
+    substance is empty once the label clauses are removed (:func:`~epinoic_logic.adapters.markdown.split_note_clauses`).
+    A substantive sentence with the label inline is not a note; it keeps its role and the
+    label travels as an assumption."""
+    if _iter_quotes_any(sentence):
+        return False
+    core, _notes = split_note_clauses(sentence)
+    return not core
+
+
+def _iter_quotes_any(sentence: str) -> bool:
+    return any(True for _ in _iter_quotes(sentence))
+
+
 def is_meta_block(block: str) -> bool:
-    """True for a pasted JSON block, a block whose every sentence is meta-text, or a short
-    quotation-free block that is a check label, narrates internal steps or is only notes."""
+    """True for a pasted JSON block, a block whose every sentence is meta-text, a
+    quotation-free block whose every sentence is a note about the text (from-memory label,
+    task-setting note, self-certification; whatever its length), or a short quotation-free
+    block that is a check label or narrates internal steps."""
     s = block.strip()
     if not s:
         return False
@@ -316,12 +378,14 @@ def is_meta_block(block: str) -> bool:
     sentences = split_sentences(s)
     if sentences and all(is_meta_sentence(x) for x in sentences):
         return True
-    if _block_quotations(s) or word_count(s) > _MAX_META_WORDS:
+    if _block_quotations(s):
         return False
-    if META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s):
+    # a block that is only notes about the text: no word cap, a long disclaimer is still not an argument
+    if sentences and all(is_note_only(x) for x in sentences):
         return True
-    # a block that is only notes about the text (from-memory label, task-setting note, self-certification)
-    return bool(sentences) and all(is_note_sentence(x) for x in sentences)
+    if word_count(s) > _MAX_META_WORDS:
+        return False
+    return bool(META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s))
 
 
 def is_list_block(block: str) -> bool:
@@ -403,14 +467,19 @@ def segment(text: str) -> tuple[Paragraph, ...]:
             kind = next(prose_kinds)
         raw_sentences = _list_sentences(block) if kind == "list" else split_sentences(block)
         sentences: list[Sentence] = []
-        argued = 0  # non-meta sentences seen so far: the first of them is the point
+        argued = 0  # sentences that are neither meta nor a note: the first of them is the point
         for j, s in enumerate(raw_sentences, start=1):
+            notes: tuple[str, ...] = ()
             if kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
                 role: ClaimRole = "other"
+            elif kind in ("thesis", "body", "conclusion") and is_note_only(s):
+                role = "other"  # a label about the text is never the point, wherever it stands
             else:
+                if kind in ("thesis", "body", "conclusion"):
+                    notes = tuple(split_note_clauses(s)[1])  # an inline label is kept out of the role
                 argued += 1
                 role = _role_for(argued, s, kind)
-            sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s)))
+            sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s), notes=notes))
         paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(sentences)))
     return tuple(paragraphs)
 
@@ -460,9 +529,34 @@ def documents_named(plain_sentence: str, docs: dict[str, SuppliedText]) -> list[
     return named
 
 
+def long_elision_of(excerpt: str, document_id: str, docs: dict[str, SuppliedText]) -> Optional[str]:
+    """When ``excerpt`` is an elided quotation whose fragments all occur in order in the
+    supplied text ``document_id`` but span more than the elision window, the difference as
+    the grounding module words it (``locate_long_elision``); else ``None``. The words occur, so
+    this is a form difference (the channel's INT-REQ-010), never an invented quotation."""
+    doc = docs.get(document_id)
+    if doc is None:
+        return None
+    check = check_excerpt(excerpt, document_id, docs)
+    if check.status == "found_long_elision":  # the shared check names the case itself
+        return check.detail
+    if check.status != "not_found":
+        return None
+    found = locate_long_elision(check.excerpt_checked or excerpt, doc.text)
+    if found is None:
+        return None
+    near, difference = found
+    return f"the words occur in the document (characters {near.start}-{near.end}) but the quotation {difference}"
+
+
+def excerpt_located(excerpt: str, document_id: str, docs: dict[str, SuppliedText]) -> bool:
+    """True when ``excerpt`` was located in ``document_id`` in any recognised form, a long elision included."""
+    return check_excerpt(excerpt, document_id, docs).located or long_elision_of(excerpt, document_id, docs) is not None
+
+
 def _located_in(excerpt: str, docs: dict[str, SuppliedText]) -> list[str]:
     """Ids of the supplied texts in which ``excerpt`` was located (in any recognised form)."""
-    return [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
+    return [doc_id for doc_id in docs if excerpt_located(excerpt, doc_id, docs)]
 
 
 def _document_for(excerpt: str, docs: dict[str, SuppliedText]) -> Optional[str]:
@@ -494,12 +588,47 @@ def _claim_text(text: str) -> str:
     return text if len(text) <= _MAX_CLAIM_TEXT_CHARS else text[: _MAX_CLAIM_TEXT_CHARS - 3] + "..."
 
 
+def _note_assumptions(sentence: Sentence) -> list[str]:
+    """The inline labels of ``sentence`` as claim assumptions (one per distinct label)."""
+    return [f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and is not part of the argument"
+            for n in sentence.notes]
+
+
+#: Which claims are folded first when an answer exceeds the report's claim limit: a claim with a
+#: source reference (a quotation the hub must check) is kept over interpretation and notes, and a
+#: material claim (a point, thesis or link) is kept over both.
+_FOLD_PRIORITY = {"material": 0, "evidence": 1, "supporting": 2}
+#: A claim's source references are capped by the contract; the tail claim carries this many.
+_MAX_TAIL_SOURCE_REFS = 32
+
+
+def _fold_rank(claim: ClaimRecord) -> int:
+    if claim.materiality == "material":
+        return _FOLD_PRIORITY["material"]
+    if claim.source_refs or claim.claim_role == "evidence":
+        return _FOLD_PRIORITY["evidence"]
+    return _FOLD_PRIORITY["supporting"]
+
+
 def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[ClaimRecord], list[str]]:
     """Fold the claims beyond the report's limit into one ``other`` tail claim and prune
-    links to the folded claims, so an oversized answer is delivered, not rejected."""
+    links to the folded claims, so an oversized answer is delivered, not rejected.
+
+    Interpretation, device and note claims are folded before evidence claims, and evidence
+    before material claims, each group from the end of the answer, so a quotation placed
+    late in an oversized answer is still delivered as its own evidence claim and checked.
+    When evidence claims must be folded all the same, their source references are carried
+    on the tail claim (up to the contract's cap) so the hub still checks those quotations;
+    the unresolved issue states how many claims and quotations were merged and how many
+    quotations, if any, could not be carried.
+    """
     if len(claims) <= _MAX_CLAIMS:
         return claims, []
-    head, tail = claims[: _MAX_CLAIMS - 1], claims[_MAX_CLAIMS - 1:]
+    excess = len(claims) - (_MAX_CLAIMS - 1)
+    order = sorted(range(len(claims)), key=lambda i: (-_fold_rank(claims[i]), -i))  # lowest priority first, latest first
+    folded_idx = set(order[:excess])
+    head = [c for i, c in enumerate(claims) if i not in folded_idx]
+    tail = [c for i, c in enumerate(claims) if i in folded_idx]
     kept = {c.claim_id for c in head} | {TAIL_CLAIM_ID}
     pruned = [
         c.model_copy(update={
@@ -507,12 +636,29 @@ def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[
             "parent_claim_id": c.parent_claim_id if c.parent_claim_id in kept else None,
         }) for c in head
     ]
+    refs: list[SourceRef] = []
+    seen_refs: set[tuple[str, str]] = set()
+    for c in tail:
+        for r in c.source_refs:
+            key = (r.document_id, r.excerpt or "")
+            if key not in seen_refs:
+                seen_refs.add(key)
+                refs.append(r)
+    carried, dropped = refs[:_MAX_TAIL_SOURCE_REFS], refs[_MAX_TAIL_SOURCE_REFS:]
+    folded_evidence = sum(1 for c in tail if c.claim_role == "evidence")
+    assumptions: list[str] = []
+    if carried:
+        assumptions.append(f"{len(carried)} quotation(s) of the merged claims are carried as this claim's source references so the hub still checks them")
+    if dropped:
+        assumptions.append(f"{len(dropped)} further quotation(s) of the merged claims could not be carried and were not checked")
     pruned.append(ClaimRecord(
         **ids, claim_id=TAIL_CLAIM_ID, claim_text=_claim_text(" ".join(c.claim_text for c in tail)), claim_role="other",  # type: ignore[arg-type]
-        proposed_claim_kind="unknown", materiality="supporting", certainty="possible",
+        proposed_claim_kind="unknown", materiality="supporting", certainty="possible", source_refs=carried, assumptions=assumptions,
     ))
     issue = (f"{len(tail)} claims beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {TAIL_CLAIM_ID} "
-             "and were not individually roled or checked")
+             f"and were not individually roled or checked: {folded_evidence} of them were evidence claims with {len(refs)} quotation(s); "
+             + (f"{len(carried)} quotation(s) are carried on the tail claim's source references for checking" if carried else "no quotation was merged")
+             + (f" and {len(dropped)} quotation(s) were merged unchecked" if dropped else ""))
     return pruned, [issue]
 
 
@@ -566,6 +712,7 @@ def parse_response(
     pending_thesis: list[tuple[str, str, list[str]]] = []
     pending_conclusion: list[tuple[str, str, list[str]]] = []
     body_point_ids: list[str] = []
+    inline_notes: dict[str, list[str]] = {}  # per sentence id: the method's own labels carried inline, recorded as assumptions
 
     for para in paragraphs:
         if not para.sentences or para.kind == "meta":
@@ -614,10 +761,11 @@ def parse_response(
                 continue  # the point is inserted once its supports are known
             if quote_ids and not _ALPHA_RE.search(plain.replace("[quotation]", "")):
                 continue  # a sentence that is nothing but a quotation is already the evidence claim; no interpretation to propose
-            if not quote_ids and is_note_sentence(sentence.text):
+            if not quote_ids and is_note_only(sentence.text):
                 add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=point_id,
                     advisory_verification_status=_SELF_REPORT if is_self_certification(sentence.text) else None)
                 continue  # a label about the text (from-memory note, task-setting note) is recorded but is not part of the argument
+            inline_notes[sid] = _note_assumptions(sentence)
             if para.kind == "thesis":
                 pending_thesis.append((sid, sentence.text, quote_ids))
             elif para.kind == "conclusion":
@@ -628,7 +776,7 @@ def parse_response(
                 add(
                     sid, sentence.text, sentence.role,
                     proposed_claim_kind="interpretive", materiality="supporting", certainty="probable",
-                    supporting_claim_ids=quote_ids, parent_claim_id=point_id,
+                    supporting_claim_ids=quote_ids, parent_claim_id=point_id, assumptions=inline_notes[sid],
                 )
                 support_ids.append(sid)
         if point_id is not None and point_sentence is not None:
@@ -636,25 +784,26 @@ def parse_response(
                 point_id, point_sentence.text, "point", at=paragraph_start,
                 proposed_claim_kind="unknown", materiality="material", certainty="probable",
                 supporting_claim_ids=support_ids[:_MAX_CLAIMS],  # a point supports at most a report's worth of claims
+                assumptions=_note_assumptions(point_sentence),
             )
             body_point_ids.append(point_id)
             for sid, stext, _quote_ids in pending_links:
                 add(
                     sid, stext, "link",
                     proposed_claim_kind="unknown", materiality="material", certainty="probable",
-                    supporting_claim_ids=[point_id, *support_ids][:_MAX_CLAIMS], parent_claim_id=point_id,
+                    supporting_claim_ids=[point_id, *support_ids][:_MAX_CLAIMS], parent_claim_id=point_id, assumptions=inline_notes.get(sid, []),
                 )
     for sid, stext, quote_ids in pending_thesis:
         add(
             sid, stext, "thesis",
             proposed_claim_kind="unknown", materiality="material", certainty="probable",
-            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS],
+            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS], assumptions=inline_notes.get(sid, []),
         )
     for sid, stext, quote_ids in pending_conclusion:
         add(
             sid, stext, "link",
             proposed_claim_kind="unknown", materiality="material", certainty="probable",
-            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS],
+            supporting_claim_ids=[*body_point_ids, *quote_ids][:_MAX_CLAIMS], assumptions=inline_notes.get(sid, []),
         )
 
     assumptions = [

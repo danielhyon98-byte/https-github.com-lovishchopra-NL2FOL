@@ -7,15 +7,23 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
 - `base.py` — the `SpecialistAdapter` protocol, `AdapterError`, and a registry by agent id
   (`register`, `get_adapter`, `registered_ids`).
 - `markdown.py` — the pre-segmentation rules every text parser shares: markdown furniture,
-  code fences and pasted JSON blocks removed before segmentation (`strip_markup`), list
+  code fences and pasted JSON blocks removed before segmentation (`strip_markup`), a JSON span
+  glued to prose located wherever it stands (`find_json_spans`, `mask_json_spans`,
+  `split_json_spans`: parsers cut sentences at it and its strings are never quotations), list
   markers as sentence ends, note sentences recognised one way (`is_note_sentence`: from-memory
   label, self-certification including the semantic rule of `is_self_certification` for a
   sentence whose subject is the answer itself, task-setting note), inline labels separated from
-  a substantive sentence (`split_note_clauses`), and one quotation-mark discipline
+  a substantive sentence (`split_note_clauses`: parentheticals, clauses after a semicolon or
+  dash, a sentence-initial "From memory," and a comma-bounded ", from memory" with the figure
+  that follows kept; each distinct label recorded once), and one quotation-mark discipline
   (`find_quotation_spans`: every double mark is one class, straight, curly, guillemet or low-9;
-  single marks around two or more words; the one dangling mark of an unbalanced paragraph is
-  set aside by `dangling_quote_offset` so the marks around it still pair, and
-  `undelimited_quote_span` names the span it leaves unchecked).
+  two adjacent double marks that together open or close a quotation are one nested mark, so
+  dialogue copied with its own marks inside the writer's is read as the dialogue pieces; single
+  marks around two or more words; the one dangling mark of an unbalanced paragraph is set aside
+  by `dangling_quote_offset` so the marks around it still pair, `undelimited_quote_span` names
+  the span it leaves unchecked, and `undelimited_quote_spans` adds every pair of an unbalanced
+  paragraph whose marks contradict their context, so the writer's prose between quotations is
+  neither delivered as a quotation nor reported as invented).
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
   joined-span tolerance) used by every adapter's source-integrity findings.
 - `generic_structured.py` — the integration contract for every specialist being
@@ -29,11 +37,20 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   deliberately corrupted variants (`example1_texts.py` holds the verbatim Example 1 texts).
   The parser carries the hub-stated `agent_id` into the report unchanged, roles a
   self-certifying, narrated or JSON-shaped sentence `other` with no source reference
-  wherever it stands, attributes a quotation to the supplied text the sentence names
-  (author, surname, title, or the peer specialist of a relayed `peer:<task>` report) when
-  several or none contain it, records an excerpt found in none of the supplied texts as an
-  assumption listing every text searched, and folds claims beyond the report limit into a
-  tail claim instead of raising.
+  wherever it stands, roles a quotation-free sentence that is nothing but a note about the
+  text `other` wherever it stands (so a disclaimer is never the paragraph's point; a block of
+  notes of any length is meta), keeps a substantive sentence that carries the label inline
+  and records the label as an assumption, segments the prose before and after a pasted JSON
+  span as prose (the span is one `other` sentence, and the quotations after it are grounded),
+  attributes a quotation to the supplied text the sentence names (author, surname, title, or
+  the peer specialist of a relayed `peer:<task>` report) when several or none contain it,
+  records an excerpt found in none of the supplied texts as an assumption listing every text
+  searched, reports an elided quotation whose fragments span more than the elision window as
+  a form warning (`ES-SRC-006`, as the channel's INT-REQ-010) rather than an invented
+  quotation, and folds claims beyond the report limit into a tail claim instead of raising,
+  interpretation before evidence and evidence before material claims, carrying the source
+  references of folded evidence on the tail claim so the hub still checks those quotations and
+  naming in an unresolved issue how many claims and quotations were merged.
 - `fixtures_multi_subject.py` — Mathematics, Physics, Economics, Computer Science,
   History and English fixtures with expected statuses.
 

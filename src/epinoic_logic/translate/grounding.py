@@ -80,7 +80,9 @@ def _normalize_indexed(text: str, *, newline_as_slash: bool = False) -> tuple[st
 
     With ``newline_as_slash`` every line break of ``text`` is rendered ``" / "``, the
     convention for quoting verse in running prose, so an excerpt written that way
-    matches the document's lines."""
+    matches the document's lines; a blank line (a stanza break) is rendered ``" // "``.
+    Matching compares slash runs leniently (:func:`_fold_slash_runs`), so a quotation
+    that writes the stanza break as ``" / "`` or ``" // "`` is found either way."""
     out: list[str] = []
     idx: list[int] = []
     pending_space: Optional[int] = None
@@ -89,6 +91,11 @@ def _normalize_indexed(text: str, *, newline_as_slash: bool = False) -> tuple[st
             continue
         if ch.isspace():
             if newline_as_slash and ch == "\n" and out:
+                if out[-1] == "/":  # a blank line: the second break joins the first mark as "//"
+                    out.append("/")
+                    idx.append(pos)
+                    pending_space = pos
+                    continue
                 out.append(" ")
                 idx.append(pending_space if pending_space is not None else pos)
                 out.append("/")
@@ -133,6 +140,28 @@ def _collapse_spaced_ellipsis(chars: list[str], idx: list[int]) -> tuple[str, li
 def normalize_quote(s: str) -> str:
     """Typographic normalization used for tier-2 matching (see module docstring)."""
     return _normalize_indexed(s)[0]
+
+
+def _fold_slash_runs(chars: str, idx: Optional[list[int]] = None) -> tuple[str, list[int]]:
+    """Fold a run of verse line-break marks (``//``, ``/ /``) to one ``/`` so a stanza break
+    written with one or two marks compares equal; the offset map (``idx``) is kept in step.
+    With ``idx`` None an identity map is used (for an excerpt, whose offsets are not needed)."""
+    if idx is None:
+        idx = list(range(len(chars)))
+    out: list[str] = []
+    out_idx: list[int] = []
+    for ch, pos in zip(chars, idx):
+        if ch == "/":
+            k = len(out) - 1
+            while k >= 0 and out[k] == " ":
+                k -= 1
+            if k >= 0 and out[k] == "/":  # a second mark of the same break: drop it and the spaces between
+                del out[k + 1:]
+                del out_idx[k + 1:]
+                continue
+        out.append(ch)
+        out_idx.append(pos)
+    return "".join(out), out_idx
 
 
 def _strip_outer_quotes(excerpt: str) -> str:
@@ -227,20 +256,24 @@ def locate_quotation(excerpt: str, text: str) -> Optional[QuotationMatch]:
         return folded
     slash_text: Optional[str] = None
     slash_idx: list[int] = []
+    slash_ex = norm_ex
     if "/" in norm_ex and "\n" in text:
-        slash_text, slash_idx = _normalize_indexed(text, newline_as_slash=True)
-        pos = slash_text.find(norm_ex)
+        # Line breaks of the document become " / " and a blank line " // "; slash runs are folded on both sides so a
+        # stanza break written with one or two marks compares equal.
+        slash_text, slash_idx = _fold_slash_runs(*_normalize_indexed(text, newline_as_slash=True))
+        slash_ex = _fold_slash_runs(norm_ex)[0]
+        pos = slash_text.find(slash_ex)
         if pos >= 0:
-            start, end = _span(slash_idx, pos, len(norm_ex))
+            start, end = _span(slash_idx, pos, len(slash_ex))
             return QuotationMatch(start, end, text[start:end], "normalized_match", note=NOTE_LINEBREAK_SLASH)
-        folded = _find_folded(norm_ex, slash_text, slash_idx, text, NOTE_LINEBREAK_SLASH + "; " + NOTE_QUOTES_FOLDED)
+        folded = _find_folded(slash_ex, slash_text, slash_idx, text, NOTE_LINEBREAK_SLASH + "; " + NOTE_QUOTES_FOLDED)
         if folded is not None:
             return folded
     fragments = _elision_fragments(norm_ex)
     if fragments:
         found = _find_elided(fragments, norm_text, idx, text)
         if found is None and slash_text is not None:
-            found = _find_elided(fragments, slash_text, slash_idx, text)
+            found = _find_elided(_elision_fragments(slash_ex), slash_text, slash_idx, text)
             if found is not None:
                 found = QuotationMatch(found.start, found.end, found.matched, found.method, elided=True, note=NOTE_LINEBREAK_SLASH)
         return found

@@ -22,9 +22,209 @@ _THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
 #: A figure for the fidelity comparison: unlike ``_NUMBER_RE`` it accepts a sentence-final period after the numeral
 #: ("printed in 1818."), because list markers are removed before it runs.
 _FIGURE_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)(?!\.\d)")
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december")
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
 #: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
 _EQUIVALENCE_LABELS = frozenset({"carried", "paraphrased"})
+
+# --- figure pairing (INT-LEDGER-023, the swapped-figure case) -------------------------------------------------------
+#: Tokens of a clause: a numeral (thousands separators already removed), a word (apostrophes and hyphens inside), or a
+#: clause-breaking punctuation mark.
+_PAIR_TOKEN_RE = re.compile(r"[,;:()]|\d+(?:\.\d+)?|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+#: Conjunctions and relative pronouns that start a new clause: a figure is paired only with the words of its own clause.
+#: Prepositions that attach a date to its event ("in force since 24 October", "before 1933") are deliberately not here, nor is
+#: "and", which joins the items of one dated statement ("37.3 per cent and 230 seats in July 1932").
+_CLAUSE_BREAK_WORDS = frozenset("but yet so when while whereas although though which who whom whose where because if unless then".split())
+#: Function words and unit words, never an event word a figure is paired with.
+_PARTNER_STOP = frozenset(("the a an and or of to in on for with by is are was were be been being this that these those as at from it its into their there "
+                           "which who whom not had has have having some about than then when while but so per cent percent million billion trillion thousand "
+                           "hundred around roughly nearly almost over under more less only also still even just such very").split())
+#: How far (in tokens of the same clause) an event word or another figure may stand from a figure to count as its partner.
+_WORD_WINDOW = 4
+_FIGURE_WINDOW = 4
+#: "<quantity> ... <preposition> [<month>] <year>": the dated statement of a quantity; up to six unpunctuated words (figures among
+#: them: "37.3 per cent and 230 seats in July 1932") may stand between the quantity and the preposition.
+_DATED_QUANTITY_RE = re.compile(
+    r"(?<![\w.])(?P<q>\d+(?:\.\d+)?)(?!\w)(?!\.\d)(?:\s+[^\W_]+(?:[.'’-][^\W_]+)*){0,6}?\s+(?:in|by|on|of|during|at|until|from|since|for|to)\s+(?:early\s+|late\s+|mid-?\s*)?"
+    r"(?:(?P<m>" + "|".join(_MONTHS) + r")\s+)?(?P<d>1\d{3}|20\d{2})(?!\w)(?!\.\d)", re.IGNORECASE)
+#: "from <figure> ... to <figure>" within one sentence: an ordered pair whose reversal is a swap.
+_QUALIFIER = r"(?:(?:about|some|around|roughly|nearly|almost|over|under|c\.|circa|more than|less than|fewer than)\s+)?"
+_FROM_TO_RE = re.compile(r"\bfrom\s+" + _QUALIFIER + r"(?P<a>\d+(?:\.\d+)?)(?!\w)(?!\.\d)[^.;!?]{0,80}?\bto\s+" + _QUALIFIER + r"(?P<b>\d+(?:\.\d+)?)(?!\w)(?!\.\d)", re.IGNORECASE)
+
+
+def light_stem(word: str) -> str:
+    """A light stem for comparing words across inflections: ``-ing``, ``-ed``, ``-es`` and ``-s`` are stripped
+    (never from a short word or a double ``s``), then a trailing ``e`` from a longer word, so ``quote``, ``quotes``
+    and ``quoting`` compare equal, as do ``present``, ``presents`` and ``presented``. Not a linguistic stemmer: the
+    same light rule is applied to both sides of every comparison."""
+    w = word.casefold()
+    for suffix, keep in (("ing", 4), ("ed", 3), ("es", 3), ("s", 3)):
+        if w.endswith(suffix) and len(w) - len(suffix) >= keep:
+            if suffix == "s" and w.endswith("ss"):
+                break
+            w = w[: -len(suffix)]
+            break
+    if w.endswith("e") and len(w) > 4:
+        w = w[:-1]
+    return w
+
+
+def _plain_for_pairs(text: str) -> str:
+    return _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
+
+
+def _is_numeral(tok: str) -> bool:
+    return tok[0].isdigit()
+
+
+def _figure_kind(tokens: list[str], i: int) -> str:
+    """``year`` (a four-digit year), ``day`` (1-31 next to a month name) or ``quantity``: a swap is looked for
+    between figures of one kind only, so a seat count is never 'exchanged' with the year it was won."""
+    tok = tokens[i]
+    if re.fullmatch(r"1\d{3}|20\d{2}", tok):
+        return "year"
+    if tok.isdigit() and 1 <= int(tok) <= 31:
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(tokens) and tokens[j].casefold() in _MONTHS:
+                return "day"
+    return "quantity"
+
+
+def _clauses(text: str) -> list[list[str]]:
+    """The clauses of ``text`` as token lists (numerals, words); punctuation and clause-breaking words split."""
+    out: list[list[str]] = []
+    cur: list[str] = []
+    for tok in _PAIR_TOKEN_RE.findall(_plain_for_pairs(text)):
+        if tok in ",;:()" or (not _is_numeral(tok) and tok.casefold() in _CLAUSE_BREAK_WORDS):
+            if cur:
+                out.append(cur)
+            cur = []
+            continue
+        cur.append(tok)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], dict[str, str]]:
+    """``(pairs, kinds, surface)``: every ``(figure, partner)`` of ``text``, the kind of each figure, and the word each
+    stemmed partner was first seen as. A partner is an event word within :data:`_WORD_WINDOW` tokens of the figure in
+    the same clause (light-stemmed, prefixed ``w:``) or another figure within :data:`_FIGURE_WINDOW` tokens (prefixed
+    ``f:``). Unit words and function words are not partners."""
+    pairs: set[tuple[str, str]] = set()
+    kinds: dict[str, str] = {}
+    surface: dict[str, str] = {}
+    for clause in _clauses(text):
+        for i, tok in enumerate(clause):
+            if not _is_numeral(tok):
+                continue
+            kinds.setdefault(tok, _figure_kind(clause, i))
+            for j, other in enumerate(clause):
+                if j == i:
+                    continue
+                if _is_numeral(other):
+                    if abs(i - j) <= _FIGURE_WINDOW:
+                        pairs.add((tok, "f:" + other))
+                elif abs(i - j) <= _WORD_WINDOW:
+                    low = other.casefold()
+                    if low in _PARTNER_STOP or len(low) < 3:
+                        continue
+                    key = "w:" + light_stem(low)
+                    surface.setdefault(key, low)
+                    pairs.add((tok, key))
+    return pairs, kinds, surface
+
+
+def _dated_quantities(text: str) -> set[tuple[str, str, Optional[str]]]:
+    """``(quantity, year, month or None)`` for every dated statement of a quantity in ``text``."""
+    plain = _plain_for_pairs(text)
+    return {(m.group("q"), m.group("d"), (m.group("m") or "").casefold() or None) for m in _DATED_QUANTITY_RE.finditer(plain)
+            if not re.fullmatch(r"1\d{3}|20\d{2}", m.group("q"))}
+
+
+def _date_label(year: str, month: Optional[str]) -> str:
+    return f"{month} {year}" if month else year
+
+
+def _redated_quantities(synthesized_text: str, source_texts: list[str], exchanged: set[str], src_figures: set[str]) -> list[str]:
+    """Quantities the synthesis dates to another time than the sources, compared at the resolution both sides state:
+    a month is held against the sources' months for that quantity when they give any, else the year against the years."""
+    src = set().union(*(_dated_quantities(t) for t in source_texts)) if source_texts else set()
+    out: list[str] = []
+    for q, y, m in sorted(_dated_quantities(synthesized_text), key=lambda t: (t[0], t[1], t[2] or "")):
+        if (q, y, m) in src or q not in src_figures or y not in src_figures or q in exchanged:
+            continue
+        dates_of_q = {(y2, m2) for q2, y2, m2 in src if q2 == q}
+        if not dates_of_q:
+            continue
+        monthed = {(y2, m2) for y2, m2 in dates_of_q if m2 is not None}
+        if m is not None and monthed:
+            if (y, m) not in monthed:
+                out.append(f"'{q}' is dated {_date_label(y, m)}, where the cited sources date it {sorted(_date_label(y2, m2) for y2, m2 in monthed)}")
+        elif y not in {y2 for y2, _ in dates_of_q}:
+            out.append(f"'{q}' is dated {y}, where the cited sources date it {sorted({y2 for y2, _ in dates_of_q})}")
+    return out
+
+
+def _from_to_pairs(text: str) -> set[tuple[str, str]]:
+    return {(m.group("a"), m.group("b")) for m in _FROM_TO_RE.finditer(_plain_for_pairs(text))}
+
+
+def _partner_label(p: str, surface: dict[str, str]) -> str:
+    return f"'{surface.get(p, p[2:])}'" if p.startswith("w:") else f"figure '{p[2:]}'"
+
+
+def _partner_figures(*partners: str) -> set[str]:
+    return {p[2:] for p in partners if p.startswith("f:")}
+
+
+def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
+    tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
+    pairing is compared as well. Three shapes are read, each decided on the sources' own statements:
+
+    * an exchange: figure A stands with event word (or figure) P and figure B with Q, where the sources state B with P
+      and A with Q (A and B of the same kind: years, days of a month, or quantities);
+    * a dated quantity ``<q> ... in [<month>] <year>`` that the sources date to another month or year;
+    * a ``from X to Y`` pair the sources state as ``from Y to X``.
+
+    Only figures that occur in the sources are compared (a figure in no source is the plain INT-LEDGER-023 case), and
+    a year that carries several quantities in the sources is not held to any one of them (a merge may date several
+    items at once). Returns one description per difference; empty when every pairing is the sources' own."""
+    syn_pairs, kinds, surface = _figure_partners(synthesized_text)
+    src_pairs: set[tuple[str, str]] = set()
+    src_kinds: dict[str, str] = {}
+    for t in source_texts:
+        p, k, sf = _figure_partners(t)
+        src_pairs |= p
+        for fig, kind in k.items():
+            src_kinds.setdefault(fig, kind)
+        for key, word in sf.items():
+            surface.setdefault(key, word)
+    src_figures = {a for a, _ in src_pairs} | set(src_kinds)
+    out: list[str] = []
+    reported: set[frozenset[str]] = set()
+    exchanged: set[str] = set()
+    for a, p in sorted(syn_pairs):
+        if a not in src_figures or (a, p) in src_pairs:
+            continue
+        for b in sorted({b for b, q in src_pairs if q == p and b != a and src_kinds.get(b) == kinds.get(a)}):
+            swapped = sorted(q for bb, q in syn_pairs if bb == b and (b, q) not in src_pairs and (a, q) in src_pairs)
+            if not swapped:
+                continue
+            key = frozenset({a, b}) | _partner_figures(p, swapped[0])  # the same exchange seen from its figure partners' side is one exchange
+            if key in reported:
+                continue
+            reported.add(key)
+            exchanged |= {a, b}
+            out.append(f"'{a}' is stated with {_partner_label(p, surface)} and '{b}' with {_partner_label(swapped[0], surface)}, "
+                       f"where the cited sources state '{b}' with {_partner_label(p, surface)} and '{a}' with {_partner_label(swapped[0], surface)} (exchanged)")
+    out += _redated_quantities(synthesized_text, source_texts, exchanged, src_figures)
+    src_from_to = set().union(*(_from_to_pairs(t) for t in source_texts)) if source_texts else set()
+    for a, b in sorted(_from_to_pairs(synthesized_text)):
+        if (a, b) not in src_from_to and (b, a) in src_from_to:
+            out.append(f"'from {a} to {b}' reverses the cited sources' 'from {b} to {a}'")
+    return out
 
 
 def meaningful(text: Optional[str]) -> bool:
@@ -142,8 +342,16 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         source_figures = set().union(*(figure_tokens(c.claim_text) for c in known))
         synthesized_figures = figure_tokens(sc.text)
         introduced = _sorted_tokens(synthesized_figures - source_figures)
-        if introduced:
-            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date, whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known])
+        if introduced or repaired:
+            # One finding per synthesized claim: the figures no source states, and the figures every source states but
+            # with another event (a swap passes a token-set comparison, so the pairing is compared too).
+            parts: list[str] = []
+            if introduced:
+                parts.append(f"states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date")
+            if repaired:
+                parts.append(f"re-pairs figures or dates between events relative to its cited sources {known_ids}: " + "; ".join(repaired))
+            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') " + ", and ".join(parts) + ", whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if sc.transformation in _EQUIVALENCE_LABELS:
             dropped_figures = _sorted_tokens(source_figures - synthesized_figures)
             if dropped_figures:
@@ -188,7 +396,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             continue
         if c.materiality == "material":
             f.append(IntegrityFinding(code="INT-LEDGER-002", severity="error", message="material source claim is neither carried, transformed nor recorded as dropped", claim_ids=[cid], report_ids=[report_of[cid]], agent_ids=[c.agent_id]))
-        else:
+        elif c.claim_role != "other":  # a note (a from-memory label, a self-report, a task note) is not content a synthesis must account for
             unaccounted_supporting.setdefault(report_of[cid], []).append(cid)
     for rid, cids in unaccounted_supporting.items():  # one note per report: supporting claims need not be carried, the router is told which were not
         agent = next(r.agent_id for r in reports if r.report_id == rid)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from .contracts import Constraint, RequestItem
+from .cues import VERDICT_CUES  # noqa: F401  re-exported: the verdict cue list the channel and the subject parsers share
 
 _WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to|under|within|at least|minimum of|min(?:imum)?|exactly|about|around|approximately|in)\s+(?P<n>\d{1,5})\s+words", re.IGNORECASE)
 _RANGE_RE = re.compile(r"between\s+(?P<a>\d{1,5})\s+and\s+(?P<b>\d{1,5})\s+words", re.IGNORECASE)
@@ -178,22 +179,35 @@ def count_words(text: str) -> int:
     return len(re.findall(r"\b[\w'’-]+\b", text))
 
 
+def _note_core(sentence: str) -> str:
+    """The substance of a sentence once its note clauses are set aside (``split_note_clauses``):
+    empty when the sentence is nothing but a note (a from-memory label, a self-certification, a
+    task note). A dated sentence that carries the label inline ("... in July 1791 (from memory)")
+    keeps its core and is part of the answer, as the parsers role it."""
+    from ..adapters.markdown import split_note_clauses
+    return split_note_clauses(sentence)[0].strip()
+
+
 def count_answer_words(text: str) -> tuple[int, int]:
     """``(answer words, note words)``: the words of the answer proper and the words of the
-    blocks :func:`count_paragraphs` leaves out (from-memory labels, self-certification lines,
-    task notes), so a word bound is measured over the same text as a paragraph bound and the
-    receipt can say how many words were meta-text."""
-    from ..adapters.markdown import is_note_sentence, strip_markup
+    note blocks and note clauses :func:`count_paragraphs` leaves out (from-memory labels,
+    self-certification lines, task notes), so a word bound is measured over the same text as
+    a paragraph bound and the receipt can say how many words were meta-text. A sentence whose
+    only note is an inline label counts its substance as answer and the label as notes."""
+    from ..adapters.markdown import strip_markup
     answer = notes = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():
             continue
-        sentences = [s for s in _SENT_RE.split(p.strip()) if s.strip()]
-        n = count_words(p)
-        if sentences and all(is_note_sentence(s) for s in sentences):
-            notes += n
-        else:
-            answer += n
+        for s in (x for x in _SENT_RE.split(p.strip()) if x.strip()):
+            n = count_words(s)
+            core = _note_core(s)
+            if not core:
+                notes += n
+                continue
+            kept = min(n, count_words(core))
+            answer += kept
+            notes += n - kept
     return answer, notes
 
 
@@ -201,14 +215,15 @@ def count_paragraphs(text: str) -> int:
     """Paragraphs of the answer proper. A block that is only a note about the text (a
     from-memory label such as 'Dates and figures are from memory; verify them', or a
     self-certification line) is not a paragraph the request asked for and is not counted;
-    markdown headings and code fences are not paragraphs either."""
-    from ..adapters.markdown import is_note_sentence, strip_markup
+    markdown headings and code fences are not paragraphs either. A block whose sentences keep
+    a substance once their inline labels are set aside is a paragraph."""
+    from ..adapters.markdown import strip_markup
     count = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():
             continue
         sentences = [s for s in _SENT_RE.split(p.strip()) if s.strip()]
-        if sentences and all(is_note_sentence(s) for s in sentences):
+        if sentences and all(not _note_core(s) for s in sentences):
             continue
         count += 1
     return count

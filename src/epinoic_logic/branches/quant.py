@@ -7,14 +7,34 @@ differences, word fractions, fold changes, shares, totals). A specialist that wr
 not by opinion.
 
 Shapes read from a from/to pair (``from 381 in September 1929 to about 41 in July
-1932``; dated figures may carry a day, a month, ``early``/``late`` and a year):
+1932``; dated figures may carry a day, a month, ``early``/``late``, a year or a year
+range such as ``1923-24``):
 
+* an optional noun phrase of up to three digit-free words after a figure's unit and
+  before its date or ``to`` (``200 students in 1920``, ``800 million gold marks in
+  1924``, ``6 per cent of members in September 1923``);
 * shared-unit elision: when only the second figure carries a unit (``from 15 to 45
-  million``, ``from 3.2 to 24.9 per cent``) the unit applies to both figures;
-* units: scales (million, thousand, ...), per cent, rates (``per thousand``,
-  ``per 100,000``, ``per head``), seats and votes;
-* derived figures: ``a fall of 50 per cent``, ``fell by a third``, ``a rise of 25
-  percentage points``, ``doubled``/``doubling``, ``halved``, ``threefold``.
+  million``, ``from 3.2 to 24.9 per cent``) the unit applies to both figures; a per-cent,
+  rate or count unit on the first figure alone applies to the second too (``from 37.3
+  per cent to 33.1``);
+* units: scales (thousand, million, billion, trillion, quadrillion and their
+  abbreviations), per cent, rates (``per thousand``, ``per 100,000``, ``per head``),
+  seats and votes. A pair whose units are of different kinds, or whose first figure
+  carries a scale and whose second figure carries no recognised unit (``from 4 billion to
+  4 lakh``), is NOT read as a bare number: it is skipped, since the second figure's unit
+  word is unknown and the pair cannot be compared;
+* figures written in words (``from two hundred to two hundred and sixty students, an
+  increase of forty-five per cent``) are read for numbers below a thousand, with a scale
+  word as the unit (``six million``);
+* derived figures: ``a fall of 50 per cent``, ``a rise of -10 per cent`` (a signed
+  change reverses the stated direction), ``fell by a third``, ``a rise of 25 percentage
+  points``, ``doubled``/``doubling``, ``halved``, ``threefold``, ``2.5-fold``,
+  ``1,000-fold``, ``hundredfold``, ``thousandfold``, ``millionfold``.
+
+Sentences are split with the shared abbreviation-aware splitter
+(``adapters/history_specialist/sentences.py``), so ``c.``, ``approx.``, ``p.`` and
+initials never end a statement and ``from c. 200 million tonnes in 1928 to c. 100
+million in 1932`` is one statement.
 
 Tolerance rule (:data:`TOLERANCE_RULE`): the stated derived figure must lie within
 ``tolerance`` (default 5 per cent) of the value computed from the report's own figures.
@@ -33,45 +53,62 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Optional
 
+from ..adapters.history_specialist.sentences import split_clauses
 from ..ir.schema import Problem
 
-_NUM = r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
+_SMALL_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+                "sixteen", "seventeen", "eighteen", "nineteen")
+_TENS_WORDS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+_WORD_VALUES = {w: i for i, w in enumerate(_SMALL_WORDS, start=1)} | {w: 10 * (i + 2) for i, w in enumerate(_TENS_WORDS)}
+_WNUM_TOKEN = "|".join(sorted((*_SMALL_WORDS, *_TENS_WORDS), key=len, reverse=True))  # longest first: 'sixty' before 'six'
+#: A number in words below a thousand: 'forty-five', 'two hundred and sixty'. Scale words (thousand, million, ...) are units.
+_WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred))*(?![a-z])"
+_DIGITS = r"\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?"
+_NUM = rf"({_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
+_AMOUNT = rf"(-?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"  # a derived figure may carry a sign
 _PCT_UNIT = r"(?:per cent|percent(?!age)|%)"  # 'percentage points' is a difference, not a per-cent unit
 _RATE_UNIT = r"per (?:thousand|1,?000|10,?000|100,?000|million|head|capita)"
-_UNIT = rf"(?:\s*(million|billion|thousand|{_RATE_UNIT}|per cent|percent(?!age)|%|seats|votes|m|bn|k)\b)?"
-_QUAL = r"(?:about|around|roughly|nearly|almost|some|approximately|an estimated|over|more than|less than|under|at least|at most|up to|just over|just under)"
+_SCALE_UNIT = r"quadrillion|trillion|billion|million|thousand|trn|tn|bn|m|k"
+_UNIT = rf"(?:\s*({_SCALE_UNIT}|{_RATE_UNIT}|per cent|percent(?!age)|%|seats|votes)\b)?"
+_QUAL = r"(?:about|around|roughly|nearly|almost|some|approximately|an estimated|over|more than|less than|under|at least|at most|up to|just over|just under|c\.|ca\.|circa)"
 _MONTH = r"(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.?"
-#: An optional date after a figure: 'in 1928', 'by early 1932', 'in September 1929', 'on 18 June 1815', 'in January 30, 1933'.
+#: Words a noun phrase after a figure may not start with: the connectors and prepositions that end it.
+_CONNECT = r"(?:to|and|in|by|of|on|at|during|for|from|a|an|the|or|than|that|which|when|while|as|per|with|between|against|over|under|about|around|roughly|nearly|almost|some|more|less)"
+#: An optional digit-free noun phrase (up to three words) after a figure's unit: 'students', 'gold marks', 'of members'.
+_NOUN = rf"(?:\s+(?:(?:of|among)\s+(?:the\s+|all\s+|its\s+|their\s+)?)?(?!{_CONNECT}\b)[a-z][a-z'’-]*(?:\s+(?!{_CONNECT}\b)[a-z][a-z'’-]*){{0,2}})?"
+#: An optional date after a figure: 'in 1928', 'by early 1932', 'in September 1929', 'on 18 June 1815', 'in January 30, 1933', 'in 1923-24'.
 _DATE = (rf"(?:\s+(?:in|by|of|on|at|during|for)\s+(?:the\s+)?(?:(?:early|late|mid|the end of|the start of|the beginning of|the middle of)[\s-]*)?"
-         rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+)?(?:{_MONTH}\s+)?(?:\d{{1,2}},?\s+)?(?:1[0-9]{{3}}|20[0-9]{{2}}))?")
-_FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+(?:{_QUAL}\s+)?{_NUM}{_UNIT}{_DATE}\s+(?:to|and)\s+(?:{_QUAL}\s+)?{_NUM}{_UNIT}", re.IGNORECASE)
+         rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+)?(?:{_MONTH}\s+)?(?:\d{{1,2}},?\s+)?(?:1[0-9]{{3}}|20[0-9]{{2}})(?:\s*[-–/]\s*\d{{2,4}})?)?")
+_FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+(?:{_QUAL}\s+)?{_NUM}{_UNIT}{_NOUN}{_DATE}\s+(?:to|and)\s+(?:{_QUAL}\s+)?{_NUM}{_UNIT}", re.IGNORECASE)
 _FALL_WORDS = frozenset({"fall", "decrease", "decline", "drop", "reduction", "cut", "loss", "contraction", "fell", "dropped", "declined", "decreased", "shrank", "contracted", "slumped", "collapsed", "halved", "halving"})
 _DIR_NOUN = r"(increase|rise|fall|decrease|decline|drop|growth|reduction|cut|gain|loss|expansion|contraction)"
 _DIR_VERB = r"(rose|grew|increased|expanded|climbed|fell|dropped|declined|decreased|shrank|contracted|slumped|collapsed)"
 _PCT_CHANGE_RE = re.compile(
-    rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*{_PCT_UNIT}(?!\s*points?\b)"
-    rf"|(?:an?\s+)?(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*{_PCT_UNIT}\s+{_DIR_NOUN}"
-    rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*{_PCT_UNIT}(?!\s*points?\b)",
+    rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)"
+    rf"|(?:an?\s+)?(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}\s+{_DIR_NOUN}"
+    rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)",
     re.IGNORECASE)
 # 'a fall of 4.2 percentage points' / 'rose by 3 points' between two per-cent figures: an absolute difference.
 _POINTS_CHANGE_RE = re.compile(
-    rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*(?:percentage\s+)?points?\b"
-    rf"|(?:an?\s+)?(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*(?:percentage\s+)?points?\s+{_DIR_NOUN}"
-    rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?(\d+(?:\.\d+)?)\s*(?:percentage\s+)?points?\b",
+    rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*(?:percentage\s+)?points?\b"
+    rf"|(?:an?\s+)?(?:({_QUAL})\s+)?{_AMOUNT}\s*(?:percentage\s+)?points?\s+{_DIR_NOUN}"
+    rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*(?:percentage\s+)?points?\b",
     re.IGNORECASE)
 _FRAC = r"((?:a|one)\s+(?:half|third|quarter|fifth|tenth)|two[- ]thirds|three[- ]quarters|two[- ]fifths|three[- ]fifths|four[- ]fifths|half)"
 _FRACTION_CHANGE_RE = re.compile(rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_FRAC}\b|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_FRAC}\b", re.IGNORECASE)
 _FRACTION_WORDS = {"half": Fraction(1, 2), "third": Fraction(1, 3), "quarter": Fraction(1, 4), "fifth": Fraction(1, 5), "tenth": Fraction(1, 10),
                    "two thirds": Fraction(2, 3), "three quarters": Fraction(3, 4), "two fifths": Fraction(2, 5), "three fifths": Fraction(3, 5), "four fifths": Fraction(4, 5)}
-_FOLD_RE = re.compile(r"(?:\b(more than|over|nearly|almost|about|roughly|just over|just under)\s+)?\b(doubl(?:ed|ing)|trebl(?:ed|ing)|tripl(?:ed|ing)|quadrupl(?:ed|ing)|halv(?:ed|ing)|(\d+(?:\.\d+)?)-fold|(two|three|four|five|six|seven|eight|nine|ten)-?fold)\b", re.IGNORECASE)
+_FOLD_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+               "hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9, "trillion": 10**12}
+_FOLD_RE = re.compile(
+    rf"(?:\b(more than|over|nearly|almost|about|roughly|just over|just under)\s+)?\b(doubl(?:ed|ing)|trebl(?:ed|ing)|tripl(?:ed|ing)|quadrupl(?:ed|ing)|halv(?:ed|ing)"
+    rf"|({_DIGITS})-fold|({'|'.join(_FOLD_WORDS)})-?fold)\b", re.IGNORECASE)
 _FOLD_STEMS = {"doubl": Fraction(2), "trebl": Fraction(3), "tripl": Fraction(3), "quadrupl": Fraction(4), "halv": Fraction(1, 2)}
-_FOLD_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _YEAR_LIKE_RE = re.compile(r"^(?:1[0-9]{3}|20[0-9]{2})$")
 _PCT_WORDS = frozenset({"per cent", "percent", "%"})
 _SHARE_RE = re.compile(rf"\b{_NUM}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
 _TOTAL_RE = re.compile(rf"{_NUM}{_UNIT}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{_NUM}{_UNIT}[^.;]{{0,60}}?(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
-_SCALE = {"million": 10**6, "m": 10**6, "billion": 10**9, "bn": 10**9, "thousand": 10**3, "k": 10**3}
-_SENT_RE = re.compile(r"(?<=[.?!;])\s+")
+_SCALE = {"thousand": 10**3, "k": 10**3, "million": 10**6, "m": 10**6, "billion": 10**9, "bn": 10**9, "trillion": 10**12, "tn": 10**12, "trn": 10**12, "quadrillion": 10**15}
 _LOWER_ONLY = frozenset({"more than", "over", "at least", "just over"})
 _UPPER_ONLY = frozenset({"less than", "under", "at most", "up to", "just under"})
 #: Half a percentage point: a per-cent figure rounded to the nearest whole number always passes.
@@ -90,8 +127,29 @@ class QuantCheck:
     rule: str = ""            # the tolerance rule applied, for the receipt
 
 
+def _words_value(words: str) -> Fraction:
+    """Value of a number written in words below a thousand ('two hundred and sixty' -> 260)."""
+    total = 0
+    for tok in re.split(r"[\s-]+", words.lower()):
+        if tok == "and" or not tok:
+            continue
+        if tok == "hundred":
+            total = (total or 1) * 100
+        else:
+            total += _WORD_VALUES[tok]
+    return Fraction(total)
+
+
+def _number(num: str) -> Fraction:
+    """Exact value of a figure written in digits (thousands separators, decimals, a sign) or in words."""
+    s = num.strip()
+    if re.fullmatch(r"-?[\d,.]+", s):
+        return Fraction(s.replace(",", ""))
+    return _words_value(s)
+
+
 def _frac(num: str, unit: Optional[str]) -> Fraction:
-    f = Fraction(num.replace(",", ""))
+    f = _number(num)
     if unit:
         u = unit.lower()
         if u in _SCALE:
@@ -114,6 +172,20 @@ def _year_like(num: str, unit: Optional[str]) -> bool:
 
 def _is_pct(unit: Optional[str]) -> bool:
     return bool(unit) and unit.lower().replace("percent", "per cent") in _PCT_WORDS
+
+
+def _unit_kind(unit: Optional[str]) -> Optional[str]:
+    """'scale', 'pct', 'rate' or 'count' for a recognised unit word, None for a bare figure."""
+    if not unit:
+        return None
+    u = unit.lower()
+    if u in _SCALE:
+        return "scale"
+    if _is_pct(u):
+        return "pct"
+    if u.startswith("per "):
+        return "rate"
+    return "count"
 
 
 def _side(qualifier: Optional[str]) -> str:
@@ -154,16 +226,24 @@ def _direction(word: str) -> str:
     return "fall" if word.lower() in _FALL_WORDS else "rise"
 
 
+def _signed(direction: str, amount: str) -> tuple[str, Fraction]:
+    """A stated change with a sign reverses its direction: 'a rise of -10 per cent' is a fall of 10."""
+    value = _number(amount)
+    if value < 0:
+        return ("rise" if direction == "fall" else "fall"), -value
+    return direction, value
+
+
 def _pct_change(sent: str) -> Optional[tuple[str, Fraction, str]]:
     """(direction, stated per cent, side) for a stated relative change, or None."""
     m = _PCT_CHANGE_RE.search(sent)
     if not m:
         return None
     if m.group(1):
-        return _direction(m.group(1)), Fraction(m.group(3)), _side(m.group(2))
+        return (*_signed(_direction(m.group(1)), m.group(3)), _side(m.group(2)))
     if m.group(6):
-        return _direction(m.group(6)), Fraction(m.group(5)), _side(m.group(4))
-    return _direction(m.group(7)), Fraction(m.group(9)), _side(m.group(8))
+        return (*_signed(_direction(m.group(6)), m.group(5)), _side(m.group(4)))
+    return (*_signed(_direction(m.group(7)), m.group(9)), _side(m.group(8)))
 
 
 def _points_change(sent: str) -> Optional[tuple[str, Fraction, str]]:
@@ -171,10 +251,10 @@ def _points_change(sent: str) -> Optional[tuple[str, Fraction, str]]:
     if not m:
         return None
     if m.group(1):
-        return _direction(m.group(1)), Fraction(m.group(3)), _side(m.group(2))
+        return (*_signed(_direction(m.group(1)), m.group(3)), _side(m.group(2)))
     if m.group(6):
-        return _direction(m.group(6)), Fraction(m.group(5)), _side(m.group(4))
-    return _direction(m.group(7)), Fraction(m.group(9)), _side(m.group(8))
+        return (*_signed(_direction(m.group(6)), m.group(5)), _side(m.group(4)))
+    return (*_signed(_direction(m.group(7)), m.group(9)), _side(m.group(8)))
 
 
 def _fraction_change(sent: str) -> Optional[tuple[str, Fraction, str, str]]:
@@ -188,15 +268,31 @@ def _fraction_change(sent: str) -> Optional[tuple[str, Fraction, str, str]]:
 
 
 def _fold(sent: str) -> Optional[tuple[Fraction, str, str]]:
-    """(factor, side, words) for 'doubled', 'doubling', 'halved', 'threefold', '2.5-fold'."""
+    """(factor, side, words) for 'doubled', 'doubling', 'halved', 'threefold', '2.5-fold', '1,000-fold', 'hundredfold'."""
     m = _FOLD_RE.search(sent)
     if not m:
         return None
     word = m.group(2).lower()
     factor = next((f for stem, f in _FOLD_STEMS.items() if word.startswith(stem)), None)
     if factor is None:
-        factor = Fraction(m.group(3)) if m.group(3) else Fraction(_FOLD_WORDS[m.group(4).lower()])
+        factor = Fraction(m.group(3).replace(",", "")) if m.group(3) else Fraction(_FOLD_WORDS[m.group(4).lower()])
     return factor, _side(m.group(1)), m.group(0).strip()
+
+
+def _comparable(u1: Optional[str], u2: Optional[str]) -> tuple[Optional[str], Optional[str], bool]:
+    """Apply shared-unit elision and decide whether the pair can be compared at all.
+    Returns ``(unit1, unit2, comparable)``: units of different kinds, or a scale on the first
+    figure with no recognised unit on the second (an unknown unit word), are not comparable."""
+    if not u1 and u2:
+        return u2, u2, True  # 'from 15 to 45 million', 'from 3.2 to 24.9 per cent'
+    k1, k2 = _unit_kind(u1), _unit_kind(u2)
+    if u1 and not u2:
+        if k1 == "scale":
+            return u1, u2, False  # 'from 4 billion to 4 lakh': the second figure's unit word is unknown
+        return u1, u1, True  # 'from 37.3 per cent to 33.1': the first unit carries over
+    if k1 and k2 and k1 != k2:
+        return u1, u2, False
+    return u1, u2, True
 
 
 def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance: Fraction = Fraction(1, 20)) -> list[QuantCheck]:
@@ -206,13 +302,14 @@ def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance
     checks: list[QuantCheck] = []
     n = 0
     before_after = [("before", "the earlier figure as stated"), ("after", "the later figure as stated")]
-    for sent in _SENT_RE.split(text):
+    statements = split_clauses(text)
+    for sent in statements:
         ft = _FROM_TO_RE.search(sent)
         if not ft:
             continue
-        u1, u2 = ft.group(2), ft.group(4)
-        if not u1 and u2:
-            u1 = u2  # shared-unit elision: 'from 15 to 45 million', 'from 3.2 to 24.9 per cent'
+        u1, u2, comparable = _comparable(ft.group(2), ft.group(4))
+        if not comparable:
+            continue  # the units cannot be compared; never read a bare number against a scaled one
         if _year_like(ft.group(1), u1) and _year_like(ft.group(3), u2):
             continue  # 'from 1928 to 1930' is a date span, not a before/after pair
         a, b = _frac(ft.group(1), u1), _frac(ft.group(3), u2)
@@ -255,11 +352,11 @@ def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance
             checks.append(QuantCheck(f"quant-{n}", "fold_change", sent.strip(), _problem(f"quant-fold-{n}", claim_id, request_id, before_after, premises,
                 ("STATED_FOLD", _within(ratio, factor, tolerance, Fraction(0), side), f"stated '{words}' (factor {factor}) against the computed ratio")),
                 rule=_rule_text(tolerance, Fraction(0), side)))
-    for sent in _SENT_RE.split(text):
+    for sent in statements:
         sh = _SHARE_RE.search(sent)
         if sh:
             n += 1
-            pct, whole, part = Fraction(sh.group(1).replace(",", "")), _frac(sh.group(2), sh.group(3)), _frac(sh.group(4), sh.group(5))
+            pct, whole, part = _number(sh.group(1)), _frac(sh.group(2), sh.group(3)), _frac(sh.group(4), sh.group(5))
             computed = {"op": "div", "left": {"op": "mul", "args": [_real(pct), _v("whole")]}, "right": _real(Fraction(100))}  # constant * variable: linear
             checks.append(QuantCheck(f"quant-{n}", "share", sent.strip(), _problem(f"quant-share-{n}", claim_id, request_id,
                 [("pct", "stated percentage"), ("whole", "stated whole")],

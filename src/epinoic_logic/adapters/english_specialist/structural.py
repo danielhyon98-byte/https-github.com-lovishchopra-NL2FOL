@@ -28,8 +28,10 @@ Source integrity
 * ``ES-SRC-005`` warning a quotation found only by joining separate spans of the text
                           without marking the omission (formatting.md S12: quote exactly).
 * ``ES-SRC-006`` warning a quotation whose words are in the text but whose form differs
-                          (initial capital changed, verse line-break mark omitted): S12,
-                          but not an invented quotation.
+                          (initial capital changed, verse line-break mark omitted, or an
+                          elision longer than the elision window whose fragments all occur
+                          in order): S12, but not an invented quotation; the same case the
+                          channel reports as INT-REQ-010, never ES-SRC-001.
 * ``ES-SRC-007`` info    an elided quotation (``...``); the span it covers is stated.
 * ``ES-SRC-008`` error / warning a quotation attributed by the sentence to one supplied text
                           (its author, title or the peer specialist named) but located only in
@@ -72,8 +74,10 @@ from typing import Iterable, Optional
 from ...translate.common import truncate
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ..generic_structured import generic_source_findings
-from ..sources import check_excerpt
-from .parser import Paragraph, Sentence, documents_named, is_meta_sentence, is_peer_document, segment, strip_quotations
+from ..sources import check_excerpt, strip_trailing_punctuation
+from .parser import (
+    Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
+)
 
 __all__ = [
     "structural_checks", "RULE_SOURCES", "MIN_STRAND_QUOTATIONS", "MIN_QUOTATION_WORDS",
@@ -250,7 +254,7 @@ def _claims_for_paragraph(report: SpecialistReport, para: Paragraph) -> list[str
 
 def _located_in(excerpt: str, report: SpecialistReport) -> list[str]:
     docs = {t.document_id: t for t in report.supplied_texts}
-    return [doc_id for doc_id in docs if check_excerpt(excerpt, doc_id, docs).located]
+    return [doc_id for doc_id in docs if excerpt_located(excerpt, doc_id, docs)]
 
 
 # ------------------------------------------------------------------ citations
@@ -309,10 +313,28 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
         )]
     out: list[StructuralFinding] = []
     claims = {c.claim_id: c for c in report.claims}
+    docs = {t.document_id: t for t in report.supplied_texts}
     for f in generic_source_findings(
         report, code="ES-SRC-001", joined_code="ES-SRC-005", inexact_code="ES-SRC-006", elided_code="ES-SRC-007", locator_code="ES-SRC-002",
     ):
         message = f.message
+        if f.code == "ES-SRC-001":
+            # an elided quotation whose fragments all occur in order but span more than the elision window: the
+            # words occur, so this is a form difference (a warning, as the channel's INT-REQ-010), never 'invented'
+            claim = claims.get(f.claim_ids[0]) if f.claim_ids else None
+            long = next((
+                (r, long_elision_of(r.excerpt, r.document_id, docs)) for r in (claim.source_refs if claim else [])
+                if r.excerpt and r.document_id in docs and truncate(strip_trailing_punctuation(r.excerpt), _EXCERPT_CHARS) in message
+            ), None)
+            if long is not None and long[1]:
+                ref, difference = long
+                out.append(_finding(
+                    "ES-SRC-006", "warning",
+                    f"quotation '{truncate(ref.excerpt or '', _EXCERPT_CHARS)}' cited by claim {claim.claim_id if claim else '?'} in {ref.document_id}: {difference}; "
+                    "the words occur in the text, so this is a long elision to be marked, not an invented quotation",
+                    f.claim_ids,
+                ))
+                continue
         if f.code == "ES-SRC-001" and "not found in the document" in message:
             searched = [t.document_id for t in report.supplied_texts]
             claim = claims.get(f.claim_ids[0]) if f.claim_ids else None
@@ -347,7 +369,7 @@ def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, 
             for q in sentence.quotations:
                 if not q.delimited:
                     continue
-                located = [d for d in docs if check_excerpt(q.excerpt, d, docs).located]
+                located = [d for d in docs if excerpt_located(q.excerpt, d, docs)]
                 if not located or named[0] in located:
                     continue
                 peer = is_peer_document(docs[named[0]]) or any(is_peer_document(docs[d]) for d in located)
@@ -403,7 +425,7 @@ def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
             plain = strip_quotations(sentence.text)
             if not _FROM_MEMORY_RE.search(plain):
                 continue
-            unlocated = [q for q in sentence.quotations if not q.delimited or not docs or not any(check_excerpt(q.excerpt, d, docs).located for d in docs)]
+            unlocated = [q for q in sentence.quotations if not q.delimited or not docs or not any(excerpt_located(q.excerpt, d, docs) for d in docs)]
             if unlocated or _QUOTE_WORD_RE.search(plain) or not _DATES_FIGURES_RE.search(plain):
                 out.append(_finding(
                     "ES-SRC-003", "warning",

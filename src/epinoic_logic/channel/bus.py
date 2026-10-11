@@ -44,12 +44,13 @@ from ..integrity.contracts import AgentMessage, AgentRole, IntegrityFinding, Syn
 from ..integrity.cross_check import check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment
 from ..integrity.envelope import MessageLog, bind_payload
 from ..integrity.handoff import check_report_against_plan
-from ..integrity.ledger import check_synthesis_ledger
+from ..integrity.ledger import check_synthesis_ledger, light_stem
 from ..ir.canonical import sha256_hex
 from ..ir.schema import Assertion, Problem
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TranslationStatus, sha256_text
-from ..translate.grounding import check_claim_sources
+from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
+from .cues import VERDICT_CUES, verdict_cue_regex
 from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items
 
 VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
@@ -58,8 +59,14 @@ VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerifica
 FormalizeSynthesisFn = Callable[[SynthesizedClaim, list[Problem]], Optional[Assertion]]
 ParseFn = Callable[..., SpecialistReport]
 
-# Cues that state a position on degree (a claim such as "X was responsible for Y" is not one).
-_VERDICT_CUE = re.compile(r"\b(therefore|thus|to a (?:large|great|limited|lesser|some|considerable) extent|to a degree|decisive|necessary (?:but|and) (?:not )?sufficient|outweigh(?:s|ed)?|on balance|more (?:significant|important|decisive) than|less (?:significant|important) than|matter(?:s|ed) most|the most (?:significant|important|decisive)|holds for|does not hold|fails)\b", re.IGNORECASE)
+# Cues that state a position on degree (a claim such as "X was responsible for Y" is not one). Built from the shared list
+# in ``cues.py`` (:data:`VERDICT_CUES`), which the History parser imports, so the hub and the parser agree on what a verdict is.
+_VERDICT_CUE = re.compile(r"\b(" + verdict_cue_regex() + r")\b", re.IGNORECASE)
+#: What a branch adapter writes into ``unresolved_issues`` when it folded the claims beyond the contract limit into one
+#: tail claim; the channel turns it into a finding naming how much went unchecked (INT-REQ-013).
+_FOLDED_TAIL_RE = re.compile(r"(?P<n>\d+) (?:claims|sentences) beyond the report's claim limit \((?P<limit>\d+)\) were merged into claim (?P<tail>\S+)")
+#: A claim roled 'other' is a note (a from-memory label, a self-report, a task note), never an answer to a request item.
+_NOTE_ROLE = "other"
 #: Roles whose claims may carry the paragraph's verdict when they state a position (a claim roled 'other' never counts).
 _VERDICT_ROLES = frozenset({"point", "thesis", "link", "analysis"})
 _STOP = frozenset("the a an and or of to in on for with by is are was were be this that these those as at from it its how why what does do into their there which who whom not".split())
@@ -73,6 +80,8 @@ _NOT_PERFORMED = "NOT performed on this channel: the combinator supplied no form
 #: mark, long elision); the channel reports it as a warning, never as an invented quotation.
 _FORM_DIFFERS = "differs in form"
 _ECHO_OVERLAP = 0.9
+#: Overlap at which a response counts as a restatement when it also quotes the request's own words as the text's.
+_ECHO_OVERLAP_QUOTED = 0.75
 _ECHO_LENGTH_RATIO = 1.2
 _SCOPE_TAIL = "Formal results concern only the encoded checks under their premises; coverage is heuristic."
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
@@ -122,6 +131,30 @@ def _fit_summary(summary: str, limit: int = SUMMARY_MAX_CHARS) -> str:
 def _named(ids: list[str]) -> str:
     shown = ", ".join(ids[:_MAX_NAMED])
     return shown + (f" and {len(ids) - _MAX_NAMED} more" if len(ids) > _MAX_NAMED else "")
+
+
+def _material_claims(report: SpecialistReport) -> list[ClaimRecord]:
+    """The claims that answer: everything not roled 'other' (notes and self-reports never count)."""
+    return [c for c in report.claims if c.claim_role != _NOTE_ROLE]
+
+
+def _content_dump(report: SpecialistReport) -> dict:
+    """The report without its delivery timestamp: what a re-delivery is compared on (INT-ENV-001 vs INT-HANDOFF-015)."""
+    return report.model_dump(mode="json", exclude_none=True, exclude={"created_at"})
+
+
+def _norm_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _dedupe_ids(ids) -> list[str]:
+    return list(dict.fromkeys(ids))
+
+
+def _located(excerpt: str, text: str) -> bool:
+    """The quoted words occur in ``text`` in some form (exact, normalized, elided, a form difference or a long elision)."""
+    return bool(excerpt.strip()) and (locate_quotation(excerpt, text) is not None or locate_quotation_inexact(excerpt, text) is not None
+                                      or locate_long_elision(excerpt, text) is not None)
 
 
 class TranslatorChannel:
@@ -246,37 +279,62 @@ class TranslatorChannel:
 
     def _revalidate(self, report: SpecialistReport, payload: dict) -> list[IntegrityFinding]:
         """The payload delivered to the recipient must re-validate against the contract;
-        a report built around validation (model_copy) is caught here, not downstream."""
+        a report built around validation (model_copy) is caught here, not downstream. A claim
+        whose ``report_id`` or ``request_id`` differs from its report is a provenance fault and
+        is named as one (INT-HANDOFF-012, with the claim and the fields) on the raw payload,
+        not reported as a bare contract value error."""
+        out: list[IntegrityFinding] = []
+        for raw in payload.get("claims", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            mismatch = [n for n, key in (("report_id", "report_id"), ("request_id", "request_id")) if raw.get(key) != payload.get(key)]
+            if mismatch:
+                cid = str(raw.get("claim_id", "?"))
+                out.append(IntegrityFinding(code="INT-HANDOFF-012", severity="error", message=f"claim {cid} carries provenance that differs from its report in {mismatch} (claim {[raw.get(k) for k in mismatch]} vs report {[payload.get(k) for k in mismatch]}): a claim of another report or request hidden inside this one; not delivered",
+                                            claim_ids=[cid], report_ids=[report.report_id], agent_ids=[report.agent_id]))
         try:
             SpecialistReport.model_validate(payload)
         except ValidationError as exc:
-            return [IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
-                                     report_ids=[report.report_id], agent_ids=[report.agent_id])]
-        return []
+            errors = exc.errors()
+            if out:  # the provenance fault is already named; only report what else failed
+                errors = [e for e in errors if "does not belong to this report" not in str(e.get("msg", "")) and "does not belong to this report" not in str(e.get("ctx", {}).get("error", ""))]
+            if errors:
+                out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
+                                            report_ids=[report.report_id], agent_ids=[report.agent_id]))
+        return out
 
     def _report_id_reuse(self, report: SpecialistReport, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
-        """A report id already transmitted on this channel: the same payload is a duplicate
-        delivery (INT-ENV-001), a different payload is INT-HANDOFF-015 and is not delivered.
-        The first delivery is kept either way; ``transmitted_reports`` is never overwritten."""
+        """A report id already transmitted on this channel: the same content (the response, its
+        digest, the claims, the texts; the delivery timestamp ``created_at`` excluded, so a
+        re-parsed retransmission of the same answer is the same report) is a duplicate delivery
+        (INT-ENV-001); a different response or different claims is INT-HANDOFF-015 and is not
+        delivered. The first delivery is kept either way; ``transmitted_reports`` is never overwritten."""
         held = self.transmitted_reports.get(report.report_id)
         if held is None:
             return []
         ids = dict(report_ids=[report.report_id], agent_ids=sorted({held.agent_id, msg.sender_agent_id}), message_ids=[msg.message_id])
-        if payload_hash(held.model_dump(mode="json", exclude_none=True)) == msg.payload_sha256:
+        held_content, new_content = _content_dump(held), _content_dump(report)
+        if held_content == new_content:
             if any(f.code == "INT-ENV-001" for f in findings):
                 return []
-            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message=f"report {report.report_id!r} was already transmitted on this channel with an identical payload (duplicate delivery); the first delivery is kept", **ids)]
-        return [IntegrityFinding(code="INT-HANDOFF-015", severity="error", message=f"report id {report.report_id!r} reused with a DIFFERENT payload: a report of agent {held.agent_id!r} was already transmitted under this id; the first delivery is kept and this transmission is not delivered (a revised report needs a new report id)", **ids)]
+            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message=f"report {report.report_id!r} was already transmitted on this channel with identical content (duplicate delivery; only the timestamp differs); the first delivery is kept", **ids)]
+        changed = sorted(k for k in held_content.keys() | new_content.keys() if held_content.get(k) != new_content.get(k))
+        return [IntegrityFinding(code="INT-HANDOFF-015", severity="error", message=f"report id {report.report_id!r} reused with a DIFFERENT payload ({changed} differ): a report of agent {held.agent_id!r} was already transmitted under this id; the first delivery is kept and this transmission is not delivered (a revised report needs a new report id)", **ids)]
 
-    def _branch_checks(self, report: SpecialistReport, req: Optional[TaskRequest], findings: list[IntegrityFinding], covered: frozenset[str] = frozenset()) -> tuple[list[StructuralFinding], list[ConstraintResult], list[str]]:
+    def _branch_checks(self, report: SpecialistReport, req: Optional[TaskRequest], findings: list[IntegrityFinding], covered: frozenset[str] = frozenset(), form_covered: frozenset[str] = frozenset()) -> tuple[list[StructuralFinding], list[ConstraintResult], list[str]]:
         """Run the branch's integrity packs. ``covered`` names the claims whose excerpt the
         channel already reported (INT-REQ-003 not found, INT-REQ-010 form differs): the
         packs' own grounding errors for those claims are kept out of the receipt's structural
-        findings and not escalated again, so one excerpt yields one finding with one severity."""
+        findings and not escalated again, so one excerpt yields one finding with one severity.
+        ``form_covered`` (the INT-REQ-010 subset) also removes every branch ``-SRC-001`` error
+        for those claims from the receipt: the hub has said the words occur, so no pack may
+        call the same excerpt an invented quotation on the same receipt."""
         branch, _profile = self._branch_for(report.agent_id)
         structural, formal = branch.run_packs(report, req.user_input if req else None)
         if covered:
             structural = [sf for sf in structural if not (sf.code == "CORE-SRC-001" and sf.claim_ids and set(sf.claim_ids) <= covered)]
+        if form_covered:
+            structural = [sf for sf in structural if not (sf.code.endswith("-SRC-001") and sf.severity == "error" and sf.claim_ids and set(sf.claim_ids) <= form_covered)]
         results: list[ConstraintResult] = []
         ids: list[str] = []
         for fc in formal:
@@ -337,7 +395,7 @@ class TranslatorChannel:
         if req is None:
             findings.append(IntegrityFinding(code="INT-REQ-000", severity="error", message="response does not reply to any accepted request on this channel", message_ids=[msg.message_id, request_message_id]))
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
-        if any(f.code == "INT-REQ-009" for f in findings):
+        if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):  # the payload does not re-validate or carries another report's claims
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         if sender != req.to_agent_id:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {sender} but the request was addressed to {req.to_agent_id}", agent_ids=sorted({sender, req.to_agent_id}), message_ids=[msg.message_id]))
@@ -350,11 +408,13 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {sorted(report_docs - req_docs)}", document_ids=sorted(report_docs - req_docs)))
         if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
-        covered, source_findings = self._source_findings(report, supplied)
+        covered, form_covered, source_findings = self._source_findings(report, supplied)
         findings += source_findings
-        echo = self._request_echo(req, report)
+        findings += self._fold_findings(report, supplied)
+        echo = self._request_echo(req, report, supplied)
         if echo is not None:
             findings.append(echo)
+        findings += self._no_answer(report)
         coverage = self._coverage(req, report, echoed=echo is not None)
         for cov in coverage:
             if not cov.addressed:
@@ -368,7 +428,7 @@ class TranslatorChannel:
             if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._constraints(req, report)
-        structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered))
+        structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
         findings = self._name_branch_rules(findings, structural)
         formal_ids = list(formal_ids) + branch_ids
         kinds = {c.constraint_id: c.kind for c in req.constraints}
@@ -381,7 +441,9 @@ class TranslatorChannel:
                                                  message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}" + (" (blank-line blocks; a paragraph set out in blocks counts as several)" if layout else ""),
                                                  formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
         self._supersession(report, findings)
-        outcomes = self._verify_claims(report, findings)
+        # An echo of the request answers nothing: its outcomes are delivered for the record but never pooled, so its
+        # formalizations cannot displace the agent's genuine claims under the same ids.
+        outcomes = self._verify_claims(report, findings, pool=echo is None)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
@@ -410,7 +472,7 @@ class TranslatorChannel:
         bk = self._branch_for(payload_obj.agent_id)[0].key if isinstance(payload_obj, SpecialistReport) else self.branch.key
         if isinstance(payload_obj, SpecialistReport):
             findings += self._revalidate(payload_obj, payload)
-            if any(f.code == "INT-REQ-009" for f in findings):
+            if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
             if forward:
                 # The router may only pass on a report exactly as it was delivered on this channel: same report id,
@@ -433,6 +495,7 @@ class TranslatorChannel:
             findings += self._report_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+            findings += self._fold_findings(payload_obj, payload_obj.supplied_texts)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
             self._supersession(payload_obj, findings)
             outcomes = self._verify_claims(payload_obj, findings)
@@ -583,17 +646,18 @@ class TranslatorChannel:
         self._seen_payloads[key] = msg.message_id
         return []
 
-    def _source_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> tuple[set[str], list[IntegrityFinding]]:
+    def _source_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> tuple[set[str], set[str], list[IntegrityFinding]]:
         """Every source reference of every claim against the supplied texts. An excerpt the
         cited document does not contain is INT-REQ-003 (error): the message says it was not
         found in the supplied texts, naming them, or where else it occurs (misattribution),
         rather than calling one document the cited one. An excerpt whose words occur but whose
         form differs (initial capital, verse line-break mark, long elision) is INT-REQ-010
-        (warning): not an invented quotation. Returns the claims so covered and the findings."""
-        from ..translate.grounding import locate_quotation
+        (warning): not an invented quotation. Returns the claims so covered, the subset covered
+        only by a form-difference warning, and the findings."""
         doc_ids = sorted(t.document_id for t in supplied)
         by_id = {t.document_id: t for t in supplied}
         covered: set[str] = set()
+        not_found: set[str] = set()
         out: list[IntegrityFinding] = []
         for c in report.claims:
             checks = check_claim_sources(c, supplied)
@@ -617,15 +681,62 @@ class TranslatorChannel:
                     else:
                         out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} was not found in the supplied texts {doc_ids}", **ids))
                 covered.add(c.claim_id)
-        return covered, out
+                if out[-1].code == "INT-REQ-003":
+                    not_found.add(c.claim_id)
+        return covered, covered - not_found, out
+
+    def _fold_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
+        """INT-REQ-013 (warning): the branch adapter folded the claims beyond the contract limit into one tail claim
+        (its ``unresolved_issues`` say so), so those sentences were neither roled nor checked individually. The finding
+        names how many claims and how many quotations went unchecked, and which of those quotations occur in no
+        supplied text, so an invented quotation placed after the limit does not cross the hub silently. The quotations
+        are read from the original response (the tail claim's text is cut to the contract length): every quoted span
+        that no claim before the tail carries is an unchecked quotation."""
+        from ..adapters.markdown import find_quotation_spans
+        out: list[IntegrityFinding] = []
+        for issue in report.unresolved_issues:
+            m = _FOLDED_TAIL_RE.search(issue)
+            if m is None:
+                continue
+            tail_id = m.group("tail")
+            head_text = " ".join(c.claim_text for c in report.claims if c.claim_id != tail_id)
+            cited = {(ref.excerpt or "").strip() for c in report.claims if c.claim_id != tail_id for ref in c.source_refs}
+            quotes = _dedupe_ids(inner.strip() for _s, _e, inner in find_quotation_spans(report.original_response)
+                                 if inner.strip() and inner.strip() not in head_text and inner.strip() not in cited)
+            unlocated = [q for q in quotes if not any(_located(q, t.text) for t in supplied)] if supplied else list(quotes)
+            where = "in no supplied text" if supplied else "against no text (none was supplied)"
+            detail = f"; {len(quotes)} quotation(s) in the merged text were not checked" + (f", of which {len(unlocated)} occur {where}: {[q[:60] for q in unlocated[:_MAX_NAMED]]}" if unlocated else (f" (all {len(quotes)} occur in a supplied text)" if quotes else ""))
+            out.append(IntegrityFinding(code="INT-REQ-013", severity="warning",
+                                        message=f"the branch adapter merged {m.group('n')} claims beyond the claim limit ({m.group('limit')}) into claim {tail_id!r} without roling or checking them individually{detail}; the router must not treat the merged sentences as checked",
+                                        claim_ids=[tail_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=sorted(t.document_id for t in supplied)))
+        return out
 
     @staticmethod
-    def _request_echo(req: TaskRequest, report: SpecialistReport) -> Optional[IntegrityFinding]:
-        """A response that restates the request instead of answering it (INT-REQ-011): its
-        normalised text is contained in the request's, or at least 90% of its distinct
-        tokens occur in the request and it is no longer than 1.2 times the request."""
-        resp_tokens = _tokens(report.original_response)
-        ask_tokens = _tokens(req.user_input)
+    def _no_answer(report: SpecialistReport) -> list[IntegrityFinding]:
+        """INT-REQ-012 (error): the response carries no material claim (every claim is a note, a label or a self-report)
+        or its answer proper has no words, so it addresses no request item whatever words its notes share with them."""
+        material = _material_claims(report)
+        answer_words, note_words = count_answer_words(report.original_response)
+        if material and answer_words > 0:
+            return []
+        why = []
+        if not material:
+            why.append(f"none of its {len(report.claims)} claim(s) is material (every claim is roled 'other': a note, a label or a self-report)" if report.claims else "it carries no claim")
+        if answer_words == 0:
+            why.append(f"its answer proper has 0 words ({note_words} words of note or meta-text blocks)")
+        return [IntegrityFinding(code="INT-REQ-012", severity="error", message="the response carries no answer: " + " and ".join(why) + "; no request item counts as addressed",
+                                 claim_ids=[c.claim_id for c in report.claims], report_ids=[report.report_id], agent_ids=[report.agent_id])]
+
+    @staticmethod
+    def _request_echo(req: TaskRequest, report: SpecialistReport, supplied: list[SuppliedText] = ()) -> Optional[IntegrityFinding]:
+        """A response that restates the request instead of answering it (INT-REQ-011). Words are compared on light
+        stems (``-s``, ``-es``, ``-ed``, ``-ing`` stripped), so an inflected restatement is still a restatement: its
+        stemmed text is contained in the request's, or at least 90% of its distinct stems occur in the request and it
+        is no longer than 1.2 times the request, or at least 75% do and it quotes the request's own words as if they
+        were the text's (a quotation whose words all occur in the request but in no supplied text)."""
+        from ..adapters.markdown import find_quotation_spans
+        resp_tokens = [light_stem(t) for t in _tokens(report.original_response)]
+        ask_tokens = [light_stem(t) for t in _tokens(req.user_input)]
         if not resp_tokens or not ask_tokens:
             return None
         resp, ask = " ".join(resp_tokens), " ".join(ask_tokens)
@@ -634,9 +745,16 @@ class TranslatorChannel:
             how = "its normalised text is the request's own text" if resp == ask else "its normalised text is contained in the request"
         elif len(resp_tokens) <= _ECHO_LENGTH_RATIO * len(ask_tokens):
             distinct = set(resp_tokens)
-            overlap = len(distinct & set(ask_tokens)) / len(distinct)
+            ask_set = set(ask_tokens)
+            overlap = len(distinct & ask_set) / len(distinct)
             if overlap >= _ECHO_OVERLAP:
-                how = f"{overlap:.0%} of its distinct words occur in the request and it is no longer than {_ECHO_LENGTH_RATIO}x the request"
+                how = f"{overlap:.0%} of its distinct words (light stems) occur in the request and it is no longer than {_ECHO_LENGTH_RATIO}x the request"
+            elif overlap >= _ECHO_OVERLAP_QUOTED:
+                echoed_quotes = [inner for _s, _e, inner in find_quotation_spans(report.original_response)
+                                 if _tokens(inner) and set(light_stem(t) for t in _tokens(inner)) <= ask_set and not any(_located(inner, t.text) for t in supplied)]
+                if echoed_quotes:
+                    how = (f"{overlap:.0%} of its distinct words (light stems) occur in the request, it is no longer than {_ECHO_LENGTH_RATIO}x the request, and it quotes "
+                           f"the request's own words as if they were the text's ({[q[:60] for q in echoed_quotes[:_MAX_NAMED]]} occur in the request and in no supplied text)")
         if how is None:
             return None
         return IntegrityFinding(code="INT-REQ-011", severity="error", message=f"the response restates the request instead of answering it ({how}); no request item counts as addressed", claim_ids=[c.claim_id for c in report.claims], report_ids=[report.report_id], agent_ids=[report.agent_id])
@@ -648,7 +766,7 @@ class TranslatorChannel:
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
             it = _terms(item.text)
-            hits = [c.claim_id for c in report.claims if it and len(it & _terms(c.claim_text)) >= max(1, min(2, len(it) // 3))]
+            hits = [c.claim_id for c in _material_claims(report) if it and len(it & _terms(c.claim_text)) >= max(1, min(2, len(it) // 3))]  # a note never addresses an item
             out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits) or not it, addressed_by_claim_ids=hits, method="lexical_heuristic"))
         return out
 
@@ -687,32 +805,59 @@ class TranslatorChannel:
         return verify(problem, self.config, signing_key=self.key, key_id=self.key_id)
 
     def _supersession(self, report: SpecialistReport, findings: list[IntegrityFinding]) -> None:
-        """An agent that re-states claim ids it already transmitted on this task
-        supersedes its earlier statements: the router is told (INT-HANDOFF-009), the
-        earlier formalizations of those claims leave the cross-agent pool, so a later
-        report is cross-checked only on what it formalizes now, and every copy of the
-        superseded report still in circulation is named (INT-HANDOFF-014): the router's
-        forwards of it and the reports that quote it as a peer document, whose excerpts
-        are re-checked against the current text."""
-        incoming = {c.claim_id for c in report.claims}
-        earlier = sorted({r.report_id for r in self.transmitted_reports.values()
-                          if r.agent_id == report.agent_id and r.report_id != report.report_id and incoming & {c.claim_id for c in r.claims}})
+        """An agent that re-states claims it already transmitted on this task supersedes its
+        earlier statements: the router is told (INT-HANDOFF-009), the earlier formalizations of
+        those claims leave the cross-agent pool, so a later report is cross-checked only on what
+        it formalizes now, and every copy of the superseded report still in circulation is named
+        (INT-HANDOFF-014): the router's forwards of it and the reports that quote it as a peer
+        document, whose excerpts are re-checked against the current text.
+
+        Overlap is decided on content, not on positional ids alone: a claim is re-stated when its
+        text equals an earlier claim's (under the same or another id) and revised when it keeps an
+        earlier id with another text. A response that restates the request (INT-REQ-011) or
+        carries no material claim (INT-REQ-012) answers nothing and never supersedes a report."""
+        if any(f.code in ("INT-REQ-011", "INT-REQ-012") for f in findings) or not _material_claims(report):
+            return
+        incoming = {c.claim_id: _norm_text(c.claim_text) for c in report.claims}
+        restated: set[str] = set()
+        revised: set[str] = set()
+        earlier: list[str] = []
+        for r in self.transmitted_reports.values():
+            if r.agent_id != report.agent_id or r.report_id == report.report_id:
+                continue
+            old = {c.claim_id: _norm_text(c.claim_text) for c in r.claims}
+            old_texts = set(old.values())
+            same_text = {cid for cid, text in incoming.items() if text in old_texts}
+            same_id = {cid for cid in incoming if cid in old and incoming[cid] != old[cid]}
+            if same_text or same_id:
+                earlier.append(r.report_id)
+                restated |= same_text
+                revised |= same_id
+        earlier = sorted(earlier)
         stale = sorted(cid for cid in incoming if cid in self.formalized_by and self.formalized_by[cid][0] == report.agent_id and self.formalized_by[cid][1] != report.report_id)
         if earlier:
-            overlap = sorted(incoming & {c.claim_id for r in self.transmitted_reports.values() if r.report_id in earlier for c in r.claims})
+            overlap = sorted(restated | revised)
+            what = []
+            if restated:
+                what.append(f"re-stating claims {sorted(restated)[:8]} (same text)")
+            if revised:
+                what.append(f"revising claims {sorted(revised)[:8]} (same id, changed text)")
             findings.append(IntegrityFinding(code="INT-HANDOFF-009", severity="warning",
-                                             message=f"agent {report.agent_id} delivered a further report for this task re-stating claims {overlap[:8]} of its earlier report(s) {earlier}; the later report supersedes them and their earlier formalizations leave the cross-agent pool",
+                                             message=f"agent {report.agent_id} delivered a further report for this task {' and '.join(what)} of its earlier report(s) {earlier}; the later report supersedes them and their earlier formalizations leave the cross-agent pool",
                                              agent_ids=[report.agent_id], report_ids=[report.report_id] + earlier, claim_ids=overlap))
-            for old in earlier:
-                self.superseded[old] = report.report_id
-                findings.extend(self._in_circulation(self.transmitted_reports[old], report))
+            for old_id in earlier:
+                self.superseded[old_id] = report.report_id
+                findings.extend(self._in_circulation(self.transmitted_reports[old_id], report))
         for cid in stale:
             self.formalized.pop(cid, None)
             self.formalized_by.pop(cid, None)
             self.ambiguous_pooled.discard(cid)
 
     def _in_circulation(self, old: SpecialistReport, new: SpecialistReport) -> list[IntegrityFinding]:
-        """INT-HANDOFF-014 for a superseded report that was forwarded or is quoted as a peer document."""
+        """INT-HANDOFF-014 for a superseded report that was forwarded or is quoted as a peer document.
+        Each excerpt a quoting report cites from it is re-checked: one located in the superseded text
+        but not in the current one "no longer occurs"; one located in neither "was never located".
+        Identifier lists are deduplicated (several reports of one quoting agent may cite the same claim ids)."""
         forwards = self.forwards.get(old.report_id, [])
         quoting: list[tuple[SpecialistReport, list[str]]] = []
         for r in self.transmitted_reports.values():
@@ -723,23 +868,33 @@ class TranslatorChannel:
                 quoting.append((r, docs))
         if not forwards and not quoting:
             return []
-        stale_claims: list[str] = []
+        gone: list[str] = []
+        never: list[str] = []
         for r, docs in quoting:
-            current = [SuppliedText(document_id=d, text=new.original_response) for d in docs]
             for c in r.claims:
-                if not any(ref.document_id in docs for ref in c.source_refs):
+                refs = [ref for ref in c.source_refs if ref.document_id in docs and (ref.excerpt or "").strip()]
+                if not refs:
                     continue
-                if any(g.verified is False for g in check_claim_sources(c, current) if g.document_id in docs):
-                    stale_claims.append(c.claim_id)
+                for ref in refs:
+                    in_new = _located(ref.excerpt or "", new.original_response)
+                    if in_new:
+                        continue
+                    (gone if _located(ref.excerpt or "", old.original_response) else never).append(c.claim_id)
+        gone, never = _dedupe_ids(gone), [cid for cid in _dedupe_ids(never) if cid not in gone]
         parts = [f"report {old.report_id!r} of agent {old.agent_id!r} is superseded by {new.report_id!r} but remains in circulation"]
         if forwards:
-            parts.append(f"forwarded by the router to {sorted({a for a, _ in forwards})} (messages {[m for _, m in forwards]})")
+            parts.append(f"forwarded by the router to {sorted({a for a, _ in forwards})} (messages {_dedupe_ids(m for _, m in forwards)})")
         if quoting:
-            parts.append(f"supplied as document(s) {sorted({d for _, ds in quoting for d in ds})} to report(s) {[r.report_id for r, _ in quoting]}")
-            parts.append(f"excerpts cited by claims {stale_claims} no longer occur in the current report" if stale_claims else "every excerpt those reports cite still occurs in the current report")
-        return [IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message="; ".join(parts), claim_ids=stale_claims,
-                                 report_ids=[old.report_id, new.report_id] + [r.report_id for r, _ in quoting], agent_ids=sorted({old.agent_id} | {a for a, _ in forwards} | {r.agent_id for r, _ in quoting}),
-                                 message_ids=[m for _, m in forwards], document_ids=sorted({d for _, ds in quoting for d in ds}))]
+            parts.append(f"supplied as document(s) {sorted({d for _, ds in quoting for d in ds})} to report(s) {_dedupe_ids(r.report_id for r, _ in quoting)}")
+            if gone:
+                parts.append(f"excerpts cited by claims {gone} occurred in the superseded report and no longer occur in the current report")
+            if never:
+                parts.append(f"excerpts cited by claims {never} were never located in the superseded report either (not a consequence of the supersession)")
+            if not gone and not never:
+                parts.append("every excerpt those reports cite still occurs in the current report")
+        return [IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message="; ".join(parts), claim_ids=gone + never,
+                                 report_ids=_dedupe_ids([old.report_id, new.report_id] + [r.report_id for r, _ in quoting]), agent_ids=sorted({old.agent_id} | {a for a, _ in forwards} | {r.agent_id for r, _ in quoting}),
+                                 message_ids=_dedupe_ids(m for _, m in forwards), document_ids=sorted({d for _, ds in quoting for d in ds}))]
 
     def _with_report_ids(self, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
         """Cross-agent findings name the reports whose formalizations they concern, and say
@@ -775,7 +930,9 @@ class TranslatorChannel:
             return None
         return IntegrityFinding(code="INT-STALE-011", severity="error", message=f"translation outcome for claim {claim.claim_id} does not bind to the claim as transmitted ({'; '.join(why)}); it is stale and is neither delivered nor pooled", claim_ids=[claim.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id])
 
-    def _verify_claims(self, report: SpecialistReport, findings: list[IntegrityFinding]) -> list[ClaimVerificationOutcome]:
+    def _verify_claims(self, report: SpecialistReport, findings: list[IntegrityFinding], *, pool: bool = True) -> list[ClaimVerificationOutcome]:
+        """Verify every claim through the injected translator; with ``pool`` the formalizations join the cross-agent
+        pool (an echo of the request is verified for the record but never pooled)."""
         outcomes: list[ClaimVerificationOutcome] = []
         if self.verify_claim_fn is None:
             return outcomes
@@ -793,7 +950,7 @@ class TranslatorChannel:
                 findings.append(stale)
                 continue
             outcomes.append(out)
-            if out.translation.problem is not None:
+            if out.translation.problem is not None and pool:
                 self.formalized[c.claim_id] = out.translation.problem
                 self.formalized_by[c.claim_id] = (report.agent_id, report.report_id)
                 if out.translation.status is TranslationStatus.AMBIGUOUS_TRANSLATION:

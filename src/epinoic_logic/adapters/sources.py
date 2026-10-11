@@ -16,6 +16,12 @@ that nothing is silently accepted and nothing legitimate is called invented:
                     adjustment: the initial capital (a sentence opening quoted
                     mid-sentence) or an omitted verse line-break mark. Reported with
                     the difference named, never as an invented quotation.
+* ``found_long_elision`` an excerpt with an ellipsis whose fragments all occur in order
+                    but span more than the elision window (``ELISION_WINDOW_CHARS``)
+                    beyond the quoted words: the words occur, so this is a long
+                    elision, a form difference to report as a warning (the detail names
+                    the omitted span), never an invented quotation. The channel reports
+                    the same excerpt as INT-REQ-010.
 * ``found_joined``  every multi-word fragment occurs, in order, each within a short
                     gap of the next, but the text as quoted does not: the quotation
                     joins spans without marking the omission (``"We killed him
@@ -37,17 +43,17 @@ from dataclasses import dataclass
 from typing import Literal, Mapping, Optional
 
 from ..translate.contracts import SuppliedText
-from ..translate.grounding import locate_quotation, locate_quotation_inexact, normalize_quote
+from ..translate.grounding import locate_long_elision, locate_quotation, locate_quotation_inexact, normalize_quote
 
 __all__ = [
     "ExcerptCheck", "ExcerptStatus", "FOUND_STATUSES", "check_excerpt", "strip_trailing_punctuation", "word_count",
     "JOIN_GAP_CHARS",
 ]
 
-ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_joined", "not_found", "no_document", "no_texts", "empty"]
+ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
 
 #: Statuses under which the quoted words were located in the document (in some form).
-FOUND_STATUSES: frozenset[str] = frozenset({"found", "found_elided", "found_inexact", "found_joined"})
+FOUND_STATUSES: frozenset[str] = frozenset({"found", "found_elided", "found_inexact", "found_long_elision", "found_joined"})
 
 _TRAILING_PUNCT = ".,;:!?"
 _FRAGMENT_SPLIT_RE = re.compile(r"[,;:.!?]+")
@@ -145,6 +151,14 @@ def check_excerpt(excerpt: Optional[str], document_id: Optional[str], docs: Mapp
         near, difference = inexact
         return ExcerptCheck(
             "found_inexact", document_id,
+            f"the words occur in the document (characters {near.start}-{near.end}) but the quotation {difference}",
+            cleaned,
+        )
+    far = locate_long_elision(cleaned, doc.text)
+    if far is not None:
+        near, difference = far
+        return ExcerptCheck(
+            "found_long_elision", document_id,
             f"the words occur in the document (characters {near.start}-{near.end}) but the quotation {difference}",
             cleaned,
         )

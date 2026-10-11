@@ -314,15 +314,24 @@ def test_generic_parser_treats_single_quotes_guillemets_and_mixed_marks_as_quota
 
 
 def test_generic_parser_makes_a_paragraph_with_a_self_certifying_sentence_a_note_paragraph():
+    """Round 2 demoted the whole paragraph; round 3 (results-audit: one sentence could evade the
+    verification of a whole paragraph) demotes only the self-certifying sentence and names it,
+    while a paragraph that is nothing but notes is still a note paragraph as a whole."""
     text = ("Demand fell sharply. Prices rose by 20 per cent in 1930. All of the above has been cross-checked against the standard references and is correct.\n\n"
             "A second paragraph makes a point. It rests on 1931 figures.")
     rep = GenericTextParser("economics-specialist").parse_response(text, request_id="r", task_id="t", report_id="rep", subject="Economics", task_type="short_answer")
     first = [c for c in rep.claims if c.claim_id.startswith("g1.")]
-    assert first and all(c.claim_role == "other" and c.materiality == "supporting" for c in first)
-    assert next(c for c in first if c.claim_text.startswith("All of the above")).advisory_verification_status
-    assert any("paragraph 1" in u and "note" in u for u in rep.unresolved_issues)
+    cert = next(c for c in first if c.claim_text.startswith("All of the above"))
+    assert cert.claim_role == "other" and cert.materiality == "supporting" and cert.advisory_verification_status
+    assert first[0].claim_role == "point" and first[0].materiality == "material" and cert.claim_id not in first[0].supporting_claim_ids
+    assert any("paragraph 1" in u and "verification-status language" in u and "All of the above" in u for u in rep.unresolved_issues)
     second = [c for c in rep.claims if c.claim_id.startswith("g2.")]
     assert second[0].claim_role == "point" and second[0].materiality == "material"
+    only_notes = GenericTextParser("economics-specialist").parse_response(
+        "All of the above has been cross-checked against the standard references and is correct. Dates and figures are from memory; verify them.",
+        request_id="r", task_id="t", report_id="rep2", subject="Economics", task_type="short_answer")
+    assert all(c.claim_role == "other" and c.materiality == "supporting" for c in only_notes.claims)
+    assert any("paragraph 1" in u and "whole paragraph" in u for u in only_notes.unresolved_issues)
 
 
 # ------------------------------------------------------------ results-audit #10: the length rule yields to a word count in the request

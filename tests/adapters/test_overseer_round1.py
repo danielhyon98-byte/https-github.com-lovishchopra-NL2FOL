@@ -249,7 +249,9 @@ def test_elided_quotation_is_reported_as_information_and_far_apart_fragments_are
     near = check_excerpt("They burst panting ... Father Amador's desk", "ex1", docs)
     assert near.status == "found_elided" and "span" in near.detail
     far = check_excerpt("The lawyer ... to blame", "ex1", docs)
-    assert far.status == "not_found"
+    # round 3: fragments that all occur in order but span more than the elision window are a long elision, a
+    # form difference reported as a warning (INT-REQ-010 / ES-SRC-006), never an exact match and never 'invented'
+    assert far.status == "found_long_elision" and not far.ok and "long elision" in far.detail
     report = parse_ex1('The surrender is frantic: "They burst panting ... Father Amador\'s desk" indeed.')
     found = {f.code: f for f in ADAPTER.structural_checks(report)}
     assert "ES-SRC-007" in found and found["ES-SRC-007"].severity == "info" and "ES-SRC-001" not in found

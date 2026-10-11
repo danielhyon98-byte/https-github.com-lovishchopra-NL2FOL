@@ -13,12 +13,22 @@ helpers so that
 * a newline followed by a list marker ends a sentence, so a numbered item never
   becomes the paragraph's "point" and a bullet never glues onto its neighbour;
 * a note sentence (from-memory label, self-certification) is recognised by every
-  parser the same way, roled ``other`` and kept out of the material claims;
+  parser the same way, roled ``other`` and kept out of the material claims; a
+  substantive sentence that only carries the label inline (a parenthetical, a
+  clause after a semicolon or dash, a sentence-initial "From memory," or a
+  comma-bounded ", from memory") keeps its substance (:func:`split_note_clauses`);
+* a pasted JSON span (a receipt, a payload) is found wherever it stands, glued to
+  prose included (:func:`find_json_spans`), so its strings are never read as
+  quotations and the prose around it is segmented as prose;
 * quotation marks are paired the same way everywhere: curly, straight, guillemet
   and low-9 double marks are one class (so a quotation opened with one kind and
-  closed with another is still a quotation), single marks around two or more
-  words are quotations, and a paragraph whose double marks cannot be paired
-  names the one mark that dangles so the spans around it are not mis-paired;
+  closed with another is still a quotation), two adjacent double marks that
+  together open or close a quotation (dialogue copied with its own marks inside the
+  writer's) are one nested mark, single marks around two or more words are
+  quotations, and a paragraph whose double marks cannot be paired names the one
+  mark that dangles so the spans around it are not mis-paired, while a pair whose
+  marks contradict their context in such a paragraph is set aside as undelimited
+  rather than delivered as a quotation (:func:`undelimited_quote_spans`);
 * a claim's text never exceeds the contract limit.
 
 Everything here is deterministic text handling; no finding is decided here.
@@ -35,7 +45,8 @@ __all__ = [
     "DOUBLE_QUOTE_SPAN_RE", "SINGLE_QUOTE_SPAN_RE",
     "strip_markup", "strip_json_blocks", "split_list_items", "truncate_claim_text", "is_memory_label", "is_self_certification",
     "is_note_sentence", "is_task_note", "split_note_clauses", "unbalanced_double_quotes", "normalize_double_marks",
-    "dangling_quote_offset", "undelimited_quote_span", "find_quotation_spans", "is_json_block", "is_json_shaped",
+    "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
+    "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
 ]
 
 BOM = "\ufeff"
@@ -238,20 +249,156 @@ def is_json_block(block: str) -> bool:
     return bool(JSON_KEY_RE.search(s))
 
 
+# ------------------------------------------------------------------ pasted JSON spans
+
+_MAX_JSON_SPAN_CHARS = 60_000
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
+
+
+def _balanced_json_end(text: str, start: int) -> int:
+    """Index just past the bracket that closes the one at ``start``, or ``-1`` when the span
+    does not close before a blank line, the end of ``text`` or the size cap. Straight
+    double-quoted strings (with backslash escapes) are skipped so brackets inside them do
+    not count; a string that runs over a line break is not JSON."""
+    depth = 0
+    i = start
+    n = min(len(text), start + _MAX_JSON_SPAN_CHARS)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            elif ch == "\n":
+                return -1
+        elif ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+            if depth < 0:
+                return -1
+        elif ch == "\n" and _BLANK_LINE_RE.match(text, i):
+            return -1
+        i += 1
+    return -1
+
+
+def _is_json_span(span: str) -> bool:
+    """A pasted JSON span: parses as an object (or an array holding an object), or opens on a
+    quoted key and carries a JSON key-value pair. A bracketed list of words or figures in
+    prose (``[1, 2]``, ``[sic]``) is not one."""
+    s = span.strip()
+    if len(s) < 4 or s[0] not in "{[" or s[-1] not in "}]":
+        return False
+    try:
+        parsed = json.loads(s)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return True
+    if isinstance(parsed, list):
+        return any(isinstance(item, dict) for item in parsed)
+    return s[1:].lstrip()[:1] == '"' and bool(JSON_KEY_RE.search(s))
+
+
+def find_json_spans(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of every pasted JSON span of ``text``, in order.
+
+    A span opens with ``{`` or ``[``, closes with the matching bracket without crossing a
+    blank line, and is JSON by :func:`_is_json_span`. Spans are found wherever they stand,
+    glued to prose included; the brackets inside a span belong to it. Parsers cut
+    sentences at these spans and mask them before reading quotation marks, so a pasted
+    receipt's strings are never quotations and the prose around it is segmented as prose.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] in "{[":
+            end = _balanced_json_end(text, i)
+            if end > i and _is_json_span(text[i:end]):
+                spans.append((i, end))
+                i = end
+                continue
+        i += 1
+    return spans
+
+
+def mask_json_spans(text: str, fill: str = " ") -> str:
+    """``text`` with every pasted JSON span replaced by ``fill`` character for character
+    (line breaks kept), so offsets into the result are offsets into ``text``."""
+    spans = find_json_spans(text)
+    if not spans:
+        return text
+    out = list(text)
+    for a, b in spans:
+        for i in range(a, b):
+            if out[i] != "\n":
+                out[i] = fill
+    return "".join(out)
+
+
+def split_json_spans(text: str) -> list[tuple[str, bool]]:
+    """``text`` cut into ``(piece, is_json)`` pieces in order: every pasted JSON span is one
+    piece flagged ``True``, the prose between spans is flagged ``False``; blank pieces are
+    dropped. The pieces are the writer's text, verbatim apart from surrounding whitespace."""
+    pieces: list[tuple[str, bool]] = []
+    cursor = 0
+    for a, b in find_json_spans(text):
+        prose = text[cursor:a].strip()
+        if prose:
+            pieces.append((prose, False))
+        pieces.append((text[a:b].strip(), True))
+        cursor = b
+    tail = text[cursor:].strip()
+    if tail:
+        pieces.append((tail, False))
+    return pieces
+
+
+# ------------------------------------------------------------------ note clauses
+
 #: A parenthetical or a clause after a semicolon/dash that can carry a note inside a longer sentence.
 _CLAUSE_RE = re.compile(r"\s*\([^()]*\)|\s*[;—–]\s*[^;—–()]+")
+#: A sentence-initial label ("From memory, the mark stood at ...", "Quoting from memory, the king boasts ..."): the
+#: words up to the comma or colon.
+LEADING_MEMORY_LABEL_RE = re.compile(r"^\s*(?:\w+ing\s+)?(?:from (?:memory|recollection)|as (?:I|far as I) recall|if memory serves)\s*[,:]\s*", re.IGNORECASE)
+#: A comma-bounded label inside a sentence (", from memory about 800 million gold marks," or ", from memory,"):
+#: only the label words are removed, so the figure that follows stays in the substance.
+INLINE_MEMORY_LABEL_RE = re.compile(r",\s*(?:from (?:memory|recollection)|as (?:I|far as I) recall|if memory serves)\b(?=[\s,.;:])", re.IGNORECASE)
+
+
+def _dedupe(notes: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in notes:
+        key = n.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(n)
+    return out
 
 
 def split_note_clauses(sentence: str) -> tuple[str, list[str]]:
     """Separate the note clauses of a sentence from its substance.
 
     A substantive sentence may carry the method's own label inline, as a parenthetical
-    ("(figures from memory; check your notes)") or a clause after a semicolon or dash
-    ("...; dates other than the poem's own are from memory"). Returns ``(core, notes)``:
-    ``core`` is the sentence with those clauses removed (whitespace tidied) and ``notes``
-    the removed clauses in order. A sentence that is nothing but a note returns an empty
-    core. Parsers keep the verbatim sentence as the claim text, classify ``core`` and
-    record ``notes`` as assumptions; only an empty core makes the sentence a note.
+    ("(figures from memory; check your notes)"), a clause after a semicolon or dash
+    ("...; dates other than the poem's own are from memory"), a sentence-initial label
+    ("From memory, the mark stood at about 4.2 to the dollar ...") or a comma-bounded label
+    ("the Dawes loan was, from memory about 800 million gold marks, the first ...": only the
+    label words go, the figure stays). Returns ``(core, notes)``: ``core`` is the sentence
+    with those clauses removed (whitespace tidied) and ``notes`` the removed labels in order,
+    each distinct label once. A sentence that is nothing but a note returns an empty core.
+    Parsers keep the verbatim sentence as the claim text, classify ``core`` and record
+    ``notes`` as assumptions; only an empty core makes the sentence a note.
     """
     notes: list[str] = []
     def take(m: "re.Match[str]") -> str:
@@ -261,12 +408,21 @@ def split_note_clauses(sentence: str) -> tuple[str, list[str]]:
             return ""
         return clause
     core = _CLAUSE_RE.sub(take, sentence)
+    lead = LEADING_MEMORY_LABEL_RE.match(core)
+    if lead is not None:
+        notes.append(lead.group(0).strip(" ,:\t\n"))
+        core = core[lead.end():]
+    def take_inline(m: "re.Match[str]") -> str:
+        notes.append(m.group(0).strip(" ,"))
+        return ","
+    core = INLINE_MEMORY_LABEL_RE.sub(take_inline, core)
+    core = re.sub(r",(?:\s*,)+", ",", core)
     core = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"\s{2,}", " ", core)).strip()
     if core and is_note_sentence(core):  # what remains is itself a label: the whole sentence is a note
         return "", [sentence.strip()]
     if core and not re.search(r"[^\W\d_]", core):
         core = ""
-    return core, notes
+    return core, _dedupe(notes)
 
 
 # ------------------------------------------------------------------ quotation marks
@@ -302,23 +458,59 @@ def _mark_kind(text: str, pos: int) -> str:
     return "either"
 
 
-def dangling_quote_offset(text: str) -> Optional[int]:
-    """Offset of the double quotation mark of ``text`` that cannot be paired, or ``None``.
+def _unit_kind(text: str, p: int, q: int) -> Optional[str]:
+    """``open`` or ``close`` when the two adjacent double marks at ``p`` and ``q`` (= p + 1)
+    together open or close one nested quotation (dialogue copied with its own marks inside
+    the writer's: ``""My dear Mr. Bennet," said his lady``, ``... at last?""``), else ``None``
+    when they are two marks in their own right (an empty quotation, a mark closing one span
+    and opening the next). Directional glyphs decide when both point the same way; straight
+    marks decide by the pair's outer neighbours as a single mark would."""
+    first, second = text[p], text[q]
+    if first in _OPENING_GLYPHS and second in _OPENING_GLYPHS:
+        return "open"
+    if first in _CLOSING_GLYPHS and second in _CLOSING_GLYPHS:
+        return "close"
+    glyph_opens = first in _OPENING_GLYPHS or second in _OPENING_GLYPHS
+    glyph_closes = first in _CLOSING_GLYPHS or second in _CLOSING_GLYPHS
+    if glyph_opens and glyph_closes:
+        return None
+    before = text[p - 1] if p > 0 else " "
+    after = text[q + 1] if q + 1 < len(text) else " "
+    opens = (before.isspace() or before in "([—–-") and not after.isspace()
+    closes = not before.isspace() and (after.isspace() or after in ".,;:!?)]")
+    if opens and not closes and not glyph_closes:
+        return "open"
+    if closes and not opens and not glyph_opens:
+        return "close"
+    return None
 
-    Marks are read in order, expected to alternate opener / closer. The first mark whose
-    context contradicts the expectation locates the fault: an opener where a closer was
-    due means the previous opener never closed (that previous mark dangles); a closer
-    where an opener was due has no opener (that mark dangles). With no contradiction and
-    an odd count, the last mark dangles. With an even count and no contradiction the
-    marks pair and nothing dangles. Pairing the remaining marks around the dangling one
-    recovers the quotations the writer did delimit instead of shifting every later pair.
-    """
+
+def _mark_units(text: str) -> list[tuple[int, int, str]]:
+    """``(first_offset, last_offset, kind)`` for every double mark of ``text`` in order, two
+    adjacent marks that together open or close a nested quotation collapsed into one unit
+    (:func:`_unit_kind`); ``kind`` is ``open``, ``close`` or ``either`` (:func:`_mark_kind`)."""
     positions = [i for i, ch in enumerate(text) if ch in DOUBLE_QUOTE_MARKS]
-    if not positions:
+    units: list[tuple[int, int, str]] = []
+    i = 0
+    while i < len(positions):
+        p = positions[i]
+        if i + 1 < len(positions) and positions[i + 1] == p + 1:
+            kind = _unit_kind(text, p, p + 1)
+            if kind is not None:
+                units.append((p, p + 1, kind))
+                i += 2
+                continue
+        units.append((p, p, _mark_kind(text, p)))
+        i += 1
+    return units
+
+
+def _dangling_unit(units: list[tuple[int, int, str]]) -> Optional[tuple[int, int, str]]:
+    """The mark unit that cannot be paired (the rule of :func:`dangling_quote_offset`), or ``None``."""
+    if not units:
         return None
     expect_open = True
-    for n, pos in enumerate(positions):
-        kind = _mark_kind(text, pos)
+    for n, (_p, _q, kind) in enumerate(units):
         if kind == "either":
             expect_open = not expect_open
             continue
@@ -326,27 +518,60 @@ def dangling_quote_offset(text: str) -> Optional[int]:
             expect_open = not expect_open
             continue
         if kind == "open":  # an opener where a closer was due: the previous opener never closed
-            return positions[n - 1] if n > 0 else pos
-        return pos  # a closer with no opener
-    if len(positions) % 2 == 1:
-        return positions[-1]
+            return units[n - 1] if n > 0 else units[n]
+        return units[n]  # a closer with no opener
+    if len(units) % 2 == 1:
+        return units[-1]
     return None
+
+
+def dangling_quote_offset(text: str) -> Optional[int]:
+    """Offset of the double quotation mark of ``text`` that cannot be paired, or ``None``.
+
+    Marks are read in order, expected to alternate opener / closer; two adjacent marks that
+    together open or close a nested quotation count as one mark (:func:`_unit_kind`) and the
+    strings of a pasted JSON span are not read at all. The first mark whose context
+    contradicts the expectation locates the fault: an opener where a closer was due means
+    the previous opener never closed (that previous mark dangles); a closer where an opener
+    was due has no opener (that mark dangles). With no contradiction and an odd count, the
+    last mark dangles. With an even count and no contradiction the marks pair and nothing
+    dangles. Pairing the remaining marks around the dangling one recovers the quotations the
+    writer did delimit instead of shifting every later pair. For a nested (two-mark) unit
+    the offset of its first mark is returned.
+    """
+    unit = _dangling_unit(_mark_units(mask_json_spans(text)))
+    return None if unit is None else unit[0]
 
 
 def unbalanced_double_quotes(text: str) -> bool:
     """True when the double quotation marks of ``text`` cannot be paired.
 
     Straight, curly, guillemet and low-9 marks are one class, so a quotation opened with
-    a curly mark and closed with a straight one is balanced. An odd total is unbalanced;
-    so is text set entirely in directional marks whose openers and closers differ in number.
+    a curly mark and closed with a straight one is balanced; a nested two-mark unit is one
+    mark and a pasted JSON span's strings are not marks. An odd total is unbalanced; so is
+    text set entirely in directional marks whose openers and closers differ in number.
     """
-    positions = [i for i, ch in enumerate(text) if ch in DOUBLE_QUOTE_MARKS]
-    if len(positions) % 2 == 1:
+    masked = mask_json_spans(text)
+    units = _mark_units(masked)
+    if len(units) % 2 == 1:
         return True
-    glyphs = [text[i] for i in positions]
+    glyphs = [masked[i] for p, q, _k in units for i in range(p, q + 1)]
     if glyphs and '"' not in glyphs:
-        return sum(1 for g in glyphs if g in _OPENING_GLYPHS) != sum(1 for g in glyphs if g in _CLOSING_GLYPHS)
+        return sum(1 for _p, _q, k in units if k == "open") != sum(1 for _p, _q, k in units if k == "close")
     return False
+
+
+def _paired_units(units: list[tuple[int, int, str]], dangling: Optional[tuple[int, int, str]]) -> list[tuple[tuple[int, int, str], tuple[int, int, str], bool]]:
+    """Consecutive pairs of the units around the dangling one as ``(opener, closer, plausible)``:
+    in an unbalanced text a pair whose opener reads as a closer or whose closer reads as an
+    opener contradicts its context and is not plausible (the span between is the writer's
+    prose, not a quotation)."""
+    remaining = [u for u in units if u is not dangling]
+    out = []
+    for a, b in zip(remaining[0::2], remaining[1::2]):
+        plausible = dangling is None or not (a[2] == "close" or b[2] == "open")
+        out.append((a, b, plausible))
+    return out
 
 
 def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[int, int, str]]:
@@ -354,24 +579,30 @@ def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[
 
     Double marks of every kind are paired left to right after the dangling mark of an
     unbalanced text (see :func:`dangling_quote_offset`) is set aside, so one missing
-    mark does not turn the prose between later quotations into "quotations". Single
-    marks (straight or curly) delimit a quotation only around ``min_single_words`` or
-    more words. ``inner`` is the writer's text between the marks, verbatim.
+    mark does not turn the prose between later quotations into "quotations"; two adjacent
+    marks that together open or close a nested quotation are one mark, and in an
+    unbalanced text a pair whose marks contradict their context is left out (it is an
+    undelimited span, see :func:`undelimited_quote_spans`). The strings of a pasted JSON
+    span are never quotations. Single marks (straight or curly) delimit a quotation only
+    around ``min_single_words`` or more words. ``inner`` is the writer's text between the
+    marks, verbatim.
     """
-    norm = normalize_double_marks(text)
-    skip = dangling_quote_offset(text)
-    positions = [i for i, ch in enumerate(norm) if ch == '"' and i != skip]
+    masked_text = mask_json_spans(text)
+    norm = normalize_double_marks(masked_text)
+    units = _mark_units(masked_text)
+    dangling = _dangling_unit(units)
     spans: list[tuple[int, int, str]] = []
-    for a, b in zip(positions[0::2], positions[1::2]):
-        inner = text[a + 1:b]
-        if inner.strip() and "\n" not in inner:
-            spans.append((a, b + 1, inner))
+    for a, b, plausible in _paired_units(units, dangling):
+        inner = text[a[1] + 1:b[0]]
+        if plausible and inner.strip() and "\n" not in inner:
+            spans.append((a[0], b[1] + 1, inner))
     masked = list(norm)
     for a, b, _inner in spans:
         for i in range(a, b):
             masked[i] = " "
-    if skip is not None:
-        masked[skip] = " "
+    for p, q, _k in units:
+        for i in range(p, q + 1):
+            masked[i] = " "
     for m in SINGLE_QUOTE_SPAN_RE.finditer("".join(masked)):
         group = m.lastindex or 1
         inner = m.group(group)
@@ -380,6 +611,18 @@ def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[
         spans.append((m.start(), m.end(), text[m.start(group):m.end(group)]))
     spans.sort(key=lambda s: s[0])
     return spans
+
+
+def _dangling_span(text: str, masked_text: str, units: list[tuple[int, int, str]], dangling: tuple[int, int, str]) -> Optional[tuple[int, int, str]]:
+    p, q, kind = dangling
+    if kind == "either":
+        kind = "open" if masked_text[q + 1:].strip() else "close"
+    if kind == "open":
+        inner = text[q + 1:]
+        return (p, len(text), inner) if inner.strip() else None
+    prev_end = max((e for _s, e, _inner in find_quotation_spans(text) if e <= p), default=0)
+    inner = text[prev_end:p]
+    return (prev_end, q + 1, inner) if inner.strip() else None
 
 
 def undelimited_quote_span(text: str) -> Optional[tuple[int, int, str]]:
@@ -391,15 +634,34 @@ def undelimited_quote_span(text: str) -> Optional[tuple[int, int, str]]:
     text, up to the mark. The span is what the writer meant to quote but did not
     delimit: parsers record it without attributing it to any text or checking it.
     """
-    d = dangling_quote_offset(text)
-    if d is None:
+    masked_text = mask_json_spans(text)
+    units = _mark_units(masked_text)
+    dangling = _dangling_unit(units)
+    if dangling is None:
         return None
-    kind = _mark_kind(text, d)
-    if kind == "either":
-        kind = "open" if text[d + 1:].strip() else "close"
-    if kind == "open":
-        inner = text[d + 1:]
-        return (d, len(text), inner) if inner.strip() else None
-    prev_end = max((e for _s, e, _inner in find_quotation_spans(text) if e <= d), default=0)
-    inner = text[prev_end:d]
-    return (prev_end, d + 1, inner) if inner.strip() else None
+    return _dangling_span(text, masked_text, units, dangling)
+
+
+def undelimited_quote_spans(text: str) -> list[tuple[int, int, str]]:
+    """Every span of an unbalanced ``text`` that could not be delimited, in order: the span
+    the dangling mark opens or closes (:func:`undelimited_quote_span`) and every pair of marks
+    around it whose opener reads as a closer or whose closer reads as an opener. Such a span
+    is the writer's prose between quotations, or a quotation whose marks could not be told
+    apart: parsers record it with no source reference, so it is neither delivered as a
+    quotation of a supplied text nor reported as an invented one. Empty when every mark pairs.
+    """
+    masked_text = mask_json_spans(text)
+    units = _mark_units(masked_text)
+    dangling = _dangling_unit(units)
+    if dangling is None:
+        return []
+    out: list[tuple[int, int, str]] = []
+    loose = _dangling_span(text, masked_text, units, dangling)
+    if loose is not None:
+        out.append(loose)
+    for a, b, plausible in _paired_units(units, dangling):
+        inner = text[a[1] + 1:b[0]]
+        if not plausible and inner.strip() and "\n" not in inner:
+            out.append((a[0], b[1] + 1, inner))
+    out.sort(key=lambda s: s[0])
+    return out

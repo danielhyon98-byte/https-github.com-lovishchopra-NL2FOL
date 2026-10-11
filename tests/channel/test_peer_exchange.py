@@ -200,4 +200,8 @@ def test_unaccounted_supporting_claims_are_one_note_per_report():
     syn = _synthesis_citing(["rep-hi"], [(f"s{i}", c["claim_text"], [c["claim_id"]]) for i, c in enumerate(material)])
     _, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, syn)
     notes = [f for f in rr.findings if f.code == "INT-LEDGER-022"]
-    assert len(notes) == 1 and set(notes[0].claim_ids) == {c["claim_id"] for c in supporting} and notes[0].severity == "info"
+    # A note roled 'other' (the from-memory label) is not content a synthesis must account for; every other supporting claim is listed.
+    content = {c["claim_id"] for c in supporting if c["claim_role"] != "other"}
+    labels = {c["claim_id"] for c in supporting if c["claim_role"] == "other"}
+    assert content and labels
+    assert len(notes) == 1 and set(notes[0].claim_ids) == content and not set(notes[0].claim_ids) & labels and notes[0].severity == "info"
