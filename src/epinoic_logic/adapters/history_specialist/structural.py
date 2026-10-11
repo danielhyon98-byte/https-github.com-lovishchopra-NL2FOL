@@ -1,7 +1,11 @@
 """Deterministic structural and source-integrity checks for History specialist output.
 
 Rule sources are the pack's own working rules (Response application §3, §5, §8;
-Structures P6, P7, P9, P15; Sources L5), never official IB rules.
+Structures P6, P7, P9, P15; Sources L5), never official IB rules. Paragraphs are
+classified exactly as the parser classifies them (``classify_paragraphs``), so the
+findings and the claim roles always agree: note paragraphs (from-memory labels,
+self-certification lines, short undated asides) are not body paragraphs and are not
+held to the body-paragraph rules.
 """
 from __future__ import annotations
 
@@ -9,9 +13,11 @@ import re
 
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import find_quotation
-from .parser import _DATE_RE, _MONTH_YEAR_RE, _QUOTE_RE, chronology_findings_in, has_dated_item, split_sentences
+from .parser import _DATE_RE, _MONTH_YEAR_RE, _QUOTE_RE, chronology_findings_in, classify_paragraphs, has_dated_item, split_sentences
 
-_HISTORIAN_RE = re.compile(r"\b([A-Z]\.(?:\s?[A-Z]\.)*\s?[A-Z][a-z]+|[A-Z][a-z]+\s[A-Z][a-z]+)\s+(?:has\s+)?(?:argue[sd]|prove[sd]|show[s]?|claim[s]?|concluded|demonstrated)\b")
+# Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
+_NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
+_HISTORIAN_RE = re.compile(rf"\b([A-Z]\.(?:\s?[A-Z]\.)*\s?{_NAME}|{_NAME}\s{_NAME})\s+(?:has\s+)?(?:argue[sd]|prove[sd]|show[s]?|claim[s]?|concluded|demonstrated)\b")
 _MEMORY_LABEL_RE = re.compile(r"from memory|verify (?:them|these|this)|illustrative", re.IGNORECASE)
 _RULE = "history_specialist/{} (working rule, not an official IB rule)"
 
@@ -19,8 +25,9 @@ _RULE = "history_specialist/{} (working rule, not an official IB rule)"
 def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
     f: list[StructuralFinding] = []
     text = report.original_response
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
-    multi = len(paragraphs) >= 3
+    paragraphs = classify_paragraphs(text)
+    prose = [(pi, kind, para) for pi, (kind, para) in enumerate(paragraphs) if kind != "note"]
+    multi = any(kind in ("intro", "conclusion") for _, kind, _ in prose)
     docs = {t.document_id: t for t in report.supplied_texts}
 
     for c in report.claims:
@@ -37,9 +44,8 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
     if dated_claims and not _MEMORY_LABEL_RE.search(text) and not any(c.source_refs for c in dated_claims):
         f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label", claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
 
-    for pi, para in enumerate(paragraphs):
-        is_body = not multi or 0 < pi < len(paragraphs) - 1
-        if not is_body:
+    for pi, kind, para in prose:
+        if kind != "body":
             continue
         sents = split_sentences(para)
         low = para.lower()
@@ -55,7 +61,7 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
             if viol is not None:
                 f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message="a sentence says one dated event came after another, but the dates it gives are not in that order", claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
 
-    words = len(re.findall(r"\b[\w'’-]+\b", text))
+    words = len(re.findall(r"\b[\w'’-]+\b", " ".join(para for _, _, para in prose)))
     if multi and report.task_type == "essay" and not (800 <= words <= 1100):
         f.append(StructuralFinding(code="HI-STR-004", severity="info", message=f"essay length {words} words is outside the pack's exam-length guide (800-1,000 for Paper 2)", rule_source=_RULE.format("structures.md P15")))
     return f

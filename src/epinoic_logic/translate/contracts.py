@@ -76,7 +76,7 @@ class ClaimRecord(BaseModel):
     source_refs: list[SourceRef] = Field(default_factory=list, max_length=32)
     assumptions: list[str] = Field(default_factory=list, max_length=32)
     assessment_criteria: list[str] = Field(default_factory=list, max_length=32)
-    supporting_claim_ids: list[str] = Field(default_factory=list, max_length=64)
+    supporting_claim_ids: list[str] = Field(default_factory=list, max_length=512, description="a paragraph's point legitimately supports every claim in it, so the bound equals the report's claim limit")
     parent_claim_id: Optional[str] = Field(default=None, max_length=128)
     advisory_verification_eligibility: Optional[bool] = Field(default=None, description="agent self-report; never trusted")
     advisory_verification_status: Optional[str] = Field(default=None, max_length=64, description="agent self-report; ignored, recorded for audit")

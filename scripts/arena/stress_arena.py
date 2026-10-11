@@ -82,11 +82,12 @@ def main(round_dir: Path, replays: int) -> dict:
         import httpx
         from fastapi.testclient import TestClient
         from epinoic_logic.service.app import create_app
-        from epinoic_logic.service.settings import Settings  # type: ignore
-        os.environ.setdefault("EPINOIC_SERVICE_TOKEN", "arena-token")
+        from epinoic_logic.service.settings import ServiceSettings
+        os.environ.setdefault("EPINOIC_SERVICE_TOKEN", "arena-token-0123456789abcdef")
         os.environ.setdefault("EPINOIC_SIGNING_KEY", KEY.hex())
         os.environ.setdefault("EPINOIC_SIGNING_KEY_ID", "arena")
-        app = create_app(Settings.from_env() if hasattr(Settings, "from_env") else Settings())
+        os.environ.setdefault("EPINOIC_RATE_PER_MINUTE", "100000")
+        app = create_app(ServiceSettings.from_env())
         client = TestClient(app)
         problem = {"problem_id": "arena-p", "request_id": "req-arena", "claim_id": "c", "query": "entailment",
                    "symbols": [{"name": "x", "sort": "Int"}, {"name": "y", "sort": "Int"}, {"name": "z", "sort": "Int"}],
@@ -96,7 +97,7 @@ def main(round_dir: Path, replays: int) -> dict:
         t2 = time.perf_counter()
         n = 0
         def hit(_):
-            r = client.post("/v1/verify", json={"problem": problem}, headers={"Authorization": "Bearer arena-token"})
+            r = client.post("/v1/verify", json={"problem": problem}, headers={"Authorization": "Bearer " + os.environ["EPINOIC_SERVICE_TOKEN"]})
             return r.status_code
         with ThreadPoolExecutor(max_workers=32) as pool:
             for code in pool.map(hit, range(400)):

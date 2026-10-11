@@ -101,6 +101,7 @@ _QUOTE_RE = re.compile(
 )
 _SINGLE_QUOTE_GROUPS = (3, 4)
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n[ \t]*\n+")
+_ALPHA_RE = re.compile(r"[^\W\d_]")
 _BOUNDARY_RE = re.compile(r"[.!?]+[\"”’')\]]*(?=\s+[\"“‘(\[]?[A-ZÀ-ÖØ-Þ])")
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
@@ -331,7 +332,7 @@ def _prose_kinds(blocks: list[str]) -> list[ParagraphKind]:
 
 def segment(text: str) -> tuple[Paragraph, ...]:
     """Deterministically segment an answer into paragraphs, sentences and quotations."""
-    raw = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(text.replace("\r\n", "\n")) if p.strip()]
+    raw = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(text.replace("\r\n", "\n").replace("﻿", "")) if p.strip()]  # a byte-order mark is not a word
     units: list[tuple[ParagraphKind, str]] = []
     for block in raw:
         if is_meta_block(block):
@@ -448,6 +449,8 @@ def parse_response(
                 continue  # lists propose evidence only
             if para.kind == "body" and sentence.index == 1:
                 continue  # the point is inserted once its supports are known
+            if quote_ids and not _ALPHA_RE.search(strip_quotations(sentence.text)):
+                continue  # a sentence that is nothing but a quotation is already the evidence claim; no interpretation to propose
             sid = f"p{para.index}-s{sentence.index:02d}"
             if para.kind == "thesis":
                 pending_thesis.append((sid, sentence.text, quote_ids))

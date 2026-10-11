@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from ..adapters.markdown import SELF_CERT_RE, is_memory_label, unbalanced_double_quotes
 from ..translate.contracts import SpecialistReport, StructuralFinding
 from ..translate.grounding import check_claim_sources
 from .base import FormalCheck
@@ -15,37 +16,65 @@ _MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", 
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(1[0-9]{3}|20[0-9]{2})\b")
 _YEAR_RE = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+")
+_PARA_RE = re.compile(r"\n\s*\n")
 _STUDY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+)?(?:\set\sal\.?)?)\s*\((\d{4})\)")
-_PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent|%)")
+_PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent(?!age)|%)")
 _MEMORY_LABEL_RE = re.compile(r"from memory|illustrative|verify (?:them|these|this)", re.IGNORECASE)
+#: A from-memory label that speaks of quotations (a figures label does not vouch for a quotation).
+_QUOTE_MEMORY_LABEL_RE = re.compile(r"quot(?:ation|e)s?[^.;\n]{0,60}\bfrom memory\b|\bquoted from memory\b|\bfrom memory\b[^.;\n]{0,60}quot(?:ation|e)", re.IGNORECASE)
+#: A relative clause between a date and 'after' means the date belongs to an aside, not to the ordered event.
+_RELATIVE_CLAUSE_RE = re.compile(r"\b(?:which|who|whom|whose|that)\b", re.IGNORECASE)
+_AFTER_RE = re.compile(r"\bafter\b", re.IGNORECASE)
+_QUOTE_SPAN_RE = re.compile(r"\"([^\"]{12,})\"|“([^”]{12,})”")
+_EXCERPT_CHARS = 80
+
+
+def _date_in_aside(before: str, date: "re.Match[str]") -> bool:
+    """The date sits in a relative clause that closes before 'after' (a comma follows the
+    date and a relative marker opens the clause before it): it is an aside, not the
+    ordered event. Mirrors the History parser's rule so HI-CHR-001 and the formal check agree."""
+    pre = before[: date.start()]
+    opener = pre[max(pre.rfind(","), pre.rfind(";")) + 1:]
+    return bool(_RELATIVE_CLAUSE_RE.search(opener)) and "," in before[date.end():]
 
 
 def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
-    """'X ... came/was ... after ... Y' with two month-year dates -> X must be later than Y."""
+    """'X ... came/was ... after ... Y' with month-year dates -> X must be later than Y.
+
+    The event ordered by 'after' is the one nearest to it: the LAST month-year before
+    'after' and the FIRST after it. A date separated from 'after' by a relative-clause
+    marker (which/who/that/whose) or a clause break (';') belongs to an aside
+    ("The party, which had been founded in January 1919, was banned after the putsch of
+    November 1923") and is not paired."""
     from ..ir.schema import Problem
     out: list[FormalCheck] = []
     n = 0
     for sent in _SENT_RE.split(report.original_response):
-        if " after " not in sent.lower():
+        m = _AFTER_RE.search(sent)
+        if m is None:
             continue
-        dates = _MONTH_YEAR_RE.findall(sent)
-        if len(dates) < 2:
+        before_dates = list(_MONTH_YEAR_RE.finditer(sent[: m.start()]))
+        after_date = _MONTH_YEAR_RE.search(sent[m.end():])
+        if not before_dates or after_date is None:
+            continue
+        first = before_dates[-1]
+        before = sent[: m.start()]
+        if ";" in before[first.end():] or _date_in_aside(before, first):
+            continue
+        if ";" in sent[m.end(): m.end() + after_date.start()]:
             continue
         n += 1
-        a = int(dates[0][1]) * 12 + _MONTHS[dates[0][0].lower()]
-        b = int(dates[1][1]) * 12 + _MONTHS[dates[1][0].lower()]
+        a = int(first.group(2)) * 12 + _MONTHS[first.group(1).lower()]
+        b = int(after_date.group(2)) * 12 + _MONTHS[after_date.group(1).lower()]
         problem = {
             "problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
-            "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{dates[0][0]} {dates[0][1]} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{dates[1][0]} {dates[1][1]}"}],
+            "symbols": [{"name": "later_event", "sort": "Int", "meaning": f"{first.group(1)} {first.group(2)} as year*12+month"}, {"name": "earlier_event", "sort": "Int", "meaning": f"{after_date.group(1)} {after_date.group(2)}"}],
             "premises": [{"id": "D1", "expr": {"op": "eq", "left": {"op": "var", "name": "later_event"}, "right": {"op": "int", "value": str(a)}}, "grounding": {"kind": "supplied_text", "verified": True}},
                          {"id": "D2", "expr": {"op": "eq", "left": {"op": "var", "name": "earlier_event"}, "right": {"op": "int", "value": str(b)}}, "grounding": {"kind": "supplied_text", "verified": True}}],
-            "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}}, "label": "the first-named event came after the second"},
+            "conclusion": {"id": "ORDER", "expr": {"op": "gt", "left": {"op": "var", "name": "later_event"}, "right": {"op": "var", "name": "earlier_event"}}, "label": "the event named before 'after' came after the event named after it"},
         }
         out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology", description=f"stated order of dated events: {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
     return out
-
-
-_QUOTE_SPAN_RE = re.compile(r"\"([^\"]{12,})\"|“([^”]{12,})”")
 
 
 def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
@@ -55,27 +84,97 @@ def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
     return out
 
 
+def _sentences_with_paragraph(text: str) -> list[tuple[int, int, str]]:
+    """(paragraph index, sentence index, sentence) over the raw response, 1-based."""
+    out: list[tuple[int, int, str]] = []
+    for pi, para in enumerate((p for p in _PARA_RE.split(text.strip()) if p.strip()), start=1):
+        for si, sent in enumerate((s for s in _SENT_RE.split(para.strip()) if s.strip()), start=1):
+            out.append((pi, si, sent.strip()))
+    return out
+
+
+def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
+    frag = " ".join(fragment.split())
+    return [c.claim_id for c in report.claims if frag and (frag in " ".join(c.claim_text.split()) or " ".join(c.claim_text.split()) in frag)]
+
+
 class CorePack:
     """Runs for every subject: quotation grounding against supplied texts, numeric
-    self-consistency of the report's own figures, and labelling of figures from memory."""
+    self-consistency of the report's own figures, labelling of figures from memory,
+    unverifiable or undelimited quotations, and self-certification language."""
     name = "core"
 
     def checks(self, report: SpecialistReport, request_text: Optional[str] = None) -> list[StructuralFinding]:
         f: list[StructuralFinding] = []
+        text = report.original_response
         for c in report.claims:
             for g in check_claim_sources(c, report.supplied_texts):
                 if g.verified is False:
                     f.append(StructuralFinding(code="CORE-SRC-001", severity="error", message="cited excerpt not found in the supplied text", claim_ids=[c.claim_id], rule_source="source integrity (every pack's non-negotiable 2)"))
-        if _PCT_RE.search(report.original_response) and not report.supplied_texts and not _MEMORY_LABEL_RE.search(report.original_response) and not any(c.source_refs for c in report.claims):
+        has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
+        if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
-        if not report.supplied_texts and not _MEMORY_LABEL_RE.search(report.original_response):
-            quoted = [m.group(1) or m.group(2) for m in _QUOTE_SPAN_RE.finditer(report.original_response)]
-            if quoted:
-                f.append(StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: no text was supplied and no from-memory label is present", claim_ids=[c.claim_id for c in report.claims if any(q in c.claim_text for q in quoted)][:8], rule_source="source integrity (quote from memory only with permission, and say so)"))
+        if not report.supplied_texts:
+            f += self._unverifiable_quotations(report, has_memory_label)
+        f += self._unbalanced_quotation_marks(report)
+        f += self._self_certification(report)
         return f
+
+    @staticmethod
+    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool) -> list[StructuralFinding]:
+        """CORE-SRC-003: every quotation with no text to check it against is reported.
+        A from-memory label downgrades the finding to info only when it speaks of
+        quotations or sits in the same sentence as the quotation; a label about dates
+        and figures does not vouch for a quotation."""
+        text = report.original_response
+        quoted = [m.group(1) or m.group(2) for m in _QUOTE_SPAN_RE.finditer(text)]
+        if not quoted:
+            return []
+        quote_label = bool(_QUOTE_MEMORY_LABEL_RE.search(text))
+        labelled_in_sentence = all(any((q in s) and is_memory_label(s) for s in _SENT_RE.split(text)) for q in quoted)
+        shown = "; ".join("'" + (q[:_EXCERPT_CHARS] + ("..." if len(q) > _EXCERPT_CHARS else "")) + "'" for q in quoted[:4])
+        claim_ids = [c.claim_id for c in report.claims if any(q in c.claim_text for q in quoted)][:8]
+        if quote_label or labelled_in_sentence:
+            return [StructuralFinding(code="CORE-SRC-003", severity="info", message=f"{len(quoted)} quotation(s) quoted from memory by the specialist's own label; no text was supplied, so they are unverified: {shown}", claim_ids=claim_ids, rule_source="source integrity (quote from memory only with permission, and say so)")]
+        why = "the from-memory label concerns dates and figures, not quotations" if has_memory_label else "no from-memory label is present"
+        return [StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: no text was supplied and {why}: {shown}", claim_ids=claim_ids, rule_source="source integrity (quote from memory only with permission, and say so)")]
+
+    @staticmethod
+    def _unbalanced_quotation_marks(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-SRC-004: a paragraph whose double quotation marks cannot be paired; the
+        quotation there could not be delimited, so it was not checked against any text."""
+        out: list[StructuralFinding] = []
+        for pi, para in enumerate((p for p in _PARA_RE.split(report.original_response.strip()) if p.strip()), start=1):
+            if not unbalanced_double_quotes(para):
+                continue
+            last = max(para.rfind('"'), para.rfind("“"))
+            dangling = para[last + 1:].strip() if last >= 0 else ""
+            shown = dangling[:_EXCERPT_CHARS] + ("..." if len(dangling) > _EXCERPT_CHARS else "")
+            out.append(StructuralFinding(code="CORE-SRC-004", severity="warning", message=f"paragraph {pi} has an unbalanced quotation mark; the quotation opening at '{shown}' could not be delimited and was not checked against any text", claim_ids=_claims_mentioning(report, dangling[:60])[:8], rule_source="source integrity (quote exactly; every quotation must be checkable)"))
+        return out
+
+    @staticmethod
+    def _self_certification(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-SELF-001: verification-status vocabulary in the response body. An agent's
+        statement about its own checking is advisory and ignored; status comes only from
+        signed engine results. The message never repeats the certifying words."""
+        out: list[StructuralFinding] = []
+        seen: set[str] = set()
+        for pi, si, sent in _sentences_with_paragraph(report.original_response):
+            if not SELF_CERT_RE.search(sent):
+                continue
+            key = " ".join(sent.split())
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material", claim_ids=_claims_mentioning(report, sent)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+        return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         return _quant_formal(report, "core") + _chronology_formal(report, "core")
+
+
+_ESSAY_BAND_WORDS = 800
 
 
 class HistoryPack:
@@ -86,7 +185,20 @@ class HistoryPack:
             from ..adapters.history_specialist.structural import structural_checks
         except Exception:
             return []
-        return structural_checks(report)
+        findings = structural_checks(report)
+        if request_text and self._request_bounds_below_essay_band(request_text):
+            findings = [x for x in findings if x.code != "HI-STR-004"]  # the request set a shorter deliverable; the exam-length guide does not apply
+        return findings
+
+    @staticmethod
+    def _request_bounds_below_essay_band(request_text: str) -> bool:
+        from ..channel.request_parser import extract_constraints
+        for c in extract_constraints(request_text):
+            if c.kind == "max_words" and c.value is not None and int(c.value) < _ESSAY_BAND_WORDS:
+                return True
+            if c.kind == "max_paragraphs" and c.value is not None and int(c.value) <= 2:
+                return True
+        return False
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         return []  # chronology and numeric self-consistency run in CorePack for every subject
@@ -102,8 +214,8 @@ class EnglishPack:
             return []
         try:
             return list(structural_checks(report))
-        except Exception:
-            return []
+        except Exception as exc:
+            return [StructuralFinding(code="ES-INTERNAL-001", severity="warning", message=f"the English integrity pack failed internally ({type(exc).__name__}); its findings are missing from this receipt and the router must not treat the pack as passed", rule_source="hub integrity (a failing pack is reported, never silently skipped)")]
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         return []

@@ -15,11 +15,16 @@ from typing import Optional
 from ..ir.schema import Problem
 
 _NUM = r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
-_UNIT = r"(?:\s*(million|billion|thousand|per cent|percent|%|seats|votes|m|bn|k))?"
+_PCT_UNIT = r"(?:per cent|percent(?!age)|%)"  # 'percentage points' is a difference, not a per-cent unit
+_UNIT = rf"(?:\s*(million|billion|thousand|per cent|percent(?!age)|%|seats|votes|m|bn|k))?"
 _FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}(?:\s+(?:in|by)\s+(?:early\s+|late\s+)?\d{{4}})?\s+(?:to|and)\s+(?:about|around|roughly|nearly|over|more than|almost)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
-_PCT_CHANGE_RE = re.compile(r"(?:an?\s+)?(increase|rise|fall|decrease|decline|drop|growth)\s+of\s+(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:per cent|percent|%)|(?:an?\s+)?(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:per cent|percent|%)\s+(increase|rise|fall|decrease|decline|drop|growth)", re.IGNORECASE)
+_PCT_CHANGE_RE = re.compile(rf"(?:an?\s+)?(increase|rise|fall|decrease|decline|drop|growth)\s+of\s+(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*{_PCT_UNIT}(?!\s*points?\b)|(?:an?\s+)?(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*{_PCT_UNIT}\s+(increase|rise|fall|decrease|decline|drop|growth)", re.IGNORECASE)
+# 'a fall of 4.2 percentage points' / 'rose 3 points' between two per-cent figures: an absolute difference.
+_POINTS_CHANGE_RE = re.compile(r"(?:an?\s+)?(increase|rise|fall|decrease|decline|drop|growth|gain|loss)\s+of\s+(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:percentage\s+)?points?\b|(?:an?\s+)?(?:about|around|roughly|nearly|some)?\s*(\d+(?:\.\d+)?)\s*(?:percentage\s+)?points?\s+(increase|rise|fall|decrease|decline|drop|growth|gain|loss)", re.IGNORECASE)
+_YEAR_LIKE_RE = re.compile(r"^(?:1[0-9]{3}|20[0-9]{2})$")
+_PCT_WORDS = frozenset({"per cent", "percent", "%"})
 _FOLD_RE = re.compile(r"\b(doubled|trebled|tripled|quadrupled|halved|(\d+(?:\.\d+)?)-fold|(two|three|four|five|six|seven|eight|nine|ten)fold)\b", re.IGNORECASE)
-_SHARE_RE = re.compile(rf"\b{_NUM}\s*(?:per cent|percent|%)\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
+_SHARE_RE = re.compile(rf"\b{_NUM}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
 _TOTAL_RE = re.compile(rf"{_NUM}{_UNIT}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{_NUM}{_UNIT}[^.;]{{0,60}}?(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
 _FOLD_WORDS = {"doubled": 2, "trebled": 3, "tripled": 3, "quadrupled": 4, "halved": Fraction(1, 2), "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _SCALE = {"million": 10**6, "m": 10**6, "billion": 10**9, "bn": 10**9, "thousand": 10**3, "k": 10**3}
@@ -52,6 +57,15 @@ def _v(n):
     return {"op": "var", "name": n}
 
 
+def _year_like(num: str, unit: Optional[str]) -> bool:
+    """A unitless integer in 1000-2099 with no separator reads as a year, not a quantity."""
+    return not unit and bool(_YEAR_LIKE_RE.match(num))
+
+
+def _is_pct(unit: Optional[str]) -> bool:
+    return bool(unit) and unit.lower().replace("percent", "per cent") in _PCT_WORDS
+
+
 def _problem(pid: str, claim_id: str, request_id: str, symbols: list[tuple[str, str]], premises: list[tuple[str, dict, str]], conclusion: tuple[str, dict, str]) -> Problem:
     return Problem.model_validate({
         "problem_id": pid, "request_id": request_id, "claim_id": claim_id, "query": "entailment",
@@ -71,10 +85,27 @@ def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance
         ft = _FROM_TO_RE.search(sent)
         if not ft:
             continue
+        if _year_like(ft.group(1), ft.group(2)) and _year_like(ft.group(3), ft.group(4)):
+            continue  # 'from 1928 to 1930' is a date span, not a before/after pair
         a, b = _frac(ft.group(1), ft.group(2)), _frac(ft.group(3), ft.group(4))
         pc = _PCT_CHANGE_RE.search(sent)
         fold = _FOLD_RE.search(sent)
-        if pc and a != 0:
+        pts = _POINTS_CHANGE_RE.search(sent)
+        if pts and _is_pct(ft.group(2)) and _is_pct(ft.group(4)):
+            # both figures are shares and the sentence states their difference in points: |after - before| = stated
+            n += 1
+            direction = (pts.group(1) or pts.group(4)).lower()
+            stated = Fraction(pts.group(2) or pts.group(3))
+            lo, hi = stated * (1 - tolerance), stated * (1 + tolerance)
+            diff = {"op": "sub", "left": _v("after"), "right": _v("before")}
+            if direction in ("fall", "decrease", "decline", "drop", "loss"):
+                diff = {"op": "neg", "arg": diff}
+            concl = {"op": "and", "args": [{"op": "ge", "left": diff, "right": _real(lo)}, {"op": "le", "left": diff, "right": _real(hi)}]}
+            checks.append(QuantCheck(f"quant-{n}", "points_change", sent.strip(), _problem(f"quant-points-{n}", claim_id, request_id,
+                [("before", "the earlier share as stated (per cent)"), ("after", "the later share as stated (per cent)")],
+                [("BEFORE", {"op": "eq", "left": _v("before"), "right": _real(a)}, f"before = {ft.group(1)} per cent"), ("AFTER", {"op": "eq", "left": _v("after"), "right": _real(b)}, f"after = {ft.group(3)} per cent")],
+                ("STATED_POINTS", concl, f"stated {direction} of {stated} percentage points (±{float(tolerance) * 100:.0f}% of that)"))))
+        elif pc and a != 0:
             n += 1
             direction = (pc.group(1) or pc.group(4)).lower()
             stated = Fraction(pc.group(2) or pc.group(3))

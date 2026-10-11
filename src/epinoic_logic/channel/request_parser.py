@@ -14,13 +14,13 @@ import re
 
 from .contracts import Constraint, RequestItem
 
-_WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to|under|within|at least|minimum of|min(?:imum)?|exactly|about|around|approximately|in)\s+(?P<n>\d{2,5})\s+words", re.IGNORECASE)
-_RANGE_RE = re.compile(r"between\s+(?P<a>\d{2,5})\s+and\s+(?P<b>\d{2,5})\s+words", re.IGNORECASE)
-_PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in)\s+(?P<n>one|two|three|four|five|six|\d{1,2})\s+(?:body\s+)?paragraphs?", re.IGNORECASE)
+_WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to|under|within|at least|minimum of|min(?:imum)?|exactly|about|around|approximately|in)\s+(?P<n>\d{1,5})\s+words", re.IGNORECASE)
+_RANGE_RE = re.compile(r"between\s+(?P<a>\d{1,5})\s+and\s+(?P<b>\d{1,5})\s+words", re.IGNORECASE)
+_PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in|write|produce|give|compose)\s+(?P<n>one|two|three|four|five|six|a single|\d{1,2})\s+(?:\w+\s+){0,2}?paragraphs?\b", re.IGNORECASE)
 _CITE_RE = re.compile(r"\b(quote|quotations?|cite|citing|textual evidence|refer(?:ring)? to the (?:text|passage|extract))\b", re.IGNORECASE)
 _IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(])")
-_WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+_WORD_NUM = {"one": 1, "a single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 
 # IB command terms by level (shared command-terms document, C1-C3). Longest match wins.
 COMMAND_TERMS: dict[str, int] = {
@@ -114,4 +114,17 @@ def count_words(text: str) -> int:
 
 
 def count_paragraphs(text: str) -> int:
-    return len([p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()])
+    """Paragraphs of the answer proper. A block that is only a note about the text (a
+    from-memory label such as 'Dates and figures are from memory; verify them', or a
+    self-certification line) is not a paragraph the request asked for and is not counted;
+    markdown headings and code fences are not paragraphs either."""
+    from ..adapters.markdown import is_note_sentence, strip_markup
+    count = 0
+    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
+        if not p.strip():
+            continue
+        sentences = [s for s in _SENT_RE.split(p.strip()) if s.strip()]
+        if sentences and all(is_note_sentence(s) for s in sentences):
+            continue
+        count += 1
+    return count

@@ -28,7 +28,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..ir.canonical import canonical_json, sha256_hex
-from ..ir.schema import Certainty, SourceRef
+from ..ir.schema import Assertion, Certainty, SourceRef
 
 MESSAGE_MAX_CHARS = 2000
 _ELLIPSIS = " ...[truncated]"
@@ -239,6 +239,7 @@ class SynthesizedClaim(BaseModel):
     source_claim_ids: list[str] = Field(default_factory=list, max_length=64)
     transformation: Transformation = "carried"
     evidence_refs: list[SourceRef] = Field(default_factory=list, max_length=64)
+    formal_conclusion: Optional[Assertion] = Field(default=None, description="the combinator's formal statement of this claim over the cited sources' shared glossary; when present the channel checks that the cited formalized sources entail it")
 
 
 class LedgerEntry(BaseModel):

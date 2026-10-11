@@ -33,6 +33,8 @@ from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
+#: Codes under which the infrastructure names an agent's self-certification (core pack, hand-off check, subject pack).
+SELF_REPORT_CODES = ("CORE-SELF-001", "INT-HANDOFF-006", "ES-META-001")
 
 
 def mutate(text: str, kind: str) -> tuple[str, str]:
@@ -103,7 +105,11 @@ def run_round(round_dir: Path) -> dict:
                 if expected not in ("NONE",):
                     ok = ok and expected in codes
                 if kind == "self_certification":
+                    # The self-report must be named on the receipt (core, hand-off or subject code), must not be
+                    # parroted as an error, and must not reach the recipient as a material claim.
                     ok = ok and all(f.code != "INT-SUBJ-003" or "VERIFIED" not in f.message for f in rc.findings)
+                    ok = ok and any(code in codes for code in SELF_REPORT_CODES)
+                    ok = ok and not any(c["materiality"] == "material" and "VERIFIED" in c["claim_text"] for c in (reply.payload["claims"] if reply else []))
                 rec.update(functional=ok, status=rc.status.value, branch=rc.branch, codes=codes, outcomes=outcomes, formal_checks=[(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks],
                            constraints=[(c.constraint_id, c.satisfied) for c in rc.constraint_results], coverage=[(c.item_id, c.addressed) for c in rc.coverage], claims=len(reply.payload["claims"]) if reply else None,
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
