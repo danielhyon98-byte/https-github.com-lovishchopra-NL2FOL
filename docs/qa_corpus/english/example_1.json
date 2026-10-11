@@ -1,0 +1,305 @@
+{
+  "example_id": 1,
+  "form": "novel extract; deliverable: full essay on one text",
+  "status_label": "[S] Selected",
+  "text_title": "Chronicle of a Death Foretold (extract: the twins' surrender, the verdict, and the town's fear of the Arabs)",
+  "author": "Gabriel García Márquez",
+  "prompt": "How does the author emphasize how societal expectations influence the administration of justice?",
+  "source_extract": "\"The lawyer stood by the thesis of homicide in legitimate defense of honor, which was upheld by the court in good faith, and the twins declared at the end of the trial that they would have done it again a thousand times over for the same reason. It was they who gave a hint of the direction the defense would take as soon as they surrendered to their church a few minutes after the crime. They burst panting into the parish house, closely pursued by a group of roused-up Arabs, and they laid the knives, with clean blades, on Father Amador's desk. Both were exhausted from the barbarous work of death, and their clothes and arms were soaked and their faces smeared with sweat and still living blood, but the priest recalled the surrender as an act of great dignity.\n\n'We killed him openly,' Pedro Vicario said, 'but we're innocent.'\n\n'Perhaps before God,' said Father Amador.\n\n'Before God and before men,' Pablo Vicario said. 'It was a matter of honor.' For the immense majority of people there was only one victim: Bayardo San Roman. They took it for granted that the other actors in the tragedy had been fulfilling with dignity, and even with a certain grandeur, their part of the destiny that life had assigned them. Santiago Nasar had expiated the insult, the brothers Vicario had proved their status as men, and the seduced sister was in possession of her honor once more. The only one who had lost everything was Bayardo San Roman: 'poor Bayardo,' as he was remembered over the years.\n\nThe twins' fear was in response to the mood in the streets. Revenge by the Arabs wasn't dismissed, but no one, except the Vicario brothers, had thought of poison. It was supposed, rather, that they would wait for nightfall in order to pour gasoline through the skylight and burn up the prisoners in their cell. The Arabs comprised a community of peaceful immigrants who had settled at the beginning of the century in Caribbean towns, even in the poorest and most remote, and there they remained, selling colored cloth and bazaar trinkets. They were clannish, hardworking, and Catholic. They married among themselves, imported their wheat, raised lambs in their yards, and grew oregano and eggplants, and playing cards was their only driving passion. The older ones continued speaking the rustic Arabic they had brought from their homeland, and they maintained it intact in the family down to the second generation, but those of the third, with the exception of Santiago Nasar, listened to their parents in Arabic and answered them in Spanish. So it was inconceivable that they would suddenly abandon their pastoral spirit to avenge a death for which we all could have been to blame.\"",
+  "model_answer": "In this extract from _Chronicle of a Death Foretold_, Gabriel García Márquez presents a society in which justice is fundamentally subordinated to collective expectations surrounding honor, masculinity, and social reputation. Rather than treating Santiago Nasar's murder as an unequivocal crime, the legal system and wider community reinterpret the killing through the ideological framework of patriarchal honor, transforming violence into an act of perceived moral necessity. Through ironic legal diction, fatalistic narration, and communal moral inversion, García Márquez exposes how societal expectations corrupt the administration of justice by legitimizing brutality while simultaneously dispersing responsibility across the entire community. Consequently, the extract presents justice not as an objective pursuit of truth, but as a performative system designed to preserve social codes at the expense of human life.\n\nGarcía Márquez initially presents the administration of justice as morally compromised by demonstrating how the rhetoric of honor transforms barbaric homicide into an act of socially sanctioned duty. This corruption is immediately established through the lawyer's \"thesis of homicide in legitimate defense of honor,\" a phrase which employs ironic legal diction to sanitize the brutality of the crime. Conventionally, the noun \"homicide\" denotes unlawful killing and carries explicit connotations of criminality and moral transgression. However, García Márquez deliberately neutralizes these associations through the modifying phrase \"legitimate defense,\" a semantic construction typically associated with lawful self-protection. The adjective \"legitimate\" is especially significant because its connotations of legality, rationality, and institutional approval rhetorically cleanse the violence committed by the twins. Effectively, the phrase collapses the distinction between justice and murder by reframing the killing as a procedural necessity rather than a moral atrocity. The irony emerges through the incompatibility between the clinical precision of legal terminology and the savagery of the murder itself, exposing how bureaucratic language can obscure ethical truth. This distortion is reinforced through the twins' paradoxical declaration: \"We killed him openly, but we're innocent.\" Here, García Márquez employs paradox and declarative dialogue to reveal how deeply societal expectations have reshaped moral reasoning. Conventionally, confession implies culpability; however, the juxtaposition of the verbs \"killed\" and \"innocent\" severs physical responsibility from moral guilt. The adverb \"openly\" is particularly important because it carries connotations of honesty, transparency, and integrity, suggesting that public acknowledgment of violence somehow validates it morally. Rather than expressing remorse, the twins frame the murder as honorable compliance with communal expectations. Father Amador's hesitant qualification — \"Perhaps before God\" — momentarily introduces moral uncertainty, yet Pablo immediately expands the justification to \"Before God and before men.\" Through this parallel structure, García Márquez universalizes the logic of honor culture so that divine morality and social morality appear equally complicit in validating violence. Ultimately, through ironic legal diction and paradoxical declarations of innocence, García Márquez exposes a justice system that no longer protects morality, but instead reinforces patriarchal expectations surrounding masculine honor.\n\nGarcía Márquez further emphasizes the corruption of justice by portraying the community itself as complicit in reconstructing murder into a fatalistic social performance in which every individual fulfills a predetermined role. This communal complicity is established through the narrator's observation that the participants were believed to be \"fulfilling with dignity, and even with a certain grandeur, their part of the destiny that life had assigned them.\" Here, García Márquez employs fatalistic diction and theatrical metaphor to present violence as socially inevitable rather than criminal. The metaphorical phrase \"part of the destiny\" reduces individuals into actors performing predetermined social scripts, implying that the murder was not a conscious moral decision but an unavoidable fulfillment of patriarchal obligation. Conventionally, \"destiny\" suggests inevitability and forces beyond human control; in this context, the term functions ideologically to absolve both individuals and institutions of responsibility. The nouns \"dignity\" and \"grandeur\" are especially significant because their elevated connotations aestheticize violence and transform murder into something ceremonially noble. Through this semantic elevation, the community romanticizes brutality as honorable fulfillment rather than condemning it as barbarism. This fatalistic perspective is intensified through the narrator's assertion that \"for the immense majority of people there was only one victim: Bayardo San Roman.\" García Márquez employs collective narration and ironic victim inversion to expose the distorted moral priorities of the town. The phrase \"immense majority\" creates the impression of overwhelming communal consensus, emphasizing how collective opinion dictates justice more powerfully than objective morality. Most significantly, the semantic force of the noun \"victim\" is inverted. Conventionally, a victim is the murdered individual; however, the community instead identifies Bayardo — whose masculine honor was publicly humiliated — as the true sufferer. Santiago Nasar's physical death becomes secondary to Bayardo's social embarrassment. This inversion reveals the extent to which patriarchal honor culture values masculine reputation above human life itself. Effectively, García Márquez encourages the reader to recognize the moral absurdity of a society that sympathizes more deeply with wounded pride than with violent death. Thus, through fatalistic narration and communal moral inversion, García Márquez portrays justice as a collective performance governed by patriarchal ideology rather than ethical accountability.\n\nFinally, García Márquez reveals the irrationality and hypocrisy underpinning societal justice by contrasting the community's exaggerated fears of Arab revenge with the peaceful reality of the Arab community itself. The extract initially introduces communal paranoia through the fear that the Arabs would \"pour gasoline through the skylight and burn up the prisoners in their cell.\" García Márquez employs violent imagery and collective speculation to illustrate how fear distorts rational justice. The verbs \"pour\" and \"burn,\" alongside the noun \"gasoline,\" belong to a semantic field of destruction and mob violence, constructing an image of savage retaliation that grotesquely exaggerates the supposed threat posed by the Arab community. Importantly, these fears are framed through passive constructions such as \"It was supposed,\" emphasizing that the paranoia originates not from evidence but from communal rumor and prejudice. The community invents violence where none exists, revealing its dependence upon stereotype and hysteria. García Márquez then dismantles these assumptions through the juxtaposed description of the Arabs as \"peaceful immigrants,\" \"hardworking,\" and Catholic. Here, the semantic field shifts dramatically from destruction toward domestic stability through verbs such as \"selling,\" \"raised,\" \"grew,\" and \"playing.\" These ordinary domestic actions contrast sharply with the earlier fantasies of arson and revenge, exposing the irrationality of the town's fears. The adjective \"pastoral\" is especially significant because it conventionally evokes peace, simplicity, and tranquility; consequently, the notion that the Arabs would \"abandon their pastoral spirit\" becomes deeply ironic. García Márquez ultimately exposes the hypocrisy of a society willing to project violence onto an external group while refusing to confront its own complicity in Santiago Nasar's death. This collective guilt culminates in the narrator's final admission that it was \"a death for which we all could have been to blame.\" The inclusive pronoun \"we\" dissolves the illusion that responsibility belongs solely to the twins, redistributing culpability across the entire community. Effectively, García Márquez suggests that societal expectations corrupt justice so thoroughly that violence becomes collectively sustained even by those who outwardly condemn it. Therefore, through ironic juxtaposition and collective self-indictment, García Márquez exposes the hypocrisy of a justice system shaped by prejudice, honor ideology, and communal denial rather than genuine morality.\n\nUltimately, García Márquez presents the administration of justice as inseparable from the societal expectations that govern honor, masculinity, and communal identity. Through ironic legal rhetoric, fatalistic narration, paradoxical moral reasoning, and communal victim inversion, he demonstrates how institutions and individuals alike reinterpret murder as honorable necessity rather than criminal atrocity. Furthermore, the exaggerated fear of Arab retaliation exposes the hypocrisy of a society willing to invent external threats while ignoring its own collective responsibility for violence. Consequently, the extract suggests that justice within such a culture cannot remain objective because it is fundamentally shaped by patriarchal ideology and communal consensus. Rather than challenging violence, the legal and social institutions of the town actively legitimize it, revealing a society in which morality is subordinated to the preservation of honor.",
+  "paragraph_count": 5,
+  "approximate_word_count": 1305,
+  "stated_length_in_examples_md": "essay, 1,305 words",
+  "quotations": [
+    "thesis of homicide in legitimate defense of honor,",
+    "homicide",
+    "legitimate defense,",
+    "legitimate",
+    "We killed him openly, but we're innocent.",
+    "killed",
+    "innocent",
+    "openly",
+    "Perhaps before God",
+    "Before God and before men.",
+    "fulfilling with dignity, and even with a certain grandeur, their part of the destiny that life had assigned them.",
+    "part of the destiny",
+    "destiny",
+    "dignity",
+    "grandeur",
+    "for the immense majority of people there was only one victim: Bayardo San Roman.",
+    "immense majority",
+    "victim",
+    "pour gasoline through the skylight and burn up the prisoners in their cell.",
+    "pour",
+    "burn,",
+    "gasoline,",
+    "It was supposed,",
+    "peaceful immigrants,",
+    "hardworking,",
+    "selling,",
+    "raised,",
+    "grew,",
+    "playing.",
+    "pastoral",
+    "abandon their pastoral spirit",
+    "a death for which we all could have been to blame.",
+    "we"
+  ],
+  "quotations_found_in_source": [
+    true,
+    true,
+    true,
+    true,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "thesis of homicide in legitimate defense of honor,",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "homicide",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "legitimate defense,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "legitimate",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "We killed him openly, but we're innocent.",
+      "found_in_source": false,
+      "found_strict": false,
+      "note": "NOT found as a contiguous word sequence in the stored source"
+    },
+    {
+      "quotation": "killed",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "innocent",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "openly",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "Perhaps before God",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "Before God and before men.",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "fulfilling with dignity, and even with a certain grandeur, their part of the destiny that life had assigned them.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "part of the destiny",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "destiny",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "dignity",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "grandeur",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "for the immense majority of people there was only one victim: Bayardo San Roman.",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "immense majority",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "victim",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "pour gasoline through the skylight and burn up the prisoners in their cell.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "pour",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "burn,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "gasoline,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "It was supposed,",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "peaceful immigrants,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "hardworking,",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "selling,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "raised,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "grew,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "playing.",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "pastoral",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "abandon their pastoral spirit",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "a death for which we all could have been to blame.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "we",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    }
+  ],
+  "quotation_count": 33,
+  "quotations_verified_true": 32,
+  "quotations_verified_false": 1,
+  "quotations_unverifiable": 0,
+  "spelling_variety": "American",
+  "examples_md_lines": {
+    "header": "76-84",
+    "source_extract": "85-95",
+    "essay": "97-107",
+    "move_map": "109-125"
+  },
+  "source_file_lines": "Examples.KD.md: extract L397-405; prompt L409; essay L413-421 (Essay 13)",
+  "supplementary": null,
+  "notes": [
+    "Source extract IS present (the only example with a continuous prose source).",
+    "The extract is stored wrapped in one pair of outer double quotes; dialogue inside it uses single quotes.",
+    "examples.md edited the essay in 17 places: 'Márquez' -> 'García Márquez' (formatting.md S16). Otherwise verbatim.",
+    "Known legitimate join (flagged in the example header, formatting.md S12): body 1 quotes \"We killed him openly, but we're innocent.\" The source reads 'We killed him openly,' Pedro Vicario said, 'but we're innocent.' Both halves exist; the speech tag is omitted without marking. The word-sequence check therefore returns false for this one quotation.",
+    "The introduction does not preview body 3's idea (Paragraphs P15) - noted in the header as a feature not to copy.",
+    "Body 1 of this essay is the base text for every file in mutations/.",
+    "Markdown italics markers (_Title_) are preserved exactly as they appear in the blockquote."
+  ]
+}

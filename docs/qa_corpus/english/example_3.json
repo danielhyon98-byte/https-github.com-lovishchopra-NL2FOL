@@ -1,0 +1,69 @@
+{
+  "example_id": 3,
+  "form": "play and novel; deliverable: standalone comparative paragraph",
+  "status_label": "[S] Selected",
+  "text_title": "Othello and Never Let Me Go",
+  "author": "William Shakespeare and Kazuo Ishiguro",
+  "prompt": "\"Just take one paragraph and make it standalone\" (source L1431), applied to body 2 of a comparative essay on communication written without citations (source Essay 18).",
+  "source_extract": null,
+  "model_answer": "Shakespeare and Ishiguro both present failed communication as a force that fractures personal identity, although Shakespeare depicts identity as externally manipulated while Ishiguro presents it as internally suppressed through emotional restraint. Shakespeare illustrates this deterioration through Othello's growing dependence upon Iago's interpretation of reality, culminating in his desperate demand for \"ocular proof.\" Although the phrase initially appears rational, Shakespeare employs dramatic irony to expose the futility of Othello's request, as the audience already possesses the truth that he himself cannot perceive. Specifically, the adjective \"ocular\" belongs to a semantic field of empirical observation and objective certainty, conventionally suggesting that sight guarantees knowledge. However, Shakespeare deliberately subverts this expectation by demonstrating that perception itself is vulnerable to manipulation. Consequently, the lexical emphasis upon vision ironically distances Othello from genuine understanding, as fabricated appearances replace authentic communication with Desdemona. Rather than seeking truth through honest dialogue, he increasingly entrusts his judgement to Iago's rhetoric, allowing another man's language to construct his reality. His identity therefore becomes mediated through deception instead of personal discernment, illustrating how failed communication erodes both autonomy and trust. Similarly, Ishiguro explores the fragmentation of identity through years of emotional repression between Kathy and Tommy. Tommy's anguished question, \"Why did we waste all that time?\", encapsulates the irreversible consequences of silence. Ishiguro employs the interrogative form to transform the confession into an expression of regret rather than revelation, emphasising that communication arrives only after its power to alter events has disappeared. Moreover, the verb \"waste\" belongs to a semantic field of loss and irreversibility, conventionally denoting something valuable that has been permanently squandered. Within this context, however, it extends beyond time itself to encompass the emotional opportunities forfeited through years of mutual restraint. Whereas Shakespeare demonstrates how identity can be corrupted through deceptive language imposed from outside, Ishiguro illustrates how identity may equally be diminished by silence imposed from within. Ultimately, both authors suggest that communication is not merely a means of expressing identity but the very mechanism through which it is preserved or destroyed.",
+  "paragraph_count": 1,
+  "approximate_word_count": 336,
+  "stated_length_in_examples_md": "paragraph, 336 words",
+  "quotations": [
+    "ocular proof.",
+    "ocular",
+    "Why did we waste all that time?",
+    "waste"
+  ],
+  "quotations_found_in_source": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "ocular proof.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "ocular",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "Why did we waste all that time?",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "waste",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    }
+  ],
+  "quotation_count": 4,
+  "quotations_verified_true": 0,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 4,
+  "spelling_variety": "British",
+  "examples_md_lines": {
+    "header": "380-386",
+    "paragraph": "388",
+    "move_map": "390-404"
+  },
+  "source_file_lines": "Examples.KD.md: L1429-1433 (Pairing 3, Output C)",
+  "supplementary": null,
+  "notes": [
+    "NO source extract exists in examples.md for this example; quotations cannot be checked here (null).",
+    "examples.md itself states the Never Let Me Go quotation (\"Why did we waste all that time?\") was written from memory for a task without citations and has not been verified; a web search did not confirm it (examples.md section 10 and 11).",
+    "The Othello quotation \"ocular proof\" matches the list stored with Pairing 3 (L1365-1395), but that list was itself written from memory.",
+    "examples.md edit: 'Prompt:' label removed. Otherwise verbatim."
+  ]
+}

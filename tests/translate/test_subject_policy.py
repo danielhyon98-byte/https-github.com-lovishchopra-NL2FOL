@@ -76,6 +76,7 @@ def test_apply_subject_policy_identity_cases():
     assert apply_subject_policy(allowed, resolve_profile("English A: Literature")) is allowed
     ineligible = decide_eligibility(make_claim(claim_role="interpretation"))
     assert apply_subject_policy(ineligible, resolve_profile("Physics")) is ineligible
-    downgraded = apply_subject_policy(decide_eligibility(make_claim(claim_role="quantitative", claim_text="x = 15")), resolve_profile("History"))
+    # History now allows exact date/figure consistency checks (History pack); Philosophy stays argument-only.
+    downgraded = apply_subject_policy(decide_eligibility(make_claim(claim_role="quantitative", claim_text="x = 15")), resolve_profile("Philosophy"))
     assert downgraded.eligibility_class is C.NOT_ELIGIBLE_OTHER and downgraded.route_to == route_for(C.NOT_ELIGIBLE_OTHER) == "unresolved"
     assert downgraded.reasons[:-1] == list(decide_eligibility(make_claim(claim_role="quantitative", claim_text="x = 15")).reasons)

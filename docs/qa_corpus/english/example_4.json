@@ -1,0 +1,164 @@
+{
+  "example_id": 4,
+  "form": "first-person prose, treated as unseen; deliverable: essay introduction (thesis) and one body paragraph",
+  "status_label": "[S] Selected",
+  "text_title": "unseen story opening narrated by a boy after a priest's death (the annotation identifies it as the opening of James Joyce's \"The Sisters\"; the answer never names author or work)",
+  "author": "the writer",
+  "prompt": "How does the writer use style, tone and technique to enhance the dramatic effect of the writing? (Assume you don't know anything about the text or author.)",
+  "source_extract": null,
+  "model_answer": "The writer creates dramatic effect by presenting the death of Father Flynn through a progressively unsettling combination of restrained narrative style, ambiguous tone, and psychologically disturbing imagery. Rather than revealing the significance of the death directly, the passage forces the reader to reconstruct its meaning through the narrator's observations, the evasive conversation of the adults, and his increasingly disturbing imagination. The controlled first-person narration initially creates an atmosphere of quiet curiosity, but this gradually develops into fear and psychological unease. Through the semantic field of death and paralysis, the repetition of disturbing imagery, and the contrast between the narrator's outward composure and inward agitation, the writer transforms an apparently ordinary death into an experience of profound psychological tension.\n\nThis psychological unease intensifies through the narrator's fixation on the word \"paralysis,\" which becomes a linguistic and symbolic representation of the atmosphere surrounding Father Flynn's death. The narrator explains that \"Every night as I gazed up at the window I said softly to myself the word paralysis.\" The repetition of \"paralysis\" functions as a lexical motif, transforming an ordinary medical term into something increasingly ominous through repeated association. The adverb \"softly\" creates an almost ritualistic quality, as though the narrator is performing an incantation, while the first-person construction emphasises his private psychological involvement with the concept. Crucially, the narrator admits that the word \"had always sounded strangely in my ears,\" comparing it to \"gnomon\" and \"simony.\" This use of auditory imagery and semantic association demonstrates that the narrator experiences language almost physically; words possess sounds and emotional qualities independent of their literal meanings. The simile comparing \"paralysis\" to \"gnomon\" and \"simony\" initially places the word within the semantic field of religious and intellectual education, but the narrator then transforms it into something far more sinister: \"the name of some maleficent and sinful being.\" The adjective \"maleficent\" carries connotations of deliberate evil, while \"sinful\" introduces a religious semantic field of guilt, corruption, and moral transgression. Through this semantic shift, a medical condition becomes personified as an evil presence. The abstract noun \"paralysis\" therefore develops symbolic significance: it comes to represent not merely Father Flynn's physical condition but an atmosphere of spiritual and psychological stagnation. The narrator's contradictory response—\"It filled me with fear, and yet I longed to be nearer to it\"—creates an antithesis between repulsion and attraction. This juxtaposition is particularly effective because it reveals the narrator's conflicted fascination with what frightens him. The reader consequently becomes psychologically implicated in the same tension: the \"deadly work\" of paralysis is horrifying, yet the narrator is irresistibly drawn towards it. The writer thus uses semantic development and personification to make an abstract concept increasingly threatening, heightening the dramatic effect through psychological rather than physical danger.",
+  "paragraph_count": 2,
+  "approximate_word_count": 450,
+  "stated_length_in_examples_md": "thesis, 118 words; paragraph, 332 words",
+  "quotations": [
+    "paralysis,",
+    "Every night as I gazed up at the window I said softly to myself the word paralysis.",
+    "paralysis",
+    "softly",
+    "had always sounded strangely in my ears,",
+    "gnomon",
+    "simony.",
+    "paralysis",
+    "gnomon",
+    "simony",
+    "the name of some maleficent and sinful being.",
+    "maleficent",
+    "sinful",
+    "paralysis",
+    "It filled me with fear, and yet I longed to be nearer to it",
+    "deadly work"
+  ],
+  "quotations_found_in_source": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "paralysis,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "Every night as I gazed up at the window I said softly to myself the word paralysis.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "paralysis",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "softly",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "had always sounded strangely in my ears,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "gnomon",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "simony.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "paralysis",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "gnomon",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "simony",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "the name of some maleficent and sinful being.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "maleficent",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "sinful",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "paralysis",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "It filled me with fear, and yet I longed to be nearer to it",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "deadly work",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    }
+  ],
+  "quotation_count": 16,
+  "quotations_verified_true": 0,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 16,
+  "spelling_variety": "British",
+  "examples_md_lines": {
+    "header": "410-417",
+    "introduction": "419-421",
+    "body_2": "423-425"
+  },
+  "source_file_lines": "Examples.KD.md: prompt L644; introduction L648; body 2 L652 (Essay 19)",
+  "supplementary": null,
+  "notes": [
+    "model_answer joins two non-contiguous parts of a five-body essay: the introduction (first paragraph) and body 2 (second paragraph).",
+    "NO source extract exists in examples.md; quotations cannot be checked here (null).",
+    "Header 'Don't copy': the paragraph opens 'This psychological unease...', pointing back to the paragraph before it; a standalone paragraph needs its own point (P22)."
+  ]
+}

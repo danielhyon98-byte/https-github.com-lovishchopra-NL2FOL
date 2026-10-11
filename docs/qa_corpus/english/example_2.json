@@ -1,0 +1,255 @@
+{
+  "example_id": 2,
+  "form": "play and novel; deliverable: comparative outline, then comparative essay",
+  "status_label": "outline (2b) [A] Approved; first essay (2c) [C] Corrected - not reproduced; final essay (2d) [A] Approved. model_answer below is the final essay 2d.",
+  "text_title": "Othello and Frankenstein",
+  "author": "William Shakespeare and Mary Shelley",
+  "prompt": "Common themes which exist for both _Othello_ and _Frankenstein_, and how literary devices can be connected to semantic field. The requested structure was:\n\n- DIE analysis on _Othello_\n- Comparative transition\n- DIE analysis on _Frankenstein_\n- Comparative link discussing how both authors use differing techniques to convey similar messages or similar techniques to deliver differing messages.",
+  "source_extract": "**From _Othello_ by William Shakespeare**\n\n\"O, beware, my lord, of jealousy! / It is the green-eyed monster which doth mock / The meat it feeds on.\"\n\n\"an old black ram / Is tupping your white ewe.\"\n\n\"must die, else she'll betray more men.\"\n\n\"I have done the state some service, and they know't — / No more of that. I pray you, in your letters, / When you shall these unlucky deeds relate, / Speak of me as I am; nothing extenuate, / Nor set down aught in malice. Then must you speak / Of one that loved not wisely but too well.\"\n\n**From _Frankenstein_ by Mary Shelley**\n\n\"Learn from me, if not by my precepts, at least by my example, how dangerous is the acquirement of knowledge.\"\n\n\"I am malicious because I am miserable.\"\n\n\"pursued nature to her hiding places.\"\n\n\"the beauty of the dream vanished, and breathless horror and disgust filled my heart.\"",
+  "model_answer": "In both _Othello_ and _Frankenstein_, Shakespeare and Shelley explore how obsessive insecurity and social alienation gradually corrupt identity and transform individuals into destructive figures. However, while Shakespeare presents psychological collapse through the corrosive effects of jealousy and racial anxiety within Venetian society, Shelley presents destruction through intellectual obsession and existential isolation. Through predatory imagery, semantic distortions, and representations of monstrosity, both authors demonstrate that violence emerges not from innate evil, but from the interaction between vulnerable individuals and the oppressive structures surrounding them.\n\nBoth Shakespeare and Shelley initially present obsession as a psychologically consuming force that destroys rational identity from within. In _Othello_, this is encapsulated in Iago's warning to \"beware, my lord, of jealousy: / It is the green-eyed monster which doth mock / The meat it feeds on.\" Through the use of extended metaphor and bestial imagery, Shakespeare externalizes jealousy into a predatory organism capable of consuming its victim psychologically. Specifically, the noun \"monster\" is central to the metaphor's operation. Conventionally, monsters symbolize unnatural and irrational entities existing beyond human control; however, Shakespeare metaphorically applies the term to jealousy itself, transforming an abstract emotion into a living force of corruption. The semantic field of predation is sustained through the verb \"feeds,\" which constructs jealousy as parasitic and carnivorous. Furthermore, the phrase \"mock the meat it feeds on\" intensifies Othello's dehumanization. The noun \"meat\" reduces him linguistically to passive flesh or prey, while the verb \"mock\" implies sadistic amusement, suggesting that jealousy humiliates as it destroys. Effectively, Shakespeare collapses the distinction between emotion and monstrosity, presenting jealousy as a force that strips Othello of rational autonomy. Similarly, Shelley presents obsession in _Frankenstein_ as psychologically corrosive; however, unlike Shakespeare's focus on emotional manipulation, Shelley locates destruction within intellectual ambition. Victor warns Walton to \"Learn from me, if not by my precepts, at least by my example, how dangerous is the acquirement of knowledge.\" Shelley frames Victor's confession through a didactic narrative voice that transforms personal suffering into moral instruction. Conventionally, \"knowledge\" carries Enlightenment connotations of progress and rational advancement; however, Shelley semantically destabilizes these associations through the adjective \"dangerous,\" reconstructing knowledge as moral transgression rather than enlightenment. The noun \"acquirement\" is equally significant because of its transactional connotations, implying greed and possession rather than wisdom. While Shakespeare presents obsession as emotional and externally manipulated, Shelley presents it as self-generated through intellectual narcissism. Nevertheless, both authors ultimately depict obsession as a force that consumes identity and isolates the individual from morality and reason.\n\nFurthermore, both Shakespeare and Shelley demonstrate how social alienation constructs monstrosity through dehumanizing language and exclusion. In _Othello_, Shakespeare presents racial prejudice as something that linguistically transforms Othello into an outsider long before his psychological deterioration occurs. This is evident when Iago describes him as \"an old black ram / Is tupping your white ewe.\" Through zoomorphic imagery and racial symbolism, Shakespeare reduces Othello to primitive animalistic sexuality. Specifically, the noun \"ram\" carries connotations of aggression, brute instinct, and uncontrolled lust, while the adjective \"black\" functions within a semantic opposition against \"white,\" where whiteness conventionally symbolizes innocence and purity within Venetian ideology. The vulgar verb \"tupping\" further strips the relationship of emotional legitimacy and reframes it as violent animal behavior. Effectively, Shakespeare exposes how racist discourse constructs Othello's identity through dehumanizing rhetoric that he eventually internalizes himself. Similarly, Shelley presents alienation as the catalyst for violence through the Creature's declaration: \"I am malicious because I am miserable.\" Through parallel syntax and aphoristic structure, Shelley condenses the Creature's psychological condition into a direct causal statement. Conventionally, \"malicious\" implies inherent evil and deliberate cruelty; however, Shelley destabilizes this assumption through the conjunction \"because,\" which reframes violence as the consequence of suffering rather than its origin. The semantic symmetry between \"malicious\" and \"miserable\" creates structural balance, suggesting that monstrosity itself is socially manufactured through rejection and isolation. While Shakespeare critiques racial prejudice within civilization, Shelley examines existential alienation through humanity's fear of physical difference. However, both authors ultimately argue that societies create the very violence they later condemn by first denying individuals dignity, acceptance, and humanity.\n\nFinally, both Shakespeare and Shelley present the collapse of identity as something tragically self-perpetuating, where the protagonists become agents of the destructive ideologies that initially oppressed them. In _Othello_, Shakespeare demonstrates this transformation when Othello declares that Desdemona \"must die, else she'll betray more men.\" Through modal certainty and possessive patriarchal rhetoric, Shakespeare reveals how thoroughly Othello has internalized the ideology of masculine honor and sexual control. Specifically, the modal verb \"must\" eliminates moral ambiguity and transforms murder into perceived necessity, while the verb \"betray\" reframes Desdemona not as an individual but as a symbolic threat to male authority. Semantically, Othello's language mirrors the absolutist logic originally imposed upon him by Venetian society and Iago's manipulation. Similarly, Shelley presents Victor Frankenstein as consumed by the ideology of ambition that initially motivated him. Victor admits that he \"pursued nature to her hiding places.\" Through personification and semantic fields of invasion and conquest, Shelley transforms scientific inquiry into violent domination. The verb \"pursued\" suggests obsessive pursuit and predatory fixation, while \"hiding places\" personifies nature as something violated and exposed against its will. Shelley therefore critiques Enlightenment scientific ambition as inherently intrusive and destructive. While Othello becomes the instrument of patriarchal and racial paranoia, Victor becomes the instrument of unchecked intellectual hubris. In both texts, the protagonists ultimately embody the destructive systems that first corrupted them, demonstrating how oppressive ideologies reproduce violence through those most vulnerable to them.\n\nUltimately, Shakespeare and Shelley both explore how obsession and alienation destabilize identity and produce destruction through the interaction between individual vulnerability and societal pressure. However, while Shakespeare emphasizes psychological manipulation, racial insecurity, and patriarchal ideology within a rigid social order, Shelley critiques intellectual ambition and humanity's fear of difference through philosophical and Gothic frameworks. Through differing techniques—predatory metaphor, racialized imagery, confessional narration, and semantic distortions surrounding knowledge and monstrosity—both authors demonstrate that violence is not innate, but constructed through systems of exclusion, obsession, and moral corruption.",
+  "paragraph_count": 5,
+  "approximate_word_count": 996,
+  "stated_length_in_examples_md": "outline, 1,110 words; essay, 996 words",
+  "quotations": [
+    "beware, my lord, of jealousy: / It is the green-eyed monster which doth mock / The meat it feeds on.",
+    "monster",
+    "feeds,",
+    "mock the meat it feeds on",
+    "meat",
+    "mock",
+    "Learn from me, if not by my precepts, at least by my example, how dangerous is the acquirement of knowledge.",
+    "knowledge",
+    "dangerous,",
+    "acquirement",
+    "an old black ram / Is tupping your white ewe.",
+    "ram",
+    "black",
+    "white,",
+    "tupping",
+    "I am malicious because I am miserable.",
+    "malicious",
+    "because,",
+    "malicious",
+    "miserable",
+    "must die, else she'll betray more men.",
+    "must",
+    "betray",
+    "pursued nature to her hiding places.",
+    "pursued",
+    "hiding places"
+  ],
+  "quotations_found_in_source": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "beware, my lord, of jealousy: / It is the green-eyed monster which doth mock / The meat it feeds on.",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "monster",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "feeds,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "mock the meat it feeds on",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "meat",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "mock",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "Learn from me, if not by my precepts, at least by my example, how dangerous is the acquirement of knowledge.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "knowledge",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "dangerous,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "acquirement",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "an old black ram / Is tupping your white ewe.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "ram",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "black",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "white,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "tupping",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "I am malicious because I am miserable.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "malicious",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "because,",
+      "found_in_source": true,
+      "found_strict": false,
+      "note": "words match in order; differs only in case, punctuation or line-break marks"
+    },
+    {
+      "quotation": "malicious",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "miserable",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "must die, else she'll betray more men.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "must",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "betray",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "pursued nature to her hiding places.",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "pursued",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    },
+    {
+      "quotation": "hiding places",
+      "found_in_source": true,
+      "found_strict": true,
+      "note": ""
+    }
+  ],
+  "quotation_count": 26,
+  "quotations_verified_true": 26,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 0,
+  "spelling_variety": "American",
+  "examples_md_lines": {
+    "2a_task_and_sources": "140-175",
+    "2b_outline": "177-329",
+    "2c_correction": "331-345",
+    "2d_essay": "347-362",
+    "move_map": "364-378"
+  },
+  "source_file_lines": "Examples.KD.md: prompt L1144-1149; sources L1122-1140; outline L1151-1297; correction L1315; final essay L1317-1325 (also L467-475) (Pairing 1, Essays 14 and 15)",
+  "supplementary": {
+    "outline_2b_status": "[A] Approved",
+    "outline_2b_unit_1": "Theme: The Destructive Nature of Obsessive Ambition / Manipulation of Identity\n\nShared Theme: Both Shakespeare and Shelley explore how identity becomes destabilized through external influence and internal obsession. However, Shakespeare presents this through psychological manipulation and corrosive jealousy, whereas Shelley presents it through intellectual ambition and the transgression of natural limits.\n\n**Othello DIE Analysis**\n\nDevice / Evidence:\n\n- Iago declares: \"O, beware, my lord, of jealousy! / It is the green-eyed monster which doth mock / The meat it feeds on.\"\n\nIdentification of Technique:\n\n- Extended metaphor\n- Bestial imagery\n- Personification\n- Semantic field of consumption and predation\n\nDetailed Analysis:\n\n- The metaphor \"green-eyed monster\" externalizes jealousy into a living predatory force.\n- Specifically, the noun \"monster\" is critical because monsters conventionally represent unnatural, irrational, and destructive entities beyond human control.\n- Shakespeare therefore transforms jealousy from an emotion into an autonomous corrupting organism.\n- The verb \"feeds\" extends the metaphor through a semantic field of predation and consumption.\n- Jealousy metaphorically devours the very person who sustains it, creating cyclical self-destruction.\n- The phrase \"mock the meat it feeds on\" introduces cruel irony: \"mock\" implies sadistic amusement, while \"meat\" reduces Othello to passive flesh or prey.\n- Semantically, Othello's humanity deteriorates linguistically before it collapses psychologically.\n- Shakespeare's intention is to demonstrate how manipulation erodes rational identity from within.\n- The audience recognizes that Othello's tragedy is not simply caused by deception, but by his gradual internalization of Iago's monstrous rhetoric.\n\nEffect on Reader:\n\n- Creates fear surrounding the instability of identity.\n- Encourages the audience to question how masculine honor and insecurity render individuals vulnerable to psychological corruption.\n- Othello becomes both victim and participant in his own destruction.\n\n**Comparative Transition**\n\nSimilarly, Shelley presents obsession as a force that consumes identity; however, unlike Shakespeare's psychological monster of jealousy, Shelley's danger emerges from intellectual hubris and humanity's desire to exceed natural boundaries.\n\n**Frankenstein DIE Analysis**\n\nDevice / Evidence:\n\n- Victor describes his ambition: \"Learn from me, if not by my precepts, at least by my example, how dangerous is the acquirement of knowledge.\"\n\nIdentification of Technique:\n\n- Didactic narrative voice\n- Foreshadowing\n- Semantic field of danger and transgression\n- Confessional framing\n\nDetailed Analysis:\n\n- Shelley frames Victor's reflection through a retrospective confessional tone.\n- The imperative verb \"Learn\" positions Victor as a cautionary figure attempting to transform personal suffering into moral instruction.\n- Conventionally, \"knowledge\" carries positive Enlightenment connotations of progress, discovery, and rational advancement.\n- However, Shelley semantically reconstructs \"knowledge\" through the adjective \"dangerous,\" thereby corrupting its traditional association with human improvement.\n- The noun \"acquirement\" is also significant because of its transactional connotations: knowledge becomes something accumulated or possessed greedily rather than responsibly understood.\n- Shelley's semantic field of transgression reframes scientific ambition as moral violation.\n- Furthermore, the phrase \"by my example\" creates structural irony: Victor recognizes his errors only after irreversible catastrophe.\n- Unlike Othello, whose downfall emerges through manipulation by another, Victor engineers his own destruction through intellectual narcissism.\n\nEffect on Reader:\n\n- Shelley encourages readers to question Enlightenment ideals that privileged limitless scientific progress.\n- The audience recognizes that obsession with mastery ultimately alienates Victor from humanity, morality, and emotional responsibility.\n- His identity deteriorates because ambition replaces ethical restraint.\n\n**Comparative Link Statement**\n\nUltimately, both Shakespeare and Shelley depict obsession as a force that destroys individual identity through psychological corruption and moral blindness. However, while Shakespeare uses predatory metaphor and manipulative rhetoric to show how jealousy consumes the self from within, Shelley employs confessional narration and semantic distortions surrounding knowledge to critique the dangers of intellectual ambition. In both texts, the protagonists become trapped by destructive ideologies that transform them into agents of their own ruin.",
+    "outline_2b_unit_2": "Theme: Alienation and the Outsider\n\nPoint: Both texts explore how social exclusion creates psychological instability and violence. However, Shakespeare focuses on racial and cultural otherness within Venetian society, while Shelley examines existential isolation through the Creature's rejection from humanity.\n\n**Othello DIE Analysis**\n\nDevice / Evidence:\n\n- Iago describes Othello as: \"an old black ram / Is tupping your white ewe.\"\n\nIdentification of Technique:\n\n- Animalistic imagery\n- Racial symbolism\n- Semantic field of bestiality and corruption\n- Juxtaposition\n\nDetailed Analysis:\n\n- Shakespeare immediately dehumanizes Othello through zoomorphic imagery.\n- The noun \"ram\" reduces Othello to a primitive sexual animal driven by instinct rather than intellect.\n- Simultaneously, the adjective \"black\" carries racialized connotations of impurity, danger, and moral corruption within Venetian ideology.\n- This is juxtaposed against \"white ewe,\" where \"white\" conventionally symbolizes innocence and purity.\n- The semantic opposition between black/white constructs interracial love as unnatural contamination.\n- Furthermore, the vulgar verb \"tupping\" strips the relationship of emotional legitimacy and reduces it to violent animalistic sexuality.\n- Shakespeare exposes how racist discourse constructs Othello's outsider status linguistically before it manifests socially.\n\nEffect on Reader:\n\n- The audience recognizes how prejudice psychologically isolates Othello.\n- Shakespeare critiques the fragility of social acceptance within hierarchical societies.\n- Othello internalizes these racialized anxieties, contributing to his eventual collapse.\n\n**Comparative Transition**\n\nLikewise, Shelley presents alienation as psychologically destructive; however, whereas Othello is marginalized through racial prejudice, the Creature is excluded because of his physical appearance and unnatural origin.\n\n**Frankenstein DIE Analysis**\n\nDevice / Evidence:\n\n- The Creature laments: \"I am malicious because I am miserable.\"\n\nIdentification of Technique:\n\n- Parallel syntax\n- Causal reasoning\n- Semantic field of suffering and corruption\n- Aphoristic structure\n\nDetailed Analysis:\n\n- Shelley condenses the Creature's psychological condition into a stark declarative sentence.\n- The parallel structure between \"malicious\" and \"miserable\" creates direct causal symmetry.\n- Conventionally, \"malicious\" denotes inherent evil or deliberate cruelty.\n- However, Shelley destabilizes this assumption by linking it causally to \"miserable.\"\n- Semantically, suffering becomes the origin of violence rather than innate monstrosity.\n- The sentence's aphoristic simplicity gives it philosophical authority.\n- Shelley thereby critiques a society that creates the very violence it condemns through exclusion and rejection.\n- Unlike Othello, whose outsider status is socially constructed through racism, the Creature becomes monstrous because humanity persistently denies him compassion.\n\nEffect on Reader:\n\n- Generates sympathy for the Creature despite his violence.\n- Encourages readers to interrogate society's role in manufacturing monstrosity.\n- Shelley reframes evil as a social consequence rather than a natural condition.\n\n**Comparative Link Statement**\n\nUltimately, both Shakespeare and Shelley portray alienation as profoundly destructive, demonstrating how exclusion destabilizes identity and encourages violence. However, Shakespeare focuses on racialized otherness and the corrosive effects of prejudice within society, whereas Shelley presents isolation as an existential condition produced through humanity's fear of difference. Through differing techniques—racialized animal imagery in _Othello_ and philosophical causal syntax in _Frankenstein_—both authors argue that societies often create the very monsters they fear.",
+    "user_correction_2c": "Try again you must have comparative analyses throughout. Point Analysis on one text, then similarly analysis on another and link sentence, followed by another paragraph utilising the same exact structure, and so on.",
+    "first_essay_2c": null,
+    "first_essay_2c_note": "The corrected first essay [C] is not reproduced in examples.md; only a contrast table (lines 335-339) and the user's correction (line 343) appear. Do not treat it as a model."
+  },
+  "notes": [
+    "source_extract is NOT a continuous passage: it is the list of eight quotations (four per text) that the source file stored with the task. Quotation checks run against that list.",
+    "Quotation checks found all essay quotations in the stored list at word level. One differs only in punctuation: the essay writes 'beware, my lord, of jealousy: / It is...' where the stored source has 'O, beware, my lord, of jealousy! / It is...' (found_strict=false, found_in_source=true).",
+    "Header 'Don't copy': in body 1 the Frankenstein strand's Effect is folded into the link.",
+    "examples.md edits: outline and source headings set as bold lines; 'Prompt:' label removed from the correction. Otherwise verbatim.",
+    "Markdown markers (_Title_, **bold**) are preserved exactly as they appear in the blockquotes."
+  ]
+}

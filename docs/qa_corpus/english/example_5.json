@@ -1,0 +1,147 @@
+{
+  "example_id": 5,
+  "form": "first-person prose, treated as unseen; deliverable: one body paragraph",
+  "status_label": "[S] Selected",
+  "text_title": "unseen first-person account of a university interview (the annotation identifies it as Sebastian Faulks's Engleby; the answer never names author or work)",
+  "author": "the writer",
+  "prompt": "How does the writer's use of structure, style and tone affect the reader's perception of the narrator in this piece?",
+  "source_extract": null,
+  "model_answer": "The narrator's imagined future further develops this ambiguity by using an imaginative, almost comic style to expose his desire to construct an identity that he does not yet possess. Before experiencing college, he imagines himself \"bicycling off to lectures in the early morning\" and shouting, \"'See you there!'\" to other students, while fantasising that he would \"probably smoke a pipe\" and have \"some quite stern grammar school girl with glasses.\" The repeated modal adverb \"probably\" is significant because it reveals the hypothetical nature of these expectations: the narrator is not recalling experience but inventing a version of himself that he believes belongs at university. The accumulation of imagined details creates a semantic field of conventional academic life —\"lectures,\" \"books,\" \"pipe,\" \"girlfriend\"—but the exaggerated specificity makes the fantasy faintly comic. The imagined \"stern grammar school girl\" in particular seems less like a realistic expectation than a caricature of the sophisticated university student he thinks he ought to become. This suggests that the narrator understands university not through experience but through cultural stereotypes. Structurally, the fantasy is then immediately undermined by the reality of the college room: \"In fact, I didn't like the room I was in that night.\" The discourse marker \"In fact\" functions as a sharp structural correction, collapsing the idealised future into disappointing reality. The contrast between the imagined university and the \"damp,\" \"small\" room therefore exposes the gap between aspiration and experience. The reader consequently becomes sympathetic to the narrator because his fantasies reveal his desire to belong, while simultaneously recognising his social naivety because he attempts to understand an unfamiliar environment through invented clichés.",
+  "paragraph_count": 1,
+  "approximate_word_count": 267,
+  "stated_length_in_examples_md": "paragraph, 267 words",
+  "quotations": [
+    "bicycling off to lectures in the early morning",
+    "'See you there!'",
+    "probably smoke a pipe",
+    "some quite stern grammar school girl with glasses.",
+    "probably",
+    "lectures,",
+    "books,",
+    "pipe,",
+    "girlfriend",
+    "stern grammar school girl",
+    "In fact, I didn't like the room I was in that night.",
+    "In fact",
+    "damp,",
+    "small"
+  ],
+  "quotations_found_in_source": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "bicycling off to lectures in the early morning",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "'See you there!'",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "probably smoke a pipe",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "some quite stern grammar school girl with glasses.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "probably",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "lectures,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "books,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "pipe,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "girlfriend",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "stern grammar school girl",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "In fact, I didn't like the room I was in that night.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "In fact",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "damp,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "small",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    }
+  ],
+  "quotation_count": 14,
+  "quotations_verified_true": 0,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 14,
+  "spelling_variety": "British",
+  "examples_md_lines": {
+    "header": "427-434",
+    "body_2": "436-438"
+  },
+  "source_file_lines": "Examples.KD.md: prompt L744; body 2 L752 (Essay 20)",
+  "supplementary": null,
+  "notes": [
+    "NO source extract exists in examples.md; quotations cannot be checked here (null).",
+    "One quotation nests single quotes inside double quotes: \"'See you there!'\".",
+    "Header 'Don't copy': the opening sentence names the style before the idea (P6)."
+  ]
+}

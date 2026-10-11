@@ -1,0 +1,107 @@
+{
+  "example_id": 7,
+  "form": "poem; deliverable: one body paragraph",
+  "status_label": "[S] Selected",
+  "text_title": "The Long Queen",
+  "author": "Carol Ann Duffy",
+  "prompt": "Write a full essay in my exact analytical style about the idea of female experience.",
+  "source_extract": null,
+  "model_answer": "Duffy further explores female experience through childbirth, presenting motherhood as simultaneously beautiful and physically violent. The poem describes women who \"push till the room screamed scarlet and children / bawled and slithered into their arms, sore flowers.\" The personification of the room as something that \"screamed\" transfers the physical agony of childbirth into the surrounding environment, making the pain appear so intense that it affects the entire room. Similarly, the colour imagery of \"scarlet\" evokes blood, violence and physical trauma, preventing childbirth from being presented as a purely sentimental experience. Most strikingly, Duffy describes the newborn children as \"sore flowers.\" The metaphor creates a juxtaposition between the adjective \"sore\", which connotes pain, injury and physical exhaustion, and the noun \"flowers\", which conventionally connotes beauty, delicacy and new life. The contradictory semantic associations encapsulate the complexity of motherhood: the child can be beautiful while the process of bringing that child into the world is painful. Duffy therefore refuses to simplify female experience into either suffering or happiness. Instead, the oxymoronic quality of \"sore flowers\" captures how opposing experiences can coexist within the same female identity. This is reinforced by the statement that \"No mother bore daughter not named to honour the Queen.\" The negative construction creates universality, while the verb \"honour\" possesses ceremonial and almost religious connotations. Childbirth consequently becomes more than a biological event; it becomes a symbolic act through which one generation of women contributes to the continuation of female identity. Duffy presents motherhood as both physically demanding and culturally significant, ensuring that its contradictions remain central to the representation of female experience.",
+  "paragraph_count": 1,
+  "approximate_word_count": 264,
+  "stated_length_in_examples_md": "paragraph, 264 words",
+  "quotations": [
+    "push till the room screamed scarlet and children / bawled and slithered into their arms, sore flowers.",
+    "screamed",
+    "scarlet",
+    "sore flowers.",
+    "sore",
+    "flowers",
+    "sore flowers",
+    "No mother bore daughter not named to honour the Queen.",
+    "honour"
+  ],
+  "quotations_found_in_source": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "push till the room screamed scarlet and children / bawled and slithered into their arms, sore flowers.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "screamed",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "scarlet",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "sore flowers.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "sore",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "flowers",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "sore flowers",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "No mother bore daughter not named to honour the Queen.",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "honour",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    }
+  ],
+  "quotation_count": 9,
+  "quotations_verified_true": 0,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 9,
+  "spelling_variety": "British",
+  "examples_md_lines": {
+    "header": "453-459",
+    "body_5": "461-463"
+  },
+  "source_file_lines": "Examples.KD.md: prompt L832; body 5 L846 (Essay 22)",
+  "supplementary": null,
+  "notes": [
+    "NO source extract exists in examples.md; quotations cannot be checked here (null).",
+    "Line breaks inside quotations are marked with ' / '.",
+    "The full source essay has six body paragraphs (P14); only body 5 is the model."
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "example_id": 6,
+  "form": "play; deliverable: one body paragraph",
+  "status_label": "[S] Selected",
+  "text_title": "Shangri-La (opening, introducing Bunny)",
+  "author": "Amy Ng",
+  "prompt": "How does the playwright use action and dialogue to introduce the character in this extract?",
+  "source_extract": null,
+  "model_answer": "As the voices of GRAN and DAD intrude, Ng intensifies Bunny's psychological tension through the use of disembodied, authoritarian dialogue that exposes the degree to which she has internalised prohibition and shame. The voices—\"Don't touch those!\", \"I'll whip you if you ever go up the mountain,\" and \"The spirit paths are for men\"—arrive as acousmatic commands, severed from physical bodies yet still exerting authority. Ng's deployment of the imperative mood forms a semantic field dominated by prohibition, while the threat \"I'll whip you\" introduces violent modality that reveals fear as a central mechanism of socialisation. The exclusionary line, \"The spirit paths are for men,\" uses gendered semantics to reinforce patriarchal gatekeeping; \"men\" becomes a symbolic boundary-marker, while \"spirit paths\" elevates the restriction from a practical rule to a cosmic law. The repetitive alternation of the voices creates a choric effect, overwhelming Bunny and transforming memory into a present-tense psychological assault. By staging the voices as auditory ghosts, Ng emphasises that Bunny's oppression is not merely historical but continuous, echoing within her as a set of reflexive, inherited constraints that still shape her adult behaviour.",
+  "paragraph_count": 1,
+  "approximate_word_count": 184,
+  "stated_length_in_examples_md": "paragraph, 184 words",
+  "quotations": [
+    "Don't touch those!",
+    "I'll whip you if you ever go up the mountain,",
+    "The spirit paths are for men",
+    "I'll whip you",
+    "The spirit paths are for men,",
+    "men",
+    "spirit paths"
+  ],
+  "quotations_found_in_source": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "quotation_checks": [
+    {
+      "quotation": "Don't touch those!",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "I'll whip you if you ever go up the mountain,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "The spirit paths are for men",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "I'll whip you",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "The spirit paths are for men,",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "men",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    },
+    {
+      "quotation": "spirit paths",
+      "found_in_source": null,
+      "found_strict": null,
+      "note": "no source extract stored in examples.md; cannot be checked here"
+    }
+  ],
+  "quotation_count": 7,
+  "quotations_verified_true": 0,
+  "quotations_verified_false": 0,
+  "quotations_unverifiable": 7,
+  "spelling_variety": "British",
+  "examples_md_lines": {
+    "header": "440-447",
+    "body_2": "449-451"
+  },
+  "source_file_lines": "Examples.KD.md: prompt L345; body 2 L353 (Essay 11)",
+  "supplementary": null,
+  "notes": [
+    "NO source extract exists in examples.md; quotations cannot be checked here (null).",
+    "Header: at 184 words it is about half the target length (P13); its last sentence serves as both Effect and Link.",
+    "examples.md section 11 notes the source texts for Essays 8-12 survive only as fragments in the source file."
+  ]
+}
