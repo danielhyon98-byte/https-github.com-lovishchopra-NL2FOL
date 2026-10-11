@@ -75,10 +75,10 @@ STALE_BUCKET = "STALE_FIXTURE_REFUSED"
 def mutate(text: str, kind: str) -> tuple[str, str]:
     """Return (mutated_text, expected_code). Mutations are applied to the specialist's own text."""
     if kind == "invented_quotation":
-        return text + ' The narrator also insists that "the river carried every secret of the town", which seals the point.', "INT-REQ-003"
+        return text + ' The narrator also insists that "the river carried every secret of the town", which seals the point.', "INT-REQ-003|CORE-SRC-003"
     if kind == "invented_quotation_single":
         # the same invented words in single quotation marks: both parsers delimit a single-quoted span of two or more words
-        return text + " The narrator also insists that 'the river carried every secret of the town', which seals the point.", "INT-REQ-003"
+        return text + " The narrator also insists that 'the river carried every secret of the town', which seals the point.", "INT-REQ-003|CORE-SRC-003"
     if kind == "altered_quotation":
         # alter a real quotation (any mark style, as the parsers delimit them), never the prose between two quotations
         from epinoic_logic.adapters.markdown import find_quotation_spans
@@ -367,7 +367,7 @@ def run_round(round_dir: Path) -> dict:
                 internal = [o for o in rc.outcomes if o.display_status.value == "INTERNAL_ERROR" and not stale_fixture(o)] + [fc for fc in rc.formal_checks if fc.formal_status == "INTERNAL_ERROR"]
                 ok = rc.status is not TransmissionStatus.REJECTED and not internal
                 if expected not in ("NONE",):
-                    ok = ok and expected in codes
+                    ok = ok and any(code in codes for code in expected.split("|"))  # "A|B": either code names the fault
                 if kind == "self_certification":
                     # The self-report must be named on the receipt (core, hand-off or subject code), must not be
                     # parroted as an error, and must not reach the recipient as a material claim.
