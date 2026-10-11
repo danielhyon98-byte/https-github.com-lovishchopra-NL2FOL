@@ -24,6 +24,9 @@ ROLE_CONTRACTS: dict[str, frozenset[AgentRole]] = {
     "work_plan": frozenset({AgentRole.ROUTER}),
     "task_request": frozenset({AgentRole.ROUTER}),
     "specialist_report": frozenset({AgentRole.SPECIALIST}),
+    # A delivered report forwarded by the router to another agent (a hand-off). The payload is the report unchanged;
+    # the channel checks it against what was delivered (INT-HANDOFF-013), so the router cannot alter a report in transit.
+    "specialist_report_forward": frozenset({AgentRole.ROUTER}),
     "verification_result": frozenset({AgentRole.VERIFIER}),
     "synthesis": frozenset({AgentRole.COMBINATOR}),
     "integrity_report": frozenset({AgentRole.OVERSEER, AgentRole.VERIFIER}),

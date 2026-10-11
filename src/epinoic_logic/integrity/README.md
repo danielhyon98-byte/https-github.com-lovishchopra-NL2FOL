@@ -47,13 +47,14 @@ emits from `run_integrity_checks`.
 | INT-ENV-005 | warning | idempotency key reused by another message with the same payload (retry) |
 | INT-ENV-006 | error | envelope unsigned or signature invalid (log constructed with `signing_key`) |
 | INT-ENV-007 | error | sender role may not issue this contract (`ROLE_CONTRACTS`), e.g. a specialist sending `verification_result/1.0` |
+| | | `specialist_report_forward/1.0` is the router's contract for handing a delivered report to another agent unchanged; only a router may send it, and the channel checks the payload against the delivery (INT-HANDOFF-013) |
 | INT-ENV-008 | error | envelope header does not match the payload it carries (`bind_payload`) |
 | INT-ENV-009 | error | message belongs to another request than the log (`MessageLog(request_id=...)`) |
 | INT-ENV-010 | error | reply from a role/agent the replied-to message was not addressed to |
 | INT-ENV-011 | error | idempotency key reused with a different payload |
 | INT-HANDOFF-001 | error | report answers another request/task than the plan |
 | INT-HANDOFF-002 | error | agent not selected by the router |
-| INT-HANDOFF-003 | error | report subject differs from the plan |
+| INT-HANDOFF-003 | error | report subject differs from the subject the plan assigns that agent (`agent_subjects`, else the plan's subject) |
 | INT-HANDOFF-004 | error | citation outside the retrieval scope (report claims or supplied texts, synthesized evidence refs, or formalized grounding) |
 | INT-HANDOFF-005 | warning | report created after the plan deadline (instants compared) |
 | INT-HANDOFF-006 | info | agent self-reported a verification status or eligibility; advisory, ignored |
@@ -63,6 +64,7 @@ emits from `run_integrity_checks`.
 | INT-HANDOFF-010 | warning | report task_type differs from the plan |
 | INT-HANDOFF-011 | error | report course_level differs from the plan (both set and not 'unknown') |
 | INT-HANDOFF-012 | error | a claim's provenance (request, task, agent, subject, task_type, level) differs from its report |
+| INT-HANDOFF-013 | error | the router forwarded a report that was never delivered on this channel, or whose payload differs from the delivered one (altered in transit); the forward is not transmitted |
 | INT-HANDOFF-016 | warning | synthesis timestamped before a report it cites |
 | INT-HANDOFF-017 | warning | synthesis created after the plan deadline |
 | INT-STALE-001 | error | result produced for a different representation of the claim |

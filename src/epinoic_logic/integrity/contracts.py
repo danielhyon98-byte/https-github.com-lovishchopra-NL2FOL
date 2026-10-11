@@ -202,6 +202,10 @@ class WorkPlan(BaseModel):
     deadline_at: Optional[str] = Field(default=None, description="RFC 3339 timestamp with explicit offset or Z")
     budgets: dict[str, int] = Field(default_factory=dict)
     plan_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64, description="sha256 of the canonical plan without this field")
+    agent_subjects: dict[str, str] = Field(default_factory=dict, description=(
+        "subject served by a selected agent when it differs from the plan's subject (a History specialist consulted on a "
+        "Literature task): the channel addresses that agent's requests, parses its reports and runs the integrity packs "
+        "through that subject's branch, and INT-HANDOFF-003 compares the report against that subject"))
 
     @field_validator("deadline_at")
     @classmethod
@@ -210,6 +214,11 @@ class WorkPlan(BaseModel):
 
     @model_validator(mode="after")
     def _digest(self) -> "WorkPlan":
+        unknown = sorted(set(self.agent_subjects) - set(self.selected_agent_ids))
+        if unknown:
+            raise ValueError(f"agent_subjects names agents the plan did not select: {unknown}")
+        if any(not s.strip() or len(s) > 128 for s in self.agent_subjects.values()):
+            raise ValueError("agent_subjects values must be non-empty subject names of at most 128 characters")
         if self.plan_sha256 is not None and self.plan_sha256 != plan_digest(self):
             raise ValueError("plan_sha256 does not match the plan")
         return self
@@ -218,6 +227,8 @@ class WorkPlan(BaseModel):
 def plan_digest(plan: WorkPlan) -> str:
     data = plan.model_dump(mode="json", exclude_none=True)
     data.pop("plan_sha256", None)
+    if not data.get("agent_subjects"):
+        data.pop("agent_subjects", None)  # single-subject plans keep the digest they always had
     return sha256_hex(canonical_json(data))
 
 

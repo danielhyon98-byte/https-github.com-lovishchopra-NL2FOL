@@ -132,6 +132,9 @@ _FROM_MEMORY_RE = re.compile(
     r"\b(?:from (?:memory|recollection)|as I (?:recall|remember)|I recall|if memory serves|quoting from memory|recalled from memory)\b",
     re.IGNORECASE,
 )
+_QUOTE_WORD_RE = re.compile(r"\bquot(?:e|es|ed|ing|ation|ations)\b", re.IGNORECASE)
+#: A from-memory label that concerns dates or figures (the History register) and names no quotation.
+_DATES_FIGURES_RE = re.compile(r"\b(?:dates?|figures?|statistics|numbers|years?|percentages?)\b", re.IGNORECASE)
 _FIRST_PERSON_RE = re.compile(r"\b(?:I|[Ww]e|[Mm]y|[Oo]ur|[Mm]e|[Uu]s)\b")
 _ROMAN_NUMERAL_RE = re.compile(r"\b(?:Act|Part|Book|Scene|Chapter|Vol\.?|Volume|Section|Canto|Stanza)\s+[IVXL]+\b")
 # -ise/-ize and -yse/-yze (analyse/analyze) families; inflections included.
@@ -324,13 +327,12 @@ def citation_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...
 
 
 def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-SRC-003: the answer says a quotation is from memory."""
+    """ES-SRC-003: the answer says a quotation is from memory. A from-memory label that
+    concerns dates or figures and names no quotation is not an English source finding."""
     out: list[StructuralFinding] = []
     for para in paragraphs:
-        if para.kind == "meta":
-            continue  # meta-text is reported once, by ES-META-001
         for sentence in para.sentences:
-            if _FROM_MEMORY_RE.search(sentence.text):
+            if _FROM_MEMORY_RE.search(sentence.text) and (sentence.quotations or _QUOTE_WORD_RE.search(sentence.text) or not _DATES_FIGURES_RE.search(sentence.text)):
                 out.append(_finding(
                     "ES-SRC-003", "warning",
                     f"paragraph {para.index}, sentence {sentence.index} quotes from memory; such quotations are "
@@ -381,7 +383,7 @@ def meta_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -
         if para.kind == "meta":
             out.append(_finding(
                 "ES-META-001", "warning",
-                f"paragraph {para.index} is meta-text ('{truncate(para.text, _EXCERPT_CHARS)}'): a self-certification or "
+                f"paragraph {para.index} is meta-text ('{truncate(para.text, _EXCERPT_CHARS)}'): a note about the text, a self-certification or a "
                 "narrated check is not analysis, provides no evidence and plays no part in verification",
             ))
             continue

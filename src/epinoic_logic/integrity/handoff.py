@@ -26,8 +26,9 @@ def check_report_against_plan(plan: WorkPlan, report: SpecialistReport) -> list[
         f.append(IntegrityFinding(code="INT-HANDOFF-001", severity="error", message=f"report {report.report_id} answers request/task ({report.request_id}/{report.task_id}) but the plan is ({plan.request_id}/{plan.task_id})", **ids))
     if report.agent_id not in plan.selected_agent_ids:
         f.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"agent {report.agent_id} was not selected by the router for this task (selected: {plan.selected_agent_ids})", **ids))
-    if report.subject.strip().lower() != plan.subject.strip().lower():
-        f.append(IntegrityFinding(code="INT-HANDOFF-003", severity="error", message=f"report subject {report.subject!r} differs from planned subject {plan.subject!r}", **ids))
+    planned_subject = plan.agent_subjects.get(report.agent_id, plan.subject)
+    if report.subject.strip().lower() != planned_subject.strip().lower():
+        f.append(IntegrityFinding(code="INT-HANDOFF-003", severity="error", message=f"report subject {report.subject!r} differs from planned subject {planned_subject!r} for agent {report.agent_id}", **ids))
     if report.task_type != plan.task_type:
         f.append(IntegrityFinding(code="INT-HANDOFF-010", severity="warning", message=f"report task_type {report.task_type!r} differs from planned {plan.task_type!r}", **ids))
     if plan.course_level not in (None, "unknown") and report.course_level not in (None, "unknown") and report.course_level != plan.course_level:

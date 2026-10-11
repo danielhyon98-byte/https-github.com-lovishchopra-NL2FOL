@@ -14,7 +14,17 @@ specialist ──respond()──► SpecialistReport in an envelope replying to 
                     cross-agent consistency (contradictions with claims already transmitted)
             ──► router receives report + TransmissionReceipt, or a REJECTED receipt and no report
 agent ──relay()──► another agent (report or synthesis) with envelope, ledger and consistency checks
+router ──relay()──► peer specialist: a DELIVERED report forwarded unchanged (`specialist_report_forward/1.0`);
+            the channel checks the forward against the delivery (INT-HANDOFF-013: never delivered / altered in transit)
 ```
+
+Several subjects on one task. A plan may consult a specialist of another subject (a History
+specialist giving context for a Literature task): `WorkPlan.agent_subjects` names that agent's
+subject, and the channel addresses its requests, parses its raw text and runs the integrity
+packs through that subject's branch while the ledger, the hand-off checks and the cross-agent
+consistency pool stay shared. The peer's forwarded report is supplied to the requesting agent as
+a document (`peer:<task>`), so its quotations of the peer are checked like any other quotation
+and an altered citation of a colleague reaches the router as an error finding (INT-REQ-003) naming the claim.
 
 | Component | Role |
 | --- | --- |

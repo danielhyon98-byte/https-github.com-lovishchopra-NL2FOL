@@ -18,6 +18,9 @@ from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.translate.contracts import SuppliedText
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_arena import load_items  # noqa: E402
+
 KEY = b"arena-stress-key-0123456789abcdefg"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
 
@@ -36,7 +39,15 @@ def pct(xs, p):
 
 
 def load(round_dir: Path):
-    return [json.loads(p.read_text()) for p in sorted((round_dir / "specialists").glob("*.json"))]
+    """Specialist items; peer-dependent tasks are replayed with their peer's report supplied as a document, as the hub
+    would have delivered it, so the stress figures cover the cross-subject exchange too."""
+    items = load_items(round_dir / "specialists")
+    by_id = {it["task_id"]: it for it in items}
+    for it in items:
+        peer = it.get("peer_of")
+        if peer and peer in by_id:
+            it["supplied_texts"] = [*it.get("supplied_texts", []), {"document_id": f"peer:{peer}", "title": f"{by_id[peer]['agent_id']} report relayed through the hub", "author": by_id[peer]["agent_id"], "text": by_id[peer]["response_text"]}]
+    return items
 
 
 def one_cycle(hub: RouterHub, item: dict, i: int) -> tuple[str, float]:

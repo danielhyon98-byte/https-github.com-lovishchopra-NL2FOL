@@ -71,6 +71,7 @@ from ...ir.schema import SourceRef
 from ...translate.common import utc_now_rfc3339
 from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
+from ..markdown import is_note_sentence, is_self_certification
 from ..sources import check_excerpt, strip_trailing_punctuation, word_count
 
 __all__ = [
@@ -270,7 +271,10 @@ def is_meta_block(block: str) -> bool:
     s = block.strip()
     if not s or _block_quotations(s) or word_count(s) > _MAX_META_WORDS:
         return False
-    return bool(META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s))
+    if META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s):
+        return True
+    sentences = split_sentences(s)  # a block that is only notes about the text (from-memory label, self-certification)
+    return bool(sentences) and all(is_note_sentence(x) for x in sentences)
 
 
 def is_list_block(block: str) -> bool:
@@ -449,9 +453,13 @@ def parse_response(
                 continue  # lists propose evidence only
             if para.kind == "body" and sentence.index == 1:
                 continue  # the point is inserted once its supports are known
-            if quote_ids and not _ALPHA_RE.search(strip_quotations(sentence.text)):
+            if quote_ids and not _ALPHA_RE.search(strip_quotations(sentence.text).replace("[quotation]", "")):
                 continue  # a sentence that is nothing but a quotation is already the evidence claim; no interpretation to propose
             sid = f"p{para.index}-s{sentence.index:02d}"
+            if not quote_ids and is_note_sentence(sentence.text):
+                add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=point_id,
+                    advisory_verification_status="self-certified in the response text" if is_self_certification(sentence.text) else None)
+                continue  # a label about the text (from-memory note, self-certification) is recorded but is not part of the argument
             if para.kind == "thesis":
                 pending_thesis.append((sid, sentence.text, quote_ids))
             elif para.kind == "conclusion":

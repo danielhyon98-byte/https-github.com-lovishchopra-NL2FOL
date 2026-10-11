@@ -100,6 +100,10 @@ class TranslatorChannel:
             registry = default_registry()
         self.registry = registry
         self.branch, self.profile = registry.for_subject(plan.subject)
+        # An agent the plan assigns another subject (a History specialist consulted on a Literature task) is served by
+        # that subject's branch: its requests carry that subject, its raw text is parsed by that branch's adapter and its
+        # reports run through that branch's packs. Everything else on the channel (ledger, pool, hand-off) is shared.
+        self._agent_branches = {aid: registry.for_subject(subj) for aid, subj in plan.agent_subjects.items()}
         self.plan = plan
         self.key = signing_key
         self.key_id = key_id
@@ -114,12 +118,19 @@ class TranslatorChannel:
         self.receipts: list[TransmissionReceipt] = []
         self._seen_payloads: dict[str, str] = {}             # payload hash -> first message id
 
+    def _branch_for(self, agent_id: Optional[str]):
+        """(branch, profile) serving ``agent_id``: its own subject's branch when the plan assigns one, else the task's."""
+        return self._agent_branches.get(agent_id or "", (self.branch, self.profile))
+
+    def _subject_for(self, agent_id: Optional[str]) -> str:
+        return self.plan.agent_subjects.get(agent_id or "", self.plan.subject)
+
     # ------------------------------------------------------------------ requests
     def request(self, from_agent_id: str, to_agent_id: str, user_input: str, supplied_texts: list[SuppliedText] = (),
                 *, items=None, constraints=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
         req = TaskRequest(
             request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id,
-            from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self.plan.subject, course_level=self.plan.course_level,
+            from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self._subject_for(to_agent_id), course_level=self.plan.course_level,
             task_type=self.plan.task_type, user_input=user_input, user_input_sha256=sha256_hex(user_input),
             items=list(items) if items is not None else extract_items(user_input),
             constraints=list(constraints) if constraints is not None else extract_constraints(user_input),
@@ -152,15 +163,17 @@ class TranslatorChannel:
         limits, malformed) yields a REJECTED receipt with INT-REQ-009; nothing raises."""
         req = self.requests.get(request_message_id)
         texts = supplied_texts if supplied_texts is not None else (req.supplied_texts if req else [])
-        parser = self.branch.parser()
+        branch, _profile = self._branch_for(agent_id)
+        parser = branch.parser()
         try:
-            report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self.plan.subject,
+            report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
                                            task_type=self.plan.task_type, supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id)
         except Exception as exc:  # adapter and contract errors become a rejection, never an exception out of the hub
-            return self._unparseable(request_message_id, text, agent_id=agent_id, report_id=report_id, exc=exc)
+            return self._unparseable(request_message_id, text, agent_id=agent_id, report_id=report_id, exc=exc, branch_key=branch.key)
         return self.respond(request_message_id, report)
 
-    def _unparseable(self, request_message_id: str, text: str, *, agent_id: str, report_id: str, exc: BaseException) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+    def _unparseable(self, request_message_id: str, text: str, *, agent_id: str, report_id: str, exc: BaseException, branch_key: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+        branch_key = branch_key or self.branch.key
         payload = {"report_id": report_id, "agent_id": agent_id, "request_id": self.plan.request_id, "task_id": self.plan.task_id,
                    "response_sha256": sha256_text(text), "response_chars": len(text), "parse_error": type(exc).__name__}
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=self.plan.request_id, task_id=self.plan.task_id, sender_agent_id=agent_id,
@@ -168,9 +181,9 @@ class TranslatorChannel:
                            payload=payload, payload_sha256=payload_hash(payload), in_reply_to=request_message_id, created_at=_now())
         findings = self.log.accept(msg)
         findings.append(IntegrityFinding(code="INT-REQ-009", severity="error",
-                                         message=f"response could not be parsed into a report by branch {self.branch.key}: {type(exc).__name__}: {_shape_reason(exc)}",
+                                         message=f"response could not be parsed into a report by branch {branch_key}: {type(exc).__name__}: {_shape_reason(exc)}",
                                          report_ids=[report_id], agent_ids=[agent_id], message_ids=[msg.message_id]))
-        return self._finish(msg, "specialist_to_router", findings, [], [], [])
+        return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=branch_key)
 
     def _revalidate(self, report: SpecialistReport, payload: dict) -> list[IntegrityFinding]:
         """The payload delivered to the recipient must re-validate against the contract;
@@ -187,7 +200,8 @@ class TranslatorChannel:
         quotation the channel already reported (INT-REQ-003): the packs' own grounding
         errors for those claims are kept in the receipt's structural findings but not
         escalated again, so one unverified excerpt yields one error finding."""
-        structural, formal = self.branch.run_packs(report, req.user_input if req else None)
+        branch, _profile = self._branch_for(report.agent_id)
+        structural, formal = branch.run_packs(report, req.user_input if req else None)
         if covered:
             structural = [sf for sf in structural if not (sf.code == "CORE-SRC-001" and sf.claim_ids and set(sf.claim_ids) <= covered)]
         results: list[ConstraintResult] = []
@@ -211,7 +225,7 @@ class TranslatorChannel:
             seen.add(key)
             if sf.code.endswith("-SRC-001") and sf.claim_ids and set(sf.claim_ids) <= covered:
                 continue  # the same unfound excerpt is already an INT-REQ-003 error naming the branch rule
-            findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{self.branch.key}] {sf.code}: {sf.message}", claim_ids=list(sf.claim_ids)))
+            findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{branch.key}] {sf.code}: {sf.message}", claim_ids=list(sf.claim_ids)))
         return structural, results, ids
 
     @staticmethod
@@ -236,11 +250,12 @@ class TranslatorChannel:
         findings += self.log.accept(msg)
         findings += self._dedupe(msg)
         findings += self._revalidate(report, payload)
+        bk = self._branch_for(report.agent_id)[0].key
         if req is None:
             findings.append(IntegrityFinding(code="INT-REQ-000", severity="error", message="response does not reply to any accepted request on this channel", message_ids=[msg.message_id, request_message_id]))
-            return self._finish(msg, "specialist_to_router", findings, [], [], [])
+            return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         if any(f.code == "INT-REQ-009" for f in findings):
-            return self._finish(msg, "specialist_to_router", findings, [], [], [])
+            return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         if report.agent_id != req.to_agent_id:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {report.agent_id} but the request was addressed to {req.to_agent_id}"))
         findings += check_report_against_plan(self.plan, report)
@@ -278,14 +293,15 @@ class TranslatorChannel:
         outcomes = self._verify_claims(report, findings)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports[report.report_id] = report
-        return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal)
+        return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
 
     # --------------------------------------------------------------- agent relay
     def relay(self, from_agent_id: str, from_role: AgentRole, to_agent_id: str, to_role: AgentRole,
               payload_obj: Union[SpecialistReport, Synthesis], in_reply_to: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         findings: list[IntegrityFinding] = []
         payload = payload_obj.model_dump(mode="json", exclude_none=True)
-        contract = "specialist_report/1.0" if isinstance(payload_obj, SpecialistReport) else "synthesis/1.0"
+        forward = isinstance(payload_obj, SpecialistReport) and from_role is AgentRole.ROUTER
+        contract = ("specialist_report_forward/1.0" if forward else "specialist_report/1.0") if isinstance(payload_obj, SpecialistReport) else "synthesis/1.0"
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=payload_obj.request_id, task_id=payload_obj.task_id, sender_agent_id=from_agent_id,
                            sender_role=from_role, recipient_role=to_role, recipient_agent_id=to_agent_id, contract=contract,
                            payload=payload, payload_sha256=payload_hash(payload), in_reply_to=in_reply_to, created_at=_now())
@@ -297,10 +313,25 @@ class TranslatorChannel:
         structural: list[StructuralFinding] = []
         branch_formal: list[ConstraintResult] = []
         branch_ids: list[str] = []
+        bk = self._branch_for(payload_obj.agent_id)[0].key if isinstance(payload_obj, SpecialistReport) else self.branch.key
         if isinstance(payload_obj, SpecialistReport):
             findings += self._revalidate(payload_obj, payload)
             if any(f.code == "INT-REQ-009" for f in findings):
-                return self._finish(msg, "agent_to_agent", findings, [], [], [])
+                return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+            if forward:
+                # The router may only pass on a report exactly as it was delivered on this channel: same report id,
+                # same payload digest. Anything else is a report altered in transit or never received.
+                held = self.transmitted_reports.get(payload_obj.report_id)
+                if held is None:
+                    findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error", message=f"router forwarded report {payload_obj.report_id!r}, which was never delivered on this channel", report_ids=[payload_obj.report_id], agent_ids=[from_agent_id, to_agent_id], message_ids=[msg.message_id]))
+                elif payload_hash(held.model_dump(mode="json", exclude_none=True)) != msg.payload_sha256:
+                    findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error", message=f"router forwarded report {payload_obj.report_id!r} with a payload that differs from the one delivered on this channel (altered in transit)", report_ids=[payload_obj.report_id], agent_ids=[from_agent_id, to_agent_id], message_ids=[msg.message_id]))
+                if _is_blocking(findings):
+                    return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+                # The delivered report was already parsed, checked and pooled on arrival; a faithful forward re-runs
+                # the hand-off checks (plan scope, self-reports) but not the subject packs and verification.
+                findings += check_report_against_plan(self.plan, payload_obj)
+                return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
             findings += check_report_against_plan(self.plan, payload_obj)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
             self._supersession(payload_obj, findings)
@@ -313,7 +344,7 @@ class TranslatorChannel:
             findings += ent_findings
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
-        return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal)
+        return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
 
     def _synthesis_entailment(self, synthesis: Synthesis) -> tuple[list[IntegrityFinding], list[str], dict[str, Optional[str]]]:
         """For each synthesized claim with formalized sources: obtain a formal conclusion
@@ -368,10 +399,12 @@ class TranslatorChannel:
 
     # ------------------------------------------------------------------ internals
     def _dedupe(self, msg: AgentMessage) -> list[IntegrityFinding]:
-        first = self._seen_payloads.get(msg.payload_sha256)
+        role = getattr(msg.recipient_role, "value", str(msg.recipient_role))
+        key = f"{msg.payload_sha256}|{role}|{msg.recipient_agent_id or ''}"  # the same report forwarded to another recipient is a hand-off, not a replay
+        first = self._seen_payloads.get(key)
         if first is not None:
-            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message="identical payload already transmitted on this channel (replay or duplicate delivery)", message_ids=[msg.message_id, first])]
-        self._seen_payloads[msg.payload_sha256] = msg.message_id
+            return [IntegrityFinding(code="INT-ENV-001", severity="warning", message="identical payload already transmitted to this recipient on this channel (replay or duplicate delivery)", message_ids=[msg.message_id, first])]
+        self._seen_payloads[key] = msg.message_id
         return []
 
     def _coverage(self, req: TaskRequest, report: SpecialistReport) -> list[CoverageRecord]:
@@ -468,8 +501,9 @@ class TranslatorChannel:
             findings.extend(self._with_report_ids(f))
         return outcomes
 
-    def _finish(self, msg: AgentMessage, direction: str, findings, coverage, constraint_results, outcomes, formal_ids=(), *, structural=(), branch_formal=()) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+    def _finish(self, msg: AgentMessage, direction: str, findings, coverage, constraint_results, outcomes, formal_ids=(), *, structural=(), branch_formal=(), branch_key: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         structural = list(structural)
+        branch_key = branch_key or self.branch.key
         blocking = _is_blocking(findings)
         subject_flag = any(sf.severity in ("error", "warning") for sf in structural)
         if blocking:
@@ -480,14 +514,14 @@ class TranslatorChannel:
             status = TransmissionStatus.ACCEPTED
         ids = list(formal_ids) + [o.verification.result_id for o in outcomes if o.verification is not None] + [f.formal_result_id for f in findings if f.formal_result_id]
         receipt = self._receipt(msg.message_id, direction, status, findings, coverage=coverage, constraint_results=constraint_results, outcomes=outcomes,
-                                formal_ids=sorted(set(ids)), structural=structural, branch_formal=branch_formal,
-                                summary=self._summary_response(status, findings, coverage, constraint_results, outcomes, structural, branch_formal, self.branch.key))
+                                formal_ids=sorted(set(ids)), structural=structural, branch_formal=branch_formal, branch_key=branch_key,
+                                summary=self._summary_response(status, findings, coverage, constraint_results, outcomes, structural, branch_formal, branch_key))
         return (msg if status is not TransmissionStatus.REJECTED else None), receipt
 
-    def _receipt(self, message_id: str, direction: str, status: TransmissionStatus, findings, *, coverage=(), constraint_results=(), outcomes=(), formal_ids=(), structural=(), branch_formal=(), summary: str) -> TransmissionReceipt:
+    def _receipt(self, message_id: str, direction: str, status: TransmissionStatus, findings, *, coverage=(), constraint_results=(), outcomes=(), formal_ids=(), structural=(), branch_formal=(), summary: str, branch_key: Optional[str] = None) -> TransmissionReceipt:
         r = TransmissionReceipt(receipt_id=uuid.uuid4().hex, message_id=message_id, request_id=self.plan.request_id, task_id=self.plan.task_id, direction=direction,
                                 status=status, findings=list(findings), coverage=list(coverage), constraint_results=list(constraint_results), outcomes=list(outcomes),
-                                branch=self.branch.key, structural_findings=list(structural), formal_checks=list(branch_formal),
+                                branch=branch_key or self.branch.key, structural_findings=list(structural), formal_checks=list(branch_formal),
                                 formal_result_ids=list(formal_ids), summary=summary, created_at=_now())
         self.receipts.append(r)
         return r

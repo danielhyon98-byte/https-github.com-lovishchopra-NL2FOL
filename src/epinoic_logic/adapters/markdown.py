@@ -23,9 +23,9 @@ import re
 
 __all__ = [
     "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
-    "EMPHASIS_RE", "MEMORY_LABEL_RE", "SELF_CERT_RE", "DOUBLE_QUOTE_MARKS",
+    "EMPHASIS_RE", "MEMORY_LABEL_RE", "SELF_CERT_RE", "TASK_NOTE_RE", "DOUBLE_QUOTE_MARKS",
     "strip_markup", "split_list_items", "truncate_claim_text", "is_memory_label", "is_self_certification",
-    "is_note_sentence", "unbalanced_double_quotes",
+    "is_note_sentence", "is_task_note", "unbalanced_double_quotes",
 ]
 
 BOM = "\ufeff"
@@ -45,6 +45,13 @@ DOUBLE_QUOTE_MARKS = ('"', "\u201c", "\u201d")
 #: The specialist labels dates, figures or quotations as unverified recollection.
 MEMORY_LABEL_RE = re.compile(
     r"\bfrom (?:memory|recollection)\b|\billustrative\b|\bverify (?:them|these|this|it)\b|\bcheck (?:them |these |this )?(?:against )?your notes\b",
+    re.IGNORECASE,
+)
+#: A note about the task setting rather than the subject: the syllabus version, cohort or level was not given, so no
+#: mark or band is implied. IB specialists are required to say so; the sentence is not part of the argument.
+TASK_NOTE_RE = re.compile(
+    r"\b(?:syllabus|cohort|version|level|mark(?:ing)?|band|grade)s?\b[^.;]{0,80}\b(?:not (?:stated|given|specified|provided|known)|unknown|unstated)\b"
+    r"|\bno (?:mark|band|grade)(?: or (?:mark|band|grade))? (?:is|was|can be) (?:given|implied|awarded|assigned)\b",
     re.IGNORECASE,
 )
 #: Verification-status vocabulary in the body: an agent certifying its own output or
@@ -107,10 +114,14 @@ def is_self_certification(sentence: str) -> bool:
     return bool(SELF_CERT_RE.search(sentence))
 
 
+def is_task_note(sentence: str) -> bool:
+    return bool(TASK_NOTE_RE.search(sentence))
+
+
 def is_note_sentence(sentence: str) -> bool:
-    """A sentence that is a label about the text (from-memory disclaimer or
-    self-certification) rather than part of the argument."""
-    return is_memory_label(sentence) or is_self_certification(sentence)
+    """A sentence that is a label about the text (from-memory disclaimer, self-certification,
+    or a note that the syllabus version, cohort, level or mark was not given) rather than part of the argument."""
+    return is_memory_label(sentence) or is_self_certification(sentence) or is_task_note(sentence)
 
 
 def unbalanced_double_quotes(text: str) -> bool:
