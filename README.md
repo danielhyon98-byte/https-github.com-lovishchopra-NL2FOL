@@ -134,3 +134,12 @@ It does not decide literary, historical or rubric judgements; it does not check
 units, nonlinear algebra, quantifiers or symbolic calculus (these are reported as
 UNSUPPORTED); it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
 the runtime evidence); and it does not call any model provider in its tests.
+
+## Arena: real agents, contained environment
+
+Isolated specialist agents configured only from the knowledge documents answer router
+tasks; every output crosses the hub as in production, independent overseer agents judge
+fidelity and fault naming, and fixes are regression-tested before the next round. The
+harness, the peer-exchange relay and the recorded rounds are described in
+`docs/ARENA_RESULTS.md`; stress figures for the engine, channel and hub are in
+`docs/STRESS_RESULTS.md`.
