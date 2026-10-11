@@ -230,3 +230,51 @@ INT-REQ-005 against the request's "one analytical paragraph", as they did before
 round; the receipt words it as a block count and the answer is delivered. The stress re-run after the fix round is in
 `docs/STRESS_RESULTS.md`; the per-cycle cost rose because every excerpt is now located in
 every supplied text for the attribution check.
+
+## Round 3 (six fresh tasks, including an English-to-History peer exchange)
+
+Fresh outputs from the isolated agents: English paragraphs on Blake's 'London' (with its
+original spellings) and the opening of Pride and Prejudice (dialogue inside the extract), History
+responses on the Cuban Missile Crisis (everything dated within one month) and German
+hyperinflation (figures in trillions, exchange rates, inline from-memory labels), and the reversed
+peer exchange: the English specialist's paragraph was delivered to the router, forwarded to the
+History specialist with the forward contract, supplied to it as the document peer:en-p2 and quoted
+by it; the group synthesis cited both reports.
+
+| Measure | Value |
+| --- | --- |
+| Harness, genuine outputs, 6 mutations each and the peer relay (r3) | 41 / 41 functional (100%) |
+| Round-3 overseer verdicts (results-audit / communication-fidelity / adversarial-live), on the round-2 fixes | 0.727 / 0.769 / 0.871 (round 2: 0.56 / 0.488 / 0.612); 44 of 49 round-2 findings confirmed fixed; 37 new findings (17 majors, 20 minors) |
+
+What the round-3 overseers found and what the fix round changed (all with regression tests):
+
+- Attribution on the History branch: a from-memory slogan in quotation marks had been credited
+  to the first supplied text (the peer's paragraph) and faulted as a misquotation of the colleague.
+  An unlocated quotation is now attributed only to a text the sentence names, otherwise it carries
+  no source reference and is reported as unverifiable (CORE-SRC-003); a reporting clause ("The
+  English specialist argues that Blake presents ... '...'") credits the outer speaker.
+- Notes: sentence-initial and comma-bounded from-memory labels had demoted dated evidence to
+  notes; only an empty core is a note now, and only the self-certifying sentence of a paragraph is
+  demoted, never the whole paragraph (which had let one sentence evade verification of everything
+  around it). A note sentence is never a paragraph's point and never counts toward request
+  coverage; an answer with no material claim is INT-REQ-012.
+- Chronology: dates in the same month were compared at month resolution and a true order was a
+  violation; day-level and year-only tokens, context years for day-month dates, and "undecided"
+  for equal resolution replace that. Arithmetic: noun phrases after units, trillions, thousands
+  separators and word folds, year ranges, figures in words, signed changes, and incomparable units
+  skipped; one abbreviation-aware sentence splitter ("c. 200 million") shared by the History
+  parser and the packs.
+- Combinator fidelity: swapped dates or figures between events (same tokens, different facts)
+  are now INT-LEDGER-023; notes leave the unaccounted-claim count.
+- Hand-off: an echo of the request can no longer supersede a genuine report; identical content
+  re-delivered under one report id is a duplicate (INT-ENV-001), a changed payload is
+  INT-HANDOFF-015; a claim with another report's provenance is INT-HANDOFF-012; stale-forward
+  findings distinguish an excerpt that no longer occurs from one never located.
+- Quotation forms: JSON pasted into prose no longer swallows the sentences around it; dialogue
+  copied with marks inside marks is read as nested marks; stanza breaks written with slashes and
+  long elisions are located and reported as form differences; claims folded beyond the contract
+  limit keep their quotations checked and the receipt names what was folded (INT-REQ-013).
+
+Harness after the fix round: r3 41 / 41, r2 41 / 41, r1 26 / 26, r1-adv 150 / 151 (the empty
+response), with no genuine transmission carrying an error-level finding in rounds 1 to 3. The
+round-4 overseer verdicts are recorded here when they arrive.
