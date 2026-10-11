@@ -1,0 +1,5 @@
+{
+  "responses": 200,
+  "rejected": 120,
+  "delivered_with_findings": 80
+}
