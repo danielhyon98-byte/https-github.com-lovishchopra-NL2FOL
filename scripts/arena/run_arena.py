@@ -83,7 +83,7 @@ def run_round(round_dir: Path) -> dict:
         ch = hub.open_task(plan)
         variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k) for k in ("invented_quotation", "altered_quotation", "self_certification", "wrong_arithmetic", "chronology_error")]
         if not texts:  # without a supplied text a quotation is unverifiable rather than refuted
-            variants = [(k, t, ("CORE-SRC-003" if k in ("invented_quotation", "altered_quotation") else e)) for k, t, e in variants]
+            variants = [(k, t, ("CORE-SRC-003" if k in ("invented_quotation", "altered_quotation") and e != "SKIP" else e)) for k, t, e in variants]
         for vi, (kind, text, expected) in enumerate(variants):
             if expected == "SKIP":
                 continue
