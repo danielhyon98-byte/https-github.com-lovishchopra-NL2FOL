@@ -343,6 +343,62 @@ AI and an unspecified course to `mathematics`; Computer Science to `computer_sci
   quantities, the echo exemption for an answer that computes, the STEM imperatives, and the
   word-count view (a maths span or a code block is one word).
 
+### What the STEM pack checks
+
+One shared `StemDocument` per (answer, request, profile) is read by the parser, the pack and
+`CORE_SI`, so claim ids, sentence numbers and check ids cannot diverge. The front end
+(`stem/`) reads LaTeX, Unicode, ASCII and verbal arithmetic with a hand-written lexer and a
+bounded Pratt parser; nothing evaluates agent text. Every relation it recognises ends as a
+planned check, a binding, a law (`formula`), a premise-free `context` line, or an undecided
+relation named with its ST code and reason. The checks stage (`stem/checks.py`,
+`stem/to_ir.py`; encodings in `stem/ENCODINGS.md`) turns each planned check into an IR 1.0
+problem:
+
+| Kind | Check | Decided | Failure |
+| --- | --- | --- | --- |
+| `stem_arithmetic` | `stem-eq-N` | written arithmetic `E = S` within the STEM tolerance band | INT-SUBJ-001 (INT-SUBJ-004 after a booklet value or an unknown unit) |
+| `stem_substitution` | `stem-sub-N` | substituted values against their symbols' bindings, or the symbolic side under its bindings | as above |
+| `stem_algebra` | `stem-alg-N` | the step follows from the preceding relation (with bindings, up to 8 stated formulas, guards) | INT-SUBJ-001; INT-SUBJ-004 when the step brings in symbols nothing connects |
+| `stem_solution` | `stem-sol-N` | stated roots satisfy the equation; the full set when it is claimed and the domain is not restricted | INT-SUBJ-001 |
+| `stem_conversion` | `stem-cnv-N` | an explicit unit conversion with exact factors | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |
+| `stem_comparison` | `stem-cmp-N` | a stated order or inequality, or an inequality step | INT-SUBJ-001 |
+| `stem_result` | `stem-res-N` | a prose restatement against the chain's final value | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |
+| `stem_given` | `stem-giv-N` | a Given value against the request | INT-SUBJ-004 (warning) |
+| `stem_target` | `stem-tgt-N` | the final value against a show-that target | INT-SUBJ-004 (warning) |
+| `stem_balance` | `stem-chem-N` | element and charge balance (tallies per element and side) | INT-SUBJ-001 |
+| `stem_boolean` | `stem-bool-N` | a Boolean identity (`¬(lhs ⇔ rhs)` must be unsatisfiable) | INT-SUBJ-001 |
+| `stem_truth_table` | `stem-tt-N` | every stated truth-table row | INT-SUBJ-001 |
+| `stem_base` | `stem-base-N` | a based-numeral conversion as exact integer arithmetic | INT-SUBJ-001 |
+
+Every STEM check has `inconsistent_is_failure=False` (inconsistent premises point to an earlier
+line, which its own check reports, or to a domain outside the encodings, so they are undecided:
+INT-SUBJ-002), a policy read from the built IR (`nonlinear` exactly when a product has two
+factors that hold variables), and a description that names the statement, the claims, the
+tolerance rule, the readings and any constant the pack supplied. Undecided outcomes are
+INT-SUBJ-002; the channel also runs a report's STEM checks under an 8 s wall-clock budget, and
+checks left when it is spent are INT-SUBJ-002, never success. Statement ids map to the report's
+claims by id (`s1.2`, or `m1.2`/`c1.2` in the other two branches), else by offset overlap, else
+by the shared two-way substring rule, and descriptions and messages are relabelled to the
+report's own claim ids. The pack keeps a 32-entry cache per report and request; the front end
+keeps a 64-entry document cache.
+
+Worked example (the case observed before STEM support): in `a = (20 - 0)/4.0 = 6.0 m s⁻²`
+(claim `s1.2`) the link `(20 - 0)/4.0 = 6.0` becomes `stem-eq-1`, the entailment
+`c = 20/4, r = 6 ⊢ |c − r| ≤ 0.05 + (1/100)·|c|` under the linear policy. Z3 returns
+COUNTEREXAMPLE with `c = 5`, `r = 6`; the receipt carries INT-SUBJ-001 (error) on `s1.2` with
+those values, and the report is delivered ACCEPTED_WITH_FINDINGS. The top-level `README.md`
+shows the full problem.
+
+Every STEM problem's `notes` opens with the scope statement (`stem.tolerance.STEM_SCOPE`): a
+STEM check proves a property of its encoding only, namely that the written arithmetic,
+substitution, conversion, algebraic step, balance or Boolean identity holds, or does not hold,
+under the stated premises, the documented readings and the STEM tolerance rule. It does not
+establish that a law applies, that data are true, that a model is physically valid, that a unit
+is the right one beyond the dimension and conversion checks, or that the answer is what the
+question wanted. The ST finding codes and severities are listed in the top-level `README.md`
+and in design section 8.2; none of them is an error. Measured results:
+`docs/STEM_RESULTS.md`.
+
 Recorded behaviour change (design section 18, item 1, for the overseer audit and sign-off):
 STEM subjects route to these branches instead of `generic`; the two routing assertions that
 encoded the old routing (`tests/branches/test_hub.py`, `tests/branches/test_quant_and_packs.py`)

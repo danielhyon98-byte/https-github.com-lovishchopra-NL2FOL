@@ -1,4 +1,7 @@
-# stem: the STEM math front end (stage `core` of docs/STEM_DESIGN.md)
+# stem: the STEM math front end and encodings (docs/STEM_DESIGN.md)
+
+This README describes the front end (stage `core`); the modules of the later stages are listed
+under "Modules".
 
 A deterministic reading of what STEM specialists write (Physics, Chemistry, Biology, ESS, SEHS,
 Design Technology, Mathematics AA/AI, Computer Science): equations and prose mixed, in LaTeX,
@@ -69,6 +72,23 @@ doc.request             # RequestReading: request bindings, quantities, relation
 | `boolean.py` | Boolean expressions, truth tables |
 | `relations.py` | link classification, sequence steps and roots, results, givens and targets, dimension and unit findings, check planning and ids |
 | `document.py` | `StemDocument` and the memoised `build_document` |
+
+The later stages added these modules to the same package (still importing nothing from
+`branches/`, `channel/`, `engine/` or `ir/`):
+
+| Module | Stage | Role |
+| --- | --- | --- |
+| `constants.py` | `checks` | data-booklet constants: a written constant widens to its booklet value (D3a); an unstated standard symbol may take it at warning severity (D3b) |
+| `enclosures.py` | `checks` | the exact-value table and rational enclosures for π, e and the functions, cross-checked against `math` |
+| `scaling.py` | `checks` | decimal-exponent factoring, so literals stay within the IR's 40 digits |
+| `tolerance.py` | `checks` | the STEM tolerance rule (R1 to R10), its short form, the scope statement `STEM_SCOPE`, the band builders |
+| `to_ir.py` | `checks` | AST to IR 1.0 data, one allowlisted node at a time; symbol naming and premise groundings |
+| `checks.py` | `checks` | `build_checks`: a `PlannedCheck` (an IR problem) per planned check, or an ST finding naming it undecided |
+| `si_reading.py` | `branch` | the SI reading of `quant` and `CorePack` (`SI_READING`) and its views |
+| `hub_hooks.py` | `branch` | the STEM hub hooks (`STEM_HOOKS`): imperatives, coverage words, echo exemption, word-count view |
+
+`ENCODINGS.md` describes the checks stage; `branches/README.md` and the top-level `README.md`
+describe the STEM branches end to end, with a worked example.
 
 ## Bounds (all in `StemLimits`)
 
