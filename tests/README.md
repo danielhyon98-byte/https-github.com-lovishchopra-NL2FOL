@@ -299,3 +299,17 @@ Work in progress after it is labelled as such.
   Neither has a new commit this hour.
 - **Bruno's repository.** No new final fix this hour, so nothing new was sent. Round 7's verified fix commit is the
   next candidate.
+
+**2026-10-12 06:28 UTC.**
+- **Arena round 7, overseer agents.** Three cheapest-tier overseer instances reviewed 30 blind dossiers built from
+  a copy of the round, 10 each, using the exported knowledge pack. All 30 verdicts passed the package's validation.
+  Against the gold labels they named 52 of 123 injected faults, with no false accusation.
+- **Arena round 7, communication-fidelity lens.** Rate 0.4246. It confirms 13 previous bugs fixed and reports
+  18 new ones: 1 blocker, 11 major and 6 minor.
+- **Arena round 7, other lenses.** The results-audit and adversarial-live lenses are running now; the
+  translation-fidelity lens follows. Owner-partitioned fixes and the verified commit come after.
+- **Builds.**
+  - The STEM build committed its routing stage and is now on corpus evaluation.
+  - The overseer build committed its contained harness (tampering suite, dossier export, verdict scoring) and is
+    building the consolidation and self-duplicating pool stage.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
