@@ -45,7 +45,7 @@ from .chem import ChemEquation
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .nodes import (
     Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym,
-    Unsupported, WithUnit, align, is_closed, is_value, render, shape_key, symbols, unsupported_reasons, value_of, walk,
+    Unsupported, WithUnit, align, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
 )
 from .numbers import ExactNumber
 from .parser import ParseIssue
@@ -69,7 +69,8 @@ ST_SEVERITY = {
 _EQUALITY = frozenset({"=", "≈", "≃", "≡"})
 _APPROX = frozenset({"≈", "≃"})
 _ORDER = frozenset({"<", ">", "≤", "≥", "≠"})
-_STEP_WORDS = ("⇒", "∴", "so", "hence", "therefore", "thus", "gives", "giving", "rearranging", "rearranged", "which gives", "implies", "then")
+_STEP_WORDS = ("⇒", "∴", "so", "hence", "therefore", "thus", "gives", "giving", "rearranging", "rearranged", "which gives", "implies", "then",
+               "get", "obtain", "yields", "leads to")
 _APPROX_WORDS = ("approximately", "approx.", "about", "roughly", "estimate", "around", "nearly")
 _COMPLETE_PHRASES = ("only solution", "only root", "the solution is", "the solutions are", "is the solution", "are the solutions", "the roots are",
                      "solutions are", "roots are", "the only value", "is the only")
@@ -78,6 +79,8 @@ _RESTRICT_WORDS = ("reject", "positive", "non-negative", "nonnegative", "x > 0",
 _RESULT_CUES = ("therefore", "hence", "thus", "so", "the answer is", "the result is")
 _RESULT_VERBS = frozenset({"is", "are", "was", "were", "equals", "equal", "=", "≈", "gives", "becomes", "carries", "delivers", "has", "of", "reaches",
                            "comes", "be", "makes", "totals", "needs", "need", "requires"})
+#: participles after which 'at' or 'as' introduces the result, not a condition
+_RESULT_PARTICIPLES = frozenset({"estimated", "calculated", "computed", "determined", "evaluated", "found", "out"})
 _QUALIFIERS = frozenset({"about", "approximately", "roughly", "around", "nearly", "almost", "≈", "~", "only", "exactly", "just"})
 _PREPOSITIONS = frozenset({"at", "in", "for", "with", "by", "from", "after", "before", "per", "to", "on", "into", "over", "under", "within", "than", "below",
                            "above"})
@@ -241,23 +244,31 @@ class Relation:
 # ----------------------------------------------------------------------------------------- dimensions
 
 
-def dimension_of(node: Node, scope: Scope, notes: Optional[list[tuple[Node, Dimension, Dimension]]] = None) -> Optional[Dimension]:
+def dimension_of(node: Node, scope: Scope, notes: Optional[list[tuple[Node, Dimension, Dimension]]] = None, *,
+                 coefficients: bool = False) -> Optional[Dimension]:
     """The dimension of ``node`` when every part of it is known (units read unambiguously, bound
     symbols with one dimension, exact fractions and π dimensionless); None when unknown. A sum of
-    two known, different dimensions is recorded in ``notes`` (ST-DIM-002) and yields None."""
-    return _dim(node, scope, notes, 0)
+    two known, different dimensions is recorded in ``notes`` (ST-DIM-002) and yields None.
+
+    With ``coefficients`` (a symbolic side such as ``½mv²`` or ``2as``, where a written integer is
+    a pure coefficient), an exact integer is dimensionless too. A bare number on a numeric side
+    stays "unitless as written" (unknown), so ``120 / 8 = 15 m s⁻¹`` is never a dimension finding."""
+    return _dim(node, scope, notes, 0, coefficients)
 
 
-def _dim(node: Node, scope: Scope, notes: Optional[list], depth: int) -> Optional[Dimension]:
+def _dim(node: Node, scope: Scope, notes: Optional[list], depth: int, coefficients: bool = False) -> Optional[Dimension]:
     if depth > 64:
         return None
-    rec = lambda n: _dim(n, scope, notes, depth + 1)  # noqa: E731
+    rec = lambda n: _dim(n, scope, notes, depth + 1, coefficients)  # noqa: E731
     if isinstance(node, Quantity):
         return node.unit.dim if not node.unit.unknown else None
     if isinstance(node, WithUnit):
         return node.unit.dim if not node.unit.unknown else None
     if isinstance(node, Num):
-        return DIMENSIONLESS if node.number.vulgar else None
+        n = node.number
+        if n.vulgar or (coefficients and n.exact and not n.has_point and not n.scientific and not n.based):
+            return DIMENSIONLESS
+        return None
     if isinstance(node, Sym):
         if node.kind == "constant":
             return DIMENSIONLESS
@@ -272,10 +283,10 @@ def _dim(node: Node, scope: Scope, notes: Optional[list], depth: int) -> Optiona
     if isinstance(node, PlusMinus):
         if node.left is None:
             return rec(node.right)
-        return _sum_dim(node.left, node.right, scope, notes, depth, node)
+        return _sum_dim(node.left, node.right, scope, notes, depth, node, coefficients)
     if isinstance(node, BinOp):
         if node.op in "+-":
-            return _sum_dim(node.left, node.right, scope, notes, depth, node)
+            return _sum_dim(node.left, node.right, scope, notes, depth, node, coefficients)
         a, b = rec(node.left), rec(node.right)
         if a is None or b is None:
             return None
@@ -295,8 +306,8 @@ def _dim(node: Node, scope: Scope, notes: Optional[list], depth: int) -> Optiona
     return None
 
 
-def _sum_dim(a: Node, b: Node, scope: Scope, notes: Optional[list], depth: int, whole: Node) -> Optional[Dimension]:
-    da, db = _dim(a, scope, notes, depth + 1), _dim(b, scope, notes, depth + 1)
+def _sum_dim(a: Node, b: Node, scope: Scope, notes: Optional[list], depth: int, whole: Node, coefficients: bool = False) -> Optional[Dimension]:
+    da, db = _dim(a, scope, notes, depth + 1, coefficients), _dim(b, scope, notes, depth + 1, coefficients)
     if da is None or db is None:
         return None
     if not da.same_physical(db):
@@ -414,6 +425,8 @@ class _Planner:
         self.unit_reported: set[tuple[str, str]] = set()
         self.request_relations: list[tuple[Operand, str, Operand]] = []
         self._root_groups: dict[tuple[str, str], int] = {}
+        #: Boolean names the answer defines ('M = (A ∧ B) ∨ …'): name -> (expression, statement id)
+        self.bool_defs: dict[str, tuple[Node, str]] = {}
         self._seen_findings: set[tuple] = set()
         self._request_lower = request.text[:4000].lower()
 
@@ -460,6 +473,7 @@ class _Planner:
             for ci, chain in enumerate(item.chains):
                 self._chain(item, ci, chain)
         if not self.request_mode:
+            self._defined_columns()
             self._results()
             self._givens()
             self._targets()
@@ -529,7 +543,7 @@ class _Planner:
             node = _first(op)
             if node is None or (k == 0 and lone) or is_value(node) or is_closed(node) or unsupported_reasons(node):
                 continue
-            d = dimension_of(node, self.scope)
+            d = dimension_of(node, self.scope, coefficients=True)
             if d is not None:
                 ref = (node, d)
                 break
@@ -549,7 +563,34 @@ class _Planner:
                                        f"'{render(node)[:120]}' ({node.unit.dim})", tuple(dict.fromkeys(s for _o, s in operands)),
                          getattr(node, "start", 0), getattr(node, "end", 0), check_index=idx)
 
+    def _order_bindings(self, item: MathItem, operands: list[tuple[Operand, str]], ops: list[str]) -> None:
+        """``T₁ = 300 K > T₂ = 250 K``: a lone symbol right after an order sign and stated equal to a value is bound to it,
+        so the comparison is between the two stated values (section 4.7, stem-cmp)."""
+        for k in range(1, len(operands) - 1):
+            if ops[k - 1] not in _ORDER or ops[k] not in _EQUALITY:
+                continue
+            sym, val = _first(operands[k][0]), _first(operands[k + 1][0])
+            if not isinstance(sym, Sym) or sym.kind != "symbol" or val is None or not is_value(val):
+                continue
+            v = value_of(val)
+            if v is None or v[1] is None:
+                continue
+            value, number, unit, wrapper = v
+            self.scope.add(Binding(sym.name, value, number, unit, "request" if self.request_mode else "statement", operands[k + 1][1],
+                                   getattr(val, "start", 0), getattr(val, "end", 0), wrapper=wrapper))
+
     def _chain_bindings(self, item: MathItem, operands: list[tuple[Operand, str]], ops: list[str], lone: bool, head: Optional[Node]) -> None:
+        if any(o in _ORDER for o in ops):
+            self._order_bindings(item, operands, ops)
+        first = _first(operands[0][0]) if operands else None
+        if isinstance(first, Unsupported) and first.name and isinstance(first.arg, Sym) and ops and ops[0] in _EQUALITY:
+            # f′(x) = 3x² − 2: the answer's own formula of its derivative, kept for evaluations (the relation stays undecided)
+            for k in range(1, len(operands)):
+                rhs = _first(operands[k][0])
+                if rhs is not None and not is_closed(rhs) and not unsupported_reasons(rhs) and _syms(rhs) <= {first.arg.name}:
+                    self.scope.add_formula(Formula(first.name, rhs, operands[k][1], "derivative", params=(first.arg.name,),
+                                                   start=getattr(rhs, "start", 0), end=getattr(rhs, "end", 0)))
+                    break
         if not lone or not isinstance(head, Sym) or head.kind in ("label", "continuation") or not ops:
             # a function definition f(x) = ... or a law with a label: formulas only
             if lone and isinstance(head, Apply) and len(operands) > 1:
@@ -612,8 +653,16 @@ class _Planner:
             self.add(kind="link", outcome="undecided", code=bad.code or "ST-PARSE-001", reason=bad.error or "an operand could not be read", **base)
             return
         lnode, rnode = left.readings[0], right.readings[0]
+        if pos == 0 and op in _EQUALITY and isinstance(lnode, Unsupported) and lnode.name and lnode.arg is not None and is_closed(lnode.arg) \
+                and is_closed(rnode) and not unsupported_reasons(rnode):
+            # f′(2) = 3 × 2² − 2: the derivative's stated formula evaluated at the argument (no formula stated: undecided)
+            if self._evaluation(base, item, lnode.name, lnode.arg, rnode, derivative=True):
+                return
         reasons = tuple(dict.fromkeys(unsupported_reasons(lnode) + unsupported_reasons(rnode)))
-        if reasons and lone_first and head is not None and not unsupported_reasons(lnode) and not is_closed(rnode) and op in _EQUALITY:
+        if reasons and lone_first and head is not None and not unsupported_reasons(lnode) and not is_closed(rnode) and op in _EQUALITY \
+                and _syms(rnode) - {getattr(head, "name", "")}:
+            # a law written with notation outside the encodings (its truth is out of scope anyway); a value written that way
+            # ('x = ±2i', 'z = 3 + 4i': nothing but the unsupported construct is free) is a statement, named undecided below
             self.add(kind="formula", outcome="formula", reason="a law or definition written with notation outside the encodings (" + "; ".join(reasons) + ")",
                      **base)
             return
@@ -640,6 +689,9 @@ class _Planner:
             self.add(kind="link", outcome="context", reason=f"a relation sign {op!r} that is not checked", **base)
             return
         # equalities
+        if lone_first and isinstance(head, Apply) and rc in ("value", "closed") and is_closed(head.arg):
+            if self._evaluation(base, item, head.name, head.arg, rnode):
+                return
         if lone_first and head is not None:
             if isinstance(head, Sym) and head.kind == "label":
                 if rc in ("value", "closed"):
@@ -699,7 +751,53 @@ class _Planner:
             self.add(kind="alg", outcome="check", premise_left=full_operands[0][0], premise_op=full_ops[0], premise_right=left, premise_ids=sids,
                      explicit=True, reason="an identity step inside one chain", **base)
             return
+        if self._factorisation(lnode, rnode, full_operands, full_ops):
+            # 'x² − 7x + 12 = (x − 3)(x − 4) = 0': the first link states that the two sides are the same polynomial;
+            # checked as a step from the trivially true 'P = P', so it holds iff the identity holds for every x
+            self.add(kind="alg", outcome="check", premise_left=left, premise_op="=", premise_right=left, premise_ids=sids, explicit=True,
+                     reason="a factorisation or expansion stated inside one chain (the two sides are the same polynomial)", **base)
+            return
         self.add(kind="stated", outcome="context", reason="a relation stated without a preceding relation to derive it from", **base)
+
+    def _evaluation(self, base: dict, item: MathItem, fname: str, arg: Node, rnode: Node, *, derivative: bool = False) -> bool:
+        """``f(2) = 2² + 1`` after ``f(x) = x² + 1`` (or ``f′(2) = 3 × 2² − 2`` after ``f′(x) = 3x² − 2``): the stated formula
+        with its parameter replaced by the written argument is set against the written right side (an ``eq`` check, closed on
+        both sides). False (nothing planned) when no usable formula of one parameter is stated."""
+        f = next((x for x in reversed(self.scope.formulas.get(fname, ())) if len(x.params) == 1 and not unsupported_reasons(x.expr)
+                  and not any(isinstance(n, Apply) for n in walk(x.expr)) and _syms(x.expr) <= set(x.params)), None)
+        evaluated = replace_symbol(f.expr, f.params[0], arg) if f is not None else None
+        if evaluated is None or not is_closed(evaluated):
+            return False
+        left = Operand((evaluated,), base["start"], base["end"])
+        b = dict(base)
+        b["left"] = left
+        b["statement_ids"] = tuple(dict.fromkeys(base["statement_ids"] + ((f.statement_id,) if f.statement_id else ())))
+        self.add(kind="eq", outcome="check", reason=f"the evaluation of {fname} at the written argument against the formula stated in {f.statement_id}"
+                 + (" (the formula is the answer's own derivative; differentiation itself is not checked)" if derivative else ""), **b)
+        return True
+
+    def _factorisation(self, lnode: Node, rnode: Node, full_operands: list, full_ops: list) -> bool:
+        """The first link of a mathematics chain ``P = F = 0`` in one unknown, both sides polynomials: a factorisation
+        or an expansion, an identity in that unknown (never a law, which has several symbols and no zero end)."""
+        if not self.profile.is_mathematics or len(full_ops) < 2 or not all(o in _EQUALITY for o in full_ops):
+            return False
+        last = _first(full_operands[-1][0])
+        v = value_of(last) if last is not None and is_value(last) else None
+        if v is None or v[0] != 0 or v[2] is not None:
+            return False
+        names = _syms(lnode)
+        if len(names) != 1 or _syms(rnode) != names:
+            return False
+        x = next(iter(names))
+        for side in (lnode, rnode):
+            for n in walk(side):
+                if isinstance(n, (Func, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit)):
+                    return False
+                if isinstance(n, BinOp) and n.op == "/" and x in _syms(n.right):
+                    return False
+                if isinstance(n, Pow) and (n.exp < 0 or n.exp > 4):
+                    return False
+        return max(_degree(lnode, x), _degree(rnode, x)) >= 1
 
     def _sub_or_equation(self, base: dict, item: MathItem, sym_side: Node, num_side: Node, pos: int, head_is_lone: bool) -> None:
         """A symbolic side against a numeric side. In a chain that computes a named quantity (its
@@ -845,8 +943,9 @@ class _Planner:
             pure = all(n in prev["syms"] or n in bound_before for n in info["syms"])
             new_formula = info["is_formula"] and getattr(head, "name", "") not in prev["syms"]
             shares = bool(info["unknown"] & prev["syms"])
-            evaluation = lone and isinstance(head, Sym) and prev["lone"] and getattr(prev["head"], "name", None) == head.name \
-                and len(operands) > 1 and is_closed(_first(operands[1][0]) or Sym("?"))
+            evaluation = (lone and isinstance(head, Sym) and prev["lone"] and getattr(prev["head"], "name", None) == head.name
+                          and len(operands) > 1 and is_closed(_first(operands[1][0]) or Sym("?"))) \
+                or (lone and isinstance(head, Apply) and is_closed(head.arg))  # f(2) = … evaluates a function: no step
             if shares and not evaluation and not or_joined and not new_formula and ((explicit and (same_span or info["order"] - prev["order"] <= 1)) or (adjacent and pure)):
                 if _has_func_of(_first(prev["left"]) or Sym("?"), prev["unknown"]) or _has_func_of(_first(prev["right"]) or Sym("?"), prev["unknown"]) \
                         or _has_func_of(first, info["unknown"]) or _has_func_of(last, info["unknown"]):
@@ -976,6 +1075,15 @@ class _Planner:
     def _boolean(self, item: MathItem, br: BoolRelation) -> None:
         if self.request_mode:
             return
+        for name_side, expr_side in ((br.left, br.right), (br.right, br.left)):
+            if br.op in ("=", "≡", "⇔") and isinstance(name_side, Sym) and name_side.name not in _syms(expr_side) and not isinstance(expr_side, Sym):
+                # 'M = (A ∧ B) ∨ (A ∧ C) ∨ (B ∧ C)': a name given to an expression is a definition, not an identity to prove
+                # (as a law is in arithmetic); a truth table whose column carries the name is checked against it
+                self.bool_defs.setdefault(name_side.name, (expr_side, item.statement_id))
+                self.add(kind="formula", outcome="formula", statement_ids=(item.statement_id,), start=br.start, end=br.end, op=br.op, part=item.part,
+                         left=Operand((br.left,), br.start, br.end), right=Operand((br.right,), br.start, br.end),
+                         reason=f"a Boolean definition of '{name_side.name}'")
+                return
         self.add(kind="bool", outcome="check", statement_ids=(item.statement_id,), start=br.start, end=br.end, op=br.op, bool_rel=br, part=item.part,
                  left=Operand((br.left,), br.start, br.end), right=Operand((br.right,), br.start, br.end), reason="a Boolean identity")
 
@@ -992,6 +1100,30 @@ class _Planner:
         if self.request_mode:
             return
         self.add(kind="tt", outcome="check", statement_ids=sids, start=t.start, end=t.end, table=t, part=item.part, reason="every stated row of the truth table")
+
+    def _defined_columns(self) -> None:
+        """A truth-table column headed by a name the answer defines as a Boolean expression of the table's other columns
+        (``| A | B | C | M |`` with ``M = (A ∧ B) ∨ (A ∧ C) ∨ (B ∧ C)``) is that expression's output column."""
+        if not self.bool_defs:
+            return
+        for idx, rel in enumerate(self.relations):
+            t = rel.table
+            if rel.kind != "tt" or rel.outcome != "check" or t is None or t.error:
+                continue
+            for j, name in enumerate(t.inputs):
+                d = self.bool_defs.get(name)
+                if d is None:
+                    continue
+                expr, sid = d
+                others = set(t.inputs) - {name}
+                if not _syms(expr) or not _syms(expr) <= others:
+                    continue
+                n_in = len(t.inputs)
+                rows = tuple(r[:j] + r[j + 1:n_in] + (r[j],) + r[n_in:] for r in t.rows)
+                table = replace(t, inputs=tuple(x for x in t.inputs if x != name), outputs=((name, expr),) + tuple(t.outputs), rows=rows)
+                self.relations[idx] = replace(rel, table=table, statement_ids=tuple(dict.fromkeys(rel.statement_ids + (sid,))),
+                                              reason=rel.reason + f"; the column '{name}' is checked against its definition in {sid}")
+                break
 
     # -------------------------------------------------------------- prose results, givens, targets
     def _results(self) -> None:
@@ -1012,7 +1144,11 @@ class _Planner:
                     continue
                 if v[2] is not None and fvv[2] is not None:
                     d1, d2 = v[2].dim, fvv[2].dim
-                    if d1 is None or d2 is None or not d1.same_physical(d2):
+                    if d1 is None or d2 is None:
+                        # a unit the table does not know ('kJ m⁻² yr⁻¹') pairs only with the same unit written the same way
+                        if d1 is not None or d2 is not None or " ".join(v[2].text.split()) != " ".join(fvv[2].text.split()):
+                            continue
+                    elif not d1.same_physical(d2):
                         continue
                 best = fv
                 break
@@ -1125,6 +1261,8 @@ def _result_cue(before: str) -> bool:
     if k < 0:
         return False
     last = words[k]
+    if last in ("at", "as") and k >= 1 and words[k - 1] in _RESULT_PARTICIPLES:
+        return True  # 'is therefore estimated at 240', 'works out at 3.2', 'is calculated as 0.42'
     if last in _PREPOSITIONS:
         return False
     return last in _RESULT_VERBS or last in ("therefore", "hence", "thus", "so") or last.endswith("s") and last not in _PREPOSITIONS

@@ -28,7 +28,7 @@ from .boolean import is_boolean_context, parse_boolean, parse_truth_table
 from .chem import latex_to_chem, parse_equation
 from .lexer import Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
-from .nodes import Num, Percent, Sym, is_value, value_of
+from .nodes import Neg, Num, Percent, Sym, is_value, value_of
 from .normalize import reading_view
 from .numbers import scan_number
 from .parser import ParseContext, parse_math
@@ -188,8 +188,9 @@ class _Read:
     skipped_ids: tuple[str, ...] = ()
 
 
-def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str], *, request: bool = False) -> _Read:
-    reading = reading_view(text)
+def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str], *, request: bool = False,
+          reading: Optional[str] = None) -> _Read:
+    reading = reading_view(text) if reading is None else reading
     spans = find_spans(text, reading, profile=profile, limits=limits, names=names)
     seg = segment_statements(text, spans, names=names, limits=limits, reading=reading)
     order = {st.id: k for k, st in enumerate(seg.statements)}
@@ -268,7 +269,7 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 cursor = max(cursor, sp.end)
                 continue
             # chemistry written in LaTeX: \mathrm{CH_3COOH + NaOH \rightarrow ...}
-            if profile.chemistry and mode == "latex" and any(t.kind == "REL" and t.text in ("→", "⇌") for t in toks):
+            if profile.chemistry and mode == "latex" and (any(t.kind == "REL" and t.text in ("→", "⇌") for t in toks) or _wrapped_arrow(reading, a, b)):
                 eq = parse_equation(latex_to_chem(reading[a:b]), start=a, limits=limits)
                 if eq is not None and (eq.readable or not any(t.kind == "REL" and t.text == "=" for t in toks)):
                     items.append(MathItem(chem=_relocate(eq, a, b), **base))
@@ -281,6 +282,10 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 continue
             pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits, mode=mode, lead_label=sp.label or None))
             items.append(MathItem(chains=pm.chains, issues=pm.issues, unparsed=pm.unparsed, **base))
+            # a lone value written as inline maths ('is therefore $2.6\,\text{m s}^{-2}$') is a prose value like '2.6 m s⁻²'
+            lone = _lone_value(pm) if sp.kind == "latex_inline" and not pm.issues and not pm.unparsed else None
+            if lone is not None:
+                prose_values.append(ProseValue(st.id, k, st.part, lone, a, b, _prose_before(seg.prose, st.start, sp.start)))
             cursor = max(cursor, sp.end)
         # bare numbers written in prose (outside every span) are prose values too
         for node, a0, b0 in _prose_numbers(reading, text, st, spans, profile, limits):
@@ -314,6 +319,34 @@ def _prose_before(prose: str, a: int, b: int) -> str:
     return prose[max(a, b - _BEFORE_WINDOW):b] if b > a else ""
 
 
+_CHEM_ARROWS = ("\\rightarrow", "\\longrightarrow", "\\rightleftharpoons", "\\leftrightharpoons", "\\to", "→", "⇌")
+
+
+def _wrapped_arrow(reading: str, a: int, b: int) -> bool:
+    """A reaction arrow inside a text wrapper (``$\\mathrm{2H_2 + O_2 \\rightarrow 2H_2O}$``), which the lexer reads as text."""
+    seg = reading[a:b]
+    return ("\\mathrm{" in seg or "\\text{" in seg or "\\ce{" in seg or "\\textrm{" in seg) and any(x in seg for x in _CHEM_ARROWS)
+
+
+def _inside_brackets(text: str, a: int, b: int) -> bool:
+    """An open round bracket between ``a`` and ``b`` that has not closed by ``b`` (bounded by ``b - a``)."""
+    depth = 0
+    for ch in text[a:b]:
+        if ch == "(":
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+    return depth > 0
+
+
+def _lone_value(pm):
+    """The value of an inline maths span that holds exactly one value and no relation, else None."""
+    if len(pm.chains) != 1 or pm.chains[0].links or len(pm.chains[0].operands) != 1 or len(pm.chains[0].operands[0].readings) != 1:
+        return None
+    node = pm.chains[0].operands[0].readings[0]
+    return node if is_value(node) else None
+
+
 def _quantity_node(reading: str, text: str, sp: Span, profile: StemProfile, limits: StemLimits, names: frozenset[str]):
     toks = lex(reading, sp.start, sp.end, mode="plain", orig=text, cs=profile.computer_science, limits=limits).tokens
     pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits))
@@ -339,15 +372,21 @@ def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profi
                 continue
             t = t._replace(value=scan.number)
         prev = toks[i - 1] if i > 0 else None
-        if prev is not None and not prev.space and prev.kind in ("IDENT", "OP", "OTHER"):
+        signed = False
+        if prev is not None and not t.space and prev.kind == "OP" and prev.text in ("-", "−") and (prev.space or i == 1) \
+                and not (i >= 2 and toks[i - 2].kind in ("NUM", "IDENT") and not prev.space):
+            signed = True  # 'is therefore −0.70': a minus written before a prose number is its sign
+        elif prev is not None and not prev.space and prev.kind in ("IDENT", "OP", "OTHER"):
             continue  # 'helium-4', 'H2', '$5000'
         nxt = toks[i + 1] if i + 1 < len(toks) else None
         if nxt is not None and not nxt.space and nxt.kind in ("IDENT",):
             continue
         node: object = Num(t.value, t.start, t.end)
+        if signed:
+            node = Neg(node, prev.start, t.end)
         if nxt is not None and nxt.kind == "PERCENT":
-            node = Percent(node, t.start, nxt.end)
-        out.append((node, t.start, getattr(node, "end", t.end)))
+            node = Percent(node, getattr(node, "start", t.start), nxt.end)
+        out.append((node, getattr(node, "start", t.start), getattr(node, "end", t.end)))
     return out
 
 
@@ -393,6 +432,8 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
                 if ch.links == 1 and ch.operands[0].node is not None and isinstance(ch.operands[0].node, Sym) and ch.operands[1].node is not None \
                         and is_value(ch.operands[1].node):
                     cands.append((ch.operands[1].start, ch.operands[1].node))
+        # a value inside brackets after the target is data ('Show that 4.0 g is 0.10 mol (M = 40.0 g mol⁻¹).'), not the target
+        cands = [c for c in cands if not _inside_brackets(rd.reading, st.start + k, c[0])] or cands
         if cands:
             cands.sort(key=lambda c: c[0])
             pos, node = cands[-1]
@@ -413,7 +454,7 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     req_names = prescan_names(reading_view(request_text), limits=limits, cs=profile.computer_science) if request_text else frozenset()
     all_names = names | req_names
     request, req_scope = _request_reading(request_text, profile, limits, all_names)
-    rd = _read(text, profile, limits, all_names)
+    rd = _read(text, profile, limits, all_names, reading=reading)
     scope = Scope(limits=limits)
     for b in request.bindings:
         scope.add(b)

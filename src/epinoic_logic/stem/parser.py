@@ -52,16 +52,16 @@ from .lexer import Token
 from .limits import DEFAULT_LIMITS, PROFILES, StemLimits, StemProfile
 from .nodes import (
     Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root,
-    Sym, Unsupported, WithUnit, depth, shape_key, walk,
+    Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
-from .units import UnitExpr, is_unit_atom, parse_unit
+from .units import UnitExpr, is_unit_atom, parse_unit, unit_group
 
 __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM_NAMES", "parse_math", "segment", "symbol_name"]
 
 #: multi-letter names every STEM reading knows (section 4.6)
 STEM_NAMES = frozenset({"KE", "PE", "GPE", "EPE", "EMF", "emf", "pH", "pOH", "pKa", "pKb", "Ka", "Kb", "Kw", "Kc", "Kp", "Mr", "Ar", "NA", "Ek", "Ep",
-                        "RMM", "RFM", "NPP", "GPP"})
+                        "RMM", "RFM", "NPP", "GPP", "SV", "HR", "BMI", "RQ"})
 #: words that join two relations inside one math span (``\\text{or}``) or in a chain of statements
 CONNECTIVE_WORDS = frozenset({"or", "and", "so", "hence", "therefore", "thus", "gives", "giving", "where", "with", "for", "if", "since", "because",
                               "then", "i.e.", "ie", "e.g.", "which", "as", "when", "implies", "or equivalently"})
@@ -449,9 +449,14 @@ class _Parser:
             if tok.value is None:
                 raise self._err("ST-PARSE-001", f"a superscript sign {tok.text!r} with no digits (a charge outside a formula)", tok)
             self.i += 1
+            if self.ctx.profile.mode != "sciences" and isinstance(base, Sym) and base.name == "e" and base.kind == "symbol" and isinstance(tok.value, int):
+                return self._count(Func("exp", Num(exact_integer(tok.value), tok.start, tok.end), None, _start(base), tok.end))  # e² is exp(2)
             node = self._make_pow(base, tok.value, tok.end)
             return self._nested_power_check(node)
         if tok.kind in ("CARET", "DSTAR"):
+            euler = self._euler_power(base, d)
+            if euler is not None:
+                return euler
             self.i += 1
             exp = self._exponent(d)
             if isinstance(exp, Unsupported):
@@ -460,6 +465,47 @@ class _Parser:
             node = self._make_pow(base, value, end)
             return self._nested_power_check(node)
         return base
+
+    def _euler_power(self, base: Node, d: int) -> Optional[Node]:
+        """``e^{2(0.693)}``, ``e^{1.386}``, ``e^-0.5`` in a mathematics or Computer Science reading: Euler's number raised
+        to a closed exponent is the exponential of that exponent (``Func("exp")``, decided through an enclosure). The
+        caret is at ``self.i``; returns None (nothing consumed) for any other base or exponent."""
+        if self.ctx.profile.mode == "sciences" or not isinstance(base, Sym) or base.name != "e" or base.kind != "symbol":
+            return None
+        save = self.i
+        nxt = self.peek(1)
+        if nxt is None:
+            return None
+        try:
+            if nxt.kind in ("LGROUP", "LPAR"):
+                close = self._close_index(self.i + 1)
+                if close is None:
+                    return None
+                self.i += 2
+                arg = self.expr(self._descend(d))
+                if self.i != close:
+                    self.i = save
+                    return None
+                self.i = close + 1
+                end = self.t[close].end
+            elif nxt.kind == "NUM" and nxt.value is not None and not nxt.value.based:
+                self.i += 2
+                arg = Num(nxt.value, nxt.start, nxt.end)
+                end = nxt.end
+            elif nxt.kind == "OP" and nxt.text == "-" and self.peek(2) is not None and self.peek(2).kind == "NUM" and self.peek(2).value is not None:
+                num = self.peek(2)
+                self.i += 3
+                arg = Neg(Num(num.value, num.start, num.end), nxt.start, num.end)
+                end = num.end
+            else:
+                return None
+        except _OperandError:
+            self.i = save
+            return None
+        if any(isinstance(n, (Sym, Unsupported, Quantity, WithUnit)) for n in walk(arg)):
+            self.i = save
+            return None
+        return self._count(Func("exp", arg, None, _start(base), end))
 
     def _nested_power_check(self, node: Node) -> Node:
         tok = self.peek()
@@ -583,6 +629,9 @@ class _Parser:
             self.i += 1
             return self._count(Abs(node, tok.start, close.end))
         if k == "UNSUP":
+            finite = self._finite_sum(tok, d) if tok.value == "a sum (Σ)" else None
+            if finite is not None:
+                return finite
             self.i += 1
             end = self._skip_operand()
             return self._count(Unsupported(str(tok.value), tok.text, tok.start, max(end, tok.end)))
@@ -601,6 +650,59 @@ class _Parser:
         if k == "BOOL":
             raise self._err("ST-PARSE-001", f"a Boolean operator {tok.text!r} outside a Boolean expression", tok)
         raise self._err("ST-PARSE-001", f"unexpected {tok.text!r}", tok)
+
+    def _finite_sum(self, tok: Token, d: int) -> Optional[Node]:
+        """``\\sum_{k=1}^{4} k^2``, ``Σ_{k=1}^{4} k²``: a sum over written integer bounds is the explicit finite sum of
+        its terms (the index replaced by each integer), so it is decided as arithmetic; Σ with symbolic bounds stays
+        unsupported (section 7.8). Bounded: at most ``_MAX_SUM_TERMS`` terms, and the node bound holds. Returns None
+        (nothing consumed) for any other shape."""
+        save = self.i
+        j = self.i + 1
+        sub = self.t[j] if j < len(self.t) else None
+        if sub is None or sub.kind != "SUB":
+            return None
+        raw = self.ctx.s[sub.start:sub.end].replace("{", "").replace("}", "").lstrip("_").replace(" ", "")
+        name, eqs, lo_text = raw.partition("=")
+        if not eqs or not (len(name) == 1 and name.isalpha() and name.isascii()) or not _signed_digits(lo_text):
+            return None
+        j += 1
+        hi_val: Optional[int] = None
+        nxt = self.t[j] if j < len(self.t) else None
+        if nxt is not None and nxt.kind == "SUP" and isinstance(nxt.value, int) and not nxt.space:
+            hi_val, j = nxt.value, j + 1
+        elif nxt is not None and nxt.kind == "CARET":
+            g = self.t[j + 1] if j + 1 < len(self.t) else None
+            if g is not None and g.kind == "NUM" and g.value is not None and g.value.exact and not g.value.based and g.value.value.denominator == 1:
+                hi_val, j = int(g.value.value), j + 2
+            elif g is not None and g.kind in ("LGROUP", "LPAR"):
+                c = self._close_index(j + 1)
+                inner = self.t[j + 2:c] if c is not None else ()
+                if c is not None and len(inner) == 1 and inner[0].kind == "NUM" and inner[0].value is not None and inner[0].value.exact \
+                        and not inner[0].value.based and inner[0].value.value.denominator == 1:
+                    hi_val, j = int(inner[0].value.value), c + 1
+        if hi_val is None:
+            return None
+        lo_val = int(lo_text)
+        if hi_val < lo_val or hi_val - lo_val + 1 > _MAX_SUM_TERMS:
+            return None
+        self.i = j
+        try:
+            body = self.term(self._descend(d))
+        except _OperandError:
+            self.i = save
+            return None
+        if any(isinstance(n, (Unsupported, Quantity, WithUnit, Apply)) for n in walk(body)):
+            self.i = save
+            return None
+        end = getattr(body, "end", tok.end)
+        total: Optional[Node] = None
+        for v in range(lo_val, hi_val + 1):
+            term_node = _substitute_index(body, name, v)
+            if term_node is None:
+                self.i = save
+                return None
+            total = term_node if total is None else self._count(BinOp("+", total, term_node, tok.start, end))
+        return total
 
     def _number(self, tok: Token) -> Node:
         self.i += 1
@@ -682,7 +784,7 @@ class _Parser:
                     continue
                 if tk.text == "/" and nx.kind == "LPAR" and nx.text == "(":
                     c = self._close_index(k + 1)
-                    if c is not None and all(x.kind in ("IDENT", "SUP", "OP") for x in toks[k + 2:c]) and c > k + 2:
+                    if c is not None and c > k + 2 and (all(x.kind in ("IDENT", "SUP", "OP") for x in toks[k + 2:c]) or unit_group(toks, k + 2, c, prof)):
                         k = c + 1
                         continue
                 break
@@ -748,11 +850,20 @@ class _Parser:
             self.i += 1
             end = self._skip_operand()
             return self._count(Unsupported("a derivative", word + "/d…", tok.start, max(end, tok.end)))
-        # f′(x), f'(1): a derivative
+        # f′(x), f'(1): a derivative, never encoded. With one plain argument the node keeps the name and the argument, so the
+        # relations can set an evaluation f′(2) = 3 × 2² − 2 against a formula f′(x) = 3x² − 2 the answer states (the stated
+        # formula itself stays undecided: differentiation is outside the encodings).
         if tok.primes and word in _FUNCTION_LETTERS and nxt is not None and nxt.kind == "LPAR" and nxt.text == "(" and not nxt.space:
             close = self._close_index(self.i + 1)
             if close is None:
                 raise self._err("ST-PARSE-001", "an unbalanced bracket", nxt)
+            inner_toks = self.t[self.i + 2:close]
+            if not tok.sub and _single_argument(inner_toks):
+                self.i += 2
+                arg = self.expr(self._descend(d))
+                self.i = close + 1
+                return self._count(Unsupported("a derivative", word + "'" * tok.primes + "(…)", tok.start, self.t[close].end,
+                                               name=symbol_name(word, "", tok.primes), arg=arg))
             self.i = close + 1
             return self._count(Unsupported("a derivative", word + "'" * tok.primes + "(…)", tok.start, self.t[close].end))
         # chemistry labels n(H₂O), M(CaCO₃), ΔH_c(H₂), ΣΔH_f(products): a label, not a product
@@ -1043,6 +1154,21 @@ def _ends_in_number(node: Node) -> bool:
 
 def _is_value_node(node: Node) -> bool:
     return isinstance(node, (Num, Quantity))
+
+
+#: the most terms a Σ over written integer bounds is expanded into (section 4.9 keeps the node bound too)
+_MAX_SUM_TERMS = 24
+
+
+def _signed_digits(text: str) -> bool:
+    t = text[1:] if text[:1] in "-−" else text
+    return 0 < len(t) <= 4 and t.isascii() and t.isdigit()
+
+
+def _substitute_index(node: Node, name: str, value: int) -> Optional[Node]:
+    """``node`` with the index ``name`` replaced by the exact integer ``value``."""
+    num: Node = Num(exact_integer(abs(value)))
+    return replace_symbol(node, name, Neg(num) if value < 0 else num)
 
 
 def _is_digit_tokens(toks: tuple[Token, ...], digit: str) -> bool:

@@ -44,7 +44,7 @@ from .numbers import SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, is_ascii_digit, supe
 
 __all__ = [
     "BASE_NAMES", "DIMENSIONLESS", "Dimension", "GLUED_UNITS", "PREFIXES", "UNITS", "UnitAtom", "UnitDef", "UnitExpr", "UnitReading",
-    "dimension_name", "is_unit_atom", "lookup_atom", "parse_unit", "unit_dimension",
+    "dimension_name", "is_unit_atom", "lookup_atom", "parse_unit", "unit_dimension", "unit_group",
 ]
 
 BASE_NAMES = ("m", "kg", "s", "A", "K", "mol", "cd")
@@ -674,3 +674,32 @@ def unit_dimension(text: str, **kw: object) -> Optional[Dimension]:
     """The dimension of a unit expression when it is read unambiguously, else None."""
     u = parse_unit(text, **kw)  # type: ignore[arg-type]
     return None if u is None or u.unknown else u.dim
+
+
+def unit_group(toks, a: int, b: int, profile) -> bool:
+    """Tokens ``[a, b)`` (the inside of a bracket) are a unit expression only: unit atoms (or an unknown atom of two
+    or more letters, such as 'yr'), exponents (``²``, ``^2``, ``^-1``, ``**2``) and product signs. Bounded by ``b - a``."""
+    if b <= a:
+        return False
+    atoms = 0
+    k = a
+    while k < b:
+        t = toks[k]
+        if t.kind == "IDENT" and not t.sub and not t.delta and not t.primes:
+            if not (is_unit_atom(t.text, bare_m=profile.bare_m, tonne=profile.tonne) or (len(t.text) >= 2 and t.text.isascii() and t.text.isalpha())):
+                return False
+            atoms += 1
+        elif t.kind == "SUP" and not t.space:
+            pass
+        elif t.kind in ("CARET", "DSTAR") and not t.space:
+            if k + 1 < b and toks[k + 1].kind == "OP" and toks[k + 1].text in "-−+":
+                k += 1
+            if k + 1 >= b or toks[k + 1].kind != "NUM":
+                return False
+            k += 1
+        elif t.kind == "OP" and t.text in ("·", "*", "⋅"):
+            pass
+        else:
+            return False
+        k += 1
+    return atoms > 0

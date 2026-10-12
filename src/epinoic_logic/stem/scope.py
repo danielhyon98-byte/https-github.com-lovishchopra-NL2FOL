@@ -185,6 +185,12 @@ _SUBSCRIPT_CHARS = frozenset("₀₁₂₃₄₅₆₇₈₉ₐₑₒₓₕₖ�
 _BLOCKING = frozenset("+-−×·*/÷^=<>≤≥≈≠~0123456789)]}⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻|√")
 
 
+#: subscript characters as they appear in a symbol name
+_PRESCAN_SUB = {"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "ₐ": "a", "ₑ": "e", "ₒ": "o",
+                "ₓ": "x", "ₕ": "h", "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₚ": "p", "ₛ": "s", "ₜ": "t", "ᵢ": "i", "ⱼ": "j", "ᵣ": "r",
+                "∥": "par", "⊥": "perp", "½": "half"}
+
+
 def prescan_names(text: str, *, limits: StemLimits = DEFAULT_LIMITS, cs: bool = False) -> frozenset[str]:
     """Names declared in ``text`` (a reading view): a letter run directly before ``=`` or ``≈`` at
     the start of a relation (after the start of a line, punctuation, a bracket, ``⇒``/``∴`` or a
@@ -290,9 +296,5 @@ def _name_before(text: str, k: int) -> str:
                 return ""
     if not delta and not sub and letters.isascii() and (letters.lower() in _STOP or (len(letters) > _LONG_NAME and letters not in STEM_NAMES)):
         return ""
-    clean_sub = "".join(c for c in sub if c.isalnum() or c in "∥⊥½°")
-    sub_map = {"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9", "ₐ": "a", "ₑ": "e", "ₒ": "o",
-               "ₓ": "x", "ₕ": "h", "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₚ": "p", "ₛ": "s", "ₜ": "t", "ᵢ": "i", "ⱼ": "j", "ᵣ": "r",
-               "∥": "par", "⊥": "perp", "½": "half"}
-    clean_sub = "".join(sub_map.get(c, c) for c in clean_sub)
+    clean_sub = "".join(_PRESCAN_SUB.get(c, c) for c in sub if c.isalnum() or c in "∥⊥½°") if sub else ""
     return symbol_name(letters if letters != "µ" else "μ", clean_sub, primes, delta)

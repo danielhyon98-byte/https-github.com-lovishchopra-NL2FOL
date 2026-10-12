@@ -38,7 +38,7 @@ resolved two ways). Helpers: :func:`walk`, :func:`symbols`, :func:`node_count`,
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import Iterator, Optional, Union
 
@@ -46,6 +46,7 @@ from .numbers import ExactNumber
 from .units import UnitExpr
 
 __all__ = [
+    "replace_symbol",
     "Abs", "Apply", "BinOp", "BoolOp", "Chain", "Degrees", "Func", "Magnification", "Neg", "Node", "Num", "Operand", "Percent", "PlusMinus",
     "Pow", "Quantity", "Ratio", "Root", "Sym", "Unsupported", "WithUnit", "align", "children", "depth", "is_closed", "is_value", "node_count", "render",
     "shape_key", "symbols", "unsupported_reasons", "value_of", "walk",
@@ -195,6 +196,10 @@ class Unsupported:
     text: str = ""
     start: int = 0
     end: int = 0
+    #: a derivative written as a function applied to one argument (``f′(2)``): its name and argument, so an evaluation
+    #: can be set against a formula of it the answer states; never encoded itself
+    name: str = ""
+    arg: Optional["Node"] = None
 
 
 Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, PlusMinus, Pow, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio, BoolOp, Unsupported]
@@ -508,3 +513,34 @@ def _render(node: Node, canonical: bool, level: int) -> str:
     if isinstance(node, Unsupported):
         return f"<unsupported: {node.reason}>"
     return "?"
+
+
+def replace_symbol(node: Node, name: str, value: Node, depth: int = 0) -> Optional[Node]:
+    """``node`` with every symbol ``name`` replaced by ``value`` (a Σ index by an integer, a function's parameter by its
+    argument). Each node type is rebuilt explicitly; None for a node type it does not rebuild or beyond the depth bound."""
+    if depth > 64:
+        return None
+    rec = lambda n: replace_symbol(n, name, value, depth + 1)  # noqa: E731
+    if isinstance(node, Sym):
+        return value if node.name == name else node
+    if isinstance(node, (Num, Quantity, Unsupported)):
+        return node
+    if isinstance(node, (Neg, Abs, Percent, Degrees, Magnification, Root, Func, Apply, WithUnit)):
+        a = rec(node.arg)
+        return None if a is None else replace(node, arg=a)
+    if isinstance(node, Pow):
+        b = rec(node.base)
+        return None if b is None else replace(node, base=b)
+    if isinstance(node, (BinOp, Ratio)):
+        a, b = rec(node.left), rec(node.right)
+        return None if a is None or b is None else replace(node, left=a, right=b)
+    if isinstance(node, PlusMinus):
+        a = rec(node.left) if node.left is not None else None
+        b = rec(node.right)
+        if b is None or (node.left is not None and a is None):
+            return None
+        return replace(node, left=a, right=b)
+    if isinstance(node, BoolOp):
+        args = [rec(x) for x in node.args]
+        return None if any(x is None for x in args) else replace(node, args=tuple(args))
+    return None

@@ -27,6 +27,13 @@ invented words in single marks), altered_quotation (a real quotation changed by 
 self_certification, wrong_arithmetic, chronology_error. With a supplied text an invented or altered quotation is expected
 as INT-REQ-003; without one it is unverifiable rather than refuted and is expected as CORE-SRC-003.
 
+STEM mutations (stem_mutations.py), applied in addition and only to answers of STEM subjects (the subjects routed to the
+sciences, mathematics or computer_science branch): stem_arithmetic_slip (one stated result of a worked chain changed;
+INT-SUBJ-001), stem_wrong_unit (a stated result's unit replaced by one of another dimension; ST-DIM-001 or ST-DIM-002),
+stem_substitution (a value the request gives, substituted into a calculation, written as another value; INT-SUBJ-001).
+Each is skipped when the answer has no site for it. The injection is named when a finding of its code names a claim
+that carries the mutated text. Every other subject's round is unchanged.
+
 Functional-rate definition (deterministic): a transmission counts as functional when the
 hub produced a receipt without raising, the receipt status is consistent with the input
 (a genuine response is not REJECTED; a response carrying an injected fault shows the
@@ -69,6 +76,9 @@ import traceback
 import unicodedata
 from pathlib import Path
 from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
 
 from epinoic_logic.branches import RouterHub
 from epinoic_logic.channel import TransmissionStatus
@@ -158,9 +168,19 @@ def paragraph_count(text: str) -> int:
     return len([b for b in re.split(r"\n[ \t\r]*\n", text.replace("\r\n", "\n")) if b.strip()])
 
 
-def injection(text: str, kind: str) -> Injection:
+def stem_variant(text: str, question: str, kind: str) -> tuple[str, str]:
+    """``(mutated_text, expected codes joined by '|')`` of a STEM mutation, or ``(text, 'SKIP')`` when the answer has no site."""
+    inj = mutate_stem(text, question, kind)
+    return (text, "SKIP") if inj is None else (inj.text, "|".join(inj.expected))
+
+
+def injection(text: str, kind: str, question: str = "") -> Injection:
     """How ``mutate(text, kind)``'s injection is recognised on a receipt. For altered_quotation the marker is the altered
-    quotation; for self_certification (appended as a paragraph of its own) a finding may also name its place."""
+    quotation; for self_certification (appended as a paragraph of its own) a finding may also name its place; for a STEM
+    mutation the marker is the mutated stretch of the answer."""
+    if kind in STEM_MUTATIONS:
+        inj = mutate_stem(text, question, kind)
+        return Injection((inj.marker,) if inj is not None else (), (), 0)
     mutated = mutate(text, kind)[0]
     added = len(mutated.split()) - len(text.split())
     if kind == "altered_quotation":
@@ -520,6 +540,8 @@ def run_round(round_dir: Path) -> dict:
         variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k) for k in MUTATIONS]
         if not texts:  # without a supplied text a quotation is unverifiable rather than refuted
             variants = [(k, t, ("CORE-SRC-003" if k in QUOTATION_MUTATIONS and e != "SKIP" else e)) for k, t, e in variants]
+        if is_stem_subject(item["subject"]):  # STEM faults, only on STEM subjects (after the shared ones: their indices are unchanged)
+            variants += [(k,) + stem_variant(item["response_text"], item["question"], k) for k in STEM_MUTATIONS]
         for vi, (kind, text, expected) in enumerate(variants):
             if expected == "SKIP" or (kind == "genuine") != (pass_kind == "genuine"):
                 continue
@@ -576,7 +598,7 @@ def run_round(round_dir: Path) -> dict:
                 else:
                     # A fault counts as named only by a finding of the expected code that names an injected claim or
                     # quotes the injected words, and that the genuine record does not already carry.
-                    inj = injection(item["response_text"], kind)
+                    inj = injection(item["response_text"], kind, item.get("question", ""))
                     injected = injected_claim_ids(reply.payload["claims"] if reply else [], inj.markers)
                     expected_codes = SELF_REPORT_CODES if kind == "self_certification" else tuple(c for c in expected.split("|") if c != "NONE")
                     named = findings_naming_injection(found, expected_codes, inj, injected, baseline.get(sp.stem, []), task_id)

@@ -50,7 +50,7 @@ from .lexer import Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .normalize import blank_ranges, reading_view
 from .parser import STEM_NAMES
-from .units import is_unit_atom
+from .units import is_unit_atom, unit_group
 
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
@@ -612,6 +612,11 @@ class _RunFinder:
             return not rel_start
         if p.kind == "RPAR" and rel_start:
             return True
+        if rel_start and p.kind in ("SUP", "SUB") and k >= 2 and self.t[k - 2].kind == "IDENT" and len(self.t[k - 2].text) >= 3 \
+                and not self.mathy_start(self.t[k - 2]):
+            return True  # a word formula 'BMI = mass/height² = 72/1.80² = …': the prose word ends the label
+        if rel_start and p.kind == "PERCENT" and k + 1 < len(self.t) and self.t[k + 1].kind == "NUM":
+            return True  # 'useful output/total input × 100% = 600 J / 800 J × 100% = 75%': the word formula is the label
         return False
 
     def can_start(self, k: int) -> bool:
@@ -666,6 +671,8 @@ class _RunFinder:
             if kind in ("COMMA", "SEMI") and not stack:
                 break
             if kind == "COLON":
+                if not t.space and k + 1 < n and toks[k + 1].space:
+                    break  # 'Step 1: 1.0 × 2.0 = 2.0': a colon glued to the figure and followed by a space ends a label, not a ratio
                 if not operand and prev_value and k + 1 < n and toks[k + 1].kind == "NUM":
                     k += 1
                     operand = True
@@ -708,6 +715,13 @@ class _RunFinder:
                     else:
                         inner = len(stack) if not inner else min(inner, len(stack))
                 elif kind == "OP":
+                    if t.text == "/" and in_unit and not t.space and k + 1 < n and toks[k + 1].kind == "LPAR" and not toks[k + 1].space:
+                        c = self.match[k + 1]
+                        if c > k + 2 and unit_group(toks, k + 2, c, self.profile):
+                            k = c + 1  # a parenthesised unit denominator: 'J/(g K)', 'kJ/(m^2 yr)'
+                            if not stack:
+                                last_good = k
+                            continue
                     if t.text == "×" and prev_value and (k + 1 >= n or toks[k + 1].kind in ("PUNCT", "COMMA", "SEMI", "QUOTE") or (toks[k + 1].space and toks[k + 1].kind == "IDENT")):
                         k += 1  # a magnification suffix '50×'
                         if not stack:
@@ -775,7 +789,12 @@ class _RunFinder:
         out: list[_Run] = []
         n = len(self.t)
         i = 0
+        match = self.match
+        toks = self.t
         while i < n:
+            if match[i] < 0 and toks[i].kind in ("LPAR", "LGROUP"):
+                i += 1  # a bracket that never closes: ``extend`` would stop on it at once
+                continue
             if not self.can_start(i):
                 i += 1
                 continue

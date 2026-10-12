@@ -299,7 +299,14 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
         if kind in ("derivation", "data_line"):
             flush()
             cont = _starts_with_relation(view, content_start, ln.end)
-            b.add(kind, content_start, ln.end, ln.index, continuation=cont, list_item=is_list)
+            split = _derivation_split(view, content_start, ln.end, line_spans.get(ln.index, [])) if kind == "derivation" else None
+            if split is None:
+                b.add(kind, content_start, ln.end, ln.index, continuation=cont, list_item=is_list)
+            else:
+                # a derivation followed on its line by a sentence of prose ('… = 30 m. The displacement is therefore 30 m.'):
+                # the prose is a statement of its own, as it would be after a line break
+                b.add(kind, content_start, split[0], ln.index, continuation=cont, list_item=is_list)
+                group = (split[1], ln.end, ln.index, False)
         elif is_list:
             group = (content_start, ln.end, ln.index, True)
         else:
@@ -375,6 +382,28 @@ def _line_math_spans(spans: SpanSet) -> dict[int, list[Span]]:
     return out
 
 
+def _derivation_split(view: str, a: int, b: int, line_spans: list[Span]) -> Optional[tuple[int, int]]:
+    """``(end of the derivation, start of the prose)`` when a math span of the line ``[a, b)`` is followed by sentence
+    punctuation, a space and a capital outside every span, with prose after it; None otherwise (one pass over the spans)."""
+    inside = [(sp.start, sp.end) for sp in line_spans if a <= sp.start and sp.end <= b]
+    for sp in sorted(line_spans, key=lambda s: s.end):
+        if sp.kind not in ("math_run", "latex_inline", "verbal", "chem") or sp.start < a or sp.end > b:
+            continue
+        k = sp.end
+        while k < b and view[k] in " \t$":
+            k += 1
+        if k >= b or view[k] not in ".;!?":
+            continue
+        j = k + 1
+        if j >= b or view[j] not in " \t":
+            continue
+        while j < b and view[j] in " \t":
+            j += 1
+        if j < b and view[j].isupper() and not any(x <= j < y for x, y in inside) and len(view[j:b].split()) >= 2:
+            return k + 1, j
+    return None
+
+
 def _line_kind(view: str, a: int, b: int, line_spans: list[Span], spans: SpanSet) -> str:
     """``derivation`` when one math span (with its prose label) covers at least 60 % of the
     line's non-space characters, or the line opens with a relation sign; ``data_line`` for a
@@ -385,7 +414,7 @@ def _line_kind(view: str, a: int, b: int, line_spans: list[Span], spans: SpanSet
     if 0 < colon <= 48 and len(text[:colon].split()) <= 6 and all(w.isalpha() for w in text[:colon].split()):
         a = a + colon + 1
         text = view[a:b]
-    total = sum(1 for c in text if not c.isspace())
+    total = len("".join(text.split()))   # the non-space characters (str.split and str.isspace share one notion of space)
     if total == 0:
         return "prose"
     if _starts_with_relation(view, a, b) and any(sp.kind == "math_run" and sp.start >= a for sp in line_spans):
@@ -402,7 +431,7 @@ def _line_kind(view: str, a: int, b: int, line_spans: list[Span], spans: SpanSet
             k = view.rfind(sp.label.split(" ")[0], a, sp.start)
             if k >= a:
                 lo = k
-        covered = sum(1 for c in view[lo:sp.end] if not c.isspace())
+        covered = len("".join(view[lo:sp.end].split()))
         if covered >= _DERIVATION_SHARE * total:
             return "derivation"
     return "prose"

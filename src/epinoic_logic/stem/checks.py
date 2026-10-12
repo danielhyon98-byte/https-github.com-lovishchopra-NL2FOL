@@ -56,7 +56,7 @@ from .constants import BookletReading, booklet_reading, constants_for_symbol, ma
 from .document import StemDocument
 from .enclosures import EnclosureError, Interval, e_interval
 from .nodes import (
-    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Root, Sym, WithUnit, is_closed, is_value,
+    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym, WithUnit, is_closed, is_value,
     render, symbols, value_of, walk,
 )
 from .relations import ST_SEVERITY, Relation
@@ -955,6 +955,10 @@ def _common_frame(c: Term, s: Term) -> int:
 def _eq(ctx: _Ctx) -> None:
     rel = ctx.rel
     combos = _operand_combos(rel.left, rel.right)
+    if combos and all(isinstance(c, Ratio) and isinstance(sn, Ratio) for c, sn in combos):
+        # a:b = c:d is a·d = b·c over closed terms (design section 7.4): the cross products are compared
+        combos = [(BinOp("*", c.left, sn.right, c.start, c.end), BinOp("*", c.right, sn.left, sn.start, sn.end)) for c, sn in combos]
+        ctx.detail("a ratio equality a:b = c:d, compared as a·d = b·c")
     approx = _approx(ctx)
     pairs: list[tuple[Node, Node]] = []
     hs: list[Fraction] = []
@@ -1227,6 +1231,26 @@ def _sub(ctx: _Ctx) -> None:
         _sub_pairs(ctx)
 
 
+_MAX_ORDERINGS = 120
+
+
+def _injective(options: list[list[int]], limit: int = _MAX_ORDERINGS) -> Optional[list[tuple[int, ...]]]:
+    """Every choice of one candidate per entry with no candidate chosen twice (a matching), in order; None when
+    there would be more than ``limit`` of them. Bounded: at most ``limit`` choices are ever built."""
+    out: list[tuple[int, ...]] = []
+
+    def rec(i: int, used: tuple[int, ...]) -> bool:
+        if i == len(options):
+            out.append(used)
+            return len(out) <= limit
+        for c in options[i]:
+            if c not in used and not rec(i + 1, used + (c,)):
+                return False
+        return True
+
+    return out if rec(0, ()) else None
+
+
 def _sub_pairs(ctx: _Ctx) -> None:
     rel = ctx.rel
     num_side = _numeric_side(rel)
@@ -1234,9 +1258,10 @@ def _sub_pairs(ctx: _Ctx) -> None:
         raise EncodeError("ST-UNDEC-001", "a substitution with no closed side")
     groups = _product_groups(num_side)
     b = ctx.builder
-    conj: list[dict] = []
     defined: dict[tuple[int, bool], tuple[str, int]] = {}
     checked: list[str] = []
+    #: (symbol, the node written opposite it, its alternatives, {id(alternative): "matches a binding" expression})
+    entries: list[tuple[str, Node, list[Node], dict[int, dict]]] = []
     for name, node in rel.pairs:
         if not is_closed(node):
             continue
@@ -1244,8 +1269,9 @@ def _sub_pairs(ctx: _Ctx) -> None:
         if not blist:
             continue
         alternatives = [node] + [m for m in groups.get(id(node), []) if m is not node]
-        disj: list[dict] = []
+        per_alt: dict[int, dict] = {}
         for alt in alternatives:
+            disj: list[dict] = []
             av = value_of(alt)
             h_w = av[1].half_width if (av is not None and av[1] is not None) else Fraction(0)
             w_unit = av[2] if av is not None else None
@@ -1283,13 +1309,38 @@ def _sub_pairs(ctx: _Ctx) -> None:
                         disj.append(band_expr({"op": "var", "name": wname}, literal_in_frame(bval, k), literal_in_frame(tol, k), Fraction(0)))
                     except LiteralTooLong:
                         continue
-        if disj:
-            conj.append(nary("or", disj) if len(disj) > 1 else disj[0])
+            if disj:
+                per_alt[id(alt)] = nary("or", disj) if len(disj) > 1 else disj[0]
+        if per_alt:
+            entries.append((name, node, alternatives, per_alt))
             checked.append(name)
-    if not conj:
+    if not entries:
         raise EncodeError("ST-UNDEC-001", "no substituted value could be set against a binding")
+    # Symbols of one product (or sum) may be written in another order, but each must match a factor of its own: the
+    # same written factor never stands for two symbols ('SV × HR = 70 × 42' with SV = 70 and HR = 72 does not hold
+    # because 70 also lies near 72).
+    by_group: dict[tuple[int, ...], list[tuple[str, Node, list[Node], dict[int, dict]]]] = {}
+    for e in entries:
+        by_group.setdefault(tuple(sorted(id(a) for a in e[2])), []).append(e)
+    conj: list[dict] = []
+    ordered = False
+    for members in by_group.values():
+        if len(members) == 1:
+            exprs = list(members[0][3].values())
+            conj.append(nary("or", exprs) if len(exprs) > 1 else exprs[0])
+            continue
+        choices = _injective([list(m[3]) for m in members])
+        if choices:
+            options = [nary("and", [m[3][c] for m, c in zip(members, choice)]) for choice in choices]
+            conj.append(nary("or", options) if len(options) > 1 else options[0])
+            ordered = True
+            continue
+        for m in members:  # no matching to enumerate (too many orderings, or a factor that could not be encoded): per symbol
+            exprs = list(m[3].values())
+            conj.append(nary("or", exprs) if len(exprs) > 1 else exprs[0])
     ctx.detail("substituted symbols: " + ", ".join(checked))
-    ctx.detail("a value matches any binding of its symbol, as written or in SI; a factor written in another order matches too (R7)")
+    ctx.detail("a value matches any binding of its symbol, as written or in SI; a factor written in another order matches too (R7)"
+               + ("; each factor stands for one symbol only" if ordered else ""))
     if rel.formula is not None:
         ctx.detail(f"the formula of '{rel.formula.name}' stated in {rel.formula.statement_id}")
     ctx.readings = ["as written or SI per value"]

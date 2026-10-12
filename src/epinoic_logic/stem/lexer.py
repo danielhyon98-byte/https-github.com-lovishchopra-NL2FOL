@@ -132,6 +132,11 @@ _SUBSCRIPT_LETTERS = {"ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₕ": "h"
 _SUB_SYMBOLS = {"∥": "par", "⊥": "perp", "½": "half", "∞": "inf", "⊙": "sun"}
 _PRIMES = {"′": 1, "″": 2, "‴": 3}
 _BOOL_WORDS = {"AND": "∧", "OR": "∨", "NOT": "¬", "XOR": "⊕", "NAND": "NAND", "NOR": "NOR"}
+#: one-character punctuation tokens
+_SIMPLE = {",": "COMMA", ";": "SEMI", ":": "COLON", "%": "PERCENT", "°": "DEGREE", "|": "BAR", "!": "BANG", "&": "AMP", "?": "PUNCT", "…": "PUNCT",
+           ".": "PUNCT"}
+#: the characters a subscript may open with (``_subscript_text`` reads nothing at any other character)
+_SUB_START = frozenset(SUBSCRIPT_DIGITS) | frozenset(_SUBSCRIPT_LETTERS) | frozenset(_SUB_SYMBOLS) | {"_"}
 _MAX_COMMAND = 24
 _MAX_SUB = 16
 _MAX_TEXT = 400
@@ -211,9 +216,11 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
     bracket_depth = 0
     cap = max_tokens
 
-    def emit(kind: str, text: str, a: int, b: int, **kw: Any) -> None:
+    append = toks.append
+
+    def emit(kind: str, text: str, a: int, b: int, value: Any = None, sub: str = "", primes: int = 0, delta: bool = False) -> None:
         nonlocal space
-        toks.append(Token(kind, text, a, b, space, **kw))
+        append(Token(kind, text, a, b, space, value, sub, primes, delta))
         space = False
 
     while i < n:
@@ -229,6 +236,17 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             continue
         if cap is not None and len(toks) >= cap:   # a token remains beyond the cap (trailing space is none)
             return LexResult(tuple(toks), overflow=True)
+        if ch in "([)]":
+            # brackets first: no other branch below reads them (they are the commonest one-character tokens of a long input)
+            if ch in "([":
+                bracket_depth += 1
+                append(Token("LPAR", ch, i, i + 1, space))
+            else:
+                bracket_depth = max(0, bracket_depth - 1)
+                append(Token("RPAR", ch, i, i + 1, space))
+            space = False
+            i += 1
+            continue
         # ------------------------------------------------------------- LaTeX commands
         if ch == "\\":
             if i + 1 >= n:
@@ -434,7 +452,8 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 i += 1
                 continue
             based = None
-            if ch != "." and (s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i) or not digit or _base_mark_after_digits(s, i, n)):
+            if ch != "." and ((ch == "0" and s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i)) or not digit or _base_mark_after_digits(s, i, n)
+                              or (cs and _based_ahead(s, i, n))):  # '2A₁₆': a hexadecimal numeral may open with a decimal digit
                 based = scan_based(s, i, limits=limits)
             if based is not None:
                 k, num, _digits = based
@@ -467,20 +486,20 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             emit("UNSUP", ch, i, i + 1, value="a sum (Σ)")
             i += 1
             continue
-        if _is_latin(ch) or _is_greek(ch) or (ch == "Δ"):
+        if "a" <= ch <= "z" or "A" <= ch <= "Z" or ch in GREEK or ch == "Δ":
             res = _ident_at(s, i, n, mode, cs)
             if res is None:
                 emit("OTHER", ch, i, i + 1)
                 i += 1
                 continue
-            k, t = res
-            emit(t.kind, t.text, i, k, value=t.value, sub=t.sub, primes=t.primes, delta=t.delta)
+            k, t = res   # t spans [i, k) and carries no preceding space: reuse it unless a space precedes
+            append(t if not space else Token(t.kind, t.text, i, k, True, t.value, t.sub, t.primes, t.delta))
+            space = False
             i = k
             continue
         # ------------------------------------------------------------- operators and relations
-        two = s[i:i + 2]
-        three = s[i:i + 3]
-        if three in ("<=>", "<->"):
+        two = s[i:i + 2] if ch in "<>!=-*" else ""   # every two- and three-character operator opens with one of these
+        if ch == "<" and s.startswith(("<=>", "<->"), i):
             emit("REL", "⇔", i, i + 3)
             i += 3
             continue
@@ -561,10 +580,8 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 emit("OTHER", "_", i, i + 1)
                 i += 1
             continue
-        simple = {",": "COMMA", ";": "SEMI", ":": "COLON", "%": "PERCENT", "°": "DEGREE", "|": "BAR", "!": "BANG", "&": "AMP", "?": "PUNCT",
-                  "…": "PUNCT", ".": "PUNCT"}
-        if ch in simple:
-            kind = simple[ch]
+        if ch in _SIMPLE:
+            kind = _SIMPLE[ch]
             if ch == "°" and i + 1 < n and s[i + 1] in "CF" and not (i + 2 < n and _is_latin(s[i + 2])):
                 emit("DEGREE", "°" + s[i + 1], i, i + 2)
                 i += 2
@@ -719,17 +736,17 @@ def _ident_at(s: str, i: int, n: int, mode: LexMode, cs: bool) -> Optional[tuple
             sub_end, sub = _subscript_text(s, k, n, mode)
             primes, p_end = _primes_at(s, sub_end, n)
             return p_end, Token("IDENT", "Δ", i, p_end, sub=sub, primes=primes)
-    if _is_greek(s[j]):
+    if s[j] in GREEK:
         letter = "μ" if s[j] == "µ" else s[j]
         k = j + 1
         sub_end, sub = _subscript_text(s, k, n, mode)
         primes, p_end = _primes_at(s, sub_end, n)
         return p_end, Token("IDENT", letter, i, p_end, sub=sub, primes=primes, delta=delta)
     k = j
-    while k < n and _is_latin(s[k]) and k - j < 64:
+    while k < n and ("a" <= s[k] <= "z" or "A" <= s[k] <= "Z") and k - j < 64:
         k += 1
     word = s[j:k]
-    if k < n and _is_latin(s[k]):
+    if k < n and ("a" <= s[k] <= "z" or "A" <= s[k] <= "Z"):
         # an overlong letter run: one unknown word
         while k < n and _is_latin(s[k]):
             k += 1
@@ -742,17 +759,17 @@ def _ident_at(s: str, i: int, n: int, mode: LexMode, cs: bool) -> Optional[tuple
             e, base = _log_base(s, k, n, mode) if func == "log" else (k, None)
             e, func = _inverse(s, e, n, func, mode)
             return e, Token("FUNC", func, i, e, value=base)
-    sub_end, sub = _subscript_text(s, k, n, mode)
+    sub_end, sub = _subscript_text(s, k, n, mode) if k < n and s[k] in _SUB_START else (k, "")
     if sub_end < n and s[sub_end] == "°" and not (sub_end + 1 < n and s[sub_end + 1] in "CF") and (delta or len(word) == 1):
         # a standard-state mark glued to a symbol (ΔH°, E°, S°) is part of its name, not degrees
         sub = (sub + "°") if sub else "°"
         sub_end += 1
-    if not sub and len(word) == 1 and mode == "plain" and k < n and is_ascii_digit(s[k]):
+    if not sub and len(word) == 1 and mode == "plain" and k < n and "0" <= s[k] <= "9":
         # 'Q1', 'V2': one or two ASCII digits glued to a single letter, not followed by more digits, a point or a letter
         e = k
-        while e < n and is_ascii_digit(s[e]) and e - k < 3:
+        while e < n and "0" <= s[e] <= "9" and e - k < 3:
             e += 1
-        if e - k <= 2 and not (e < n and (s[e].isalnum() or (s[e] == "." and e + 1 < n and is_ascii_digit(s[e + 1])))):
+        if e - k <= 2 and not (e < n and (s[e].isalnum() or (s[e] == "." and e + 1 < n and "0" <= s[e + 1] <= "9"))):
             sub_end, sub = e, s[k:e]
-    primes, p_end = _primes_at(s, sub_end, n)
-    return p_end, Token("IDENT", word, i, p_end, sub=sub, primes=primes, delta=delta)
+    primes, p_end = _primes_at(s, sub_end, n) if sub_end < n and (s[sub_end] in _PRIMES or s[sub_end] == "'") else (0, sub_end)
+    return p_end, Token("IDENT", word, i, p_end, False, None, sub, primes, delta)

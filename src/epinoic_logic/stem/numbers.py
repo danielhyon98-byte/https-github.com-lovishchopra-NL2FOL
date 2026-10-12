@@ -62,6 +62,7 @@ _THIN_SPACES = frozenset({" ", " ", " "})
 _MINUS = frozenset({"-", "−"})
 _PLUS = frozenset({"+"})
 _TIMES = ("\\times", "\\cdot", "×", "·", "*", "x", "X", "⋅")
+_TIMES_FIRST = frozenset(t[0] for t in _TIMES)
 #: how many characters of spacing the scientific form may carry around its times sign and LaTeX spacing commands
 _MAX_SCI_GAP = 6
 _BASE_SUBSCRIPTS = {"₂": 2, "₈": 8, "₁₀": 10, "₁₆": 16}
@@ -161,7 +162,7 @@ class NumberScan:
 def _run(s: str, i: int, n: int) -> int:
     """End of the run of ASCII digits starting at ``i``."""
     j = i
-    while j < n and is_ascii_digit(s[j]):
+    while j < n and "0" <= s[j] <= "9":   # one character at a time: the ASCII digits only
         j += 1
     return j
 
@@ -264,6 +265,8 @@ def _times_ten(s: str, i: int, n: int) -> tuple[int, Optional[str]]:
     """After a mantissa: `` × 10⁶``, ``x 10^6``, ``*10**6``, ``\\times 10^{6}``, ``\\cdot 10^{6}``.
     Returns ``(end, exponent digit text)`` or ``(i, None)``."""
     j = _skip_gap(s, i, n)
+    if j >= n or s[j] not in _TIMES_FIRST:
+        return i, None
     matched = ""
     for t in _TIMES:
         if s.startswith(t, j):
@@ -317,10 +320,10 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
     if i >= n:
         return None
     start = i
-    if s[i] == "." and i + 1 < n and is_ascii_digit(s[i + 1]):
+    if s[i] == "." and i + 1 < n and "0" <= s[i + 1] <= "9":
         int_digits = ""
         j = i
-    elif is_ascii_digit(s[i]):
+    elif "0" <= s[i] <= "9":
         j = _run(s, i, n)
         int_digits = s[i:j]
         # thousands groups: an integer part of 1 to 3 digits (no leading zero), then ',ddd' or thin-space 'ddd' groups of exactly three
@@ -347,7 +350,7 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
         return None
     frac_digits = ""
     has_point = False
-    if j < n and s[j] == "." and j + 1 < n and is_ascii_digit(s[j + 1]):
+    if j < n and s[j] == "." and j + 1 < n and "0" <= s[j + 1] <= "9":
         e = _run(s, j + 1, n)
         frac_digits = s[j + 1:e]
         has_point = True
@@ -360,9 +363,10 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
             j = e
     exp_text: Optional[str] = None
     sci = False
-    if scientific:
-        end, exp_text = _e_exponent(s, j, n)
-        if exp_text is None:
+    if scientific and j < n:
+        # each form opens with its own character: 'e'/'E', or a space or the first character of a times sign
+        end, exp_text = _e_exponent(s, j, n) if s[j] in "eE" else (j, None)
+        if exp_text is None and (s[j] == " " or s[j] in _TIMES_FIRST):
             end, exp_text = _times_ten(s, j, n)
         if exp_text is None and int_digits == "10" and not has_point:
             # a bare power of ten: 10⁻³, 10^(−3), 10^{6}, 10**-19
@@ -372,6 +376,8 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
         if exp_text is not None:
             j = end
             sci = True
+    if not build and exp_text is None and len(int_digits) + len(frac_digits) <= limits.max_number_digits:
+        return NumberScan(start, j, None)  # the extent only, within the digit bound (what _finish returns for it)
     return _finish(s, start, j, int_digits, frac_digits, has_point, exp_text, sci, limits, build=build)
 
 
