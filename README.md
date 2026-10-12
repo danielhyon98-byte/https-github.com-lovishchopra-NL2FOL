@@ -153,3 +153,5 @@ harness, the peer-exchange relay and the recorded rounds are described in
 `docs/STRESS_RESULTS.md`.
 
 Bug testing and stress testing results (test layers, every overseer round's verdicts and findings, harness and stress numbers) are reported in `tests/README.md`.
+
+What the engine accepts and returns, and what a result establishes, is the integration contract in `docs/integration-contract.md`. The baseline review in `docs/BASELINE_REVIEW.md` records the checks run on the baseline commit, its known limits and the next milestone.
