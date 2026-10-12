@@ -381,3 +381,13 @@ Work in progress after it is labelled as such.
   follow.
 - **Bruno's repository.** No new final fix on the development branch, so nothing new was sent. The overseer build
   reaches it through phase 2's verified merge.
+
+**2026-10-12 16:27 UTC.**
+- **Overseer prototype on Bruno's repository.** On Daniel's instruction the overseer build is now uploaded to Bruno's
+  repository on its own branch, `overseer-prototype`, and updated hourly with final commits only. The first upload
+  (16:13 UTC) is the build's review-round-2 commit (`cda154c`). Before the push, the full suite was re-run on exactly
+  that tree, with every recorded round available: 2,151 passed, none failed or skipped. The upload carries an update
+  note listing the changes, the review findings and fixes, and the findings still open.
+- **Overseer build, review round 3.** All three reviews are in: 25 findings (1 blocker, 19 major, 5 minor), against
+  26 in round 2 and 31 in round 1. The round-3 fix step is running.
+- **Bruno's `verified-updates`.** No new final translator fix, so nothing new was sent.
