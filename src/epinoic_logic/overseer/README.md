@@ -95,6 +95,20 @@ translation, and a problem with no provider is TRN-002 unless the operator decla
 unsupported in another); a FINAL audit whose replays ran inline is not released unless inline release was configured; and
 the knowledge pack is version 1.1 (1.0 stays pinned beside it).
 
+**After the recorded round-7 simulation** (design section 24): a premise identical to the conclusion is decided by the
+engine, never assumed (rule `restatement-necessity`): the auditor runs the problem without the restating premise(s)
+through the engine's validator, compiler and procedures, signs that run under its own key and stores it; ENTAILED makes
+the restatement redundant (`OVS-TRN-010`, a warning naming the premise and citing the run), anything else, an undecided
+run included, keeps `OVS-TRN-006`, the error. For the STEM branches and the original translator alike: TRN-008 names a
+supporting claim in every claim id scheme (`h1.6`, `g4.2`, `g4.2@agent`, `s1.2`, `m1.2`, `c1.2`, the folded tails;
+rule `claim-id-schemes`); TRN-005 reads scientific notation, vulgar fractions, SI-prefixed units and a stated precision;
+the re-parse gives the request text to a parser that declares it reads it (rule `request-text`); FORM-002 reads the
+re-derived check's expected status and declarations (`branch-image/2`: SATISFIABLE and UNSATISFIABLE expectations,
+INCONSISTENT_PREMISES declared undecided, vacuous runs) and a failed check may carry INT-SUBJ-004 when its pack declares
+warning severity (`failure-severity`); consolidation compares SI unit symbols with their case (`si-unit-symbol`). The
+knowledge pack is version 1.2 (1.0 and 1.1 stay pinned beside it): it teaches the necessity rule and how to read STEM
+answers, their translations and their formal checks.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
@@ -110,10 +124,11 @@ translation of a delivered claim from the journal (design section 18):
 | `OVS-TRN-003` | error | a `verified` grounding the re-run of the translator's grounding check does not reproduce |
 | `OVS-TRN-004` | warning | a quotation excerpt absent from the supplied text it names (disclosed as unverified) |
 | `OVS-TRN-005` | warning | a quotation or number of a translation (whoever proposed it) that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test) |
-| `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one); a verified, traced transcription of a grounded fact (task setting, quotation, supplied text, arithmetic fact) is not circular (rule `grounded-transcription`, a coverage note) |
+| `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one), and the auditor's own signed engine run of the problem without the restating premise(s) does not give ENTAILED, or could not decide (rule `restatement-necessity`); a verified, traced transcription of a grounded fact (task setting, quotation, supplied text, arithmetic fact) is not circular (rule `grounded-transcription`, a coverage note) |
 | `OVS-TRN-007` | error | the outcome's summary is not the deterministic statement of its translation and its signed result |
 | `OVS-TRN-008` | warning | a display ENTAILED or CONSISTENT whose premises assert supporting claims whose own outcomes in the same receipt are not successful (rule `sibling-status`) |
 | `OVS-TRN-009` | warning | one fact asserted as a premise in one translation of a receipt and left an unsupported conjunct in another's own check (rule `same-fact-premise`) |
+| `OVS-TRN-010` | warning | a redundant restatement: a premise restates the conclusion, but the auditor's own signed engine run without it still gives ENTAILED (rule `restatement-necessity`): the result does not rest on the claim assumed |
 
 The task audit records every translation it checked (`TranslationAudit`: the claim text, the claims it cites, the
 proposed IR as journaled with its digest, status, eligibility, ambiguity flags, failed grounding checks, diagnostics,
@@ -149,7 +164,7 @@ and the signed results decide.
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-1.1/` | the agent's whole configuration (below); 1.0 stays beside it, pinned |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-1.2/` | the agent's whole configuration (below); 1.0 and 1.1 stay beside it, pinned |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
 | Agent runner | `runner.py` | `OverseerAgentRunner`: model input from a loaded pack and one dossier, one provider call, the reply handed to the intake as data |
@@ -166,11 +181,14 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 ## The knowledge pack
 
-`knowledge/overseer-knowledge-docs-1.1/` is the overseer agent's whole configuration, laid out like the specialists'
+`knowledge/overseer-knowledge-docs-1.2/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
-evidence rule, the verdict format, the kinds and codes, 21 worked examples, what never to do, what to do when unsure,
-and, since the consolidation stage, how to review consolidations and repeated faults as one of several instances),
+evidence rule, the verdict format, the kinds and codes, 25 worked examples, what never to do, what to do when unsure,
+and, since the consolidation stage, how to review consolidations and repeated faults as one of several instances; since
+pack 1.2, how to read STEM answers: their claim ids and roles, the numbers and units of their translations, significant
+figures and tolerances, lines of working, truth tables and Boolean identities, mathematical items and the branch's own
+formal checks),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -181,7 +199,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-1.1/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-1.2/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text

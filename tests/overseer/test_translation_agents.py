@@ -27,8 +27,12 @@ LINK_FIELDS = {"message_id", "report_id", "claim_id", "claim_pointer", "cited_cl
 
 
 def circular_problem() -> dict:
+    """A circular translation: the specialist's link (P_link) replaced by a premise carrying the conclusion, so the result
+    rests on the claim assumed. Rewritten after the round-7 simulation (rule ``restatement-necessity``): the earlier
+    fixture appended the conclusion to the faithful encoding, a restatement the other premises already give, which is now
+    OVS-TRN-010 (a warning; ``test_corrections_trn_necessity.py``)."""
     p = genuine_problem()
-    p["premises"].append({"id": "P_assumed", "expr": V("endless"), "grounding": INFER})
+    p["premises"] = [x for x in p["premises"] if x["id"] != "P_link"] + [{"id": "P_assumed", "expr": V("endless"), "grounding": INFER}]
     return p
 
 
@@ -246,7 +250,7 @@ def test_hub_review_of_translations_decides_by_the_checks_and_changes_no_clearan
         def unfaithful(d):
             lk = link(d)
             ev = [{"pointer": lk["claim_pointer"] + "/claim_text", "quote": "work as endless"},
-                  {"pointer": lk["translation_pointer"] + "/problem/premises/3/expr"}]
+                  {"pointer": lk["translation_pointer"] + "/problem/premises/2/expr"}]  # P_assumed (the rewritten fixture's third premise)
             return verdict(d, [tr_acc(d, "translation_unfaithful", evidence=ev, severity="warning")])
 
         def lies(d):  # says the translation is faithful and the transfer passed: no authority

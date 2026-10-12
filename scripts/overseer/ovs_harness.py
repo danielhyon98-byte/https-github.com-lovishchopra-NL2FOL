@@ -546,3 +546,41 @@ def names_any(f: Any, ids: dict[str, Iterable[str]]) -> bool:
     """True when the finding names at least one of ``ids`` (by kind; receipt ids are not on findings)."""
     have = finding_ids(f)
     return any(set(ids.get(k) or ()) & have.get(k, set()) for k in ("message_ids", "claim_ids", "report_ids", "document_ids", "result_ids"))
+
+
+def claim_reports_of(ids: dict[str, Iterable[str]], claim_reports: Optional[dict[str, Iterable[str]]] = None) -> dict[str, set[str]]:
+    """Each claim id of ``ids`` -> the reports it is read in (rule ``report-scoped-claims``): those ``claim_reports`` gives
+    for it (the reports an accusation's claim resolved to in the dossier), else the side's own ``report_ids``, else ``{""}``
+    (the side does not say which report: any report)."""
+    own = {str(r) for r in (ids.get("report_ids") or ()) if r}
+    out: dict[str, set[str]] = {}
+    for c in ids.get("claim_ids") or ():
+        given = {str(r) for r in ((claim_reports or {}).get(c) or ()) if r}
+        out[str(c)] = given or set(own) or {""}
+    return out
+
+
+def claims_overlap(a: dict[str, Iterable[str]], b: dict[str, Iterable[str]], *, a_claim_reports: Optional[dict[str, Iterable[str]]] = None,
+                   b_claim_reports: Optional[dict[str, Iterable[str]]] = None) -> bool:
+    """Whether two identifier sets name a common claim (rule ``report-scoped-claims``). A claim id is unique only within a
+    report: the STEM parsers number ``s1.2`` (``m1.2``, ``c1.2``) per answer, so two agents of one branch share it; the
+    English, History and unqualified generic ids are shared the same way; only the agent-qualified generic ids
+    (``g4.2@economics-specialist``) are unique on a task. So a claim is compared as a ``(report, claim)`` pair whenever
+    both sides say which report (:func:`claim_reports_of`), and by its id alone when either side does not."""
+    ra, rb = claim_reports_of(a, a_claim_reports), claim_reports_of(b, b_claim_reports)
+    for c in set(ra) & set(rb):
+        if "" in ra[c] or "" in rb[c] or ra[c] & rb[c]:
+            return True
+    return False
+
+
+def ids_overlap(a: dict[str, Iterable[str]], b: dict[str, Iterable[str]], *, kinds: Iterable[str] = ("message_ids", "claim_ids", "report_ids", "result_ids", "document_ids"),
+                a_claim_reports: Optional[dict[str, Iterable[str]]] = None, b_claim_reports: Optional[dict[str, Iterable[str]]] = None) -> bool:
+    """Whether two identifier sets share an identifier of one of ``kinds``, claims compared by :func:`claims_overlap`."""
+    for k in kinds:
+        if k == "claim_ids":
+            if claims_overlap(a, b, a_claim_reports=a_claim_reports, b_claim_reports=b_claim_reports):
+                return True
+        elif set(a.get(k) or ()) & set(b.get(k) or ()):
+            return True
+    return False

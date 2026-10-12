@@ -25,8 +25,9 @@ from epinoic_logic.overseer.verdicts import ID_FIELDS, AgentVerdict
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack
 
 #: 19 in pack 1.0; pack 1.1 (after the contained round c1) added Example 20 (a missing link the translator exposed) and
-#: Example 21 (a constraint written by the rule for "about").
-EXPECTED_EXAMPLES = 21
+#: Example 21 (a constraint written by the rule for "about"); pack 1.2 (after the round-7 simulation) added Examples 22 to
+#: 25 (a redundant restatement, a STEM translation, a Boolean identity check, an inequality reversal dropped).
+EXPECTED_EXAMPLES = 25
 #: The categories of the Find an example table (the pack-mismatch example is a sixth case, outside them).
 CATEGORIES = ("genuine", "faulty", "tampered", "instruction", "unsure")
 
@@ -185,13 +186,14 @@ def test_every_example_is_consistent_with_its_excerpt():
     assert problems_examples(SRC_PACK_DIR) == []
 
 
-def test_all_twenty_one_examples_parse(examples):
-    assert len(examples) == EXPECTED_EXAMPLES
+def test_all_twenty_five_examples_parse(examples):
+    assert len(examples) == EXPECTED_EXAMPLES == 25
     kinds = {e.number: sorted({a["kind"] for a in e.verdict["accusations"]}) for e in examples}
     assert kinds == {1: [], 2: [], 3: ["quotation_absent"], 4: ["self_certification_as_content"], 5: ["figure_changed"], 6: ["contradiction_unnamed"],
                      7: ["forward_altered"], 8: ["result_unsigned_or_forged"], 9: ["receipt_status_wrong"], 10: ["peer_document_altered"],
                      11: ["other"], 12: ["other"], 13: [], 14: [], 15: ["translation_circular"], 16: ["translation_ungrounded"],
-                     17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"], 20: [], 21: []}
+                     17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"], 20: [], 21: [], 22: [], 23: [], 24: [],
+                     25: ["translation_unfaithful"]}
     assert sum(len(e.verdict["engine_statements"]) for e in examples) == 1 and examples[7].verdict["engine_statements"][0]["result_id"] == "res-c4"
 
 
@@ -215,6 +217,36 @@ def test_the_c1_examples_teach_that_a_missing_link_and_a_parser_constraint_are_n
     e21 = next(e for e in examples if e.number == 21)
     assert e21.excerpt["/transfers/0/payload/constraints/0/text"] == "about 250 words" and e21.excerpt["/transfers/0/payload/constraints/0/value"] == "275"
     assert e21.verdict["accusations"] == []
+
+
+def test_the_round_7_examples_agree_with_the_checks_they_teach(examples):
+    """Pack 1.2: Example 22's restatement is redundant (the other premises give the conclusion, rule restatement-necessity),
+    so it accuses nothing; every number of Example 23's STEM translation is traced by the auditor's own TRN-005 rules
+    (scientific notation, stated precision); Example 24's Boolean identity check is satisfied under the branch image
+    (expected UNSATISFIABLE); Example 25 accuses the dropped reversal as translation_unfaithful, an error."""
+    from fractions import Fraction
+
+    from epinoic_logic.overseer.checks import formal as F
+    from epinoic_logic.overseer.checks import translation as T
+    e22 = next(e for e in examples if e.number == 22)
+    tr = "/transfers/0/receipt/outcomes/0/translation/problem"
+    premises, concl = e22.excerpt[tr + "/premises"], e22.excerpt[tr + "/conclusion"]
+    assert [p["id"] for p in premises if p["expr"] == concl["expr"]] == ["d_contrib_val"] and e22.verdict["accusations"] == []
+    vals = {p["expr"]["left"]["name"]: Fraction(p["expr"]["right"]["value"]) for p in premises if p["expr"]["right"].get("op") == "real"}
+    assert vals["price"] - vals["vc"] == Fraction(concl["expr"]["right"]["value"])  # the other premises already give it
+    e23 = next(e for e in examples if e.number == 23)
+    stated = T.text_numbers(e23.excerpt["/transfers/0/payload/original_response"])
+    numbers = T.ir_numbers(e23.excerpt[tr + "/premises"]) + T.ir_numbers(e23.excerpt[tr + "/conclusion"])
+    assert len(numbers) == 5 and all(T.number_traced(v, stated) for v in numbers) and e23.verdict["accusations"] == []
+    e24 = next(e for e in examples if e.number == 24)
+    fc = "/transfers/0/receipt/formal_checks/0"
+    assert "expected UNSATISFIABLE" in e24.excerpt[fc + "/detail"] and e24.excerpt[fc + "/formal_status"] == e24.excerpt["/results/res-2401/status"]
+    assert e24.excerpt[fc + "/satisfied"] in F.branch_image(e24.excerpt[fc + "/formal_status"], "UNSATISFIABLE") and e24.verdict["accusations"] == []
+    e25 = next(e for e in examples if e.number == 25)
+    c25 = e25.excerpt["/transfers/1/receipt/outcomes/0/translation/problem/conclusion"]
+    assert "<" in c25["label"] and c25["expr"]["op"] == "gt"
+    (a,) = e25.verdict["accusations"]
+    assert a["kind"] == "translation_unfaithful" and a["claimed_severity"] == "error" and a["claim_ids"] == ["m1.3"]
 
 
 def test_the_instruction_example_does_not_follow_the_instruction(examples):
@@ -245,7 +277,7 @@ MUTATIONS = {
     "header": ('"dossier_sha256": "07d0d0', '"dossier_sha256": "07d0d1'),
     "engine_statement": ('"asserted_status": "COUNTEREXAMPLE"', '"asserted_status": "ENTAILED"'),
     "table_kind": ("| 9 | tampered | response receipt | `receipt_status_wrong` |", "| 9 | tampered | response receipt | `receipt_altered` |"),
-    "u2_notes": ("this agent is configured with overseer-knowledge-docs 1.1. Not reviewed.", "this agent is configured with overseer-knowledge-docs 1.2. Not reviewed."),
+    "u2_notes": ("this agent is configured with overseer-knowledge-docs 1.2. Not reviewed.", "this agent is configured with overseer-knowledge-docs 1.3. Not reviewed."),
     "table_type": ("| 7 | tampered | router forward |", "| 7 | faulty | router forward |"),
     "schema": ('"claimed_severity": "warning",\n      "message_ids": ["m-0002"]', '"claimed_severity": "Warning",\n      "message_ids": ["m-0002"]'),
 }

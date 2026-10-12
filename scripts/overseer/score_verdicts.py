@@ -275,9 +275,13 @@ def _ids_of(x: dict) -> dict[str, set[str]]:
     return {k: set(x.get(k) or ()) for k in ID_KINDS + ("receipt_ids",)}
 
 
-def matches(kind: str, acc_ids: dict[str, set[str]], fault: dict, r2m: dict[str, str]) -> bool:
+def matches(kind: str, acc_ids: dict[str, set[str]], fault: dict, r2m: dict[str, str], claim_reports: Optional[dict[str, list[str]]] = None) -> bool:
     """An accusation matches a fault when its kind is the fault's class or maps to one of its expected codes
-    (``KIND_CHECKS``), and it names at least one of the fault's identifiers (a receipt id through its message)."""
+    (``KIND_CHECKS``), and it names at least one of the fault's identifiers (a receipt id through its message). A claim
+    is named by its report (rule ``report-scoped-claims``, ``ovs_harness.claims_overlap``): claim ids are unique only
+    within a report (two STEM agents of one branch both number ``s1.2``), so the accusation's claim, read in the reports
+    it resolved to in the dossier (``claim_reports``, the validator's ``claim_report_ids``), matches the fault's claim
+    only in the fault's reports; a side that names no report compares claim ids alone."""
     codes = set(KIND_CHECKS.get(kind, ()))
     if kind != fault["class"] and not (codes & set(fault.get("expected_codes") or ())):
         return False
@@ -286,7 +290,7 @@ def matches(kind: str, acc_ids: dict[str, set[str]], fault: dict, r2m: dict[str,
     f_msgs = fids["message_ids"] | {r2m[r] for r in fids["receipt_ids"] if r in r2m}
     if a_msgs & f_msgs:
         return True
-    return any(acc_ids[k] & fids[k] for k in ("claim_ids", "report_ids", "result_ids", "document_ids"))
+    return H.ids_overlap(acc_ids, fids, kinds=("claim_ids", "report_ids", "result_ids", "document_ids"), a_claim_reports=claim_reports)
 
 
 def fault_visible(fault: dict, mode: str) -> bool:
@@ -330,7 +334,7 @@ def already_decided(fault: dict, gold: dict, r2m: dict[str, str]) -> bool:
         if af.get("code") not in codes:
             continue
         a_ids = _ids_of(af)
-        if (a_ids["message_ids"] & f_msgs) or any(a_ids[k] & fids[k] for k in ("claim_ids", "report_ids", "document_ids")):
+        if (a_ids["message_ids"] & f_msgs) or H.ids_overlap(a_ids, fids, kinds=("claim_ids", "report_ids", "document_ids")):
             return True
         rid = af.get("formal_result_id")
         if rid and rid in fids["result_ids"]:
@@ -479,7 +483,7 @@ def _score_group(items: list[Assessed], gold: dict, adjudications: Optional[dict
                 ai.setdefault(k, set())
             if not any(x.unresolved_identifiers.values()):
                 ids_ok += 1
-            hit = [f for f in faults if matches(x.kind, ai, f, r2m)]
+            hit = [f for f in faults if matches(x.kind, ai, f, r2m, claim_reports=getattr(x, "claim_report_ids", None))]
             adj = adjudications.get((a.dossier_sha256, x.accusation_id))
             if hit or x.outcome == "confirmed" or (adj is not None and adj["verdict"] == "true"):
                 matched_or_confirmed += 1

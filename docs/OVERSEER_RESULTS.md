@@ -329,6 +329,54 @@ name the installed version, and the file's 16 tests pass (18 s). A full rerun af
 this was written. The c1 regression tests are
 `tests/overseer/test_c1_*.py`.
 
+## 11. After the round-7 simulation (design section 24)
+
+Branch `overseer-build` at `6adbd64` plus the uncommitted corrections of design section 24; knowledge pack
+`overseer-knowledge-docs` 1.2, digest `bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a` (pinned beside
+1.0 and 1.1; `export --refresh-source` printed it; the schemas did not change). Measured 2026-10-12 on copies of the
+recorded rounds (`ROUNDS` = a directory holding copies of r2, r3, r4, r5 and r7; the recorded rounds were never written).
+
+```
+python -m pytest -q -p no:cacheprovider
+```
+
+2,385 passed, 6 skipped, 12 deselected, 239 s (before the corrections: 2,281 passed, the same 6 skipped). The 6 skips are
+the recorded-round tests, which need `EPINOIC_ARENA_ROUNDS`; with it set to the copies, their three files pass (110 tests,
+71 s). The new tests are `tests/overseer/test_corrections_trn_necessity.py` (13), `test_corrections_adjudicated_faults.py`
+(21) and `test_corrections_stem_ready.py` (68), plus `test_the_round_7_examples_agree_with_the_checks_they_teach`.
+
+```
+python scripts/overseer/run_contained.py --out OUT/contained-final --rounds ROUNDS
+```
+
+Wall 467 s, inline replay. The adjudicated genuine faults record (version 1) was re-derived before the run.
+
+| Gate | Value | |
+| --- | --- | --- |
+| agents_only_from_the_exported_pack | the run's export of pack 1.2 | PASS |
+| no_false_alarm_on_genuine_transfers | 0 | PASS |
+| adjudicated_genuine_faults_raised | 2 of 2: r7 cs-t13 g11.3 and r7 ess-t13 g4.3 (OVS-TRN-006) | PASS |
+| arena_faults_named_by_receipts_and_confirmed | 250 of 254 | FAIL |
+| replay_agreement_on_definitive_results | 3,473 replayed, 0 disagreements, 0 inconclusive (in-process only) | PASS |
+| arena_unchanged_by_the_auditor | r2 to r5 41/41 each, r7 139/143, each identical without the auditor | PASS |
+| every_task_audit_verifies | | PASS |
+| probes_as_expected | 44 probe reviews | PASS |
+| reviews_change_no_clearance | | PASS |
+| tamper_suite | 110 of 110 tamperings detected; 164 entries, 123 ran, 41 skipped; 9 controls clean; 4 meaning faults unresolved | PASS |
+
+- The arena-faults gate fails by exactly the four r7 faults no receipt names: lit-t13, mai-t13 and sp-t13
+  `altered_quotation`, and ph-t13 `chronology_error`. On each the overseer agrees with its receipt (no shadow
+  disagreement, no error); they are channel misses the STEM merge fixes, outside this change.
+- The tampering counts are the counts before the corrections; T22g (the conclusion in place of what the result rested
+  on) stays OVS-TRN-006 on the synthetic task and on the recorded r5 tasks.
+- r7 genuine: 19 channels, 66 transfers, 17 AUDIT_PASSED_WITH_FINDINGS and 2 AUDIT_FAILED (the adjudicated faults);
+  over 1,456 translations, OVS-TRN-010 once (bm-t13 g2.1, the redundant restatement, a warning), OVS-TRN-006 twice (the
+  adjudicated faults), OVS-TRN-005 18 times, OVS-TRN-008 once and OVS-TRN-009 three times (warnings). On the arena fault
+  variants of cs-t13 and ess-t13, 10 variants carry the adjudicated error, which is not counted as a disagreement.
+- r2 to r5: every genuine channel AUDIT_PASSED_WITH_FINDINGS (5 each), no OVS-TRN error.
+
+No model was run: every overseer agent above is a scripted probe, and pack 1.2 has not been run on any model.
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction

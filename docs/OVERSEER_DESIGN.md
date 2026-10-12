@@ -5,8 +5,8 @@ deployed until `docs/OVERSEER_RESULTS.md` records it with evidence; the `audit`,
 `knowledge` and `hook` stages (section 14) are built, the last with translator oversight (section 18),
 the `harness` stage is built without its stress script (decision 35), and the `consolidation` stage (section 19:
 consolidated responses, repeated faults and the self-duplicating overseer pool) is built. An overseer agent's whole configuration is the knowledge-document pack
-`src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.1/` (section 17; 1.0 stays beside it, pinned, section 23), which replaces
-the former agent brief; `docs/OVERSEER_AGENT_BRIEF.md` is now only a pointer to the pack.
+`src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.2/` (section 17; 1.0 and 1.1 stay beside it, pinned, sections 23 and
+24), which replaces the former agent brief; `docs/OVERSEER_AGENT_BRIEF.md` is now only a pointer to the pack.
 
 ## 1. Purpose and trust rule
 
@@ -153,6 +153,16 @@ changes the audit's behaviour, the channel or the translator.
 | 40 | A conflict with an excluded answer | **Disclosed.** An answer the channel excluded for INT-CONFLICT-001 contradicts a group only because it came later; excluding it alone would choose the earlier group by timing. The consolidation records the conflict with that group, and the status is CONFLICTING. |
 | 41 | The pool's size and its instances | **One by default; `ceil(review units / quota)` when over the quota (a repeated-fault dossier counts twice); at least two when any dossier has a repeated fault; never past `max_instances` (default 4, at least 2, at most 64).** The cap is disclosed (`capped`, `over_quota`), never exceeded. Instances are `OverseerAgentRunner`s built from the pool's one loaded pack, reviewed through `hub.review`, which checks that the runners are exactly the plan's instances and records the plan in the signed verdicts audit. The cheapest model tier is the declared deployment tier (`model_tier`); no model is named or called. |
 
+The corrections after the recorded round-7 simulation (section 24) added these decisions. Only decision 42 changes an
+audit verdict (an error becomes a warning where the engine shows the result does not rest on the restatement).
+
+| # | Point | Decision and reason |
+| --- | --- | --- |
+| 42 | A premise identical to the conclusion | **Decided by the engine, never assumed (rule `restatement-necessity`).** The auditor runs the IR without the restating premise(s) through the engine's own validator, compiler and procedures, signed under its run key and stored; ENTAILED makes the restatement redundant (OVS-TRN-010, a warning), anything else (COUNTEREXAMPLE, an undecided status, no signed run) keeps OVS-TRN-006 (an error). Uncertainty never resolves toward clearance; every circular translation the tampering suite plants stays an error. |
+| 43 | Real faults in recorded "genuine" transfers | **A versioned, evidenced adjudication record in the harness** (`scripts/overseer/adjudicated_genuine_faults.json`), never an exclusion list: each entry names its round, channel, agent, claim and code, embeds the IR and the engine evidence, which the run re-derives before it starts; an error matching an entry exactly is not a false alarm, and a new gate fails the run when an adjudicated fault is not raised. Only engine-confirmed faults are adjudicated. |
+| 44 | Claim ids that repeat across reports | **A claim is compared within its report wherever the harness matches identifiers** (rule `report-scoped-claims`): two agents of one STEM branch share `s1.2`, and only the agent-qualified generic ids are unique on a task. The validator already compared claims as `(report, claim)` pairs; the scorer, the gold export and the adjudication diagnostics now do too. |
+| 45 | STEM formal checks | **FORM-002 is the channel's own mapping, read from the check the branch pack re-derives in R2** (rule `branch-image/2`: the expected status may be SATISFIABLE or UNSATISFIABLE; a check may declare INCONSISTENT_PREMISES undecided; a vacuous run may be written true or null), and a failed check may carry INT-SUBJ-004 when its pack declares warning severity (rule `failure-severity`). Before R2 only the statuses whose image no declaration changes are decided. A check that declares nothing is read as before. |
+
 ## 3. Threat model
 
 These are the faults the audit exposes.
@@ -247,7 +257,7 @@ later code does to the shared objects. This is what closes G2, G3 and G4.
 | Validation | `overseer/validate.py` | `validate_overseer_verdict` produces a `VerdictAssessment` |
 | Combination | `overseer/combine.py` | `combine_verdicts` produces a `CombinedAssessment` |
 | Router policy | `overseer/policy.py` | `may_act(receipt, clearance, auditor=None)`, `may_release(...)`, bounded wait on PENDING |
-| Knowledge pack | `overseer/knowledge/overseer-knowledge-docs-1.1/` (1.0 kept, pinned) | the agent's whole configuration: `master_prompt.txt`, nine documents, `README.md` for deployers, generated `verdict.schema.json` and `dossier.schema.json`, `manifest.json` (section 17.3) |
+| Knowledge pack | `overseer/knowledge/overseer-knowledge-docs-1.2/` (1.0 and 1.1 kept, pinned) | the agent's whole configuration: `master_prompt.txt`, nine documents, `README.md` for deployers, generated `verdict.schema.json` and `dossier.schema.json`, `manifest.json` (section 17.3) |
 | Pack loader | `overseer/pack.py` | `KnowledgePack`, `load_pack`, `installed_pack`, `PACK_DIGESTS`, manifest and schema generation, `PackError` (section 17.6) |
 | Exporter | `overseer/export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify`, `--refresh-source` (section 17.7) |
 | Agent runner | `overseer/runner.py` | `OverseerAgentRunner`: model input from a loaded pack and a dossier, one provider call, reply handed to the intake as data (section 17.9) |
@@ -1228,7 +1238,7 @@ manifest entry `{fault_id, class, injected identifiers, expected codes}`.
 | T19 | a pooled claim popped from `ch.formalized` between two responses | JOINT-004; the shadow gives RCPT-004 where a conflict went unnamed |
 | T20 | an exported pack tampered with: (a) one document edited; (b) one document edited and `manifest.json` recomputed to match; (c) a file added; (d) the version string changed | the loader refuses each (`file_digest`, `digest_mismatch`, `file_unlisted`, `unknown_pack`); no runner is built and no dossier is issued |
 | T21 | the runner given a dossier issued for another agent or another pack | refused before any provider call (`refused_input`); nothing reaches the intake |
-| T22 | translator side: (a) an IR the validator rejects attached as TRANSLATED; (b) ambiguity flags under TRANSLATED; (c) a claim the policy rules out forced into IR; (d) a grounding flipped to verified; (e) an excerpt absent from its document; (f) an invented number or quotation; (g) the conclusion among the premises; (h) an outcome summary that overclaims | (a) TRN-001, (b) TRN-002, (c) TRN-002, (d) TRN-003, (e) TRN-004, (f) TRN-005, (g) TRN-006, (h) TRN-007; agents: `translation_unfaithful` on a flipped comparison is unresolved, never refuted |
+| T22 | translator side: (a) an IR the validator rejects attached as TRANSLATED; (b) ambiguity flags under TRANSLATED; (c) a claim the policy rules out forced into IR; (d) a grounding flipped to verified; (e) an excerpt absent from its document; (f) an invented number or quotation; (g) the conclusion among the premises, in place of what the result rested on (load-bearing, section 24); (h) an outcome summary that overclaims | (a) TRN-001, (b) TRN-002, (c) TRN-002, (d) TRN-003, (e) TRN-004, (f) TRN-005, (g) TRN-006, (h) TRN-007; agents: `translation_unfaithful` on a flipped comparison is unresolved, never refuted |
 
 ### 13.5 Arena with the auditor (`scripts/overseer/run_contained.py`)
 
@@ -1237,9 +1247,18 @@ manifest entry `{fault_id, class, injected identifiers, expected codes}`.
   `overseer_audit.json`, per-task signed audits and the tamper manifests beside the copied
   results.
 - **Genuine transfers** of r1, r1-adv and r2-r5 must give 0 `OVS-*` errors. Every error-level
-  finding on a genuine transfer counts as a false alarm, DIV-001 included (review round 2, S26);
-  DIV findings are also listed with their classification. INT-SYNTH-006 on a synthesis whose
-  receipt states the unperformed entailment check is DIV-002 (section 6.4).
+  finding on a genuine transfer counts as a false alarm, DIV-001 included (review round 2, S26),
+  unless it matches an entry of the adjudicated genuine faults record exactly (round, channel,
+  claim, code and agent; section 24); DIV findings are also listed with their classification.
+  INT-SYNTH-006 on a synthesis whose receipt states the unperformed entailment check is DIV-002
+  (section 6.4).
+- **Adjudicated genuine faults** (`scripts/overseer/adjudicated_genuine_faults.json`, decision 43):
+  real faults of recorded genuine transfers, each with its embedded IR and engine evidence, which
+  the run re-derives before it starts (a record whose evidence does not reproduce is refused). Gate
+  `adjudicated_genuine_faults_raised`: every entry of a round the run replayed is raised as an error
+  on its genuine transfer; a missing one fails the run and the summary says what the genuine
+  channel shows for its claim. On an arena fault variant, an extra error matching an adjudicated
+  entry is the genuine fault carried over, not a disagreement with the receipt.
 - **Injected mutations** (the arena's six): the receipt's finding must be confirmed, with no
   RCPT-004. Known channel misses must surface as FID-009 or SYN-002, or be recorded as auditor
   recall gaps. These are the r5 self-certification phrasings and decade tokens in a synthesis.
@@ -1633,10 +1652,11 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-TRN-003 | error | a translation's grounding states more than the deterministic grounding check gives |
 | OVS-TRN-004 | warning | a quotation grounding's excerpt does not occur in the supplied text it names (disclosed as unverified) |
 | OVS-TRN-005 | warning | a quotation or number in a translation (whoever proposed it) that the specialist's report never states |
-| OVS-TRN-006 | error | circular translation: the conclusion occurs verbatim among the premises |
+| OVS-TRN-006 | error | circular translation: the conclusion occurs verbatim among the premises and the auditor's own signed engine run of the problem without the restating premise(s) does not give ENTAILED, or could not decide (rule `restatement-necessity`) |
 | OVS-TRN-007 | error | an outcome's summary is not the deterministic statement of its translation and its signed result |
 | OVS-TRN-008 | warning | a definitive display (ENTAILED, CONSISTENT) rests on premises that assert supporting claims whose own outcomes in the same receipt are not successful (rule `sibling-status`) |
 | OVS-TRN-009 | warning | one receipt's translations encode the same fact inconsistently: a premise in one, an unsupported conjunct of its own claim's check in another (rule `same-fact-premise`) |
+| OVS-TRN-010 | warning | redundant restatement: a premise restates the conclusion verbatim, but the auditor's own signed engine run of the problem without it still gives ENTAILED (rule `restatement-necessity`): the result does not rest on the claim assumed |
 | OVS-PEER-001 | error | forward not byte-identical to the delivery, a forward of an undelivered or REJECTED report, or a relayed report that reproduces no delivery its sender made of it |
 | OVS-PEER-002 | error | peer document (a peer: id, or any supplied text presenting a forwarded report by its author, id, near-copy text or text containing most of the answer's own words, those no earlier source carries, first supplied after the answer existed) differs from the forwarded `original_response` (or does not carry it as one verbatim span), no forward to that recipient preceded it, or its attribution (author, report id) is not the forwarded report's; or one document id carries two texts in a task |
 | OVS-PEER-003 | info | peer document linked to its forward by text equality only |
@@ -1703,24 +1723,24 @@ master prompt describes it.
 ### 17.3 What is the pack
 
 Location: `src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-<version>/`. Version 1.0
-is the first; 1.1 (after the contained round c1, section 23) is the installed version, and 1.0 stays beside it,
-unchanged and pinned. The layout of 1.1:
+is the first; 1.1 came after the contained round c1 (section 23); 1.2 (after the round-7 simulation, section 24) is the
+installed version, and 1.0 and 1.1 stay beside it, unchanged and pinned. The layout of 1.2:
 
 ```
-overseer-knowledge-docs-1.1/
+overseer-knowledge-docs-1.2/
   master_prompt.txt       read first: the fixed procedure, the non-negotiables, lenses and modes, the authority order
   01-role-and-trust.md    Role and trust: the system, the job, what may be trusted, what a verdict is worth, several instances (T1-T14)
-  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, the facts, translations, consolidations, the request's constraints (D1-D28)
+  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, the facts, translations, consolidations, the request's constraints, STEM answers (D1-D31)
   03-inspection.md        Inspection: the checks per transfer type: request, response, response_text,
-                          relay_forward, relay_report, relay_synthesis, every translation, consolidations and repeated faults
-                          (I1-I68, I70-I81, I82-I89)
+                          relay_forward, relay_report, relay_synthesis, every translation, consolidations and repeated faults,
+                          STEM answers (I1-I68, I70-I81, I82-I89, I90-I97)
   04-evidence.md          Evidence rule: identifiers, pointers, quotes, absences, engine statements (E1-E15)
   05-verdict-format.md    Verdict format: the skeleton, every field rule, the final check (V1-V20)
   06-kinds-and-codes.md   Kinds and codes: the closed list of kinds with their confirming checks, how to choose,
                           the INT-* and OVS-* codes the agent meets, the OVS-AGENT-* codes that score it (K1-K7)
-  07-examples.md          Examples: 21 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch, translations,
-                          a missing link exposed, consolidations, a constraint written by rule) with their correct verdicts,
-                          and a table of wrong verdicts (X1-X3)
+  07-examples.md          Examples: 25 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch, translations,
+                          a missing link exposed, consolidations, a constraint written by rule, a redundant restatement, STEM
+                          answers) with their correct verdicts, and a table of wrong verdicts (X1-X3)
   08-never.md             Never: what the agent must never do (N1-N13)
   09-when-unsure.md       When unsure: no dossier, pack mismatch, unpinnable suspicions, meaning-only faults (U1-U11)
   README.md               for deployers, never sent to a model                                  (knowledge stage)
@@ -2032,10 +2052,11 @@ nothing, so its outcomes are not checked (as for the fidelity checks).
 | TRN-002 | the status and engine run against the validation (a problem only under TRANSLATED or AMBIGUOUS_TRANSLATION; an engine result only with a problem; no ambiguity flags under TRANSLATED; the eligibility decision consistent with the status); for every translation recorded under this code's policy version, whoever proposed it, the eligibility decision re-derived from the delivered claim (`decide_eligibility` and the subject policy); a problem with no provider, or under another policy version, from a translator the operator did not declare hand-built (`hand_built_translators`, recorded in the audit's coverage) |
 | TRN-003 | the translator's grounding check (`check_problem_grounding`) re-run against the delivered report's supplied texts: a `verified: true` it does not reproduce |
 | TRN-004 | the same re-run: an excerpt the named document does not contain (warning: disclosed as unverified; the result relies on it only as an ungrounded dependency) |
-| TRN-005 | for every translation that carries a problem, every quotation excerpt and number of the IR traced to the report (its response, claims and source excerpts; a quotation may also come verbatim from a supplied text; a task-setting premise may take its numbers from the request) under fixed spelling rules, each extension a named rule with its own test (`fraction-words`, `month-names`, `percent-as-fraction`, `date-encoding`, `supplied-text`); warning, because a spelling the rules do not read is possible |
-| TRN-006 | the conclusion's expression, as canonical JSON, equal to a premise's expression or to a conjunct of one |
+| TRN-005 | for every translation that carries a problem, every quotation excerpt and number of the IR traced to the report (its response, claims and source excerpts; a quotation may also come verbatim from a supplied text; a task-setting premise may take its numbers from the request) under fixed spelling rules, each extension a named rule with its own test (`fraction-words`, `month-names`, `percent-as-fraction`, `date-encoding`, `supplied-text`, and for STEM answers `scientific-notation`, `vulgar-fractions`, `si-prefix-units` and `stated-precision`, section 24); warning, because a spelling the rules do not read is possible |
+| TRN-006 | the conclusion's expression, as canonical JSON, equal to a premise's expression or to a conjunct of one (rule `grounded-transcription` aside), and the auditor's own engine run of the problem without the restating premise(s), signed under its run key and stored, not ENTAILED (rule `restatement-necessity`, section 24) |
+| TRN-010 | the same restatement when that run is ENTAILED: the other premises already give the conclusion (warning) |
 | TRN-007 | the outcome's `summary` regenerated with `translate.outcome.build_summary` from the translation and the stored signed result, under each signing configuration the composer could have used |
-| TRN-008 | over the outcomes of one receipt: an outcome displayed ENTAILED or CONSISTENT whose premise names (by id or label) a claim its claim cites, while that claim's own outcome is neither a definitive success nor NOT_ELIGIBLE (warning) |
+| TRN-008 | over the outcomes of one receipt: an outcome displayed ENTAILED or CONSISTENT whose premise names (by id or label, in every claim id scheme: `h1.6`, `g4.2` and `g4.2@agent`, `s1.2`, `m1.2`, `c1.2`, the folded tails; rule `claim-id-schemes`) a claim its claim cites, while that claim's own outcome is neither a definitive success nor NOT_ELIGIBLE (warning) |
 | TRN-009 | over the problems of one receipt: a Boolean premise atom of one translation and an unsupported Boolean conjunct of another's conclusion that state the same fact (symbol meanings and premise labels sharing four content words or more, three quarters of the shorter) (warning) |
 
 The narrower tracing question (content outside the claim and the claims it cites) is recorded per translation
@@ -2424,3 +2445,66 @@ Measured after the fixes (`docs/OVERSEER_RESULTS.md` section 10): the contained 
 on a copy is record-for-record unchanged; the name rule fires on one recorded genuine synthesis of r1 to r7 (r3 hi-t5
 s2); and the round c1 rescored with the judges' adjudications fails the false-accusation gate (11 of 140 clean transfers)
 and the deployment-faithful gate (0 of 33 verdicts runner-attested), which is what the round measured.
+
+## 24. Corrections after the round-7 simulation: what changed and why
+
+The recorded round r7 (sixteen specialists, the STEM subjects answered through the generic parser of that round), run
+through the contained harness, showed three things. A translation whose conclusion occurs among its premises is not
+always circular: r7 bm-t13 g2.1 restates the contribution per loaf beside the quoted price and costs that already give it.
+Recorded "genuine" transfers can carry real faults, which the harness then counted as false alarms: r7 cs-t13 g11.3 and r7
+ess-t13 g4.3 have the conclusion as the problem's only premise. And several parts of the overseer assumed the generic
+parser's id scheme and the pre-STEM branch checks, which the STEM branches (arriving with a merge) do not keep. Each fix
+has its tests in `tests/overseer/test_corrections_trn_necessity.py`, `test_corrections_adjudicated_faults.py` and
+`test_corrections_stem_ready.py` (a fix's tests fail on the code before it; controls pin what was already right, such as
+the validator's report-scoped matching and the folded tails); the pack fixes are checked by the drift and example tests. One code was added (OVS-TRN-010, a warning: the code table counts 74 codes); OVS-TRN-006 keeps its
+severity and is narrowed to the load-bearing case. The pack is version 1.2; 1.0 and 1.1 keep their files and pinned
+digests. Nothing here copies STEM code: where the merged channel differs, the overseer reads the check's own
+declarations (duck-typed, as the merged channel reads them) and a check that declares nothing is read as before.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| R7-1 | OVS-TRN-006 failed r7 bm-t13 g2.1 although its result does not rest on the restatement (the price and costs give $2.00 without it). | Rule `restatement-necessity` (decision 42). `checks.translation.restatement_necessity` runs the IR without the restating premise(s) (a deep copy, every other part unchanged) through `engine.runner.verify` (default limits; the channel's journaled solver configuration with unsat cores) inside `CheckContext.auditor_run`, so the run is signed under `overseer-run` and stored (origin `auditor_run`), memoised by the reduced problem and the configuration. ENTAILED, with no diagnostic but the trust note E505: OVS-TRN-010 (warning; it names the premise, cites the run in `related_result_ids`, and says when the outcome's own core was the restatement alone). COUNTEREXAMPLE, INCONSISTENT_PREMISES, an undecided status, a vacuous E108, no signed run or a failed run: OVS-TRN-006 (error, citing the run when there is one). An agent's `translation_circular` on a redundant restatement is refuted by the check (deterministic, never a signed-result contradiction). The tampering suite's T22g now puts the restatement in place of what the result rested on (synthetic: the specialist's link; arena: the premises in the outcome's core), so every planted circular translation stays an error. |
+| R7-2 | Real faults in recorded genuine transfers counted as false alarms, so the false-alarm gate could not pass and said nothing. | Decision 43: `scripts/overseer/adjudicated_genuine_faults.json` (format `overseer-adjudicated-genuine-faults/1.0`, version 1), each entry naming round, channel, agent, claim and code, with the claim text, the recorded IR (its source and digest) and the engine evidence; `run_contained.py` re-derives the evidence before it runs and refuses a record that does not reproduce (or that adjudicates a redundant restatement). A false alarm is an error matching no entry exactly; gate `adjudicated_genuine_faults_raised` fails when an entry of a replayed round is not raised; on an arena fault variant an error matching an entry is not a disagreement. Adjudicated: r7 cs-t13 g11.3 and r7 ess-t13 g4.3 (OVS-TRN-006: without the restatement, COUNTEREXAMPLE). Not adjudicated: r7 bm-t13 g2.1 (redundant: OVS-TRN-010). |
+| R7-3 | TRN-008 found a premise naming a supporting claim by spellings of `g4.2` but not of the agent-qualified `g4.2@economics-specialist`. | Rule `claim-id-schemes` (`_id_forms`): every scheme the parsers use (`h1.6`, `g4.2` and `g4.2@agent`, `s1.2`, `m1.2`, `c1.2`, the folded tails). |
+| R7-4 | The scorer, the gold export and the adjudication diagnostics compared claim ids alone, though two agents of one STEM branch share `s1.2`: an accusation about one report's claim matched the other report's fault. | Rule `report-scoped-claims` (decision 44): `ovs_harness.claims_overlap` / `ids_overlap` compare a claim within its report whenever both sides name one (the accusation through the validator's `claim_report_ids`), by its id alone otherwise. The validator already did (review round 1). The tampering suite's naming check is unchanged (its injected identifiers name the injected transfer). |
+| R7-5 | STEM translations write numbers exactly (scientific notation expanded) and may read a prefixed unit or a stated precision; TRN-005 named them as invented. | TRN-005 rules `scientific-notation`, `vulgar-fractions`, `si-prefix-units` and `stated-precision`, each with its tests; any other conversion (minutes into seconds, Celsius into kelvin, compound units) or a tolerance stated in words stays a warning. |
+| R7-6 | The STEM parser reads the request text; the auditor's re-parse (CUST-006) called every parser without it. | Rule `request-text` (`check_reparse`): a parser declaring `accepts_request_text` is given the journaled request's `user_input`, as the merged channel gives it; any other parser is called as before. |
+| R7-7 | FORM-002 assumed every branch check expects ENTAILED and fails on INCONSISTENT_PREMISES, and the live tier read UNSATISFIABLE as a failure before R2, so a Boolean identity check (expected UNSATISFIABLE, satisfied) would be a false error; INT-SUBJ-004 on a check failing at warning severity would be a false RCPT-004. | Rules `branch-image/2` and `failure-severity` (decision 45): R2 records each re-derived check's declarations (`check_rules_of`); the image is the channel's mapping (the expected status gives true; any other definitive status false, INCONSISTENT_PREMISES excepted on a check declaring it undecided; a vacuous run may be written true or null); before R2 only an undecided status and COUNTEREXAMPLE are decided. A failed check needs INT-SUBJ-001, or INT-SUBJ-004 when its pack declares warning severity; R2 requires INT-SUBJ-001 for a check declared at error. |
+| R7-8 | Consolidation folded the case of unit symbols, so "12 mN" and "12 MN" gave the same answer facts. | Rule `si-unit-symbol` (`answer_facts`): SI unit symbols after a numeral are compared with their case. |
+| R7-9 | The pack taught neither the necessity rule nor STEM answers, and Inspection I28 called a satisfied UNSATISFIABLE a fault. | Pack 1.2: Dossier guide D20 (every id scheme), D22 (the satisfiability query), a new §14 STEM answers (D29 to D31); Inspection I28 (the expected status), I77 (the necessity rule), I81, a new §12 STEM answers (I90 to I97); Kinds and codes (the `translation_circular` row, K6, INT-SUBJ-002 and -004, `ST-*`, OVS-TRN-010); Examples 22 to 25 (a redundant restatement, a STEM line of working, a Boolean identity check, an inequality reversal dropped), four wrong-verdict rows; the master prompt's step 4 and two WHEN IN DOUBT lines; the README's input budget. Schemas unchanged; the manifest regenerated with `export --refresh-source` and the printed digest pinned. |
+
+Tests rewritten to assert the same behaviour, equally or more strictly (none weakened or deleted):
+`test_translation_oversight.py` (the TRN-006 test's fixture is now load-bearing, the restatement in place of the
+specialist's link, every assertion kept and the signed run's evidence added; the live test's fixture likewise),
+`test_translation_agents.py` (`circular_problem()` load-bearing; the hub review's evidence pointer follows the premise to
+`/premises/2`), `test_review1_content_checks.py` (the TRN-006 fixture drops the link before appending the restatement),
+`test_audit_signed_report.py` (74 codes, 10 in the TRN family, the two severities pinned); and the pack-version tests:
+`test_knowledge_pack.py` (installed 1.2, 1.0 and 1.1 both pinned and loading, T20d with 1.3), `test_knowledge_export.py`
+and `test_harness_contained_pack.py` (1.3 as the unpinned version), `test_knowledge_runner.py` (1.2),
+`test_knowledge_drift.py` (the footer mutation 1.2 to 1.3; rule ranges D1-D31 and I90-I97 added; the rule-order mutation
+before §15, expecting D14 after D31), `test_knowledge_examples.py` (25 examples, the kinds map extended, the U2 mutation
+1.2 to 1.3). The harness scripts' "other pack" is 1.3.
+
+Left for the merge (each named where it applies; none changes the pre-merge behaviour):
+
+- The adjudication record names the recorded r7 ids (`g11.3`, `g4.3`). After the merge the r7 replay re-parses STEM
+  answers with STEM ids, and the merged translator refuses a restating encoding syntactically (E112,
+  INVALID_FORMALIZATION, the redundant bm-t13 shape included), so the record must be re-derived on the merged replay;
+  the gate then names any entry not raised with what the genuine channel shows.
+- R2's recount must follow the merged channel: the branch's word-count view and `measure_answer_words` with the
+  constraint's `excludes`, and the range problem (`_formal_range`: one BOUND conclusion that is an `and` of `ge` and `le`)
+  for "about N" and "between A and B" bounds; `constraint_problem_mismatch` reads a single bound only.
+- `FIXED_SEVERITY` gains INT-SUBJ-004 (warning) once the channel emits it (the drift test then requires it).
+- RES-004's allowed configurations and the replay's limits must include the STEM engine policies (`engine/policies.py`:
+  the nonlinear configuration and limits), else a nonlinear STEM check is RES-004 or replays inconclusive.
+- The four r7 receipt misses (lit-t13, mai-t13 and sp-t13 `altered_quotation`; ph-t13 `chronology_error`) are channel
+  misses the merge fixes; the overseer agrees with each receipt, so the arena-faults gate fails by exactly these four.
+
+Measured after the fixes (`docs/OVERSEER_RESULTS.md` section 11): the full suite passes (2,385 passed, the same 6
+recorded-round tests skipped without `EPINOIC_ARENA_ROUNDS`, which pass on copies of the rounds); the contained run on
+copies of r2, r3, r4, r5 and r7 with the tampering suite holds nine of its ten gates: no false alarm on a genuine
+transfer, both adjudicated faults raised (r7 cs-t13 g11.3 and ess-t13 g4.3), 110 of 110 tamperings detected (the same
+counts as before: 164 entries, 123 ran, 9 controls clean, 4 meaning faults unresolved), 3,473 definitive results replayed
+with no disagreement, every arena identical without the auditor and every task audit verifying. The tenth,
+`arena_faults_named_by_receipts_and_confirmed`, is 250 of 254: exactly the four r7 receipt misses above, on each of which
+the overseer agrees with the receipt. r7 bm-t13 g2.1 is OVS-TRN-010, a warning.

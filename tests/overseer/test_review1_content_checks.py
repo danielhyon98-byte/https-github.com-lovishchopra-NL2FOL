@@ -306,6 +306,10 @@ def test_a_verified_quotation_premise_identical_to_the_conclusion_is_a_transcrip
         assert trn(a, "OVS-TRN-006") == [] and any("transcribes a grounded fact" in n for n in a.coverage.notes)
         p2 = genuine_problem()
         p2["conclusion"] = {"id": "C", "expr": V("endless"), "label": "work is endless", "grounding": {"kind": "specialist_inference"}}
+        # rewritten after the round-7 simulation (rule restatement-necessity; the assertion kept): the inference is assumed
+        # in place of the specialist's link, so it is load-bearing; appended beside the link it would be redundant
+        # (OVS-TRN-010, a warning: test_corrections_trn_necessity.py)
+        p2["premises"] = [x for x in p2["premises"] if x["id"] != "P_link"]
         p2["premises"].append({"id": "P_assumed", "expr": V("endless"), "grounding": {"kind": "specialist_inference"}})
         aud2 = make_auditor(shadow="off")
         try:

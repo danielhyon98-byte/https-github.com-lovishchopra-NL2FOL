@@ -113,6 +113,23 @@ INT-LEDGER family (INT-LEDGER-029) and OVS-TRN-008/009. When unsure U10 excludes
 names 1.1, Example 13 names 1.2, Example 14 explains the specialist's chain, new Examples 20 (a missing link exposed) and
 21 (a constraint written by the rule for "about"), five new wrong-verdict rows. README: the input budget. The generator
 (``export --refresh-source``) now refuses a document whose rule ids are out of ascending order (:func:`rule_order_faults`).
+
+**Pack 1.2** (corrections after the round-7 simulation; 1.1 stays pinned and unchanged; a MINOR version: the contracts and
+every kind are unchanged). The master prompt names Inspection I90 to I97 in step 4 and adds two WHEN IN DOUBT lines (a
+redundant restatement is not circular; a STEM translation's exact numbers and units in words are the translator's rule).
+Dossier guide: D20 names every claim id scheme (``h1.6``, ``g4.2`` and its agent-qualified form, the STEM parsers' ``s``,
+``m`` and ``c`` ids, the folded tails) and that one id names a claim in each report of a branch; D22 the consistency and
+satisfiability queries; a new §14 STEM answers with D29 (the STEM parser's statements and roles), D30 (the STEM translation
+rules: exact numerals, substituted values, claim-namespaced symbols, units in words) and D31 (the STEM formal checks: the
+expected status their detail names, ``satisfied`` for SATISFIABLE and UNSATISFIABLE expectations, INCONSISTENT_PREMISES and
+vacuous runs undecided, INT-SUBJ-004 at warning); Common mistakes is §15. Inspection: I28 reads ``satisfied`` from the
+check's expectation; I77 the rule ``restatement-necessity`` (a restatement the other premises already give is OVS-TRN-010,
+never accused); I81 lists it; a new §12 STEM answers with I90 to I97 (statements, exact numbers, units, significant figures
+and tolerances, lines of working, truth tables and Boolean identities, mathematical items, what is not a fault); Common
+mistakes is §13. Kinds and codes: the ``translation_circular`` row and K6 (the necessity rule), INT-SUBJ-002 and
+INT-SUBJ-004, the ``ST-*`` branch codes, OVS-TRN-010 in §6. Examples: every header names 1.2, Example 13 names 1.1, new
+Examples 22 (a redundant restatement), 23 (a STEM translation of a line of working), 24 (a Boolean identity checked by the
+branch) and 25 (an inequality reversal dropped in translation), four new wrong-verdict rows. README: the input budget.
 """
 from __future__ import annotations
 
@@ -147,13 +164,14 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.1"
+PACK_VERSION = "1.2"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
     (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
+    (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
 })
 
 MANIFEST_VERSION = "1.0"

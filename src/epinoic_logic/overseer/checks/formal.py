@@ -5,9 +5,20 @@ L4 (live, from the receipt and the stored result):
 
 * FORM-001: ``formal_status`` on a constraint result or a branch formal check equals the stored result's status.
 * FORM-002: ``satisfied`` is the image of the stored status. Constraints: ENTAILED gives true, COUNTEREXAMPLE false,
-  anything else null. Branch checks: ``status == expected_if_sound`` gives true; COUNTEREXAMPLE,
-  INCONSISTENT_PREMISES or UNSATISFIABLE false; anything else null. ``expected_if_sound`` comes from R2; until R2 has
-  run, a branch check whose status alone decides (a refuting or undecided status) is checked and the rest waits.
+  anything else null. Branch checks (rule ``branch-image/2``, STEM readiness: the channel's own mapping, read from the
+  check the branch pack re-derives in R2): ``status == expected_if_sound`` gives true (a satisfiability check may expect
+  SATISFIABLE or UNSATISFIABLE, a Boolean identity's success is UNSATISFIABLE); any other definitive status gives false,
+  except INCONSISTENT_PREMISES on a check that declares ``inconsistent_is_failure`` false (the STEM checks: undecided,
+  null); anything else null. A run carrying the vacuity diagnostic E108 with ``status == expected_if_sound`` may be
+  written true or null (a channel that withholds a vacuous verdict writes null; one that does not, true; neither shows
+  a failure as success). A check that declares neither field is a pre-STEM check (``inconsistent_is_failure`` true).
+  ``expected_if_sound`` and the declarations come from R2; until R2 has run, only a status whose image is the same
+  under every expectation a pack sets (ENTAILED, SATISFIABLE, UNSATISFIABLE) is checked: an undecided status (null)
+  and COUNTEREXAMPLE (false). The rest waits for R2 (the transfer is pending until R2 has run).
+* Rule ``failure-severity`` (with R2): a branch check written ``satisfied`` false needs its failure finding naming its
+  result: INT-SUBJ-001 (error), or INT-SUBJ-004 (warning) for a check whose pack declares ``failure_severity`` warning
+  (the STEM checks that fail only under a reading the report did not state). The live receipt check accepts either;
+  R2 requires INT-SUBJ-001 at error for every check the pack declares at error (RCPT-004 otherwise).
 
 R2 (deterministic code on journaled data; nothing in agent text is executed):
 
@@ -40,11 +51,11 @@ from ...ir.canonical import problem_digest
 from ..view import Transfer
 from . import CheckContext, Rederived
 
-__all__ = ["check_formal_status", "rederive", "check_branch_satisfied", "constraint_problem_mismatch", "R2_KINDS"]
+__all__ = ["check_formal_status", "rederive", "check_branch_satisfied", "constraint_problem_mismatch", "R2_KINDS", "branch_image", "live_branch_image",
+           "check_rules_of"]
 
 #: Transfers whose receipts carry pack checks and constraint results (delivered reports).
 R2_KINDS = ("response", "response_text", "relay_report")
-_REFUTING = (S.COUNTEREXAMPLE.value, S.INCONSISTENT_PREMISES.value, S.UNSATISFIABLE.value)
 _BOUND_OPS = {"max_words": "le", "min_words": "ge", "max_paragraphs": "le", "min_paragraphs": "ge"}
 
 
@@ -52,19 +63,82 @@ def _constraint_image(status: str) -> Optional[bool]:
     return True if status == S.ENTAILED.value else False if status == S.COUNTEREXAMPLE.value else None
 
 
-def _branch_image(status: str, expected_if_sound: Optional[str]) -> tuple[bool, Optional[bool]]:
-    """(decidable now, image)."""
-    if status in _REFUTING:
-        return True, False
+def _definitive(status: Optional[str]) -> bool:
     try:
-        definitive = is_definitive(S(status))
+        return is_definitive(S(status))
     except ValueError:
-        definitive = False
-    if not definitive:
-        return True, None
-    if expected_if_sound is None:
-        return False, None
-    return True, (True if status == expected_if_sound else None)
+        return False
+
+
+def live_branch_image(status: Optional[str]) -> Optional[frozenset]:
+    """Rule ``branch-image/2`` before R2: the ``satisfied`` values a branch check with this signed status may carry under
+    EVERY expectation a pack sets (ENTAILED, SATISFIABLE, UNSATISFIABLE), or None when the image depends on the check
+    (its expectation, ``inconsistent_is_failure``, the vacuity of its run) and waits for R2. An undecided status is never
+    satisfied; COUNTEREXAMPLE is a failure under every expectation."""
+    if not _definitive(status):
+        return frozenset({None})
+    if status == S.COUNTEREXAMPLE.value:
+        return frozenset({False})
+    return None
+
+
+def branch_image(status: Optional[str], expected_if_sound: str, *, inconsistent_is_failure: bool = True, vacuous: Optional[bool] = False) -> frozenset:
+    """Rule ``branch-image/2``: the ``satisfied`` values the channel may write for a branch check whose signed run has
+    ``status``, given what the branch pack declares for the check (module docstring). ``vacuous``: the run carries E108
+    (None when the run's diagnostics are not held: read as possibly vacuous, so a null is not accused)."""
+    if status == expected_if_sound:
+        return frozenset({True}) if vacuous is False else frozenset({True, None})
+    if _definitive(status) and not (status == S.INCONSISTENT_PREMISES.value and not inconsistent_is_failure):
+        return frozenset({False})
+    return frozenset({None})
+
+
+def _shown(accepted: frozenset) -> str:
+    return " or ".join(str(v) for v in sorted(accepted, key=lambda v: {True: 0, False: 1, None: 2}[v]))
+
+
+def check_rules_of(fc: Any) -> dict[str, Any]:
+    """What a re-derived branch check declares for its decision (rule ``branch-image/2``): ``inconsistent_is_failure`` and
+    ``failure_severity`` as the pack sets them; a check that declares neither (every pre-STEM check) counts
+    INCONSISTENT_PREMISES as a failure at severity error."""
+    return {"inconsistent_is_failure": getattr(fc, "inconsistent_is_failure", True) is not False,
+            "failure_severity": "warning" if getattr(fc, "failure_severity", "error") == "warning" else "error"}
+
+
+def _vacuous(ctx: CheckContext, rid: str) -> Optional[bool]:
+    """Whether the signed run ``rid`` carries the vacuity diagnostic E108: from the stored result, else its journaled
+    capture; None when neither holds it."""
+    res = ctx.store.parsed(rid)
+    if res is not None:
+        return any(d.code == "E108" for d in res.diagnostics)
+    from .results import journaled_capture
+    jc = journaled_capture(ctx.view, rid)
+    if jc is None:
+        return None
+    try:
+        data = json.loads(jc[1].result_json)
+        return any(isinstance(d, dict) and d.get("code") == "E108" for d in (data.get("diagnostics") or []))
+    except Exception:
+        return None
+
+
+def _branch_form002(ctx: CheckContext, t: Transfer, c: Any, status: str, exp: Optional[str], accepted: frozenset) -> None:
+    ctx.ovs(t.seq, "OVS-FORM-002", f"formal check {c.constraint_id} states satisfied={c.satisfied} but the signed status {status}"
+            + (f" with expected_if_sound {exp}" if exp else "") + f" gives {_shown(accepted)}", formal_result_id=c.formal_result_id, **t.ids())
+
+
+def _accepted_for(ctx: CheckContext, red: Optional[Rederived], c: Any, status: str) -> tuple[Optional[str], Optional[frozenset]]:
+    """(expectation, accepted ``satisfied`` values) for a branch check: R2's when it re-derived the check, else the live
+    rule's (None: waits for R2)."""
+    live = live_branch_image(status)
+    if live is not None:
+        return (red.expected_if_sound.get(c.constraint_id) if red is not None else None), live
+    if red is None or c.constraint_id not in red.expected_if_sound:
+        return None, None
+    exp = red.expected_if_sound[c.constraint_id]
+    rules = red.check_rules.get(c.constraint_id) or {}
+    vac = _vacuous(ctx, c.formal_result_id) if status == exp else False
+    return exp, branch_image(status, exp, inconsistent_is_failure=rules.get("inconsistent_is_failure", True), vacuous=vac)
 
 
 def check_formal_status(ctx: CheckContext, t: Transfer) -> None:
@@ -90,16 +164,14 @@ def check_formal_status(ctx: CheckContext, t: Transfer) -> None:
                     ctx.ovs(t.seq, "OVS-FORM-002", f"constraint {c.constraint_id} states satisfied={c.satisfied} but the signed status {status} gives {img}",
                             formal_result_id=c.formal_result_id, **ids)
             else:
-                red = ctx.rederived.get(t.seq)
-                exp = red.expected_if_sound.get(c.constraint_id) if red is not None else None
-                decidable, img = _branch_image(status, exp)
-                if decidable and c.satisfied is not img:
-                    ctx.ovs(t.seq, "OVS-FORM-002", f"formal check {c.constraint_id} states satisfied={c.satisfied} but the signed status {status}"
-                            + (f" with expected_if_sound {exp}" if exp else "") + f" gives {img}", formal_result_id=c.formal_result_id, **ids)
+                exp, accepted = _accepted_for(ctx, ctx.rederived.get(t.seq), c, status)
+                if accepted is not None and c.satisfied not in accepted:
+                    _branch_form002(ctx, t, c, status, exp, accepted)
 
 
 def check_branch_satisfied(ctx: CheckContext, t: Transfer) -> None:
-    """FORM-002 for branch checks once R2 has supplied ``expected_if_sound`` (run after :func:`rederive`)."""
+    """FORM-002 for branch checks once R2 has supplied ``expected_if_sound`` and the check's declarations (rule
+    ``branch-image/2``; run after :func:`rederive`), and rule ``failure-severity``."""
     rc = t.receipt
     red = ctx.rederived.get(t.seq)
     if rc is None or red is None:
@@ -110,12 +182,26 @@ def check_branch_satisfied(ctx: CheckContext, t: Transfer) -> None:
         stored = ctx.store.get(c.formal_result_id)
         if stored is None:
             continue
-        exp = red.expected_if_sound[c.constraint_id]
-        decidable, img = _branch_image(stored.status, exp)
-        if stored.status in _REFUTING or not decidable:
+        if live_branch_image(stored.status) is not None:
             continue  # already decided live
-        if c.satisfied is not img:
-            ctx.ovs(t.seq, "OVS-FORM-002", f"formal check {c.constraint_id} states satisfied={c.satisfied} but the signed status {stored.status} with expected_if_sound {exp} gives {img}",
+        exp, accepted = _accepted_for(ctx, red, c, stored.status)
+        if accepted is not None and c.satisfied not in accepted:
+            _branch_form002(ctx, t, c, stored.status, exp, accepted)
+    # rule failure-severity: the live receipt check accepts INT-SUBJ-001 (error) or INT-SUBJ-004 (warning) for a failed
+    # check; a check the pack declares at severity error needs INT-SUBJ-001 at error
+    from .receipts import _present
+    for c in rc.formal_checks:
+        if c.method != "formal" or not c.formal_result_id or c.satisfied is not False:
+            continue
+        rules = red.check_rules.get(c.constraint_id)
+        if rules is None or rules.get("failure_severity") != "error":
+            continue
+        how = _present(rc.findings, "INT-SUBJ-001", "error", formal_result_id=c.formal_result_id)
+        if how and _present(rc.findings, "INT-SUBJ-004", "warning", formal_result_id=c.formal_result_id) is None:
+            ctx.ovs(t.seq, "OVS-RCPT-004", f"receipt {t.receipt_id} of {t.kind} {t.message_id} implies INT-SUBJ-001 but "
+                    + ("lacks it" if how == "absent" else f"carries it at severity {how}")
+                    + f": formal check {c.constraint_id} is not satisfied and the branch pack declares its failure severity error (R2), so the channel "
+                    "raises INT-SUBJ-001 (error) naming it; the receipt carries only INT-SUBJ-004 (warning), the severity of a check the pack declares at warning",
                     formal_result_id=c.formal_result_id, **t.ids())
 
 
@@ -252,6 +338,7 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
     by_id = {c.constraint_id: c for c in rc.formal_checks}
     for fc in formal:
         red.expected_if_sound[fc.check_id] = fc.expected_if_sound
+        red.check_rules[fc.check_id] = check_rules_of(fc)
         held = by_id.get(fc.check_id)
         if held is None:
             red.findings.append(ovs_finding("OVS-FORM-004", f"the branch pack re-derives formal check {fc.check_id} ({fc.kind}: {fc.description[:120]}) from report {rep.report_id}, but the receipt does not carry it", **ids))

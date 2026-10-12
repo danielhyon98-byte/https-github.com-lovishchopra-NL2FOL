@@ -94,7 +94,9 @@ def auditor_faults(audit: Any) -> list[dict]:
 
 
 def _overlap(a: dict, b: dict) -> bool:
-    return any(set(a.get(k) or ()) & set(b.get(k) or ()) for k in ("message_ids", "claim_ids", "report_ids", "result_ids", "document_ids"))
+    """Whether two identifier sets share an identifier, a claim only within its report (rule ``report-scoped-claims``,
+    ``ovs_harness.ids_overlap``): an auditor finding on another report's claim of the same id is not the injected fault."""
+    return H.ids_overlap(a, b)
 
 
 # ============================================================================================ issuing

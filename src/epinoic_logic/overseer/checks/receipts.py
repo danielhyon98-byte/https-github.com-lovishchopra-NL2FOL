@@ -20,8 +20,10 @@
   - every constraint result with ``satisfied`` false needs INT-REQ-005 naming it (its ``formal_result_id``, or for a
     deterministic constraint its id in the message): error for a word bound or any non-paragraph constraint, warning
     for a paragraph bound (the request's journaled constraint kind decides);
-  - every branch formal check with ``satisfied`` false needs INT-SUBJ-001 (error), and with ``satisfied`` null
-    INT-SUBJ-002 (warning), naming its ``formal_result_id``;
+  - every branch formal check with ``satisfied`` false needs INT-SUBJ-001 (error), or INT-SUBJ-004 (warning) for a
+    check its pack declares at failure severity warning (rule ``failure-severity``: the STEM checks that fail only under
+    a reading the report did not state; R2 requires INT-SUBJ-001 for every check the pack declares at error), and with
+    ``satisfied`` null INT-SUBJ-002 (warning), naming its ``formal_result_id``;
   - every finding of a code the channel raises at one severity only (:data:`FIXED_SEVERITY`, kept identical to the
     channel's code by a drift test) carries at least that severity;
   - a response that was not REJECTED passed the channel's identity checks, so they are re-run on the journaled
@@ -378,8 +380,13 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
             continue
         code, sev = ("INT-SUBJ-001", "error") if fc.satisfied is False else ("INT-SUBJ-002", "warning")
         how = _present(rc.findings, code, sev, formal_result_id=fc.formal_result_id)
+        if how and fc.satisfied is False and _present(rc.findings, "INT-SUBJ-004", "warning", formal_result_id=fc.formal_result_id) is None:
+            # rule failure-severity (STEM readiness): a check its pack declares at severity warning fails with INT-SUBJ-004
+            # (warning); R2 (formal.check_branch_satisfied) requires INT-SUBJ-001 for every check the pack declares at error
+            how = None
         if how:
-            out.append((code, how, f"formal check {fc.constraint_id} is {'not satisfied' if fc.satisfied is False else 'undecided'} on the receipt, so the channel raises {code} ({sev}) naming it"))
+            out.append((code, how, f"formal check {fc.constraint_id} is {'not satisfied' if fc.satisfied is False else 'undecided'} on the receipt, so the channel raises {code} ({sev}) naming it"
+                        + (" (or INT-SUBJ-004, warning, for a check its pack declares at severity warning)" if fc.satisfied is False else "")))
     for f in rc.findings:
         fixed = FIXED_SEVERITY.get(f.code)
         if fixed is not None and _RANK.get(f.severity, -1) < _RANK[fixed]:

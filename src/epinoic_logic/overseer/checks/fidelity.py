@@ -49,6 +49,10 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   gives the agent's subject, on the journaled raw text and the journaled call; a delivered report whose claims (ids,
   texts, roles, materiality) are not the re-parse's is not what the hub received: an adapter that drops, adds or
   rewrites a claim (a judgement sentence with no quotation and no figure) is named, whatever the shadow's sampling.
+  Rule ``request-text``: a parser that declares ``accepts_request_text`` (the STEM branches' parser, whose claims and
+  planned check ids depend on the request) is given the journaled request's ``user_input``, as the channel gives it, so
+  a STEM answer is re-parsed exactly as it was parsed (whatever id scheme the parser uses: ``g``, ``h``, ``s``, ``m``,
+  ``c``, agent-qualified ids).
 * FID-007 (warning): quotations checked only against texts the specialist supplied itself (the request carried none).
 * FID-008: a supplied text in the report, under a document id the request supplied, differs from the request's text.
 * FID-009 (warning): only the auditor's independent structural detector (``selfcert``) flags a self-certification
@@ -410,7 +414,13 @@ def check_reparse(ctx: CheckContext, t: Transfer) -> None:
         registry = default_registry()
     branch = registry.for_subject(args["subject"])[0]
     try:
-        again = branch.parser().parse_response(t.raw_text, **args)
+        parser = branch.parser()
+        # rule ``request-text`` (STEM readiness): a parser that declares ``accepts_request_text`` (the STEM branches' parser,
+        # which reads the answer and the request as one document) is given the journaled request's text, exactly as the
+        # channel gives it; any other parser is called as before
+        req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
+        extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
+        again = parser.parse_response(t.raw_text, **args, **extra)
     except Exception as exc:
         ctx.ovs(t.seq, "OVS-CUST-006", f"the raw text of {t.kind} {t.message_id} does not parse with branch {branch.key} when the auditor re-parses it "
                 f"({type(exc).__name__}), yet a parsed report was delivered", **t.ids())

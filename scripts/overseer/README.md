@@ -30,7 +30,8 @@ Run every script from the repository root with `PYTHONPATH=src`.
 | `tamper.py` | The tampering suite T1-T22 (design 13.4) on a synthetic task and, when present, the recorded r5 tasks p4 and hi-t9 (from a copy). Every case injects one fault into a copy of a transfer and states the `OVS-*` code that must name it. | `manifest.json` (the ground truth: fault id, class, injected identifiers, expected codes, what was observed), `records/<fault>/` (transfer records), `pack/`, `summary.md` |
 | `export_dossier.py` | One dossier per task variant and agent (one agent per lens), issued under an exported pack (`--pack`) from a rebuild of each transfer record; every arena variant of every round given, and every tampering record (`--tamper`). Gold kept apart. | `dossiers/<agent>/<variant>.<mode>.json`, `issues.jsonl`, `index.json` (digest to path), `transfers/<variant>/`, `gold/gold.json`, `export.json` |
 | `score_verdicts.py` | Replies named `<dossier_sha256>.json` (or `.txt`) taken through the intake and validation, then scored against the gold per pack identity (design 13.8). | `scores.json`, `scores.md`, `assessments.jsonl` |
-| `run_contained.py` | The contained run (design 13.5): exports the installed pack into `--out/pack`, loads that copy, replays rounds r2-r5 through an audited hub (and once without the auditor, to show it changes nothing), runs the tampering suite, and reviews channels with scripted probe agents built from the exported pack. `--replies DIR --transfers EXPORT` serves recorded replies to an export's dossiers. | `results.json`, `summary.md`, `rounds/<name>/results.json`, `tamper/`, `pack/` |
+| `run_contained.py` | The contained run (design 13.5): exports the installed pack into `--out/pack`, loads that copy, replays rounds r2-r5 and r7 through an audited hub (and once without the auditor, to show it changes nothing), runs the tampering suite, and reviews channels with scripted probe agents built from the exported pack. It reads the adjudicated genuine faults record first (`--adjudications`, default `adjudicated_genuine_faults.json`) and re-derives its evidence. `--replies DIR --transfers EXPORT` serves recorded replies to an export's dossiers. | `results.json`, `summary.md`, `rounds/<name>/results.json`, `tamper/`, `pack/` |
+| `adjudicated_genuine_faults.json` | The versioned, evidenced record of real faults in recorded genuine transfers (format `overseer-adjudicated-genuine-faults/1.0`; section below). | read by `run_contained.py` |
 | `mutate_auditor.py` | The mutation gate (design 13.7): for each check module a mutant that disables it (in process, never editing a source file) must make its tamper cases fail. | `mutation.json`, `mutation.md` |
 | `pytest_attach.py` | A pytest plugin attaching a `TransferAuditor` to every `TranslatorChannel` the suite creates (design 13.3). | one summary line |
 | `ovs_harness.py` | What the scripts share: keys, output guards, round copies, the audited arena replay, transfer records and rebuilds, the exported pack and the probe provider. | |
@@ -38,14 +39,14 @@ Run every script from the repository root with `PYTHONPATH=src`.
 ```
 python scripts/overseer/tamper.py --out OUT/tamper --rounds ROUNDS
 python scripts/overseer/run_contained.py --out OUT/contained --rounds ROUNDS [--replay-mode process]
-python scripts/overseer/export_dossier.py --pack OUT/contained/pack/overseer-knowledge-docs-1.1 --out OUT/export --rounds ROUNDS --tamper OUT/contained/tamper
-python scripts/overseer/score_verdicts.py --export OUT/export --verdicts REPLIES --pack OUT/contained/pack/overseer-knowledge-docs-1.1 --out OUT/scores [--adjudications ADJ.json]
-python scripts/overseer/run_contained.py --out OUT/replay --pack OUT/contained/pack/overseer-knowledge-docs-1.1 --no-tamper --replies REPLIES --transfers OUT/export
+python scripts/overseer/export_dossier.py --pack OUT/contained/pack/overseer-knowledge-docs-1.2 --out OUT/export --rounds ROUNDS --tamper OUT/contained/tamper
+python scripts/overseer/score_verdicts.py --export OUT/export --verdicts REPLIES --pack OUT/contained/pack/overseer-knowledge-docs-1.2 --out OUT/scores [--adjudications ADJ.json]
+python scripts/overseer/run_contained.py --out OUT/replay --pack OUT/contained/pack/overseer-knowledge-docs-1.2 --no-tamper --replies REPLIES --transfers OUT/export
 python scripts/overseer/mutate_auditor.py --out OUT/mutation
 PYTHONPATH=src:scripts/overseer python -m pytest -q -p pytest_attach
 ```
 
-`ROUNDS` is the directory that holds the recorded rounds (`r1`, `r1-adv`, `r2` ... `r6`); each is used only when present.
+`ROUNDS` is the directory that holds the recorded rounds (`r1`, `r1-adv`, `r2` ... `r7`); each is used only when present.
 
 ## The tampering cases
 
@@ -71,7 +72,7 @@ structured report, no pack formal check, no second specialist) is recorded as sk
 | T17, T18, T19 | replay overflow (an uncited side run is sampled out; the cross-report joint runs are always replayed); a merged claim without a formal conclusion and a harness clock; a pooled claim popped | AUDIT-003 (FINAL replays all), DIV-001 / DIV-002, JOINT-004 + RCPT-004 |
 | T20 | an exported pack tampered with: a document edited; and the manifest recomputed; a file added; the version changed | file_digest, digest_mismatch, file_unlisted, unknown_pack; no runner, no dossier |
 | T21 | the runner given a dossier for another agent or pack | refused_input (agent_mismatch, pack_mismatch), no provider call |
-| T22 | translator faults: invalid IR, ambiguity under TRANSLATED, a forced claim, grounding flipped to verified, an excerpt absent from its document, an invented number, the conclusion among the premises, an overclaiming summary; and meaning faults (an invented premise, a dropped condition, a flipped direction, a flipped comparison) | TRN-001, TRN-002, TRN-002, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007; meaning faults: no check decides, an agent's `translation_unfaithful` is unresolved (AGENT-004), never refuted |
+| T22 | translator faults: invalid IR, ambiguity under TRANSLATED, a forced claim, grounding flipped to verified, an excerpt absent from its document, an invented number, the conclusion among the premises in place of what the result rested on (load-bearing: a restatement the other premises already give is OVS-TRN-010, a warning), an overclaiming summary; and meaning faults (an invented premise, a dropped condition, a flipped direction, a flipped comparison) | TRN-001, TRN-002, TRN-002, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007; meaning faults: no check decides, an agent's `translation_unfaithful` is unresolved (AGENT-004), never refuted |
 
 ## Ground truth and scoring
 
@@ -112,9 +113,35 @@ After the contained round c1 (design section 23):
   default inline run reports the replay-agreement gate as in-process only, and its auditor configures inline release
   explicitly (`inline_final_release`).
 
+## Adjudicated genuine faults
+
+Recorded "genuine" transfers are real cheap-tier outputs and can carry real faults. `adjudicated_genuine_faults.json`
+(format `overseer-adjudicated-genuine-faults/1.0`, versioned) records them, one entry per fault: its round, channel
+(task), agent, claim id and finding code, the claim's text, the recorded translation (its source in the round, its
+problem digest and the IR itself), the engine evidence (the restating premises, the status as recorded and without
+them, the counterexample) and why the fault is genuine. Only engine-confirmed faults are adjudicated: today r7 cs-t13
+g11.3 and r7 ess-t13 g4.3 (OVS-TRN-006: the conclusion is the problem's only premise); r7 bm-t13 g2.1 is not (its
+restatement is redundant, OVS-TRN-010, a warning).
+
+`run_contained.py` refuses the record unless its format, fields and unique ids hold and every entry's evidence
+reproduces with the engine (the embedded IR's digest, its restating premises, the statuses with and without them). Then:
+
+- a false alarm is an error-level finding on a genuine transfer that matches NO entry exactly (round, channel, claim,
+  code and agent); an unadjudicated error still fails `no_false_alarm_on_genuine_transfers`;
+- gate `adjudicated_genuine_faults_raised`: every entry of a round the run replayed must be raised as an error on its
+  genuine transfer; a missing one FAILS the run, and the summary says what the genuine channel shows for its claim and
+  whether the round's recorded translation is the adjudicated IR; entries of rounds not run are listed, never counted;
+- on an arena fault variant, an extra error matching an entry for the same claim of the same task is the genuine fault
+  carried over, not a disagreement with the receipt; every other extra error still is.
+
+An entry makes the run stricter, never looser. Claim ids are compared within their report wherever the harness matches
+identifiers (rule `report-scoped-claims`, `ovs_harness.claims_overlap`): two agents of one STEM branch both number
+`s1.2`, so the scorer, the gold export and the adjudication diagnostics read a claim in the report it belongs to.
+
 ## Tests
 
-`tests/overseer/test_harness_*.py`. The recorded-round tests run when `EPINOIC_ARENA_ROUNDS` names the directory holding
+`tests/overseer/test_harness_*.py`, and for the corrections after the round-7 simulation
+`tests/overseer/test_corrections_*.py`. The recorded-round tests run when `EPINOIC_ARENA_ROUNDS` names the directory holding
 `r5`, and are skipped otherwise with that reason.
 
 ## Deviations from the design (stage `harness`)

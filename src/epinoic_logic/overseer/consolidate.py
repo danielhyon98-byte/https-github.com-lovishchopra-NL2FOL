@@ -449,6 +449,10 @@ _UNITS = {
                       "hertz", "mol", "kelvin")},
 }
 _NUM_UNIT_RE = re.compile(r"(?<![\w.])(?P<n>\d+(?:[.,]\d+)*)\s*(?P<u>°\s*[CFK]\b|%|per\s+cent|[A-Za-z]+(?:\s+(?:celsius|centigrade|fahrenheit|kelvin))?)", re.IGNORECASE)
+#: SI unit symbols after a numeral, compared with their case (rule ``si-unit-symbol``, STEM readiness): "12 mN" and
+#: "12 MN" differ by a factor of 10⁹ though their words and numerals are the same, and the case-folded unit rule above
+#: reads neither (nor "5 m" against "5 M").
+_SI_SYMBOL_RE = re.compile(r"(?<![\w.])(?P<n>\d+(?:\.\d+)?)\s?(?P<u>[kMGTcmµμnp]?(?:mol|Pa|Hz|eV|Ω|m|g|s|L|N|J|W|V|A|C|K))(?![A-Za-zΩ])")
 #: Era markers (rule ``era-marker``): "500 BC" and "500 AD" (or "AD 500") are different dates.
 _ERA_AFTER_RE = re.compile(r"(?<![\w.])(?P<n>\d+)\s*(?P<e>B\.?\s?C\.?(?:E\.?)?|A\.?\s?D\.?|C\.?E\.?)(?![A-Za-z])")
 _ERA_BEFORE_RE = re.compile(r"(?<![A-Za-z])(?P<e>A\.?\s?D\.?)\s*(?P<n>\d+)(?![\w])")
@@ -488,7 +492,8 @@ def _unit_of(word: str) -> Optional[str]:
 
 def _extended_facts(text: str) -> set[str]:
     """The facts of rules ``unit-after-numeral``, ``era-marker``, ``sign-word``, ``roman-numeral``, ``ordinal-word`` and
-    ``multiplier-word`` (review round 3): what carries a different figure or date without a different numeral token."""
+    ``multiplier-word`` (review round 3) and ``si-unit-symbol`` (round-7 corrections): what carries a different figure or
+    date without a different numeral token."""
     from ..integrity.ledger import _words_as_digits
     out: set[str] = set()
     digits = _words_as_digits(text)
@@ -502,6 +507,8 @@ def _extended_facts(text: str) -> set[str]:
             out.add(f"era:{m.group('n')} {era}")
     for m in _SIGN_RE.finditer(digits):
         out.add(f"sign:-{m.group('n')}")
+    for m in _SI_SYMBOL_RE.finditer(text):
+        out.add(f"si:{m.group('n')} {m.group('u')}")
     for m in _ROMAN_RE.finditer(text):
         tok = m.group("r")
         if not tok or tok == "I":
@@ -530,7 +537,8 @@ def answer_facts(report: Any) -> tuple[str, ...]:
     (``dozen-score``), and, since review round 3, the unit or scale after a numeral (``unit-after-numeral``: "12 hours"
     and "12 days", "0 °C" and "0 °F"), era markers (``era-marker``: BC, BCE, AD, CE), sign words (``sign-word``: "minus
     5"), Roman numerals (``roman-numeral``: "Henry VII" and "Henry VIII"), ordinal words (``ordinal-word``) and
-    multiplicative words (``multiplier-word``: doubled, tripled, halved). Two answers whose material claims agree but whose supporting claims or unclaimed prose state
+    multiplicative words (``multiplier-word``: doubled, tripled, halved), and, after the round-7 simulation, SI unit symbols
+    with their case (``si-unit-symbol``: "12 mN" and "12 MN"). Two answers whose material claims agree but whose supporting claims or unclaimed prose state
     another figure or date are never presented as one answer. (A quotation one answer adds as supporting evidence is not
     a difference: each quotation is checked against the supplied texts on its own receipt, and an altered one excludes
     its answer.)"""

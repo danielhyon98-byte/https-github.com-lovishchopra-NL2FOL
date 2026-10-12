@@ -201,8 +201,8 @@ def _t20(d: Path, variant: str) -> None:
     elif variant == "c_file_added":
         (d / "10-more.md").write_text("# More\n")
     elif variant == "d_version_changed":
-        edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.2")
-        remanifest(d, version="1.2")
+        edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.3")
+        remanifest(d, version="1.3")
 
 
 T20 = {"a_document_edited": "file_digest", "b_edited_and_manifest_recomputed": "digest_mismatch", "c_file_added": "file_unlisted",
@@ -263,16 +263,16 @@ def test_refresh_regenerates_after_an_edit_and_the_new_digest_is_not_pinned(tmp_
 
 
 def test_refresh_of_a_new_version_loads_only_when_trusted(tmp_path):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.2")
-    edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.2")
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.3")
+    edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.3")
     res = refresh_source(d)
-    assert res.identity.version == "1.2" and not res.pinned
+    assert res.identity.version == "1.3" and not res.pinned
     refused(d, "unknown_pack")
     assert load_pack(d, trusted=[res.identity]).identity == res.identity
 
 
 def test_refresh_refuses_an_inconsistent_pack(tmp_path, capsys):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.2")  # the master prompt still names the installed version
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.3")  # the master prompt still names the installed version
     code, summary = run_main(capsys, "--refresh-source", "--source", str(d))
     assert code == 2 and summary["reason"] == "header_mismatch"
 

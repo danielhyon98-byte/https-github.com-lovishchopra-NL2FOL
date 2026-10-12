@@ -48,6 +48,19 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
   audit's coverage notes say so; an ``assumption``, a ``specialist_inference`` or an unverified grounding stays an error. (Harness-stage correction: a conclusion that is itself a conjunction, assumed verbatim, was
   missed when only the leaves of a premise's conjunction tree were compared; the tampering suite's T22g on the recorded
   r5 translations found it.)
+* Named rule ``restatement-necessity`` (TRN-006 / **TRN-010**, after the recorded round r7): whether the result rests on
+  the restatement is decided by the engine, never assumed. The IR with the restating premises removed (every premise in
+  which the conclusion occurs and that is no grounded transcription; the rest of the IR unchanged) is run afresh as
+  untrusted JSON through the engine's own validator, compiler and procedures (``engine.runner.verify``, default limits,
+  the channel's journaled solver configuration with unsat cores) inside :meth:`CheckContext.auditor_run`, so the run is
+  signed under the auditor's run key and stored (origin ``auditor_run``; memoised in the store by the reduced problem and
+  the configuration). When that signed run is ENTAILED, the conclusion still follows from the other premises: the
+  restatement is redundant and is **TRN-010** (a warning naming the premise and citing the run), which fails no
+  transfer. Any other outcome is TRN-006 (an error, citing the run when there is one): COUNTEREXAMPLE (the conclusion
+  follows only from itself: the result rests on the claim assumed), INCONSISTENT_PREMISES, an undecided status
+  (UNKNOWN, TIMEOUT, UNSUPPORTED, INVALID_FORMALIZATION, INTERNAL_ERROR), no signed run, or a failure of the run itself:
+  uncertainty never resolves toward clearance. A restating premise is removed whole, never rewritten, so a conjunct it
+  carries beside the conclusion is removed with it (conservative: an error stays an error when that conjunct was needed).
 * **TRN-007** (error): the outcome's ``summary`` is not the deterministic statement (``translate.outcome.build_summary``)
   of the outcome's translation and the signed result the store holds, under any signing configuration the composer
   could have used (no key; the result's verification key with or without its key id). When the store evicted the
@@ -98,6 +111,23 @@ and the number 100 itself. Named rules beyond these:
   traced, and so are the divisors 100 and 10000 that extract a year or month from such an encoding, in a problem that
   uses one.
 
+STEM readiness (rules for the STEM answers and the STEM translation guidance, which has the translator write every
+numeral exactly with no exponent and substitute the stated values):
+
+* ``scientific-notation``: a mantissa times a power of ten (``6.67 × 10⁻¹¹``, ``3.0 x 10^8``, ``1.6 \times 10^{-19}``,
+  ``2.5*10**3``) and e-notation (``3.0e8``, ``6.67E-11``) state their exact value; a bare power of ten (``10⁻³``,
+  ``10^-3``) states its value. The sign may be ASCII, U+2212 or a dash;
+* ``vulgar-fractions``: a fraction character (``½``, ``¾``) states its value, and after a whole number the mixed number
+  (``12½`` is 12.5);
+* ``si-prefix-units``: a value stated with an SI-prefixed unit symbol (``k``, ``M``, ``G``, ``c``, ``m``, ``µ``, ``n``,
+  ``p`` on m, g, s, L, N, J, W, Pa, Hz, V, A, mol, eV, C, Ω; with ``²`` or ``³`` the factor is squared or cubed) states
+  its value in the unprefixed unit too (``15 cm`` also 0.15, ``2.5 km`` 2500, ``250 cm³`` 0.00025), and a mass in grams
+  or kilograms states it in the other (``500 g`` also 0.5, ``3.2 kg`` 3200). No other conversion is read (minutes to
+  seconds, degrees Celsius to kelvin, compound units): a translator that converts on its own is named, as a warning;
+* ``stated-precision``: a decimal (``9.8``), or a whole number after ``≈`` or ``~``, states the ends of the interval its
+  last digit gives (``9.75`` and ``9.85``; ``≈ 13`` gives ``12.5`` and ``13.5``), the half-unit reading a translator
+  may encode for an approximate value. A tolerance stated in words ("within 2%") is not read.
+
 Deviation from ``docs/OVERSEER_DESIGN.md`` (stage ``hook``, founder's requirement of translator oversight): these checks
 extend the audit stage's live tier. Like L5 fidelity they run in the asynchronous tier for live transfers (the transfer
 is AUDIT_PENDING until they have run) and directly in the batch tier.
@@ -111,9 +141,11 @@ from fractions import Fraction
 from typing import Any, Iterable, Iterator, Optional
 
 from ...engine.results import VerificationResult
+from ...engine.runner import verify
+from ...engine.statuses import VerificationStatus
 from ...engine.validator import parse_and_validate
 from ...ir.canonical import canonical_json, problem_digest, sha256_hex
-from ...ir.schema import Problem
+from ...ir.schema import DEFAULT_LIMITS, Problem
 from ...translate import subjects
 from ...translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, TranslationResult, TranslationStatus
 from ...translate.eligibility import decide_eligibility
@@ -129,7 +161,7 @@ __all__ = [
     "TranslationRecord", "translation_records", "check_translations", "circular_premises", "untraced_content", "grounding_faults", "status_faults",
     "sibling_status_faults", "same_fact_inconsistencies",
     "revalidate", "summary_matches", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES", "is_transcription",
-    "TRANSCRIPTION_KINDS",
+    "TRANSCRIPTION_KINDS", "Necessity", "without_premises", "restatement_necessity", "NECESSITY_RULE",
 ]
 
 #: The checks a translation record may list in ``checks_run``.
@@ -338,6 +370,94 @@ _MONTHS = {"January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June"
 _MONTH_RE = re.compile(r"\b(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\b")
 #: date-encoding: the divisors that extract a year (YYYYMMDD // 10000, YYYYMM // 100) or a month from an encoded date.
 DATE_DIVISORS = frozenset({Fraction(100), Fraction(10000)})
+# scientific-notation (STEM answers; the STEM translation guidance tells the translator to expand it exactly): a mantissa
+# times a power of ten, written with x, ×, ·, *, \times or \cdot and the exponent as ^E, ^{E}, **E or superscript digits,
+# or as e-notation (3.0e8, 6.67E-11); and a bare power of ten (10⁻³, 10^-3). The sign may be ASCII, U+2212 or a dash.
+_SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
+_EXP = r"(?:\^\s*\{?\s*([-+−–]?\s*\d{1,3})\s*\}?|\*\*\s*\(?\s*([-+−–]?\s*\d{1,3})\s*\)?|([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3}))"
+_SCI_TIMES_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:[×xX·*]|\\times|\\cdot)\s*10\s*" + _EXP)
+_SCI_E_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)[eE]\s?([-+−]?\d{1,3})(?![\w.])")
+_POW10_RE = re.compile(r"(?<![\w.])10\s*" + _EXP)
+#: vulgar-fractions: a fraction character (½, ¾, ...) alone or after a whole number ("12½" is 12.5).
+_VULGAR = {"½": Fraction(1, 2), "⅓": Fraction(1, 3), "⅔": Fraction(2, 3), "¼": Fraction(1, 4), "¾": Fraction(3, 4), "⅕": Fraction(1, 5), "⅖": Fraction(2, 5),
+           "⅗": Fraction(3, 5), "⅘": Fraction(4, 5), "⅙": Fraction(1, 6), "⅚": Fraction(5, 6), "⅛": Fraction(1, 8), "⅜": Fraction(3, 8), "⅝": Fraction(5, 8),
+           "⅞": Fraction(7, 8)}
+_VULGAR_RE = re.compile(r"(?:(?<![\w.])(\d+))?([" + "".join(_VULGAR) + r"])")
+#: si-prefix-units: SI prefixes and the unit symbols they are read on (a value is also stated in the unprefixed unit).
+_SI_PREFIXES = {"k": Fraction(10 ** 3), "M": Fraction(10 ** 6), "G": Fraction(10 ** 9), "c": Fraction(1, 10 ** 2), "m": Fraction(1, 10 ** 3),
+                "µ": Fraction(1, 10 ** 6), "μ": Fraction(1, 10 ** 6), "n": Fraction(1, 10 ** 9), "p": Fraction(1, 10 ** 12)}
+_SI_UNITS = ("mol", "Pa", "Hz", "eV", "m", "g", "s", "L", "N", "J", "W", "V", "A", "C", "Ω")
+_SI_UNIT_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s?(" + "|".join(re.escape(p) for p in _SI_PREFIXES) + r")?("
+                         + "|".join(re.escape(u) for u in _SI_UNITS) + r")([²³])?(?![A-Za-zΩ])")
+#: stated-precision: a decimal, or a whole number after an approximation sign.
+_DECIMAL_STATED_RE = re.compile(r"(?<![\w.])(\d+)\.(\d+)(?![\d])")
+_APPROX_WHOLE_RE = re.compile(r"[≈~]\s*(\d+)(?![\d.,])")
+
+
+def _exponent(*groups: Optional[str]) -> Optional[int]:
+    for g in groups:
+        if g:
+            t = g.translate(_SUPERSCRIPTS).replace("−", "-").replace("–", "-").replace(" ", "")
+            try:
+                e = int(t)
+            except ValueError:
+                return None
+            return e if abs(e) <= 400 else None
+    return None
+
+
+def _scientific_numbers(text: str) -> set[Fraction]:
+    """Named rule ``scientific-notation``: every value a text states in scientific notation (and every bare power of
+    ten), exactly; and rule ``vulgar-fractions``."""
+    out: set[Fraction] = set()
+    for m in _SCI_TIMES_RE.finditer(text):
+        e = _exponent(m.group(2), m.group(3), m.group(4))
+        if e is not None:
+            out.add(Fraction(m.group(1)) * Fraction(10) ** e)
+    for m in _SCI_E_RE.finditer(text):
+        e = _exponent(m.group(2))
+        if e is not None:
+            out.add(Fraction(m.group(1)) * Fraction(10) ** e)
+    for m in _POW10_RE.finditer(text):
+        e = _exponent(m.group(1), m.group(2), m.group(3))
+        if e is not None:
+            out.add(Fraction(10) ** e)
+    for m in _VULGAR_RE.finditer(text):
+        frac = _VULGAR[m.group(2)]
+        out.add(frac)
+        if m.group(1):
+            out.add(Fraction(int(m.group(1))) + frac)
+    return out
+
+
+def _unit_numbers(text: str) -> set[Fraction]:
+    """Named rule ``si-prefix-units`` (module docstring): a value with an SI-prefixed unit symbol in the unprefixed unit,
+    and a mass in grams or kilograms in the other."""
+    out: set[Fraction] = set()
+    for m in _SI_UNIT_RE.finditer(text):
+        value, prefix, unit, power = Fraction(m.group(1)), m.group(2), m.group(3), m.group(4)
+        exp = 2 if power == "²" else 3 if power == "³" else 1
+        if prefix:
+            out.add(value * _SI_PREFIXES[prefix] ** exp)
+            if unit == "g" and prefix != "k":
+                out.add(value * _SI_PREFIXES[prefix] / 1000)  # milligrams, micrograms ... in kilograms
+        if unit == "g" and exp == 1:
+            out.add(value * 1000 if prefix == "k" else value / 1000 if not prefix else value)
+    return out
+
+
+def _precision_numbers(text: str) -> set[Fraction]:
+    """Named rule ``stated-precision`` (module docstring): the ends of the interval a stated decimal's last digit gives,
+    and of a whole number after ``≈`` or ``~``."""
+    out: set[Fraction] = set()
+    for m in _DECIMAL_STATED_RE.finditer(text):
+        value = Fraction(f"{m.group(1)}.{m.group(2)}")
+        half = Fraction(1, 2 * 10 ** len(m.group(2)))
+        out.update({value - half, value + half})
+    for m in _APPROX_WHOLE_RE.finditer(text):
+        value = Fraction(int(m.group(1)))
+        out.update({value - Fraction(1, 2), value + Fraction(1, 2)})
+    return out
 
 
 def _fraction_words(text: str) -> set[Fraction]:
@@ -363,6 +483,9 @@ def text_numbers(text: str) -> set[Fraction]:
     if text:
         out |= _fraction_words(text)
         out.update(Fraction(_MONTHS[m.group(1)]) for m in _MONTH_RE.finditer(text))
+        out |= _scientific_numbers(text)
+        out |= _unit_numbers(text)
+        out |= _precision_numbers(text)
     for m in _NUM_RE.finditer(text or ""):
         whole, dec, denom = m.group(1).replace(",", ""), m.group(2), m.group(3)
         value = Fraction(int(whole)) + (Fraction(int(dec), 10 ** len(dec)) if dec else 0)
@@ -541,6 +664,99 @@ def is_transcription(premise_id: str, problem: Optional[Problem], problem_obj: O
     return all(number_traced(v, known) for v in ir_numbers(prem.get("expr")))
 
 
+#: The rule that decides, by the auditor's own signed engine run, whether a restating premise is load-bearing.
+NECESSITY_RULE = "restatement-necessity"
+#: Diagnostics an ENTAILED run may carry and still count as the conclusion following: only the engine's trust note on
+#: an untrusted payload (E505, a ``verified`` flag discarded). Any other (E108 vacuous: no premise was used, a verdict the
+#: engine never displays; and every diagnostic a later engine adds to withhold a verdict) keeps the translation circular.
+NECESSITY_BENIGN_DIAGNOSTICS = frozenset({"E505"})
+
+
+@dataclass(frozen=True)
+class Necessity:
+    """The auditor's signed engine run on a translation's IR with its restating premises removed (rule
+    ``restatement-necessity``). ``status`` is the signed run's status (None when no signed run exists); ``reason`` says
+    why there is none. :attr:`follows` (the signed run is ENTAILED, with no diagnostic that withholds the verdict) makes
+    the restatement redundant (TRN-010); anything else keeps the translation circular (TRN-006): uncertainty never
+    resolves toward clearance."""
+    removed: tuple[str, ...]
+    status: Optional[str] = None
+    result_id: Optional[str] = None
+    relied_on: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    reason: str = ""
+
+    @property
+    def follows(self) -> bool:
+        return (self.result_id is not None and self.status == VerificationStatus.ENTAILED.value
+                and all(c in NECESSITY_BENIGN_DIAGNOSTICS for c in self.diagnostics))
+
+    def describe(self) -> str:
+        if self.result_id is None:
+            return f"could not be decided ({self.reason or 'no signed run'})"
+        if self.follows:
+            return "still gives ENTAILED" + (f", relying on {', '.join(self.relied_on[:8])}" if self.relied_on else "")
+        if self.status == VerificationStatus.ENTAILED.value:
+            return f"gives ENTAILED with {', '.join(self.diagnostics)}, a verdict the engine withholds ({self.reason})"
+        if self.status == VerificationStatus.COUNTEREXAMPLE.value:
+            return "gives COUNTEREXAMPLE: the conclusion follows only from the premise(s) restating it"
+        if self.status == VerificationStatus.INCONSISTENT_PREMISES.value:
+            return "gives INCONSISTENT_PREMISES: no entailment is established without the restatement"
+        return f"could not be decided ({self.status}{': ' + self.reason if self.reason else ''})"
+
+
+def without_premises(problem_obj: dict, premise_ids: Iterable[str]) -> dict:
+    """The IR ``problem_obj`` with the premises ``premise_ids`` removed, everything else unchanged (a deep copy through
+    JSON: data, never evaluated)."""
+    drop = set(premise_ids)
+    out = json.loads(json.dumps(problem_obj))
+    out["premises"] = [p for p in (out.get("premises") or []) if not (isinstance(p, dict) and str(p.get("id")) in drop)]
+    return out
+
+
+def _engine_verify(raw: str, config: Any) -> VerificationResult:
+    """One engine run of an untrusted IR text: the engine's own validator (default limits), compiler and procedures."""
+    return verify(raw, config, DEFAULT_LIMITS)
+
+
+def restatement_necessity(ctx: CheckContext, t: Transfer, problem_obj: Optional[dict], removed: list[str]) -> Necessity:
+    """Rule ``restatement-necessity``: the auditor's own engine run on ``problem_obj`` with the premises ``removed``
+    (those restating the conclusion), as untrusted JSON through the engine's validator, compiler and procedures, under the
+    channel's journaled solver configuration with unsat cores, signed under the auditor's run key and stored
+    (:meth:`CheckContext.auditor_run`). Memoised in the store by the reduced problem and the configuration, so every audit
+    of the channel cites the same run. Never raises: a failure is a Necessity with no signed run (TRN-006 stands)."""
+    gone = tuple(dict.fromkeys(removed))
+    if not isinstance(problem_obj, dict) or not gone:
+        return Necessity(removed=gone, reason="no problem to re-run")
+    try:
+        raw = canonical_json(without_premises(problem_obj, gone))
+        cfg = ctx.view.config_at(t.seq).model_copy(update={"produce_unsat_core": True})
+        memo_key = "N6|" + sha256_hex(canonical_json([sha256_hex(raw), cfg.model_dump(mode="json")]))
+    except Exception as exc:
+        return Necessity(removed=gone, reason=f"the problem without the restating premise(s) could not be built ({type(exc).__name__})")
+    memo = ctx.store.memo_get(memo_key)
+    if memo is None:
+        try:
+            _out, run_ids = ctx.auditor_run(lambda: _engine_verify(raw, cfg), seq=t.seq)
+        except Exception as exc:
+            return Necessity(removed=gone, reason=f"the engine run failed ({type(exc).__name__})")
+        rec = ctx.store.get(run_ids[-1]) if len(run_ids) == 1 else None
+        signed = ctx.store.parsed(run_ids[-1]) if rec is not None else None
+        if rec is None or signed is None or getattr(rec, "origin", None) != "auditor_run" or not getattr(rec, "signature_ok_at_put", False):
+            reason = "no signed auditor run was stored" if len(run_ids) != 1 else "the auditor run is not held signed in the store"
+            return Necessity(removed=gone, reason=reason)
+        memo = {"result_id": signed.result_id, "status": signed.status.value, "relied_on": list(signed.premises_relied_on),
+                "diagnostics": list(dict.fromkeys(d.code for d in signed.diagnostics)), "run_ids": list(run_ids),
+                "reason": "; ".join(f"{d.code}: {d.message[:120]}" for d in signed.diagnostics if d.code not in NECESSITY_BENIGN_DIAGNOSTICS)[:400]}
+        ctx.store.memo_put(memo_key, memo)
+    else:
+        for rid in memo.get("run_ids", []):
+            if rid not in ctx.auditor_result_ids:
+                ctx.auditor_result_ids.append(rid)
+    return Necessity(removed=gone, status=memo["status"], result_id=memo["result_id"], relied_on=tuple(memo["relied_on"]),
+                     diagnostics=tuple(memo["diagnostics"]), reason=memo.get("reason", ""))
+
+
 # ============================================================================================ TRN-007
 def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verification: Optional[VerificationResult], keyring: Any) -> bool:
     """Whether the outcome's summary is ``build_summary`` of its translation and ``verification`` (the stored signed
@@ -569,9 +785,14 @@ _ALNUM = "a-z0-9"
 
 
 def _id_forms(claim_id: str) -> list[str]:
-    """The spellings of a claim id a premise id or label may carry ("p2-point" -> "p2_point", "h1.6" -> "h1_6", "h16")."""
-    c = claim_id.casefold()
-    return list(dict.fromkeys([c, c.replace("-", "_"), c.replace(".", "_"), c.replace("-", "").replace(".", ""), c.replace(".", "")]))
+    """The spellings of a claim id a premise id or label may carry ("p2-point" -> "p2_point", "h1.6" -> "h1_6", "h16").
+    Every id scheme the parsers use is read: the English and History ids above, the generic parser's ``g4.2`` and its
+    agent-qualified ``g4.2@economics-specialist`` (an IR identifier cannot carry ``@``, so the id before it is spelled), and
+    the STEM parsers' ``s1.2``, ``m1.2``, ``c1.2`` and ``s.tail`` (rule ``claim-id-schemes``)."""
+    out: list[str] = []
+    for c in dict.fromkeys([claim_id.casefold(), claim_id.casefold().split("@", 1)[0]]):
+        out += [c, c.replace("-", "_"), c.replace(".", "_"), c.replace("-", "").replace(".", ""), c.replace(".", "")]
+    return [f for f in dict.fromkeys(out) if f]
 
 
 def _names_claim(text: str, claim_id: str) -> bool:
@@ -796,15 +1017,31 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                 ctx.ovs(t.seq, "OVS-TRN-005", f"the IR proposed for claim {claim.claim_id} ({path}.translation) carries content the specialist's report never "
                         f"states (in no claim and nowhere in its response): {_listed([d for _n, d in invented])}", claim_ids=cid, formal_result_id=rid, **ids)
             # TRN-006 (a premise identical to the conclusion that is a verified, traced transcription of a grounded fact is
-            # a transcription, not the claim assumed)
+            # a transcription, not the claim assumed) and TRN-010 (rule restatement-necessity: the auditor's own signed
+            # engine run without the restating premises decides whether the result rests on them)
             problem_obj6 = json.loads(problem_json) if problem_json else None
             circ = circular_premises(problem_obj6)
             transcribed = [p for p in circ if is_transcription(p, tr.problem, problem_obj6, report, _request_texts(ctx.view, t))]
             circ = [p for p in circ if p not in transcribed]
             if circ:
-                ctx.ovs(t.seq, "OVS-TRN-006", f"circular translation of claim {claim.claim_id} ({path}.translation): its conclusion occurs verbatim in "
-                        f"premise(s) {', '.join(circ[:6])}, so the engine result rests on the claim assumed, not on the specialist's reasoning",
-                        claim_ids=cid, formal_result_id=rid, **ids)
+                nec = restatement_necessity(ctx, t, problem_obj6, circ)
+                shown = ", ".join(circ[:6])
+                runs = [nec.result_id] if nec.result_id else []
+                if nec.follows:
+                    own = set(o.verification.premises_relied_on) if o.verification is not None else set()
+                    core_note = (f"; the outcome's own signed result relied only on the restatement ({', '.join(sorted(own)[:6])}) in place of the derivation"
+                                 if own and own <= set(circ) else "")
+                    ctx.ovs(t.seq, "OVS-TRN-010", f"redundant restatement in the translation of claim {claim.claim_id} ({path}.translation): premise(s) {shown} "
+                            f"restate the conclusion, but the auditor's own signed engine run on the problem without them {nec.describe()} (rule {NECESSITY_RULE}): "
+                            f"the result does not rest on the claim assumed, and the restating premise(s) add nothing{core_note}",
+                            claim_ids=cid, formal_result_id=rid, related_result_ids=runs, **ids)
+                else:
+                    ctx.ovs(t.seq, "OVS-TRN-006", f"circular translation of claim {claim.claim_id} ({path}.translation): its conclusion occurs verbatim in "
+                            f"premise(s) {shown}, and the auditor's own signed engine run on the problem without them {nec.describe()} (rule {NECESSITY_RULE}), "
+                            "so the engine result rests on the claim assumed, not on the specialist's reasoning",
+                            claim_ids=cid, formal_result_id=rid, related_result_ids=runs, **ids)
+                ctx.note(f"translation of claim {claim.claim_id} on {t.kind} {t.message_id}: premise(s) {shown} restate the conclusion; the auditor's run "
+                         f"{nec.result_id or '(none)'} without them {nec.describe()}: " + ("redundant restatement (OVS-TRN-010)" if nec.follows else "circular (OVS-TRN-006)"))
             if transcribed:
                 ctx.note(f"translation of claim {claim.claim_id} on {t.kind} {t.message_id} transcribes a grounded fact: premise(s) {', '.join(transcribed[:6])} "
                          "state the conclusion verbatim under a verified grounding whose figures the texts state (not circular; the result tests transcription only)")

@@ -64,6 +64,9 @@ class Rederived:
     expected_if_sound: dict[str, str] = field(default_factory=dict)
     findings: list[IntegrityFinding] = field(default_factory=list)
     error: Optional[str] = None
+    #: What each re-derived branch check declares for its decision (``formal.check_rules_of``: ``inconsistent_is_failure``,
+    #: ``failure_severity``; rule ``branch-image/2``).
+    check_rules: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass

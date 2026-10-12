@@ -153,17 +153,19 @@ def test_run_overseer_checks_never_raises_on_a_broken_view(auditor):
 
 # ------------------------------------------------------------------------------------------- the code table
 def test_the_code_table_has_every_code_once_with_one_severity():
-    # design section 16, with the nine translator-oversight codes of section 18 (OVS-TRN-008 and 009 added after the
-    # contained round c1), the five consolidation codes of section 19 (OVS-CONS-001..004, OVS-REP-001) and OVS-AUDIT-005
-    # (review round 1: a check a transfer needs cannot run)
-    assert len(OVS_CODES) == 73
+    # design section 16, with the ten translator-oversight codes of section 18 (OVS-TRN-008 and 009 added after the
+    # contained round c1, OVS-TRN-010 after the round-7 simulation: the count rewritten from 73, the TRN family from 9),
+    # the five consolidation codes of section 19 (OVS-CONS-001..004, OVS-REP-001) and OVS-AUDIT-005 (review round 1: a
+    # check a transfer needs cannot run)
+    assert len(OVS_CODES) == 74
     families = {}
     for code, (sev, stage, meaning) in OVS_CODES.items():
         assert code.startswith("OVS-") and sev in ("error", "warning", "info") and stage and meaning
         families[code.split("-")[1]] = families.get(code.split("-")[1], 0) + 1
-    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 5, "AGENT": 5, "TRN": 9,
+    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 5, "AGENT": 5, "TRN": 10,
                         "CONS": 4, "REP": 1}
     assert {OVS_CODES[c][0] for c in ("OVS-CONS-004", "OVS-REP-001", "OVS-AUDIT-005")} == {"error"} and OVS_CODES["OVS-CONS-003"][0] == "info"
+    assert OVS_CODES["OVS-TRN-006"][0] == "error" and OVS_CODES["OVS-TRN-010"][0] == "warning"
     assert severity_of("OVS-RES-002") == "warning" and severity_of("OVS-PEER-003") == "info" and is_agent_code("OVS-AGENT-004")
     f = ovs_finding("OVS-RES-008", "x", message_ids=["m", "m", ""], formal_result_id="r", related_result_ids=["r", "q"])
     assert f.severity == "warning" and f.message_ids == ["m"] and f.related_result_ids == ["q"] and f.deterministic

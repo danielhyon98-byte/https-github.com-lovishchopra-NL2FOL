@@ -1,0 +1,188 @@
+{
+  "format": "overseer-adjudicated-genuine-faults/1.0",
+  "version": 1,
+  "adjudicated_on": "2026-10-12",
+  "scope": "Real faults of real cheap-tier outputs recorded as genuine transfers of the arena rounds. The contained run (run_contained.py) counts an error-level finding on a genuine transfer as a false alarm unless it matches an entry exactly (round, channel, claim, code, agent); every entry must be raised as an error on its genuine transfer (gate adjudicated_genuine_faults_raised: a missing one fails the run); on an arena fault variant of the same task, an error matching an entry for the same claim is not a disagreement with the receipt.",
+  "rules": [
+    "adjudicate only a fault a deterministic check decides and the engine evidence of this record reproduces",
+    "never adjudicate to silence a finding: an entry makes the run stricter (its fault must keep being raised)",
+    "a new or changed entry is a new version of this file, with its evidence; an entry is retired only by a new version that states why (for example: the translator no longer delivers the encoding), never silently",
+    "not adjudicated: bm-t13 g2.1 (round r7), whose restating premise d_contrib_val is redundant (without it the quoted price and costs still give ENTAILED: 4.00 - (1.10 + 0.90) = 2.00); the overseer reports it as OVS-TRN-010, a warning"
+  ],
+  "entries": [
+    {
+      "id": "r7/cs-t13/g11.3/OVS-TRN-006",
+      "round": "r7",
+      "channel": "cs-t13",
+      "task_id": "cs-t13",
+      "agent_id": "computer-science-specialist",
+      "subject": "Computer Science",
+      "claim_id": "g11.3",
+      "code": "OVS-TRN-006",
+      "claim_text": "Both are worst-case counts for the same 1,000 items, each of the operation its algorithm repeats.",
+      "translation": {
+        "source": "translations/cs-t13.json, claims.g11.3.problem",
+        "problem_sha256": "2f2ac2cd62235f7a0a23d1a76649c574ccbdd975f52c029e3f0f4652a284463b",
+        "problem": {
+          "ir_version": "1.0",
+          "problem_id": "cs_t13_g11_3",
+          "request_id": "req-cs-t13",
+          "claim_id": "g11.3",
+          "query": "entailment",
+          "symbols": [
+            {
+              "name": "wc",
+              "sort": "Bool",
+              "meaning": "both counts are worst-case counts for the same 1,000 items, each of the operation its algorithm repeats",
+              "grounding": {
+                "kind": "specialist_inference",
+                "source_refs": [],
+                "certainty": "established"
+              }
+            }
+          ],
+          "premises": [
+            {
+              "id": "a_wc",
+              "expr": {
+                "op": "var",
+                "name": "wc"
+              },
+              "label": "both counts are worst-case counts for the same 1,000 items",
+              "grounding": {
+                "kind": "specialist_inference",
+                "source_refs": [],
+                "certainty": "established"
+              },
+              "materiality": "material"
+            }
+          ],
+          "conclusion": {
+            "id": "C_cs_t13_g11_3",
+            "expr": {
+              "op": "var",
+              "name": "wc"
+            },
+            "label": "both counts are worst-case counts for the same 1,000 items, each of the operation its algorithm repeats",
+            "grounding": {
+              "kind": "specialist_inference",
+              "source_refs": [],
+              "certainty": "established"
+            },
+            "materiality": "material"
+          }
+        }
+      },
+      "evidence": {
+        "restating_premises": [
+          "a_wc"
+        ],
+        "premises": [
+          "a_wc"
+        ],
+        "as_recorded": {
+          "status": "ENTAILED",
+          "premises_relied_on": [
+            "a_wc"
+          ]
+        },
+        "without_restating_premises": {
+          "status": "COUNTEREXAMPLE",
+          "premises": [],
+          "counterexample": {
+            "wc": "false"
+          }
+        },
+        "how": "engine.runner.verify on the recorded IR, read as untrusted JSON (the engine's validator with default limits, its compiler and procedures, default solver configuration), once as recorded and once with the restating premise removed; every contained run re-derives it with the auditor's own signed run (rule restatement-necessity), which the OVS-TRN-006 finding cites, and the harness re-runs this record's evidence before it uses an entry"
+      },
+      "why_genuine": "The translator encoded the claim as its own only premise (wc entails wc). The recorded result is ENTAILED and the router is shown ENTAILED, but without the premise nothing gives the claim (COUNTEREXAMPLE, wc false): the result rests on the claim assumed, not on anything the specialist said. A real fault of the recorded translator output, raised as an error on the genuine transfer; it is not a false alarm."
+    },
+    {
+      "id": "r7/ess-t13/g4.3/OVS-TRN-006",
+      "round": "r7",
+      "channel": "ess-t13",
+      "task_id": "ess-t13",
+      "agent_id": "ess-specialist",
+      "subject": "Environmental Systems and Societies",
+      "claim_id": "g4.3",
+      "code": "OVS-TRN-006",
+      "claim_text": "The outlet is also easy to monitor, and its discharge limits can be enforced [1 spare].",
+      "translation": {
+        "source": "translations/ess-t13.json, claims.g4.3.problem",
+        "problem_sha256": "34537b960fdc85c81aab54f56be3b92428025de5caed8fd5a22842d9e87dbf77",
+        "problem": {
+          "ir_version": "1.0",
+          "problem_id": "ess_t13_g4_3",
+          "request_id": "req-ess-t13",
+          "claim_id": "g4.3",
+          "query": "entailment",
+          "symbols": [
+            {
+              "name": "monitor",
+              "sort": "Bool",
+              "meaning": "the outlet is easy to monitor and its discharge limits can be enforced",
+              "grounding": {
+                "kind": "specialist_inference",
+                "source_refs": [],
+                "certainty": "probable"
+              }
+            }
+          ],
+          "premises": [
+            {
+              "id": "a_monitor",
+              "expr": {
+                "op": "var",
+                "name": "monitor"
+              },
+              "label": "the outlet is easy to monitor and its discharge limits can be enforced",
+              "grounding": {
+                "kind": "specialist_inference",
+                "source_refs": [],
+                "certainty": "probable"
+              },
+              "materiality": "material"
+            }
+          ],
+          "conclusion": {
+            "id": "C_ess_t13_g4_3",
+            "expr": {
+              "op": "var",
+              "name": "monitor"
+            },
+            "label": "the outlet is easy to monitor and its discharge limits can be enforced",
+            "grounding": {
+              "kind": "specialist_inference",
+              "source_refs": [],
+              "certainty": "probable"
+            },
+            "materiality": "material"
+          }
+        }
+      },
+      "evidence": {
+        "restating_premises": [
+          "a_monitor"
+        ],
+        "premises": [
+          "a_monitor"
+        ],
+        "as_recorded": {
+          "status": "ENTAILED",
+          "premises_relied_on": [
+            "a_monitor"
+          ]
+        },
+        "without_restating_premises": {
+          "status": "COUNTEREXAMPLE",
+          "premises": [],
+          "counterexample": {
+            "monitor": "false"
+          }
+        },
+        "how": "engine.runner.verify on the recorded IR, read as untrusted JSON (the engine's validator with default limits, its compiler and procedures, default solver configuration), once as recorded and once with the restating premise removed; every contained run re-derives it with the auditor's own signed run (rule restatement-necessity), which the OVS-TRN-006 finding cites, and the harness re-runs this record's evidence before it uses an entry"
+      },
+      "why_genuine": "The translator encoded the claim as its own only premise (monitor entails monitor). The recorded result is ENTAILED and the router is shown ENTAILED, but without the premise nothing gives the claim (COUNTEREXAMPLE, monitor false): the result rests on the claim assumed. A real fault of the recorded translator output, raised as an error on the genuine transfer; it is not a false alarm."
+    }
+  ]
+}
