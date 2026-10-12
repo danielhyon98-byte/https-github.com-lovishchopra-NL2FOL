@@ -30,11 +30,14 @@ figures]))``, where the anchor is the normalised offending claim or quoted phras
   or another submission signs alike.
 
 ``figures`` are the figures and dates of the anchor's source text (``ledger.figure_spellings``; a figure with a scale
-word keeps it, "6.1 million"), sorted and unique. **Content form** (:func:`content_form`): the fidelity normalisation
-(``checks.normalise``: NFKC, quotes and dashes folded, markdown removed, whitespace collapsed), then case folded,
-thousands separators removed, the text read as words and numbers (a decimal point or separator inside a number kept), and
-the articles "a", "an" and "the" dropped. A rewording that changes only case, punctuation, markdown, whitespace or
-articles leaves the signature unchanged; one that changes a word, a figure or a quotation changes it.
+word keeps it, "6.1 million"), sorted and unique. **Content form** (:func:`content_form`): invisible format characters
+removed (category Cf, such as zero-width spaces and soft hyphens, and the other default-ignorable code points), the
+fidelity normalisation (``checks.normalise``: NFKC, quotes and dashes folded, markdown removed, whitespace collapsed),
+then case folded, confusable Cyrillic and Greek letters folded to the Latin letters they look like, thousands separators
+removed, the text read as words and numbers (a decimal point or separator inside a number kept), and the articles "a",
+"an" and "the" dropped. A rewording that changes only case, punctuation, markdown, whitespace, invisible characters,
+look-alike letters or articles leaves the signature unchanged; one that changes a word, a figure or a quotation changes
+it.
 
 **Repeats.** :func:`detect_repeats` walks the answers of one task in order (the views given, each in journal sequence
 order). An answer contributes each signature once. The first answer with a signature is its original; every later answer
@@ -89,9 +92,29 @@ _HEX_ID_RE = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{16,}(?![0-9A-Za-z])|[0-9a-f]{
 
 
 # ============================================================================================ normalisation
+#: Default-ignorable code points beyond category Cf (variation selectors, the combining grapheme joiner, Mongolian
+#: free variation selectors, Hangul fillers): invisible, so never a word change.
+_IGNORABLE = frozenset([0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)])
+#: Confusable letters (Cyrillic and Greek forms that look like Latin ones), mapped to the Latin letter for the content
+#: form only (a skeleton in the spirit of UTS #39, restricted to lower-case letters after case folding).
+_CONFUSABLES = str.maketrans({
+    "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
+    "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ԛ": "q", "ԝ": "w", "ɡ": "g", "һ": "h", "ӏ": "l",
+    "α": "a", "β": "b", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ϲ": "c", "ϳ": "j",
+})
+
+
+def _visible(text: str) -> str:
+    """``text`` without invisible format characters (category Cf: zero-width spaces and joiners, soft hyphens, bidi
+    controls) and other default-ignorable code points."""
+    import unicodedata
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf" and ord(ch) not in _IGNORABLE)
+
+
 def content_form(text: Any) -> str:
-    """The content form of ``text`` (module docstring): normalised, case folded, words and numbers only, no articles."""
-    t = normalise(text if isinstance(text, str) else "").casefold()
+    """The content form of ``text`` (module docstring): invisible characters removed, normalised, case folded,
+    confusable letters folded to Latin, words and numbers only, no articles."""
+    t = normalise(_visible(text if isinstance(text, str) else "")).casefold().translate(_CONFUSABLES)
     t = _THOUSANDS_RE.sub("", t)
     return " ".join(tok for tok in _TOKEN_RE.findall(t) if tok not in _ARTICLES)
 

@@ -27,7 +27,12 @@ content: a transfer the channel REJECTED audits PASSED and is still never acted 
   by none, covers the channel as it stands (no transfer was journaled after the audit's journal head, and the journal
   chain verifies), has state ``AUDIT_PASSED`` or ``AUDIT_PASSED_WITH_FINDINGS``, and includes the synthesis transfer,
   whose own state is passed and whose journaled receipt digest equals the receipt presented. The synthesis receipt
-  itself must not be REJECTED.
+  itself must not be REJECTED, and must carry no error-level finding: an audit vouches for the receipt, not for the
+  content, so a synthesis the channel itself says miscommunicates its sources (INT-LEDGER-023, say) is never released
+  (the reason names the codes; release then needs a new synthesis, never the agent's or the router's word). Custody is
+  re-checked at release: the synthesis message (and every transfer it depends on) in the live channel's log must still
+  be the journaled payload and header (the auditor attaches the probe to the journal), and the message the router is
+  about to release, when given, must carry the journaled payload digest.
 
 Agent verdicts play no part here: ``OVS-AGENT-*`` findings never change a clearance (decision 16), and no function of
 this module reads a verdict. Every function returns False (or a refusing decision) instead of raising on a malformed
@@ -42,6 +47,9 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 7, listed as each stage requ
   records change no transfer;
 * ``may_release`` also requires the synthesis transfer's own state to be passed and the presented synthesis receipt to
   carry the journaled receipt digest (the router releases the receipt it holds, so that copy is the one checked);
+* ``may_release`` refuses a synthesis receipt with any error-level finding, and re-checks custody at release through
+  the probe the auditor attaches to the journal (``ChannelJournal.live_custody``), and the released message when given
+  (review round 1);
 * the decisions carry a ``reason`` (:class:`PolicyDecision`); ``may_act`` and ``may_release`` return its ``allowed``.
 """
 from __future__ import annotations
@@ -178,8 +186,9 @@ def _journal_covers(audit: OverseerAudit, journal: Any) -> Optional[str]:
     return None
 
 
-def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any) -> PolicyDecision:
-    """Whether the student-facing synthesis carried by ``synthesis_receipt`` may be released (module docstring)."""
+def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None) -> PolicyDecision:
+    """Whether the student-facing synthesis carried by ``synthesis_receipt`` may be released (module docstring).
+    ``message``: the synthesis envelope the router is about to release (its payload is what the student reads)."""
     if not isinstance(task_audit, OverseerAudit):
         return PolicyDecision(False, "no task audit")
     state = task_audit.state
@@ -208,6 +217,13 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
         return PolicyDecision(False, "not a receipt", state)
     if _status_value(synthesis_receipt) == TransmissionStatus.REJECTED.value:
         return PolicyDecision(False, "the channel REJECTED the synthesis: it was not delivered", state)
+    try:
+        errors = sorted({f.code for f in synthesis_receipt.findings if getattr(f, "severity", None) == "error"})
+    except (AttributeError, TypeError):
+        return PolicyDecision(False, "not a receipt", state)
+    if errors:
+        return PolicyDecision(False, f"the synthesis receipt carries error-level findings {errors}: the channel says the synthesis miscommunicates what it "
+                                     "presents, so it is not released (a corrected synthesis is needed)", state)
     if mid not in task_audit.message_ids:
         return PolicyDecision(False, "the task audit does not include the synthesis transfer", state)
     if task_audit.transfer_states.get(mid) not in ACTABLE_STATES:
@@ -221,9 +237,24 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
     digest = receipt_digest(synthesis_receipt)
     if digest is None or digest != event.receipt_sha256:
         return PolicyDecision(False, "the synthesis receipt differs from the journaled receipt", state)
+    if message is not None:
+        try:
+            from ..ir.canonical import canonical_json
+            if getattr(message, "message_id", None) != mid or sha256_hex(canonical_json(message.payload)) != event.payload_sha256:
+                return PolicyDecision(False, "the synthesis message to be released is not the journaled synthesis (payload digest)", state)
+        except Exception:
+            return PolicyDecision(False, "the synthesis message to be released cannot be compared with the journal", state)
+    probe = getattr(journal, "live_custody", None)
+    if callable(probe):
+        try:
+            faults = probe(mid)
+        except Exception as exc:
+            return PolicyDecision(False, f"custody of the synthesis could not be re-checked at release ({type(exc).__name__})", state)
+        if faults:
+            return PolicyDecision(False, f"custody re-checked at release: {sorted(set(faults))} (the synthesis or a transfer it depends on was altered after the audit)", state)
     return PolicyDecision(True, "ok", state)
 
 
-def may_release(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any) -> bool:
+def may_release(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None) -> bool:
     """True only when the synthesis may be released to the student (see :func:`release_decision`)."""
-    return release_decision(synthesis_receipt, task_audit, keyring, audits=audits, journal=journal).allowed
+    return release_decision(synthesis_receipt, task_audit, keyring, audits=audits, journal=journal, message=message).allowed

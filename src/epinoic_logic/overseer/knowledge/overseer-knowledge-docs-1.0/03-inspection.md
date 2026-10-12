@@ -75,6 +75,7 @@ This document says what to check on each transfer. It applies to every transfer 
 - **I12 Peer documents.** A supplied text whose `document_id` starts with `peer:` must be byte-identical to the `original_response` of a report that was forwarded **earlier** (lower `seq`) to **the same recipient**. Find the forward in `links.peer_documents` and compare the texts word by word.
   - The text differs, even by one word: kind `peer_document_altered`.
   - No earlier forward to that recipient: kind `peer_document_altered`.
+  - The document's `author` is not the `agent_id` of the report whose text it is (or its `peer:<id>` names another forwarded report): the attributions were swapped. Kind `peer_document_altered`.
 - **I13 What was asked.** Compare `items` and `constraints` with `user_input`. A constraint whose value differs from the student's words (for example `user_input` says "no more than 350 words" and the constraint's `value` is "530") is a miscommunication no check decides: kind `other` (When unsure U3).
 - **I14 Request status.** Apply I2 (request rule).
 
@@ -132,6 +133,7 @@ The router may pass on a delivered report only exactly as it was delivered.
 
 - **I45 Owner sends.** `sender.agent_id` must equal `payload.agent_id`: only a report's owner relays it. Otherwise, with no `INT-HANDOFF` or `INT-ENV` error and a status that is not REJECTED: kind `receipt_status_wrong`.
 - **I46 Checked like a response.** Run I21 to I31 on it, then §10 on its translations.
+- **I47 Delivered before.** The same agent must have delivered this report earlier: a `response` or `response_text` with the same `report_id`, the same `payload_sha256` and the same `sender.agent_id`, with lower `seq`. A report relayed in an agent's name that the agent never delivered (a new `report_id`, or changed content) was written by someone else: kind `forward_altered`, `claimed_severity` `error`.
 
 ## 9. `relay_synthesis` (the combinator's synthesis)
 

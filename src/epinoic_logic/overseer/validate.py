@@ -64,8 +64,8 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage re
   that audit is a verified batch task audit with full coverage for the kind, and never for the live-custody kinds;
 * the transfers an accusation involves are its named messages and receipts AND every transfer that carries one of its
   claims, reports, documents or results or cites one of its results: if the evidence does not cover every one of them
-  (a transfer issued after the given task audit), or the view is degraded or digest-only, or an ``OVS-AUDIT-001`` or an
-  ``OVS-AUDIT-002`` naming one of them (or none) is present, the accusation is unresolved;
+  (a transfer issued after the given task audit), or the view is degraded or digest-only, or an ``OVS-AUDIT-001``, an
+  ``OVS-AUDIT-002`` or an ``OVS-AUDIT-005`` naming one of them (or none) is present, the accusation is unresolved;
 * an AGENT-001 refuted by a signed result cites that result (``formal_result_id``) and, for a replay, the signed replay;
 * the ``verdicts`` audit names the task audit (and the superseding one) and the assessment digest in its coverage notes
   (``OverseerAudit`` has no field for them); its ``supersedes`` is None (verdicts of different agents do not
@@ -95,7 +95,7 @@ from .audit import run_overseer_checks, sign_audit, verify_audit
 from .checks import Replay
 from .codes import ovs_finding
 from .contracts import AuditCoverage, ClearanceState, OverseerAudit, StoredResult
-from .dossier import PointerError, dossier_identifiers, resolve_pointer, visible_text
+from .dossier import PointerError, dossier_identifiers, resolve_pointer, typed_identifiers, visible_text
 from .faithful import faithful
 from .intake import VerdictIntake
 from .keys import INTAKE_KEY_ID, KeyRing
@@ -165,6 +165,8 @@ class AccusationAssessment(BaseModel):
     confirming: list[FindingRef] = Field(default_factory=list)
     first_seq: Optional[int] = None
     decided_by_rerun: bool = False
+    #: Each named claim id -> the reports it was resolved to (claim ids are unique only within a report).
+    claim_report_ids: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class EngineStatementAssessment(BaseModel):
@@ -218,23 +220,35 @@ def assessment_digest(assessment: BaseModel) -> str:
 
 
 # ============================================================================================ matching
-def finding_matches(kind: str, ids: dict[str, list[str]], f: IntegrityFinding, receipt_to_message: Optional[dict[str, str]] = None) -> bool:
-    """Whether ``f`` confirms an accusation of ``kind`` naming ``ids`` (see the module docstring for the rule)."""
+def finding_matches(kind: str, ids: dict[str, list[str]], f: IntegrityFinding, receipt_to_message: Optional[dict[str, str]] = None,
+                    claim_reports: Optional[dict[str, list[str]]] = None) -> bool:
+    """Whether ``f`` confirms an accusation of ``kind`` naming ``ids`` (see the module docstring for the rule).
+
+    Claim ids are unique only within a report, so claims are compared as ``(report_id, claim_id)`` pairs whenever both
+    sides say which report: the accusation through ``claim_reports`` (the reports its claims resolved to in the
+    dossier) and the finding through its ``report_ids``. Where both name messages (receipts mapped to their messages),
+    reports, claims, documents or results, they must share one of each: a finding about message M1 and report R1 never
+    confirms an accusation about message M2 and report R2."""
     if f.code not in KIND_CHECKS.get(kind, ()):
         return False
     qual = KIND_CODE_QUALIFIERS.get((kind, f.code))
     if qual and not any(q in f.message for q in qual):
         return False
     r2m = receipt_to_message or {}
-    msgs = set(ids.get("message_ids", ())) | {r2m[r] for r in ids.get("receipt_ids", ()) if r in r2m}
+    msgs = (set(ids.get("message_ids", ())) | {r2m[r] for r in ids.get("receipt_ids", ()) if r in r2m}, set(f.message_ids))
     f_results = ({f.formal_result_id} if f.formal_result_id else set()) | set(f.related_result_ids)
-    claims = (set(ids.get("claim_ids", ())), set(f.claim_ids))
+    if claim_reports and f.report_ids and f.claim_ids:
+        acc_pairs = {(r, c) for c in ids.get("claim_ids", ()) for r in (claim_reports.get(c) or [""])}
+        claims = (acc_pairs, {(r, c) for r in f.report_ids for c in f.claim_ids})
+    else:
+        claims = (set(ids.get("claim_ids", ())), set(f.claim_ids))
     docs = (set(ids.get("document_ids", ())), set(f.document_ids))
     results = (set(ids.get("result_ids", ())), f_results)
-    pairs = [(msgs, set(f.message_ids)), claims, (set(ids.get("report_ids", ())), set(f.report_ids)), docs, results]
+    reports = (set(ids.get("report_ids", ())), set(f.report_ids))
+    pairs = [msgs, claims, reports, docs, results]
     if not any(a & b for a, b in pairs):
         return False
-    for a, b in (claims, docs, results):
+    for a, b in (msgs, reports, claims, docs, results):
         if a and b and not (a & b):
             return False
     return True
@@ -323,6 +337,8 @@ class _Ctx:
     message_of_index: dict[int, str]
     task_audit: Optional[OverseerAudit]
     notes: list[str] = field(default_factory=list)
+    typed: dict[str, set[str]] = field(default_factory=dict)
+    claim_entries: dict[str, list[tuple[Optional[str], Optional[str]]]] = field(default_factory=dict)
     _rerun: Optional[_Base] = None
     _rerun_done: bool = False
 
@@ -344,6 +360,18 @@ class _Ctx:
                             out.add(mid)
         for rid in ids["result_ids"]:
             out.update(m for m, cited in self.cited_by_message.items() if rid in cited)
+        return out
+
+    def claim_reports(self, ids: dict[str, list[str]]) -> dict[str, list[str]]:
+        """Each named claim id -> the reports it belongs to in the dossier: those of its entries the accusation's named
+        reports select, else those on its named transfers, else every report carrying it."""
+        msgs = self.named_messages(ids)
+        named = set(ids.get("report_ids", ()))
+        out: dict[str, list[str]] = {}
+        for cid in ids.get("claim_ids", ()):
+            entries = self.claim_entries.get(cid, [])
+            cands = [e for e in entries if e[0] in named] or [e for e in entries if e[1] in msgs] or entries
+            out[cid] = sorted({r for r, _m in cands if r})
         return out
 
     def target_results(self, ids: dict[str, list[str]]) -> list[str]:
@@ -427,7 +455,7 @@ def _coverage_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) 
     for f in base.findings:
         if f.code == "OVS-AUDIT-001":
             return "an audit check failed internally, so the checks did not all run"
-        if f.code == "OVS-AUDIT-002" and (not f.message_ids or set(f.message_ids) & msgs):
+        if f.code in ("OVS-AUDIT-002", "OVS-AUDIT-005") and (not f.message_ids or set(f.message_ids) & msgs):
             return "audit coverage was lost for the named transfers"
     if base.covered_messages is not None and msgs - base.covered_messages:
         return "the audit does not cover every named transfer"
@@ -505,13 +533,15 @@ def _refuted_by(kind: str, ids: dict[str, list[str]], ctx: _Ctx) -> RefutedBy:
 
 def _resolve(acc, ctx: _Ctx) -> tuple[dict[str, list[str]], dict[str, list[str]], list[str]]:
     ids = accusation_identifiers(acc)
-    unresolved = {name: [i for i in ids[name] if i not in ctx.ident] for name in ID_FIELDS}
+    # each list resolves against identifiers of its own type (the dossier index): a status word or a free text value that
+    # happens to occur in the dossier is not a message id
+    unresolved = {name: [i for i in ids[name] if i not in ctx.typed.get(name, ctx.ident)] for name in ID_FIELDS}
     unresolved = {k: v for k, v in unresolved.items() if v}
     faults: list[str] = []
     if not any(ids[name] for name in ID_FIELDS):
         faults.append("the accusation names no identifier (Evidence rule E1)")
     for name, vals in unresolved.items():
-        faults.append(f"{len(vals)} identifier(s) in {name} occur nowhere in the dossier (Evidence rule E3)")
+        faults.append(f"{len(vals)} identifier(s) in {name} are not {name[:-4].replace('_', ' ')} identifiers of the dossier (Evidence rule E3)")
     for k, ev in enumerate(acc.evidence):
         try:
             value = resolve_pointer(ctx.dossier, ev.pointer)
@@ -557,6 +587,12 @@ def _engine_statement(es, ctx: _Ctx) -> EngineStatementAssessment:
             return EngineStatementAssessment(**base, outcome="refuted", code="OVS-AGENT-001", refuted_by="signed_result",
                                              reason="no engine result with this id exists in the store or the dossier")
         return EngineStatementAssessment(**base, outcome="undecided", code="OVS-AGENT-004", reason="the result is no longer retained")
+    if not in_dossier or getattr(rec, "channel_uid", None) != ctx.view.channel_uid:
+        return EngineStatementAssessment(**base, outcome="unverifiable", code="OVS-AGENT-002",
+                                         reason="the result is not one of this dossier's results (Evidence rule E1, E3: identifiers come from the dossier)")
+    if not _points_at_status_of(ctx.dossier, es.pointer, rid):
+        return EngineStatementAssessment(**base, outcome="unverifiable", code="OVS-AGENT-002",
+                                         reason=f"the pointer is not the status field of result {rid} (Evidence rule E10: /results/<result_id>/status)")
     stored = rec.status
     verified = bool(rec.signature_ok_at_put)
     if isinstance(rec, StoredResult):
@@ -576,6 +612,21 @@ def _engine_statement(es, ctx: _Ctx) -> EngineStatementAssessment:
                                          reason="the field the pointer names does not hold the asserted status (Evidence rule E10)")
     return EngineStatementAssessment(**base, outcome="agrees", stored_status=stored, signature_verified=verified,
                                      reason="" if verified else "the stored result's signature does not verify; the status is the journaled one")
+
+
+def _points_at_status_of(dossier: dict, pointer: str, rid: str) -> bool:
+    """The pointer names the ``status`` field of the result ``rid``: ``/results/<rid>/status``, or a ``status`` member of
+    an object of the dossier whose ``result_id`` is ``rid`` (a receipt's copy of the result)."""
+    from .dossier import pointer_join
+    if pointer == pointer_join("results", rid, "status"):
+        return True
+    if not pointer.endswith("/status"):
+        return False
+    try:
+        parent = resolve_pointer(dossier, pointer[: -len("/status")])
+    except PointerError:
+        return False
+    return isinstance(parent, dict) and parent.get("result_id") == rid
 
 
 def _engine_statement_finding(agent_id: str, verdict_id: str, e: EngineStatementAssessment) -> IntegrityFinding:
@@ -665,8 +716,14 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
             if tr.get("receipt_id"):
                 r2m[tr["receipt_id"]] = tr["message_id"]
     index_pointers: dict[str, list[str]] = {}
+    typed = typed_identifiers(dossier)
+    claim_entries: dict[str, list[tuple[Optional[str], Optional[str]]]] = {}
     for e in dossier.get("index") or []:
         index_pointers.setdefault(e.get("id"), []).append(e.get("pointer"))
+        if e.get("type") in ("claim", "synthesized_claim"):
+            p = e.get("pointer") or ""
+            tok = p.split("/")[2] if p.startswith("/transfers/") and len(p.split("/")) > 2 else ""
+            claim_entries.setdefault(e.get("id"), []).append((e.get("report_id"), mid_i.get(int(tok)) if tok.isdigit() else None))
     latest: Optional[OverseerAudit] = None
     if auditor is not None:
         try:
@@ -680,19 +737,23 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
             notes.append(f"the auditor's latest task audit {latest.audit_id} was consulted too")
     ctx = _Ctx(view=view, store=store, keyring=keyring, intake=intake, auditor=auditor, live=live, registry=registry, replay_timeout_s=replay_timeout_s,
                verdict=verdict, dossier=dossier, ident=dossier_identifiers(dossier), receipt_to_message=r2m, seq_of_message=seq_m, seq_of_index=seq_i,
-               index_pointers=index_pointers, cited_by_message=cited_m, message_of_index=mid_i, task_audit=task_audit if audit_ok else None, notes=notes)
+               index_pointers=index_pointers, cited_by_message=cited_m, message_of_index=mid_i, task_audit=task_audit if audit_ok else None, notes=notes,
+               typed=typed, claim_entries=claim_entries)
     given = ctx.audit_base()
     lookups = [b for b in (given, ctx.audit_base(latest) if latest is not None else None) if b is not None]
     # ------------------------------------------------------------------ accusations: resolve and look up
     results: list[AccusationAssessment] = []
     idmap: dict[str, dict[str, list[str]]] = {}
+    crmap: dict[str, dict[str, list[str]]] = {}
     pending: list[AccusationAssessment] = []
     for acc in verdict.accusations:
         ids, unresolved, faults = _resolve(acc, ctx)
         idmap[acc.accusation_id] = ids
+        crep = ctx.claim_reports(ids)
+        crmap[acc.accusation_id] = crep
         checks = list(KIND_CHECKS.get(acc.kind, ()))
         common = dict(accusation_id=acc.accusation_id, kind=acc.kind, claimed_severity=acc.claimed_severity, checks=checks, identifiers=ids,
-                      unresolved_identifiers=unresolved, first_seq=ctx.first_seq(ids, [e.pointer for e in acc.evidence]))
+                      unresolved_identifiers=unresolved, first_seq=ctx.first_seq(ids, [e.pointer for e in acc.evidence]), claim_report_ids=crep)
         if faults:
             results.append(AccusationAssessment(**common, outcome="unverifiable", code=OUTCOME_CODES["unverifiable"], reasons=faults))
             continue
@@ -701,7 +762,7 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
                    "advisory only; human review") if acc.kind == "translation_unfaithful" else f"kind {acc.kind} is decided by no check; human review"
             results.append(AccusationAssessment(**common, outcome="unresolved", code=OUTCOME_CODES["unresolved"], reasons=[why]))
             continue
-        refs = [_ref(b.audit_id, i, f) for b in lookups for i, f in enumerate(b.findings) if finding_matches(acc.kind, ids, f, r2m)]
+        refs = [_ref(b.audit_id, i, f) for b in lookups for i, f in enumerate(b.findings) if finding_matches(acc.kind, ids, f, r2m, crep)]
         if refs:
             results.append(AccusationAssessment(**common, outcome="confirmed", code=OUTCOME_CODES["confirmed"], confirming=refs,
                                                 reasons=["confirmed by a finding of the task audit"]))
@@ -723,13 +784,13 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
             if base is None:
                 a.reasons = ["no verified task audit and no auditor to re-run the checks"]
                 continue
-            matched = [f for f in base.findings if finding_matches(a.kind, ids, f, r2m)]
+            matched = [f for f in base.findings if finding_matches(a.kind, ids, f, r2m, crmap[a.accusation_id])]
             if matched and base.source == "rerun":
                 to_confirm.append(a)
                 continue
             if matched:  # cannot happen for the given audit (looked up above); kept for safety
                 a.outcome, a.code = "confirmed", OUTCOME_CODES["confirmed"]
-                a.confirming = [_ref(base.audit_id, i, f) for i, f in enumerate(base.findings) if finding_matches(a.kind, ids, f, r2m)]
+                a.confirming = [_ref(base.audit_id, i, f) for i, f in enumerate(base.findings) if finding_matches(a.kind, ids, f, r2m, crmap[a.accusation_id])]
                 continue
             gap = _coverage_gap(a.kind, ids, base, ctx)
             if gap is None:
@@ -753,7 +814,8 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
                 notes.append(f"the new task audit supersedes {superseding.supersedes!r}, not {prior.audit_id!r}")
             for a in to_confirm:
                 ids = idmap[a.accusation_id]
-                refs = [_ref(superseding.audit_id, i, f) for i, f in enumerate(superseding.report.findings) if finding_matches(a.kind, ids, f, r2m)] if ok_new else []
+                refs = [_ref(superseding.audit_id, i, f) for i, f in enumerate(superseding.report.findings)
+                        if finding_matches(a.kind, ids, f, r2m, crmap[a.accusation_id])] if ok_new else []
                 a.decided_by_rerun = True
                 if refs:
                     a.outcome, a.code, a.confirming = "confirmed", OUTCOME_CODES["confirmed"], refs

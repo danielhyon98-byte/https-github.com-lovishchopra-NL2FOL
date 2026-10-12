@@ -239,6 +239,37 @@ recorded rounds (`EPINOIC_ARENA_ROUNDS=ROUNDS`): 1,953 passed, 12 deselected, 13
 `tests/overseer/test_harness_tamper_suite.py`, `test_harness_dossier_export.py`, `test_harness_scoring.py` and
 `test_harness_contained_pack.py` (121 tests).
 
+## 9. After adversarial review round 1 (design section 20)
+
+```
+python scripts/overseer/run_contained.py --out OUT/contained --rounds ROUNDS --round r2 --round r3 --round r4 --round r5 --round r7 --probe-scope all
+```
+
+545 s. Every reviewer reproduction (`tamper-evasion` a01 to a29, `overseer-agent-abuse` cases A to G, the `precision-
+performance` tools on r5 and r7) now gives the expected outcome, and each fix has a regression test that fails on the
+code before it (`tests/overseer/test_review1_*.py`, 47 tests).
+
+| Round | Arena | Same copy without auditor | Genuine false alarms | Arena injected faults confirmed | Replayed / disagreeing | Probes as expected |
+| --- | --- | --- | --- | --- | --- | --- |
+| r2 | 41/41 | identical | 0 | 34 of 34 | 349 / 0 | 34 of 34 |
+| r3 | 41/41 | identical | 0 | 34 of 34 | 340 / 0 | 33 of 33 |
+| r4 | 41/41 | identical | 0 | 34 of 34 | 369 / 0 | 33 of 33 |
+| r5 | 41/41 | identical | 0 | 34 of 34 | 267 / 0 | 33 of 33 |
+| r7 | 139/143 | identical | 3 (before: 44) | 99 of 118 (before: 58) | 2,148 / 0 | 122 of 122 |
+
+- Tampering suite: 109 of 109 tamperings detected, 9 controls clean, 4 meaning faults unresolved as designed.
+- r7's three remaining genuine errors are OVS-TRN-006 on translations whose premise is a specialist inference identical to
+  the conclusion (`bm-t13` g2.1, `cs-t13` g11.3, `ess-t13` g4.3): the claim assumed, a true translator fault, kept by
+  rule (R28). Of the 19 arena faults not confirmed, 15 are mutated copies of those three tasks (the same TRN-006 names
+  the transfer) and 4 are faults the receipt itself did not name (the arena's 139 of 143).
+- The genuine task states are mostly AUDIT_FAILED because of the expected INT-SYNTH-006 divergence (DIV-001), which now
+  names only the synthesis transfer: no genuine specialist report is failed or excluded from consolidation by it (r5:
+  6 of 6 consolidations deliverable, before 0 of 6).
+- Arena r3 on a copy (`scripts/arena/run_arena.py`): 41 of 41 functional, every record identical to the run of the code
+  before this round.
+- Suite: 2,050 passed, 6 skipped, 12 deselected, 117 s; with the recorded rounds the 110 harness tests that need them
+  pass.
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction

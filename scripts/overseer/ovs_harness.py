@@ -61,7 +61,7 @@ ENGINE_KEY_IDS = ("hub", "channel", "default", "integrity", "t")
 #: The recorded rounds the harness knows, in order (each is used only when present).
 ROUND_NAMES = ("r1", "r1-adv", "r2", "r3", "r4", "r5", "r6")
 #: The rounds the contained run and the dossier export use by default (the stage's acceptance names r2 to r5).
-DEFAULT_ROUNDS = ("r2", "r3", "r4", "r5")
+DEFAULT_ROUNDS = ("r2", "r3", "r4", "r5", "r7")
 #: One overseer agent per lens: the agent ids the dossier export issues dossiers to (design section 10).
 LENS_AGENTS: tuple[tuple[str, str], ...] = (
     ("overseer-custody-1", "custody_results"), ("overseer-content-1", "content_fidelity"), ("overseer-translation-1", "translation_fidelity"),

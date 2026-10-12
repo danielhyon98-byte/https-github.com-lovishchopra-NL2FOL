@@ -41,12 +41,18 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
   it is no evidence of a fault, but it shows a reviewer where the translator went beyond the claim.
 * **TRN-006** (error): circular translation: the conclusion's expression occurs verbatim among the premises (as a
   premise, or as a conjunct of one, a conjunction included), so an ENTAILED result rests on the claim assumed, not on the
-  specialist's reasoning. (Harness-stage correction: a conclusion that is itself a conjunction, assumed verbatim, was
+  specialist's reasoning. Named rule ``grounded-transcription`` (review round 1, recorded r7 rounds): a premise that is
+  a verified, traced transcription of a grounded fact (:func:`is_transcription`: a ``task_setting``, ``quotation``,
+  ``supplied_text`` or ``arithmetic_fact`` grounding the deterministic check does not refute, and verifies for a
+  quotation, whose numbers the texts state) is not the claim assumed: the claim only transcribes that fact, and the
+  audit's coverage notes say so; an ``assumption``, a ``specialist_inference`` or an unverified grounding stays an error. (Harness-stage correction: a conclusion that is itself a conjunction, assumed verbatim, was
   missed when only the leaves of a premise's conjunction tree were compared; the tampering suite's T22g on the recorded
   r5 translations found it.)
 * **TRN-007** (error): the outcome's ``summary`` is not the deterministic statement (``translate.outcome.build_summary``)
   of the outcome's translation and the signed result the store holds, under any signing configuration the composer
-  could have used (no key; the result's verification key with or without its key id). The display status itself is
+  could have used (no key; the result's verification key with or without its key id). When the store evicted the
+  result, the receipt's copy is used if its signature verifies and it is the content the store recorded (its
+  tombstone digest); otherwise the check cannot run and the transfer cannot pass (AUDIT-005). The display status itself is
   RES-009, the receipt's copy of the result RES-006, its signature RES-003: one fault, one finding.
 
 What is NOT decided here, and is left to overseer agents (advisory, kind ``other``, human review): whether the IR says
@@ -90,7 +96,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 from ...engine.results import VerificationResult
 from ...engine.validator import parse_and_validate
-from ...ir.canonical import canonical_json, problem_digest
+from ...ir.canonical import canonical_json, problem_digest, sha256_hex
 from ...ir.schema import Problem
 from ...translate import subjects
 from ...translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, TranslationResult, TranslationStatus
@@ -105,7 +111,8 @@ from . import CheckContext
 
 __all__ = [
     "TranslationRecord", "translation_records", "check_translations", "circular_premises", "untraced_content", "grounding_faults", "status_faults",
-    "revalidate", "summary_matches", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES",
+    "revalidate", "summary_matches", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES", "is_transcription",
+    "TRANSCRIPTION_KINDS",
 ]
 
 #: The checks a translation record may list in ``checks_run``.
@@ -476,6 +483,34 @@ def circular_premises(problem_obj: Optional[dict]) -> list[str]:
     return out
 
 
+#: Grounding kinds a premise may transcribe the conclusion from without being circular, once verified and traced.
+TRANSCRIPTION_KINDS = frozenset({"task_setting", "quotation", "supplied_text", "arithmetic_fact"})
+
+
+def is_transcription(premise_id: str, problem: Optional[Problem], problem_obj: Optional[dict], report: SpecialistReport, request_texts: list[str]) -> bool:
+    """Rule ``grounded-transcription`` for TRN-006: a premise identical to the conclusion is a transcription of a grounded
+    fact, not the claim assumed, when its grounding kind is ``task_setting``, ``quotation``, ``supplied_text`` or
+    ``arithmetic_fact``; the deterministic grounding check re-run on the report's supplied texts does not refute it (and
+    verifies it, for a quotation or supplied text); and every number in it is stated by the report's texts (a task-setting
+    premise also by the request's). An ``assumption``, a ``specialist_inference`` or an unverified grounding stays circular."""
+    if problem is None or not isinstance(problem_obj, dict):
+        return False
+    prem = next((p for p in problem_obj.get("premises") or [] if isinstance(p, dict) and str(p.get("id")) == premise_id), None)
+    g = prem.get("grounding") if isinstance(prem, dict) else None
+    kind = g.get("kind") if isinstance(g, dict) else None
+    if kind not in TRANSCRIPTION_KINDS:
+        return False
+    rerun, _checks = check_problem_grounding(problem, list(report.supplied_texts))
+    again = next((p.grounding for p in rerun.premises if p.id == premise_id), None)
+    verified = again.verified if again is not None else None
+    if verified is False or (kind in ("quotation", "supplied_text") and verified is not True):
+        return False
+    known = set().union(*(text_numbers(x) for x in report_scope(report) if x)) if report_scope(report) else set()
+    if kind == "task_setting":
+        known |= set().union(*(text_numbers(x) for x in request_texts if x)) if request_texts else set()
+    return all(number_traced(v, known) for v in ir_numbers(prem.get("expr")))
+
+
 # ============================================================================================ TRN-007
 def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verification: Optional[VerificationResult], keyring: Any) -> bool:
     """Whether the outcome's summary is ``build_summary`` of its translation and ``verification`` (the stored signed
@@ -512,6 +547,23 @@ def _stored(ctx_store: Any, rid: Optional[str]) -> tuple[Optional[VerificationRe
     if not isinstance(rec, StoredResult):
         return None, None
     return ctx_store.parsed(rid), bool(rec.signature_ok_at_put)
+
+
+def _verified_copy(ctx: CheckContext, ver: Optional[VerificationResult]) -> Optional[VerificationResult]:
+    """The receipt's copy of a result no longer held in full: usable when its signature verifies and, if the store kept a
+    tombstone, it is byte-identical to the content recorded then."""
+    if ver is None:
+        return None
+    try:
+        ok, _why = ctx.keyring.verify_result(ver)
+    except Exception:
+        return None
+    if not ok:
+        return None
+    rec = ctx.store.get(ver.result_id)
+    if rec is not None and getattr(rec, "result_sha256", None) != sha256_hex(canonical_json(ver.model_dump(mode="json", exclude_none=True))):
+        return None
+    return ver
 
 
 def _stored_sha256(ctx_store: Any, rid: Optional[str]) -> Optional[str]:
@@ -583,14 +635,27 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                 if invented:
                     ctx.ovs(t.seq, "OVS-TRN-005", f"the IR proposed for claim {claim.claim_id} ({path}.translation) carries content the specialist's report never "
                             f"states (in no claim and nowhere in its response): {_listed([d for _n, d in invented])}", claim_ids=cid, formal_result_id=rid, **ids)
-            # TRN-006
-            circ = circular_premises(json.loads(problem_json) if problem_json else None)
+            # TRN-006 (a premise identical to the conclusion that is a verified, traced transcription of a grounded fact is
+            # a transcription, not the claim assumed)
+            problem_obj6 = json.loads(problem_json) if problem_json else None
+            circ = circular_premises(problem_obj6)
+            transcribed = [p for p in circ if is_transcription(p, tr.problem, problem_obj6, report, _request_texts(ctx.view, t))]
+            circ = [p for p in circ if p not in transcribed]
             if circ:
                 ctx.ovs(t.seq, "OVS-TRN-006", f"circular translation of claim {claim.claim_id} ({path}.translation): its conclusion occurs verbatim in "
                         f"premise(s) {', '.join(circ[:6])}, so the engine result rests on the claim assumed, not on the specialist's reasoning",
                         claim_ids=cid, formal_result_id=rid, **ids)
-        # TRN-007
+            if transcribed:
+                ctx.note(f"translation of claim {claim.claim_id} on {t.kind} {t.message_id} transcribes a grounded fact: premise(s) {', '.join(transcribed[:6])} "
+                         "state the conclusion verbatim under a verified grounding whose figures the texts state (not circular; the result tests transcription only)")
+        # TRN-007 (against the stored result; when it was evicted, against the receipt's copy once its signature verifies
+        # and it is the content the store recorded; a check the delivered transfer needs never silently goes unrun)
         stored, _sig = _stored(ctx.store, rid)
+        if rid is not None and stored is None:
+            stored = _verified_copy(ctx, o.verification)
+            if stored is None and not ctx.view.degraded and ctx.store.get(rid) is not None:
+                ctx.ovs(t.seq, "OVS-AUDIT-005", f"the summary of outcome {path} (claim {claim.claim_id}) cannot be re-checked: result {rid} was evicted from the "
+                        "store and the receipt's copy is not the verified content the store recorded; the transfer cannot pass", claim_ids=cid, formal_result_id=rid, **ids)
         if rid is None or stored is not None:
             ran.append("summary")
             if not summary_matches(o, claim, stored, ctx.keyring):

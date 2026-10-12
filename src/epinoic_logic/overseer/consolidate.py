@@ -18,7 +18,10 @@ specialists), the infrastructure, never an agent, consolidates their answers int
    ``material``, role not ``other``) have equal keys are merged only when the engine confirms them: the key of a claim
    is its content form (``repeats.content_form``) with its figures and dates (``repeats.figures_of``) and its quoted
    phrases (``repeats.quotations_of``), and the key of an answer is the sorted list of its material claims' keys
-   (rule ``material-claim-key/1``). The merge check pools the formalized material claims (TRANSLATED or
+   (rule ``material-claim-key/2``). The whole answer must also state the same figures and dates
+   (:func:`answer_facts`, over its ``original_response``): groups whose supporting claims or unclaimed prose differ in a
+   figure or a date stay apart, with an advisory note naming the difference (``OVS-CONS-003``), so they are disclosed as
+   a conflict, never presented as one answer. The merge check pools the formalized material claims (TRANSLATED or
    AMBIGUOUS_TRANSLATION outcomes on the receipts) of every member, each renamed so that two agents' claim ids never
    collide, and runs ``check_cross_report_consistency`` as an auditor run (unsigned, then signed under
    ``overseer-run`` and stored, as the auditor's own runs are). Only a definitive CONSISTENT over a pool holding at least
@@ -83,7 +86,7 @@ __all__ = [
     "CONSOLIDATION_SCOPE_STATEMENT", "CONSOLIDATION_STATUSES", "DELIVERABLE_STATUSES", "MAX_CONFLICT_CHECKS", "ConsolidationStatus", "GroupBasis",
     "Relation", "EngineCheck", "ConsolidatedMember", "ConsolidatedGroup", "ExcludedOutput", "GroupConflict", "AdvisoryNote", "ConsolidatedResponse",
     "ConsolidationDecision", "consolidate", "sign_consolidated", "verify_consolidated", "consolidation_signable_text", "consolidation_envelope",
-    "delivery_decision", "may_deliver", "check_consolidation", "consolidation_digest", "material_claims", "claims_key", "select_requests",
+    "delivery_decision", "may_deliver", "check_consolidation", "consolidation_digest", "material_claims", "claims_key", "answer_facts", "select_requests",
 ]
 
 CONSOLIDATED_CONTRACT = "consolidated_response/1.0"
@@ -91,7 +94,7 @@ CONSOLIDATED_CONTRACT_NAME = "consolidated_response"
 #: The agent id a consolidated response travels under (the Overseer role; never an agent's).
 CONSOLIDATOR_AGENT_ID = "overseer-consolidator"
 #: The named rules a consolidation applies, recorded in every response.
-CONSOLIDATION_RULES = ("fidelity-normalisation", "material-claim-key/1", SIGNATURE_RULE)
+CONSOLIDATION_RULES = ("fidelity-normalisation", "material-claim-key/2", SIGNATURE_RULE)
 CONSOLIDATION_SCOPE_SENTENCE = (
     "This consolidation groups the recorded answers to one input by their normalised text and by their material claims, "
     "figures, dates and quotations as the engine checked their encodings. It does not show that any answer is true or that "
@@ -361,12 +364,22 @@ def _claim_key(c: Any) -> list:
 
 
 def claims_key(report: Any) -> Optional[list]:
-    """The material-claim key of an answer (rule ``material-claim-key/1``): the sorted keys of its material claims;
+    """The material-claim key of an answer (rule ``material-claim-key/2``, with :func:`answer_facts`): the sorted keys of its material claims;
     None when it has none."""
     mats = material_claims(report)
     if not mats:
         return None
     return sorted((_claim_key(c) for c in mats), key=canonical_json)
+
+
+def answer_facts(report: Any) -> tuple[str, ...]:
+    """What the whole answer states beyond its material claims (rule ``material-claim-key/2``): the figures and dates of
+    its ``original_response`` (``repeats.figures_of``, list numbering removed). Two answers whose material claims agree
+    but whose supporting claims or unclaimed prose state another figure or date are never presented as one answer. (A
+    quotation one answer adds as supporting evidence is not a difference: each quotation is checked against the
+    supplied texts on its own receipt, and an altered one excludes its answer.)"""
+    from .checks import strip_list_markers
+    return figures_of(strip_list_markers(getattr(report, "original_response", "") or ""))
 
 
 def _formalized(t: Transfer) -> list[tuple[str, Problem, bool]]:
@@ -504,6 +517,7 @@ class _Answer:
     text_key: str = ""
     claims_key: Optional[str] = None
     formalized: tuple = ()
+    facts: tuple = ()
 
 
 def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, audit: OverseerAudit, request_message_ids: Optional[Sequence[str]] = None,
@@ -579,7 +593,8 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
         member = ConsolidatedMember(message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=agent, report_id=t.report_id, seq=t.seq,
                                     receipt_status=t.status or "", clearance=state, clean=clean, finding_codes=codes, text_sha256=text_key,
                                     claims_key_sha256=key_digest, material_claims=len(material_claims(report)))
-        eligible.append(_Answer(t=t, state=state, member=member, text_key=text_key, claims_key=key_digest, formalized=tuple(_formalized(t))))
+        eligible.append(_Answer(t=t, state=state, member=member, text_key=text_key, claims_key=key_digest, formalized=tuple(_formalized(t)),
+                                facts=answer_facts(report)))
     # ---------------------------------------------------------------- level 1: identical normalised text
     level1: list[list[_Answer]] = []
     by_text: dict[str, list[_Answer]] = {}
@@ -606,6 +621,23 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
         by_key[k].append(g)
     advisory: list[AdvisoryNote] = []
     final: list[tuple[list[_Answer], str, Optional[EngineCheck]]] = []
+    # rule material-claim-key/2: groups with the same material claims whose whole answers state other figures, dates or
+    # quotations (in a supporting claim, or in prose no claim carries) stay apart, and the difference is named
+    split: list[list[list[_Answer]]] = []
+    for cluster in clusters:
+        parts: dict[tuple, list[list[_Answer]]] = {}
+        for g in cluster:
+            parts.setdefault(g[0].facts, []).append(g)
+        if len(parts) > 1:
+            figs = sorted({x for k in parts for x in k} - set.intersection(*(set(k) for k in parts)), key=lambda x: (len(x), x))
+            mids = [a.t.message_id or "" for g in cluster for a in g]
+            what = f"figures or dates {figs[:8]}"
+            advisory.append(AdvisoryNote(note_id=_gid("adv", sorted(mids) + ["facts"]), group_ids=[], message_ids=mids,
+                                         reason=f"same material claims under the lexical rule, kept apart: the answers state different {what}"))
+            findings.append(ovs_finding("OVS-CONS-003", f"answers {mids[:8]} have the same material-claim key but state different {what}: kept apart (never presented as one answer)",
+                                        message_ids=mids, agent_ids=[a.t.sender_agent_id for g in cluster for a in g]))
+        split.extend(parts.values())
+    clusters = split
     for cluster in clusters:
         if len(cluster) == 1:
             g = cluster[0]

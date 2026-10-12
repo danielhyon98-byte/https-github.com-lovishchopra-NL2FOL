@@ -79,6 +79,7 @@ from .view import OverseerView, Transfer, cited_results
 __all__ = [
     "Dossier", "DossierTransfer", "DossierReceipt", "DossierResult", "DossierBinding", "DossierParty", "DossierPoolEntry", "DossierLinks",
     "ForwardLink", "PeerDocumentLink", "SynthesisCitation", "TranslationLink", "IndexEntry", "IndexType", "DossierAuditor", "DossierLimits", "TruncatedField",
+    "typed_identifiers",
     "DossierTask", "DossierConsolidation", "ConsolidationMember", "ConsolidationGroup", "ConsolidationCheck", "ConsolidationExcluded",
     "ConsolidationConflict", "ConsolidationRepeat", "ConsolidationAdvisory", "consolidation_entry", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
     "visible_text", "truncated_pointers", "dossier_identifiers", "dossier_json", "TRUNCATE_AT", "TRUNCATION_MARKER", "RECEIPT_FIELDS",
@@ -477,6 +478,27 @@ def dossier_identifiers(dossier: dict) -> set[str]:
     for section in ("task", "transfers", "results", "links", "index"):
         walk(dossier.get(section))
     out.update(k for k in (dossier.get("results") or {}) if isinstance(k, str))
+    return out
+
+
+def typed_identifiers(dossier: dict) -> dict[str, set[str]]:
+    """The identifiers an accusation's lists may name, each list against its own type (Evidence rule E1, E3), from the
+    dossier's index and results: ``message_ids`` the messages, ``receipt_ids`` the receipts, ``claim_ids`` the claims
+    and synthesized claims, ``report_ids`` the reports and syntheses, ``result_ids`` the results, ``document_ids`` the
+    documents. A value of another type, or free text that happens to occur in the dossier, resolves to nothing."""
+    out: dict[str, set[str]] = {k: set() for k in ("message_ids", "receipt_ids", "claim_ids", "report_ids", "result_ids", "document_ids")}
+    where = {"message": "message_ids", "receipt": "receipt_ids", "claim": "claim_ids", "synthesized_claim": "claim_ids", "report": "report_ids",
+             "result": "result_ids", "document": "document_ids"}
+    for e in dossier.get("index") or []:
+        if not isinstance(e, dict) or not isinstance(e.get("id"), str):
+            continue
+        name = where.get(e.get("type"))
+        if name is not None:
+            out[name].add(e["id"])
+        if e.get("type") == "synthesized_claim" and isinstance(e.get("report_id"), str):
+            out["report_ids"].add(e["report_id"])  # the synthesis id, which findings also name as a claim id
+            out["claim_ids"].add(e["report_id"])
+    out["result_ids"].update(k for k in (dossier.get("results") or {}) if isinstance(k, str))
     return out
 
 

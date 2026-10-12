@@ -9,8 +9,9 @@ pack, lens, mode)``. A later issue for the same agent and task replaces the earl
 
 1. requires an open issue for ``(agent_id, task_id)`` (``not_issued``) that has not been answered (``duplicate``: an
    issue takes one submission, whatever its outcome, so a rejected verdict is never silently retried);
-2. parses the text strictly as ONE JSON object with the translator's rule (code fences stripped; duplicate keys,
-   NaN/Infinity, trailing prose and non-objects refused): ``unparseable``. The "no dossier" object of When unsure U1 is
+2. parses the text strictly as ONE JSON object (``parse_json_object(strict=True)``: the bare object, or exactly one code
+   fence opening and closing the whole reply; prose around a fence, a second fence, duplicate keys, NaN/Infinity,
+   trailing prose and non-objects refused): ``unparseable``. The "no dossier" object of When unsure U1 is
    ``no_dossier``, recorded apart so scoring counts it as no review rather than as a malformed verdict;
 3. checks the contract (``contract``) and validates against :class:`~epinoic_logic.overseer.verdicts.AgentVerdict`
    (``schema``);
@@ -23,7 +24,8 @@ pack, lens, mode)``. A later issue for the same agent and task replaces the earl
    ``envelope``.
 
 Every rejection is ``OVS-AGENT-005`` and the verdict is discarded. A finding message never contains agent text: only
-the reason, field locations and error types. The verdict is data: it is parsed, never evaluated or followed, and an
+the reason, field locations (list positions and the contract's field names; any other key is shown as ``<unknown field #n
+sha256:...>``) and error types. The verdict is data: it is parsed, never evaluated or followed, and an
 accepted verdict has no authority; only :func:`~epinoic_logic.overseer.validate.validate_overseer_verdict` assesses
 it, and only a confirming deterministic check reaches the router. ``provider_info`` is bookkeeping recorded beside the
 verdict, never evidence.
@@ -39,6 +41,8 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.4, listed as each stage re
 * the message logs are kept per task AND request (a reopened task id may carry another request id), not per task.
 """
 from __future__ import annotations
+
+import hashlib
 
 import json
 import re
@@ -153,12 +157,31 @@ def _provider_info(info: Any) -> Optional[dict]:
         return {"unrecorded": type(info).__name__}
 
 
+def _known_fields() -> frozenset[str]:
+    from .verdicts import Accusation, AgentVerdict, EngineStatement, EvidenceItem, PackIdentity
+    return frozenset(n for m in (AgentVerdict, Accusation, EvidenceItem, EngineStatement, PackIdentity) for n in m.model_fields)
+
+
 def _schema_detail(exc: ValidationError) -> str:
-    """Field locations and error types only: never the input values (agent text)."""
+    """Field locations and error types only: never the input values (agent text). A location part is shown only when it
+    is a list position or the name of a field of the verdict contract; any other key (an extra field the agent chose, which
+    is agent text) is shown as ``<unknown field #n sha256:...>`` with a short digest, never its words."""
+    known = _known_fields()
+    unknown: dict[str, int] = {}
     parts = []
+
+    def part(x: Any) -> str:
+        if isinstance(x, int) and not isinstance(x, bool):
+            return str(x)
+        if isinstance(x, str) and x in known:
+            return x
+        key = str(x)
+        n = unknown.setdefault(key, len(unknown) + 1)
+        return f"<unknown field #{n} sha256:{hashlib.sha256(key.encode('utf-8', errors='replace')).hexdigest()[:8]}>"
     for e in exc.errors()[:8]:
-        loc = "/".join(str(x) for x in e.get("loc", ()))
-        parts.append(f"{loc or '$'}: {e.get('type', 'invalid')}")
+        loc = "/".join(part(x) for x in e.get("loc", ()))
+        etype = e.get("type", "invalid")
+        parts.append(f"{loc or '$'}: {etype if isinstance(etype, str) and etype.replace('_', '').isalnum() else 'invalid'}")
     more = len(exc.errors()) - len(parts)
     return "; ".join(parts) + (f"; and {more} more" if more > 0 else "")
 
@@ -280,7 +303,7 @@ class VerdictIntake:
             if not is_text:
                 return self._reject(reason="unparseable", detail="the reply is not text", **common)
             try:
-                obj = parse_json_object(text, max_bytes=self.max_text_bytes)
+                obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
             except ProviderOutputError:
                 return self._reject(reason="unparseable", detail="the reply is not exactly one strict JSON object (fences tolerated, nothing else)", **common)
             if is_no_dossier(obj):

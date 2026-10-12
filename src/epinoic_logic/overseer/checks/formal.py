@@ -17,7 +17,11 @@ R2 (deterministic code on journaled data; nothing in agent text is executed):
 * request word and paragraph bounds are recounted from the journaled ``original_response`` with the channel's own
   counters (``count_answer_words``, ``count_paragraphs``) and compared with the stored constraint problem: the
   MEASURED premise's value and the BOUND conclusion's operator and value (the problem id, which carries a random
-  suffix, is not compared). A mismatch is FORM-003; a bound with no formal constraint result is FORM-004.
+  suffix, is not compared). A mismatch is FORM-003; a bound with no formal constraint result is FORM-004;
+* the signed status of each bound's result is compared with the recount by integer arithmetic (the problem
+  ``n = measured`` entails ``n <op> bound`` exactly when the comparison holds): a definitive status the arithmetic
+  contradicts is RES-007, decided without the stored problem, so a re-signed status is exposed in R2 (the transfer is
+  pending until R2 has run) rather than only by a sampled replay.
 """
 from __future__ import annotations
 
@@ -131,6 +135,25 @@ def constraint_problem_mismatch(problem: dict, op: str, value: str, measured: in
     return why
 
 
+def _bound_status_contradicts(status: Optional[str], op: str, value: str, measured: int) -> Optional[str]:
+    """Why a signed constraint status contradicts the bound re-derived from the response (None when it does not): the
+    constraint problem is ``n = measured`` entails ``n <op> value``, so its only definitive statuses are ENTAILED when
+    the comparison holds and COUNTEREXAMPLE when it does not. Decided by integer arithmetic, without the stored problem,
+    so a status re-signed with the engine key (and emitted with or without its problem) is exposed before replay."""
+    if status not in (S.ENTAILED.value, S.COUNTEREXAMPLE.value):
+        return None
+    try:
+        bound = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    holds = measured <= bound if op == "le" else measured >= bound
+    expected = S.ENTAILED.value if holds else S.COUNTEREXAMPLE.value
+    if status == expected:
+        return None
+    return (f"the response measures {measured}, so 'n {op} {bound}' {'holds' if holds else 'fails'} and the only status of the constraint problem is "
+            f"{expected}, but the signed result states {status} (re-derived from the journaled response, R2)")
+
+
 def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
     """R2 for one delivered report transfer: pack checks and constraint encodings re-derived from journaled content."""
     if t.kind not in R2_KINDS or not t.delivered or t.receipt is None or t.report is None or t.digest_only:
@@ -179,9 +202,13 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
             if cr is None or cr.method != "formal" or not cr.formal_result_id:
                 red.findings.append(ovs_finding("OVS-FORM-004", f"request constraint {c.constraint_id} ({c.kind} {c.value}) has no formal result on the receipt", **ids))
                 continue
+            held_rec = ctx.store.get(cr.formal_result_id)
+            wrong = _bound_status_contradicts(getattr(held_rec, "status", None), _BOUND_OPS[c.kind], c.value, measured)
+            if wrong:
+                red.findings.append(ovs_finding("OVS-RES-007", f"constraint {c.constraint_id}: {wrong}", formal_result_id=cr.formal_result_id, **ids))
             stored = ctx.store.live(cr.formal_result_id)
             if stored is None or not stored.problem_json:
-                continue
+                continue  # no captured problem: AUDIT-005 (L3) when the result is definitive; the status was checked above
             why = constraint_problem_mismatch(json.loads(stored.problem_json), _BOUND_OPS[c.kind], c.value, measured)
             if why:
                 red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} was decided on a problem the response does not yield: {why}",

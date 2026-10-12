@@ -17,8 +17,11 @@ Excluded from the diff:
 
 * the INT-LEDGER, INT-CONFLICT and INT-GLOSSARY families, which B2 and B3 decide on the channel's own scope (one fault
   gives one ``OVS-*`` finding);
-* INT-SYNTH-006 for a synthesized claim whose receipt shows the entailment check was performed (INT-LEDGER-011
-  carrying a ``formal_result_id``);
+* INT-SYNTH-006 for a synthesized claim whose receipt shows the entailment check was performed: INT-LEDGER-011 naming
+  the claim carries a ``formal_result_id`` that is an engine run CAPTURED in the synthesis event, bound to that
+  synthesized claim (its ``claim_id``) and decided on an entailment problem whose conclusion is the claim's
+  ``formal_conclusion`` (with a synthesis-formalization hook and no ``formal_conclusion``, the hook's conclusion is
+  accepted unseen). A result id alone, or one of an earlier event, proves nothing;
 * INT-STALE-006 ("no verification key configured"): a consequence of ``signing_key=None``; the signatures of those
   results are verified by L3 (RES-003), never skipped;
 * INT-HANDOFF-007 when the task has no delivered synthesis: "a selected agent delivered no report, any synthesis is
@@ -31,6 +34,16 @@ a harness clock: INT-HANDOFF-005/016/017; owner the harness), ``rule_ownership``
 package only: INT-SYNTH-004/005/006, INT-HANDOFF-007/008/009 report-set rules, INT-STALE-*, INT-HANDOFF-004 for a
 synthesized claim; owner the integrity package) or ``transmission_fault`` (anything else; owner the channel). An
 error-level divergence is DIV-001 whatever its classification; a warning or info is DIV-002.
+
+Attribution: a divergence names the transfer whose receipt should have carried it. A synthesis-scope rule (every
+INT-SYNTH code, INT-HANDOFF-007/016/017, and any finding about the synthesis or a synthesized claim) names only the
+synthesis transfer; its source claims stay in ``claim_ids`` for information, so a specialist's genuine, correctly
+receipted report is never failed (nor excluded from consolidation) by a combinator rule. Any other divergence names
+the deliveries of the reports it concerns, scoped by the finding's own ``report_ids`` (claim ids repeat across
+reports), or the synthesis when it names no delivered claim.
+
+The pool handed to ``run_integrity_checks`` is :func:`~epinoic_logic.overseer.checks.joint.derived_pool` (the journaled
+outcomes), never the channel's own pool.
 """
 from __future__ import annotations
 
@@ -43,6 +56,7 @@ from ...ir.canonical import canonical_json, problem_digest, sha256_hex
 from ..contracts import Divergence
 from ..view import REPORT_KINDS
 from . import CheckContext
+from .joint import derived_pool
 
 __all__ = ["check_divergence", "classify", "EXCLUDED_FAMILIES", "TIME_DEPENDENT", "RULE_OWNERSHIP"]
 
@@ -79,11 +93,9 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
                                       "agent_subjects": {k: v for k, v in plan.agent_subjects.items() if k in selected},
                                       "agent_task_types": {k: v for k, v in plan.agent_task_types.items() if k in selected}})
     cfg = view.config_at(last.seq)
-    formalized = {}
-    for p in last.pool_after:
-        prob = view.outcome_problem(p.claim_id, p.problem_digest, last.seq)
-        if prob is not None:
-            formalized[p.claim_id] = prob
+    pooled = derived_pool(view)
+    formalized = {p.claim_id: p.problem for p in pooled}
+    pool_pairs = [(p.report_id, p.claim_id) for p in pooled]
     prior = {}
     cfg_dig = config_digest(cfg)
     for t in view.transfers:
@@ -119,10 +131,9 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
     for t in view.transfers:
         if t.receipt is not None:
             carried.update((f.code, frozenset(f.claim_ids)) for f in t.receipt.findings)
-    performed = set()
-    if syn_t is not None and syn_t.receipt is not None:
-        performed = {f.claim_ids[0] for f in syn_t.receipt.findings if f.code == "INT-LEDGER-011" and f.formal_result_id and f.claim_ids}
+    performed = _performed_entailments(ctx, syn_t)
     synthesized_ids = {c.claim_id for c in synthesis.claims} | {synthesis.synthesis_id} if synthesis is not None else set()
+    delivered_reports = {r.report_id for r in reports}
     out: list[Divergence] = []
     seen: set[tuple[str, frozenset[str]]] = set()
     for f in found:
@@ -142,11 +153,65 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
         classification, owner = classify(f, synthesized_ids)
         d = Divergence(int_code=f.code, severity=f.severity, classification=classification, owner=owner, claim_ids=list(f.claim_ids), message=f.message[:2000])
         out.append(d)
-        mids = [syn_t.message_id] if syn_t is not None and syn_t.message_id else []
-        m2, rids, aids = ctx.message_ids_for_claims(f.claim_ids)
+        syn_mids = [syn_t.message_id] if syn_t is not None and syn_t.message_id else []
         code = "OVS-DIV-001" if f.severity == "error" else "OVS-DIV-002"
+        if synthesis is not None and _synthesis_scope(f, synthesis, synthesized_ids):
+            # the synthesis receipt should have carried it: name only the synthesis transfer
+            mids, rids, aids = syn_mids, [synthesis.synthesis_id], [synthesis.combinator_agent_id]
+        else:
+            scoped = [r for r in f.report_ids if r in delivered_reports]
+            m2, rids, aids = ctx.message_ids_for_claims(f.claim_ids, pairs=pool_pairs, report_ids=scoped or None)
+            if not m2 and scoped:
+                m2 = ctx.message_ids_for_reports(scoped)
+                rids = list(scoped)
+            mids = m2 or syn_mids
+            rids = list(f.report_ids) + rids
+            aids = list(f.agent_ids) + aids
         ctx.ovs(syn_t.seq if syn_t is not None else last.seq, code,
                 f"{f.code} ({f.severity}) fires in the Overseer's integrity report but on no receipt of the task; classification {classification}, owner {owner}: {f.message[:400]}",
-                claim_ids=f.claim_ids, message_ids=mids + m2, report_ids=list(f.report_ids) + rids, agent_ids=list(f.agent_ids) + aids, document_ids=f.document_ids,
+                claim_ids=f.claim_ids, message_ids=mids, report_ids=rids, agent_ids=aids, document_ids=f.document_ids,
                 formal_result_id=f.formal_result_id, related_result_ids=f.related_result_ids)
+    return out
+
+
+#: Rules whose finding belongs on the synthesis receipt whatever claims they name.
+SYNTHESIS_SCOPE_CODES = frozenset({"INT-HANDOFF-007", "INT-HANDOFF-016", "INT-HANDOFF-017"})
+
+
+def _synthesis_scope(f: IntegrityFinding, synthesis, synthesized_ids: set[str]) -> bool:
+    return (f.code.startswith("INT-SYNTH") or f.code in SYNTHESIS_SCOPE_CODES or synthesis.synthesis_id in f.report_ids
+            or bool(set(f.claim_ids) & synthesized_ids))
+
+
+def _performed_entailments(ctx: CheckContext, syn_t) -> set[str]:
+    """The synthesized claims whose entailment check the synthesis receipt shows performed, decided on the evidence
+    itself: INT-LEDGER-011 names the claim and cites a result CAPTURED in the synthesis event, bound to that claim, on an
+    entailment problem whose conclusion is the claim's ``formal_conclusion`` (or, with the channel's synthesis hook and
+    no ``formal_conclusion``, any such entailment problem of that claim)."""
+    import json
+    if syn_t is None or syn_t.receipt is None or syn_t.synthesis is None:
+        return set()
+    hook = bool(ctx.view.info_at(syn_t.seq).get("formalize_synthesis_hook"))
+    claims = {c.claim_id: c for c in syn_t.synthesis.claims}
+    out: set[str] = set()
+    for f in syn_t.receipt.findings:
+        if f.code != "INT-LEDGER-011" or not f.formal_result_id or not f.claim_ids:
+            continue
+        cid, rid = f.claim_ids[0], f.formal_result_id
+        sc = claims.get(cid)
+        cap = syn_t.captured.get(rid)
+        if sc is None or cap is None or not cap.problem_json or (sc.formal_conclusion is None and not hook):
+            continue
+        res = ctx.store.parsed(rid)
+        try:
+            prob = json.loads(cap.problem_json)
+        except Exception:
+            continue
+        if res is None or res.claim_id != cid or prob.get("claim_id") != cid or prob.get("query") != "entailment":
+            continue
+        if sc.formal_conclusion is not None:
+            concl = (prob.get("conclusion") or {}).get("expr")
+            if canonical_json(concl) != canonical_json(sc.formal_conclusion.model_dump(mode="json", exclude_none=True).get("expr")):
+                continue
+        out.add(cid)
     return out

@@ -34,10 +34,21 @@ RouterHub(auditor=TransferAuditor(KeyRing(engine_keys, overseer_secret)))
   hub.consolidate(task)                        ──► repeats ──► consolidate ──► signed consolidated_response/1.0
                                                    ──► consolidate.delivery_decision (the one answer the router may deliver)
   hub.review_pool(tasks, OverseerPool(pack, provider_factory))  ──► plan_pool ──► hub.review per task by its instances
-  policy.may_release(synthesis_receipt, final_audit, keyring, audits=..., journal=...) gates the student-facing synthesis
+  policy.may_release(synthesis_receipt, final_audit, keyring, audits=..., journal=..., message=None) gates the student-facing
+                                                   synthesis: refused when its receipt carries an error, custody re-checked at release
 ```
 
 Without an auditor the hub and the channel behave exactly as before: no observer, no capture, no journal.
+
+**After adversarial review round 1** (design section 20): a transfer whose content the auditor cannot check (journaled
+digest-only past the bound, a needed result evicted, a definitive result with no replayable problem) is `OVS-AUDIT-005`
+and never passes; the router's clearance records never use up the journal's event budget; every receipt is checked live
+for the findings its own structured results and identity imply (`OVS-RCPT-004`); a fault decided live, and every
+finding of an issued task audit, stays in every later audit and clearance; the joint check pools the journaled outcomes,
+not the channel's pool; a relayed report must reproduce its sender's delivery and a peer document its attribution
+(`OVS-PEER-001`, `OVS-PEER-002`); every raw-text response is re-parsed by the auditor (`OVS-CUST-006`); accusations match
+findings by (report, claim), message and report, and identifier lists resolve by type; the intake accepts a bare object or
+exactly one fence; consolidation keeps apart answers whose figures differ anywhere (`material-claim-key/2`).
 
 ## Translator oversight
 
@@ -54,7 +65,7 @@ translation of a delivered claim from the journal (design section 18):
 | `OVS-TRN-003` | error | a `verified` grounding the re-run of the translator's grounding check does not reproduce |
 | `OVS-TRN-004` | warning | a quotation excerpt absent from the supplied text it names (disclosed as unverified) |
 | `OVS-TRN-005` | warning | a quotation or number of a model-proposed translation that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test) |
-| `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one) |
+| `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one); a verified, traced transcription of a grounded fact (task setting, quotation, supplied text, arithmetic fact) is not circular (rule `grounded-transcription`, a coverage note) |
 | `OVS-TRN-007` | error | the outcome's summary is not the deterministic statement of its translation and its signed result |
 
 The task audit records every translation it checked (`TranslationAudit`: the claim text, the claims it cites, the

@@ -81,6 +81,13 @@ mistakes now §12); Kinds and codes K7 and the ``OVS-CONS-*`` and ``OVS-REP-*`` 
 Examples 18 and 19 (a consolidation whose repeated fault is already recorded; a fault repeated by a duplicated instance)
 and two wrong-verdict rows; the deployer README's §8 Several instances. The dossier schema gained the optional
 ``consolidations`` section; it and the manifest were regenerated with ``export --refresh-source``.
+
+Edits review round 1 made to pack 1.0 (still unreleased, so extended in place and re-pinned from the digest
+``export --refresh-source`` printed): Inspection I12 (a peer document attributed to another report or author than the
+one its text is) and a new I47 (a ``relay_report`` must reproduce a delivery its sender made); Evidence rule E3 (each
+identifier list holds identifiers of its own type; now enforced) and E10 (the statement's pointer is the status field
+of that same result of this dossier); Kinds and codes (the ``forward_altered`` and ``peer_document_altered`` rows
+describe those cases; their codes are unchanged). The schemas did not change; the manifest was regenerated.
 """
 from __future__ import annotations
 
@@ -120,7 +127,7 @@ PACK_VERSION = "1.0"
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
-    (PACK_NAME, "1.0"): "668bd996ab5a67b95f35c5561d253443f9035ae8a8f77726fd834b2b00114193",
+    (PACK_NAME, "1.0"): "5e8e4962390bb16f4e1d155e5ae6999bec61ac3364b56e1895e017a21a6e19a6",
 })
 
 MANIFEST_VERSION = "1.0"

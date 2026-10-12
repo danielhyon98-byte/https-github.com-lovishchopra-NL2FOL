@@ -22,7 +22,9 @@ number of repeated faults in its task, :mod:`~epinoic_logic.overseer.repeats`). 
 :class:`OverseerPool` holds one loaded :class:`~epinoic_logic.overseer.pack.KnowledgePack` and a provider factory. Every
 instance is an :class:`~epinoic_logic.overseer.runner.OverseerAgentRunner` built from THAT pack (so every instance's
 configuration is byte-identical: the same exported pack, the same system text), with its own provider from the factory and
-the pool's lens. The deployment tier is recorded as :data:`MODEL_TIER` (``cheapest``): which model serves it is the
+the pool's lens, and only for an agent id a recorded plan names (so the pool never holds more instances than its capped
+plans; a pool instance is marked ``pool_member`` and the hub runs it only under a pool plan). The deployment tier is
+recorded as :data:`MODEL_TIER` (``cheapest``): which model serves it is the
 provider's business, and correctness never rests on it. Every plan the pool makes is recorded (``plans``, append-only)
 and the hub records it in the signed verdicts audit of every review it runs (``RouterHub.review_pool``).
 
@@ -224,11 +226,17 @@ class OverseerPool:
             return any(p is plan or (isinstance(plan, PoolPlan) and p == plan) for p in self._plans)
 
     def instance(self, agent_id: str) -> OverseerAgentRunner:
-        """The instance ``agent_id``, built once from the pool's pack with its own provider."""
+        """The instance ``agent_id``, built once from the pool's pack with its own provider. Only an instance a recorded
+        plan names is ever built (the pool never holds more instances than its plans, each capped at ``max_instances``);
+        any other agent id is refused (ValueError). Every pool instance carries ``pool_member = True``, and the hub
+        runs one only under a pool plan (``RouterHub.review(..., pool_plan=...)``)."""
         with self._lock:
             r = self._runners.get(agent_id)
             if r is None:
+                if not any(agent_id in p.instances for p in self._plans):
+                    raise ValueError(f"{agent_id!r} is not an instance of any plan this pool made: instances are built only as a recorded plan assigns them")
                 r = OverseerAgentRunner(self._pack, self._factory(agent_id), agent_id=agent_id, lens=self.config.lens)
+                r.pool_member = True
                 self._runners[agent_id] = r
             return r
 

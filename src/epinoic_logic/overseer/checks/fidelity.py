@@ -14,7 +14,10 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   the marks (``"from the barbarous work of death."`` quotes "from the barbarous work of death," of the source: the full
   stop belongs to the quoting sentence);
 * ``contract-cut``: a claim the adapter cut at the contract limit (``MAX_CLAIM_TEXT_CHARS``, marked with ``...``) is
-  compared without the mark, as a prefix of a span of the response.
+  compared without the mark, as a prefix of a span of the response; its figures (FID-003) and quotations (FID-002,
+  FID-004) are read without the mark and without the partial token left at the cut;
+* ``joined-list-markers`` (in the normalisation): list markers an adapter's line join left inside a claim are removed
+  on both sides alike, and list numbering is never read as a stated figure (FID-003).
 
 * FID-001: a delivered ``claim_text`` does not occur in the normalised response.
 * FID-002: a quotation span inside a claim, or a ``source_refs[].excerpt``, does not occur in the response.
@@ -27,8 +30,14 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   ``advisory_verification_eligibility``, or the branch's own detector (``adapters.markdown.is_self_certification``)
   flags it, and it is delivered with a role other than ``other``, with materiality ``material``, or counts towards
   coverage.
-* FID-006 (warning): parse loss: a quoted span or figure of the response that no claim carries and no INT-REQ-013
-  fold accounts for (markdown heading lines and list numbering are structure and are not scanned).
+* FID-006 (warning): parse loss: a quoted span, figure or sentence of the response that no claim carries and no
+  INT-REQ-013 fold accounts for (markdown heading lines and list numbering are structure and are not scanned; a
+  sentence counts when it has five words or more, does not end with a colon, and neither occurs in the claims nor
+  contains one).
+* CUST-006 (re-parse, with L5): a ``response_text`` is re-parsed by the auditor with the branch adapter its registry
+  gives the agent's subject, on the journaled raw text and the journaled call; a delivered report whose claims (ids,
+  texts, roles, materiality) are not the re-parse's is not what the hub received: an adapter that drops, adds or
+  rewrites a claim (a judgement sentence with no quotation and no figure) is named, whatever the shadow's sampling.
 * FID-007 (warning): quotations checked only against texts the specialist supplied itself (the request carried none).
 * FID-008: a supplied text in the report, under a document id the request supplied, differs from the request's text.
 * FID-009 (warning): only the auditor's independent structural detector (``selfcert``) flags a self-certification
@@ -44,12 +53,13 @@ from ...channel.bus import _FOLDED_TAIL_RE, _located
 from ...integrity.ledger import figure_spellings
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
 from ..view import REPORT_KINDS, Transfer
-from . import CheckContext, normalise
+from . import CheckContext, normalise, strip_list_markers
 from .selfcert import flags_self_certification
 
-__all__ = ["check_fidelity", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES"]
+__all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
+           "uncut_text"]
 
-FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut")
+FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers")
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -74,6 +84,24 @@ def _folded_tail_ids(report: SpecialistReport) -> set[str]:
         if m:
             out.add(m.group("tail"))
     return out
+
+
+def _is_cut(text: str) -> bool:
+    stripped = (text or "").rstrip()
+    return len(stripped) >= MAX_CLAIM_TEXT_CHARS - 3 and stripped.endswith("...")
+
+
+def uncut_text(text: str) -> str:
+    """Rule ``contract-cut``: a claim cut at the contract limit, without the mark and the partial token left at the cut
+    (the claim's figures and quotations are read from this)."""
+    if not _is_cut(text):
+        return text
+    body = text.rstrip()[:-3]
+    return body.rsplit(None, 1)[0] if len(body.split()) > 1 else ""
+
+
+def _claim_figures(text: str):
+    return figure_spellings(strip_list_markers(uncut_text(text)))
 
 
 def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False) -> bool:
@@ -161,7 +189,7 @@ def located_anywhere(q: str, supplied: list[SuppliedText]) -> bool:
 
 
 def _quotations(c: ClaimRecord) -> list[str]:
-    out = [inner.strip() for _s, _e, inner in find_quotation_spans(c.claim_text) if inner.strip()]
+    out = [inner.strip() for _s, _e, inner in find_quotation_spans(uncut_text(c.claim_text)) if inner.strip()]
     out += [(r.excerpt or "").strip() for r in c.source_refs if (r.excerpt or "").strip()]
     return list(dict.fromkeys(out))
 
@@ -178,7 +206,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     known_figs: set[str] = set()
     for _label, keys in figure_spellings(rep.original_response):
         known_figs |= keys
-    claim_figures = {c.claim_id: figure_spellings(c.claim_text) for c in rep.claims}
+    claim_figures = {c.claim_id: _claim_figures(c.claim_text) for c in rep.claims}
     covering = {cid for cov in (t.receipt.coverage if t.receipt else []) for cid in cov.addressed_by_claim_ids}
     supplied, req_had_texts, self_supplied = _supplied_for(ctx, t, rep)
     named = _named_claims(t)
@@ -229,8 +257,10 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
                 claim_figs |= keys
         content = normalise(_HEADING_LINE_RE.sub("", rep.original_response))  # headings and list numbering are structure, not content
         lost_figs = [label for label, keys in figure_spellings(content) if not (keys & claim_figs)]
-        if lost_quotes or lost_figs:
-            ctx.ovs(t.seq, "OVS-FID-006", f"report {rep.report_id}: response content no claim carries (parse loss): quotations {[q[:60] for q in lost_quotes[:6]]}, figures {lost_figs[:8]}", **ids)
+        lost_sentences = _uncarried_sentences(content, claim_texts_norm, carried)
+        if lost_quotes or lost_figs or lost_sentences:
+            ctx.ovs(t.seq, "OVS-FID-006", f"report {rep.report_id}: response content no claim carries (parse loss): quotations {[q[:60] for q in lost_quotes[:6]]}, "
+                    f"figures {lost_figs[:8]}, sentences {[x[:80] for x in lost_sentences[:4]]}", **ids)
     # FID-007 / FID-008
     if not req_had_texts and self_supplied and rep.supplied_texts and any(c.source_refs or find_quotation_spans(c.claim_text) for c in rep.claims):
         ctx.ovs(t.seq, "OVS-FID-007", f"report {rep.report_id}: the request supplied no text, so its quotations were checked only against texts the specialist supplied itself "
@@ -242,3 +272,73 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         if changed:
             ctx.ovs(t.seq, "OVS-FID-008", f"report {rep.report_id} carries supplied texts {changed} that differ from the texts the request supplied under those ids",
                     document_ids=changed, **ids)
+
+
+def _uncarried_sentences(content: str, claim_texts_norm: list[str], carried: str) -> list[str]:
+    """Sentences of the normalised response (five words or more, not a lead-in ending with a colon) that occur in no claim
+    and contain none."""
+    claims = [c for c in (normalise(strip_enclosing_quotes(x)) for x in claim_texts_norm) if len(c) >= 12] + [c for c in claim_texts_norm if len(c) >= 12]
+    out: list[str] = []
+    for sent in _SENT_SPLIT.split(content):
+        sent = sent.strip()
+        if len(sent.split()) < 5 or sent.endswith(":"):
+            continue
+        core = sent.rstrip(".!?;:").strip()
+        if sent in carried or core in carried or any(c in sent or c.rstrip(".!?;:") in sent for c in claims):
+            continue
+        out.append(sent)
+    return out
+
+
+def _reparse_args(ctx: CheckContext, t: Transfer, rep: SpecialistReport) -> Optional[dict]:
+    plan = ctx.view.plan_at(t.seq)
+    call = t.call or {}
+    agent = call.get("agent_id") or rep.agent_id
+    if plan is None or not agent:
+        return None
+    req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
+    texts = call.get("supplied_texts")
+    if texts is not None:
+        supplied = [SuppliedText.model_validate(x) for x in texts]
+    else:
+        supplied = list(req.supplied_texts) if req is not None else []
+    return dict(request_id=plan.request_id, task_id=plan.task_id, report_id=call.get("report_id") or rep.report_id,
+                subject=plan.agent_subjects.get(agent, plan.subject), task_type=plan.agent_task_types.get(agent, plan.task_type), supplied_texts=supplied,
+                course_level=plan.course_level or "unknown", agent_version=call.get("agent_version"), agent_id=agent)
+
+
+def _claim_key(c: ClaimRecord) -> tuple:
+    return (c.claim_id, c.claim_text, c.claim_role, c.materiality)
+
+
+def check_reparse(ctx: CheckContext, t: Transfer) -> None:
+    """CUST-006: a delivered ``response_text`` is re-parsed from its journaled raw text by the branch adapter the auditor's
+    registry gives the agent's subject; its claims must be the delivered report's."""
+    if t.kind != "response_text" or not t.delivered or t.digest_only or t.raw_text is None:
+        return
+    rep = t.report
+    if rep is None:
+        return
+    args = _reparse_args(ctx, t, rep)
+    if args is None:
+        return
+    registry = ctx.registry
+    if registry is None:
+        from ...branches import default_registry
+        registry = default_registry()
+    branch = registry.for_subject(args["subject"])[0]
+    try:
+        again = branch.parser().parse_response(t.raw_text, **args)
+    except Exception as exc:
+        ctx.ovs(t.seq, "OVS-CUST-006", f"the raw text of {t.kind} {t.message_id} does not parse with branch {branch.key} when the auditor re-parses it "
+                f"({type(exc).__name__}), yet a parsed report was delivered", **t.ids())
+        return
+    mine = [_claim_key(c) for c in rep.claims]
+    theirs = [_claim_key(c) for c in again.claims]
+    if mine == theirs:
+        return
+    gone = [k[0] for k in theirs if k not in mine]
+    added = [k[0] for k in mine if k not in theirs]
+    ctx.ovs(t.seq, "OVS-CUST-006", f"the report delivered by {t.kind} {t.message_id} is not what branch {branch.key} parses from its raw text: claims "
+            f"{gone[:8]} of the re-parse are missing or differ, claims {added[:8]} of the delivered report are not in it" + ("" if gone or added else " (order differs)"),
+            claim_ids=list(dict.fromkeys(gone + added)), **t.ids())

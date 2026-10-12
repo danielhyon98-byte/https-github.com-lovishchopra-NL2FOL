@@ -12,7 +12,9 @@ Links resolved here:
 * a response to the request it replies to (``in_reply_to``);
 * a forward to the delivering response: the first delivered response event for that ``report_id``;
 * a peer document (``peer:<task>`` in a later request) to the forward, by text equality with an earlier
-  delivered forward to the same recipient (the PEER-003 link: ``TaskRequest`` carries no link field);
+  delivered forward to the same recipient (the PEER-003 link: ``TaskRequest`` carries no link field); the document's
+  attribution (its ``author``, and a forwarded report id its ``peer:<id>`` names) must be that forward's report and
+  agent, or the link records why not (PEER-002);
 * a synthesis to the deliveries of the reports it cites;
 * a result id to the stored result and its citation kinds.
 
@@ -43,12 +45,15 @@ RESPONSE_KINDS = ("response", "response_text")
 
 @dataclass(frozen=True)
 class PeerLink:
-    """A ``peer:`` document of a request and the forward it is linked to by text equality (or none)."""
+    """A ``peer:`` document of a request and the forward it is linked to by text equality (or none). ``misattributed``
+    says why the document's attribution (its ``author``, or a report id its ``peer:<id>`` names) is not the linked
+    forward's report and agent; None when it is (or the document states none)."""
     document_id: str
     forward_seq: Optional[int]
     forward_message_id: Optional[str]
     report_id: Optional[str]
     identical: bool
+    misattributed: Optional[str] = None
 
 
 @dataclass
@@ -109,6 +114,8 @@ class Transfer:
 
     @property
     def report_id(self) -> Optional[str]:
+        if self.payload is None and self.digest_only and self.event.typed_kind == "specialist_report":
+            return self.event.typed_id  # a digest-only entry keeps the report id the channel held it under
         p = self.payload or {}
         rid = p.get("report_id")
         return rid if isinstance(rid, str) else None
@@ -288,7 +295,8 @@ class OverseerView:
             t.request_seq = req.seq if req is not None and req.seq < t.seq else None
             if t.request_seq is not None:
                 t.depends_on.append(t.request_seq)
-        if t.kind in REPORT_KINDS and t.delivered and t.report_id and t.report_id not in self._first_delivery and t.report is not None:
+        if t.kind in REPORT_KINDS and t.delivered and t.report_id and t.report_id not in self._first_delivery and (t.report is not None or t.digest_only):
+            # a digest-only delivery is registered too, so the forwards and syntheses that depend on it fail with it
             self._first_delivery[t.report_id] = t.seq
         if t.kind == "relay_forward":
             t.delivering_seq = self._first_delivery.get(t.report_id or "")
@@ -300,9 +308,12 @@ class OverseerView:
                 if not doc.document_id.startswith("peer:"):
                     continue
                 cands = [f for f in self._forwards if f.delivered and f.seq < t.seq and f.recipient_agent_id == t.request.to_agent_id]
-                match = next((f for f in reversed(cands) if (f.payload or {}).get("original_response") == doc.text), None)
+                same_text = [f for f in reversed(cands) if (f.payload or {}).get("original_response") == doc.text]
+                # the text decides the link; among forwards of the same text, the one the document's attribution names
+                match = next((f for f in same_text if _attribution_mismatch(doc, f, self._forwards) is None), None) or (same_text[0] if same_text else None)
                 if match is not None:
-                    t.peer_links.append(PeerLink(doc.document_id, match.seq, match.message_id, match.report_id, True))
+                    t.peer_links.append(PeerLink(doc.document_id, match.seq, match.message_id, match.report_id, True,
+                                                 misattributed=_attribution_mismatch(doc, match, self._forwards)))
                     t.depends_on.append(match.seq)
                 else:
                     last = cands[-1] if cands else None
@@ -435,6 +446,20 @@ class OverseerView:
 
     def transfers_for(self, seqs: Iterable[int]) -> list[Transfer]:
         return [self.by_seq[s] for s in seqs if s in self.by_seq]
+
+
+def _attribution_mismatch(doc: Any, forward: Transfer, forwards: list[Transfer]) -> Optional[str]:
+    """Why a peer document's attribution is not the forward it is linked to: its ``author`` is not the forwarded report's
+    agent, or its id ``peer:<x>`` names a forwarded report id other than the linked one. None when it agrees (or the
+    document names neither)."""
+    agent = (forward.payload or {}).get("agent_id")
+    author = (getattr(doc, "author", None) or "").strip()
+    if author and agent and author != agent:
+        return f"its author is {author!r} but the forwarded report {forward.report_id} is agent {agent!r}'s"
+    named = doc.document_id[len("peer:"):] if doc.document_id.startswith("peer:") else ""
+    if named and named != forward.report_id and any(f.report_id == named for f in forwards):
+        return f"its id names report {named!r} but its text is the forwarded report {forward.report_id}"
+    return None
 
 
 class _FrozenReceiptChannel:

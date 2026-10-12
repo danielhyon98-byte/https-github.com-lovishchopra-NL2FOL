@@ -460,6 +460,11 @@ class RouterHub:
         ids = [r.agent_id for r in runners]
         if len(set(ids)) != len(ids):
             raise ValueError("two runners share an agent id: each agent reviews a task once")
+        from ..overseer.pool import HARD_MAX_INSTANCES
+        if pool_plan is None and any(getattr(r, "pool_member", False) for r in runners):
+            raise ValueError("pool instances review a task only under the pool plan that assigns them (pool_plan=...)")
+        if len(runners) > HARD_MAX_INSTANCES:
+            raise ValueError(f"a review runs at most {HARD_MAX_INSTANCES} overseer agents on one task")
         ch = self._resolve(task_key)
         uid = self._journaled_uid(auditor, ch)
         if pool_plan is not None:

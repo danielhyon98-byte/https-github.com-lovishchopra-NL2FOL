@@ -23,7 +23,10 @@ Deviations from the design text, listed as each stage requires:
 
 * the journal records a late attachment (first observed event after 1) as its start, not as a gap;
 * sticky live findings: a custody or receipt fault seen at any clearance stays in later audits even if the live object
-  was put back;
+  was put back; more generally every finding the live tier decided (at issue and in the asynchronous tier) is carried
+  into the batch audit, and every finding of an issued task audit is carried into every later clearance and audit, so
+  a fault once found is never lost to a re-run that cannot reproduce it, and a clearance is never better than the
+  latest task audit's verdict on the transfer;
 * INT-HANDOFF-007 is excluded from B4 before a synthesis exists (see ``checks/divergence.py``);
 * the shadow (B5) re-issues a parsed raw text as the delivered report (see ``checks/shadow.py``);
 * L5 fidelity runs in the asynchronous tier for live transfers (the design's remedy for a missed synchronous budget:
@@ -134,11 +137,15 @@ def _sort_key(item: tuple[int, IntegrityFinding]) -> tuple:
     return (seq, f.code, tuple(sorted(f.message_ids)), tuple(sorted(f.claim_ids)), tuple(sorted(f.report_ids)), f.message)
 
 
+def _finding_key(item: tuple[int, IntegrityFinding]) -> tuple:
+    seq, f = item
+    return (seq, f.code, f.message, tuple(f.message_ids), tuple(f.claim_ids), tuple(f.report_ids), f.formal_result_id)
+
+
 def _dedupe(findings: Iterable[tuple[int, IntegrityFinding]]) -> list[tuple[int, IntegrityFinding]]:
     out: dict[tuple, tuple[int, IntegrityFinding]] = {}
-    for seq, f in findings:
-        key = (seq, f.code, f.message, tuple(f.message_ids), tuple(f.claim_ids), tuple(f.report_ids), f.formal_result_id)
-        out.setdefault(key, (seq, f))
+    for item in findings:
+        out.setdefault(_finding_key(item), item)
     return sorted(out.values(), key=_sort_key)
 
 
@@ -190,6 +197,9 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
     if t.receipt_error is not None:
         ctx.ovs(t.seq, "OVS-AUDIT-001", f"the journaled receipt of {t.kind} {t.message_id} could not be parsed against the receipt contract ({t.receipt_error}); "
                 "the receipt checks did not run and the transfer cannot pass", **t.ids())
+    if t.digest_only and t.message_id:
+        ctx.ovs(t.seq, "OVS-AUDIT-005", f"{t.kind} {t.message_id} was journaled digest-only (the journal bound was reached): its receipt, payload and results are "
+                "not held, so the receipt, result, formal, fidelity and translation checks cannot run on it and it cannot pass", **t.ids())
     if t.delivered and t.typed is None and t.withheld is None and t.payload is not None and not t.digest_only:
         ctx.ovs(t.seq, "OVS-AUDIT-001", f"the delivered payload of {t.kind} {t.message_id} could not be parsed against its contract ({t.typed_error}); "
                 "the content checks did not run and the transfer cannot pass", **t.ids())
@@ -200,13 +210,13 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
             if d is not None:
                 ctx.guard("custody", "custody of a dependency", lambda d=d: custody.check_custody(ctx, d), transfer=d)
     ctx.guard("receipts", "receipts", lambda: (None if at_issue else receipts.check_receipt_custody(ctx, t), receipts.check_status(ctx, t), receipts.check_delivery(ctx, t),
-                                               receipts.check_identifiers(ctx, t), receipts.check_summary(ctx, t)), transfer=t)
-    ctx.guard("results", "results", lambda: (results.store_captured(ctx, t), results.check_results(ctx, t)), transfer=t)
+                                               receipts.check_identifiers(ctx, t), receipts.check_summary(ctx, t), receipts.check_implied_findings(ctx, t)), transfer=t)
+    ctx.guard("results", "results", lambda: (results.store_captured(ctx, t), results.check_results(ctx, t), results.check_replayable(ctx, t)), transfer=t)
     ctx.guard("formal", "formal status", lambda: formal.check_formal_status(ctx, t), transfer=t)
     if not at_issue:  # at issue, L5 and the translation checks run in the asynchronous tier (the transfer is PENDING until they have)
-        ctx.guard("fidelity", "fidelity", lambda: fidelity.check_fidelity(ctx, t), transfer=t)
+        ctx.guard("fidelity", "fidelity", lambda: (fidelity.check_fidelity(ctx, t), fidelity.check_reparse(ctx, t)), transfer=t)
         run_translation_checks(ctx, t)
-    ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t)), transfer=t)
+    ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t), peer.check_relayed_report(ctx, t)), transfer=t)
     ctx.guard("synthesis", "synthesis citations", lambda: synthesis.check_synthesis_citations(ctx, t), transfer=t)
     ctx.guard("joint", "pool", lambda: joint.check_pool(ctx, t), transfer=t)
 
@@ -385,6 +395,7 @@ class _ChannelState:
     channel_ref: Any = None
     registry: Any = None
     sticky: list[tuple[int, IntegrityFinding]] = field(default_factory=list)
+    carried: list[tuple[int, IntegrityFinding]] = field(default_factory=list)  # every non-agent finding of the task audits issued so far
     event_findings: dict[int, list[IntegrityFinding]] = field(default_factory=dict)
     replay_jobs: dict[str, ReplayJob] = field(default_factory=dict)
     always: dict[int, set[str]] = field(default_factory=dict)  # seq -> always-replay result ids
@@ -440,6 +451,9 @@ class TransferAuditor:
                                 store=self.store, journal=journal, degraded=False, first_seq=event.seq)
             st = _ChannelState(uid=event.channel_uid, journal=journal, view=view, registry=registry or self.registry)
             self._channels[event.channel_uid] = st
+            me = weakref.ref(self)
+            uid = event.channel_uid
+            journal.live_custody = lambda mid, me=me, uid=uid: (me()._release_custody(uid, mid) if me() is not None else [])
             if channel is not None:
                 try:
                     weakref.finalize(channel, self._channel_gone, event.channel_uid)
@@ -538,12 +552,15 @@ class TransferAuditor:
             if rid in st.replay_jobs:
                 continue
             rec = self.store.live(rid)
-            if rec is None or not rec.problem_json or rec.origin not in ("captured", "external") or rec.channel_uid != st.uid:
+            if rec is None or rec.origin not in ("captured", "external") or rec.channel_uid != st.uid:
                 continue
             res = self.store.parsed(rid)
             if res is None:
                 continue
-            job = ReplayJob(result_id=rid, problem_json=rec.problem_json, config_json=canonical_json(res.solver_config.model_dump(mode="json")),
+            problem_json = results.replayable_problem(st.view, rid, rec, res)
+            if not problem_json:
+                continue  # a definitive result with no replayable problem is AUDIT-005 (L3), never silently skipped
+            job = ReplayJob(result_id=rid, problem_json=problem_json, config_json=canonical_json(res.solver_config.model_dump(mode="json")),
                             original_status=res.status.value, problem_digest=res.binding.problem_digest, config_digest=res.binding.config_digest,
                             versions_digest=res.binding.versions_digest, always=rid in always, seq=t.seq, channel_uid=st.uid)
             st.replay_jobs[rid] = job
@@ -566,7 +583,7 @@ class TransferAuditor:
             ctx5 = self._ctx(st)
 
             def run_l5(ctx5=ctx5, t=t):
-                ctx5.guard("fidelity", "fidelity", lambda: fidelity.check_fidelity(ctx5, t), transfer=t)
+                ctx5.guard("fidelity", "fidelity", lambda: (fidelity.check_fidelity(ctx5, t), fidelity.check_reparse(ctx5, t)), transfer=t)
                 run_translation_checks(ctx5, t)
                 return list(ctx5.findings)
             self.replayer.submit_task(key5, run_l5)
@@ -646,8 +663,12 @@ class TransferAuditor:
         return list(ctx.findings)
 
     def _all_live_findings(self, st: _ChannelState) -> list[tuple[int, IntegrityFinding]]:
+        """Everything decided about the channel so far: the live tier's findings at issue, the sticky custody and receipt
+        faults, the asynchronous tier (replay, R2, L5 and the translation checks), and every finding of the task audits
+        already issued (a clearance is never better than the latest audit's verdict on the transfer)."""
         out = [(seq, f) for seq, fs in st.event_findings.items() for f in fs]
         out += list(st.sticky)
+        out += list(st.carried)
         out += self._async_findings(st)
         return _dedupe(out)
 
@@ -708,6 +729,28 @@ class TransferAuditor:
                     st.sticky.append(item)
             return self._issue_clearance(st, t, final=False, presented_sha=presented_sha)
 
+    def _release_custody(self, channel_uid: str, message_id: str) -> list[str]:
+        """Custody (L1) and receipt custody of a transfer and the transfers it depends on against the live channel, at
+        release; the faults found are kept (sticky), so the next clearance and audit carry them. Returns their codes."""
+        with self._lock:
+            st = self._channels.get(channel_uid)
+            t = st.view.by_message.get(message_id) if st is not None else None
+            if t is None:
+                return ["OVS-CUST-003"]
+            ctx = self._ctx(st)
+            for s in [t.seq] + list(t.depends_on):
+                d = st.view.by_seq.get(s)
+                if d is not None:
+                    ctx.guard("custody", "custody (release)", lambda d=d: custody.check_custody(ctx, d), transfer=d)
+                    ctx.guard("receipts", "receipt (release)", lambda d=d: receipts.check_receipt_custody(ctx, d), transfer=d)
+            out = []
+            for item in ctx.findings:
+                if item[1].severity == "error":
+                    out.append(item[1].code)
+                if item not in st.sticky:
+                    st.sticky.append(item)
+            return out
+
     def drain(self, timeout_s: Optional[float] = None) -> None:
         """Finish outstanding replays and re-derivations (inline: run them; process: wait for the worker)."""
         self.replayer.drain(timeout_s=timeout_s)
@@ -764,13 +807,17 @@ class TransferAuditor:
             sticky = list(st.sticky)
             live_findings = [(seq, f) for seq, fs in st.event_findings.items() for f in fs]
             has_findings = any(True for _ in live_findings) or bool(sticky)
+            # what the live tier decided stays decided: its findings at issue, its asynchronous results (L5, the translation
+            # checks, R2, replay) and the findings of earlier task audits are carried into the batch audit, so a fault found
+            # live never disappears because a later re-run could not reproduce it (an evicted result, a lost cache)
+            carried_in = sticky + live_findings + list(st.carried) + self._async_findings(st)
             do_shadow = self._shadow_for(st, has_findings, shadow)
             pending = {}
             if self.replay_mode == "process":
                 outstanding = self.replayer.pending()
                 pending = {mid: ids & outstanding for mid, ids in self._pending(st).items() if ids & outstanding}
             result = run_overseer_checks(view, keyring=self.keyring, store=self.store, live=live, registry=st.registry, replays=replays, rederived=rederived,
-                                         batch=True, shadow=do_shadow, replay_mode=self.replay_mode, pending=pending, extra_findings=sticky,
+                                         batch=True, shadow=do_shadow, replay_mode=self.replay_mode, pending=pending, extra_findings=carried_in,
                                          sampled=(st.sampled_total - st.sampled_live, st.sampled_total) if st.sampled_live else (0, 0))
             cov = result.coverage
             cov.results_sampled_out = st.sampled_live
@@ -793,6 +840,11 @@ class TransferAuditor:
                                   key_ids_used=self._key_ids(view), created_at=_now())
             audit = sign_audit(audit, self.keyring)
             st.audits.append(audit)
+            known = {_finding_key(x) for x in st.carried}
+            for item in findings:
+                if not is_agent_code(item[1].code) and _finding_key(item) not in known:
+                    known.add(_finding_key(item))
+                    st.carried.append(item)
             for t in view.transfers:
                 if t.message_id and t.message_id in result.transfer_states:
                     self._issue_clearance(st, t, final=final, audit_id=audit.audit_id, findings=findings, pending=pending)

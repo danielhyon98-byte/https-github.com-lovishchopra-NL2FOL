@@ -33,7 +33,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code. An accusat
 
 - **E1 Name at least one identifier.** **(enforced)** Every accusation names at least one identifier that appears in the dossier: a `message_id`, `receipt_id`, `claim_id`, `report_id`, `result_id` or `document_id`. Put each in its own list in the accusation.
 - **E2 Name every identifier involved.** Name the transfer (`message_ids`, `receipt_ids`), the report, every claim, every result and every document the fault involves. The check that confirms or refutes your accusation is run on exactly these identifiers, so a missing one can make a true accusation unconfirmable.
-- **E3 Copy identifiers exactly.** Copy each identifier from the dossier character for character. Never shorten one, never change its case, never invent one.
+- **E3 Copy identifiers exactly.** **(enforced)** Copy each identifier from the dossier character for character. Never shorten one, never change its case, never invent one. Each list holds identifiers of its own type, as `index` types them: `message_ids` message ids, `receipt_ids` receipt ids, `claim_ids` claim ids, `report_ids` report ids, `result_ids` result ids, `document_ids` document ids. A status word or any other text of the dossier is not an identifier.
 
 ## 4. Evidence items
 
@@ -55,7 +55,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code. An accusat
 
 ## 5. Engine statements
 
-- **E10 Name the result and point at the status.** **(enforced)** Every engine statement names a `result_id` and points at the field you read the status from, normally `/results/<result_id>/status`. `asserted_status` is that field's value, copied exactly.
+- **E10 Name the result and point at the status.** **(enforced)** Every engine statement names a `result_id` of this dossier's `results` and points at the status field of that same result: `/results/<result_id>/status`. `asserted_status` is that field's value, copied exactly. Another result's status field, or a result of another task, makes the statement unverifiable.
 - **E11 When to write one.** Write an engine statement for every result whose status your accusation relies on (kinds `result_unsigned_or_forged`, `formal_status_wrong`, `replay_differs`, `false_conflict`). Do not write engine statements for results you did not use.
 - **E12 Never assert a status the dossier does not show.** **(enforced)** An engine statement that differs from the signed result, or names a result id that does not exist, is refuted (OVS-AGENT-001).
 

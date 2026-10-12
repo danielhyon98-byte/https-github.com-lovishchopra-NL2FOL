@@ -90,9 +90,36 @@ def _fmt(num: int, den: int = 1) -> str:
     return f"{float(v):.4f}"
 
 
-def _word_figures(text: str) -> list[tuple[int, int, str, Optional[str], str]]:
-    """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``."""
+#: Small number words (two to ten, lower case) in a quantity context the general reader leaves to prose: after a word of
+#: comparison or measure ("under nine", "to ten hours", "aged twelve" is a teen and read already), never before "of".
+_SMALL_WORDS = ("two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+_QUANTITY_PRE = ("under", "over", "aged", "than", "to", "at", "about", "around", "nearly", "almost", "only", "exactly", "just", "roughly",
+                 "approximately", "below", "above", "within", "least", "most")
+_SMALL_AFTER_RE = re.compile(rf"\b(?:{_alt(_QUANTITY_PRE)})\s+(?P<anum>(?-i:{_alt(_SMALL_WORDS)}))\b(?!-)(?!\s+of\b)", re.IGNORECASE)
+#: For the pairing reader only: a small number word before a plural noun ("ten hours", "nine children"), unless a
+#: determiner makes it prose ("the two poems", "both"): pairing compares figures the sources state, so a count the
+#: sources never state is never compared.
+_SMALL_BEFORE_NOUN_RE = re.compile(rf"(?<!\bthe )(?<!\bthese )(?<!\bthose )(?<!\bits )(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\bour )"
+                                   rf"\b(?P<bnum>(?-i:{_alt(_SMALL_WORDS)}))(?=\s+[a-z]{{3,}}s\b)")
+_SMALL_VALUES = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def _word_figures(text: str, *, pairing: bool = False) -> list[tuple[int, int, str, Optional[str], str]]:
+    """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``. Small number
+    words (two to ten) count after a word of comparison or measure ("under nine"); with ``pairing`` also before a plural
+    noun ("ten hours"), the reading the pairing comparison uses."""
     out: list[tuple[int, int, str, Optional[str], str]] = []
+    taken: list[tuple[int, int]] = []
+    for m in _WORD_FIGURE_RE.finditer(text):
+        taken.append((m.start(), m.end()))
+    extra: list[tuple[int, int, str, Optional[str], str]] = []
+    for rx, group in ((_SMALL_AFTER_RE, "anum"),) + (((_SMALL_BEFORE_NOUN_RE, "bnum"),) if pairing else ()):
+        for m in rx.finditer(text):
+            a, b = m.start(group), m.end(group)
+            if any(x < b and a < y for x, y in taken):
+                continue
+            taken.append((a, b))
+            extra.append((a, b, str(_SMALL_VALUES[m.group(group)]), None, m.group(group)))
     for m in _WORD_FIGURE_RE.finditer(text):
         g = m.groupdict()
         if g["half"]:
@@ -112,13 +139,14 @@ def _word_figures(text: str) -> list[tuple[int, int, str, Optional[str], str]]:
             out.append((m.start(), m.end(), _fmt(num, den), None, m.group(0)))
         elif g["hnum"] or g["lnum"]:
             out.append((m.start(), m.end(), _fmt(_small_value(g["hnum"] or g["lnum"])), None, m.group(0)))
-    return out
+    return sorted(out + extra)
 
 
 def _words_as_digits(text: str) -> str:
     """``text`` with its figures written in words rewritten as digits ("close to a million" -> "close to 1 million",
-    "roughly a tenth" -> "roughly 0.1"), so the pairing and dating readers see them as figures."""
-    figs = _word_figures(text)
+    "roughly a tenth" -> "roughly 0.1", "under nine" -> "under 9", "ten hours" -> "10 hours"), so the pairing and dating
+    readers see them as figures."""
+    figs = _word_figures(text, pairing=True)
     if not figs:
         return text
     out, cursor = [], 0
@@ -182,7 +210,9 @@ def _plain_for_pairs(text: str) -> str:
 
 
 def _is_numeral(tok: str) -> bool:
-    return tok[0].isdigit()
+    """An ASCII numeral: ``str.isdigit`` is also true of superscript and subscript digits ("10²", "∫₀²"), which ``int``
+    rejects, so ordinary STEM notation would raise out of the channel."""
+    return bool(tok) and tok[0] in "0123456789"
 
 
 def _figure_kind(tokens: list[str], i: int) -> str:
@@ -191,7 +221,7 @@ def _figure_kind(tokens: list[str], i: int) -> str:
     tok = tokens[i]
     if re.fullmatch(r"1\d{3}|20\d{2}", tok):
         return "year"
-    if tok.isdigit() and 1 <= int(tok) <= 31:
+    if re.fullmatch(r"[0-9]{1,2}", tok) and 1 <= int(tok) <= 31:
         for j in (i - 1, i + 1):
             if 0 <= j < len(tokens) and tokens[j].casefold() in _MONTHS:
                 return "day"
@@ -406,7 +436,7 @@ def _with_word_labels(descriptions: list[str], texts: list[str]) -> list[str]:
     """Show a figure written in words as the words, with the value the readers compared ("'a tenth' (0.1)")."""
     labels: dict[str, str] = {}
     for t in texts:
-        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t)):
+        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t), pairing=True):
             labels.setdefault(mantissa, " ".join(surface.split()))
     if not labels:
         return descriptions
@@ -759,13 +789,20 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
 def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
-    (INT-LEDGER-017) and every numeric literal in the text must occur in some claim
-    (INT-LEDGER-018; list markers such as '1.' are ignored)."""
+    (INT-LEDGER-017), every numeric literal in the text must occur in some claim
+    (INT-LEDGER-018; list markers such as '1.' are ignored), and the text must pair its
+    figures and dates with events as the synthesized claims do (INT-LEDGER-023, error:
+    a text that states the claims' figures re-paired miscommunicates them to the student
+    while every claim stays faithful)."""
     f: list[IntegrityFinding] = []
     body = _norm(synthesis.text)
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
     if absent:
         f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {absent} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=absent, agent_ids=[synthesis.combinator_agent_id]))
+        repaired = figure_pairing_differences(synthesis.text, [c.text for c in synthesis.claims])
+        if repaired:
+            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message="the student-facing text re-pairs figures or dates between events relative to the synthesized claims it presents: "
+                                      + "; ".join(repaired), claim_ids=[synthesis.synthesis_id] + absent, agent_ids=[synthesis.combinator_agent_id]))
     text_wo_markers = _LIST_MARKER_RE.sub(" ", synthesis.text)
     in_claims = {m.group(0) for c in synthesis.claims for m in _NUMBER_RE.finditer(c.text)}
     stray = sorted({m.group(0) for m in _NUMBER_RE.finditer(text_wo_markers)} - in_claims, key=lambda s: (len(s), s))

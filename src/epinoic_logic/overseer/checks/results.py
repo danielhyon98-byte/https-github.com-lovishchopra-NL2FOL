@@ -12,9 +12,14 @@ resolved by its citation kind:
   problem otherwise): problem digest, claim, request or problem id, or an internally inconsistent binding.
 * RES-005: out of task or reused. Outcome, constraint and branch results must be captured in this event, except a
   stored result of the same channel bound to the identical problem digest, claim id and claim-text digest (a caching
-  translator; recorded as reused in coverage, design decision 23). Results carried by findings of a synthesis
-  receipt may come from an earlier event of the same channel. Nothing may come from a later event, another channel
-  or another request.
+  translator; recorded as reused in coverage, design decision 23). Results carried by the INT-CONFLICT findings of a
+  synthesis receipt (a contradiction named earlier on the channel) may come from an earlier event of the same channel;
+  a result any other finding cites (INT-LEDGER-011's synthesis-entailment check included) must be an engine run of the
+  citing event. Nothing may come from a later event, another channel or another request.
+* RES-005 for a result of a declared EXTERNAL engine (produced outside the capture, stored at its first citation, which
+  counts as its production at that event in every tier): re-cited by a later event for another problem, claim or claim
+  text, or issued (its signed ``issued_at``) before the request the citing response answers. Anything else about its
+  freshness is not decidable and is stated in the coverage notes.
 * RES-006: one id with two contents in the store, or a receipt copy whose signature verifies but which is not
   byte-identical to the stored result (a copy whose signature fails is RES-003, which already names it forged).
 * RES-009: ``display_status`` must equal ``display_status_for(translation, verification, key, key_id)`` with the
@@ -38,6 +43,7 @@ from typing import Optional
 
 from ...engine.provenance import config_digest, versions_digest
 from ...engine.results import VerificationResult
+from ...engine.statuses import is_definitive
 from ...ir.canonical import canonical_json, problem_digest, sha256_hex
 from ...ir.schema import Problem
 from ...translate.contracts import sha256_text
@@ -47,7 +53,7 @@ from ..faithful import faithful
 from ..view import Transfer, cited_results
 from . import CheckContext
 
-__all__ = ["store_captured", "check_results", "binding_problems"]
+__all__ = ["store_captured", "check_results", "binding_problems", "replayable_problem", "check_replayable"]
 
 
 
@@ -63,6 +69,45 @@ def store_captured(ctx: CheckContext, t: Transfer) -> None:
                     formal_result_id=c.result_id, **t.ids())
     if t.event.captured_overflow:
         ctx.ovs(t.seq, "OVS-AUDIT-002", f"the capture of event {t.seq} overflowed: {t.event.captured_overflow} engine runs were not captured", **t.ids())
+
+
+def replayable_problem(view, rid: str, rec, res: Optional[VerificationResult]) -> Optional[str]:
+    """The problem a stored result can be replayed on (canonical JSON): the problem captured with it, else the problem
+    of a journaled outcome citing it whose digest is the result's own binding digest (a result emitted into the capture
+    without its problem is still replayed when a receipt carries the problem it is bound to). None when there is none."""
+    if getattr(rec, "problem_json", None):
+        return rec.problem_json
+    want = res.binding.problem_digest if res is not None else None
+    if not want or view is None:
+        return None
+    for t in view.transfers:
+        if t.receipt is None:
+            continue
+        for o in t.receipt.outcomes:
+            p = o.translation.problem
+            if o.verification is not None and o.verification.result_id == rid and p is not None and problem_digest(p) == want:
+                return canonical_json(p)
+    return None
+
+
+def check_replayable(ctx: CheckContext, t: Transfer) -> None:
+    """AUDIT-005: a definitive engine result this transfer's receipt cites that cannot be replayed (captured without its
+    problem, and no journaled outcome carries the problem it is bound to). Replay is what exposes a status re-signed
+    with the engine key, so such a result is never passed."""
+    rc = t.receipt
+    if rc is None:
+        return
+    for rid in dict.fromkeys(r for r, _k, _p in cited_results(rc)):
+        rec = ctx.store.live(rid)
+        if rec is None or rec.origin not in ("captured", "external") or rec.channel_uid != ctx.view.channel_uid:
+            continue
+        res = ctx.store.parsed(rid)
+        if res is None or not is_definitive(res.status):
+            continue
+        if replayable_problem(ctx.view, rid, rec, res) is None:
+            ctx.ovs(t.seq, "OVS-AUDIT-005", f"result {rid} ({res.status.value}) cited by {t.kind} {t.message_id} was captured without its problem and no journaled "
+                    "outcome carries the problem it is bound to: it cannot be replayed, so a re-signed status could not be exposed; the transfer cannot pass",
+                    formal_result_id=rid, **t.ids())
 
 
 def binding_problems(result: VerificationResult, problem: Problem, key: Optional[bytes] = None) -> list[str]:
@@ -154,8 +199,12 @@ def check_results(ctx: CheckContext, t: Transfer) -> None:
                         formal_result_id=rid, **ids)
             continue
         ctx.coverage.results_resolved += 1
-        # membership: the strictest rule of the kinds citing it (a synthesis may carry earlier conflict results in findings only)
-        lenient = t.kind == "relay_synthesis" and kinds <= {"finding_formal", "finding_related", "receipt_formal"}
+        # membership: the strictest rule of the kinds citing it (a synthesis may carry an earlier CONFLICT result of this
+        # channel in its INT-CONFLICT findings only; a result cited by any other finding, INT-LEDGER-011 and the synthesis
+        # entailment check included, must be an engine run of this event)
+        citing_codes = {f.code for f in rc.findings if f.formal_result_id == rid or rid in f.related_result_ids}
+        lenient = (t.kind == "relay_synthesis" and kinds <= {"finding_formal", "finding_related", "receipt_formal"} and bool(citing_codes)
+                   and all(c.startswith("INT-CONFLICT") for c in citing_codes))
         _membership(ctx, t, rid, rec, lenient, path, rid in t.captured)
         if isinstance(rec, ResultTombstone):
             if not rec.signature_ok_at_put:
@@ -268,12 +317,18 @@ def _check_outcome(ctx: CheckContext, t: Transfer, i: int, o, channel_key_id: Op
                         claim_ids=claim_ids, formal_result_id=rid, **ids)
     else:
         ctx.coverage.results_resolved += 1
+        # a result of a declared external engine is stored when it is first cited, at the citing event: that citation is
+        # its production as far as this channel can see, in the live tier and in every later audit alike
+        if getattr(rec, "origin", None) == "external" and rec.event_seq == t.seq and rec.channel_uid == ctx.view.channel_uid:
+            captured_here = True
         if isinstance(rec, StoredResult) and rec.result_sha256 != copy_sha and not sig_bad:
             ctx.ovs(t.seq, "OVS-RES-006", f"the receipt's copy of result {rid} at {path}.verification is not byte-identical to the result the engine produced", claim_ids=claim_ids, formal_result_id=rid, **ids)
         elif isinstance(rec, ResultTombstone) and rec.result_sha256 != copy_sha and not sig_bad:
             ctx.ovs(t.seq, "OVS-RES-006", f"the receipt's copy of result {rid} at {path}.verification differs from the (evicted) result the engine produced", claim_ids=claim_ids, formal_result_id=rid, **ids)
         if not captured_here:
             _outcome_membership(ctx, t, o, rec, path)
+    if ok and ctx.keyring.key_status(ver.signature_key_id) == "external":
+        _external_freshness(ctx, t, o, ver, path)
     # RES-004: binding to the translation's problem
     prob = o.translation.problem
     if prob is None:
@@ -295,6 +350,33 @@ def _check_outcome(ctx: CheckContext, t: Transfer, i: int, o, channel_key_id: Op
         return
     if expected != o.display_status:
         ctx.ovs(t.seq, "OVS-RES-009", f"outcome {path} displays {o.display_status.value} but the translation and the signed result give {expected.value}", claim_ids=claim_ids, formal_result_id=rid, **ids)
+
+
+def _parse_time(value: Optional[str]):
+    from datetime import datetime
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _external_freshness(ctx: CheckContext, t: Transfer, o, ver, path: str) -> None:
+    """RES-005 for an external engine's result issued before the request the citing response answers (a replay of an
+    earlier run): decided on the result's signed ``issued_at`` and the journaled request, the same way in every tier.
+    What cannot be decided (a re-signed result issued after the request, for a text the translation does not bind) is
+    stated in coverage, never passed silently as decided."""
+    req_t = ctx.view.by_seq.get(t.request_seq) if t.request_seq is not None else None
+    req_at = _parse_time((req_t.envelope or {}).get("created_at")) if req_t is not None else None
+    issued = _parse_time(ver.issued_at)
+    if req_at is not None and issued is not None and issued < req_at:
+        ctx.ovs(t.seq, "OVS-RES-005", f"result {ver.result_id} at {path}.verification of the external engine {ver.signature_key_id!r} was issued at {ver.issued_at}, before the "
+                f"request {req_t.message_id} it answers ({(req_t.envelope or {}).get('created_at')}): a result of an earlier run re-cited as fresh",
+                claim_ids=[o.claim_id], formal_result_id=ver.result_id, **t.ids())
+        return
+    ctx.note(f"external results (e.g. {ver.result_id} under {ver.signature_key_id!r}) were produced outside the capture: their freshness is decided only by their "
+             "signed issue time against the request and by the uniqueness of their citation (claim, claim text, problem)")
 
 
 def _outcome_membership(ctx: CheckContext, t: Transfer, o, rec, path: str) -> None:

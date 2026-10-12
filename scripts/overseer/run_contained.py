@@ -14,7 +14,7 @@ Steps, every output under ``--out`` (never inside a recorded round):
    stops the run before any agent is built (exit status 2). Every overseer agent of the run is an
    ``OverseerAgentRunner`` built from that loaded copy; the harness has no option and no file that carries prompt text,
    and nothing else configures an agent.
-2. **Rounds.** Each recorded round (default r2 to r5, each only when present) is COPIED into ``DIR/rounds/<name>`` and
+2. **Rounds.** Each recorded round (default r2 to r5 and r7, each only when present) is COPIED into ``DIR/rounds/<name>`` and
    ``run_arena.run_round`` runs on the copy with ``RouterHub`` replaced by a hub that carries the auditor; a second copy
    runs WITHOUT the auditor, and the two arena results are compared (the auditor must change nothing). Every channel
    (the genuine pass and each fault mutation) gets a signed task audit with the shadow channel. Reported: the genuine

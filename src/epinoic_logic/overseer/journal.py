@@ -12,9 +12,13 @@ may share a task id (the arena re-keys ``hub.channels`` by hand, and a task may 
 * Clearance decisions are journaled as ``clearance`` entries, so every clearance is part of the chain.
 * :meth:`ChannelJournal.verify_chain` recomputes hashes, links, MACs and the entry index, and reports the FIRST
   break (CUST-005); everything after it is unverifiable.
-* Bounds: past ``max_entries`` entries or ``max_bytes`` of content per channel, events are journaled
+* Bounds: past ``max_entries`` EVENT entries or ``max_bytes`` of event content per channel, events are journaled
   digest-only (content strings replaced by their digests, raw text dropped): custody is still decidable by
-  digest, the content is no longer recoverable, and the coverage loss is reported once (AUDIT-002).
+  digest, the content is no longer recoverable, and the coverage loss is reported once (AUDIT-002). A digest-only
+  transfer is never treated as checkable: the audit fails it (AUDIT-005, error, live and batch), so a transfer
+  whose receipt and results the auditor no longer holds never clears. The auditor's own records (clearance, gap,
+  seal) do not count towards ``max_entries`` or ``max_bytes`` (so the router's clearance calls never use up the
+  event budget); they have their own bound, ``max_records``, past which a record is journaled as its digest only.
   :class:`JournalSet` bounds the total across journals and evicts sealed journals least-recently-used first;
   an evicted journal keeps its head hash.
 * A sealed journal accepts no further entries. Sealing happens on a FINAL task audit, on ``close_task`` and
@@ -37,11 +41,15 @@ from ..ir.canonical import canonical_json, sha256_hex
 from .contracts import JournalEntry
 from .keys import KeyRing
 
-__all__ = ["ChannelJournal", "JournalSet", "ChainBreak", "JournalSealed", "GENESIS_PREFIX", "MAX_ENTRIES", "MAX_BYTES", "GLOBAL_MAX_BYTES"]
+__all__ = ["ChannelJournal", "JournalSet", "ChainBreak", "JournalSealed", "GENESIS_PREFIX", "MAX_ENTRIES", "MAX_BYTES", "MAX_RECORDS", "GLOBAL_MAX_BYTES"]
 
 GENESIS_PREFIX = "epinoic-overseer-journal/v1|"
+#: Event entries per channel journaled with their content (the auditor's own records are not counted).
 MAX_ENTRIES = 4096
+#: Characters of event content per channel journaled in full.
 MAX_BYTES = 64 * 1024 * 1024
+#: The auditor's own records (clearance, gap, seal) per channel journaled in full; later ones are journaled as their digest.
+MAX_RECORDS = 65536
 GLOBAL_MAX_BYTES = 256 * 1024 * 1024
 _RECORD_KINDS = frozenset({"clearance", "gap", "seal"})
 
@@ -69,7 +77,7 @@ class ChannelJournal:
     """The journal of one channel instance."""
 
     def __init__(self, channel_uid: str, task_id: str, keyring: KeyRing, *, max_entries: int = MAX_ENTRIES, max_bytes: int = MAX_BYTES,
-                 on_size: Optional[Callable[["ChannelJournal", int], None]] = None) -> None:
+                 on_size: Optional[Callable[["ChannelJournal", int], None]] = None, max_records: int = MAX_RECORDS) -> None:
         self.channel_uid = channel_uid
         self.task_id = task_id
         self._keyring = keyring
@@ -77,8 +85,12 @@ class ChannelJournal:
         self._lock = threading.RLock()
         self._last_event_seq = 0
         self._bytes = 0
+        self._event_entries = 0
+        self._event_bytes = 0
+        self._records = 0
         self.max_entries = max_entries
         self.max_bytes = max_bytes
+        self.max_records = max_records
         self.sealed = False
         self.evicted = False
         self.digest_only_entries = 0
@@ -86,6 +98,9 @@ class ChannelJournal:
         self._head = (0, genesis_hash(channel_uid))
         self._on_size = on_size
         self.start_seq = 1
+        #: Set by the auditor: ``live_custody(message_id) -> [codes]`` re-checks the live channel's custody of a journaled
+        #: transfer and the transfers it depends on (the release gate calls it). Not part of the chain.
+        self.live_custody: Optional[Callable[[str], list[str]]] = None
 
     def start_at(self, seq: int) -> None:
         """The auditor attached after the channel's first ``seq - 1`` events: the journal starts there (TR6: the audit
@@ -129,14 +144,20 @@ class ChannelJournal:
                 raise ValueError(f"event sequence {event.seq} is not after {self._last_event_seq}: replayed or reordered event")
             if event.seq > self._last_event_seq + 1:
                 missing = (self._last_event_seq + 1, event.seq - 1)
+                self._records += 1
                 self._make("gap", None, canonical_json({"missing_from": missing[0], "missing_to": missing[1]}))
-            if len(self._entries) >= self.max_entries or self._bytes + event.content_size() > self.max_bytes:
+            size = event.content_size()
+            if self._event_entries >= self.max_entries or self._event_bytes + size > self.max_bytes:
                 if not event.digest_only:
                     event = event.as_digest_only()
                     self.digest_only_entries += 1
                     if not self.coverage_notes:
-                        self.coverage_notes.append(f"journal bound reached ({self.max_entries} entries / {self.max_bytes} bytes): later entries are digest-only")
+                        self.coverage_notes.append(f"journal bound reached ({self.max_entries} event entries / {self.max_bytes} bytes of event content): "
+                                                   "later events are digest-only and cannot pass the audit")
+            else:
+                self._event_bytes += size
             self._last_event_seq = event.seq
+            self._event_entries += 1
             return self._make(event.kind, event, None)
 
     def append_record(self, kind: str, record: dict) -> JournalEntry:
@@ -146,7 +167,14 @@ class ChannelJournal:
         with self._lock:
             if self.sealed:
                 raise JournalSealed(f"journal of channel {self.channel_uid} is sealed")
-            return self._make(kind, None, canonical_json(record))
+            return self._record(kind, canonical_json(record))
+
+    def _record(self, kind: str, record_json: str) -> JournalEntry:
+        """One of the auditor's records; past ``max_records`` it is journaled as its digest (the chain still covers it)."""
+        self._records += 1
+        if self._records > self.max_records:
+            record_json = canonical_json({"digest_only": True, "record_sha256": sha256_hex(record_json)})
+        return self._make(kind, None, record_json)
 
     def seal(self, reason: str) -> None:
         with self._lock:
@@ -161,6 +189,7 @@ class ChannelJournal:
             self._entries = []
             self.evicted = True
             self._bytes = 0
+            self._event_bytes = 0
             self.coverage_notes.append("journal evicted under the global bound; only its head hash remains")
 
     # ------------------------------------------------------------------ reading
@@ -231,20 +260,23 @@ class JournalSet:
     """Every journal of an auditor, with the global content bound: sealed journals are evicted least-recently-used
     first; an evicted journal keeps its head hash (and the auditor keeps its signed audits)."""
 
-    def __init__(self, keyring: KeyRing, *, global_max_bytes: int = GLOBAL_MAX_BYTES, max_entries: int = MAX_ENTRIES, max_bytes: int = MAX_BYTES) -> None:
+    def __init__(self, keyring: KeyRing, *, global_max_bytes: int = GLOBAL_MAX_BYTES, max_entries: int = MAX_ENTRIES, max_bytes: int = MAX_BYTES,
+                 max_records: int = MAX_RECORDS) -> None:
         self._keyring = keyring
         self._journals: "OrderedDict[str, ChannelJournal]" = OrderedDict()
         self._lock = threading.RLock()
         self.global_max_bytes = global_max_bytes
         self.max_entries = max_entries
         self.max_bytes = max_bytes
+        self.max_records = max_records
         self._total = 0
 
     def create(self, channel_uid: str, task_id: str) -> ChannelJournal:
         with self._lock:
             j = self._journals.get(channel_uid)
             if j is None:
-                j = ChannelJournal(channel_uid, task_id, self._keyring, max_entries=self.max_entries, max_bytes=self.max_bytes, on_size=self._grew)
+                j = ChannelJournal(channel_uid, task_id, self._keyring, max_entries=self.max_entries, max_bytes=self.max_bytes, on_size=self._grew,
+                                   max_records=self.max_records)
                 self._journals[channel_uid] = j
             self._journals.move_to_end(channel_uid)
             return j

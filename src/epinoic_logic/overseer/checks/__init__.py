@@ -39,7 +39,7 @@ from ..keys import KeyRing
 from ..store import ResultStore
 from ..view import OverseerView, Transfer
 
-__all__ = ["CheckContext", "json_diff_paths", "normalise", "claim_ids_for_paths", "Replay", "Rederived"]
+__all__ = ["CheckContext", "json_diff_paths", "normalise", "strip_list_markers", "claim_ids_for_paths", "Replay", "Rederived"]
 
 
 @dataclass
@@ -151,15 +151,28 @@ class CheckContext:
                 out.append(t.message_id)
         return out
 
-    def message_ids_for_claims(self, claim_ids: Iterable[str]) -> tuple[list[str], list[str], list[str]]:
-        """(message ids, report ids, agent ids) of the first deliveries carrying the claims."""
+    def message_ids_for_claims(self, claim_ids: Iterable[str], *, pairs: Iterable[tuple[Optional[str], str]] = (),
+                               report_ids: Optional[Iterable[str]] = None) -> tuple[list[str], list[str], list[str]]:
+        """(message ids, report ids, agent ids) of the deliveries carrying the claims.
+
+        Claim ids are unique only within a report (the parsers restart at ``g1.1``, ``h1.1`` in every report), so a
+        caller that knows which report a claim belongs to says so: ``pairs`` gives ``(report_id, claim_id)`` (a pool
+        entry's report, a finding's report), and ``report_ids`` restricts the claims with no known report to the
+        deliveries of those reports. A claim with neither is matched in every delivered report (the legacy rule)."""
         mids, rids, aids = [], [], []
         wanted = set(claim_ids)
+        known: dict[str, set[str]] = {}
+        for rid_, cid in pairs:
+            if rid_ and cid in wanted:
+                known.setdefault(cid, set()).add(rid_)
+        allowed = set(report_ids) if report_ids is not None else None
         for t in self.view.transfers:
             r = t.report
             if r is None or not t.delivered or t.kind not in ("response", "response_text", "relay_report"):
                 continue
-            if wanted & {c.claim_id for c in r.claims}:
+            mine = wanted & {c.claim_id for c in r.claims}
+            hit = any((r.report_id in known[c]) if c in known else (allowed is None or r.report_id in allowed) for c in mine)
+            if hit:
                 if t.message_id and t.message_id not in mids:
                     mids.append(t.message_id)
                 if r.report_id not in rids:
@@ -230,7 +243,10 @@ def claim_ids_for_paths(payload: Optional[dict], paths: Iterable[str], other: Op
 # ---------------------------------------------------------------------------------------------- normalisation
 #: Fidelity normalisation (fixed and documented; any extension is a named rule with its own test):
 #: NFKC; typographic quotes, apostrophes and dashes folded; markdown emphasis and code markers, heading hashes and
-#: list bullets removed; whitespace runs collapsed. No case folding and no similarity threshold.
+#: list bullets removed; whitespace runs collapsed. No case folding and no similarity threshold. Named rule
+#: ``joined-list-markers``: list markers are removed on both sides alike, at the start of a line AND where an adapter's
+#: line join left them after sentence or colon punctuation (a bullet ``- `` after ``.``, ``:``, ``;``, ``!`` or ``?``; a
+#: list number ``2.`` or ``2)`` after ``.``, ``!`` or ``?``, also at the very end of a text).
 _FOLD = str.maketrans({
     "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'", "´": "'",
     "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"', "«": '"', "»": '"',
@@ -241,6 +257,17 @@ _BULLET_RE = re.compile(r"(?m)^[ \t]*(?:[-*+•]|\d{1,3}[.)])[ \t]+")
 #: Emphasis and code markers: every ``*``, ``_`` and backtick (removed on both sides of a comparison alike).
 _EMPHASIS_RE = re.compile(r"[*_`]+")
 _WS_RE = re.compile(r"\s+")
+#: joined-list-markers: a bullet after sentence or colon punctuation, a list number after sentence punctuation.
+_JOINED_NUMBER_RE = re.compile(r"(?<=[.!?]) \d{1,3}[.)](?= |$)")
+_JOINED_DASH_RE = re.compile(r"(?<=[.:;!?]) [-+•](?= )")
+
+
+def strip_list_markers(text: str) -> str:
+    """Rule ``joined-list-markers`` on raw text (for figures): list numbers and bullets at the start of a line, or left
+    by a line join after sentence punctuation (bullets also after a colon), removed; everything else unchanged."""
+    t = _BULLET_RE.sub("", text or "")
+    t = _JOINED_NUMBER_RE.sub("", _WS_RE.sub(" ", t))
+    return _JOINED_DASH_RE.sub("", t)
 
 
 def normalise(text: str) -> str:
@@ -249,6 +276,9 @@ def normalise(text: str) -> str:
     t = _BULLET_RE.sub("", t)
     t = t.translate(_FOLD)
     t = _EMPHASIS_RE.sub("", t)
+    t = _WS_RE.sub(" ", t).strip()
+    t = _JOINED_NUMBER_RE.sub("", t)
+    t = _JOINED_DASH_RE.sub("", t)
     return _WS_RE.sub(" ", t).strip()
 
 

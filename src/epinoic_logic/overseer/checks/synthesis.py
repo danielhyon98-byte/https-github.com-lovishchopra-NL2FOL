@@ -63,11 +63,17 @@ def recheck_ledger(ctx: CheckContext, t: Transfer) -> None:
     found = check_synthesis_ledger(scope, t.synthesis, extra_texts=_request_texts(ctx, t.seq))
     on_receipt = {_key(f) for f in t.receipt.findings}
     ids = t.ids()
+    owners: dict[str, list[str]] = {}
+    for r in scope:
+        for c in r.claims:
+            owners.setdefault(c.claim_id, []).append(r.report_id)
     for f in found:
         if f.severity != "error" or _key(f) in on_receipt:
             continue
+        # the synthesis and the reports whose claims the finding names (claim ids are unique only within a report)
+        rids = list(f.report_ids) or ids["report_ids"] + [r for c in f.claim_ids for r in owners.get(c, [])]
         ctx.ovs(t.seq, "OVS-SYN-002", f"the ledger re-check of synthesis {t.synthesis.synthesis_id} against the journaled reports finds {f.code} ({f.message[:300]}), which the synthesis receipt lacks",
-                claim_ids=f.claim_ids, message_ids=ids["message_ids"], report_ids=list(f.report_ids) or ids["report_ids"], agent_ids=list(f.agent_ids) or ids["agent_ids"],
+                claim_ids=f.claim_ids, message_ids=ids["message_ids"], report_ids=rids, agent_ids=list(f.agent_ids) or ids["agent_ids"],
                 document_ids=f.document_ids)
     reproduced = {_key(f) for f in found}
     for f in t.receipt.findings:

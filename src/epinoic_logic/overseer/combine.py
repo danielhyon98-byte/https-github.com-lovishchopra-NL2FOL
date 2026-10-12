@@ -119,12 +119,26 @@ def combined_digest(combined: CombinedAssessment) -> str:
     return sha256_hex(canonical_json(combined.model_dump(mode="json", exclude_none=True)))
 
 
-def _typed_ids(ids: dict[str, list[str]]) -> set[tuple[str, str]]:
-    return {(name, i) for name in ID_FIELDS for i in ids.get(name, [])}
+def _typed_ids(ids: dict[str, list[str]], claim_reports: Optional[Mapping[str, list[str]]] = None) -> set[tuple[str, str]]:
+    """The accusation's identifiers as ``(list, id)``; a claim id is qualified by the report(s) it resolved to (claim ids
+    repeat across reports, so a bare claim id would group accusations about different transfers)."""
+    out: set[tuple[str, str]] = set()
+    for name in ID_FIELDS:
+        for i in ids.get(name, []):
+            reps = (claim_reports or {}).get(i) if name == "claim_ids" else None
+            if reps:
+                out.update((name, f"{r}\u001f{i}") for r in reps)
+            else:
+                out.add((name, i))
+    return out
+
+
+def _acc_ids(a: AccusationAssessment) -> set[tuple[str, str]]:
+    return _typed_ids(a.identifiers, a.claim_report_ids)
 
 
 def _acc_sort_key(agent_id: str, a: AccusationAssessment) -> tuple:
-    return (a.kind, tuple(sorted(_typed_ids(a.identifiers))), agent_id, a.accusation_id)
+    return (a.kind, tuple(sorted(_acc_ids(a))), agent_id, a.accusation_id)
 
 
 def _member(agent: VerdictAssessment, a: AccusationAssessment) -> GroupMember:
@@ -202,7 +216,7 @@ def combine_verdicts(assessments: Sequence[VerdictAssessment], *, intake=None,
 
         owner: dict[tuple[str, str], int] = {}
         for i, (_a, acc) in enumerate(members):
-            for key in sorted(_typed_ids(acc.identifiers)):
+            for key in sorted(_acc_ids(acc)):
                 if key in owner:
                     ri, rj = find(owner[key]), find(i)
                     if ri != rj:
