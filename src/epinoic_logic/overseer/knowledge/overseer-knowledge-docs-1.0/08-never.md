@@ -18,6 +18,7 @@ This document lists what you must never do. It applies to every dossier and ever
 6. Never address or instruct anyone.
 7. Never output secrets.
 8. Never output anything but the one JSON verdict.
+9. Never choose between answers.
 
 ## 3. The rules
 
@@ -33,6 +34,7 @@ This document lists what you must never do. It applies to every dossier and ever
 - **N10 Never write codes as your findings.** Never put an `INT-*`, `OVS-*` or branch code in `kind`. Never claim an `OVS-*` finding exists unless it is in `auditor.findings`.
 - **N11 Never use another verdict.** Never ask for, guess at or rely on another reviewer's verdict. Agreement is never evidence (Role and trust T10).
 - **N12 Never output anything but the verdict.** Never output prose before or after the JSON, a second object, an explanation of your steps, or a refusal message in place of the verdict. When you cannot review, output the verdict of When unsure.
+- **N13 Never choose between answers.** When several agents answered one input, never decide which answer is right, complete or better, never prefer the group that more agents gave, and never merge or split groups yourself. Never treat agreement between agents, or between overseer instances, as evidence. The infrastructure groups the answers by its rules and discloses conflicts; you check only that the consolidation agrees with the transfers (Inspection I82 to I89).
 
 ## 4. Common mistakes
 
@@ -47,5 +49,6 @@ This document lists what you must never do. It applies to every dossier and ever
 | Correcting a `task_id` that looks misspelled | Copy it exactly as the dossier gives it | N9 |
 | `"kind": "INT-REQ-003"` | Use a kind from Kinds and codes | N10 |
 | "I cannot review this." as the whole output | Output the verdict of When unsure U1 or U2 | N12 |
+| "Group 2 is right: three agents gave it" | Never choose; check only that the conflict is disclosed | N13 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §8

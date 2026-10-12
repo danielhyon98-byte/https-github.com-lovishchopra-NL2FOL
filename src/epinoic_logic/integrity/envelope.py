@@ -36,6 +36,9 @@ ROLE_CONTRACTS: dict[str, frozenset[AgentRole]] = {
     # intake key), the contract and the schema, never from the role alone.
     "overseer_audit": frozenset({AgentRole.OVERSEER}),
     "overseer_verdict": frozenset({AgentRole.OVERSEER}),
+    # The consolidated response to one input several agents answered (overseer/consolidate.py): produced only by the
+    # infrastructure's consolidation and signed under its own derived key; no specialist, combinator or router sends one.
+    "consolidated_response": frozenset({AgentRole.OVERSEER}),
 }
 
 

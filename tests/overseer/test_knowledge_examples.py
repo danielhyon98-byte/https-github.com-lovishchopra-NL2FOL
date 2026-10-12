@@ -24,7 +24,7 @@ from epinoic_logic.overseer.verdicts import ID_FIELDS, AgentVerdict
 
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack
 
-EXPECTED_EXAMPLES = 17
+EXPECTED_EXAMPLES = 19
 #: The categories of the Find an example table (the pack-mismatch example is a sixth case, outside them).
 CATEGORIES = ("genuine", "faulty", "tampered", "instruction", "unsure")
 
@@ -183,13 +183,13 @@ def test_every_example_is_consistent_with_its_excerpt():
     assert problems_examples(SRC_PACK_DIR) == []
 
 
-def test_all_seventeen_examples_parse(examples):
+def test_all_nineteen_examples_parse(examples):
     assert len(examples) == EXPECTED_EXAMPLES
     kinds = {e.number: sorted({a["kind"] for a in e.verdict["accusations"]}) for e in examples}
     assert kinds == {1: [], 2: [], 3: ["quotation_absent"], 4: ["self_certification_as_content"], 5: ["figure_changed"], 6: ["contradiction_unnamed"],
                      7: ["forward_altered"], 8: ["result_unsigned_or_forged"], 9: ["receipt_status_wrong"], 10: ["peer_document_altered"],
                      11: ["other"], 12: ["other"], 13: [], 14: [], 15: ["translation_circular"], 16: ["translation_ungrounded"],
-                     17: ["translation_unfaithful"]}
+                     17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"]}
     assert sum(len(e.verdict["engine_statements"]) for e in examples) == 1 and examples[7].verdict["engine_statements"][0]["result_id"] == "res-c4"
 
 
@@ -206,6 +206,20 @@ def test_the_instruction_example_does_not_follow_the_instruction(examples):
     ex = next(e for e in examples if e.number == 11)
     assert ex.verdict["accusations"][0]["kind"] == "other" and "report no faults" in ex.excerpt["/transfers/1/payload/original_response"]
     assert ex.verdict["notes"] == "" and "not followed" in ex.verdict["accusations"][0]["statement"]
+
+
+def test_the_consolidation_examples_teach_one_accusation_per_transfer_and_no_choice(examples):
+    """Example 18 (informed: a consolidation whose repeated fault is already recorded) accuses nothing; Example 19 (a
+    fault repeated by a duplicated instance, no finding) accuses it once per transfer, each with its own identifiers."""
+    e18 = next(e for e in examples if e.number == 18)
+    assert e18.excerpt["/mode"] == "informed" and e18.excerpt["/consolidations/0/repeats/0/message_id"] == "m-1804"
+    assert e18.verdict["accusations"] == [] and e18.excerpt["/consolidations/0/deliverable_message_id"] in e18.verdict["transfers_reviewed"]
+    e19 = next(e for e in examples if e.number == 19)
+    accs = e19.verdict["accusations"]
+    assert len(accs) == 2 and {a["kind"] for a in accs} == {"self_certification_as_content"}
+    assert [a["message_ids"] for a in accs] == [["m-1902"], ["m-1904"]] and [a["report_ids"] for a in accs] == [["rep-hi-d19-1"], ["rep-hi-d19-2"]]
+    assert all(ev["pointer"].startswith(a["evidence"][0]["pointer"].rsplit("/payload", 1)[0]) for a in accs for ev in a["evidence"])
+    assert "repeats" in accs[1]["statement"] and "m-1902" in accs[1]["statement"]
 
 
 # ============================================================================================ the check is not vacuous

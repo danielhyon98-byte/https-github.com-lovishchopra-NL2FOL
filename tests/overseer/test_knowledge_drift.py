@@ -28,6 +28,7 @@ from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
 from epinoic_logic.integrity import contracts as integrity_contracts
 from epinoic_logic.ir import schema as ir_schema
 from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.overseer import consolidate as consolidate_mod
 from epinoic_logic.overseer import dossier as dossier_mod
 from epinoic_logic.overseer.codes import OVS_CODES
 from epinoic_logic.overseer.pack import (
@@ -319,7 +320,10 @@ def _known_names() -> set[str]:
               # translator oversight: the translation and its formal problem, which the documents teach the agent to read
               dossier_mod.TranslationLink, translate_contracts.EligibilityDecision, translate_contracts.Interpretation,
               translate_contracts.AmbiguityFlag, translate_contracts.AtomGloss, translate_contracts.GroundingCheck, translate_contracts.ProviderInfo,
-              ir_schema.Problem, ir_schema.Symbol, ir_schema.Assertion, ir_schema.Grounding]
+              ir_schema.Problem, ir_schema.Symbol, ir_schema.Assertion, ir_schema.Grounding,
+              # consolidation (design section 19): the consolidations an informed dossier shows
+              dossier_mod.DossierConsolidation, dossier_mod.ConsolidationGroup, dossier_mod.ConsolidationMember, dossier_mod.ConsolidationCheck,
+              dossier_mod.ConsolidationExcluded, dossier_mod.ConsolidationConflict, dossier_mod.ConsolidationRepeat, dossier_mod.ConsolidationAdvisory]
     names: set[str] = set()
     for m in models:
         names |= set(m.model_fields)
@@ -331,6 +335,7 @@ def _known_names() -> set[str]:
             values |= set(typing.get_args(node.model_fields["op"].annotation))
             names |= set(node.model_fields)
     values |= set(typing.get_args(ir_schema.GroundingKind)) | set(typing.get_args(ir_schema.QueryKind))
+    values |= set(typing.get_args(consolidate_mod.GroupBasis)) | set(typing.get_args(consolidate_mod.Relation))
     for model, field in ((integrity_contracts.SynthesizedClaim, "transformation"), (integrity_contracts.SynthesizedClaim, "certainty"),
                          (integrity_contracts.SynthesizedClaim, "materiality"), (translate_contracts.ClaimRecord, "claim_role"),
                          (channel_contracts.TransmissionReceipt, "direction")):
@@ -417,11 +422,13 @@ def test_every_rule_code_is_defined_once():
     defs = [m.group(1) + m.group(2) for n in AGENT_DOCS for line in text[n].split("\n") if (m := _DEF_RE.match(line))]
     assert len(defs) == len(set(defs)) and {c[0] for c in defs} == set(RULE_PREFIX_DOC)
     nums = {p: sorted(int(c[1:]) for c in defs if c[0] == p) for p in RULE_PREFIX_DOC}
-    # the ranges design section 17.3 declares; every family but Inspection is numbered without gaps
-    for prefix, last in {"T": 12, "D": 23, "E": 15, "V": 20, "K": 6, "X": 3, "N": 12, "U": 10}.items():
+    # the ranges design section 17.3 declares; every family but Inspection is numbered without gaps. The consolidation
+    # stage (design section 19) added T13-T14, D24-D27, K7, N13, U11 and the consolidation checks I82-I89.
+    for prefix, last in {"T": 14, "D": 27, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 81
-    assert [n for n in nums["I"] if n >= 70] == list(range(70, 82))  # the translation checks, I70 to I81
+    assert nums["I"][0] == 1 and nums["I"][-1] == 89
+    assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
+    assert [n for n in nums["I"] if n >= 82] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
 
 
 def test_package_data_ships_every_pack_file():

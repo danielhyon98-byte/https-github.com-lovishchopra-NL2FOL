@@ -1,5 +1,371 @@
 {
   "$defs": {
+    "ConsolidationAdvisory": {
+      "additionalProperties": false,
+      "properties": {
+        "group_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Group Ids",
+          "type": "array"
+        },
+        "message_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Message Ids",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "ConsolidationAdvisory",
+      "type": "object"
+    },
+    "ConsolidationCheck": {
+      "additionalProperties": false,
+      "description": "An engine run of the consolidation (an Overseer run): its relation, status and result id.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Id"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "relation"
+      ],
+      "title": "ConsolidationCheck",
+      "type": "object"
+    },
+    "ConsolidationConflict": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsolidationCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conflict_id": {
+          "title": "Conflict Id",
+          "type": "string"
+        },
+        "excluded_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excluded Message Id"
+        },
+        "group_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Group Ids",
+          "type": "array"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conflict_id",
+        "group_ids",
+        "relation"
+      ],
+      "title": "ConsolidationConflict",
+      "type": "object"
+    },
+    "ConsolidationExcluded": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Codes",
+          "type": "array"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "repeated": {
+          "default": false,
+          "title": "Repeated",
+          "type": "boolean"
+        },
+        "result_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Result Ids",
+          "type": "array"
+        },
+        "transfer_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transfer Pointer"
+        }
+      },
+      "required": [
+        "message_id"
+      ],
+      "title": "ConsolidationExcluded",
+      "type": "object"
+    },
+    "ConsolidationGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "title": "Basis",
+          "type": "string"
+        },
+        "canonical_clean": {
+          "title": "Canonical Clean",
+          "type": "boolean"
+        },
+        "canonical_message_id": {
+          "title": "Canonical Message Id",
+          "type": "string"
+        },
+        "group_id": {
+          "title": "Group Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationMember"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "merge_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsolidationCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "group_id",
+        "basis",
+        "members",
+        "canonical_message_id",
+        "canonical_clean"
+      ],
+      "title": "ConsolidationGroup",
+      "type": "object"
+    },
+    "ConsolidationMember": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "clean": {
+          "title": "Clean",
+          "type": "boolean"
+        },
+        "finding_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Codes",
+          "type": "array"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "transfer_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transfer Pointer"
+        }
+      },
+      "required": [
+        "message_id",
+        "clean"
+      ],
+      "title": "ConsolidationMember",
+      "type": "object"
+    },
+    "ConsolidationRepeat": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "first_agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Agent Id"
+        },
+        "first_message_id": {
+          "title": "First Message Id",
+          "type": "string"
+        },
+        "first_transfer_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Transfer Pointer"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "occurrence": {
+          "title": "Occurrence",
+          "type": "integer"
+        },
+        "same_agent": {
+          "title": "Same Agent",
+          "type": "boolean"
+        },
+        "transfer_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transfer Pointer"
+        }
+      },
+      "required": [
+        "code",
+        "message_id",
+        "first_message_id",
+        "occurrence",
+        "same_agent"
+      ],
+      "title": "ConsolidationRepeat",
+      "type": "object"
+    },
     "DossierAuditor": {
       "additionalProperties": false,
       "properties": {
@@ -42,6 +408,97 @@
         "binding_digest"
       ],
       "title": "DossierBinding",
+      "type": "object"
+    },
+    "DossierConsolidation": {
+      "additionalProperties": false,
+      "description": "A signed consolidated response of the channel, as an overseer agent reads it (informed mode only).",
+      "properties": {
+        "advisory": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationAdvisory"
+          },
+          "title": "Advisory",
+          "type": "array"
+        },
+        "at": {
+          "pattern": "^/consolidations/(0|[1-9][0-9]*)$",
+          "title": "At",
+          "type": "string"
+        },
+        "conflicts": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationConflict"
+          },
+          "title": "Conflicts",
+          "type": "array"
+        },
+        "consolidation_id": {
+          "title": "Consolidation Id",
+          "type": "string"
+        },
+        "deliverable_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deliverable Message Id"
+        },
+        "excluded": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationExcluded"
+          },
+          "title": "Excluded",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationGroup"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "repeats": {
+          "items": {
+            "$ref": "#/$defs/ConsolidationRepeat"
+          },
+          "title": "Repeats",
+          "type": "array"
+        },
+        "request_message_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Request Message Ids",
+          "type": "array"
+        },
+        "signature_present": {
+          "title": "Signature Present",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "user_input_sha256": {
+          "title": "User Input Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "consolidation_id",
+        "status",
+        "user_input_sha256",
+        "request_message_ids",
+        "signature_present"
+      ],
+      "title": "DossierConsolidation",
       "type": "object"
     },
     "DossierLimits": {
@@ -869,6 +1326,21 @@
         }
       ],
       "default": null
+    },
+    "consolidations": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DossierConsolidation"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Consolidations"
     },
     "dossier_sha256": {
       "pattern": "^[0-9a-f]{64}$",

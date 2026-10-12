@@ -12,6 +12,7 @@ This document describes the dossier: the one JSON object you receive for one tas
 - how to build a JSON Pointer
 - lenses and modes
 - a translation and its formal problem
+- consolidations of the answers several agents gave to one input (informed mode)
 - the facts about the system you can rely on
 
 **It does not cover.** Other documents handle these:
@@ -48,6 +49,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code.
   "links": { "forwards": [...], "peer_documents": [...], "synthesis_citations": [...], "translations": [...] },
   "index": [ {"type": "...", "id": "...", "pointer": "..."} ],
   "auditor": { "findings": [...] },                   informed mode only
+  "consolidations": [ {...} ],                         informed mode only, when several agents answered one input
   "limits": { "truncated_fields": [...] }
 }
 ```
@@ -167,7 +169,26 @@ Each entry of `transfers` has these fields:
   A `grounding` says where a symbol or assertion comes from: its `kind` (`quotation`, `supplied_text`, `task_setting`, `rubric_rule`, `arithmetic_fact`, `specialist_inference`, `assumption`, `knowledge_document`, `library_source` or `general_knowledge`), its `source_refs` (each with `document_id` and `excerpt`), its `certainty`, and `verified`, which only code sets: true when the excerpt was found in the named document, false when it was not, null when nothing could be checked.
 - **D23 What a result says about a translation.** ENTAILED means the premises, as encoded, imply the conclusion, as encoded. It never means that the encoding says what the claim says, nor that the claim is true. An AMBIGUOUS_TRANSLATION is displayed as AMBIGUOUS_TRANSLATION whatever the engine found.
 
-## 11. Facts you can rely on
+## 11. Consolidations
+
+- **D24 When there are consolidations.** `consolidations` appears only in informed mode, and only when several agents answered one input (Role and trust T14). Each entry is the infrastructure's signed consolidated response for one input. Its own pointer is `at` (for example `/consolidations/0`). Build every pointer into it from `at`. It copies no agent text: it names transfers by `message_id` and points at them with `transfer_pointer`.
+- **D25 A consolidation.** Each entry has:
+  - `consolidation_id`, and `signature_present`;
+  - `status`: CONSOLIDATED (one group, a clean representative, nothing excluded), CONSOLIDATED_WITH_FINDINGS (one group, with something excluded, repeated or not clean), CONFLICTING (two or more groups, or a conflict: no answer is chosen) or NO_DELIVERABLE_OUTPUT (every answer excluded);
+  - `user_input_sha256` (the input) and `request_message_ids` (the requests that carried it);
+  - `deliverable_message_id`: the one answer the router may deliver, or null; it is null unless the status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS;
+  - `groups`, `excluded`, `repeats`, `conflicts` and `advisory` (D26, D27).
+- **D26 Groups.** A group holds answers the infrastructure found to be the same. It has `group_id`, `basis`, `members`, `canonical_message_id`, `canonical_clean` and `merge_check`.
+  - `basis` is `single` (one answer), `identical_text` (the same `original_response`, apart from the typographic differences of Inspection I9) or `same_material_claims` (other wording, but the same material claims with the same figures, dates and quotations, and a `merge_check` whose `relation` is `consistent`: the engine found their encodings consistent with each other).
+  - Each of the `members` has `message_id`, `agent_id`, `transfer_pointer` (the pointer of its transfer), `clean` (true when its receipt is ACCEPTED and nothing names it) and `finding_codes`.
+  - `canonical_message_id` is the representative: the earliest clean member. When no member is clean, it is the earliest member, and `canonical_clean` is false.
+- **D27 Excluded answers, repeats, conflicts and advisory notes.**
+  - `excluded`: each answer kept out of every group, with `message_id`, `agent_id`, `transfer_pointer`, `codes` (the error codes that exclude it), `result_ids` (the signed results those findings cite), `repeated` and `reasons`.
+  - `repeats`: each repeated fault: its `code`, the answer that repeats it (`message_id`, `agent_id`, `transfer_pointer`), the earlier answer it repeats (`first_message_id`, `first_agent_id`, `first_transfer_pointer`), `occurrence` (2 for the first repeat) and `same_agent` (true when the same agent resubmitted it). A repeated fault is the same kind of fault, about the same quoted words or the same claim words, with the same figures, as in an earlier answer of the task.
+  - `conflicts`: groups that cannot be reduced to one answer: `group_ids`, `excluded_message_id` (an excluded answer that contradicts a group), `relation` (`contradiction`, `consistent`, `undecided` or `not_checked`) and `check` (the engine run behind the relation).
+  - `advisory`: answers that look the same that the engine could not confirm. They stay in separate groups and are never merged.
+
+## 12. Facts you can rely on
 
 - **D14 Statuses.** A receipt status is ACCEPTED, ACCEPTED_WITH_FINDINGS or REJECTED. A REJECTED transfer was **not delivered**: nothing in it reached the recipient, the pool or any record.
 - **D15 The response.** A report's `original_response` is the specialist's text as received. Every delivered claim should be carried by that text.
@@ -177,7 +198,7 @@ Each entry of `transfers` has these fields:
 - **D19 Signatures.** You cannot verify signatures. You see only `signature_present` and `signature_key_id` (Role and trust T7).
 - **D20 Claim ids.** A claim id is unique inside one report. Two reports may use the same claim id; name the `report_id` too.
 
-## 12. Common mistakes
+## 13. Common mistakes
 
 | Mistake | Do instead | Rule |
 | --- | --- | --- |
@@ -188,5 +209,7 @@ Each entry of `transfers` has these fields:
 | Quoting text past a truncation marker | Quote only the visible part | D11 |
 | Reading a REJECTED transfer as delivered | Remember it reached no one | D14 |
 | Reading ENTAILED as "the translation is faithful" | ENTAILED is about the encoding only; compare the problem with the claim | D23 |
+| Treating `canonical_message_id` as the right answer | It represents answers that are the same; it says nothing about truth | D26 |
+| Expecting `consolidations` in blind mode | Consolidations are shown in informed mode only | D24 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §2 and §3

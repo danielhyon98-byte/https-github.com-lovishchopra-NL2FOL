@@ -199,6 +199,7 @@ contract the infrastructure issues is listed.
 | `retrieval_result` | retrieval | |
 | `overseer_audit` | overseer | the transfer auditor's signed audit (`overseer/audit.py`): agent id `overseer-auditor`, envelope signed with `sign_message` under the audit subkey |
 | `overseer_verdict` | overseer | an overseer agent's verdict, wrapped and signed by the verdict intake (`overseer/intake.py`) under the intake subkey; the agent never builds its own envelope |
+| `consolidated_response` | overseer | the infrastructure's consolidation of answers several agents gave to one input (`overseer/consolidate.py`): agent id `overseer-consolidator`, envelope signed with `sign_message` under the consolidation subkey; no specialist, combinator or router may send one |
 
 The role alone grants no trust to the two Overseer contracts: trust comes from the key that signed them (audit key
 versus intake key), the contract and the schema. A verdict is an agent output: it is validated against the journal and

@@ -71,6 +71,16 @@ Evidence rule E9, E14; Verdict format V10; Kinds and codes (four translation kin
 ``receipt_altered``, K6, the ``OVS-TRN-*`` family); Never N4, N6; When unsure U10; Examples 14 to 17 (a faithful
 translation, a circular one, an invented figure, a flipped comparison) and three wrong-verdict rows. Schemas and the
 manifest were regenerated with ``export --refresh-source``.
+
+Edits the ``consolidation`` stage made to pack 1.0 (founder's requirement, design section 19; still unreleased, so extended
+in place and re-pinned, decision 37): the master prompt (step 4 and a SEVERAL INSTANCES section); Role and trust (a new
+§6 with T13, one of several instances, and T14, answers several agents gave to one input; Common mistakes now §7);
+Dossier guide (``consolidations`` in the dossier at a glance, a new §11 Consolidations with D24 to D27, renumbering Facts
+and Common mistakes to §12 and §13); Inspection (a new §11 with I82 to I89 on consolidations and repeated faults, Common
+mistakes now §12); Kinds and codes K7 and the ``OVS-CONS-*`` and ``OVS-REP-*`` families; Never N13; When unsure U11;
+Examples 18 and 19 (a consolidation whose repeated fault is already recorded; a fault repeated by a duplicated instance)
+and two wrong-verdict rows; the deployer README's §8 Several instances. The dossier schema gained the optional
+``consolidations`` section; it and the manifest were regenerated with ``export --refresh-source``.
 """
 from __future__ import annotations
 
@@ -110,7 +120,7 @@ PACK_VERSION = "1.0"
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
-    (PACK_NAME, "1.0"): "ffad92f92b0f4f704abe7a8ab67ca26f31acaebc81454199e61700f296ad0a4d",
+    (PACK_NAME, "1.0"): "668bd996ab5a67b95f35c5561d253443f9035ae8a8f77726fd834b2b00114193",
 })
 
 MANIFEST_VERSION = "1.0"

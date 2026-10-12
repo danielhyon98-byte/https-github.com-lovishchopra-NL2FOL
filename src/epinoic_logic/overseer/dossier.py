@@ -51,7 +51,13 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.2, listed as each stage re
   the pointer of its translation, of its claim and of the claims that claim cites (``supporting_claim_ids`` found in the
   same report: what the translator was given as the claim), and the result id the outcome cites. The translation itself
   (status, eligibility, problem, interpretation with its ambiguity flags, grounding checks, provider, diagnostics) is the
-  receipt's outcome as journaled, already in the transfer.
+  receipt's outcome as journaled, already in the transfer;
+* consolidation (design section 19): in informed mode, ``consolidations`` lists the signed consolidated responses of the
+  channel (one per input several agents answered, the latest of each), each with its own pointer ``at``: its status, its
+  groups (members with the pointer of their transfer, the representative, the merge check), the excluded answers with
+  their codes and signed results, the conflicts, the repeated faults and the advisory notes. Blind mode carries none
+  (an exclusion can rest on an auditor finding). A dossier issued without consolidations has no ``consolidations`` member,
+  so its digest is what it was before the section existed.
 """
 from __future__ import annotations
 
@@ -73,7 +79,8 @@ from .view import OverseerView, Transfer, cited_results
 __all__ = [
     "Dossier", "DossierTransfer", "DossierReceipt", "DossierResult", "DossierBinding", "DossierParty", "DossierPoolEntry", "DossierLinks",
     "ForwardLink", "PeerDocumentLink", "SynthesisCitation", "TranslationLink", "IndexEntry", "IndexType", "DossierAuditor", "DossierLimits", "TruncatedField",
-    "DossierTask", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
+    "DossierTask", "DossierConsolidation", "ConsolidationMember", "ConsolidationGroup", "ConsolidationCheck", "ConsolidationExcluded",
+    "ConsolidationConflict", "ConsolidationRepeat", "ConsolidationAdvisory", "consolidation_entry", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
     "visible_text", "truncated_pointers", "dossier_identifiers", "dossier_json", "TRUNCATE_AT", "TRUNCATION_MARKER", "RECEIPT_FIELDS",
 ]
 
@@ -83,7 +90,7 @@ TRUNCATE_AT = 20_000
 TRUNCATION_MARKER = "…[truncated]"
 #: The receipt fields a dossier shows (the receipt's identifiers and direction are on the transfer itself).
 RECEIPT_FIELDS = ("status", "findings", "coverage", "constraint_results", "outcomes", "structural_findings", "formal_checks", "formal_result_ids", "summary")
-_TRUNCATED_SECTIONS = ("task", "transfers", "results", "links", "auditor")
+_TRUNCATED_SECTIONS = ("task", "transfers", "results", "links", "auditor", "consolidations")
 
 IndexType = Literal["message", "receipt", "report", "claim", "synthesized_claim", "result", "document", "conflict"]
 TransferKind = Literal["request", "response", "response_text", "relay_forward", "relay_report", "relay_synthesis"]
@@ -242,6 +249,91 @@ class DossierTask(BaseModel):
     plan: Optional[dict[str, Any]] = None
 
 
+class ConsolidationCheck(BaseModel):
+    """An engine run of the consolidation (an Overseer run): its relation, status and result id."""
+    model_config = _FORBID
+    relation: str
+    status: Optional[str] = None
+    result_id: Optional[str] = None
+    detail: str = ""
+
+
+class ConsolidationMember(BaseModel):
+    model_config = _FORBID
+    message_id: str
+    agent_id: Optional[str] = None
+    transfer_pointer: Optional[str] = None
+    clean: bool
+    finding_codes: list[str] = Field(default_factory=list)
+
+
+class ConsolidationGroup(BaseModel):
+    model_config = _FORBID
+    group_id: str
+    basis: str
+    members: list[ConsolidationMember]
+    canonical_message_id: str
+    canonical_clean: bool
+    merge_check: Optional[ConsolidationCheck] = None
+
+
+class ConsolidationExcluded(BaseModel):
+    model_config = _FORBID
+    message_id: str
+    agent_id: Optional[str] = None
+    transfer_pointer: Optional[str] = None
+    codes: list[str] = Field(default_factory=list)
+    result_ids: list[str] = Field(default_factory=list)
+    repeated: bool = False
+    reasons: list[str] = Field(default_factory=list)
+
+
+class ConsolidationConflict(BaseModel):
+    model_config = _FORBID
+    conflict_id: str
+    group_ids: list[str]
+    excluded_message_id: Optional[str] = None
+    relation: str
+    check: Optional[ConsolidationCheck] = None
+
+
+class ConsolidationRepeat(BaseModel):
+    model_config = _FORBID
+    code: str
+    message_id: str
+    agent_id: Optional[str] = None
+    transfer_pointer: Optional[str] = None
+    first_message_id: str
+    first_agent_id: Optional[str] = None
+    first_transfer_pointer: Optional[str] = None
+    occurrence: int
+    same_agent: bool
+
+
+class ConsolidationAdvisory(BaseModel):
+    model_config = _FORBID
+    group_ids: list[str] = Field(default_factory=list)
+    message_ids: list[str] = Field(default_factory=list)
+    reason: str
+
+
+class DossierConsolidation(BaseModel):
+    """A signed consolidated response of the channel, as an overseer agent reads it (informed mode only)."""
+    model_config = _FORBID
+    at: str = Field(pattern=r"^/consolidations/(0|[1-9][0-9]*)$")
+    consolidation_id: str
+    status: str
+    user_input_sha256: str
+    request_message_ids: list[str]
+    deliverable_message_id: Optional[str] = None
+    groups: list[ConsolidationGroup] = Field(default_factory=list)
+    excluded: list[ConsolidationExcluded] = Field(default_factory=list)
+    conflicts: list[ConsolidationConflict] = Field(default_factory=list)
+    repeats: list[ConsolidationRepeat] = Field(default_factory=list)
+    advisory: list[ConsolidationAdvisory] = Field(default_factory=list)
+    signature_present: bool
+
+
 class Dossier(BaseModel):
     """Dossier ``1.0``. Validate the JSON object with ``Dossier.model_validate(obj)``; the digest is computed over the
     JSON object itself (:func:`dossier_digest`), never over a re-serialised model."""
@@ -259,6 +351,7 @@ class Dossier(BaseModel):
     links: DossierLinks
     index: list[IndexEntry]
     auditor: Optional[DossierAuditor] = None
+    consolidations: Optional[list[DossierConsolidation]] = None
     limits: DossierLimits
 
     @model_validator(mode="after")
@@ -268,6 +361,12 @@ class Dossier(BaseModel):
         for i, t in enumerate(self.transfers):
             if t.at != f"/transfers/{i}":
                 raise ValueError(f"transfer {i} carries the pointer {t.at!r}")
+        if self.consolidations is not None:
+            if self.mode != "informed":
+                raise ValueError("consolidations are shown in informed mode only")
+            for i, c in enumerate(self.consolidations):
+                if c.at != f"/consolidations/{i}":
+                    raise ValueError(f"consolidation {i} carries the pointer {c.at!r}")
         return self
 
 
@@ -609,11 +708,46 @@ def _truncate(dossier: dict) -> list[dict]:
     return cut
 
 
-def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None) -> dict:
+def _check_entry(c: Any) -> Optional[dict]:
+    if c is None:
+        return None
+    return {"relation": c.relation, "status": c.status, "result_id": c.result_id, "detail": c.detail}
+
+
+def consolidation_entry(resp: Any, index: int, at_of: dict[str, str]) -> dict:
+    """The dossier entry of one consolidated response: identifiers, statuses, codes and the pointers of the transfers
+    it names (``at_of`` maps a message id to its transfer's pointer). No agent text is copied into it."""
+    def at(mid: Optional[str]) -> Optional[str]:
+        return at_of.get(mid) if mid else None
+
+    return {
+        "at": f"/consolidations/{index}", "consolidation_id": resp.consolidation_id, "status": resp.status, "user_input_sha256": resp.user_input_sha256,
+        "request_message_ids": list(resp.request_message_ids), "deliverable_message_id": resp.deliverable_message_id,
+        "groups": [{"group_id": g.group_id, "basis": g.basis,
+                    "members": [{"message_id": m.message_id, "agent_id": m.agent_id, "transfer_pointer": at(m.message_id), "clean": m.clean,
+                                 "finding_codes": list(m.finding_codes)} for m in g.members],
+                    "canonical_message_id": g.canonical_message_id, "canonical_clean": g.canonical_clean, "merge_check": _check_entry(g.merge_check)}
+                   for g in resp.groups],
+        "excluded": [{"message_id": e.message_id, "agent_id": e.agent_id, "transfer_pointer": at(e.message_id), "codes": list(e.codes), "result_ids": list(e.result_ids),
+                      "repeated": e.repeated, "reasons": list(e.reasons)} for e in resp.excluded],
+        "conflicts": [{"conflict_id": c.conflict_id, "group_ids": list(c.group_ids), "excluded_message_id": c.excluded_message_id, "relation": c.relation,
+                       "check": _check_entry(c.check)} for c in resp.conflicts],
+        "repeats": [{"code": r.code, "message_id": r.message_id, "agent_id": r.agent_id, "transfer_pointer": at(r.message_id), "first_message_id": r.first_message_id,
+                     "first_agent_id": r.first_agent_id, "first_transfer_pointer": at(r.first_message_id), "occurrence": r.occurrence, "same_agent": r.same_agent}
+                    for r in resp.repeats],
+        "advisory": [{"group_ids": list(n.group_ids), "message_ids": list(n.message_ids), "reason": n.reason} for n in resp.advisory],
+        "signature_present": bool(resp.signature),
+    }
+
+
+def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None,
+                  consolidations: Any = ()) -> dict:
     """The dossier of ``view`` for one agent under one pack, as a JSON object (validated against :class:`Dossier`).
 
     ``mode`` is ``blind`` (no auditor finding) or ``informed`` (the ``OVS-*`` findings of ``audit``, which is then
-    required). The view must be built from a journal: a degraded view has no reference copy and is refused."""
+    required). The view must be built from a journal: a degraded view has no reference copy and is refused.
+    ``consolidations`` are consolidated responses of this channel (the caller verifies their signatures); they are shown
+    in informed mode only, and a dossier without any has no ``consolidations`` member."""
     if mode not in MODES:
         raise ValueError(f"unknown dossier mode {mode!r}")
     if lens not in LENSES:
@@ -660,6 +794,13 @@ def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pa
     }
     if mode == "informed":
         dossier["auditor"] = {"findings": [f.model_dump(mode="json", exclude_none=True) for f in audit.report.findings if not is_agent_code(f.code)]}
+        shown = list(consolidations or ())
+        for c in shown:
+            if getattr(c, "channel_uid", None) != view.channel_uid:
+                raise ValueError("a consolidated response of another channel is never shown in this dossier")
+        if shown:
+            at_of = {tr["message_id"]: tr["at"] for tr in transfers if tr.get("message_id")}
+            dossier["consolidations"] = [consolidation_entry(c, i, at_of) for i, c in enumerate(shown)]
     dossier["limits"] = {"truncated_fields": _truncate(dossier)}
     dossier = json.loads(canonical_json(dossier))  # plain JSON values only (no tuples, no model objects)
     dossier["dossier_sha256"] = dossier_digest(dossier)

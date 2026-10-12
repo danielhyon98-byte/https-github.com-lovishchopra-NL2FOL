@@ -33,7 +33,15 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
 * the observer hook and live operation: the router policy (:func:`may_act`, :func:`may_release`,
   :func:`check_before_acting`, :data:`MAX_PENDING_WAIT_MS`). The hook itself lives in the channel
   (``TranslatorChannel(observers=...)``) and the hub (``RouterHub(observers=..., auditor=...)``), which never import
-  this package unless an auditor is attached.
+  this package unless an auditor is attached;
+* consolidation and self-duplication (design section 19): ``consolidate.consolidate`` (not re-exported here, so the
+  name ``consolidate`` stays the submodule) and the signed
+  :class:`ConsolidatedResponse` (``consolidated_response/1.0``) when several agents answer one input, with
+  :func:`delivery_decision` / :func:`may_deliver` for the router and :func:`check_consolidation` (OVS-CONS-004);
+  repeated-fault signatures and detection (:func:`detect_repeats`, :class:`RepeatReport`, OVS-REP-001); and the overseer
+  pool (:class:`OverseerPool`, :func:`plan_pool`, :class:`PoolPlan`) that decides how many overseer-agent instances,
+  all from one loaded pack, review a batch. The hub's entry points are ``RouterHub.consolidate``, ``repeats`` and
+  ``review_pool``.
 
 A verdict is advisory and decides nothing: only a deterministic check's ``OVS-*`` finding reaches the router, and
 ``OVS-AGENT-*`` findings never change a clearance.
@@ -79,6 +87,16 @@ from .policy import (  # noqa: F401,E402
     ACTABLE_STATES, MAX_PENDING_WAIT_MS, PolicyDecision, act_decision, bounded_wait_ms, check_before_acting, may_act, may_release, receipt_digest,
     release_decision,
 )
+
+# ---------------------------------------------------------------------------------------- consolidation, repeated faults, the overseer pool
+from .repeats import SIGNATURE_RULE, FaultOccurrence, RepeatRecord, RepeatReport, content_form, detect_repeats, fault_occurrences, figures_of  # noqa: F401,E402
+from .consolidate import (  # noqa: F401,E402
+    CONSOLIDATED_CONTRACT, CONSOLIDATION_STATUSES, DELIVERABLE_STATUSES, AdvisoryNote, ConsolidatedGroup, ConsolidatedMember, ConsolidatedResponse,
+    ConsolidationDecision, EngineCheck, ExcludedOutput, GroupConflict, check_consolidation, consolidation_envelope, delivery_decision, may_deliver,
+    sign_consolidated, verify_consolidated,
+)
+from .pool import DEFAULT_MAX_INSTANCES, MODEL_TIER, OverseerPool, PoolConfig, PoolItem, PoolPlan, plan_pool  # noqa: F401,E402
+from .keys import CONSOLIDATION_KEY_ID  # noqa: F401,E402
 
 _EXPORTER_NAMES = frozenset({"export_pack", "verify_export", "ExportError", "ExportResult"})
 

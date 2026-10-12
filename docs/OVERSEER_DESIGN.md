@@ -3,7 +3,8 @@
 Status: design for the `overseer-build` branch. Nothing described here is built, tested or
 deployed until `docs/OVERSEER_RESULTS.md` records it with evidence; the `audit`, `protocol`,
 `knowledge` and `hook` stages (section 14) are built, the last with translator oversight (section 18),
-and the `harness` stage is built without its stress script (decision 35). An overseer agent's whole configuration is the knowledge-document pack
+the `harness` stage is built without its stress script (decision 35), and the `consolidation` stage (section 19:
+consolidated responses, repeated faults and the self-duplicating overseer pool) is built. An overseer agent's whole configuration is the knowledge-document pack
 `src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.0/` (section 17), which replaces
 the former agent brief; `docs/OVERSEER_AGENT_BRIEF.md` is now only a pointer to the pack.
 
@@ -141,6 +142,17 @@ after the `audit` stage was built. None of them changes the audit's behaviour.
 | 35 | Stress testing in the harness | **Not built.** The founder's instruction after the bug fixes: no stress tests, latency benchmarks or load tests; behaviour with many agents is tested later by the multi-agent scalability tests. `scripts/overseer/stress_overseer.py` (section 13.6) is not written, and the stage's acceptance omits the stress budgets of section 12. |
 | 36 | A recall gap the harness found | **Corrected in `checks/translation.py`.** The tampering suite's T22g on the recorded r5 translations showed that OVS-TRN-006 compared only the leaves of a premise's conjunction tree, so a conclusion that is itself a conjunction, assumed verbatim as a premise, was not flagged. Every node of the tree is now compared; the meaning of the code is unchanged and a test pins the case. |
 
+The founder's requirement of consolidation and overseer self-duplication (section 19) added these decisions. None of them
+changes the audit's behaviour, the channel or the translator.
+
+| # | Point | Decision and reason |
+| --- | --- | --- |
+| 37 | Where consolidation and repeats live, and pack 1.0 | **Outside the task audit, in their own signed contract.** `consolidate.py` produces `consolidated_response/1.0`, signed under a new `consolidation` subkey (key id `overseer-consolidation`), and `repeats.py` a deterministic repeat report. Their `OVS-CONS-*` and `OVS-REP-001` codes are never in a task audit, so no clearance changes: an answer with a repeated fault already carries the error-level fault its signature came from, and the router delivers an answer of a consolidation only through `delivery_decision`. Dossier `1.0` gains an optional `consolidations` section and pack `1.0` the rules to review it, in place: neither had been released (decision 33's reason), and a dossier without consolidations is byte-identical to the one issued before. The pinned digest moved. |
+| 38 | What "the same answer" is | **Two levels, both deterministic.** Identical text under the fidelity normalisation (no case folding), or the same material-claim key (content form, figures with scale words, dates, quoted phrases) confirmed by a signed engine CONSISTENT over the members' formalized material claims, with at least one claim of every level-1 group in the pool. Anything the engine does not confirm stays in separate groups with an advisory note: semantic sameness the engine cannot decide never merges groups. |
+| 39 | Pooling several agents' claims | **Every pooled claim is renamed per answer** (`k1`, `k2`, ... mapped to `<message_id>#<claim_id>`). The channel's own pool is keyed by claim id, so two duplicated instances using the same claim ids replace each other there and the channel names no conflict between them; the consolidation's engine checks never collide. This is reported, not changed: the channel's rules are out of scope (section 15). |
+| 40 | A conflict with an excluded answer | **Disclosed.** An answer the channel excluded for INT-CONFLICT-001 contradicts a group only because it came later; excluding it alone would choose the earlier group by timing. The consolidation records the conflict with that group, and the status is CONFLICTING. |
+| 41 | The pool's size and its instances | **One by default; `ceil(review units / quota)` when over the quota (a repeated-fault dossier counts twice); at least two when any dossier has a repeated fault; never past `max_instances` (default 4, at least 2, at most 64).** The cap is disclosed (`capped`, `over_quota`), never exceeded. Instances are `OverseerAgentRunner`s built from the pool's one loaded pack, reviewed through `hub.review`, which checks that the runners are exactly the plan's instances and records the plan in the signed verdicts audit. The cheapest model tier is the declared deployment tier (`model_tier`); no model is named or called. |
+
 ## 3. Threat model
 
 These are the faults the audit exposes.
@@ -202,6 +214,10 @@ overseer agents:  load_pack(exported dir or installed) ─► KnowledgePack (dig
                   ─► reply text (data) ─► VerdictIntake.submit (strict parse, contract, dossier + pack binding, signed envelope)
                   ─► validate_overseer_verdict ─► combine_verdicts ─► signed verdict assessment (OVS-AGENT-*)
                   (an external deployment replaces the runner and provider; the reply text enters at the same intake)
+several agents, one input:  hub.consolidate(task_key) ─► repeats.detect_repeats(views, audits) ─► consolidate(view, audit)
+                  ─► signed ConsolidatedResponse (groups, representative, exclusions, conflicts, repeats) ─► delivery_decision
+batch of tasks:   hub.review_pool(task_keys, OverseerPool) ─► plan_pool (1 instance by default, 2+ on repeats, ≤ max)
+                  ─► hub.review(task, the plan's instances, pool_plan) per task ─► combine_verdicts (unchanged rule)
 ```
 
 The key property is that the event is built inside the channel call, before the hub returns
@@ -236,6 +252,10 @@ later code does to the shared objects. This is what closes G2, G3 and G4.
 | Exporter | `overseer/export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify`, `--refresh-source` (section 17.7) |
 | Agent runner | `overseer/runner.py` | `OverseerAgentRunner`: model input from a loaded pack and a dossier, one provider call, reply handed to the intake as data (section 17.9) |
 | Completion entry point | `translate/providers/base.py` (+ vendor providers, fixture) | `CompletionProvider.complete(system, user, *, prompt_version)`; public form of the providers' existing `_complete` |
+| Repeated faults | `overseer/repeats.py` | fault signatures, `detect_repeats`, `RepeatReport` (OVS-REP-001), counts per agent (section 19.3) |
+| Consolidation | `overseer/consolidate.py` | `consolidate`, `ConsolidatedResponse` (`consolidated_response/1.0`), signing, `delivery_decision`, `check_consolidation` (section 19.2) |
+| Overseer pool | `overseer/pool.py` | `plan_pool`, `PoolPlan`, `OverseerPool`: how many instances, from one loaded pack (section 19.4) |
+| Hub entry points | `branches/hub.py` | `consolidate`, `consolidations`, `repeats`, `review_pool`; `review(..., pool_plan=)` (section 19.5) |
 
 ## 5. Channel hook, journal, result store and keys
 
@@ -368,8 +388,8 @@ from `bus.py`.
 `KeyRing(engine_keys: Mapping[str, EngineKey(secret, scope="local" | "external")], overseer_secret)`.
 
 - **Subkey derivation.** Subkeys are `derive(label) = HMAC-SHA256(overseer_secret,
-  "epinoic-overseer/" + label + "/v1")`. The labels are `journal`, `audit`, `runs`, `sampling`
-  and `intake`.
+  "epinoic-overseer/" + label + "/v1")`. The labels are `journal`, `audit`, `runs`, `sampling`,
+  `intake` and `consolidation` (added by the consolidation stage; key id `overseer-consolidation`).
 - **Construction checks.** Construction fails if `overseer_secret` is shorter than 32 bytes or
   equals any engine key.
 - **Key ids.**
@@ -1231,6 +1251,7 @@ anything but a loaded pack.
 | `knowledge` | built and committed | the pack's schemas, manifest and deployer README; the loader, exporter and runner; the completion entry point; package data; drift tests (section 17) |
 | `hook` | built, with translator oversight (section 18) | the observer hook, hub integration and live operation, router policy, READMEs and package exports |
 | `harness` | built, without the stress script (decision 35) | the tampering suite, dossier export, verdict scoring, and the contained harness configured only from an exported pack |
+| `consolidation` | built (section 19) | consolidated responses, repeated faults, the self-duplicating overseer pool, the hub entry points, the pack's rules for them |
 
 ### Stage `audit`: the deterministic transfer audit, the result store and the signed IntegrityReport
 
@@ -1425,6 +1446,34 @@ no `stress_overseer.py`; T22 adds the founder's meaning faults of translations; 
 leaves alone the channels of the five tests whose subject is a channel's own observer list; the
 OVS-TRN-006 correction of decision 36 (`checks/translation.py`).
 
+### Stage `consolidation`: consolidated responses, repeated faults and the self-duplicating overseer pool
+
+Founder's requirement (section 19; decisions 37 to 41). Built. Files:
+
+- New:
+  - `src/epinoic_logic/overseer/repeats.py`, `consolidate.py`, `pool.py`
+  - `tests/overseer/test_consolidation_consolidate.py`, `test_consolidation_repeats.py`, `test_consolidation_pool.py`,
+    `test_consolidation_dossier.py`
+- Edited:
+  - `src/epinoic_logic/overseer/codes.py` (OVS-CONS-001..004, OVS-REP-001), `keys.py` (the `consolidation` subkey),
+    `dossier.py` (the optional `consolidations` section, informed mode only), `intake.py` (`issue(consolidations=)`, refusal
+    reason `consolidation`), `pack.py` (the pinned digest), `__init__.py` (exports)
+  - `src/epinoic_logic/integrity/envelope.py`: `ROLE_CONTRACTS["consolidated_response"] = {OVERSEER}`
+  - `src/epinoic_logic/branches/hub.py`: `consolidate`, `consolidations`, `repeats`, `review_pool`, `PoolReview`;
+    `review(..., pool_plan=)` and informed dossiers showing the channel's latest consolidated response per input
+  - the pack: `master_prompt.txt`, `01`, `02`, `03`, `06`, `07` (Examples 18 and 19), `08`, `09`, the deployer `README.md`;
+    `dossier.schema.json` and `manifest.json` regenerated with `export --refresh-source`
+  - tests whose exact expectations pin the code table (`test_audit_signed_report.py`: 70 codes), the rule ranges and the
+    field names of the pack (`test_knowledge_drift.py`) and the worked examples (`test_knowledge_examples.py`: 19)
+  - this document, `docs/OVERSEER_AGENT_BRIEF.md` unchanged (a pointer), and the READMEs of the repository, `overseer/`,
+    `branches/` and `integrity/`
+
+Not built, by the founder's instruction: stress tests. Acceptance: the tests above (duplicated identical answers;
+near-duplicates differing in one figure never merged; a faulty answer repeated by two agents; a rejected answer
+resubmitted with a trivial rewording; conflicting groups disclosed; the pool plan for 1, 10 and 60 dossiers with and
+without repeats; the maximum never exceeded), the full suite green, and the arena r3 run unchanged (41/41; its
+`results.json` identical to the committed code's apart from ids, times and the round directory's name).
+
 ## 15. Out of scope
 
 - Arbitrary code execution inside the hub process. Such code can read the overseer secret and
@@ -1515,6 +1564,11 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-AUDIT-002 | warning | audit coverage lost (eviction, capture inactive, digest-only journal, queue overflow, degraded view) |
 | OVS-AUDIT-003 | info | live replay sampled (k of n replayed) |
 | OVS-AUDIT-004 | error | no verification key configured for a declared key id in use |
+| OVS-CONS-001 | warning | an answer excluded from a consolidated response (error-level finding on its receipt or in the task audit, clearance not passed, not delivered, or a repeated fault; names the codes and the signed results) |
+| OVS-CONS-002 | warning | answers to one input conflict: two or more groups, or a contradiction between a group and an excluded answer; disclosed, none chosen |
+| OVS-CONS-003 | info | answers with the same material-claim key kept apart: the engine did not confirm them mutually consistent (advisory; never merged) |
+| OVS-CONS-004 | error | a consolidated response that does not verify under the consolidation key, or that a recomputation from the journal does not reproduce |
+| OVS-REP-001 | error | a repeated fault: an error-level fault whose signature already occurred earlier in the same task; never delivered or consolidated |
 | OVS-AGENT-001 | error | an overseer agent's statement is refuted by a verified signed result or a deterministic check |
 | OVS-AGENT-002 | warning | an accusation's identifiers or evidence pointers do not resolve |
 | OVS-AGENT-003 | info | accusation confirmed; the router acts on the confirming `OVS-*` finding |
@@ -1564,18 +1618,19 @@ is the first. Several versions may sit side by side.
 ```
 overseer-knowledge-docs-1.0/
   master_prompt.txt       read first: the fixed procedure, the non-negotiables, lenses and modes, the authority order
-  01-role-and-trust.md    Role and trust: the system, the job, what may be trusted, what a verdict is worth (T1-T12)
-  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, translations, the facts (D1-D23)
+  01-role-and-trust.md    Role and trust: the system, the job, what may be trusted, what a verdict is worth, several instances (T1-T14)
+  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, translations, consolidations, the facts (D1-D27)
   03-inspection.md        Inspection: the checks per transfer type: request, response, response_text,
-                          relay_forward, relay_report, relay_synthesis, and every translation (I1-I68, I70-I81)
+                          relay_forward, relay_report, relay_synthesis, every translation, consolidations and repeated faults
+                          (I1-I68, I70-I81, I82-I89)
   04-evidence.md          Evidence rule: identifiers, pointers, quotes, absences, engine statements (E1-E15)
   05-verdict-format.md    Verdict format: the skeleton, every field rule, the final check (V1-V20)
   06-kinds-and-codes.md   Kinds and codes: the closed list of kinds with their confirming checks, how to choose,
-                          the INT-* and OVS-* codes the agent meets, the OVS-AGENT-* codes that score it (K1-K6)
-  07-examples.md          Examples: 17 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch, translations)
-                          with their correct verdicts, and a table of wrong verdicts (X1-X3)
-  08-never.md             Never: what the agent must never do (N1-N12)
-  09-when-unsure.md       When unsure: no dossier, pack mismatch, unpinnable suspicions, meaning-only faults (U1-U10)
+                          the INT-* and OVS-* codes the agent meets, the OVS-AGENT-* codes that score it (K1-K7)
+  07-examples.md          Examples: 19 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch, translations,
+                          consolidations) with their correct verdicts, and a table of wrong verdicts (X1-X3)
+  08-never.md             Never: what the agent must never do (N1-N13)
+  09-when-unsure.md       When unsure: no dossier, pack mismatch, unpinnable suspicions, meaning-only faults (U1-U11)
   README.md               for deployers, never sent to a model                                  (knowledge stage)
   verdict.schema.json     generated from AgentVerdict                                            (knowledge stage)
   dossier.schema.json     generated from Dossier                                                 (knowledge stage)
@@ -1834,7 +1889,8 @@ The exported `README.md` (audience `deployer`) tells whoever deploys the pack:
   a MINOR pack version (a When unsure rule) plus a runner option, measured first.
 - Translations of the pack for non-English-tuned models would each be a pack of their own version,
   accepted through `trusted` until pinned.
-- The cheapest-tier fit of the pack (about 20,700 words of system text since translator oversight, up from 16,600)
+- The cheapest-tier fit of the pack (about 23,800 words of system text since the consolidation stage, 20,700 after
+  translator oversight, 16,600 at first)
   is to be measured by the harness: invalid-verdict rate, AGENT-002 rate, contradictions with signed results.
 
 ## 18. Translator oversight
@@ -1923,3 +1979,122 @@ the full `TranslationResult`, read from the journal.
 
 No check compares meanings: whether an IR says what its claim says is decided by no code, and an agent's view of it is
 advisory. Whether a claim is true is never in question. Results prove properties of the encoding only.
+
+## 19. Consolidation and overseer self-duplication
+
+### 19.1 Requirement
+
+When several specialist agents answer the same user input (duplicated instances of one specialist, or several
+specialists), the router must receive ONE consolidated response, produced by the infrastructure: equivalent answers
+grouped deterministically, a representative per group, every answer with an error-level fault excluded, and conflicts
+between groups disclosed instead of resolved by choosing. A fault that comes back in the same task (from another agent,
+a duplicated instance, or a resubmission after rejection, reworded or not) is a repeated fault: never delivered or
+consolidated, and counted per agent. The overseer agents duplicate themselves when the work needs it: a pool decides
+deterministically how many instances review a batch, every instance configured from the same exported pack, all of
+them advisory. Decisions 37 to 41.
+
+### 19.2 The consolidated response (`overseer/consolidate.py`)
+
+`consolidate(view, *, keyring, store, audit, request_message_ids=None, user_input_sha256=None, prior_views=(),
+prior_audits=None)` reads the journal view, the channel's signed task audit (it must verify, belong to the channel and
+cover the answers: an answer it does not cover is excluded) and the result store.
+
+1. **Input and answers.** The accepted requests carrying one input (equal `user_input_sha256`: named requests, a named
+   digest, or the channel's only input) and every `response` or `response_text` replying to one of them.
+2. **Exclusion.** An answer is excluded when it was not delivered (REJECTED, withheld, content not retained), when its
+   receipt or the task audit carries an error-level finding naming it (or the request it answers), when its clearance in
+   the audit is not passed, or when it repeats a fault. The record names the codes, the signed result ids the findings
+   cite (with the outcome results of the claims they name) and the reasons (OVS-CONS-001, warning).
+3. **Grouping.** Level 1: identical `original_response` under the fidelity normalisation (`checks.normalise`; no case
+   folding). Level 2 (rule `material-claim-key/1`): level-1 groups whose material claims (materiality `material`, role
+   not `other`) have equal keys, the key of a claim being its content form (`repeats.content_form`), its figures with
+   scale words and dates (`repeats.figures_of`) and its quoted phrases (`repeats.quotations_of`), merge only when the
+   engine confirms them: `check_cross_report_consistency` over every member's formalized material claims (outcomes
+   TRANSLATED or AMBIGUOUS_TRANSLATION, ambiguous ones as assumed readings), each claim renamed per answer (decision 39),
+   run unsigned and signed under `overseer-run` as an auditor run, memoised in the store. Only CONSISTENT, with at least
+   one formalized claim of every level-1 group in the pool, merges (basis `same_material_claims`, the check recorded as
+   `merge_check`). Otherwise the groups stay apart with an advisory note (OVS-CONS-003, info).
+4. **Representative.** The earliest member that is fully clean (receipt ACCEPTED, clearance AUDIT_PASSED); when none
+   is, the earliest member with `canonical_clean` false.
+5. **Conflicts.** Every pair of groups is a conflict, its relation decided by the engine over the two representatives'
+   formalized material claims (`contradiction`, `consistent`, `undecided`, `not_checked`; at most 64 pairs run), and an
+   excluded answer whose receipt names INT-CONFLICT-001 against a member's report is a conflict with that group
+   (decision 40). Each is OVS-CONS-002 (warning).
+6. **Status.** NO_DELIVERABLE_OUTPUT (no group), CONFLICTING (two or more groups, or any conflict;
+   `deliverable_message_id` null), CONSOLIDATED (one group, a fully clean representative, nothing excluded, repeated or
+   advisory), CONSOLIDATED_WITH_FINDINGS (one group otherwise).
+
+The response (`consolidated_response/1.0`) carries the groups (members, agents, representative, merge check), the
+exclusions, conflicts, advisory notes, the repeats among its answers, the task-wide repeat counts per agent, its findings,
+the task audit id, the journal head, every engine run id, the rules applied and the scope statement (the engine's plus:
+"This consolidation groups the recorded answers to one input by their normalised text and by their material claims,
+figures, dates and quotations as the engine checked their encodings. It does not show that any answer is true or that two
+answers mean the same beyond these rules."). It is signed under the `consolidation` subkey. `consolidation_envelope`
+carries it as an envelope from the Overseer role, which `ROLE_CONTRACTS` alone may send.
+
+- **Delivery.** `delivery_decision(resp, keyring, message_id=None)` allows only the `deliverable_message_id` of a
+  response that verifies and whose status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS. An excluded or repeated answer,
+  a member that is not the representative, a CONFLICTING or NO_DELIVERABLE_OUTPUT response, and an unsigned or edited
+  response are never delivered.
+- **Re-check.** `check_consolidation(resp, view, ...)` gives OVS-CONS-004 (error) when the response does not verify, or
+  when a recomputation from the journal with the same requests and task audit differs (the fields are named): a tampered
+  or a stale consolidation.
+
+### 19.3 Repeated faults (`overseer/repeats.py`)
+
+- **Faults.** Every error-level finding about an answer: on its receipt (an INT-SUBJ-003 branch rule signed under its
+  branch code), and the task audit's error-level `OVS-FID-*` and `OVS-TRN-*` findings naming it (what the agent said).
+  Infrastructure findings (custody, receipts, results) exclude an answer but are no fault of the agent's to repeat.
+- **Signature** (rule `fault-signature/1`): `sha256(canonical_json([rule, code, anchor_kind, anchor, figures]))`. The
+  anchor is the normalised quoted phrase for a source fault of claims that carry quotations (`quotation`), the normalised
+  offending claims otherwise (`claim`), or, for a finding that names no claim of the answer, its message with the
+  answer's own identifiers replaced by their type (`finding`). Figures are those of the anchor's source text. A rewording
+  that changes only case, punctuation, markdown, whitespace or articles keeps the signature; one that changes a word, a
+  figure or a quotation does not (and a new quotation around the same invented phrase keeps it).
+- **Repeats.** `detect_repeats(views, audits, keyring=)` walks the answers of one task in order (a reopened task's earlier
+  channels first; the audits must verify). Each answer contributes each signature once; the first occurrence is the
+  original, every later one a repeat (OVS-REP-001, error, naming both answers), counted against the repeating agent, with
+  `occurrence` and `same_agent`. The code never enters a task audit (decision 37).
+
+### 19.4 The overseer pool (`overseer/pool.py`)
+
+`plan_pool(items, config, pack)` over `PoolItem(key, repeated_faults)`: review units are one per dossier and two per
+repeated-fault dossier; instances are one by default, `ceil(units / per_instance_quota)` when more, at least two when any
+dossier has a repeated fault, and never more than `max_instances` (decision 41). Assignment is deterministic and
+independent of the input order (repeated-fault dossiers first, then key order; least-loaded instance, ties to the lower
+number; two distinct instances for a repeated-fault dossier). `PoolPlan` validates itself (never past its maximum, every
+dossier assigned to known distinct instances, two for a repeated fault) and carries its reasons, `capped` and
+`over_quota`. `OverseerPool(pack, provider_factory, config=)` holds one loaded `KnowledgePack`, records every plan it
+makes, and builds every instance as an `OverseerAgentRunner` from that pack with its own provider; it refuses a plan it
+did not make.
+
+### 19.5 Hub entry points (`branches/hub.py`)
+
+- `hub.consolidate(task_key, request_message_ids=None, user_input_sha256=None)`: the reference task audit (as `review`
+  takes it), the repeat report over the task's channels, then `consolidate`; the response is recorded
+  (`hub.consolidations(task_key)`).
+- `hub.repeats(task_key)`: the task's repeat report.
+- `hub.review_pool(task_keys, pool, mode=None)`: one item per task (keyed by channel uid, with its repeated faults), the
+  pool's plan, then `hub.review(task, pool.runners_for(plan, uid), pool_plan=plan)` per task. `review` checks that the
+  runners are exactly the plan's instances under its pack and records the plan in the signed verdicts audit's notes.
+- `hub.review` shows, in informed dossiers only, the channel's latest consolidated response per input (verified by the
+  intake, refused when it does not verify or belongs to another channel). A channel never consolidated gets exactly the
+  dossiers it got before.
+
+### 19.6 Overseer agents and the pack
+
+Informed dossiers carry `consolidations` (groups with member transfer pointers, exclusions with codes and result ids,
+repeats with both answers' pointers, conflicts, advisory notes; no agent text). The pack tells the agent that it may be
+one of several instances and reviews alone (Role and trust T13), what a consolidation is and that it never chooses an
+answer (T14, Never N13), how to read the section (Dossier guide D24 to D27), what to check (Inspection I82 to I89: every
+answer accounted for, members that say the same thing, the representative, faulty answers never members, conflicts
+disclosed, repeated faults accused once per transfer when no receipt names them), which kind to use (Kinds and codes K7:
+`other` for a consolidation concern; the fault's own kind for an unnamed repeat), when unsure (U11), and two worked
+examples (18 and 19). A consolidation concern is always unresolved (AGENT-004): an agent never changes a consolidation,
+a status or a clearance.
+
+### 19.7 What stays out of scope
+
+Deciding whether two differently worded answers mean the same beyond the deterministic rules and the engine; choosing
+between conflicting answers; changing the channel's pool, which is keyed by claim id (decision 39); stress tests (the
+founder's instruction).

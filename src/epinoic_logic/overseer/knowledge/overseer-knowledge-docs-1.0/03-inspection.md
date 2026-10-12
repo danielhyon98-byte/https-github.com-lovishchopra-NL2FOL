@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This document says what to check on each transfer. It applies to every transfer in every dossier. Walk the transfers in `seq` order. On each one, run the common checks (§3), then the checks for its `kind` (§4 to §9). On a transfer that delivered a report, also check every translation of its claims (§10).
+This document says what to check on each transfer. It applies to every transfer in every dossier. Walk the transfers in `seq` order. On each one, run the common checks (§3), then the checks for its `kind` (§4 to §9). On a transfer that delivered a report, also check every translation of its claims (§10). In informed mode, when several agents answered one input, also check each consolidation and every repeated fault (§11).
 
 **It covers:**
 
@@ -10,6 +10,7 @@ This document says what to check on each transfer. It applies to every transfer 
 - the common checks: status, summary, delivery, digests, identifiers
 - the checks for each kind of transfer: `request`, `response`, `response_text`, `relay_forward`, `relay_report`, `relay_synthesis`
 - the checks for every translation of a delivered claim
+- the checks for a consolidation of several answers to one input, and for repeated faults
 - what is not a fault
 
 **It does not cover.** Other documents handle these:
@@ -31,6 +32,7 @@ This document says what to check on each transfer. It applies to every transfer 
 8. A synthesis must account for every material claim and name every contradiction (I60 to I66).
 9. Typographic differences are not faults (I9).
 10. Every translation must say what its claim says, from the claim and the claims it cites; a conclusion found among its own premises proves nothing (I70 to I81).
+11. Several answers to one input: check each group, exclusion and conflict of the consolidation, and accuse an unnamed repeated fault on every transfer that carries it (I82 to I89).
 
 ## 3. Every transfer
 
@@ -174,7 +176,27 @@ The translator turned each eligible claim into a formal problem, and the engine 
   - a NOT_ELIGIBLE, UNSUPPORTED, INVALID_FORMALIZATION or TRANSLATION_FAILED translation without a problem, shown as that non-result;
   - whether the claim itself is true (Never N6).
 
-## 11. Common mistakes
+## 11. Consolidations and repeated faults
+
+These checks apply in informed mode, when the dossier has `consolidations` (Dossier guide D24). The infrastructure made each consolidation by fixed rules; you check that it agrees with the transfers it names. A consolidation fault is decided by no check: use kind `other` with `claimed_severity` `warning` (Kinds and codes K7).
+
+- **I82 Find each consolidation.** For each entry of `consolidations`, read `request_message_ids`, then the `groups`, the `excluded` answers, the `repeats` and the `conflicts`. Open every transfer they name at its `transfer_pointer`.
+- **I83 Every answer is accounted for.** Every `response` or `response_text` whose `in_reply_to` is one of `request_message_ids` must be a member of exactly one group or be listed in `excluded`. An answer missing from both, or listed twice: kind `other`, naming its `message_id`, with one pointer to the consolidation's `at` and one to the answer's transfer.
+- **I84 Members say the same thing.** In a group with `basis` `identical_text`, the members' `original_response` are the same text, apart from the differences in I9. In a group with `basis` `same_material_claims`, compare each member's material claims (`materiality` `material`, `claim_role` not `other`) with the representative's: the same claims, the same figures and dates, the same quoted words, the same "not". A member whose material claim differs in a figure, a date, a quotation, a negation or a name: kind `other`, with one pointer and quote for each of the two claims (When unsure U11).
+- **I85 The representative.** `canonical_message_id` must be a member of its group. When `canonical_clean` is true, that member's `clean` is true and its transfer's receipt `status` is ACCEPTED. An earlier member whose `clean` is true should have been chosen instead. Otherwise: kind `other`.
+- **I86 Faulty answers are never members.** An answer whose receipt carries a finding of severity `error`, or that `repeats` lists, must be in `excluded`, never in a group, and never be `deliverable_message_id`. A faulty answer in a group: kind `other`, naming the answer, with a pointer to its error finding and one to the group.
+- **I87 Conflicts are disclosed, never chosen.** With two or more groups, or any entry in `conflicts`, the `status` must be CONFLICTING and `deliverable_message_id` must be null: the router discloses the groups instead of choosing one. CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS with two groups or a conflict: kind `other`. Never decide yourself which group is right (Never N13).
+- **I88 Repeated faults.** A repeated fault is the same fault in a later answer of the task: the same kind of finding, about the same quoted words or the same claim words, with the same figures, from another agent, another instance of the same specialist, or the same agent resubmitting after a rejection, even reworded.
+  - When the receipts name the fault and `repeats` lists the repeat, it is already recorded: do not accuse it (I3).
+  - When you find the same fault in several transfers and no receipt names it (for example a self-certification delivered as content, or a figure the response does not state), accuse it on every transfer that carries it: one accusation per transfer, the same kind, each with that transfer's own identifiers and evidence. Say in `statement` which earlier transfer it repeats (Examples, Example 19).
+  - Never accuse a fault only because it repeats: each accusation is about one transfer.
+- **I89 Not faults in a consolidation.** Never accuse:
+  - answers worded differently that a group merged with `basis` `same_material_claims` and a `merge_check` whose `relation` is `consistent`;
+  - answers kept in two groups with an `advisory` note: the infrastructure does not merge what the engine could not confirm;
+  - a group with one member, or the number of agents in a group: agreement is never evidence;
+  - which group is true, better or more complete (Never N6, N13).
+
+## 12. Common mistakes
 
 | Mistake | Do instead | Rule |
 | --- | --- | --- |
@@ -189,5 +211,8 @@ The translator turned each eligible claim into a formal problem, and the engine 
 | `translation_circular` for a premise that means the same in another form | Use `translation_unfaithful` | I77 |
 | `translation_ungrounded` for words the specialist wrote in its own response | They are stated in the report; check only the document they cite | I76 |
 | `other` for a flipped comparison in a translation | Use `translation_unfaithful` | I78 |
+| Accusing a repeated quotation fault the receipts already name | Leave it; `repeats` records it | I88 |
+| One accusation for a fault found in three answers | One accusation per transfer that carries it | I88 |
+| Accusing the group fewer agents gave | Agreement is never evidence; check only that the conflict is disclosed | I87 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §4 (the three questions and every "Look for" entry of the kinds table)

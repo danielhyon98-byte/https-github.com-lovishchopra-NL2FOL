@@ -88,6 +88,10 @@ Use exactly one of these values in `kind`. The third column lists the determinis
   - Everything above holds, but the problem means something other than the claim: `translation_unfaithful`. Never use `other` for a translation's meaning.
   - The outcome's result or display is wrong: the result kinds of K4.
   - Severity: `error` when the result's definitive status (ENTAILED, COUNTEREXAMPLE and the other definitive statuses) depends on the fault; otherwise `warning`. A grounding the translation itself marked `verified` false is disclosed: `warning`.
+- **K7 Several answers to one input.**
+  - A consolidation that does not agree with the transfers it names (an answer unaccounted for, members that do not say the same thing, a faulty answer in a group, a representative that is not clean when the group says so, two groups shown as one answer): `other`, `claimed_severity` `warning`. No check decides it; it goes to human review (Inspection I83 to I87).
+  - A repeated fault no receipt names: the kind of the fault itself (for example `self_certification_as_content`, `figure_changed`, `claim_not_in_response`), once per transfer that carries it (Inspection I88). There is no kind for "repeated".
+  - A member whose figure differs from the representative's is `other`, never `figure_changed`: that figure is in the member's own response, so the checks of `figure_changed` find nothing to confirm.
 
 ## 5. Codes you will meet on receipts
 
@@ -113,6 +117,8 @@ A finding on the receipt means the channel already named that fault (Inspection 
 
 In informed mode, `auditor.findings` holds the infrastructure's own audit findings. Their codes start `OVS-`: `OVS-CUST-*` (custody of payloads and envelopes), `OVS-RCPT-*` (receipts), `OVS-RES-*` (results), `OVS-FORM-*` (formal checks), `OVS-FID-*` (claim fidelity), `OVS-TRN-*` (translations), `OVS-PEER-*` (forwards and peer documents), `OVS-SYN-*` (synthesis), `OVS-JOINT-*` (joint consistency), `OVS-DIV-*` (rule divergence), `OVS-AUDIT-*` (the audit's own coverage). They are already decided. Do not accuse them again (Dossier guide D10).
 
+In `consolidations` (Dossier guide D24), the `codes` of an excluded answer are the error codes that exclude it: `INT-*` codes from its receipt, `OVS-*` codes from the audit, and OVS-REP-001 when it repeats an earlier answer's fault. The consolidation's own findings use `OVS-CONS-*` (an excluded answer, a conflict disclosed, an advisory note, a consolidation that does not verify) and `OVS-REP-*` (a repeated fault). They are already decided too.
+
 ## 7. Codes that record your accusations
 
 You never write these. They record what happened to your verdict:
@@ -136,5 +142,7 @@ You never write these. They record what happened to your verdict:
 | `contradiction_unnamed` for two different interpretations | Leave it: it is not a contradiction | §3 |
 | `other` for a translation whose comparison is flipped | Use `translation_unfaithful` | K6 |
 | `translation_circular` for a premise that only means the same as the conclusion | Use `translation_unfaithful` | K6 |
+| `figure_changed` for a group member whose figure differs from the representative's | Use `other`, with a pointer to each claim | K7 |
+| One accusation naming every answer that repeats a fault | One accusation per transfer, each with its own identifiers | K7 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §4 (the closed list of kinds) and design §9.3 (the checks per kind)

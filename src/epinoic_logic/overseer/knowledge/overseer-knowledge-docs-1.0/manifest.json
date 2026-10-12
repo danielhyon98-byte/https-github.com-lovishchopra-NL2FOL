@@ -3,21 +3,21 @@
   "files": [
     {
       "audience": "agent",
-      "bytes": 6719,
+      "bytes": 8717,
       "path": "01-role-and-trust.md",
-      "sha256": "cf631888c8db66643109f7959ff5422484ad95eeecd4cdfde6a0a13802528b66"
+      "sha256": "555fbc62fd6140311ce1b8a3cee6dc80aed65db8373b73dcab3878bc27619390"
     },
     {
       "audience": "agent",
-      "bytes": 16119,
+      "bytes": 19790,
       "path": "02-dossier.md",
-      "sha256": "32232891c41bacac3610c0b0a2bffbbee92d6a6fd509a9fa582dc8a7846121c3"
+      "sha256": "d1ca32b085a63fada0395ae22b1e47e19b3c631eb3fc2b8e96068f3083987a37"
     },
     {
       "audience": "agent",
-      "bytes": 23414,
+      "bytes": 28110,
       "path": "03-inspection.md",
-      "sha256": "1e4734096246a4de852f29fc32aa9f9f76b9d8ab7ee2283c6df5b912f2fb7134"
+      "sha256": "5a32dadbbcd0444c84bcf008a68c3ed626077143f1033384098fa19face5b6b5"
     },
     {
       "audience": "agent",
@@ -33,45 +33,45 @@
     },
     {
       "audience": "agent",
-      "bytes": 14604,
+      "bytes": 16162,
       "path": "06-kinds-and-codes.md",
-      "sha256": "f3530a2f3018fde65c2bbca20f701ce2b9037f7b43257d4ea1b76cebc5b07062"
+      "sha256": "324d61028f8ebf4a964615d62176d1ac7aa818e08de973fa3922abd9ab0a86c6"
     },
     {
       "audience": "agent",
-      "bytes": 72516,
+      "bytes": 83616,
       "path": "07-examples.md",
-      "sha256": "dca53a02bdb95c93b5e2f3943ff5087052811345759c35be2c7987704f88934f"
+      "sha256": "c55ba096b84a1fd86136ce37011e2a758fe5d0d5e64cab70b65c0080dced86bf"
     },
     {
       "audience": "agent",
-      "bytes": 4849,
+      "bytes": 5462,
       "path": "08-never.md",
-      "sha256": "e93d75c459fd51fd89b86101572a8d6be1f133369a9ea20394dea4eac31043b8"
+      "sha256": "b090b552b2c061dd4512b591a43485c02f23597c1cecc7569328dcabaf116d32"
     },
     {
       "audience": "agent",
-      "bytes": 5643,
+      "bytes": 6506,
       "path": "09-when-unsure.md",
-      "sha256": "1e394f84bc556d8c92b8738e22c56e03e0bbd8a1cde6d987b13054a5df140e60"
+      "sha256": "96fc46c800b4988d463536255059acc5642f17d3948260a1d653e8eb0958d77d"
     },
     {
       "audience": "deployer",
-      "bytes": 7765,
+      "bytes": 9380,
       "path": "README.md",
-      "sha256": "ba671a7ad4f73f2a2458c7c3546db00a73c1d7b22125e69b5be1146ef1db6de5"
+      "sha256": "796fa857adde7fa50ceee28870e237fea278d501419e1c26bbd3d46e24cb40da"
     },
     {
       "audience": "machine",
-      "bytes": 21917,
+      "bytes": 32617,
       "path": "dossier.schema.json",
-      "sha256": "17482e9a9698d63431a9f86c576285048c497d98f6e57dbc87300d5e1c51ac49"
+      "sha256": "5f50ce2ce40e72293ed6995953b4c4906f23cf5fc283b289eec1fa161d065680"
     },
     {
       "audience": "agent",
-      "bytes": 7058,
+      "bytes": 7815,
       "path": "master_prompt.txt",
-      "sha256": "597daea924cc63d6910f3d936a81537fd84feb6117592c70784c6e02ba35f64c"
+      "sha256": "ce8b69b07f092577e809d9a9a96f8467d59e1b14ca66dcdd3e7f7c321384e653"
     },
     {
       "audience": "machine",
@@ -82,7 +82,7 @@
   ],
   "manifest_version": "1.0",
   "pack_name": "overseer-knowledge-docs",
-  "pack_sha256": "ffad92f92b0f4f704abe7a8ab67ca26f31acaebc81454199e61700f296ad0a4d",
+  "pack_sha256": "668bd996ab5a67b95f35c5561d253443f9035ae8a8f77726fd834b2b00114193",
   "pack_version": "1.0",
   "system_order": [
     "master_prompt.txt",
@@ -97,6 +97,6 @@
     "09-when-unsure.md"
   ],
   "system_separator": "===== {path} =====",
-  "system_sha256": "80ad8dfb8e23d7294e850f2e0529e90ccf42109ba60763f7a89b49a534b2653c",
+  "system_sha256": "044a1389215d63608271cf65b52dac88f1062d40cbf0a0325c44f0776fe2ee62",
   "verdict_contract": "overseer_verdict/1.0"
 }

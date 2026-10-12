@@ -31,6 +31,9 @@ RouterHub(auditor=TransferAuditor(KeyRing(engine_keys, overseer_secret)))
   hub.audit(task) / hub.close_task(task)       ──► signed task audit (close_task: FINAL, journal sealed)
   hub.review(task, runners)                    ──► dossiers ──► agents ──► intake ──► validation ──► combination
                                                    ──► signed verdicts-scope audit (clearance unchanged)
+  hub.consolidate(task)                        ──► repeats ──► consolidate ──► signed consolidated_response/1.0
+                                                   ──► consolidate.delivery_decision (the one answer the router may deliver)
+  hub.review_pool(tasks, OverseerPool(pack, provider_factory))  ──► plan_pool ──► hub.review per task by its instances
   policy.may_release(synthesis_receipt, final_audit, keyring, audits=..., journal=...) gates the student-facing synthesis
 ```
 
@@ -75,7 +78,7 @@ and the signed results decide.
 | --- | --- | --- |
 | Codes | `codes.py` | every `OVS-*` code with one severity and one stage (`OVS-AGENT-*` included) |
 | Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`, `TranslationAudit`; the audit scope sentence |
-| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake) |
+| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation) |
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
@@ -93,19 +96,23 @@ and the signed results decide.
 | Exporter | `export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
 | Agent runner | `runner.py` | `OverseerAgentRunner`: model input from a loaded pack and one dossier, one provider call, the reply handed to the intake as data |
 | Fidelity normalisation | `faithful.py` | the fixed text normalisation the fidelity checks use |
+| Repeated faults | `repeats.py` | a deterministic signature for every error-level fault of an answer (code, normalised offending claim or quoted phrase, figures); `detect_repeats` over a task's answers: `OVS-REP-001`, counts per agent |
+| Consolidation | `consolidate.py` | `consolidate`: ONE signed `consolidated_response/1.0` for answers several agents gave to one input (groups, representative, exclusions, conflicts disclosed); `delivery_decision`, `check_consolidation` (`OVS-CONS-*`) |
+| Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack |
 
 The observer hook itself lives outside this package, which the channel never imports: `channel/events.py`
 (`ChannelEvent`, `snapshot_event`, `observe_call`), the private decorator on the four entry points of
 `channel/bus.py` (`observers=`, `add_observer`, `channel_uid`, `observer_errors`), the result sink `engine/sink.py`, and
 the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_channels`, `close_task`, `clearance`,
-`audit`, `view`, `review`).
+`audit`, `view`, `review`, and for consolidation `consolidate`, `consolidations`, `repeats`, `review_pool`).
 
 ## The knowledge pack
 
 `knowledge/overseer-knowledge-docs-1.0/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
-evidence rule, the verdict format, the kinds and codes, 17 worked examples, what never to do, what to do when unsure),
+evidence rule, the verdict format, the kinds and codes, 19 worked examples, what never to do, what to do when unsure,
+and, since the consolidation stage, how to review consolidations and repeated faults as one of several instances),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -136,7 +143,32 @@ manifest, kinds table and examples, export round trips, the runner with fake pro
 and equivalence of the bus hook, the hub's wiring and task lifecycle, clearance and router policy, `hub.review`),
 `test_translation_*` (translator oversight: every `OVS-TRN-*` code with a control and tampering cases through the real
 translation pipeline, the signed translation record, live clearance, the spelling rules; the dossier's translation
-links, the translation kinds' validation outcomes and a hub review over translations).
+links, the translation kinds' validation outcomes and a hub review over translations), `test_consolidation_*`
+(duplicated and near-duplicate answers, exclusions, conflicts disclosed, delivery, tampering and staleness of a
+consolidated response; repeated faults across agents, resubmissions and reopened tasks; the pool plan for 1, 10 and 60
+dossiers and the maximum never exceeded; `hub.review_pool` end to end; consolidations in informed dossiers).
+
+## Consolidation, repeated faults and self-duplication
+
+When several agents answer one input, the infrastructure (never an agent) consolidates their answers into one signed
+`consolidated_response/1.0` (`consolidate.py`). Answers are excluded when not delivered, when an error-level finding of
+their receipt or of the task audit names them, when their clearance is not passed, or when they repeat a fault; the rest
+are grouped by identical normalised text, then by equal material-claim keys only when a signed engine run finds the
+members' encodings consistent (every pooled claim renamed per answer, so duplicated agents' claim ids never collide).
+Each group records its agents and a representative (the earliest fully clean member). Two or more groups, or a
+contradiction with an excluded answer, make the status CONFLICTING: disclosed, none chosen. The router delivers only the
+`deliverable_message_id` of a response that verifies (`delivery_decision`).
+
+A repeated fault (`repeats.py`, `OVS-REP-001`, error) is an error-level fault whose signature already occurred in the task:
+the same code about the same quoted phrase or claim words with the same figures, whoever repeats it and however trivially
+reworded. It is never delivered or consolidated and is counted per agent; it never enters a task audit, so no clearance
+changes.
+
+The overseer pool (`pool.py`) plans how many overseer-agent instances review a batch: one by default; more when the review
+units (a repeated-fault dossier counts twice) exceed the per-instance quota; at least two when any dossier has a repeated
+fault (it goes to two independent instances, combined by `combine_verdicts`); never more than `max_instances` (default
+4). Every instance is an `OverseerAgentRunner` from the pool's one loaded pack, deployed on the cheapest model tier;
+instances never certify anything or change a status. Design section 19.
 
 ## Contained harness
 

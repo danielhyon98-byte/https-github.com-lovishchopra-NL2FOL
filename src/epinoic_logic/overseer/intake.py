@@ -47,7 +47,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Collection, Literal, Optional
+from typing import Any, Collection, Literal, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -87,7 +87,8 @@ def _now() -> str:
 
 class IntakeRefused(ValueError):
     """An issue the intake refuses (no dossier is built): ``reason`` is ``pack_unknown``, ``audit``, ``agent_id``,
-    ``lens`` or ``mode``."""
+    ``lens``, ``mode`` or ``consolidation`` (a consolidated response that does not verify under the consolidation key or
+    belongs to another channel; consolidation stage, design section 19)."""
 
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
@@ -199,8 +200,11 @@ class VerdictIntake:
         return self._keyring.subkey("intake")
 
     # ------------------------------------------------------------------ issue
-    def issue(self, view: OverseerView, *, agent_id: str, lens: str, mode: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None) -> dict:
-        """Build and record the dossier of ``view`` for ``agent_id`` under ``pack``; returns the dossier (a copy)."""
+    def issue(self, view: OverseerView, *, agent_id: str, lens: str, mode: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None,
+              consolidations: Sequence[Any] = ()) -> dict:
+        """Build and record the dossier of ``view`` for ``agent_id`` under ``pack``; returns the dossier (a copy).
+        ``consolidations`` (signed consolidated responses of the channel) are shown in informed mode only; each must
+        verify under the consolidation key and belong to the view's channel, or nothing is issued."""
         if not isinstance(agent_id, str) or not _AGENT_ID_RE.match(agent_id) or agent_id == AUDITOR_AGENT_ID:
             raise IntakeRefused("agent_id", "the agent id is empty, too long, contains a control character or is reserved for the auditor")
         if lens not in LENSES:
@@ -211,7 +215,13 @@ class VerdictIntake:
             raise IntakeRefused("pack_unknown", "the pack is not one this intake accepts; no dossier is issued under it")
         if audit is not None and (not verify_audit(audit, self._keyring) or audit.scope not in ("task", "transfer")):
             raise IntakeRefused("audit", "the audit does not verify under the audit key (or is not a task or transfer audit); its findings are not shown")
-        dossier = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit)
+        shown = list(consolidations or ())
+        if shown:
+            from .consolidate import verify_consolidated
+            for c in shown:
+                if not verify_consolidated(c, self._keyring) or c.channel_uid != view.channel_uid:
+                    raise IntakeRefused("consolidation", "a consolidated response does not verify under the consolidation key or belongs to another channel; it is not shown")
+        dossier = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else ())
         record = IssueRecord(issue_id=uuid.uuid4().hex, agent_id=agent_id, task_id=dossier["task"]["task_id"], request_id=dossier["task"]["request_id"],
                              channel_uid=view.channel_uid, dossier_sha256=dossier["dossier_sha256"], pack=pack, lens=lens, mode=mode,
                              task_audit_id=audit.audit_id if audit is not None else None, issued_at=_now())

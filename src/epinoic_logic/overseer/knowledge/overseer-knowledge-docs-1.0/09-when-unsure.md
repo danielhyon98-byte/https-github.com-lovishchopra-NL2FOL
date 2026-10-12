@@ -10,6 +10,7 @@ This document says what to do when the evidence does not settle a point, and whe
 - a fault you suspect but cannot pin down
 - a fault in meaning that no check compares, in a claim or in a translation
 - a field you cannot read in full
+- two answers of one consolidated group that may not say the same thing
 - choosing between accusing and staying silent
 
 **It does not cover.** Other documents handle these:
@@ -27,6 +28,7 @@ This document says what to do when the evidence does not settle a point, and whe
 5. No identifier or no pointer at all: do not accuse (U5).
 6. An honest unresolved accusation is better than a confident wrong one (U8).
 7. A translation that may not say what its claim says: kind `translation_unfaithful` (U10).
+8. Two answers in one group that may not say the same thing: `other`, `warning`, only when a figure, date, quotation, negation or name differs (U11).
 
 ## 3. Rules
 
@@ -60,6 +62,10 @@ This document says what to do when the evidence does not settle a point, and whe
   - a `statement` that says what the claim says, what the problem says instead, and what is uncertain.
   
   It goes to human review; no check refutes it (Examples, Example 17).
+- **U11 Two answers in one group that may not say the same thing.** When two members of a consolidated group seem to differ:
+  - if a figure, a date, a quotation, a negation or a name differs between their material claims, use kind `other`, `claimed_severity` `warning`, with one pointer and quote for each claim and the `message_id` of both answers (Inspection I84);
+  - if only the wording differs, do not accuse: other wording is not a fault (Inspection I89);
+  - never decide which of the two is right (Never N13).
 
 ## 4. Common mistakes
 
@@ -72,5 +78,6 @@ This document says what to do when the evidence does not settle a point, and whe
 | Accusing with only a statement and no pointer | Do not accuse; note it if it matters | U5 |
 | Filing one fault as both `figure_changed` and `synthesis_ledger_fault` | Choose the more specific kind once | U7 |
 | `other` for a translation that says something its claim does not | Use `translation_unfaithful` | U10 |
+| Accusing two group members that only word the same claim differently | Leave them; other wording is not a fault | U11 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §9

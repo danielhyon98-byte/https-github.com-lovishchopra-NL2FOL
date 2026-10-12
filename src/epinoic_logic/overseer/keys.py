@@ -6,8 +6,9 @@
 * **The overseer secret** is one configured secret; it must be at least 32 bytes and must differ from
   every engine key (checked at construction). Labelled subkeys are derived from it with HMAC-SHA256:
   ``journal`` (journal entry MACs), ``audit`` (signed audits), ``runs`` (the auditor's own engine runs,
-  key id ``overseer-run``), ``sampling`` (keyed replay sampling) and ``intake`` (verdict envelopes). One
-  secret to provision, with domain separation between every use.
+  key id ``overseer-run``), ``sampling`` (keyed replay sampling), ``intake`` (verdict envelopes) and
+  ``consolidation`` (signed consolidated responses, key id ``overseer-consolidation``; added by the consolidation
+  stage, design section 19). One secret to provision, with domain separation between every use.
 
 No key ever appears in a repr, a dossier, a verdict, a report or a log message.
 """
@@ -21,13 +22,15 @@ from typing import Literal, Mapping, Optional, Union
 from ..engine.provenance import verify_signature
 from ..engine.results import VerificationResult
 
-__all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "MIN_SECRET_BYTES", "AUDITOR_KEY_IDS"]
+__all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "CONSOLIDATION_KEY_ID", "MIN_SECRET_BYTES",
+           "AUDITOR_KEY_IDS"]
 
-SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake")
+SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake", "consolidation")
 RUN_KEY_ID = "overseer-run"
 AUDIT_KEY_ID = "overseer-audit"
 INTAKE_KEY_ID = "overseer-intake"
-AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID})
+CONSOLIDATION_KEY_ID = "overseer-consolidation"
+AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID, CONSOLIDATION_KEY_ID})
 MIN_SECRET_BYTES = 32
 KeyStatus = Literal["local", "external", "auditor", "unknown"]
 

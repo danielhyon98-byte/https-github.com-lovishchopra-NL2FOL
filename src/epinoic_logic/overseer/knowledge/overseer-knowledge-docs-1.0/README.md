@@ -132,7 +132,32 @@ run = runner.run(dossier, intake)                     # one provider call; the r
 and its bookkeeping. The runner refuses a dossier issued for another agent, lens or pack before any call, records a
 provider failure as no review, and never gives a verdict any authority.
 
-## 8. Versions and upgrades
+## 8. Several instances
+
+The infrastructure may run several overseer agents, called instances, on one batch of dossiers. Its pool decides how
+many, deterministically: one by default; more when the dossiers exceed a per-instance quota, or when an answer in a
+task repeats a fault, never more than a configured maximum (four unless configured otherwise). A dossier whose task has a
+repeated fault goes to at least two independent instances, and their verdicts are combined by the infrastructure's rule
+(checks decide, never votes). The plan is recorded in the signed review audit.
+
+- Configure every instance from this same pack, unchanged, with its own agent id. Deploy every instance on the cheapest
+  model tier: correctness rests on the infrastructure's deterministic code and its signed engine results, never on the
+  model.
+- Give each instance only its own dossier. Never show one instance another's verdict, and never merge or edit replies.
+- The infrastructure's pool builds its instances itself:
+
+```python
+from epinoic_logic.overseer.pool import OverseerPool, PoolConfig
+
+pool = OverseerPool(pack, provider_factory, config=PoolConfig(max_instances=4))   # provider_factory(agent_id) -> provider
+review = hub.review_pool(task_keys, pool)               # one dossier per task; repeated-fault dossiers to two instances
+```
+
+When several agents answer one input, the infrastructure consolidates their answers into one signed consolidated
+response; an informed dossier shows it under `consolidations`. The pack tells the agent how to review it. An instance
+never produces, approves or changes a consolidation.
+
+## 9. Versions and upgrades
 
 - The pack version is `MAJOR.MINOR`. MINOR changes wording, examples and corrections; MAJOR changes a contract, a kind
   or the copied header.

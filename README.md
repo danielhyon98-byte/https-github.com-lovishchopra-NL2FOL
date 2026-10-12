@@ -105,6 +105,16 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory
   and decides nothing: only an accusation a deterministic check confirms reaches the router, through that check's own
   finding, and no agent ever changes a clearance. No live model provider is claimed; the tests use fake providers.
+- **Several agents, one input.** When the router sends one input to several agents (duplicated instances of one
+  specialist, or several specialists), `hub.consolidate(task)` returns ONE signed consolidated response: equivalent
+  answers grouped deterministically (identical normalised text, or the same material claims, figures, dates and
+  quotations that the engine finds mutually consistent), a representative per group, every answer with an error-level
+  finding or a repeated fault excluded with its codes and signed results, and conflicts between groups disclosed instead
+  of resolved by choosing. A fault that comes back in the same task (another agent, a duplicated instance, a resubmission
+  after rejection, reworded or not) is a repeated fault (`OVS-REP-001`), never delivered, counted per agent.
+  `hub.review_pool(tasks, OverseerPool(pack, ...))` sizes the overseer agents deterministically: one instance by default,
+  more over a per-instance quota or when faults repeat (each repeated-fault dossier to two independent instances), never
+  past a maximum (four by default), every instance from the same exported pack and advisory.
 
 Results prove properties of the encoding only; an audit shows whether the recorded transfers, receipts and signed
 results agree with each other and with the repository's rules, never that a claim is true. See
