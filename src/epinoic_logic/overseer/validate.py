@@ -293,8 +293,9 @@ def coverage_split(ids: dict[str, list[str]], findings: Iterable[Any], receipt_t
     """``(covered, remainder)``: the accusation's named transfers (messages, receipts mapped to them) and ``(report,
     claim)`` pairs that the union of its matching findings covers, and those it does not. A named message is covered when
     a finding names it, names a report it delivers, or names a claim it carries; a named claim when a finding names it
-    (under the same report, when both say which). Other identifier lists are kept on the covered side only where a
-    finding names them too. The remainder is empty when the findings cover everything the accusation names."""
+    (under the same report, when both say which). Other identifier lists (reports, results, documents) are on the covered
+    side only where a finding names them too (a report also when a covered claim is its), and in the remainder otherwise.
+    The remainder is empty when the findings cover everything the accusation names."""
     r2m = receipt_to_message or {}
     findings = list(findings)
     f_msgs = {m for f in findings for m in f.message_ids}
@@ -334,9 +335,15 @@ def coverage_split(ids: dict[str, list[str]], findings: Iterable[Any], receipt_t
         "document_ids": [d for d in ids.get("document_ids", ()) if d in f_docs],
         "result_ids": [x for x in ids.get("result_ids", ()) if x in f_results],
     }
+    # a named report, result or document no confirming finding covers is part of the remainder too (review round 3): a
+    # confirmation padded with another report's id never covers that report
+    rest_reports = [r for r in dict.fromkeys(ids.get("report_ids", ())) if r not in covered["report_ids"]]
+    rest_results = [x for x in dict.fromkeys(ids.get("result_ids", ())) if x not in covered["result_ids"]]
+    rest_docs = [d for d in dict.fromkeys(ids.get("document_ids", ())) if d not in covered["document_ids"]]
     remainder = {"message_ids": rest_msgs, "receipt_ids": [], "claim_ids": rest_claims,
-                 "report_ids": sorted({r for c in rest_claims for r in ((claim_reports or {}).get(c) or []) if r}), "result_ids": [], "document_ids": []}
-    if not rest_msgs and not rest_claims:
+                 "report_ids": sorted({r for c in rest_claims for r in ((claim_reports or {}).get(c) or []) if r} | set(rest_reports)),
+                 "result_ids": rest_results, "document_ids": rest_docs}
+    if not rest_msgs and not rest_claims and not rest_reports and not rest_results and not rest_docs:
         remainder = {}
     return covered, remainder
 
@@ -693,9 +700,11 @@ def _extra_accusation_findings(agent_id: str, verdict_ref: str, a: AccusationAss
 
 
 def _engine_statement(es, ctx: _Ctx, position: int = 0) -> EngineStatementAssessment:
-    """Assess one engine statement. A status asserted against a stored result of THIS channel is compared first: a
-    mismatch is a contradiction (AGENT-001, ``signed_result`` when the signature verifies) whatever the pointer says, and
-    a pointer that is not the result's status field is recorded beside it (``pointer_fault``, an extra AGENT-002)."""
+    """Assess one engine statement. A status asserted against ANY stored result is compared first (review round 3: a pool
+    instance reviewing several tasks can carry a result id across dossiers): a mismatch is a contradiction (AGENT-001,
+    ``signed_result`` when the signature verifies) whatever the pointer says, and a pointer that is not the result's
+    status field, or a result outside this dossier or of another channel, is recorded beside it (``pointer_fault``, an
+    extra AGENT-002)."""
     rid = es.result_id
     rec = ctx.store.get(rid)
     in_dossier = rid in (ctx.dossier.get("results") or {})
@@ -712,10 +721,12 @@ def _engine_statement(es, ctx: _Ctx, position: int = 0) -> EngineStatementAssess
         parsed = ctx.store.parsed(rid)
         verified = verified and parsed is not None and ctx.keyring.verify_result(parsed)[0]
     points = _points_at_status_of(ctx.dossier, es.pointer, rid)
-    if same_channel and es.asserted_status != stored:
+    if es.asserted_status != stored:
         fault = None if points else (f"the pointer is not the status field of the result (Evidence rule E10: /results/<result_id>/status)")
         if not in_dossier:
             fault = (fault + "; " if fault else "") + "the result is not one of this dossier's results (Evidence rule E3)"
+        if not same_channel:
+            fault = (fault + "; " if fault else "") + "the result belongs to another channel or task than this dossier"
         return EngineStatementAssessment(**base, outcome="refuted", code="OVS-AGENT-001", stored_status=stored, signature_verified=verified,
                                          refuted_by="signed_result" if verified else "deterministic_check",
                                          reason=f"the stored result's status is {stored}", pointer_fault=fault)
@@ -1030,11 +1041,13 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
     reference = superseding if superseding is not None else (latest if latest is not None else (task_audit if audit_ok else None))
     assessment.audit = build_verdicts_audit(reference=reference, channel_uid=view.channel_uid, task_id=assessment.task_id, request_id=assessment.request_id,
                                             findings=findings, keyring=keyring, message_ids=[m for m in seq_m],
-                                            notes=_audit_notes(task_audit, superseding, [assessment], assessment_digest(assessment)))
+                                            notes=_audit_notes(task_audit, superseding, [assessment], assessment_digest(assessment),
+                                                               attestation=getattr(accepted, "pack_attestation", "self_reported")))
     return assessment
 
 
-def _audit_notes(task_audit: Optional[OverseerAudit], superseding: Optional[OverseerAudit], assessments: list, digest: str) -> list[str]:
+def _audit_notes(task_audit: Optional[OverseerAudit], superseding: Optional[OverseerAudit], assessments: list, digest: str,
+                 attestation: Optional[str] = None) -> list[str]:
     notes = []
     if task_audit is not None:
         notes.append(f"references task audit {task_audit.audit_id}")
@@ -1045,7 +1058,9 @@ def _audit_notes(task_audit: Optional[OverseerAudit], superseding: Optional[Over
     for a in assessments:
         pk = f"{a.pack.name} {a.pack.version} {a.pack.sha256}" if a.pack is not None else "none"
         vref = agent_label(a.verdict_id) if a.verdict_id else "none"
-        notes.append(f"verdict {vref} (intake message {a.intake_message_id}) of agent {a.agent_id} (valid {a.valid}) under pack {pk}")
+        notes.append(f"verdict {vref} (intake message {a.intake_message_id}) of agent {a.agent_id} (valid {a.valid}) under pack {pk}"
+                     + ("" if attestation is None else "; pack identity attested by the package's runner (model input built from the loaded, digest-verified pack)"
+                        if attestation == "runner" else "; pack identity self-reported (the dossier header the model copied; not proof of the system text it ran under)"))
     notes.append(f"assessment sha256 {digest}")
     notes.append("OVS-AGENT-* findings never change a transfer's clearance; an agent's verdict is advisory and decides nothing")
     return notes

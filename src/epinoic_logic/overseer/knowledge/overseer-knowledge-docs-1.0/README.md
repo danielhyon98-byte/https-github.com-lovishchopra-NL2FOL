@@ -110,7 +110,15 @@ dossier to an agent other than the one it names (`agent_id`, `lens`, `pack`): th
 Return the model's reply text **unchanged** to the infrastructure's verdict intake, with the agent id and task id the
 dossier names. Never fill in, correct, reformat or retry a reply with altered instructions: an invalid verdict must be
 seen as invalid, and it is recorded against the agent. A reply of exactly `{"no_dossier": true}` means the agent saw no
-dossier; the intake records it as no review.
+dossier; the intake records it as no review. Only a reply that carries the issued dossier's digest uses up the
+dossier: any other reply is refused and the dossier stays open for the agent's own verdict.
+
+**Pack identity outside the runner is self-reported.** A verdict names its pack by the header the model copied from the
+dossier. For an agent run outside the package's runner, that proves only that the header was copied, not which system
+text the model ran under. Record the pack you deployed in the bookkeeping you return with the reply
+(`provider_info.prompt_version` as `<pack name>/<version>+<first 16 hex of the pack digest>`): the intake refuses a
+verdict whose bookkeeping names another pack than the dossier's, and records every verdict submitted outside the runner
+as self-reported.
 
 `verdict.schema.json` describes the verdict for structured-output modes. The intake validates against the
 infrastructure's own contract, not against this file.

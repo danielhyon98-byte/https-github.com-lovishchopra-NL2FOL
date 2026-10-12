@@ -23,7 +23,11 @@ R2 (deterministic code on journaled data; nothing in agent text is executed):
 * the signed status of each bound's result is compared with the recount by integer arithmetic (the problem
   ``n = measured`` entails ``n <op> bound`` exactly when the comparison holds): a definitive status the arithmetic
   contradicts is RES-007, decided without the stored problem, so a re-signed status is exposed in R2 (the transfer is
-  pending until R2 has run) rather than only by a sampled replay.
+  pending until R2 has run) rather than only by a sampled replay; an undecided status on a bound the arithmetic shows
+  violated is RES-007 too (rule ``decidable-bound``, review round 3: a starved budget never turns a violated limit into
+  an unchecked one);
+* the problem a pack check or a constraint result was decided on is read from the store or, once the store has evicted
+  it, from the journaled capture of its event (``_held_problem``); with neither, OVS-AUDIT-005, never a silent skip.
 """
 from __future__ import annotations
 
@@ -142,7 +146,7 @@ def _bound_status_contradicts(status: Optional[str], op: str, value: str, measur
     constraint problem is ``n = measured`` entails ``n <op> value``, so its only definitive statuses are ENTAILED when
     the comparison holds and COUNTEREXAMPLE when it does not. Decided by integer arithmetic, without the stored problem,
     so a status re-signed with the engine key (and emitted with or without its problem) is exposed before replay."""
-    if status not in (S.ENTAILED.value, S.COUNTEREXAMPLE.value):
+    if status is None:
         return None
     try:
         bound = int(str(value).strip())
@@ -150,10 +154,34 @@ def _bound_status_contradicts(status: Optional[str], op: str, value: str, measur
         return None
     holds = measured <= bound if op == "le" else measured >= bound
     expected = S.ENTAILED.value if holds else S.COUNTEREXAMPLE.value
+    if status not in (S.ENTAILED.value, S.COUNTEREXAMPLE.value):
+        if holds:
+            return None  # an undecided run of a bound that holds hides nothing from the router
+        # rule ``decidable-bound``: integer arithmetic decides the bound, and it FAILS, so an undecided signed status
+        # (a starved budget) turns a violated word or paragraph limit into an unchecked one
+        return (f"the response measures {measured}, so 'n {op} {bound}' fails and the constraint problem's only status is {expected}, but the signed "
+                f"result states {status}: a violated bound reported as undecided (re-derived from the journaled response by integer arithmetic, R2)")
     if status == expected:
         return None
     return (f"the response measures {measured}, so 'n {op} {bound}' {'holds' if holds else 'fails'} and the only status of the constraint problem is "
             f"{expected}, but the signed result states {status} (re-derived from the journaled response, R2)")
+
+
+def _held_problem(ctx: CheckContext, rid: str) -> tuple[Optional[str], Optional[str]]:
+    """(problem digest, problem JSON) of the problem result ``rid`` was decided on: from the store while it holds the
+    result, else from the journaled capture of its event (the journal keeps it after the store evicted the result, so
+    an eviction never turns a comparison into a silent skip). (None, None) when neither holds it."""
+    from ...ir.canonical import sha256_hex
+    from .results import journaled_capture
+    rec = ctx.store.live(rid)
+    if rec is not None and (rec.problem_digest or rec.problem_json):
+        return rec.problem_digest or sha256_hex(rec.problem_json), rec.problem_json
+    jc = journaled_capture(ctx.view, rid)
+    if jc is not None:
+        c = jc[1]
+        if c.problem_digest or c.problem_json:
+            return c.problem_digest or sha256_hex(c.problem_json), c.problem_json
+    return None, None
 
 
 def _structural_implied(rc, t: Transfer, branch_key: str, structural, ids: dict) -> list:
@@ -229,8 +257,15 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
             red.findings.append(ovs_finding("OVS-FORM-004", f"the branch pack re-derives formal check {fc.check_id} ({fc.kind}: {fc.description[:120]}) from report {rep.report_id}, but the receipt does not carry it", **ids))
             continue
         stored = ctx.store.get(held.formal_result_id) if held.formal_result_id else None
-        pd = getattr(stored, "problem_digest", None)
-        if stored is not None and pd is not None and pd != problem_digest(fc.problem):
+        if stored is None:
+            continue  # an unresolved result id is decided by L3
+        pd, _pj = _held_problem(ctx, held.formal_result_id)
+        if pd is None and ctx.view.degraded:
+            continue  # a degraded view holds no capture: AUDIT-002 says so
+        if pd is None:
+            red.findings.append(ovs_finding("OVS-AUDIT-005", f"formal check {fc.check_id}: the problem its result {held.formal_result_id} was decided on is held neither by the "
+                                            "store nor by the journaled capture, so the pack's problem cannot be compared with it (R2)", formal_result_id=held.formal_result_id, **ids))
+        elif pd != problem_digest(fc.problem):
             red.findings.append(ovs_finding("OVS-FORM-003", f"formal check {fc.check_id} was decided on a problem other than the one the branch pack derives from the report",
                                             formal_result_id=held.formal_result_id, **ids))
     derived_ids = {fc.check_id for fc in formal}
@@ -254,10 +289,16 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
             wrong = _bound_status_contradicts(getattr(held_rec, "status", None), _BOUND_OPS[c.kind], c.value, measured)
             if wrong:
                 red.findings.append(ovs_finding("OVS-RES-007", f"constraint {c.constraint_id}: {wrong}", formal_result_id=cr.formal_result_id, **ids))
-            stored = ctx.store.live(cr.formal_result_id)
-            if stored is None or not stored.problem_json:
-                continue  # no captured problem: AUDIT-005 (L3) when the result is definitive; the status was checked above
-            why = constraint_problem_mismatch(json.loads(stored.problem_json), _BOUND_OPS[c.kind], c.value, measured)
+            if held_rec is None:
+                continue  # an unresolved result id is decided by L3
+            _pd, pj = _held_problem(ctx, cr.formal_result_id)
+            if not pj and ctx.view.degraded:
+                continue  # a degraded view holds no capture: AUDIT-002 says so
+            if not pj:
+                red.findings.append(ovs_finding("OVS-AUDIT-005", f"constraint {c.constraint_id}: the problem its result {cr.formal_result_id} was decided on is held neither by "
+                                                "the store nor by the journaled capture, so the recount cannot be compared with it (R2)", formal_result_id=cr.formal_result_id, **ids))
+                continue
+            why = constraint_problem_mismatch(json.loads(pj), _BOUND_OPS[c.kind], c.value, measured)
             if why:
                 red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} was decided on a problem the response does not yield: {why}",
                                                 formal_result_id=cr.formal_result_id, **ids))

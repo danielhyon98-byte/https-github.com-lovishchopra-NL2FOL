@@ -23,7 +23,8 @@ specialist ──respond()──► SpecialistReport in an envelope replying to 
             lone UTF-16 surrogate (half an emoji) is refused with INT-REQ-009 naming its offsets, never parsed or raised
 agent ──relay()──► another agent (report or synthesis): envelope, sender = payload owner (INT-ENV-008), sender and
             recipient selected by the plan (INT-HANDOFF-002; the router and the Overseer are infrastructure parties),
-            ledger, figure/date fidelity (claims and the student-facing text), quotations of the synthesis located
+            ledger, figure/date fidelity (claims and the student-facing text, which must be composed of the claims:
+            INT-LEDGER-028), quotations of the synthesis located
             (INT-LEDGER-025), direction and polarity (INT-LEDGER-026; an inverted comparison or an added negation against
             one source, INT-LEDGER-027), undisclosed contradictions (INT-CONFLICT-002), entailment checks, and every material
             paraphrase, merge or generalization left unchecked stated (INT-SYNTH-012)
@@ -62,6 +63,11 @@ keeps an earlier id with another text; the finding says which. The copies of the
 still in circulation (INT-HANDOFF-014) are named with deduplicated identifiers, and a quoting report's
 excerpt is said to "no longer occur" only when it occurred in the superseded text; one that never
 occurred there "was never located in the superseded report either".
+
+The channel holds its own copy of the plan it was opened with (a later change to the caller's `WorkPlan` object, whose
+lists are mutable, never changes the rules the channel applies). The Overseer pins the plan, the solver configuration,
+the engine key id and the branch at the channel's first event: a transfer issued after any of them changed is a
+custody fault (OVS-CUST-002, review round 3).
 
 Several subjects on one task. A plan may consult a specialist of another subject (a History
 specialist giving context for a Literature task): `WorkPlan.agent_subjects` names that agent's

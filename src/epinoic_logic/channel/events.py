@@ -28,7 +28,9 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 5.2, all additive:
 """
 from __future__ import annotations
 
+import functools
 import inspect
+import json
 import time
 import uuid
 import weakref
@@ -167,11 +169,16 @@ class ChannelEvent:
         }
 
     def content_size(self) -> int:
-        """Characters of retained content (what a bounded journal counts)."""
+        """Characters of retained content (what a bounded journal counts). A captured result whose signed copy and
+        problem the receipt's own outcomes already carry is counted once, with the receipt (rule ``count-once``): a
+        many-claim answer's results are not charged twice against the journal bound."""
         n = 0
         for s in (self.plan_json, self.channel_json, self.envelope_json, self.receipt_json, self.raw_text, self.call_json):
             n += len(s) if s else 0
+        held = _receipt_outcome_results(self.receipt_json) if (self.captured and self.receipt_json) else frozenset()
         for c in self.captured:
+            if c.result_id in held:
+                continue
             n += len(c.result_json) + len(c.problem_json or "")
         return n
 
@@ -182,6 +189,23 @@ class ChannelEvent:
                        captured=tuple(CapturedResult(result_id=c.result_id, key_id=c.key_id, result_json="", result_sha256=c.result_sha256,
                                                      problem_json=None, problem_digest=c.problem_digest) for c in self.captured),
                        digest_only=True)
+
+
+@functools.lru_cache(maxsize=2)
+def _receipt_outcome_results(receipt_json: str) -> frozenset:
+    """Result ids whose signed result the receipt's outcomes embed together with the outcome's problem (cached for the
+    two consecutive reads of one event: the journal's bound and its entry size)."""
+    try:
+        data = json.loads(receipt_json)
+    except Exception:
+        return frozenset()
+    out = set()
+    for o in data.get("outcomes") or []:
+        ver = o.get("verification") if isinstance(o, dict) else None
+        tr = o.get("translation") if isinstance(o, dict) else None
+        if isinstance(ver, dict) and isinstance(ver.get("result_id"), str) and isinstance(tr, dict) and tr.get("problem") is not None:
+            out.add(ver["result_id"])
+    return frozenset(out)
 
 
 # --------------------------------------------------------------------------------------------- snapshots

@@ -53,7 +53,8 @@ def _pools_outcomes(t: Transfer) -> bool:
 
 def check_pool(ctx: CheckContext, t: Transfer) -> None:
     """JOINT-004 for one event: the pool before it equals the previous event's pool after; additions carry outcomes;
-    every formalized outcome the event delivered is pooled."""
+    every formalized outcome the event delivered is pooled. For a transfer whose receipt content is not held (journaled
+    digest-only past the bound: AUDIT-005) only the continuity is decided, never an accusation about its outcomes."""
     if ctx.view.degraded:
         return
     ids = t.ids()
@@ -66,6 +67,8 @@ def check_pool(ctx: CheckContext, t: Transfer) -> None:
             mids, rids, aids = ctx.message_ids_for_claims(changed, pairs=_pairs(t.pool_before, prev.pool_after))
             ctx.ovs(t.seq, "OVS-JOINT-004", f"the channel's cross-agent pool changed between transfers {prev.seq} and {t.seq} (claims {changed[:8]}): nothing the channel issued changed it",
                     claim_ids=changed, message_ids=ids["message_ids"] + mids, report_ids=rids, agent_ids=aids)
+    if t.digest_only or (t.receipt is None and t.receipt_dump is None and t.event.receipt_sha256 is not None):
+        return  # the receipt's content is not held (past the journal bound: AUDIT-005 says so); only the continuity above is decidable
     after = _entries(t.pool_after)
     added = [c for c in after if c not in before or after[c][0] != before[c][0]]
     outcome_digests: dict[str, set[str]] = {}
@@ -208,7 +211,9 @@ def independent_joint(ctx: CheckContext) -> JointOutcome:
 
 
 def _false_conflicts(ctx: CheckContext, named) -> None:
-    """JOINT-003: each channel-named set re-run alone at the versions it had when it was named."""
+    """JOINT-003: each channel-named set re-run alone at the versions it had when it was named. A named claim that had no
+    formalization in the pool at that point is JOINT-003 itself, and the pooled part of the set is still re-run (rule
+    ``padded-conflict``, review round 3: padding a false conflict with an unformalized claim never hides it)."""
     view = ctx.view
     done: set[tuple[int, frozenset[str]]] = set()
     for seq, claims, rid, code in named:
@@ -223,8 +228,16 @@ def _false_conflicts(ctx: CheckContext, named) -> None:
         # touch keeps the version it had before
         snap = {p.claim_id: p for p in list(t.pool_before) + list(t.pool_after)}
         pool = [snap[c] for c in sorted(claims) if c in snap]
-        if len(pool) != len(claims):
-            continue  # the named claims were not all pooled at that point (e.g. named against an earlier version); nothing to re-run
+        unpooled = sorted(c for c in claims if c not in snap)
+        if unpooled:
+            # the channel names conflicts only among pooled formalizations: a named claim with none at that point is a
+            # conflict the engine never decided on that claim (rule ``padded-conflict``); the pooled part is re-run below
+            pmids, prids, paids = ctx.message_ids_for_claims(unpooled)
+            ctx.ovs(seq, "OVS-JOINT-003", f"{code} names {sorted(claims)} (receipt of {t.message_id}) but claims {unpooled} had no formalization in the cross-agent pool "
+                    "at that point: a conflict named on a claim the engine never decided", claim_ids=sorted(claims),
+                    message_ids=([t.message_id] if t.message_id else []) + pmids, report_ids=prids, agent_ids=paids, related_result_ids=[rid] if rid else [])
+        if not pool:
+            continue
         probs, missing = _problems_for(ctx, pool, seq)
         if missing:
             continue
@@ -249,7 +262,8 @@ def _false_conflicts(ctx: CheckContext, named) -> None:
         res_id, status, codes, _ids = memo
         mids, rids, aids = ctx.message_ids_for_claims(claims, pairs=_pairs(pool))
         if status == S.CONSISTENT.value:
-            ctx.ovs(seq, "OVS-JOINT-003", f"{code} names {sorted(claims)} (receipt of {t.message_id}) but the engine finds them consistent at the versions they had then: a false conflict",
+            part = f" (the pooled part {sorted(c.claim_id for c in pool)})" if unpooled else ""
+            ctx.ovs(seq, "OVS-JOINT-003", f"{code} names {sorted(claims)} (receipt of {t.message_id}) but the engine finds them{part} consistent at the versions they had then: a false conflict",
                     claim_ids=sorted(claims), message_ids=[t.message_id] + mids if t.message_id else mids, report_ids=rids, agent_ids=aids, formal_result_id=res_id, related_result_ids=[rid] if rid else [])
         elif status is None or status != S.INCONSISTENT_PREMISES.value:
             ctx.ovs(seq, "OVS-JOINT-002", f"the re-check of the conflict {sorted(claims)} named by {code} could not be decided ({status or codes})",

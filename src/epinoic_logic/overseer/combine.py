@@ -256,16 +256,28 @@ def combine_verdicts(assessments: Sequence[VerdictAssessment], *, intake=None,
 
 
 def _covered_by(acc: AccusationAssessment, refs: list[FindingRef]) -> bool:
-    """Whether the confirming findings ``refs`` cover what ``acc`` names: every named (report, claim) pair and every named
-    message (a member about another claim or transfer is not covered by a confirmation of this one)."""
+    """Whether the confirming findings ``refs`` cover what ``acc`` names: every named (report, claim) pair, every named
+    message, and every named report, result and document (a member about another claim, transfer, report, result or
+    document is not covered by a confirmation of this one; review round 3: an accusation naming only a report is not
+    covered vacuously)."""
     pairs = {(r, c) for f in refs for r in (f.report_ids or [""]) for c in f.claim_ids}
     claims = {c for _r, c in pairs}
     msgs = {m for f in refs for m in f.message_ids}
+    reports = {r for f in refs for r in f.report_ids}
+    results = {x for f in refs for x in ([f.formal_result_id] if f.formal_result_id else []) + list(f.related_result_ids)}
+    docs = {d for f in refs for d in f.document_ids}
     for c in acc.identifiers.get("claim_ids", []):
         reps = acc.claim_report_ids.get(c) or [""]
         if not any((r, c) in pairs or ("", c) in pairs or (r == "" and c in claims) for r in reps):
             return False
     if not acc.identifiers.get("claim_ids") and any(m not in msgs for m in acc.identifiers.get("message_ids", [])):
+        return False
+    claim_reports = {r for c in acc.identifiers.get("claim_ids", []) for r in (acc.claim_report_ids.get(c) or [])}
+    if any(r not in reports and r not in claim_reports for r in acc.identifiers.get("report_ids", [])):
+        return False
+    if any(x not in results for x in acc.identifiers.get("result_ids", [])):
+        return False
+    if any(d not in docs for d in acc.identifiers.get("document_ids", [])):
         return False
     return True
 

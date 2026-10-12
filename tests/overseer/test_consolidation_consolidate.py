@@ -127,7 +127,7 @@ def test_duplicated_identical_answers_are_one_group_with_every_agent_and_the_ear
     assert r.deliverable_message_id == d.mids["english-1"] and r.request_message_ids and len(r.request_message_ids) == 3
     assert r.scope_statement == CONSOLIDATION_SCOPE_STATEMENT and "does not show that any answer is true" in r.scope_statement
     assert r.findings == [] and r.repeats == [] and r.repeat_counts == {}
-    assert may_deliver(r, hub.auditor.keyring) and delivery_decision(r, hub.auditor.keyring, message_id=d.mids["english-1"]).allowed
+    assert may_deliver(r, hub.auditor.keyring, hub=hub) and delivery_decision(r, hub.auditor.keyring, message_id=d.mids["english-1"], hub=hub).allowed
     # a member that is not the representative is never delivered on its own
     dec = delivery_decision(r, hub.auditor.keyring, message_id=d.mids["english-2"])
     assert not dec.allowed and "not the consolidated response's deliverable answer" in dec.reason
@@ -168,7 +168,7 @@ def test_when_no_member_is_fully_clean_the_earliest_is_shown_as_not_clean_and_th
     g = r.groups[0]
     assert r.status == "CONSOLIDATED_WITH_FINDINGS" and not g.canonical_clean and g.canonical_basis == "earliest_with_findings"
     assert g.canonical_message_id == d.mids["english-1"] and all(not m.clean and m.finding_codes for m in g.members)
-    assert r.deliverable_message_id == d.mids["english-1"] and may_deliver(r, hub.auditor.keyring)
+    assert r.deliverable_message_id == d.mids["english-1"] and may_deliver(r, hub.auditor.keyring, hub=hub)
 
 
 # ============================================================================================ the same material claims, worded differently

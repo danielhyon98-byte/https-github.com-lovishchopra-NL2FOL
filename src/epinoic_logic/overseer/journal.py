@@ -12,7 +12,9 @@ may share a task id (the arena re-keys ``hub.channels`` by hand, and a task may 
 * Clearance decisions are journaled as ``clearance`` entries, so every clearance is part of the chain.
 * :meth:`ChannelJournal.verify_chain` recomputes hashes, links, MACs and the entry index, and reports the FIRST
   break (CUST-005); everything after it is unverifiable.
-* Bounds: past ``max_entries`` EVENT entries or ``max_bytes`` of event content per channel, events are journaled
+* Bounds: past ``max_entries`` EVENT entries or ``max_bytes`` of event content per channel (raised in proportion for a
+  plan selecting more than :data:`AGENTS_PER_BOUND` agents, ``bound_for_plan``; a captured result the receipt also
+  carries is counted once), events are journaled
   digest-only (content strings replaced by their digests, raw text dropped): custody is still decidable by
   digest, the content is no longer recoverable, and the coverage loss is reported once (AUDIT-002). A digest-only
   transfer is never treated as checkable: the audit fails it (AUDIT-005, error, live and batch), so a transfer
@@ -41,7 +43,8 @@ from ..ir.canonical import canonical_json, sha256_hex
 from .contracts import JournalEntry
 from .keys import KeyRing
 
-__all__ = ["ChannelJournal", "JournalSet", "ChainBreak", "JournalSealed", "GENESIS_PREFIX", "MAX_ENTRIES", "MAX_BYTES", "MAX_RECORDS", "GLOBAL_MAX_BYTES"]
+__all__ = ["ChannelJournal", "JournalSet", "ChainBreak", "JournalSealed", "GENESIS_PREFIX", "MAX_ENTRIES", "MAX_BYTES", "MAX_RECORDS", "GLOBAL_MAX_BYTES",
+           "AGENTS_PER_BOUND", "bound_for_plan"]
 
 GENESIS_PREFIX = "epinoic-overseer-journal/v1|"
 #: Event entries per channel journaled with their content (the auditor's own records are not counted).
@@ -51,6 +54,11 @@ MAX_BYTES = 64 * 1024 * 1024
 #: The auditor's own records (clearance, gap, seal) per channel journaled in full; later ones are journaled as their digest.
 MAX_RECORDS = 65536
 GLOBAL_MAX_BYTES = 256 * 1024 * 1024
+#: The plan size the per-channel content bound is sized for: a plan selecting more agents gets a proportionally larger
+#: bound (``bound_for_plan``), so a task within the plan's own limits (at most 16 agents, 512 claims a report) never
+#: reaches it. Measured (review round 3): one genuine 512-claim answer journals about 4 MB once its results are counted
+#: once (``ChannelEvent.content_size``), so the default 64 MB holds 8 agents' shares of 8 MB each.
+AGENTS_PER_BOUND = 8
 _RECORD_KINDS = frozenset({"clearance", "gap", "seal"})
 
 
@@ -256,6 +264,16 @@ class ChannelJournal:
         return None
 
 
+def bound_for_plan(configured: int, n_agents: int) -> int:
+    """The per-channel event-content bound for a plan selecting ``n_agents``: the configured bound, raised in proportion
+    for a plan selecting more than :data:`AGENTS_PER_BOUND` agents (never lowered)."""
+    try:
+        n = int(n_agents)
+    except (TypeError, ValueError):
+        return configured
+    return max(configured, -(-configured * n // AGENTS_PER_BOUND))
+
+
 class JournalSet:
     """Every journal of an auditor, with the global content bound: sealed journals are evicted least-recently-used
     first; an evicted journal keeps its head hash (and the auditor keeps its signed audits)."""
@@ -271,11 +289,14 @@ class JournalSet:
         self.max_records = max_records
         self._total = 0
 
-    def create(self, channel_uid: str, task_id: str) -> ChannelJournal:
+    def create(self, channel_uid: str, task_id: str, *, n_agents: Optional[int] = None) -> ChannelJournal:
+        """The journal of ``channel_uid`` (created on first use). ``n_agents``: the number of agents the channel's first
+        journaled plan selects, which sizes its content bound (:func:`bound_for_plan`)."""
         with self._lock:
             j = self._journals.get(channel_uid)
             if j is None:
-                j = ChannelJournal(channel_uid, task_id, self._keyring, max_entries=self.max_entries, max_bytes=self.max_bytes, on_size=self._grew,
+                j = ChannelJournal(channel_uid, task_id, self._keyring, max_entries=self.max_entries,
+                                   max_bytes=bound_for_plan(self.max_bytes, n_agents) if n_agents else self.max_bytes, on_size=self._grew,
                                    max_records=self.max_records)
                 self._journals[channel_uid] = j
             self._journals.move_to_end(channel_uid)

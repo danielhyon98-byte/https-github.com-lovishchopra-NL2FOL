@@ -43,8 +43,9 @@ it.
 **Repeats.** :func:`detect_repeats` walks the answers of one task in order (the views given, each in journal sequence
 order). An answer contributes each signature once. Rule ``quotation-anchor`` (review round 2): a quoted phrase that an
 error-level source fault named earlier in the task, carried again by a later answer (in a claim, an excerpt or only the
-prose) that a weaker check flags (a warning-level ``-SRC-`` rule, OVS-FID-006 parse loss), is a repeat of that fault
-whatever code catches it now. The first answer with a signature is its original; every later answer
+prose; in quotation marks, a block quote, emphasis, code or no marks at all: a phrase of three words or more is matched
+anywhere in the answer's content form) that a weaker check flags (a warning-level ``-SRC-`` rule, OVS-FID-006 parse
+loss), is a repeat of that fault whatever code catches it now. The first answer with a signature is its original; every later answer
 with the same signature, from any agent (another agent, a duplicated instance, or the same agent resubmitting after a
 rejection), is a repeat: one ``OVS-REP-001`` finding (error) naming both answers, and one count against the repeating
 agent. The code is recorded in the :class:`RepeatReport` and in the consolidated response, never in a task audit: it
@@ -362,6 +363,21 @@ def _answer_phrases(t: Transfer) -> set[str]:
     return out
 
 
+#: Words an earlier invented phrase needs before it is matched anywhere in an answer's content (not only in a quotation
+#: span): shorter phrases are common words, not a returning quotation.
+_MIN_ANCHOR_WORDS = 3
+
+
+def _answer_content(t: Transfer) -> str:
+    """The whole answer in content form, space-padded: its ``original_response`` and every claim text, so a phrase is
+    matched on word boundaries wherever and however the answer carries it."""
+    report = t.report
+    if report is None:
+        return " "
+    parts = [content_form(report.original_response or "")] + [content_form(c.claim_text) for c in report.claims]
+    return " " + " | ".join(p for p in parts if p) + " "
+
+
 # ============================================================================================ repeats
 def detect_repeats(views: Sequence[OverseerView], audits: Optional[Mapping[str, OverseerAudit]] = None, *, keyring: Any = None) -> RepeatReport:
     """The repeat report of one task. ``views`` are the task's channels in the order they were used (a reopened task's
@@ -406,7 +422,12 @@ def detect_repeats(views: Sequence[OverseerView], audits: Optional[Mapping[str, 
             # fault, whatever code catches it now (design 19.1: a fault that comes back, reworded or not)
             if quote_faults and _source_signal(t, audit):
                 own = {o.signature for o in occs}
-                for ph in sorted(_answer_phrases(t)):
+                phrases = _answer_phrases(t)
+                whole = _answer_content(t)
+                # an earlier invented phrase is matched in the answer's quotation spans AND anywhere in its whole content
+                # form (claims and prose): a block quote, italics, inline code or no marks at all carry it as much as quotation
+                # marks do (review round 3)
+                for ph in sorted(set(quote_faults) & phrases | {p for p in quote_faults if len(p.split()) >= _MIN_ANCHOR_WORDS and f" {p} " in whole}):
                     f0 = quote_faults.get(ph)
                     if f0 is None or f0.message_id == t.message_id or f0.signature in own:
                         continue

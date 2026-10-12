@@ -8,10 +8,13 @@ pack, lens, mode)``. A later issue for the same agent and task replaces the earl
 **Submit.** :meth:`VerdictIntake.submit` takes the agent's reply text exactly as the model returned it and:
 
 1. requires an open issue for ``(agent_id, task_id)`` (``not_issued``) that has not been answered (``duplicate``: an
-   issue takes one submission, whatever its outcome, so a rejected verdict is never silently retried); a well-formed
-   object that does not carry the issued dossier's digest is ``dossier_mismatch`` and does NOT use up the issue (review
-   round 2: each dossier the intake issues carries a keyed ``issue_binding``, so no other agent can derive its digest,
-   and a party that can call ``submit`` cannot pre-empt the issued agent's verdict under that agent's id);
+   issue takes one BOUND submission, whatever its outcome, so a rejected verdict is never silently retried). A reply is
+   bound only when it carries the issued dossier's digest; any other reply (junk text, a non-text value, an array, the
+   "no dossier" object, a well-formed object naming another digest) is refused under its own reason (``unparseable``,
+   ``no_dossier``, ``dossier_mismatch``) and does NOT use up the issue (review rounds 2 and 3: each dossier the intake
+   issues carries a keyed ``issue_binding``, so no other agent can derive its digest, and no outcome of an unbound
+   submission, ``not_issued`` or ``duplicate`` carries the issue id or the digest, so a party that can call ``submit``
+   can neither learn the digest nor pre-empt the issued agent's verdict under that agent's id);
 2. parses the text strictly as ONE JSON object (``parse_json_object(strict=True)``: the bare object, or exactly one code
    fence opening and closing the whole reply; prose around a fence, a second fence, duplicate keys, NaN/Infinity,
    trailing prose and non-objects refused): ``unparseable``. The "no dossier" object of When unsure U1 is
@@ -31,7 +34,11 @@ the reason, field locations (list positions and the contract's field names; any 
 sha256:...>``) and error types. The verdict is data: it is parsed, never evaluated or followed, and an
 accepted verdict has no authority; only :func:`~epinoic_logic.overseer.validate.validate_overseer_verdict` assesses
 it, and only a confirming deterministic check reaches the router. ``provider_info`` is bookkeeping recorded beside the
-verdict, never evidence.
+verdict, never evidence; but a ``provider_info.prompt_version`` in the runner's form (``<pack>/<version>+<digest
+prefix>``) naming another pack than the issue's contradicts the verdict's copied header and is ``pack_mismatch``
+(review round 3). Each accepted verdict records how its pack identity is known (``pack_attestation``: ``runner`` for
+the package's ``OverseerAgentRunner``, else ``self_reported``: an exported deployment's verdict names the pack only by
+the header the model copied, design 17.10).
 
 Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.4, listed as each stage requires:
 
@@ -139,6 +146,15 @@ class IntakeOutcome(BaseModel):
     received_at: str
 
 
+#: How the pack identity of an accepted verdict is known: ``runner`` when the package's own ``OverseerAgentRunner`` built
+#: the model input from a pack it loaded and verified against the pinned digests and handed the reply over; else
+#: ``self_reported`` (an exported deployment: the verdict's pack is the copy of the dossier header the model returned,
+#: which proves only that the header was copied, not which system text the model ran under; design 17.10).
+PackAttestation = Literal["runner", "self_reported"]
+#: ``provider_info.prompt_version`` as the runner records it: ``<pack name>/<version>+<first hex of the pack digest>``.
+_PROMPT_VERSION_RE = re.compile(r"\A(?P<name>[A-Za-z0-9._-]{1,64})/(?P<version>[0-9A-Za-z.]{1,16})\+(?P<digest>[0-9a-f]{8,64})\Z")
+
+
 @dataclass(frozen=True)
 class AcceptedVerdict:
     """A verdict the intake accepted: the signed envelope, the parsed verdict and the issue it answers."""
@@ -148,6 +164,7 @@ class AcceptedVerdict:
     provider_info: Optional[dict]
     raw_text_sha256: str
     received_at: str
+    pack_attestation: str = "self_reported"
 
 
 def _provider_info(info: Any) -> Optional[dict]:
@@ -158,6 +175,16 @@ def _provider_info(info: Any) -> Optional[dict]:
         return json.loads(canonical_json(data))
     except Exception:
         return {"unrecorded": type(info).__name__}
+
+
+def _named_pack(info: Optional[dict]) -> Optional[tuple[str, str, str]]:
+    """``(name, version, digest prefix)`` that ``provider_info.prompt_version`` names, or None when it names no pack in
+    the runner's form (a provider's own prompt version is not read as a pack)."""
+    pv = info.get("prompt_version") if isinstance(info, dict) else None
+    if not isinstance(pv, str):
+        return None
+    m = _PROMPT_VERSION_RE.match(pv)
+    return (m.group("name"), m.group("version"), m.group("digest")) if m else None
 
 
 def _known_fields() -> frozenset[str]:
@@ -294,23 +321,32 @@ class VerdictIntake:
         self._outcomes.append(out)
         return out
 
-    def submit(self, agent_id: str, task_id: str, text: Any, *, provider_info: Any = None) -> IntakeOutcome:
-        """Take one reply text for the dossier issued to ``agent_id`` for ``task_id``. Never raises on agent output."""
+    def submit(self, agent_id: str, task_id: str, text: Any, *, provider_info: Any = None, attestation: str = "self_reported") -> IntakeOutcome:
+        """Take one reply text for the dossier issued to ``agent_id`` for ``task_id``. Never raises on agent output.
+        ``attestation``: ``runner`` only from the package's ``OverseerAgentRunner`` (recorded beside the verdict, never
+        evidence); anything else is recorded as ``self_reported``."""
         info = _provider_info(provider_info)
+        attested = "runner" if attestation == "runner" else "self_reported"
         is_text = isinstance(text, str)
         raw_sha = sha256_hex(text) if is_text else None
         raw_chars = len(text) if is_text else 0
         with self._lock:
             issue = self._issues.get((agent_id, task_id))
             common = dict(agent_id=str(agent_id)[:128], task_id=str(task_id)[:128], issue=issue, raw_sha=raw_sha, raw_chars=raw_chars, provider_info=info)
+            # an outcome of a submission that is not bound to the issue never carries the issue's id or dossier digest:
+            # the digest is the proof of holding the dossier, so it is never handed to a caller who did not show it
+            unbound = dict(common, issue=None)
             if issue is None:
-                return self._reject(reason="not_issued", detail="no dossier was issued to this agent for this task", **common)
+                return self._reject(reason="not_issued", detail="no dossier was issued to this agent for this task", **unbound)
             if issue.issue_id in self._answered:
-                return self._reject(reason="duplicate", detail="this dossier was already answered; an issue takes one submission", **common)
+                return self._reject(reason="duplicate", detail="this dossier was already answered; an issue takes one submission", **unbound)
             if not self._bound(text, issue):
-                # a reply that does not name this issue's dossier digest proves nothing about who sent it: it is refused and
-                # does NOT use up the issue, so whoever can call submit cannot pre-empt the issued agent's genuine verdict
-                return self._reject(reason="dossier_mismatch", detail="the reply does not carry the digest of the dossier issued to this agent", **common)
+                # a reply that does not carry this issue's dossier digest proves nothing about who sent it, whatever it is (junk,
+                # None, an array, the "no dossier" object, a well-formed verdict naming another digest): it is refused and does
+                # NOT use up the issue, so whoever can call submit cannot pre-empt the issued agent's genuine verdict
+                reason, detail = self._unbound_reason(text)
+                return self._reject(reason=reason, detail=detail + "; it does not carry the digest of the dossier issued to this agent, so the issue stays open",
+                                    **unbound)
             self._answered.add(issue.issue_id)
             if not is_text:
                 return self._reject(reason="unparseable", detail="the reply is not text", **common)
@@ -334,6 +370,11 @@ class VerdictIntake:
             if verdict.pack != issue.pack:
                 return self._reject(reason="pack_mismatch", detail=f"the verdict names another pack than the one the dossier was issued under ({issue.pack.label})",
                                     verdict=verdict, **common)
+            named = _named_pack(info)
+            if named is not None and not (named[0] == issue.pack.name and named[1] == issue.pack.version and issue.pack.sha256.startswith(named[2])):
+                # the deployment's own record of the pack it ran under contradicts the pack the verdict copied from the header
+                return self._reject(reason="pack_mismatch", detail=f"provider_info.prompt_version names another pack than the one the dossier was issued under "
+                                    f"({issue.pack.label}): the verdict was produced under an altered or other pack", verdict=verdict, **common)
             try:
                 payload = json.loads(canonical_json(verdict.model_dump(mode="json")))
                 msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=issue.request_id or "unknown", task_id=issue.task_id or "unknown",
@@ -352,27 +393,31 @@ class VerdictIntake:
                 return self._reject(reason="envelope", detail="the envelope was refused: " + ", ".join(sorted({f.code for f in env})), verdict=verdict,
                                     message_id=msg.message_id, **common)
             self._verdicts[msg.message_id] = AcceptedVerdict(message=msg, verdict=verdict, issue=issue, provider_info=info, raw_text_sha256=raw_sha or "",
-                                                             received_at=_now())
+                                                             received_at=_now(), pack_attestation=attested)
             out = IntakeOutcome(accepted=True, agent_id=issue.agent_id, task_id=issue.task_id, issue_id=issue.issue_id, message_id=msg.message_id,
                                 verdict_id=verdict.verdict_id, pack=verdict.pack, dossier_sha256=issue.dossier_sha256, raw_text_sha256=raw_sha,
                                 raw_chars=raw_chars, provider_info=info, received_at=_now())
             self._outcomes.append(out)
             return out
 
-    def _bound(self, text: Any, issue: IssueRecord) -> bool:
-        """Whether a reply can be from the holder of the issued dossier: it is text that carries the dossier's digest
-        (which only the holder can know, the dossier carrying the intake's keyed ``issue_binding``), or it is a reply the
-        strict parse refuses or the "no dossier" object (the agent's own malformed answer, which uses up the issue as
-        before). A well-formed object naming another digest is not bound."""
+    @staticmethod
+    def _bound(text: Any, issue: IssueRecord) -> bool:
+        """Whether a reply is bound to the issue: it is text that carries the issued dossier's digest, which only the holder
+        of the dossier can know (the dossier carries the intake's keyed ``issue_binding``, and no refusal ever returns the
+        digest). Nothing else binds (review round 3): not a reply the strict parse refuses, not the "no dossier" object."""
+        return isinstance(text, str) and bool(issue.dossier_sha256) and issue.dossier_sha256 in text
+
+    def _unbound_reason(self, text: Any) -> tuple[str, str]:
+        """The reason recorded for a reply that is not bound to its issue (the issue stays open)."""
         if not isinstance(text, str):
-            return True
-        if issue.dossier_sha256 in text:
-            return True
+            return "unparseable", "the reply is not text"
         try:
             obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
         except ProviderOutputError:
-            return True
-        return is_no_dossier(obj)
+            return "unparseable", "the reply is not exactly one strict JSON object"
+        if is_no_dossier(obj):
+            return "no_dossier", "the agent reported that it received no dossier (no review)"
+        return "dossier_mismatch", "the reply is a JSON object that names no issued dossier digest"
 
     # ------------------------------------------------------------------ reading
     def accepted(self, message_id: str) -> Optional[AcceptedVerdict]:

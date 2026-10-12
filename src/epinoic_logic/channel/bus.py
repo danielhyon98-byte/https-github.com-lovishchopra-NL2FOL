@@ -277,7 +277,9 @@ class TranslatorChannel:
         # that subject's branch: its requests carry that subject, its raw text is parsed by that branch's adapter and its
         # reports run through that branch's packs. Everything else on the channel (ledger, pool, hand-off) is shared.
         self._agent_branches = {aid: registry.for_subject(subj) for aid, subj in plan.agent_subjects.items()}
-        self.plan = plan
+        # The channel holds its own copy of the plan: a later change to the caller's plan object (its lists are mutable)
+        # never changes the rules the channel applies.
+        self.plan = plan.model_copy(deep=True)
         self.key = signing_key
         self.key_id = key_id
         self.verify_claim_fn = verify_claim_fn

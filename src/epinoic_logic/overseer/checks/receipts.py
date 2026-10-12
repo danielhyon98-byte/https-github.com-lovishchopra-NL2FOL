@@ -31,7 +31,15 @@
   - a delivered report (response, raw text or relay) whose report id an earlier journaled delivery carries with other
     content (compared without ``created_at``) needs INT-HANDOFF-015 (error, blocking);
   - a request needs INT-HANDOFF-002 when the journaled plan did not select its addressee, and INT-HANDOFF-004 when it
-    supplies a document outside the plan's retrieval scope (both errors, so the request is REJECTED).
+    supplies a document outside the plan's retrieval scope (both errors, so the request is REJECTED);
+  - (review round 3) the plan is always the FIRST journaled plan (``view.plan_at``); a delivered response's coverage
+    records are the image of the channel's coverage rule re-run on the journaled request and report (bound at import:
+    a patched class is not used), and each unaddressed item has its own INT-REQ-004 at its severity; a response
+    supplying texts the request did not needs INT-REQ-002; a delivered relay needs the relay-party rule
+    (INT-HANDOFF-002), INT-HANDOFF-001 and, unless a router forward, ``bind_payload`` (INT-ENV-008); every delivered
+    transfer's sender role may issue its contract (INT-ENV-007); a response whose event captured a signed
+    INCONSISTENT_PREMISES run of the channel's cross-report joint check names a conflict (INT-CONFLICT-001/005/004);
+    and a request's word and paragraph bounds are not weaker than its own user input states (``extract_constraints``).
 """
 from __future__ import annotations
 
@@ -59,7 +67,7 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-GLOSSARY-007", "INT-HANDOFF-001", "INT-HANDOFF-002", "INT-HANDOFF-003", "INT-HANDOFF-004", "INT-HANDOFF-007", "INT-HANDOFF-008",
         "INT-HANDOFF-011", "INT-HANDOFF-012", "INT-HANDOFF-013", "INT-HANDOFF-015", "INT-INTERNAL-001", "INT-LEDGER-000", "INT-LEDGER-001",
         "INT-LEDGER-002", "INT-LEDGER-003", "INT-LEDGER-004", "INT-LEDGER-005", "INT-LEDGER-006", "INT-LEDGER-008", "INT-LEDGER-009",
-        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-027",
+        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-027", "INT-LEDGER-028",
         "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-003", "INT-REQ-007", "INT-REQ-009", "INT-REQ-011", "INT-REQ-012",
         "INT-STALE-001", "INT-STALE-002", "INT-STALE-003", "INT-STALE-004", "INT-STALE-005", "INT-STALE-006", "INT-STALE-007", "INT-STALE-008",
         "INT-STALE-009", "INT-STALE-010", "INT-STALE-011", "INT-SUBJ-001", "INT-SUBJ-003", "INT-SYNTH-001", "INT-SYNTH-006", "INT-SYNTH-010")},
@@ -74,6 +82,10 @@ FIXED_SEVERITY: dict[str, str] = {
 #: Codes raised at a severity that depends on the case (INT-REQ-004: required item or not; INT-REQ-005: word or
 #: paragraph bound, checked by the constraint rule; INT-CONFLICT-005: a fixed or an assumed reading).
 VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-CONFLICT-005"})
+#: The channel's own rules the implied findings re-run, bound when this module is imported: a channel whose class is
+#: patched later (a rule replaced at run time) is re-derived with the rule as shipped, not with the patch.
+_CHANNEL_COVERAGE = TranslatorChannel._coverage
+_CHANNEL_RELAY_PARTIES = TranslatorChannel._relay_parties
 _RANK = {"info": 0, "warning": 1, "error": 2}
 
 
@@ -378,10 +390,182 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
                 out.append((f.code, f.severity, f"constraint {cr.constraint_id} is a {kinds.get(cr.constraint_id)} bound, which the channel reports at severity error"))
     if t.kind in ("response", "response_text") and t.receipt.status is not TransmissionStatus.REJECTED and req is not None and t.report is not None:
         out.extend(_identity_implied(ctx, t, req))
+        out.extend(_coverage_implied(ctx, t, req))
     out.extend(_reuse_implied(ctx, t))
     if t.kind == "request":
         out.extend(_request_scope_implied(ctx, t))
+        out.extend(_request_constraints_implied(ctx, t))
+    if t.kind in ("relay_forward", "relay_report", "relay_synthesis") and t.receipt.status is not TransmissionStatus.REJECTED:
+        out.extend(_relay_implied(ctx, t))
+    if t.receipt.status is not TransmissionStatus.REJECTED:
+        out.extend(_role_implied(ctx, t))
+    if t.kind in ("response", "response_text", "relay_report"):
+        out.extend(_joint_implied(ctx, t))
     return out
+
+
+def _coverage_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, str, str]]:
+    """The channel's coverage rule (``TranslatorChannel._coverage``, a deterministic lexical rule: called, not copied)
+    re-run on the journaled request and report: the receipt's coverage records must be its image, and every item it
+    leaves unaddressed needs its own INT-REQ-004 (warning for a required item, info otherwise). A receipt that marks an
+    unaddressed item addressed, and drops its INT-REQ-004, is the exact image of nothing that was checked."""
+    rc = t.receipt
+    rep = t.report
+    echoed = any(f.code == "INT-REQ-011" for f in rc.findings)
+    try:
+        expected = _CHANNEL_COVERAGE(None, req, rep, echoed=echoed)  # the rule reads no channel state
+    except Exception:
+        return []
+    out: list[tuple[str, str, str]] = []
+    exp = sorted((c.item_id, c.addressed, tuple(sorted(c.addressed_by_claim_ids))) for c in expected)
+    got = sorted((c.item_id, c.addressed, tuple(sorted(c.addressed_by_claim_ids))) for c in rc.coverage)
+    if exp != got:
+        wrong = sorted({e[0] for e in exp} ^ {g[0] for g in got} | {e[0] for e, g in zip(exp, got) if e != g})
+        out.append(("coverage records", "different", f"the channel's coverage rule re-run on the journaled request and report gives items {wrong[:8]} other coverage "
+                    f"than the receipt states ({[(e[0], e[1]) for e in exp][:8]} re-derived, {[(g[0], g[1]) for g in got][:8]} on the receipt)"))
+    items = {i.item_id: i for i in req.items}
+    for c in expected:
+        if c.addressed or c.item_id not in items:
+            continue
+        sev = "warning" if items[c.item_id].required else "info"
+        how = _present(rc.findings, "INT-REQ-004", sev, message_prefix=f"request item {c.item_id} appears unaddressed")
+        if how:
+            out.append(("INT-REQ-004", how, f"request item {c.item_id} is unaddressed under the channel's coverage rule re-run on the journaled request and report, "
+                        f"so the channel raises INT-REQ-004 ({sev}) naming it"))
+    return out
+
+
+def _request_constraints_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """A request's word and paragraph bounds against the bounds its own ``user_input`` states (``extract_constraints``,
+    the rule the channel applies when no constraints are given): a bound the user input states that the request drops,
+    or carries weaker ("no more than 80 words" checked as 800), is a miscommunicated transfer (RCPT-004)."""
+    from ...channel.request_parser import extract_constraints
+    req = t.request
+    if req is None:
+        return []
+    try:
+        stated = extract_constraints(req.user_input)
+    except Exception:
+        return []
+    out: list[tuple[str, str, str]] = []
+    for c in stated:
+        if c.kind not in ("max_words", "min_words", "max_paragraphs", "min_paragraphs") or c.value is None:
+            continue
+        try:
+            want = int(str(c.value))
+        except ValueError:
+            continue
+        held = []
+        for x in req.constraints:
+            if x.kind == c.kind and x.value is not None:
+                try:
+                    held.append(int(str(x.value)))
+                except ValueError:
+                    continue
+        strongest = (min(held) if c.kind.startswith("max") else max(held)) if held else None
+        if strongest is None or (strongest > want if c.kind.startswith("max") else strongest < want):
+            out.append(("request constraints", "weaker", f"the request's user input states {c.kind} {want}, but the request checks "
+                        + (f"{c.kind} {strongest}" if strongest is not None else "no such bound") + ": the answer is held to a weaker bound than the one asked for"))
+    return out
+
+
+def _relay_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """The relay path's blocking rules re-run on the journaled call, envelope and the FIRST journaled plan: the sender
+    and the recipient are parties the plan selected unless they act in an infrastructure role, and a synthesis names a
+    selected combinator (``TranslatorChannel._relay_parties``, INT-HANDOFF-002); the payload belongs to the plan's
+    request and task (INT-HANDOFF-001); a relay that is not a router forward is bound to its payload (``bind_payload``,
+    INT-ENV-008). Each is an error the channel REJECTS on, so a delivered relay that needed one lacks it (RCPT-004)."""
+    from types import SimpleNamespace
+    from ...integrity.contracts import AgentMessage, AgentRole
+    from ...integrity.envelope import bind_payload
+    from ..faithful import faithful
+    rc = t.receipt
+    plan = ctx.view.plan_at(t.seq)
+    obj = t.synthesis if t.kind == "relay_synthesis" else t.report
+    env = t.envelope or {}
+    if plan is None or obj is None or not env:
+        return []
+    try:
+        msg = faithful(AgentMessage, env)
+        from_role = AgentRole(t.call.get("from_role") or env.get("sender_role"))
+        to_role = AgentRole(t.call.get("to_role") or env.get("recipient_role"))
+    except Exception:
+        return []
+    to_agent = t.call.get("to_agent_id") if isinstance(t.call.get("to_agent_id"), str) else env.get("recipient_agent_id")
+    expected = []
+    try:
+        expected += _CHANNEL_RELAY_PARTIES(SimpleNamespace(plan=plan), msg, from_role, to_agent or "", to_role, obj)
+    except Exception:
+        pass
+    out: list[tuple[str, str, str]] = []
+    for f in expected:
+        how = _present(rc.findings, f.code, "error")
+        if how:
+            out.append((f.code, how, f"re-run on the journaled relay and the first journaled plan: {f.message[:200]}"))
+    if obj.request_id != plan.request_id or obj.task_id != plan.task_id:
+        how = _present(rc.findings, "INT-HANDOFF-001", "error")
+        if how:
+            out.append(("INT-HANDOFF-001", how, f"the relayed payload belongs to request/task {obj.request_id}/{obj.task_id}, not the plan's {plan.request_id}/{plan.task_id}"))
+    if t.kind != "relay_forward":
+        try:
+            bound = bind_payload(msg, obj)
+        except Exception:
+            bound = []
+        for f in bound:
+            how = _present(rc.findings, f.code, f.severity)
+            if how:
+                out.append((f.code, how, f"re-run on the journaled envelope: {f.message[:200]}"))
+    return out
+
+
+def _role_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """INT-ENV-007 (error, blocking): the envelope's sender role may issue its contract (``allowed_sender_roles``, the
+    ROLE_CONTRACTS table), re-checked on the journaled envelope of every transfer the channel did not reject."""
+    from ...integrity.envelope import allowed_sender_roles
+    env = t.envelope or {}
+    contract, role = env.get("contract"), env.get("sender_role")
+    if not isinstance(contract, str) or not isinstance(role, str):
+        return []
+    allowed = allowed_sender_roles(contract)
+    if allowed is None or role in {r.value for r in allowed}:
+        return []
+    how = _present(t.receipt.findings, "INT-ENV-007", "error")
+    if not how:
+        return []
+    return [("INT-ENV-007", how, f"a {role} may not issue the contract {contract!r} (allowed senders: {sorted(r.value for r in allowed)})")]
+
+
+#: Problem id of the channel's cross-report joint consistency run over the whole pool (``check_cross_report_consistency``;
+#: its attribution sub-runs carry other ids).
+JOINT_PROBLEM_PREFIX = "joint-cross-report"
+
+
+def _joint_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """A signed INCONSISTENT_PREMISES run of the channel's cross-report joint check captured in this event decides that
+    the pooled claims contradict each other: the receipt must name it (INT-CONFLICT-001 or -005, or the -004 assumed-reading
+    warning). An engine-side insider answering the channel's check with a re-signed CONSISTENT would otherwise hide the
+    contradiction from the router until the batch tier's independent joint check (B3)."""
+    rc = t.receipt
+    if rc is None or not t.event.captured:
+        return []
+    found = []
+    for c in t.event.captured:
+        if not c.result_json or f'"{JOINT_PROBLEM_PREFIX}"' not in c.result_json:
+            continue
+        try:
+            data = json.loads(c.result_json)
+        except Exception:
+            continue
+        pid = str(data.get("problem_id") or "")
+        if pid == JOINT_PROBLEM_PREFIX and data.get("status") == "INCONSISTENT_PREMISES":
+            found.append(c.result_id)
+    if not found:
+        return []
+    named = any(f.code in ("INT-CONFLICT-001", "INT-CONFLICT-005") or (f.code == "INT-CONFLICT-004") for f in rc.findings)
+    if named:
+        return []
+    return [("INT-CONFLICT-001", "absent", f"the channel's cross-report joint check ran in this event and the engine signed INCONSISTENT_PREMISES "
+             f"(results {found[:4]}): the pooled claims contradict each other, and the receipt names no conflict")]
 
 
 #: Findings after which the channel returns before its report-id reuse rule runs (no request, a payload that does not
@@ -465,6 +649,12 @@ def _identity_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, st
     plan = ctx.view.plan_at(t.seq)
     if plan is not None:
         expected += check_report_against_plan(plan, rep)
+    report_docs = {d.document_id for d in rep.supplied_texts}
+    req_docs = {d.document_id for d in req.supplied_texts}
+    if req_docs and report_docs and not report_docs <= req_docs:
+        how = _present(rc.findings, "INT-REQ-002", "error")
+        if how:
+            out.append(("INT-REQ-002", how, f"the report supplies texts {sorted(report_docs - req_docs)[:8]} that the journaled request did not"))
     seen: set[tuple[str, str]] = set()
     for f in expected:
         if (f.code, f.severity) in seen:
@@ -479,5 +669,8 @@ def _identity_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, st
 def check_implied_findings(ctx: CheckContext, t: Transfer) -> None:
     """RCPT-004 for every implied finding the receipt lacks or carries at a lower severity (module docstring)."""
     for code, how, why in implied_findings(ctx, t):
+        if not code.startswith("INT-"):  # a structured field (coverage records, request constraints), not a finding
+            ctx.ovs(t.seq, "OVS-RCPT-004", f"receipt {t.receipt_id} of {t.kind} {t.message_id}: {code} {how}: {why}", **t.ids())
+            continue
         what = "lacks it" if how == "absent" else f"carries it at severity {how}"
         ctx.ovs(t.seq, "OVS-RCPT-004", f"receipt {t.receipt_id} of {t.kind} {t.message_id} implies {code} but {what}: {why}", **t.ids())

@@ -246,7 +246,7 @@ later code does to the shared objects. This is what closes G2, G3 and G4.
 | Intake | `overseer/intake.py` | `VerdictIntake`: strict parse, envelope, signing with the intake key, log |
 | Validation | `overseer/validate.py` | `validate_overseer_verdict` produces a `VerdictAssessment` |
 | Combination | `overseer/combine.py` | `combine_verdicts` produces a `CombinedAssessment` |
-| Router policy | `overseer/policy.py` | `may_act(receipt, clearance)`, `may_release(...)`, bounded wait on PENDING |
+| Router policy | `overseer/policy.py` | `may_act(receipt, clearance, auditor=None)`, `may_release(...)`, bounded wait on PENDING |
 | Knowledge pack | `overseer/knowledge/overseer-knowledge-docs-1.0/` | the agent's whole configuration: `master_prompt.txt`, nine documents, `README.md` for deployers, generated `verdict.schema.json` and `dossier.schema.json`, `manifest.json` (section 17.3) |
 | Pack loader | `overseer/pack.py` | `KnowledgePack`, `load_pack`, `installed_pack`, `PACK_DIGESTS`, manifest and schema generation, `PackError` (section 17.6) |
 | Exporter | `overseer/export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify`, `--refresh-source` (section 17.7) |
@@ -343,7 +343,13 @@ from `bus.py`.
 - `verify_chain()` recomputes hashes, links, MACs and the sequence. It reports the first break
   (CUST-005); everything after the break is unverifiable.
 - **Bounds.**
-  - 4096 event entries and 64 MB of event content per channel. Beyond the cap, events become
+  - 4096 event entries and 64 MB of event content per channel, the content bound raised in proportion for a plan
+    selecting more than 8 agents (`journal.bound_for_plan`: 128 MB for the 16 agents a `WorkPlan` allows), and a captured
+    result whose signed copy and problem the receipt's outcomes carry is counted once (`ChannelEvent.content_size`,
+    rule `count-once`). Measured (review round 3): one genuine 600-sentence answer with 512 formalized claims journals
+    4.9 MB (receipt 3.6 MB, envelope 0.3 MB, the captured runs no outcome carries, chiefly the cross-report joint
+    problem, 0.9 MB; it was 6.6 MB when every result was counted twice), so a 16-agent plan holds 16 such answers with
+    their forwards and the synthesis (about 85 MB) under its 128 MB bound. Beyond the cap, events become
     digest-only: the strings are replaced by their digests and `raw_text` is dropped. Custody is
     still decidable by digest, the content is no longer recoverable, and AUDIT-002 is raised once.
     A digest-only transfer is never treated as checkable: it is OVS-AUDIT-005 (error) live and in
@@ -747,10 +753,16 @@ The precedence is FAILED, then PENDING, then PASSED_WITH_FINDINGS, then PASSED.
   0.3 ms.
 - The router calls it immediately before acting on a transfer (relaying, forwarding, synthesizing
   or answering). That closes the window for tampering after the live audit.
-- `policy.may_act(receipt, clearance)` is true only when all of these hold:
+- `policy.may_act(receipt, clearance, auditor=None)` is true only when all of these hold:
   - the receipt is not REJECTED;
   - the state is PASSED or PASSED_WITH_FINDINGS;
-  - the clearance was issued for that receipt's digest.
+  - the clearance was issued for that receipt's digest;
+  - the clearance is still the word of the auditor journaling its channel (the `auditor` passed, or
+    the live auditor registered for `clearance.channel_uid`, `audit.auditor_for_channel`; review
+    round 3; `TransferAuditor.clearance_current`): the latest clearance it journaled for the message
+    (a superseded or router-built one, or one naming a channel no auditor journals, is refused), no
+    later task audit marks the transfer other than passed, and custody of the transfer and its
+    dependencies is re-checked against the live channel at the decision.
 - On PENDING, the router may wait up to 250 ms of replay (`wait_ms`). If the transfer is still
   pending, it is held until the batch audit. PENDING is never shown as success.
 - `policy.may_release(synthesis_receipt, task_audit, keyring)` gates the student-facing synthesis.
@@ -940,9 +952,13 @@ the dossier, and records the issue `(agent_id, task_id, dossier_sha256, pack, le
 steps (`provider_info` is recorded beside the verdict when the runner supplies it; it is
 bookkeeping, never evidence):
 
-0. A well-formed reply that does not carry the issued dossier's digest is refused as
-   `dossier_mismatch` and does NOT use up the issue, so whoever can call `submit` under another
-   agent's id cannot pre-empt that agent's genuine verdict (review round 2, S19).
+0. A reply that does not carry the issued dossier's digest, whatever it is (a well-formed object
+   naming another digest, `dossier_mismatch`; junk text, a non-text value or an array,
+   `unparseable`; the no-dossier object, `no_dossier`), is refused and does NOT use up the issue,
+   and no such refusal (nor `not_issued` or `duplicate`) carries the issue id or the digest, so
+   whoever can call `submit` under another agent's id can neither learn the digest nor pre-empt
+   that agent's genuine verdict (review round 2, S19; round 3, T15). A reply carrying the digest
+   uses up the issue whatever its outcome.
 1. It parses the text strictly as JSON (`translate.parsing.parse_json_object(strict=True)`): the
    bare object, or exactly one code fence that opens and closes the whole reply. Prose around a
    fence, or a second fence, is AGENT-005 (section 20, R18). Anything else is AGENT-005. The pack's "no dossier"
@@ -1564,7 +1580,7 @@ Every code has exactly one severity, and every finding carries identifiers.
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | OVS-CUST-001 | error | envelope payload altered after issue (rehash or canonical diff against the journal; names the JSON paths; the journal copy is authoritative) |
-| OVS-CUST-002 | error | envelope header altered after issue (envelope digest differs; names the fields) |
+| OVS-CUST-002 | error | envelope header altered after issue (envelope digest differs; names the fields), or a transfer issued under a work plan, solver configuration, engine key id or branch other than the channel's first journaled ones (rule pinned-setup) |
 | OVS-CUST-003 | error | transfer not journaled (written around the channel), or a journaled message missing from the log |
 | OVS-CUST-004 | error | a typed copy (`transmitted_reports`, `ch.requests`) diverges from the journaled delivery |
 | OVS-CUST-005 | error | journal chain broken (hash, link, sequence or HMAC); everything after the break is unverifiable and the task audit fails |
@@ -1572,18 +1588,18 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-RCPT-001 | error | receipt differs from the journaled receipt (the channel's copy or the copy the router presents; names the fields) |
 | OVS-RCPT-002 | error | receipt status is not the image of its contents under the channel's status rule |
 | OVS-RCPT-003 | error | delivery contradicts status (a REJECTED transfer delivered, pooled, forwarded or recorded, or an accepted one not recorded) |
-| OVS-RCPT-004 | error | a finding re-derived on journaled inputs is absent from the receipt or carries a lower severity (names the code): implied by the receipt's own structured results or identity checks (live), or an error the shadow replay raises |
+| OVS-RCPT-004 | error | a finding re-derived on journaled inputs is absent from the receipt or carries a lower severity (names the code): implied by the receipt's own structured results, its coverage rule, its identity, relay, role and plan rules, a captured INCONSISTENT joint run (live), or an error or warning the shadow replay raises more often; also coverage records that are not the coverage rule's image, and a request whose word or paragraph bounds are weaker than its own user input states |
 | OVS-RCPT-005 | warning | a receipt finding the re-derivation does not reproduce |
 | OVS-RCPT-006 | error | the receipt names identifiers that resolve nowhere |
 | OVS-RCPT-007 | error | the summary states something the structured fields do not support, or a non-request receipt lacks the scope sentence |
-| OVS-RCPT-008 | error | the shadow channel, fed the journaled inputs, issues another status for this transfer, and no undecided engine run explains it |
+| OVS-RCPT-008 | error | the shadow channel, fed the journaled inputs, issues another status, coverage, constraint results or outcome display statuses for this transfer, and no undecided engine run under the channel's configuration explains it |
 | OVS-RES-001 | error | a cited result under a local key id was never produced by the engine while capture was active |
 | OVS-RES-002 | warning | a cited result is not retained (evicted, before attachment, degraded mode); unverifiable, not an accusation |
 | OVS-RES-003 | error | result unsigned, signature invalid, or signed under an undeclared key id |
 | OVS-RES-004 | error | result bound to another problem or ids, or its binding is internally inconsistent, or a local engine run under a solver configuration other than the channel's journaled one or component versions other than the running engine's |
 | OVS-RES-005 | error | result out of task or reused (another channel, task or request, a later event, or an earlier event re-cited as fresh) |
 | OVS-RES-006 | error | one result id with two contents, or a receipt copy not byte-identical to the stored result |
-| OVS-RES-007 | error | replay on a fresh engine (under the channel's journaled solver configuration) gives another definitive status, or another problem or config digest |
+| OVS-RES-007 | error | replay on a fresh engine (under the channel's journaled solver configuration) gives another definitive status, or another problem or config digest; or a word or paragraph bound whose signed status integer arithmetic contradicts, or leaves undecided while the bound fails (R2) |
 | OVS-RES-008 | warning | replay inconclusive for a result whose own status was undecided (timeout or unknown), or a shadow difference an undecided run explains; a definitive status the replay cannot reproduce is OVS-AUDIT-005 |
 | OVS-RES-009 | error | display status not derivable from the translation and the signed result |
 | OVS-RES-010 | error | outcome translation not bound to the delivered claim (claim text digest or ids) |
@@ -1608,14 +1624,14 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-TRN-006 | error | circular translation: the conclusion occurs verbatim among the premises |
 | OVS-TRN-007 | error | an outcome's summary is not the deterministic statement of its translation and its signed result |
 | OVS-PEER-001 | error | forward not byte-identical to the delivery, a forward of an undelivered or REJECTED report, or a relayed report that reproduces no delivery its sender made of it |
-| OVS-PEER-002 | error | peer document (a peer: id, or any supplied text presenting a forwarded report by its author, id or near-copy text) differs from the forwarded `original_response`, no forward to that recipient preceded it, or its attribution (author, report id) is not the forwarded report's; or one document id carries two texts in a task |
+| OVS-PEER-002 | error | peer document (a peer: id, or any supplied text presenting a forwarded report by its author, id, near-copy text or text containing most of the answer's own words, those no earlier source carries, first supplied after the answer existed) differs from the forwarded `original_response` (or does not carry it as one verbatim span), no forward to that recipient preceded it, or its attribution (author, report id) is not the forwarded report's; or one document id carries two texts in a task |
 | OVS-PEER-003 | info | peer document linked to its forward by text equality only |
 | OVS-SYN-001 | error | synthesis cites a report not delivered before it |
 | OVS-SYN-002 | error | a ledger fault found against the journaled reports is absent from the synthesis receipt (names the INT code) |
 | OVS-SYN-003 | error | a conflict non-disclosure (against all contradictions) is absent from the synthesis receipt |
 | OVS-JOINT-001 | error | unnamed contradiction (claim-minimal; cites the auditor's signed run) |
 | OVS-JOINT-002 | warning | independent joint check undecided, not buildable, or over the joint limits |
-| OVS-JOINT-003 | error | a named conflict not reproduced by the engine (false conflict) |
+| OVS-JOINT-003 | error | a named conflict not reproduced by the engine (false conflict; a named set is re-run on its pooled part), or named on a claim that had no formalization in the pool |
 | OVS-JOINT-004 | error | the live pool differs from the journaled snapshot or from the outcomes' problems |
 | OVS-DIV-001 | error | an error-level integrity rule fires in the Overseer's report but on no receipt (names the INT code, classification and owner) |
 | OVS-DIV-002 | warning | a warning- or info-level rule divergence |
@@ -1903,6 +1919,14 @@ python -m epinoic_logic.overseer.export --refresh-source        (maintainers, so
    from the issue (`pack_mismatch`): AGENT-005, discarded. Validation re-checks it.
 5. The pack identity is recorded in the intake log, the `verdicts`-scope audit, the combined
    assessment and every score.
+6. **Limit (review round 3).** For an agent run outside `OverseerAgentRunner` the verdict's pack is
+   only the dossier header the model copied: it proves that the header was copied, not which system
+   text the model ran under. The intake therefore records how each accepted verdict's pack identity
+   is known (`AcceptedVerdict.pack_attestation`: `runner` when the package's runner built the model
+   input from a loaded, digest-verified pack, else `self_reported`), the `verdicts`-scope audit
+   states it in its notes, and a submission whose `provider_info.prompt_version` names, in the
+   runner's form `<pack>/<version>+<digest prefix>`, another pack than the issue's is
+   `pack_mismatch` (AGENT-005).
 
 ### 17.11 Deploying the exported pack with any model
 
@@ -1918,7 +1942,11 @@ The exported `README.md` (audience `deployer`) tells whoever deploys the pack:
 3. **One dossier in**: the user message is one dossier JSON exactly as the infrastructure issued it
    for that agent and pack, bare or in the data block of 17.8.
 4. **One verdict out**: return the model's reply text unchanged to the infrastructure's intake.
-   Never fill in, correct or reformat a field; an invalid verdict must be seen as invalid.
+   Never fill in, correct or reformat a field; an invalid verdict must be seen as invalid. Record
+   the deployed pack in the reply's bookkeeping (`provider_info.prompt_version` as
+   `<pack>/<version>+<first 16 hex of the pack digest>`); the pack identity of such a verdict is
+   self-reported (17.10 step 6), and only a reply carrying the issued dossier's digest uses up the
+   dossier.
 5. **Settings**: temperature 0 where supported, an output budget of at least 8,000 tokens, and the
    structured-output mode with `verdict.schema.json` where supported.
 6. **What a verdict is worth**: nothing on its own. The infrastructure validates it; only an
@@ -2097,10 +2125,13 @@ figures, dates and quotations as the engine checked their encodings. It does not
 answers mean the same beyond these rules."). It is signed under the `consolidation` subkey. `consolidation_envelope`
 carries it as an envelope from the Overseer role, which `ROLE_CONTRACTS` alone may send.
 
-- **Delivery.** `delivery_decision(resp, keyring, message_id=None)` allows only the `deliverable_message_id` of a
-  response that verifies and whose status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS. An excluded or repeated answer,
-  a member that is not the representative, a CONFLICTING or NO_DELIVERABLE_OUTPUT response, and an unsigned or edited
-  response are never delivered.
+- **Delivery.** `delivery_decision(resp, keyring, message_id=None, hub=...)` allows only the `deliverable_message_id`
+  of a response that verifies and whose status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS. An excluded or repeated
+  answer, a member that is not the representative, a CONFLICTING or NO_DELIVERABLE_OUTPUT response, and an unsigned or
+  edited response are never delivered. At delivery the issuing hub (required; review round 3) re-checks that the
+  response is the latest it issued for its input, that its task audit is the channel's latest task audit, and that the
+  deliverable answer's custody (and that of the transfers it depends on) still holds (`journal.live_custody`), as
+  `may_release` does for a synthesis.
 - **Re-check.** `check_consolidation(resp, view, ...)` gives OVS-CONS-004 (error) when the response does not verify, or
   when a recomputation from the journal with the same requests and task audit differs (the fields are named): a tampered
   or a stale consolidation.
@@ -2269,3 +2300,56 @@ error, where it gave 50 before; of the r1 to r7 syntheses relayed after their ge
 carried INT-LEDGER-023 before are clean except mai-t13 (a figure its cited sources do not state: a genuine mis-citation),
 and no synthesis of any round gained an error. Two pre-existing synthesis findings are left as they are: sp-t13 (a
 Spanish number word, "doce", restated in English) and ll-t13 (a quotation re-quoted without its inner quotation marks).
+
+## 22. Adversarial review round 3: what changed and why
+
+The third adversarial review (the same three lenses) found one blocker, nineteen major and five minor defects. Each fix
+has a regression test in `tests/overseer/test_review3_audit_tier.py`, `test_review3_content_checks.py` or
+`test_review3_protocol.py`, each reproducing the reviewer's own scenario; every defect's tests fail on the code before
+the fix, while the genuine and tamper controls beside them pass on both (run against the previous commit: 83 fail and 16
+pass, the controls plus the longer-document case of rule `source-explained`, which only this round's own
+`contains-answer` rule would have broken, T21). No
+`OVS-*` code was added; the meanings of OVS-CUST-002, RCPT-004, RCPT-008, RES-007, JOINT-003 and PEER-002 were widened
+(section 16). The integrity package gained INT-LEDGER-028 and the rule `name-partner` of INT-LEDGER-023 (T1, T6). The
+channel changed in two places: it holds its own copy of the plan it was opened with (T2), and `ChannelEvent.content_size`
+counts a captured result the receipt carries once (T24). Two tests were rewritten to assert a stricter rule: the replay
+overflow test T17 (`test_audit_replay.py`, and case T17 of `scripts/overseer/tamper.py`) now asserts that the
+cross-report joint runs are never sampled out and samples an uncited side run instead, keeping every original
+assertion; and the two positive delivery assertions of `test_consolidation_consolidate.py` pass the issuing hub, which
+`delivery_decision` now requires. None was weakened or deleted. Measured after the fixes: every reviewer reproduction
+gives the expected outcome; arena r3 is 41/41 with every receipt status, finding and display status unchanged; the
+ledger over the dummy combinator's syntheses of r1 to r7 gives the same findings as before (no new INT-LEDGER-028 or
+name-partner error); the tampering suite detects 110 of 110 tamperings with every control clean; every overseer entry
+point (task audit, clearance, consolidation, repeats, probe and pool reviews, FINAL) over every channel of the smoke
+round and r1 to r7 gives the same channels with errors as before the fixes (none, except the 18 r7 channels of three
+tasks whose recorded translation of claim g4.3 is circular, OVS-TRN-006, as before); and eleven genuine 512-claim answers
+on one task at the default bounds journal 54 MB of a 101 MB bound with the task audit passed (it was AUDIT-005 and
+JOINT-004 on the eleventh before).
+
+| # | Defect | Decision |
+| --- | --- | --- |
+| T1 (blocker) | The student-facing synthesis text was checked only for figures: a negation, an antonym, an exchanged Act name, a dropped qualifier or an added sentence, with every claim faithful, was released. | Rule `text-composition` (`ledger.text_outside_claims`): every claim text is removed from the normalised text, then the additive, sequencing, contrast and framing connectives and markdown heading labels; anything left that holds a letter or digit is INT-LEDGER-028 (error, in `FIXED_SEVERITY`), naming the claims absent from the text. A causal connective is content. `may_release` refuses it; B2 and the shadow re-run the same function. |
+| T2 | A mid-task change of the WorkPlan became the baseline of every live rule. | Rule `pinned-setup`: `view.plan_at` returns the first journaled plan, and a transfer issued under another plan digest is CUST-002 (its implied scope findings are then RCPT-004 against the first plan). The channel deep-copies the plan at construction, so the caller's object no longer reaches it. |
+| T3 | A starved solver configuration swapped into `ch.config` became the journaled configuration. | `config_at` and `key_id_at` read the first event's configuration, key id and branch; a transfer issued under others is CUST-002, a local result under another configuration RES-004, and replay runs under the pinned one. R2 rule `decidable-bound`: a word or paragraph bound whose recount FAILS while its signed status is undecided is RES-007. The shadow's RES-008 excuse needs the undecided run to be under the pinned configuration. |
+| T4 | Coverage records were never re-derived and the shadow compared finding sets. | `receipts.implied_findings` re-runs the channel's coverage rule (bound at import, so a patched class is not used) on the journaled request and report: records that are not its image, and an unaddressed item without its own INT-REQ-004 at the item's severity, are RCPT-004 live. The shadow compares finding multisets, reports a missing warning as well as a missing error (RCPT-004), and compares coverage, constraint results and outcome display statuses (RCPT-008). |
+| T5 | A forwarded answer, altered and padded with background, linked to no forward. | Rule `contains-answer`: a supplied text containing at least 0.6 of the answer's 4-grams presents it, and is faithful only when it carries the answer as one verbatim span (else PEER-002). |
+| T6 | Exchanging the Acts' NAMES (not their years) was not a re-pairing. | Rule `name-partner`: names (runs of capitalised words) bound to a figure ("the Ten Hours Act of 1847") or governing a later quantity in the same sentence (a parenthetical relative clause skipped) are compared with the cited sources and the cited reports' other claims; a name they state only with another figure of the same kind is INT-LEDGER-023. A name no report states with any figure, or part of the figure's own name ("the Act of 1833"), is never a re-pairing. |
+| T7 | R2 skipped the problem comparison of an evicted result. | `formal._held_problem` reads the problem from the store or the journaled capture; with neither, AUDIT-005 instead of a silent skip (pack checks and constraint results). |
+| T8 | The relay rules and INT-REQ-002 were not implied live. | `implied_findings` re-runs `_relay_parties` on the first plan, INT-HANDOFF-001, `bind_payload` for non-forward relays, ROLE_CONTRACTS (INT-ENV-007, every transfer) and INT-REQ-002 on the journaled request and report. |
+| T9 | The R11 re-parse compared four claim fields. | `fidelity._claim_key` compares the whole claim (certainty, source references, supporting and parent ids, proposed kind, advisory fields); CUST-006 names the fields that differ. |
+| T10 | A false conflict naming an unpooled claim was skipped by B3. | The pooled part of a named set is re-run (consistent: JOINT-003) and a named claim with no formalization in the pool is JOINT-003 itself (rule `padded-conflict`). |
+| T11 | A stale consolidated response was still deliverable. | `delivery_decision(..., hub=)` (required): the latest response for its input, the channel's latest task audit, and custody of the deliverable answer re-checked at delivery (section 19.2). |
+| T12 | A captured signed INCONSISTENT joint run with no conflict named cleared live. | Implied live: a captured `joint-cross-report` run with status INCONSISTENT_PREMISES requires INT-CONFLICT-001/005/004 on the receipt (RCPT-004); cross-report joint runs are always replayed. |
+| T13 (minor) | A request's constraints could weaken the bound its user input states. | A bound `extract_constraints(user_input)` states that the request drops or weakens is RCPT-004. |
+| T14 (minor) | `may_act` trusted a held, superseded or router-built clearance. | `may_act` holds every clearance to the word of the auditor journaling its channel (passed as `auditor=`, else the live auditor registered for the channel; none: refused): its latest journaled clearance for the message, no later task audit failing it, and custody re-checked at the decision (`TransferAuditor.clearance_current`). |
+| T15 | Junk, None or the no-dossier object used up another agent's issue; a refusal returned the issued digest. | Only a reply carrying the issued digest is bound and uses up the issue; no refusal of an unbound submission (and no `not_issued` or `duplicate`) carries the issue id or the digest. |
+| T16 | Near-duplicate answers differing by an era, a sign word, a Roman numeral, an ordinal, a unit or a scale merged. | `answer_facts` rules `unit-after-numeral`, `era-marker`, `sign-word`, `roman-numeral`, `ordinal-word` (a discourse "First," excepted) and `multiplier-word`. |
+| T17 | An invented quotation came back as a block quote, in italics, as code or without marks. | Rule `quotation-anchor` matches an earlier invented phrase of three words or more anywhere in the answer's content form (claims and prose) when a weaker check flags the answer. Not adopted: treating block quotes and emphasis as quotation forms in `find_quotation_spans`, which the adapters share (the translator's behaviour stays unchanged); the block quote is still FID-006, the weak signal the repeat rule reads. |
+| T18 | A confirmation padded with a report id absorbed another agent's unresolved accusation. | `combine._covered_by` requires the confirming findings to cover every named report, result and document; `validate.coverage_split` puts uncovered ones in the remainder. |
+| T19 (minor) | A contradiction with another task's signed result was only AGENT-002. | Statuses are compared with any stored result: AGENT-001 (`signed_result`), with an AGENT-002 beside it naming the other channel. |
+| T20 (minor) | A verdict produced under an altered pack was recorded as the pinned one. | Section 17.10 step 6: `provider_info.prompt_version` naming another pack is `pack_mismatch`; each accepted verdict records `pack_attestation`; the deployer README states the limit. |
+| T21 | A genuine source document resembling an earlier answer was linked to it (PEER-002 false alarm). | Rule `source-predates-answer`: a document an earlier delivered request supplied with the same text before the report's delivery is never linked to that report by author, id or near-copy text. Rule `source-explained` (the same class beyond the reviewer's same-id case: the same passage under another document id, or a longer document containing it): the text test reads only the answer's own words, the 4-grams no text supplied (or user input stated) before the report's delivery carries, so a text resembling the answer only where the answer copied its source is never linked; the answer itself, altered under a neutral id, still is. |
+| T22 | A claim made only of markup or invisible characters (a thematic break "***" delivered as "*") was FID-001. | Rule `raw-occurrence`: a claim occurring in the raw response, or whose comparison forms are all empty, occurs. |
+| T23 | A quoted claim of accuracy (a brochure's, a narrator's) was FID-005. | Rule `quoted-certification`: the detector reads the claim with its quotations masked, as the adapters do. |
+| T24 | Results were counted twice against the journal bound, so the 11th 512-claim answer was AUDIT-005. | Rule `count-once` and `journal.bound_for_plan` (section 5.4, with the measured capacity). |
+| T25 (minor) | A digest-only transfer was also accused of JOINT-004. | `joint.check_pool` keeps only the pool continuity check for a transfer whose receipt content is not held. |

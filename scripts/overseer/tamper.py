@@ -1537,14 +1537,24 @@ class _AlwaysOutRing(KeyRing):
 def t17(suite: Suite, target: str) -> list[Fault]:
     ring = _AlwaysOutRing({k: EngineKey(KEY) for k in H.ENGINE_KEY_IDS}, H.HARNESS_SECRET)
 
+    side = int_problem("side-run", "x", 3, op="gt", bound=1)
+
+    def side_run(call: VerifyCall):
+        # an engine run under the channel's configuration that no receipt cites and no rule makes always-replay (review
+        # round 3: the cross-report joint runs, which were the task's only such runs, are now always replayed)
+        verify(side, call.config, signing_key=call.key, key_id="t")
+        return call.genuine()
+
     def body(aud):
-        run = suite.run(target, aud)
+        run = suite.run(target, aud, hook=side_run)
         st = aud._channels[run.uid]
         always = {rid for ids_ in st.always.values() for rid in ids_}
         sampled_out_live = set(aud.replayer.sampled_out())
         f = Fault("T17", target, "infrastructure", "more results than the live replay queue holds", expected_codes=["OVS-AUDIT-003"], visibility="live")
         f.check("live replay sampled some results out", st.sampled_live > 0)
         f.check("no always-replay result was sampled out", not (always & sampled_out_live))
+        joint = [rid for rid in st.replay_jobs if '"joint-cross-report"' in (getattr(aud.store.get(rid), "result_json", "") or "")]
+        f.check("every cross-report joint run is always replayed (never sampled out)", bool(joint) and all(st.replay_jobs[rid].always for rid in joint))
         real = H.keyring_for("synthetic")
         other = KeyRing({"hub": EngineKey(KEY)}, b"another-overseer-secret-0123456789abcdef-01")
         f.check("keyed sampling is reproducible and keyed (another overseer secret samples otherwise)",

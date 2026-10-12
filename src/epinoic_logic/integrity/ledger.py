@@ -10,6 +10,7 @@ synthesized claim FOLLOWS from its sources is a formal question answered in
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Optional
 
 from ..translate.contracts import ClaimRecord, SpecialistReport
@@ -527,7 +528,155 @@ def _substitutions(synthesized_text: str, syn_pairs: set[tuple[str, str]], src_p
     return out
 
 
-def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
+#: Words that lead a run of capitalised words without being part of the name ("The Factory Act", "In 1833").
+_NAME_LEAD_STOP = frozenset(("the a an on in at by of for from to and or but nor this that these those its his her their our after before during since "
+                             "when while with as both each every under over between").split())
+#: Words that open a relative clause; ", which ... ," between a name and what follows is parenthetical.
+_RELATIVE_WORDS = frozenset("which who whom whose where".split())
+_SENTENCE_MARKS = frozenset(".!?;")
+
+
+def _is_cap_word(tok: str) -> bool:
+    return len(tok) >= 2 and tok[0].isupper() and not _is_numeral(tok) and tok not in ",;:().!?"
+
+
+def _name_runs(sent: list[str]) -> list[tuple[int, int, tuple[str, ...], str]]:
+    """``(start, end, key, surface)`` for every name of one sentence (rule ``name-partner``): a run of capitalised words,
+    its leading determiner or preposition dropped ("The Ten Hours Act" -> "Ten Hours Act"); a single capitalised word
+    opening the sentence is ordinary prose, not a name. ``key`` is the light-stemmed words."""
+    first = next((k for k, t in enumerate(sent) if t not in ",;:()"), 0)
+    out: list[tuple[int, int, tuple[str, ...], str]] = []
+    i = 0
+    while i < len(sent):
+        if not _is_cap_word(sent[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(sent) and _is_cap_word(sent[j]):
+            j += 1
+        s = i
+        while s < j and sent[s].casefold() in _NAME_LEAD_STOP:
+            s += 1
+        if s < j and not (i == first and j - i == 1):
+            words = sent[s:j]
+            out.append((s, j, tuple(light_stem(w.casefold()) for w in words), " ".join(words)))
+        i = j
+    return out
+
+
+@lru_cache(maxsize=8192)
+def _name_partners(text: str) -> tuple[frozenset, frozenset, tuple, tuple]:
+    """``(bound, governed, kinds, surface)`` of ``text`` (rule ``name-partner``). ``bound``: ``(figure, name)`` for a name
+    stated with its figure ("the Ten Hours Act of 1847", "the Factory Act (1833)", "the 1833 Factory Act"). ``governed``:
+    ``(quantity, name)`` for a quantity stated after a name in the same sentence, the nearest one, a parenthetical
+    relative clause (", which followed it,") and a bracket skipped ("the Ten Hours Act of 1847, which followed it, set the
+    age at nine": nine is the Ten Hours Act's). ``kinds``: each figure's kind; ``surface``: each name key's words."""
+    toks = _PAIR_TOKEN_RE.findall(_plain_for_pairs(text))
+    sentences: list[list[str]] = [[]]
+    for t in toks:
+        if t in _SENTENCE_MARKS:
+            sentences.append([])
+        else:
+            sentences[-1].append(t)
+    bound: set[tuple[str, tuple[str, ...]]] = set()
+    governed: set[tuple[str, tuple[str, ...]]] = set()
+    kinds: dict[str, str] = {}
+    surface: dict[tuple[str, ...], str] = {}
+    for sent in sentences:
+        if not sent:
+            continue
+        names = _name_runs(sent)
+        starts = {s: (e, key) for s, e, key, _w in names}
+        for s, e, key, words in names:
+            surface.setdefault(key, words)
+            if e + 1 < len(sent) and sent[e].casefold() in ("of", "in", "(") and _is_numeral(sent[e + 1]):
+                bound.add((sent[e + 1], key))
+            if s >= 2 and _is_numeral(sent[s - 1]) and sent[s - 2].casefold() in ("the", "a", "an", "its", "their"):
+                bound.add((sent[s - 1], key))
+        current: Optional[tuple[str, ...]] = None
+        k = 0
+        while k < len(sent):
+            tok = sent[k]
+            if tok == "(":
+                close = next((x for x in range(k + 1, len(sent)) if sent[x] == ")"), None)
+                if close is not None:
+                    k = close + 1
+                    continue
+            if tok == "," and k + 1 < len(sent) and sent[k + 1].casefold() in _RELATIVE_WORDS:
+                close = next((x for x in range(k + 2, len(sent)) if sent[x] == ","), None)
+                if close is not None:  # a relative clause closed by a comma is parenthetical: the name before it governs after it
+                    k = close + 1
+                    continue
+            if k in starts:
+                current = starts[k][1]
+                k = starts[k][0]
+                continue
+            if _is_numeral(tok):
+                kind = _figure_kind(sent, k)
+                kinds.setdefault(tok, kind)
+                if kind == "quantity" and current is not None:
+                    governed.add((tok, current))
+            k += 1
+    return frozenset(bound), frozenset(governed), tuple(sorted(kinds.items())), tuple(sorted(surface.items()))
+
+
+def _name_match(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """Two names are the same when the words of one are among the other's ("Act" and "Factory Act")."""
+    sa, sb = set(a), set(b)
+    return sa <= sb or sb <= sa
+
+
+def _renamed_figures(synthesized_text: str, source_texts: list[str], context_texts: tuple[str, ...] | list[str], src_figures: set[str]) -> list[str]:
+    """Rule ``name-partner``: a figure stated with (or, for a quantity, under) a name the cited sources and reports never
+    state with it, a name they state with another figure of the same kind, while they state the figure itself with
+    another name ("The Ten Hours Act of 1833 banned ...", where the reports state the Factory Act of 1833 and the Ten
+    Hours Act of 1847; "the Ten Hours Act of 1847, which followed it, set the age at nine", where the sources state
+    "nine" under the Factory Act). A name no source states with any figure, and a name that is part of the figure's own
+    name ("the Act of 1833"), are never re-pairings. An exchange of names that keeps every figure's verb is one."""
+    syn_bound, syn_gov, syn_kinds, syn_surface = _name_partners(synthesized_text)
+    if not syn_bound and not syn_gov:
+        return []
+    ref_bound: set = set()
+    ref_gov: set = set()
+    ref_kinds: dict[str, str] = {}
+    surface = dict(syn_surface)
+    for t in list(source_texts) + list(context_texts):
+        b, g, k, sf = _name_partners(t)
+        ref_bound |= b
+        ref_gov |= g
+        for fig, kind in k:
+            ref_kinds.setdefault(fig, kind)
+        for key, words in sf:
+            surface.setdefault(key, words)
+    kinds = dict(syn_kinds)
+    src_gov = set()
+    for t in source_texts:
+        src_gov |= _name_partners(t)[1]
+    out: list[str] = []
+    for a, name in sorted(syn_bound):
+        if a not in src_figures or (a, name) in ref_bound:
+            continue
+        own = {m for f, m in ref_bound if f == a}
+        if not own or any(_name_match(name, m) for m in own):
+            continue
+        holders = sorted({f for f, m in ref_bound if f != a and ref_kinds.get(f) == kinds.get(a, ref_kinds.get(a)) and _name_match(name, m)})
+        if holders:
+            out.append(f"'{a}' is stated with the name '{surface.get(name, ' '.join(name))}', which the cited sources and reports state only with "
+                       f"{', '.join(repr(h) for h in holders)}, and they state '{a}' with {', '.join(repr(surface.get(m, ' '.join(m))) for m in sorted(own))} (re-paired name)")
+    for a, name in sorted(syn_gov):
+        if a not in src_figures or (a, name) in src_gov:
+            continue
+        own = {m for f, m in src_gov if f == a}
+        if not own or any(_name_match(name, m) for m in own):
+            continue
+        others = sorted({f for f, m in ref_bound if f != a and _name_match(name, m)})
+        if others:
+            out.append(f"'{a}' is stated under the name '{surface.get(name, ' '.join(name))}', which the cited sources and reports state with "
+                       f"{', '.join(repr(h) for h in others)}, where the cited sources state '{a}' under {', '.join(repr(surface.get(m, ' '.join(m))) for m in sorted(own))} (re-paired name)")
+    return out
+
+
+def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
     """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
     tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
     pairing is compared as well. Three shapes are read, each decided on the sources' own statements:
@@ -541,7 +690,11 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
     * a substitution: year A takes the place of year B, which the synthesis leaves out, carrying B's own event words and
       none of A's (:func:`_substitutions`);
     * a dated quantity ``<q> ... in [<month>] <year>`` that the sources date to another month or year;
-    * a ``from X to Y`` pair the sources state as ``from Y to X``.
+    * a ``from X to Y`` pair the sources state as ``from Y to X``;
+    * a re-paired name (rule ``name-partner``, :func:`_renamed_figures`): a figure stated with a name, or a quantity
+      under a name, that the cited sources and ``context_texts`` (the other claims of the cited reports) state only with
+      another figure, while they state the figure with another name: the Acts' NAMES exchanged with every year and verb
+      kept.
 
     Only figures that occur in the sources are compared (a figure in no source is the plain INT-LEDGER-023 case), and
     a year that carries several quantities in the sources is not held to any one of them (a merge may date several
@@ -583,6 +736,7 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
     for a, b in sorted(_from_to_pairs(synthesized_text)):
         if (a, b) not in src_from_to and (b, a) in src_from_to:
             out.append(f"'from {a} to {b}' reverses the cited sources' 'from {b} to {a}'")
+    out += _renamed_figures(synthesized_text, source_texts, context_texts, src_figures)
     return _with_word_labels(out, [synthesized_text, *source_texts])
 
 
@@ -893,6 +1047,18 @@ def _source_index(reports: list[SpecialistReport], colliding: set[str]) -> tuple
     return idx, report_of
 
 
+def _report_context(reports: list[SpecialistReport], known: list[ClaimRecord]) -> tuple[str, ...]:
+    """The other claim texts of the reports a synthesized claim cites (what the name-partner rule reads besides the
+    cited claims: a report that states "the Ten Hours Act of 1847" in a claim the synthesized claim does not cite still
+    says which year that name belongs to)."""
+    ids = {c.claim_id for c in known}
+    out: list[str] = []
+    for r in reports:
+        if any(c.claim_id in ids for c in r.claims):
+            out.extend(c.claim_text for c in r.claims if c.claim_id not in ids)
+    return tuple(out)
+
+
 def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
     """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
     quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
@@ -945,7 +1111,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
         introduced, dropped_figures, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
-        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known])
+        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
         if introduced or rescaled or repaired:
             # One finding per synthesized claim: the figures no source states, the figures stated with another scale word,
             # and the figures every source states but with another event (a swap passes a token-set comparison, so the
@@ -1034,6 +1200,41 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
     return f
 
 
+#: What the student-facing text may carry besides its synthesized claims (rule ``text-composition``): additive,
+#: sequencing, contrast and framing connectives and markdown heading labels, which state nothing of their own. A causal
+#: connective ("because", "therefore", "as a result") asserts a relation no synthesized claim states, so it is content;
+#: so is a negation, a hedge or any other word.
+_CONNECTIVE_PHRASES = tuple(sorted((
+    "and", "also", "furthermore", "moreover", "additionally", "besides", "likewise", "similarly", "meanwhile", "then", "next",
+    "first", "second", "third", "firstly", "secondly", "thirdly", "finally", "lastly", "however", "but", "yet", "whereas", "while",
+    "overall", "in addition", "by contrast", "in contrast", "on the other hand", "in summary", "in conclusion", "to summarise",
+    "to summarize", "to sum up", "in short", "in brief", "at the same time", "as well as", "as well", "too", "equally", "still",
+    "nevertheless", "nonetheless", "alternatively", "summary", "conclusion", "overview", "introduction", "answer", "key points",
+), key=len, reverse=True))
+_CONNECTIVE_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in _CONNECTIVE_PHRASES) + r")(?!\w)")
+_CONTENT_WORD_RE = re.compile(r"[^\W_]+")
+
+
+def text_outside_claims(text: str, claim_texts: list[str]) -> list[str]:
+    """The stretches of ``text`` (normalised: whitespace collapsed, case folded, list markers removed) that state
+    something no synthesized claim states (rule ``text-composition``): every claim text is removed where it occurs as a
+    whole (its final sentence mark optional), then every connective of :data:`_CONNECTIVE_PHRASES`; a stretch still
+    holding a letter or digit is returned. Empty when the text is a composition of its claims and connectives."""
+    body = _norm(_LIST_MARKER_RE.sub(" ", text or ""))
+    forms = sorted({_norm(_LIST_MARKER_RE.sub(" ", c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}, key=len, reverse=True)
+    for form in forms:
+        if not form:
+            continue
+        pat = (r"(?<!\w)" if form[0].isalnum() or form[0] == "_" else "") + re.escape(form) + (r"(?!\w)" if form[-1].isalnum() or form[-1] == "_" else "")
+        body = re.sub(pat, "\x00", body)
+    out: list[str] = []
+    for part in body.split("\x00"):
+        rest = _CONNECTIVE_RE.sub(" ", part)
+        if _CONTENT_WORD_RE.search(rest):
+            out.append(" ".join(part.split()).strip(" .,;:!?-–—*#>()[]\"'“”‘’"))
+    return [x for x in out if x]
+
+
 def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
@@ -1042,8 +1243,11 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     under some spelling (INT-LEDGER-023, error: "1834" or "under ten" where every claim
     says "1833" and "under nine" miscommunicates to the student while every claim stays
     faithful), every numeric literal in the text must occur in some claim (INT-LEDGER-018,
-    warning; list markers such as '1.' are ignored), and the text must
-    pair its figures and dates with events as the synthesized claims do (INT-LEDGER-023)."""
+    warning; list markers such as '1.' are ignored), the text must
+    pair its figures and dates with events as the synthesized claims do (INT-LEDGER-023), and the
+    text must be a composition of its synthesized claims and connectives (INT-LEDGER-028, error, rule
+    ``text-composition``: a negation, an antonym, an exchanged name, a dropped qualifier or an added
+    sentence in the text, with every claim faithful, miscommunicates to the student)."""
     f: list[IntegrityFinding] = []
     claim_keys = set().union(*(fig.keys for c in synthesis.claims for fig in _figures(c.text))) if synthesis.claims else set()
     stated = _sorted_tokens({fig.label for fig in _figures(synthesis.text) if not (fig.keys & claim_keys)})
@@ -1055,6 +1259,12 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
     if absent:
         f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {absent} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=absent, agent_ids=[synthesis.combinator_agent_id]))
+    extra = text_outside_claims(synthesis.text, [c.text for c in synthesis.claims])
+    if extra:
+        shown = "; ".join(repr(x[:80]) for x in extra[:3]) + (f" (and {len(extra) - 3} more)" if len(extra) > 3 else "")
+        f.append(IntegrityFinding(code="INT-LEDGER-028", severity="error", message=f"the student-facing text is not composed of its synthesized claims (rule text-composition): it states {shown}, "
+                                  "which no synthesized claim states" + (f"; synthesized claims {absent} are absent from it, so the text says something else in their place" if absent else "")
+                                  + ": the ledger does not describe what the student reads", claim_ids=[synthesis.synthesis_id] + absent, agent_ids=[synthesis.combinator_agent_id]))
         repaired = figure_pairing_differences(synthesis.text, [c.text for c in synthesis.claims])
         if repaired:
             f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message="the student-facing text re-pairs figures or dates between events relative to the synthesized claims it presents: "

@@ -46,6 +46,11 @@ def check_issue_consistency(ctx: CheckContext, t: Transfer) -> None:
     declared = env.get("payload_sha256")
     if declared is not None and t.event.payload_sha256 is not None and declared != t.event.payload_sha256:
         ctx.ovs(t.seq, "OVS-CUST-001", f"transfer {t.message_id}: when it was issued, the envelope's payload_sha256 did not match the payload it carried", **t.ids())
+    if not ctx.view.degraded and t.message_id:
+        changed = ctx.view.setup_changes(t)
+        if changed:
+            ctx.ovs(t.seq, "OVS-CUST-002", f"{t.kind} {t.message_id} was issued under {'; '.join(changed)} other than the channel's first journaled setup: the plan, "
+                    "solver configuration, key id and branch are pinned at the first event, and every rule is applied with the first ones (rule pinned-setup)", **t.ids())
 
 
 def check_custody(ctx: CheckContext, t: Transfer) -> None:

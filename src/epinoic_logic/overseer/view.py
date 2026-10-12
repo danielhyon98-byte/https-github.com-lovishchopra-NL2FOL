@@ -16,16 +16,26 @@ Links resolved here:
   attribution (its ``author``, and a forwarded report id its ``peer:<id>`` names) must be that forward's report and
   agent, or the link records why not (PEER-002);
 * a supplied text under ANY other id that presents a forwarded report (its author is the report's agent, its id is the
-  report or agent id, or its text is a near copy of the report's ``original_response``: ``near_copy``) is linked the
-  same way and held to the same byte identity; one presenting a delivered report never forwarded to that recipient is
-  linked to no forward (PEER-002);
+  report or agent id, its text is a near copy of the report's ``original_response`` (``near_copy``) or contains most of
+  it (``contains_answer``, review round 3: an answer padded with background)) is linked the same way and held to the same
+  byte identity (a containing text must carry the answer as one verbatim span); one presenting a delivered report never
+  forwarded to that recipient is linked to no forward (PEER-002). A text an earlier delivered request supplied under the
+  same id before the report existed is never linked to it (rule ``source-predates-answer``: the answer quotes its
+  source, not the other way round), and the text test reads only the answer's OWN words, the 4-grams no text supplied
+  (or user input stated) before the report's delivery carries (rule ``source-explained``: the same passage under another
+  id, or a longer document containing it, resembles the source the answer copied, not the answer);
 * a synthesis to the deliveries of the reports it cites;
 * a result id to the stored result and its citation kinds.
+
+Rule ``pinned-setup`` (review round 3): every rule reads the FIRST journaled plan (``plan_at``) and the first event's
+solver configuration, key id and branch (``config_at``, ``key_id_at``); ``setup_changes`` names what a later event was
+issued under instead, which the custody check reports (OVS-CUST-002).
 
 Agent text in payloads is data: this module parses payloads only against the allowlisted contracts.
 """
 from __future__ import annotations
 
+import functools
 import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
@@ -198,6 +208,7 @@ class OverseerView:
         self.raised = list(raised)
         self.first_seq = first_seq
         self.clearance_records = list(clearance_records)
+        self.first_plan_sha256: Optional[str] = next((x.event.plan_sha256 for x in sorted(list(transfers) + list(raised), key=lambda x: x.seq)), None)
         self.by_message: dict[str, Transfer] = {t.message_id: t for t in transfers if t.message_id}
         self.by_seq: dict[int, Transfer] = {t.seq: t for t in transfers}
         self._link()
@@ -290,8 +301,43 @@ class OverseerView:
     def _link(self) -> None:
         self._first_delivery: dict[str, int] = {}
         self._forwards: list[Transfer] = []
+        self._doc_first: dict[tuple[str, str], int] = {}  # (document id, text digest) -> first delivered request supplying it
+        # (seq of a delivered request, word 4-grams of its user input and of every text it supplied): what a later answer
+        # may have copied from its sources (rule ``source-explained``)
+        self._sources: list[tuple[int, frozenset]] = []
+        self._own_cache: dict[tuple[str, int, str], frozenset] = {}
         for t in self.transfers:
             self._link_one(t)
+
+    def _own_shingles(self, report_id: Optional[str], payload: dict) -> Optional[frozenset]:
+        """Rule ``source-explained``: the word 4-grams of the report's ``original_response`` that no text a delivered
+        request supplied (or user input it stated) before the report's first delivery carries. Only these are the answer's
+        own words: a later text that resembles the answer only where the answer copied an earlier source (the same
+        passage under another document id, a longer document containing it) resembles the SOURCE, and is never taken to
+        present the answer. None when the payload holds no answer."""
+        orig = payload.get("original_response")
+        if not isinstance(orig, str):
+            return None
+        first = self._first_delivery.get(report_id or "")
+        key = (report_id or "", first if first is not None else -1, _text_key(orig))
+        own = self._own_cache.get(key)
+        if own is None:
+            sa = set(_shingles(orig))
+            if first is not None:
+                for seq, sh in self._sources:
+                    if seq < first:
+                        sa -= sh
+            own = self._own_cache[key] = frozenset(sa)
+        return own
+
+    def _predates(self, doc: Any, report_id: Optional[str]) -> bool:
+        """Rule ``source-predates-answer``: True when an earlier delivered request of the task supplied this document id
+        with this exact text before ``report_id`` was first delivered (the report's own request included). Such a text
+        existed before the answer, so an answer resembling it copied the source, not the other way round: it is never
+        linked to that report by author, id or near-copy text."""
+        first = self._doc_first.get((doc.document_id, _text_key(doc.text)))
+        delivered = self._first_delivery.get(report_id or "")
+        return first is not None and delivered is not None and first < delivered
 
     def _link_one(self, t: Transfer) -> None:
         if t.kind in ("response", "response_text"):
@@ -327,16 +373,24 @@ class OverseerView:
                     # names the report or the agent, or its text is a near copy of the report's original_response) is held to
                     # the same byte identity and attribution as a ``peer:`` document; one presenting a delivered report that
                     # was never forwarded to this recipient is linked to no forward (PEER-002)
-                    shown = next((f for f in reversed(cands) if _presents(doc, f.payload or {}, f.report_id)), None)
+                    shown = next((f for f in reversed(cands) if not self._predates(doc, f.report_id)
+                                  and _presents(doc, f.payload or {}, f.report_id, own=self._own_shingles(f.report_id, f.payload or {}))), None)
                     if shown is not None:
-                        t.peer_links.append(PeerLink(doc.document_id, shown.seq, shown.message_id, shown.report_id, False,
+                        t.peer_links.append(PeerLink(doc.document_id, shown.seq, shown.message_id, shown.report_id, _faithful_presentation(doc, shown.payload or {}),
                                                      misattributed=_attribution_mismatch(doc, shown, self._forwards)))
                         t.depends_on.append(shown.seq)
                         continue
                     delivered = next((d for d in reversed(self.transfers) if d.seq < t.seq and d.kind in REPORT_KINDS and d.delivered
-                                      and _presents(doc, d.payload or {}, d.report_id)), None)
+                                      and not self._predates(doc, d.report_id)
+                                      and _presents(doc, d.payload or {}, d.report_id, own=self._own_shingles(d.report_id, d.payload or {}))), None)
                     if delivered is not None:
                         t.peer_links.append(PeerLink(doc.document_id, None, None, delivered.report_id, False))
+            if t.delivered:
+                seen = set(_shingles(t.request.user_input or ""))
+                for doc in t.request.supplied_texts:
+                    self._doc_first.setdefault((doc.document_id, _text_key(doc.text)), t.seq)
+                    seen |= _shingles(doc.text)
+                self._sources.append((t.seq, frozenset(seen)))
         if t.kind == "relay_synthesis" and t.synthesis is not None:
             for rid in t.synthesis.source_report_ids:
                 seq = self._first_delivery.get(rid)
@@ -378,6 +432,7 @@ class OverseerView:
             self.request_id = ev.request_id
         if not self.transfers and not self.raised:
             self.first_seq = ev.seq
+            self.first_plan_sha256 = ev.plan_sha256
         t = self._transfer_from_event(entry.index, ev)
         if ev.raised is not None and ev.receipt_json is None and ev.message_id is None:
             self.raised.append(t)
@@ -391,33 +446,63 @@ class OverseerView:
 
     # ------------------------------------------------------------------ queries
     def plan_at(self, seq: int) -> Optional[WorkPlan]:
-        """The plan in force at ``seq`` (the latest journaled plan at or before it)."""
-        best = None
-        for s in sorted(self.plans):
-            if s <= seq:
-                best = self.plans[s]
-        return best or (self.plans[min(self.plans)] if self.plans else None)
+        """The plan every rule applies at ``seq``: the FIRST journaled plan (rule ``pinned-setup``). A plan the channel
+        holds later (the router's own plan object mutated, or ``ch.plan`` replaced) is never adopted as the baseline:
+        the event that carries it is a custody fault (:meth:`setup_changes`, OVS-CUST-002)."""
+        return self.plan
 
     @property
     def plan(self) -> Optional[WorkPlan]:
         return self.plans[min(self.plans)] if self.plans else None
 
     def info_at(self, seq: int) -> dict:
+        """The channel's journaled description at ``seq`` (the latest at or before it). Its hook flags may change during a
+        task; its solver configuration, engine key id and branch are pinned to the first event (:meth:`config_at`,
+        :meth:`key_id_at`)."""
         best: dict = {}
         for s in sorted(self.channel_info):
             if s <= seq:
                 best = self.channel_info[s]
         return best or (self.channel_info[min(self.channel_info)] if self.channel_info else {})
 
+    @property
+    def pinned_info(self) -> dict:
+        """The first journaled channel description: the solver configuration, key id and branch every event is held to."""
+        return self.channel_info[min(self.channel_info)] if self.channel_info else {}
+
     def config_at(self, seq: int) -> SolverConfig:
-        cfg = self.info_at(seq).get("config")
+        """The channel's solver configuration as journaled at its FIRST event (rule ``pinned-setup``): a configuration
+        swapped in later is never the reference a result is checked or replayed against."""
+        cfg = self.pinned_info.get("config")
         try:
             return faithful(SolverConfig, cfg) if cfg else SolverConfig()
         except Exception:
             return SolverConfig()
 
     def key_id_at(self, seq: int) -> Optional[str]:
-        return self.info_at(seq).get("key_id")
+        return self.pinned_info.get("key_id")
+
+    def setup_changes(self, t: "Transfer") -> list[str]:
+        """What of the channel's pinned setup the event of ``t`` was issued under a different value of (rule
+        ``pinned-setup``): the work plan (its digest against the first event's), the solver configuration, the engine
+        key id or the branch (against the first journaled channel description). Empty when none changed."""
+        out: list[str] = []
+        first = self.first_plan_sha256
+        if first is not None and t.event.plan_sha256 and t.event.plan_sha256 != first:
+            out.append(f"the work plan (digest {t.event.plan_sha256[:12]}, where the first event journaled {first[:12]})")
+        pinned = self.pinned_info
+        if pinned and t.event.channel_json:
+            try:
+                now = json.loads(t.event.channel_json)
+            except Exception:
+                now = {}
+            for key, label in (("config", "the solver configuration"), ("key_id", "the engine key id"), ("branch", "the branch")):
+                if now.get(key) != pinned.get(key):
+                    diff = ""
+                    if key == "config" and isinstance(now.get(key), dict) and isinstance(pinned.get(key), dict):
+                        diff = f" (fields {sorted(k for k in set(now[key]) | set(pinned[key]) if now[key].get(k) != pinned[key].get(k))})"
+                    out.append(label + diff)
+        return out
 
     def first_delivery(self, report_id: str, before_seq: Optional[int] = None) -> Optional[Transfer]:
         for t in self.transfers:
@@ -488,9 +573,27 @@ def near_copy(a: str, b: str) -> bool:
     return common / len(sa) >= NEAR_COPY and common / len(sb) >= NEAR_COPY
 
 
-def _presents(doc: Any, payload: dict, report_id: Optional[str]) -> bool:
+def contains_answer(text: str, answer: str) -> bool:
+    """True when ``text`` CONTAINS most of ``answer``: at least :data:`NEAR_COPY` of the answer's word 4-grams occur in
+    the text, however much other prose surrounds them (rule ``contains-answer``: a forwarded answer padded with
+    background, or introduced by "the history specialist wrote:", is still that answer)."""
+    sa = _shingles(answer)
+    if not sa:
+        return False
+    return len(sa & _shingles(text)) / len(sa) >= NEAR_COPY
+
+
+def _text_key(text: str) -> str:
+    from ..ir.canonical import sha256_hex
+    return sha256_hex(text or "")
+
+
+def _presents(doc: Any, payload: dict, report_id: Optional[str], *, own: Optional[frozenset] = None) -> bool:
     """Whether a supplied text presents the report ``payload``: its author is the report's agent, its id is the report id
-    or the agent id, or its text is a near copy of the report's ``original_response``."""
+    or the agent id, or its text contains most of the answer's OWN words (``own``: the 4-grams of its
+    ``original_response`` that no earlier source carries, rule ``source-explained``; all of them when not given): a near
+    copy of the answer, or the answer padded with other prose (``contains-answer``). An answer made only of its sources'
+    words is never presented by text."""
     agent = payload.get("agent_id")
     author = (getattr(doc, "author", None) or "").strip()
     if agent and author == agent:
@@ -498,7 +601,25 @@ def _presents(doc: Any, payload: dict, report_id: Optional[str]) -> bool:
     if doc.document_id in {x for x in (report_id, agent) if x}:
         return True
     orig = payload.get("original_response")
-    return isinstance(orig, str) and near_copy(doc.text, orig)
+    if not isinstance(orig, str):
+        return False
+    words = own if own is not None else frozenset(_shingles(orig))
+    return bool(words) and len(words & _doc_shingles(doc.text)) / len(words) >= NEAR_COPY
+
+
+@functools.lru_cache(maxsize=64)
+def _doc_shingles(text: str) -> frozenset:
+    """The word 4-grams of a supplied text, cached: one document is compared with every earlier report of the task."""
+    return frozenset(_shingles(text))
+
+
+def _faithful_presentation(doc: Any, payload: dict) -> bool:
+    """Whether a supplied text that presents a forwarded report carries its answer byte for byte: the whole text, or,
+    for a text that contains the answer among other prose, the answer as one verbatim span."""
+    orig = payload.get("original_response")
+    if not isinstance(orig, str) or not orig:
+        return False
+    return doc.text == orig or (orig in doc.text and not near_copy(doc.text, orig) and contains_answer(doc.text, orig))
 
 
 def _attribution_mismatch(doc: Any, forward: Transfer, forwards: list[Transfer]) -> Optional[str]:

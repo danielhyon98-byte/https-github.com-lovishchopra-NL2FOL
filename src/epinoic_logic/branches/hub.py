@@ -16,7 +16,8 @@ Observation and the Overseer (optional; ``docs/OVERSEER_DESIGN.md`` sections 4, 
   - ``clearance(task_key, message_id, receipt=None, wait_ms=0)``: the router's check immediately before acting on a
     transfer: custody of the message and its dependencies re-checked, the receipt the router presents (or the
     channel's) compared with the journal; ``wait_ms`` is clamped to ``policy.MAX_PENDING_WAIT_MS`` and bounds the
-    whole wait for outstanding replay and re-derivation. Act only when ``policy.may_act(receipt, clearance)``;
+    whole wait for outstanding replay and re-derivation. Act only when ``policy.may_act(receipt, clearance)`` (the clearance
+    must still be the auditor's latest word on the transfer);
   - ``audit(task_key, final=False, shadow=None)``: the signed task audit (scope ``task``);
   - ``view(task_key)``: the authoritative view of the channel, from its journal;
   - ``review(task_key, runners, mode="informed")``: overseer agents review the task. Each runner is an
@@ -31,7 +32,8 @@ Observation and the Overseer (optional; ``docs/OVERSEER_DESIGN.md`` sections 4, 
     equivalent answers grouped deterministically, a representative per group, every answer with an error-level finding
     or a repeated fault excluded (naming its codes and signed results), conflicts between groups disclosed. It reads the
     journal and the signed task audit, records the response (``consolidations``), and the router delivers through
-    ``consolidate.delivery_decision`` only. ``repeats(task_key)`` is the task's repeat report (every channel the hub
+    ``consolidate.delivery_decision(resp, keyring, hub=self)`` only (the hub re-checks at delivery that the response is
+    its latest for that input, its task audit current and the deliverable answer's custody intact). ``repeats(task_key)`` is the task's repeat report (every channel the hub
     opened for that task id, in order);
   - ``review_pool(task_keys, pool, mode=None)``: a self-duplicating review of a batch of tasks: the
     ``overseer.pool.OverseerPool`` plans deterministically how many instances (one by default, more for a batch over the
@@ -389,7 +391,7 @@ class RouterHub:
                     user_input_sha256: Optional[str] = None) -> "ConsolidatedResponse":
         """The consolidated response to one input several agents answered on the task ``task_key`` names (see the
         module docstring and ``overseer/consolidate.py``). The response is signed and recorded; the router delivers an
-        answer only through ``consolidate.delivery_decision``."""
+        answer only through ``consolidate.delivery_decision(resp, keyring, hub=self)``."""
         from ..overseer.consolidate import consolidate as _consolidate
         from ..overseer.repeats import detect_repeats
         auditor = self._require_auditor()

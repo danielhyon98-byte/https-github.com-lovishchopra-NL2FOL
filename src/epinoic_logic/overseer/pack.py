@@ -137,7 +137,7 @@ PACK_VERSION = "1.0"
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
-    (PACK_NAME, "1.0"): "50ea8297b654c24ee7fd0229eadfefbd31fc689a4a406dc1d4db281489fe8127",
+    (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
 })
 
 MANIFEST_VERSION = "1.0"

@@ -44,7 +44,9 @@ specialists), the infrastructure, never an agent, consolidates their answers int
 
 The router delivers a consolidated answer only through :func:`delivery_decision`: the response must verify under the
 consolidation key, its status must be deliverable, and the message must be its ``deliverable_message_id``; an excluded or
-repeated answer is never delivered. :func:`check_consolidation` re-verifies a response and recomputes it from the journal
+repeated answer is never delivered. At delivery the issuing hub (required) re-checks that the response is the latest it
+issued for that input, that its task audit is the channel's latest, and that the deliverable answer's custody still holds
+(review round 3). :func:`check_consolidation` re-verifies a response and recomputes it from the journal
 (``OVS-CONS-004`` when the signature fails or the recomputation differs: a tampered or stale consolidation).
 
 Trust rule: the consolidation decides nothing about truth. Results prove properties of the encoding only; a group shows
@@ -323,11 +325,15 @@ class ConsolidationDecision:
     message_id: Optional[str] = None
 
 
-def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None) -> ConsolidationDecision:
+def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None) -> ConsolidationDecision:
     """The router may deliver ``message_id`` (or, when None, the response's deliverable answer) only when the response
-    verifies under the consolidation key, its status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS, and the message is
-    its deliverable answer. An excluded or repeated answer, a member that is not the representative, a CONFLICTING or
-    NO_DELIVERABLE_OUTPUT response and an unsigned or edited response are never delivered. Never raises."""
+    verifies under the consolidation key, its status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS, the message is its
+    deliverable answer, and, at delivery (review round 3, as ``may_release`` does for a synthesis), against ``hub`` (the
+    ``RouterHub`` that issued it, required): the response is the LATEST the hub issued for its input, its task audit is
+    the channel's latest task audit, and the deliverable answer's custody (and that of the transfers it depends on)
+    still holds in the live channel (``ChannelJournal.live_custody``). An excluded or repeated answer, a member that is
+    not the representative, a CONFLICTING or NO_DELIVERABLE_OUTPUT response, an unsigned or edited response, a stale
+    response and an answer altered after the consolidation are never delivered. Never raises."""
     if not isinstance(resp, ConsolidatedResponse):
         return ConsolidationDecision(False, "not a consolidated response")
     try:
@@ -346,11 +352,41 @@ def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] 
             why = "it repeats a fault" if ex.repeated else f"it is excluded ({', '.join(ex.codes) or '; '.join(ex.reasons)})"
             return ConsolidationDecision(False, f"answer {target} is never delivered: {why}", resp.status, target)
         return ConsolidationDecision(False, f"answer {target} is not the consolidated response's deliverable answer", resp.status, target)
+    why = _current_at_delivery(resp, target, hub)
+    if why is not None:
+        return ConsolidationDecision(False, why, resp.status, target)
     return ConsolidationDecision(True, "ok", resp.status, target)
 
 
-def may_deliver(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None) -> bool:
-    return delivery_decision(resp, keyring, message_id=message_id).allowed
+def _current_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -> Optional[str]:
+    """Why ``resp`` is no longer current at delivery (None when it is): see :func:`delivery_decision`."""
+    if hub is None:
+        return "the hub that issued the consolidated response is required to re-check, at delivery, that it is the latest and its answer unaltered"
+    try:
+        latest = {c.user_input_sha256: c for c in hub._latest_consolidations(resp.channel_uid)}
+        auditor = hub._require_auditor()
+        audits = [a for a in auditor.audits(resp.channel_uid) if a.scope == "task"]
+        journal = auditor.journal(resp.channel_uid)
+    except Exception as exc:
+        return f"the hub cannot re-check the consolidated response at delivery ({type(exc).__name__})"
+    held = latest.get(resp.user_input_sha256)
+    if held is None or held.consolidation_id != resp.consolidation_id:
+        return "the consolidated response is not the latest this hub issued for its input: a later consolidation supersedes it (or the hub never issued it)"
+    if not audits or audits[-1].audit_id != resp.task_audit_id:
+        return "a later task audit of the channel exists: the consolidation was decided on a superseded audit; consolidate again"
+    probe = getattr(journal, "live_custody", None)
+    if callable(probe):
+        try:
+            faults = probe(target)
+        except Exception as exc:
+            return f"custody of the deliverable answer could not be re-checked at delivery ({type(exc).__name__})"
+        if faults:
+            return f"custody re-checked at delivery: {sorted(set(faults))} (the deliverable answer or a transfer it depends on was altered after the consolidation)"
+    return None
+
+
+def may_deliver(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None) -> bool:
+    return delivery_decision(resp, keyring, message_id=message_id, hub=hub).allowed
 
 
 # ============================================================================================ claims and keys
@@ -401,12 +437,100 @@ def _numeric_tokens(text: str) -> set[str]:
     return out
 
 
+#: Unit and scale words read after a numeral (rule ``unit-after-numeral``): the same numeral with another unit is
+#: another figure ("12 hours" and "12 days"). Keys are light-stemmed forms; values the unit's class name.
+_UNITS = {
+    **{w: w for w in ("second", "minute", "hour", "day", "week", "month", "year", "decade", "century", "centurie", "millennium", "millennia")},
+    **{w: "per cent" for w in ("percent", "per cent", "%")},
+    **{w: w for w in ("mm", "cm", "m", "km", "metre", "meter", "kilometre", "kilometer", "mile", "foot", "feet", "inch", "yard", "acre", "hectare",
+                      "g", "kg", "mg", "gram", "kilogram", "tonne", "ton", "ounce", "lb", "litre", "liter", "ml", "gallon", "pint",
+                      "pound", "dollar", "euro", "shilling", "penny", "pence", "franc", "mark", "rouble", "ruble", "yen", "rupee",
+                      "thousand", "million", "billion", "trillion", "hundred", "dozen", "score", "degree", "volt", "watt", "joule", "newton", "pascal",
+                      "hertz", "mol", "kelvin")},
+}
+_NUM_UNIT_RE = re.compile(r"(?<![\w.])(?P<n>\d+(?:[.,]\d+)*)\s*(?P<u>°\s*[CFK]\b|%|per\s+cent|[A-Za-z]+(?:\s+(?:celsius|centigrade|fahrenheit|kelvin))?)", re.IGNORECASE)
+#: Era markers (rule ``era-marker``): "500 BC" and "500 AD" (or "AD 500") are different dates.
+_ERA_AFTER_RE = re.compile(r"(?<![\w.])(?P<n>\d+)\s*(?P<e>B\.?\s?C\.?(?:E\.?)?|A\.?\s?D\.?|C\.?E\.?)(?![A-Za-z])")
+_ERA_BEFORE_RE = re.compile(r"(?<![A-Za-z])(?P<e>A\.?\s?D\.?)\s*(?P<n>\d+)(?![\w])")
+#: Sign words before a figure (rule ``sign-word``): "minus 5 degrees" is not "5 degrees".
+_SIGN_RE = re.compile(r"\b(?P<w>minus|negative|below\s+zero\s+by)\s+(?P<n>\d+(?:\.\d+)?)\b", re.IGNORECASE)
+#: Roman numerals (rule ``roman-numeral``): a token of two or more numeral letters ("VIII", "XIV"), or a single numeral
+#: letter other than "I" after a capitalised word ("Henry V"); "Henry VII" and "Henry VIII" are different figures.
+_ROMAN_RE = re.compile(r"(?<![\w'’])(?P<r>M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))(?![\w'’])")
+_ROMAN_VALUES = {"M": 1000, "D": 500, "C": 100, "L": 50, "X": 10, "V": 5, "I": 1}
+#: Ordinal words in any context (rule ``ordinal-word``; a discourse marker "First," before a comma is structure).
+_ORDINAL_RE = re.compile(r"\b(?P<o>" + "|".join(sorted(_ORDINALS, key=len, reverse=True)) + r")\b(?!\s*,)", re.IGNORECASE)
+#: Multiplicative words (rule ``multiplier-word``): "doubled" is not "tripled", "halved" is not "doubled".
+_MULTIPLIER_RE = re.compile(r"\b(?P<m>double[ds]?|doubling|triple[ds]?|tripling|quadruple[ds]?|quadrupling|halve[ds]?|halving|twice|thrice|threefold|twofold|fourfold|tenfold)\b", re.IGNORECASE)
+
+
+def _roman_value(tok: str) -> int:
+    total = 0
+    for i, ch in enumerate(tok):
+        v = _ROMAN_VALUES[ch]
+        nxt = _ROMAN_VALUES[tok[i + 1]] if i + 1 < len(tok) else 0
+        total += -v if v < nxt else v
+    return total
+
+
+def _unit_of(word: str) -> Optional[str]:
+    w = " ".join(word.casefold().split())
+    if w.startswith("°"):
+        return "degree " + w[-1]
+    for scale in ("celsius", "centigrade", "fahrenheit", "kelvin"):
+        if w.endswith(" " + scale):
+            return "degree " + {"celsius": "c", "centigrade": "c", "fahrenheit": "f", "kelvin": "k"}[scale]
+    if w in _UNITS:
+        return _UNITS[w]
+    base = w[:-1] if w.endswith("s") and w[:-1] in _UNITS else (w[:-2] if w.endswith("es") and w[:-2] in _UNITS else None)
+    return _UNITS.get(base) if base else None
+
+
+def _extended_facts(text: str) -> set[str]:
+    """The facts of rules ``unit-after-numeral``, ``era-marker``, ``sign-word``, ``roman-numeral``, ``ordinal-word`` and
+    ``multiplier-word`` (review round 3): what carries a different figure or date without a different numeral token."""
+    from ..integrity.ledger import _words_as_digits
+    out: set[str] = set()
+    digits = _words_as_digits(text)
+    for m in _NUM_UNIT_RE.finditer(digits):
+        unit = _unit_of(m.group("u"))
+        if unit is not None:
+            out.add(f"unit:{m.group('n').replace(',', '')} {unit}")
+    for rx in (_ERA_AFTER_RE, _ERA_BEFORE_RE):
+        for m in rx.finditer(digits):
+            era = "bc" if m.group("e").upper().replace(".", "").replace(" ", "").startswith("B") else "ad"
+            out.add(f"era:{m.group('n')} {era}")
+    for m in _SIGN_RE.finditer(digits):
+        out.add(f"sign:-{m.group('n')}")
+    for m in _ROMAN_RE.finditer(text):
+        tok = m.group("r")
+        if not tok or tok == "I":
+            continue
+        if len(tok) == 1:
+            before = text[:m.start()].rstrip()
+            prev = before.split()[-1] if before.split() else ""
+            if not (prev[:1].isupper() and prev.isalpha()):
+                continue
+        out.add(f"roman:{_roman_value(tok)}")
+    for m in _ORDINAL_RE.finditer(text):
+        out.add(f"ordinal:{_ORDINALS[m.group('o').casefold()]}")
+    for m in _MULTIPLIER_RE.finditer(text):
+        w = m.group("m").casefold()
+        root = ("double" if w.startswith("doubl") else "triple" if w.startswith("tripl") else "quadruple" if w.startswith("quadrupl")
+                else "half" if w.startswith("halv") else w)
+        out.add(f"mult:{root}")
+    return out
+
+
 def answer_facts(report: Any) -> tuple[str, ...]:
     """What the whole answer states beyond its material claims (rule ``material-claim-key/2``): the figures and dates of
     its ``original_response`` (``repeats.figures_of``, list numbering removed), and, since review round 2, every numeric
     token as written (``numeric-token``: money with a scale suffix, decades, ordinals and centuries in digits, vulgar and
     mixed fractions, superscript exponents), centuries in words (``century-words``) and counts of dozens or scores
-    (``dozen-score``). Two answers whose material claims agree but whose supporting claims or unclaimed prose state
+    (``dozen-score``), and, since review round 3, the unit or scale after a numeral (``unit-after-numeral``: "12 hours"
+    and "12 days", "0 °C" and "0 °F"), era markers (``era-marker``: BC, BCE, AD, CE), sign words (``sign-word``: "minus
+    5"), Roman numerals (``roman-numeral``: "Henry VII" and "Henry VIII"), ordinal words (``ordinal-word``) and
+    multiplicative words (``multiplier-word``: doubled, tripled, halved). Two answers whose material claims agree but whose supporting claims or unclaimed prose state
     another figure or date are never presented as one answer. (A quotation one answer adds as supporting evidence is not
     a difference: each quotation is checked against the supplied texts on its own receipt, and an altered one excludes
     its answer.)"""
@@ -414,6 +538,7 @@ def answer_facts(report: Any) -> tuple[str, ...]:
     text = strip_list_markers(getattr(report, "original_response", "") or "")
     out = set(figures_of(text)) | {"num:" + t for t in _numeric_tokens(text)}
     out |= {f"century:{_ORDINALS.get(m.group(1).casefold(), m.group(1).casefold())}" for m in _CENTURY_RE.finditer(text)}
+    out |= _extended_facts(text)
     for m in _DOZEN_RE.finditer(text):
         count = " ".join(m.group(1).casefold().split())
         value = _COUNT_WORDS.get(count)

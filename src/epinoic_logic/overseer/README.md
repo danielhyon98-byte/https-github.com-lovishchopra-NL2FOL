@@ -27,12 +27,13 @@ statement: results prove properties of the encoding only, never that a claim is 
 RouterHub(auditor=TransferAuditor(KeyRing(engine_keys, overseer_secret)))
   open_task ──► TranslatorChannel(observers=[auditor first, hub observers ...])
   every request / respond / respond_text / relay ──► one immutable ChannelEvent ──► journal, store, live checks
-  hub.clearance(task, message_id, receipt=rc)  ──► TransferClearance ──► policy.may_act(rc, clearance)
+  hub.clearance(task, message_id, receipt=rc)  ──► TransferClearance ──► policy.may_act(rc, clearance, auditor=hub.auditor)
   hub.audit(task) / hub.close_task(task)       ──► signed task audit (close_task: FINAL, journal sealed)
   hub.review(task, runners)                    ──► dossiers ──► agents ──► intake ──► validation ──► combination
                                                    ──► signed verdicts-scope audit (clearance unchanged)
   hub.consolidate(task)                        ──► repeats ──► consolidate ──► signed consolidated_response/1.0
-                                                   ──► consolidate.delivery_decision (the one answer the router may deliver)
+                                                   ──► consolidate.delivery_decision(resp, keyring, hub=hub) (the one answer the
+                                                       router may deliver: the latest response, its audit current, custody re-checked)
   hub.review_pool(tasks, OverseerPool(pack, provider_factory))  ──► plan_pool ──► hub.review per task by its instances
   policy.may_release(synthesis_receipt, final_audit, keyring, audits=..., journal=..., message=None) gates the student-facing
                                                    synthesis: refused when its receipt carries an error, custody re-checked at release
@@ -64,6 +65,23 @@ agent-chosen text reaches a signed finding; a contradiction with a signed result
 a confirmation covers only what its findings name; an unresolved accusation always reaches human review; the intake's
 dossiers carry a keyed `issue_binding`; consolidation reads every figure as written and never folds superscripts; a
 returning invented quotation is a repeat under any weaker check; the pool's hard maximum holds for any configuration.
+
+**After adversarial review round 3** (design section 22): the student-facing synthesis text must be composed of its
+synthesized claims (INT-LEDGER-028, so `may_release` refuses a negated, renamed or extended text) and an exchange of the
+Acts' names is a re-pairing (`name-partner`); the plan, solver configuration, key id and branch are pinned at the
+channel's first event (a change is `OVS-CUST-002`, every rule applies the first ones, and a starved budget is RES-004
+and, in R2, RES-007); the live implied findings re-derive the coverage records, the relay parties, ROLE_CONTRACTS,
+INT-REQ-002, a captured INCONSISTENT joint run and a request's bounds against its own user input, and the shadow
+compares finding multisets and structured fields; R2 reads an evicted result's problem from the journaled capture; a
+padded false conflict is `OVS-JOINT-003`; a forwarded answer padded with background is linked and held to byte identity,
+while a source the answer quotes is never linked to it; the re-parse compares whole claims; a claim of markup only and a
+quoted claim of accuracy no longer give false errors; the journal counts each result once and sizes its bound from the
+plan; `may_act` refuses a held or router-built clearance the auditor journaling its channel no longer stands by, and `delivery_decision(...,
+hub=)` a stale consolidation; only a reply carrying the issued digest uses up an intake issue, and no refusal returns
+it; a verdict's pack identity is recorded as attested by the runner or self-reported; consolidation reads eras, signs,
+Roman numerals, ordinals, units and multipliers; a returning invented quotation is a repeat in any form; a padded
+confirmation covers only the reports, results and documents its findings name; and a contradiction with another task's
+signed result is `OVS-AGENT-001`.
 
 ## Translator oversight
 
@@ -183,7 +201,9 @@ are grouped by identical normalised text, then by equal material-claim keys only
 members' encodings consistent (every pooled claim renamed per answer, so duplicated agents' claim ids never collide).
 Each group records its agents and a representative (the earliest fully clean member). Two or more groups, or a
 contradiction with an excluded answer, make the status CONFLICTING: disclosed, none chosen. The router delivers only the
-`deliverable_message_id` of a response that verifies (`delivery_decision`).
+`deliverable_message_id` of a response that verifies (`delivery_decision(resp, keyring, hub=hub)`: the issuing hub
+re-checks at delivery that the response is its latest for that input, that its task audit is the channel's latest, and
+that the deliverable answer's custody still holds).
 
 A repeated fault (`repeats.py`, `OVS-REP-001`, error) is an error-level fault whose signature already occurred in the task:
 the same code about the same quoted phrase or claim words with the same figures, whoever repeats it and however trivially

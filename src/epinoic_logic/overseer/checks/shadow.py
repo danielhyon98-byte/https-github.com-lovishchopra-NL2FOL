@@ -11,16 +11,20 @@ the engine; the translator model is never called. The journaled transfers are re
   forwards of it compare against the same payload;
 * the journaled reports, forwards and syntheses, with message ids mapped to the shadow's.
 
-Per sequence number the status and the sorted ``(code, severity, claim_ids, report_ids)`` finding tuples are compared.
+Per sequence number the status, the MULTISET of ``(code, severity, claim_ids, report_ids)`` finding tuples (two
+INT-REQ-004 naming nothing count twice), the coverage records, the constraint results and the outcomes' display statuses
+are compared (review round 3).
 Excluded: time-dependent codes (INT-HANDOFF-005, 016, 017) and the codes a journal cannot reproduce because their
 cause never reaches a receipt (INT-STALE-011, a stale translation the channel dropped; INT-REQ-006 and INT-SYNTH-013,
 hooks that raised). When the channel had a synthesis-formalization hook, synthesis transfers are not comparable (the
 hook is a model call) and coverage says so.
 
-* An error the shadow raises that the receipt lacks is RCPT-004; a receipt finding the shadow does not raise is
-  RCPT-005 (warning); a different status is RCPT-008.
+* An error or a warning the shadow raises more often than the receipt is RCPT-004; a receipt finding the shadow does
+  not raise is RCPT-005 (warning); a different status, coverage, constraint results or display statuses is RCPT-008.
 * When an undecided engine run (TIMEOUT, UNKNOWN) on either side explains a difference, it is RES-008 instead: the
-  environment's nondeterminism never becomes an accusation.
+  environment's nondeterminism never becomes an accusation. Only a run under the channel's pinned configuration (or
+  the same with unsat cores on) explains anything: an undecided run under a configuration swapped in later is the
+  fault itself.
 
 Limit (stated, not hidden): this shadow runs in the auditor's process with the repository's channel code. It catches
 channel STATE corrupted between transfers, dropped or added findings, and environment nondeterminism; a patch to the
@@ -30,6 +34,7 @@ a shadow in a separate process (the design's section 15 mitigation) is not built
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Optional
 
 from ...channel.contracts import Constraint, RequestItem
@@ -51,22 +56,40 @@ SHADOW_EXCLUDED = frozenset({"INT-HANDOFF-005", "INT-HANDOFF-016", "INT-HANDOFF-
 _UNDECIDED = (S.TIMEOUT.value, S.UNKNOWN.value)
 
 
-def _tuples(findings) -> dict[tuple, str]:
-    out = {}
+def _tuples(findings) -> Counter:
+    """The receipt's findings as a multiset of ``(code, severity, claim_ids, report_ids)``: two findings of one code
+    that name nothing (one INT-REQ-004 per unaddressed item) count twice, so deleting one of them is a difference."""
+    out: Counter = Counter()
     for f in findings:
         if f.code in SHADOW_EXCLUDED:
             continue
-        out[(f.code, f.severity, tuple(sorted(f.claim_ids)), tuple(sorted(f.report_ids)))] = f.severity
+        out[(f.code, f.severity, tuple(sorted(f.claim_ids)), tuple(sorted(f.report_ids)))] += 1
     return out
 
 
-def _undecided(items) -> bool:
-    """True when any captured run is undecided (TIMEOUT or UNKNOWN)."""
+def _structured(rc) -> dict[str, list]:
+    """The receipt's structured results the shadow compares besides its findings: coverage records, constraint results
+    and the outcomes' display statuses."""
+    return {
+        "coverage": sorted((c.item_id, c.addressed, tuple(sorted(c.addressed_by_claim_ids))) for c in rc.coverage),
+        "constraint_results": sorted((c.constraint_id, c.satisfied, c.method, c.formal_status) for c in rc.constraint_results),
+        "outcome display statuses": sorted((o.report_id, o.claim_id, getattr(o.display_status, "value", o.display_status)) for o in rc.outcomes),
+    }
+
+
+def _undecided(items, allowed=None) -> bool:
+    """True when any captured run is undecided (TIMEOUT or UNKNOWN) under a configuration the channel runs under
+    (``allowed``: the pinned configuration, and the same with unsat cores on; None accepts any). An undecided run under
+    another configuration (a starved budget swapped in) explains nothing: it is the fault, not the environment."""
     import json
     for c in items:
         try:
-            if c.result_json and json.loads(c.result_json).get("status") in _UNDECIDED:
-                return True
+            data = json.loads(c.result_json) if c.result_json else None
+            if not data or data.get("status") not in _UNDECIDED:
+                continue
+            if allowed is not None and faithful(VerificationResult, data).solver_config not in allowed:
+                continue
+            return True
         except Exception:
             continue
     return False
@@ -88,6 +111,7 @@ def run_shadow(ctx: CheckContext) -> str:
     first = view.transfers[0].seq
     info = view.info_at(first)
     cfg = view.config_at(first)
+    allowed = [cfg, cfg.model_copy(update={"produce_unsat_core": True})]
     registry = ctx.registry
     if registry is None:
         from ...branches import default_registry
@@ -152,22 +176,30 @@ def run_shadow(ctx: CheckContext) -> str:
             mid_map[t.message_id] = rc.message_id
         if t.kind == "relay_synthesis" and hook:
             continue
-        undecided = _undecided(t.event.captured) or _undecided(cap.items)
+        undecided = _undecided(t.event.captured, allowed) or _undecided(cap.items, allowed)
         ours, theirs = _tuples(rc.findings), _tuples(t.receipt.findings)
         ids = t.ids()
-        missing = [k for k in ours if k not in theirs and k[1] == "error"]
-        extra = [k for k in theirs if k not in ours]
+        # every finding the shadow raises more often than the receipt (an error or a warning: a deleted warning hides as much
+        # from the router as a deleted error), and every receipt finding the shadow raises less often
+        missing = [(k, ours[k] - theirs.get(k, 0)) for k in ours if ours[k] > theirs.get(k, 0) and k[1] in ("error", "warning")]
+        extra = [k for k in theirs if theirs[k] > ours.get(k, 0)]
         status_differs = rc.status is not t.receipt.status
-        if undecided and (missing or extra or status_differs):
+        mine, journaled = _structured(rc), _structured(t.receipt)
+        fields = [name for name in mine if mine[name] != journaled[name]]
+        if undecided and (missing or extra or status_differs or fields):
             ctx.ovs(t.seq, "OVS-RES-008", f"the shadow channel's receipt for {t.kind} {t.message_id} differs ({'status ' + rc.status.value + ' vs ' + t.receipt.status.value + '; ' if status_differs else ''}"
-                    f"codes {sorted({k[0] for k in missing + extra})}) and an undecided engine run explains it", **ids)
+                    f"codes {sorted({k[0] for k, _n in missing} | {k[0] for k in extra})}{'; ' + ', '.join(fields) if fields else ''}) and an undecided engine run under the channel's "
+                    "configuration explains it", **ids)
             continue
-        for k in missing:
-            ctx.ovs(t.seq, "OVS-RCPT-004", f"re-derived on the journaled inputs, {t.kind} {t.message_id} raises {k[0]} (error) for claims {list(k[2])}, which its receipt lacks",
+        for k, n in missing:
+            ctx.ovs(t.seq, "OVS-RCPT-004", f"re-derived on the journaled inputs, {t.kind} {t.message_id} raises {k[0]} ({k[1]}) for claims {list(k[2])}"
+                    + (f" {ours[k]} times, where its receipt carries it {theirs.get(k, 0)} times" if ours[k] > 1 or theirs.get(k, 0) else ", which its receipt lacks"),
                     claim_ids=list(k[2]), message_ids=ids["message_ids"], report_ids=ids["report_ids"] + list(k[3]), agent_ids=ids["agent_ids"])
         for k in extra:
             ctx.ovs(t.seq, "OVS-RCPT-005", f"receipt {t.receipt_id} carries {k[0]} ({k[1]}) for claims {list(k[2])}, which the shadow channel does not reproduce on the journaled inputs",
                     claim_ids=list(k[2]), message_ids=ids["message_ids"], report_ids=ids["report_ids"] + list(k[3]), agent_ids=ids["agent_ids"])
         if status_differs:
             ctx.ovs(t.seq, "OVS-RCPT-008", f"the shadow channel fed the journaled inputs issues {rc.status.value} for {t.kind} {t.message_id}, whose receipt states {t.receipt.status.value}", **ids)
+        if fields:
+            ctx.ovs(t.seq, "OVS-RCPT-008", f"the shadow channel fed the journaled inputs issues other {', '.join(fields)} for {t.kind} {t.message_id} than its receipt states", **ids)
     return "run"

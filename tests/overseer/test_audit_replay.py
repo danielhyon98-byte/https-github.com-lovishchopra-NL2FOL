@@ -194,13 +194,35 @@ class _AlwaysOutRing(KeyRing):
 
 
 def test_t17_overflow_samples_live_replay_and_the_batch_replays_everything():
+    """Rewritten in review round 3 (the rule changed, more strictly): the channel's cross-report joint runs decide the
+    absence of INT-CONFLICT-001 and are now always replayed, so they are no longer what overflow samples out (asserted
+    first). The overflow scenario therefore also captures an engine run that no receipt cites and no rule makes
+    always-replay (a genuine run under the channel's configuration); it is sampled out live, and every assertion of
+    the original test still holds."""
+    from .conftest import DOC, EN_INPUT, english_report, new_channel, problems_fn
     ring = _AlwaysOutRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity", "t")}, SECRET)
     auditor = make_auditor(eager=False, queue_bound=1, keyring=ring)
     try:
         task = run_task(auditor)
-        st = auditor._channels[task.uid]
+        st0 = auditor._channels[task.uid]
+        joint = [rid for rid in st0.replay_jobs if '"joint-cross-report"' in (auditor.store.get(rid).result_json or "")]
+        assert joint and all(st0.replay_jobs[rid].always for rid in joint)  # never sampled out
+    finally:
+        auditor.close()
+    auditor = make_auditor(eager=False, queue_bound=1, keyring=ring)
+    side = int_problem("side-run", "x", 3, op="gt", bound=1)
+
+    def transform(out, claim, report):
+        verify(side, CFG, signing_key=KEY, key_id="t")  # captured by the channel's capture, cited by no receipt
+        return out
+    try:
+        ch = new_channel(auditor)
+        ch.channel.verify_claim_fn = problems_fn({"en-point": int_problem("en-point", "work_hours", 12, op="gt", bound=8)}, transform=transform)
+        m, _r, _rq = ch.request("router", "english-specialist", EN_INPUT, [DOC])
+        ch.respond(m.message_id, english_report())
+        st = auditor._channels[ch.uid]
         assert st.sampled_live > 0
-        audit = task.audit()
+        audit = auditor.audit(ch.uid)
         f = findings(audit, "OVS-AUDIT-003")
         assert f and f[0].severity == "info" and "of" in f[0].message
         assert audit.coverage.results_replayed == len(st.replay_jobs)

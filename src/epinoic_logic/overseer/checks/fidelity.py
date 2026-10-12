@@ -27,7 +27,8 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
 * ``invisible`` (in the normalisation, review round 2): format and default-ignorable characters (a U+FEFF where two chunks
   were joined) are removed on both sides.
 
-* FID-001: a delivered ``claim_text`` does not occur in the normalised response.
+* FID-001: a delivered ``claim_text`` does not occur in the normalised response (rule ``raw-occurrence``: a claim that
+  occurs in the raw response as written, or whose comparison forms are all empty, always occurs).
 * FID-002: a quotation span inside a claim, or a ``source_refs[].excerpt``, does not occur in the response.
 * FID-003: a figure or date of a claim (``ledger.figure_spellings``) occurs in the response under no spelling.
 * FID-004: a quotation that occurs in no supplied text has no receipt finding naming that claim (INT-REQ-003,
@@ -35,7 +36,8 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   report that carries the same quotation (a sentence claim and its evidence claim quote the same words; the receipt
   names one of them).
 * FID-005: a self-report delivered as content: the branch's own detector (``adapters.markdown.is_self_certification``)
-  flags its TEXT, or (raw-text path) the adapter set ``advisory_verification_status`` or
+  flags its TEXT read with its quotations masked (``mask_quotations``, as the adapters read it: a quoted claim of
+  accuracy belongs to the supplied text, rule ``quoted-certification``), or (raw-text path) the adapter set ``advisory_verification_status`` or
   ``advisory_verification_eligibility`` yet roled it as content, and it is delivered with a role other than ``other``,
   with materiality ``material``, or counts towards coverage. On a structured report the advisory fields alone are the
   contract's ignored self-report (INT-HANDOFF-006): FID-009, a warning (review round 2).
@@ -57,7 +59,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from ...adapters.markdown import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification
+from ...adapters.markdown import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification, mask_quotations
 from ...channel.bus import _FOLDED_TAIL_RE, _located
 from ...integrity.ledger import figure_spellings
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
@@ -140,10 +142,21 @@ def _claim_figures(text: str, list_numbers: set[str] = frozenset()):
     return figure_spellings(strip_list_markers(_strip_carried_numbers(uncut_text(text), set(list_numbers))))
 
 
-def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False, plain_response: Optional[str] = None) -> bool:
-    """Whether a claim occurs in its response. Rule ``context-free`` first: a claim that occurs verbatim (in the plain
-    comparison form, :func:`~epinoic_logic.overseer.checks.plain_form`, with no list-marker stripping) always occurs; the
-    fidelity normalisation's list-marker and heading rules only ACCEPT further matches, never reject a verbatim one."""
+def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False, plain_response: Optional[str] = None,
+                 raw_response: Optional[str] = None) -> bool:
+    """Whether a claim occurs in its response. Rule ``raw-occurrence`` first: a claim whose text occurs in the raw
+    response as written always occurs, whatever its comparison forms are (a markdown thematic break "***" delivered as the
+    claim "*", or a paragraph of zero-width characters, has EMPTY comparison forms, and an empty form never decides that
+    a claim is absent). Then rule ``context-free``: a claim that occurs verbatim (in the plain comparison form,
+    :func:`~epinoic_logic.overseer.checks.plain_form`, with no list-marker stripping) always occurs; the fidelity
+    normalisation's list-marker and heading rules only ACCEPT further matches, never reject a verbatim one."""
+    raw = claim_text.strip()
+    if raw_response is not None and raw and raw in raw_response:
+        return True
+    if not plain_form(claim_text) and not normalise(claim_text):
+        # every comparison form is empty: the claim is structure (only markup or invisible characters), never content the
+        # response lacks; an empty form never decides absence
+        return True
     if plain_response is not None:
         p = plain_form(claim_text)
         if p and p in plain_response:
@@ -264,7 +277,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         cid = [c.claim_id]
         claim_texts_norm.append(normalise(c.claim_text))
         # FID-001
-        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp):
+        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp, raw_response=rep.original_response):
             ctx.ovs(t.seq, "OVS-FID-001", f"claim {c.claim_id} of report {rep.report_id} does not occur in the specialist's original_response: {c.claim_text[:160]!r}",
                     claim_ids=cid, **ids)
         # FID-002
@@ -287,7 +300,10 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         as_content = c.claim_role != "other" or c.materiality == "material" or c.claim_id in covering
         if as_content:
             advisory = c.advisory_verification_status is not None or c.advisory_verification_eligibility is not None
-            text_self = is_self_certification(c.claim_text)
+            # read with quotations masked, as the adapters decide notes and self-reports: a sentence QUOTING a supplied
+            # text's own claim of accuracy (a brochure's "every figure has been verified", a narrator's) is analysis of that
+            # text, not the specialist certifying its answer, and a claim that is only such a quotation is evidence
+            text_self = is_self_certification(mask_quotations(c.claim_text))
             # the advisory fields are the contract's "agent self-report; ignored, recorded for audit" (INT-HANDOFF-006): on a
             # structured report they are the specialist's own record, so the field alone is a warning; the TEXT being a
             # self-certification delivered as content, or an adapter that set the field yet roled the claim as content (raw
@@ -365,7 +381,16 @@ def _reparse_args(ctx: CheckContext, t: Transfer, rep: SpecialistReport) -> Opti
 
 
 def _claim_key(c: ClaimRecord) -> tuple:
-    return (c.claim_id, c.claim_text, c.claim_role, c.materiality)
+    """The whole claim as the comparison key (every field: text, role, materiality, certainty, source references,
+    supporting and parent ids, the proposed kind and the advisory fields): a parse stage that changes any of them (a
+    hedged "may have" delivered as ``established``) delivers a report the raw text does not yield."""
+    from ...ir.canonical import canonical_json
+    return (c.claim_id, canonical_json(c.model_dump(mode="json")))
+
+
+def _changed_fields(a: ClaimRecord, b: ClaimRecord) -> list[str]:
+    da, db = a.model_dump(mode="json"), b.model_dump(mode="json")
+    return sorted(k for k in set(da) | set(db) if da.get(k) != db.get(k))
 
 
 def check_reparse(ctx: CheckContext, t: Transfer) -> None:
@@ -396,6 +421,9 @@ def check_reparse(ctx: CheckContext, t: Transfer) -> None:
         return
     gone = [k[0] for k in theirs if k not in mine]
     added = [k[0] for k in mine if k not in theirs]
+    by_id = {c.claim_id: c for c in again.claims}
+    fields = sorted({f for c in rep.claims if c.claim_id in by_id and c.claim_id in added for f in _changed_fields(c, by_id[c.claim_id])})
     ctx.ovs(t.seq, "OVS-CUST-006", f"the report delivered by {t.kind} {t.message_id} is not what branch {branch.key} parses from its raw text: claims "
-            f"{gone[:8]} of the re-parse are missing or differ, claims {added[:8]} of the delivered report are not in it" + ("" if gone or added else " (order differs)"),
+            f"{gone[:8]} of the re-parse are missing or differ, claims {added[:8]} of the delivered report are not in it" + ("" if gone or added else " (order differs)")
+            + (f" (fields {fields[:10]} differ)" if fields else ""),
             claim_ids=list(dict.fromkeys(gone + added)), **t.ids())

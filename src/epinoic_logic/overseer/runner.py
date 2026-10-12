@@ -232,7 +232,7 @@ class OverseerAgentRunner:
         raw = resp.raw_text
         info = resp.info.model_dump(mode="json")
         kept = raw if len(raw) <= MAX_RAW_TEXT_CHARS else raw[:MAX_RAW_TEXT_CHARS]
-        outcome = intake.submit(self._agent_id, task_id, raw, provider_info=resp.info)
+        outcome = intake.submit(self._agent_id, task_id, raw, provider_info=resp.info, attestation="runner")
         reply = dict(provider_info=info, raw_text_sha256=sha256_hex(raw), raw_chars=len(raw), raw_text=kept, raw_text_truncated=len(raw) > MAX_RAW_TEXT_CHARS)
         if outcome.accepted:
             return self._run("submitted", started, message_id=outcome.message_id, **reply, **common)

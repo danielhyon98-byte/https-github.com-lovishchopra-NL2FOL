@@ -68,7 +68,7 @@ from .view import OverseerView, Transfer, cited_results
 
 __all__ = [
     "run_overseer_checks", "AuditResult", "TransferAuditor", "sign_audit", "verify_audit", "audit_envelope", "audit_signable_text",
-    "transfer_states", "ALWAYS_REPLAY_CODES", "AUDITOR_AGENT_ID", "AUDIT_CONTRACT",
+    "transfer_states", "ALWAYS_REPLAY_CODES", "AUDITOR_AGENT_ID", "AUDIT_CONTRACT", "auditor_for_channel",
 ]
 
 AUDITOR_AGENT_ID = "overseer-auditor"
@@ -395,6 +395,14 @@ def _run_all(ctx: CheckContext, replays: dict[str, Replay], rederived: Optional[
         ctx.coverage.shadow_run = "not_run"
 
 
+def _problem_id(c: Any) -> str:
+    """The problem id of a captured result (the result's own field), or ''."""
+    try:
+        return str(json.loads(c.result_json).get("problem_id") or "")
+    except Exception:
+        return ""
+
+
 # ============================================================================================ live auditor
 @dataclass
 class _ChannelState:
@@ -418,6 +426,20 @@ class _ChannelState:
 
     def live(self) -> Any:
         return self.channel_ref() if self.channel_ref is not None else None
+
+
+#: channel uid -> the live auditor that journals it (weak: an auditor is never kept alive by this table). The router
+#: policy finds the auditor that issued a clearance here, so ``may_act(receipt, clearance)`` holds every clearance to the
+#: auditor's current word on its transfer without being handed the auditor (review round 3).
+_AUDITORS: "weakref.WeakValueDictionary[str, TransferAuditor]" = weakref.WeakValueDictionary()
+
+
+def auditor_for_channel(channel_uid: str) -> Optional["TransferAuditor"]:
+    """The live auditor journaling ``channel_uid`` in this process, or None."""
+    try:
+        return _AUDITORS.get(channel_uid)
+    except Exception:
+        return None
 
 
 class TransferAuditor:
@@ -453,13 +475,20 @@ class TransferAuditor:
     def _state(self, event: ChannelEvent, channel: Any, registry: Any) -> _ChannelState:
         st = self._channels.get(event.channel_uid)
         if st is None:
-            journal = self.journals.create(event.channel_uid, event.task_id)
+            n_agents = None
+            if event.plan_json:
+                try:
+                    n_agents = len(json.loads(event.plan_json).get("selected_agent_ids") or []) or None
+                except Exception:
+                    n_agents = None
+            journal = self.journals.create(event.channel_uid, event.task_id, n_agents=n_agents)
             if not journal.entries() and event.seq > 1:
                 journal.start_at(event.seq)
             view = OverseerView(channel_uid=event.channel_uid, task_id=event.task_id, request_id=event.request_id, transfers=[], plans={}, channel_info={},
                                 store=self.store, journal=journal, degraded=False, first_seq=event.seq)
             st = _ChannelState(uid=event.channel_uid, journal=journal, view=view, registry=registry or self.registry)
             self._channels[event.channel_uid] = st
+            _AUDITORS[event.channel_uid] = self
             me = weakref.ref(self)
             uid = event.channel_uid
             journal.live_custody = lambda mid, me=me, uid=uid: (me()._release_custody(uid, mid) if me() is not None else [])
@@ -544,6 +573,11 @@ class TransferAuditor:
         for f in rc.findings:
             if f.severity == "error" and f.code in ALWAYS_REPLAY_CODES and f.formal_result_id:
                 out.add(f.formal_result_id)
+        # the channel's cross-report joint run decides the ABSENCE of INT-CONFLICT-001 as the formal checks decide the
+        # absence of INT-SUBJ-001: a re-signed CONSISTENT answer leaves nothing for the error-finding rule above
+        for c in t.event.captured:
+            if c.result_json and receipts.JOINT_PROBLEM_PREFIX in c.result_json and _problem_id(c) == receipts.JOINT_PROBLEM_PREFIX:
+                out.add(c.result_id)
         if t.kind == "relay_synthesis":
             out.update(r for r, _k, _p in cited_results(rc))
             if t.synthesis is not None:
@@ -768,6 +802,30 @@ class TransferAuditor:
                 if item not in st.sticky:
                     st.sticky.append(item)
             return out
+
+    def clearance_current(self, clearance: Any) -> Optional[str]:
+        """Why a clearance the router holds is no longer the auditor's word on its transfer (None when it is): it must be
+        the latest clearance the auditor journaled for that message (a router-built or superseded one is not), no task
+        audit issued since may mark the transfer other than passed, and custody of the transfer and its dependencies is
+        re-checked against the live channel now (an edit after the clearance is found here, and kept)."""
+        if not isinstance(clearance, TransferClearance):
+            return "not a clearance"
+        with self._lock:
+            st = self._channels.get(clearance.channel_uid)
+            if st is None:
+                return "the auditor holds no journal of the clearance's channel"
+            held = st.clearances.get(clearance.message_id)
+            if held is None or held.clearance_id != clearance.clearance_id:
+                return "the clearance is not the latest the auditor journaled for this transfer (superseded, or not issued by the auditor)"
+            if held.model_dump(mode="json") != clearance.model_dump(mode="json"):
+                return "the clearance differs from the one the auditor journaled"
+            task_audits = [a for a in st.audits if a.scope == "task"]
+            if task_audits and task_audits[-1].transfer_states.get(clearance.message_id, "AUDIT_PASSED") not in ("AUDIT_PASSED", "AUDIT_PASSED_WITH_FINDINGS"):
+                return f"the latest task audit marks the transfer {task_audits[-1].transfer_states.get(clearance.message_id)}"
+        faults = self._release_custody(clearance.channel_uid, clearance.message_id)
+        if faults:
+            return f"custody re-checked at the decision: {sorted(set(faults))} (the transfer or one it depends on was altered after the clearance)"
+        return None
 
     def drain(self, timeout_s: Optional[float] = None) -> None:
         """Finish outstanding replays and re-derivations (inline: run them; process: wait for the worker)."""

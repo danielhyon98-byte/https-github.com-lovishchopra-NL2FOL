@@ -15,7 +15,11 @@ content: a transfer the channel REJECTED audits PASSED and is still never acted 
     about to act on equals the journaled ``receipt_sha256`` (and the ``presented_receipt_sha256`` when the router
     presented one). A receipt edited after its clearance is never acted on.
 
-  ``AUDIT_PENDING`` and ``AUDIT_FAILED`` are never treated as passed (non-success is never shown as success).
+  ``AUDIT_PENDING`` and ``AUDIT_FAILED`` are never treated as passed (non-success is never shown as success). The
+  clearance must also be the latest the auditor journaling its channel issued for the message (the auditor passed, or
+  the live one registered for the channel), no later task audit may mark the transfer other than passed, and custody is
+  re-checked at the decision (review round 3: a held clearance is never better than the auditor's current word; a
+  clearance built outside the auditor, or naming a channel no auditor journals, is refused).
 
 * **Bounded PENDING wait** (:func:`check_before_acting`): the router asks for a clearance immediately before acting;
   on ``AUDIT_PENDING`` it may wait once, at most :data:`MAX_PENDING_WAIT_MS` (250 ms) of replay, and a transfer still
@@ -113,8 +117,12 @@ def _status_value(receipt: Any) -> Optional[str]:
     return getattr(status, "value", status) if status is not None else None
 
 
-def act_decision(receipt: Any, clearance: Any) -> PolicyDecision:
-    """Whether the router may act on ``receipt`` given ``clearance`` (module docstring), with the reason."""
+def act_decision(receipt: Any, clearance: Any, *, auditor: Any = None) -> PolicyDecision:
+    """Whether the router may act on ``receipt`` given ``clearance`` (module docstring), with the reason. The clearance
+    must also still be the word of the auditor that journals its channel (``auditor``, or the live auditor registered
+    for ``clearance.channel_uid``; ``TransferAuditor.clearance_current``): the latest clearance it journaled for the
+    message, not contradicted by a later task audit, with custody re-checked now. A clearance held across an edit or a
+    failing audit, built by router code, or naming a channel no auditor journals is refused (review round 3)."""
     if not isinstance(clearance, TransferClearance):
         return PolicyDecision(False, "no clearance: the Overseer's clearance is required before acting")
     state = clearance.state
@@ -133,12 +141,24 @@ def act_decision(receipt: Any, clearance: Any) -> PolicyDecision:
                               state, clearance=clearance)
     if clearance.presented_receipt_sha256 is not None and digest != clearance.presented_receipt_sha256:
         return PolicyDecision(False, "the receipt differs from the receipt presented for clearance", state, clearance=clearance)
+    if auditor is None:
+        from .audit import auditor_for_channel
+        auditor = auditor_for_channel(clearance.channel_uid)
+        if auditor is None:
+            return PolicyDecision(False, "no auditor of this process journals the clearance's channel: the clearance cannot be the auditor's word", state,
+                                  clearance=clearance)
+    try:
+        why = auditor.clearance_current(clearance)
+    except Exception as exc:
+        why = f"the clearance could not be re-checked with the auditor ({type(exc).__name__})"
+    if why is not None:
+        return PolicyDecision(False, why, state, clearance=clearance)
     return PolicyDecision(True, "ok", state, clearance=clearance)
 
 
-def may_act(receipt: Any, clearance: Any) -> bool:
+def may_act(receipt: Any, clearance: Any, *, auditor: Any = None) -> bool:
     """True only when the router may act on ``receipt`` (see :func:`act_decision`)."""
-    return act_decision(receipt, clearance).allowed
+    return act_decision(receipt, clearance, auditor=auditor).allowed
 
 
 def check_before_acting(hub: Any, task_key: Any, receipt: Any, *, wait_ms: int = MAX_PENDING_WAIT_MS) -> PolicyDecision:
@@ -156,7 +176,7 @@ def check_before_acting(hub: Any, task_key: Any, receipt: Any, *, wait_ms: int =
             clr = clearance_fn(task_key, mid, receipt=receipt, wait_ms=wait)
     except Exception as exc:  # no auditor, an unknown task: never acted on
         return PolicyDecision(False, f"no clearance could be obtained ({type(exc).__name__})")
-    decision = act_decision(receipt, clr)
+    decision = act_decision(receipt, clr, auditor=getattr(hub, "auditor", None))
     if isinstance(clr, TransferClearance) and clr.state == "AUDIT_PENDING":
         return PolicyDecision(False, f"still AUDIT_PENDING after waiting at most {wait} ms: held for the batch audit", clr.state, hold=True, clearance=clr)
     return decision
