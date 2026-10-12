@@ -40,7 +40,10 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
   recorded per translation (``outside_cited_claims``), not reported: the adapters' citation links are incomplete, so
   it is no evidence of a fault, but it shows a reviewer where the translator went beyond the claim.
 * **TRN-006** (error): circular translation: the conclusion's expression occurs verbatim among the premises (as a
-  premise, or as a conjunct of one), so an ENTAILED result rests on the claim assumed, not on the specialist's reasoning.
+  premise, or as a conjunct of one, a conjunction included), so an ENTAILED result rests on the claim assumed, not on the
+  specialist's reasoning. (Harness-stage correction: a conclusion that is itself a conjunction, assumed verbatim, was
+  missed when only the leaves of a premise's conjunction tree were compared; the tampering suite's T22g on the recorded
+  r5 translations found it.)
 * **TRN-007** (error): the outcome's ``summary`` is not the deterministic statement (``translate.outcome.build_summary``)
   of the outcome's translation and the signed result the store holds, under any signing configuration the composer
   could have used (no key; the result's verification key with or without its key id). The display status itself is
@@ -448,13 +451,15 @@ def cited_scope(claim: ClaimRecord, cited: list[ClaimRecord]) -> list[str]:
 
 # ============================================================================================ TRN-006
 def _conjuncts(expr: Any) -> list[Any]:
+    """Every node of ``expr``'s conjunction tree: the expression itself, each ``and`` node inside it and each conjunct.
+    (A conclusion that is itself a conjunction, assumed verbatim as a premise or as a conjunct of one, is circular too:
+    the harness's tampering suite found that comparing only the leaves missed it.)"""
     out, stack = [], [expr]
     while stack:
         node = stack.pop()
+        out.append(node)
         if isinstance(node, dict) and node.get("op") == "and" and isinstance(node.get("args"), list):
             stack.extend(reversed(node["args"]))
-        else:
-            out.append(node)
     return out
 
 

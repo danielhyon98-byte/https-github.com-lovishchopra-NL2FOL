@@ -2,7 +2,8 @@
 
 Status: design for the `overseer-build` branch. Nothing described here is built, tested or
 deployed until `docs/OVERSEER_RESULTS.md` records it with evidence; the `audit`, `protocol`,
-`knowledge` and `hook` stages (section 14) are built, the last with translator oversight (section 18). An overseer agent's whole configuration is the knowledge-document pack
+`knowledge` and `hook` stages (section 14) are built, the last with translator oversight (section 18),
+and the `harness` stage is built without its stress script (decision 35). An overseer agent's whole configuration is the knowledge-document pack
 `src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.0/` (section 17), which replaces
 the former agent brief; `docs/OVERSEER_AGENT_BRIEF.md` is now only a pointer to the pack.
 
@@ -137,6 +138,8 @@ after the `audit` stage was built. None of them changes the audit's behaviour.
 | 32 | Contract versions | **`overseer_verdict/1.0` and dossier `1.0` ship with the pack fields.** The brief's draft of 1.0 was never implemented, so no verdict exists under it; a verdict written to the draft lacks `pack` and is invalid. |
 | 33 | Translator oversight in released contracts | **The translation kinds, the `translation_fidelity` lens, `links.translations` and `TranslationAudit` extend `overseer_verdict/1.0`, dossier `1.0` and pack `1.0` in place.** None of them had been released (merged or deployed), so no verdict, dossier or deployed pack exists under the earlier text; section 17.12's rule (a kind added is a MAJOR version) applies from the first release on. The pinned digest moved, as the knowledge stage's drift edits moved it. |
 | 34 | Translator oversight and the frozen audit stage | **The founder's requirement adds `checks/translation.py` and the `OVS-TRN-*` codes to the audit.** The audit stage's behaviour is otherwise unchanged: the new checks only add findings, run in the asynchronous tier for live transfers (with L5) and in the batch tier, and every existing code keeps its meaning. |
+| 35 | Stress testing in the harness | **Not built.** The founder's instruction after the bug fixes: no stress tests, latency benchmarks or load tests; behaviour with many agents is tested later by the multi-agent scalability tests. `scripts/overseer/stress_overseer.py` (section 13.6) is not written, and the stage's acceptance omits the stress budgets of section 12. |
+| 36 | A recall gap the harness found | **Corrected in `checks/translation.py`.** The tampering suite's T22g on the recorded r5 translations showed that OVS-TRN-006 compared only the leaves of a premise's conjunction tree, so a conclusion that is itself a conjunction, assumed verbatim as a premise, was not flagged. Every node of the tree is now compared; the meaning of the code is unchanged and a test pins the case. |
 
 ## 3. Threat model
 
@@ -1158,6 +1161,9 @@ manifest entry `{fault_id, class, injected identifiers, expected codes}`.
 
 ### 13.6 Stress (`scripts/overseer/stress_overseer.py`)
 
+Not built (decision 35): by the founder's instruction there are no stress tests after the bug fixes; behaviour with
+many agents is tested later by the multi-agent scalability tests. The plan below is kept for reference only.
+
 The script runs the `stress_arena` pattern with the auditor attached: sequential, then 16 threads,
 each thread with its own hub and one shared auditor. It checks that:
 
@@ -1224,7 +1230,7 @@ anything but a loaded pack.
 | `protocol` | built and committed | the dossier, the verdict contract with its pack fields, the intake, validation and combination (sections 9 and 10) |
 | `knowledge` | built and committed | the pack's schemas, manifest and deployer README; the loader, exporter and runner; the completion entry point; package data; drift tests (section 17) |
 | `hook` | built, with translator oversight (section 18) | the observer hook, hub integration and live operation, router policy, READMEs and package exports |
-| `harness` | last | the tampering suite, dossier export, verdict scoring, and the contained harness configured only from an exported pack |
+| `harness` | built, without the stress script (decision 35) | the tampering suite, dossier export, verdict scoring, and the contained harness configured only from an exported pack |
 
 ### Stage `audit`: the deterministic transfer audit, the result store and the signed IntegrityReport
 
@@ -1410,9 +1416,14 @@ Files:
 
 All output goes to a directory given on the command line, never into the recorded rounds.
 
-Acceptance: the gates of 13.8 for the deterministic auditor, the stress budgets of 12, the
-mutation gate of 13.7, the dossiers exported for every round under an exported pack, and a
-contained run whose overseer agents were all configured from an exported pack (T20, T21).
+Acceptance: the gates of 13.8 for the deterministic auditor, the mutation gate of 13.7, the
+dossiers exported for every round under an exported pack, and a contained run whose overseer
+agents were all configured from an exported pack (T20, T21). (The stress budgets of 12 are not
+part of the acceptance: decision 35.) Built, with these deviations (listed in
+`scripts/overseer/README.md` and the scripts' docstrings): a shared helper `ovs_harness.py`;
+no `stress_overseer.py`; T22 adds the founder's meaning faults of translations; the pytest plugin
+leaves alone the channels of the five tests whose subject is a channel's own observer list; the
+OVS-TRN-006 correction of decision 36 (`checks/translation.py`).
 
 ## 15. Out of scope
 

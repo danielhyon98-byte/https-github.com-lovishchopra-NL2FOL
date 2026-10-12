@@ -137,3 +137,11 @@ and equivalence of the bus hook, the hub's wiring and task lifecycle, clearance 
 `test_translation_*` (translator oversight: every `OVS-TRN-*` code with a control and tampering cases through the real
 translation pipeline, the signed translation record, live clearance, the spelling rules; the dossier's translation
 links, the translation kinds' validation outcomes and a hub review over translations).
+
+## Contained harness
+
+`scripts/overseer/` (outside the package, never installed with it) tests all of this in a contained environment: the
+tampering suite T1-T22 with its ground-truth manifest, the dossier export under an exported pack, the verdict scorer, the
+contained run that replays recorded arena rounds through an audited hub and builds every overseer agent from a pack the
+exporter wrote, the mutation gate and the pytest plugin that attaches an auditor to every channel. See
+`scripts/overseer/README.md`; measured results are in `docs/OVERSEER_RESULTS.md`.
