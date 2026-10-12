@@ -61,6 +61,16 @@ Edits this stage made to the pack documents (each moves the pinned digest), only
   the table against the ``DossierTransfer`` contract found the field, which every dossier transfer carries, undescribed.
   No other drift was found in ``master_prompt.txt`` or documents ``01`` to ``09``; the 13 worked examples were consistent
   with their excerpts as written.
+
+Edits the ``hook`` stage made to pack 1.0 for translator oversight (founder's requirement, design section 18; the pack
+had not been released, so it was extended in place and its digest re-pinned, decision 33): the master prompt (step 4,
+non-negotiable 4, the ``translation_fidelity`` LENS line, a WHEN IN DOUBT line); Role and trust T1, T3, T12; Dossier
+guide (the lens, ``links.translations``, the outcome fields, a new §10 Translations with D21 to D23, renumbering Facts
+and Common mistakes to §11 and §12); Inspection (a new §10 Translations with I70 to I81, Common mistakes now §11);
+Evidence rule E9, E14; Verdict format V10; Kinds and codes (four translation kinds, OVS-TRN-007 under
+``receipt_altered``, K6, the ``OVS-TRN-*`` family); Never N4, N6; When unsure U10; Examples 14 to 17 (a faithful
+translation, a circular one, an invented figure, a flipped comparison) and three wrong-verdict rows. Schemas and the
+manifest were regenerated with ``export --refresh-source``.
 """
 from __future__ import annotations
 
@@ -100,7 +110,7 @@ PACK_VERSION = "1.0"
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
-    (PACK_NAME, "1.0"): "0d5454266b4d42a4e7526aa189c702d74d672f624f252d4cc2db30470de15d30",
+    (PACK_NAME, "1.0"): "ffad92f92b0f4f704abe7a8ab67ca26f31acaebc81454199e61700f296ad0a4d",
 })
 
 MANIFEST_VERSION = "1.0"

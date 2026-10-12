@@ -48,13 +48,14 @@ from ..engine.statuses import VerificationStatus as S, is_definitive
 from ..integrity.contracts import AgentMessage, AgentRole, IntegrityFinding, IntegrityReport, payload_hash, report_digest, sign_message, verify_report_digest
 from ..ir.canonical import canonical_json, sha256_hex
 from .checks import CheckContext, Rederived, Replay
-from .checks import custody, fidelity, formal, joint, peer, receipts, results, synthesis
+from .checks import custody, fidelity, formal, joint, peer, receipts, results, synthesis, translation
 from .checks.divergence import check_divergence
 from .checks.shadow import run_shadow
 from .codes import is_agent_code, ovs_finding
 from .faithful import faithful
 from .contracts import (
     AUDIT_SCOPE_STATEMENT, AUDITOR_VERSION, CLEARANCE_STATES, AuditCoverage, ClearanceState, Divergence, JournalHead, OverseerAudit, TransferClearance,
+    TranslationAudit,
 )
 from .journal import ChannelJournal, JournalSealed, JournalSet
 from .keys import AUDIT_KEY_ID, RUN_KEY_ID, KeyRing
@@ -125,6 +126,7 @@ class AuditResult:
     task_state: ClearanceState
     auditor_result_ids: list[str]
     cited_result_ids: list[str]
+    translations: list[TranslationAudit] = field(default_factory=list)
 
 
 def _sort_key(item: tuple[int, IntegrityFinding]) -> tuple:
@@ -201,11 +203,45 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
                                                receipts.check_identifiers(ctx, t), receipts.check_summary(ctx, t)), transfer=t)
     ctx.guard("results", "results", lambda: (results.store_captured(ctx, t), results.check_results(ctx, t)), transfer=t)
     ctx.guard("formal", "formal status", lambda: formal.check_formal_status(ctx, t), transfer=t)
-    if not at_issue:  # at issue, L5 runs in the asynchronous tier (the transfer is PENDING until it has)
+    if not at_issue:  # at issue, L5 and the translation checks run in the asynchronous tier (the transfer is PENDING until they have)
         ctx.guard("fidelity", "fidelity", lambda: fidelity.check_fidelity(ctx, t), transfer=t)
+        run_translation_checks(ctx, t)
     ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t)), transfer=t)
     ctx.guard("synthesis", "synthesis citations", lambda: synthesis.check_synthesis_citations(ctx, t), transfer=t)
     ctx.guard("joint", "pool", lambda: joint.check_pool(ctx, t), transfer=t)
+
+
+def run_translation_checks(ctx: CheckContext, t: Transfer) -> None:
+    """Translator oversight (TRN-001..007) for one transfer; the records it returns are kept on the context."""
+    records = ctx.guard("translation", "translation", lambda: translation.check_translations(ctx, t), transfer=t)
+    for r in records or []:
+        ctx.translations.append(r)
+
+
+def translation_audits(records: Iterable[Any], findings: list[tuple[int, IntegrityFinding]]) -> list[TranslationAudit]:
+    """The audit's record of every translation checked, with the ``OVS-*`` codes (agent codes excluded) that name the
+    translation's claim on its transfer. One record per (event, outcome), in sequence order."""
+    from ..translate.contracts import sha256_text
+    seen: dict[tuple[int, int], Any] = {}
+    for r in records:
+        seen.setdefault((r.seq, r.outcome_index), r)
+    out: list[TranslationAudit] = []
+    for (_seq, _i), r in sorted(seen.items()):
+        codes = sorted({f.code for _s, f in findings if not is_agent_code(f.code) and r.message_id in f.message_ids and r.claim_id in f.claim_ids})
+        tr = r.translation
+        flags = tr.interpretation.ambiguity_flags if tr.interpretation is not None else []
+        out.append(TranslationAudit(
+            seq=r.seq, message_id=r.message_id, receipt_id=r.receipt_id, report_id=r.report_id, agent_id=r.agent_id, claim_id=r.claim_id,
+            outcome_index=r.outcome_index, claim_text=r.claim_text, claim_text_sha256=sha256_text(r.claim_text), cited_claim_ids=[c for c, _t in r.cited_claims],
+            translation_id=tr.translation_id, translation_status=tr.status.value, eligibility_class=tr.eligibility.eligibility_class.value,
+            eligible=tr.eligibility.eligible, model_proposed=r.model_proposed, provider_name=tr.provider.provider_name if tr.provider is not None else None,
+            prompt_version=tr.provider.prompt_version if tr.provider is not None else None, translator_version=tr.translator_version,
+            policy_version=tr.policy_version, problem_json=r.problem_json, problem_digest=r.problem_digest, ambiguity_flags=[f.code for f in flags],
+            grounding_unverified=sorted({c.target_id for c in tr.grounding_checks if c.verified is False}), diagnostics=list(tr.diagnostics),
+            revalidation=r.revalidation, revalidation_detail=list(r.revalidation_detail), result_id=r.result_id, result_status=r.result_status,
+            result_sha256=r.result_sha256, signature_verified=r.signature_verified, display_status=r.display_status, checks_run=list(r.checks_run),
+            outside_cited_claims=list(r.outside_cited_claims), codes=codes))
+    return out
 
 
 def replay_findings(ctx: CheckContext, replays: dict[str, Replay]) -> None:
@@ -275,7 +311,14 @@ def run_overseer_checks(view: OverseerView, *, keyring: KeyRing, store: ResultSt
     captured = {c.result_id for t in view.transfers for c in t.event.captured}
     cov.captured_uncited = sorted(captured - set(cited))
     return AuditResult(report=report, coverage=cov, divergences=getattr(ctx, "_divergences", []), findings=findings, transfer_states=states, task_state=task,
-                       auditor_result_ids=list(ctx.auditor_result_ids), cited_result_ids=cited)
+                       auditor_result_ids=list(ctx.auditor_result_ids), cited_result_ids=cited, translations=_safe_translation_audits(ctx, findings))
+
+
+def _safe_translation_audits(ctx: CheckContext, findings: list[tuple[int, IntegrityFinding]]) -> list[TranslationAudit]:
+    try:
+        return translation_audits(ctx.translations, findings)
+    except Exception:  # the records are bookkeeping; a failure here never hides a finding or passes anything
+        return []
 
 
 def _run_all(ctx: CheckContext, replays: dict[str, Replay], rederived: Optional[dict[int, Rederived]], *, batch: bool, shadow: bool) -> None:
@@ -524,6 +567,7 @@ class TransferAuditor:
 
             def run_l5(ctx5=ctx5, t=t):
                 ctx5.guard("fidelity", "fidelity", lambda: fidelity.check_fidelity(ctx5, t), transfer=t)
+                run_translation_checks(ctx5, t)
                 return list(ctx5.findings)
             self.replayer.submit_task(key5, run_l5)
 
@@ -674,6 +718,19 @@ class TransferAuditor:
         st = self._channels[channel_uid]
         return OverseerView.from_journal(st.journal, self.store)
 
+    def translations(self, channel_uid: str) -> list:
+        """Every translation of a delivered claim on the channel, as the journal holds it (translator oversight): the
+        claim and the claims it cites, the proposed IR, the translation's own validation outcome, the auditor's
+        re-validation and the signed result the store holds, with the translation checks that applied to it
+        (:class:`~epinoic_logic.overseer.checks.translation.TranslationRecord`). Read-only: nothing is journaled."""
+        view = self.view(channel_uid)
+        with self._lock:
+            ctx = CheckContext(view=view, keyring=self.keyring, store=self.store, registry=self._channels[channel_uid].registry)
+        out: list = []
+        for t in view.transfers:
+            out.extend(translation.check_translations(ctx, t))
+        return out
+
     def _shadow_for(self, st: _ChannelState, has_findings: bool, override: Optional[bool]) -> bool:
         if override is not None:
             return override
@@ -732,8 +789,8 @@ class TransferAuditor:
                                   state=result.task_state, task_id=st.journal.task_id, request_id=result.report.request_id, channel_uid=st.uid,
                                   message_ids=[t.message_id for t in view.transfers if t.message_id], transfer_states=result.transfer_states,
                                   journal_head=JournalHead(index=head[0], entry_hash=head[1]), store_digest=self.store.digest(result.cited_result_ids),
-                                  report=result.report, coverage=cov, divergences=result.divergences, key_ids_used=self._key_ids(view),
-                                  created_at=_now())
+                                  report=result.report, coverage=cov, divergences=result.divergences, translations=result.translations,
+                                  key_ids_used=self._key_ids(view), created_at=_now())
             audit = sign_audit(audit, self.keyring)
             st.audits.append(audit)
             for t in view.transfers:
@@ -768,7 +825,7 @@ class TransferAuditor:
             mine = [(s, f) for s, f in findings if set(f.message_ids) & names]
             plan = st.view.plan
             report = IntegrityReport(report_id=uuid.uuid4().hex, request_id=getattr(plan, "request_id", st.view.request_id) or "unknown",
-                                     task_id=getattr(plan, "task_id", st.journal.task_id) or "unknown", checks_run=["custody", "receipts", "results", "formal", "fidelity", "peer", "synthesis", "joint"],
+                                     task_id=getattr(plan, "task_id", st.journal.task_id) or "unknown", checks_run=["custody", "receipts", "results", "formal", "fidelity", "translation", "peer", "synthesis", "joint"],
                                      findings=[f for _s, f in mine], formal_result_ids=sorted({f.formal_result_id for _s, f in mine if f.formal_result_id}), created_at=_now())
             report.report_sha256 = report_digest(report)
             prev = next((a for a in reversed(st.audits) if a.scope == "transfer" and message_id in a.message_ids), None)

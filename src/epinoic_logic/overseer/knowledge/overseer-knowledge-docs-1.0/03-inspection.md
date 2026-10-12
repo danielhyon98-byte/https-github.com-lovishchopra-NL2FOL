@@ -2,13 +2,14 @@
 
 ## 1. Scope
 
-This document says what to check on each transfer. It applies to every transfer in every dossier. Walk the transfers in `seq` order. On each one, run the common checks (§3), then the checks for its `kind` (§4 to §9).
+This document says what to check on each transfer. It applies to every transfer in every dossier. Walk the transfers in `seq` order. On each one, run the common checks (§3), then the checks for its `kind` (§4 to §9). On a transfer that delivered a report, also check every translation of its claims (§10).
 
 **It covers:**
 
 - the three questions you ask of every transfer
 - the common checks: status, summary, delivery, digests, identifiers
 - the checks for each kind of transfer: `request`, `response`, `response_text`, `relay_forward`, `relay_report`, `relay_synthesis`
+- the checks for every translation of a delivered claim
 - what is not a fault
 
 **It does not cover.** Other documents handle these:
@@ -29,6 +30,7 @@ This document says what to check on each transfer. It applies to every transfer 
 7. A display status is never stronger than its signed result (I26).
 8. A synthesis must account for every material claim and name every contradiction (I60 to I66).
 9. Typographic differences are not faults (I9).
+10. Every translation must say what its claim says, from the claim and the claims it cites; a conclusion found among its own premises proves nothing (I70 to I81).
 
 ## 3. Every transfer
 
@@ -112,7 +114,7 @@ The hub received the specialist's text and the channel parsed it into a report.
 
 - **I35 Raw text is the response.** When the transfer is delivered, `raw_text` must equal `payload.original_response`. A difference: kind `payload_altered`.
 - **I36 Withheld text.** When the payload is `{"withheld": {...}}`, the text was refused and not parsed. The status must be REJECTED. Nothing from it may be delivered, forwarded, cited or pooled later (I5).
-- **I37 Everything else.** Run I20 to I31 on the parsed report.
+- **I37 Everything else.** Run I20 to I31 on the parsed report, then §10 on its translations.
 
 ## 7. `relay_forward` (router forwards a report to another agent)
 
@@ -127,7 +129,7 @@ The router may pass on a delivered report only exactly as it was delivered.
 ## 8. `relay_report` (a specialist relays its own report)
 
 - **I45 Owner sends.** `sender.agent_id` must equal `payload.agent_id`: only a report's owner relays it. Otherwise, with no `INT-HANDOFF` or `INT-ENV` error and a status that is not REJECTED: kind `receipt_status_wrong`.
-- **I46 Checked like a response.** Run I21 to I31 on it.
+- **I46 Checked like a response.** Run I21 to I31 on it, then §10 on its translations.
 
 ## 9. `relay_synthesis` (the combinator's synthesis)
 
@@ -141,7 +143,38 @@ The router may pass on a delivered report only exactly as it was delivered.
 - **I67 Required checks performed.** A `material` synthesized claim with transformation `merged` or `generalized` needs a `formal_conclusion`. Without one, the receipt should carry INT-SYNTH-006. Neither: kind `finding_missing`.
 - **I68 Synthesis text.** The synthesis `text` should say what its `claims` say. A sentence in `text` that states a figure, quotation or verdict that no synthesized claim carries: kind `synthesis_ledger_fault`, `claimed_severity` `warning`.
 
-## 10. Common mistakes
+## 10. Translations (every outcome of a `response`, `response_text` or `relay_report`)
+
+The translator turned each eligible claim into a formal problem, and the engine decided the problem. Check that each translation says what its claim says. Choose the kind and the severity by Kinds and codes K6.
+
+- **I70 Find each translation.** `links.translations` lists each translation the router received. For each one read, in this order: the claim (`claim_pointer`), the claims it cites (`cited_claim_pointers`), then the translation (`translation_pointer`). The translator was given only these claims and the supplied texts. A REJECTED transfer delivered no translation: skip it (Dossier guide D14).
+- **I71 Status and problem agree.** A `status` of TRANSLATED or AMBIGUOUS_TRANSLATION must carry a `problem`; every other status must not. A `verification` belongs only to a translation that carries a `problem`. Otherwise: kind `translation_invalid`.
+- **I72 Eligibility agrees.** When `eligibility.eligible` is false, the `status` must be NOT_ELIGIBLE and there must be no `problem`. When it is true, the `status` must not be NOT_ELIGIBLE. Otherwise: kind `translation_invalid`.
+- **I73 Ambiguity is never resolved silently.** When `interpretation.ambiguity_flags` lists any flag, the `status` must be AMBIGUOUS_TRANSLATION. A flagged translation with `status` TRANSLATED: kind `translation_invalid`.
+- **I74 The problem is well formed.** `problem.claim_id` equals the outcome's `claim_id`, and every `var` names a symbol listed in `symbols`. Otherwise: kind `translation_invalid`.
+- **I75 Quotations are in their documents.** Every `source_refs[].excerpt` in the `grounding` of a symbol or an assertion must occur in the supplied text its `document_id` names, allowing only the differences in I9. An excerpt that document does not contain: kind `translation_ungrounded`. When its `verified` is false, the translation already disclosed it: use `claimed_severity` `warning`. When its `verified` is true, it was overstated: use `error`.
+- **I76 Nothing is invented.** Every quotation in the problem must occur in the report (in `original_response`, a claim or a source excerpt) or word for word in a supplied text. Every number in the problem must be stated in the report, in any spelling: "forty" is 40, "two-thirds" is 2/3, "a tenth" may be written 1/10 or 10 per cent, "March" is 3, and a date may be written as one number such as 19020531 for 31 May 1902. The numbers 0 and 1 need no source. A premise grounded `task_setting` may take its number from the request. A quotation or number stated nowhere: kind `translation_ungrounded`.
+- **I77 The conclusion is not assumed.** Compare the conclusion's `expr` with each premise's `expr`. When the conclusion's `expr` appears exactly (the same JSON) as a premise's `expr`, or as one of the `args` of a premise whose `op` is `and`, the problem assumes what it should show, and ENTAILED then proves nothing about the specialist's reasoning: kind `translation_circular`. A premise that only means the same in another form (two `not` around it, `gt` written as a reversed `lt`) is not exact: use I78.
+- **I78 The problem says what the claim says.** This is the meaning check. Compare the conclusion (its `label` and its `expr`) with the claim, and the premises with the claims it cites. Look for:
+  1. **A dropped condition.** The claim says "only if", "unless", "when", "some" or "most", or limits a time or a place, and the problem drops it.
+  2. **A flipped comparison or direction.** "More than" encoded with `lt`; "at least" (`ge`) encoded as "more than" (`gt`); "before" encoded as after; "A led to B" encoded as B `implies` A.
+  3. **An invented premise.** A premise that neither the claim nor a claim it cites states, and that the conclusion needs, often grounded `assumption`, `general_knowledge` or `specialist_inference`.
+  4. **An ambiguity resolved silently.** The claim can be read two ways, the problem encodes one, and `ambiguity_flags` is empty.
+  5. **A claim forced into a problem.** The claim is a reading, a value judgement or a judgement against a rubric, or it needs what a problem cannot say (possibility, degree, change over time), and the problem presents it as a fact to prove. It should have been left UNSUPPORTED or NOT_ELIGIBLE.
+  6. **A conclusion that is not the claim.** The conclusion's `label` or `expr` says something narrower, broader, or about another subject than the claim.
+  
+  Any of these: kind `translation_unfaithful`. Give one pointer, with a quote, to the claim's words, and one pointer, with a quote, to the part of the problem that differs. No check compares meanings, so the accusation goes to human review.
+- **I79 The outcome around the translation.** Apply I25 and I26 to the outcome. Its `summary` must not state more than its translation and its result: a summary that calls the claim proven, true or verified, or names another status than `display_status`: kind `receipt_altered`.
+- **I80 What a result shows.** A result's status is about the encoding (Dossier guide D23). Never accuse a translation because of its result's status alone, and never treat ENTAILED as a sign that the translation is faithful.
+- **I81 Not faults in a translation.** Never accuse:
+  - symbol names, premise ids or labels worded differently from the claim, when the meaning is the same;
+  - an encoding other than the one you would write that says the same thing;
+  - a premise that restates a claim the claim cites;
+  - a quotation that widens the specialist's quoted words to the full phrase of the same supplied text;
+  - a NOT_ELIGIBLE, UNSUPPORTED, INVALID_FORMALIZATION or TRANSLATION_FAILED translation without a problem, shown as that non-result;
+  - whether the claim itself is true (Never N6).
+
+## 11. Common mistakes
 
 | Mistake | Do instead | Rule |
 | --- | --- | --- |
@@ -152,5 +185,9 @@ The router may pass on a delivered report only exactly as it was delivered.
 | Accusing a date because you believe it is historically wrong | Check only that the date was carried intact | I9 |
 | Counting words yourself and accusing a difference of three | Accuse a count only when it is clearly impossible | I27 |
 | Calling two interpretations a contradiction | A contradiction is two claims that cannot both hold | I65 |
+| Accusing a translation because its result is COUNTEREXAMPLE | The status is about the encoding; compare the problem with the claim | I80 |
+| `translation_circular` for a premise that means the same in another form | Use `translation_unfaithful` | I77 |
+| `translation_ungrounded` for words the specialist wrote in its own response | They are stated in the report; check only the document they cite | I76 |
+| `other` for a flipped comparison in a translation | Use `translation_unfaithful` | I78 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §4 (the three questions and every "Look for" entry of the kinds table)

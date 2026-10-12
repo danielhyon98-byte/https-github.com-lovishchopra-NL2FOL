@@ -28,9 +28,10 @@ one the intake accepts. The assessment records the verdict's pack identity.
 4. **Refuted** (AGENT-001): the mapped checks ran with full coverage on the named identifiers and found nothing.
    ``refuted_by`` is ``signed_result`` when the decisive evidence was a verified signed result or a replay, and
    ``deterministic_check`` otherwise.
-5. **Unresolved** (AGENT-004, human review): kind ``other``; or a check that could not decide (coverage lost, a
-   result evicted or not decisively replayed, a degraded or digest-only journal, a peer link by text equality only,
-   claims no engine check compares, no live channel for a custody check, the shadow not run).
+5. **Unresolved** (AGENT-004, human review): a kind no check decides (``translation_unfaithful``, ``other``); or a
+   check that could not decide (coverage lost, a result evicted or not decisively replayed, a degraded or digest-only
+   journal, a peer link by text equality only, claims no engine check compares, no live channel for a custody check,
+   the shadow not run, a translation check that did not run on the named claim's translation).
 
 Every **engine statement** is compared with the stored result: a different status, or an unknown result id asserted as
 existing, is AGENT-001 (``signed_result`` when the stored result's signature verifies); a pointer that does not
@@ -44,7 +45,7 @@ statements and notes) is never copied into a finding, never evaluated and never 
 Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage requires:
 
 * **Resolve** is stricter than "none of the identifiers resolves": ONE identifier that occurs nowhere in the dossier
-  makes the accusation unverifiable (the pack's Evidence rule E13 and its Examples §17: "an invented identifier is
+  makes the accusation unverifiable (the pack's Evidence rule E13 and its Examples §21, the wrong-verdicts table: "an invented identifier is
   unverifiable"); an accusation with no identifier at all is unverifiable too (E1);
 * **Matching** is stricter than "names at least one identifier": the finding must share an identifier with the
   accusation, AND where both name claims, results or documents they must share one of those (a finding about claim c3
@@ -68,7 +69,13 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage re
 * an AGENT-001 refuted by a signed result cites that result (``formal_result_id``) and, for a replay, the signed replay;
 * the ``verdicts`` audit names the task audit (and the superseding one) and the assessment digest in its coverage notes
   (``OverseerAudit`` has no field for them); its ``supersedes`` is None (verdicts of different agents do not
-  supersede each other).
+  supersede each other);
+* translator oversight (design section 18): an accusation of a translation kind must name a claim; it is refuted only
+  when, for every named claim, the evidence records a checked translation of it (on the named transfers and reports)
+  on which every check the kind needs ran (:data:`TRANSLATION_CHECKS_NEEDED`: the eligibility re-derivation and the
+  tracing run only on model-proposed translations under this code's policy version, so an accusation about a
+  hand-built translation is unresolved, never refuted by a check that did not run); a ``receipt_altered`` accusation
+  naming a claim whose outcome summary was not re-checked (its result not retained) is unresolved too.
 """
 from __future__ import annotations
 
@@ -94,12 +101,13 @@ from .intake import VerdictIntake
 from .keys import INTAKE_KEY_ID, KeyRing
 from .replay import ReplayJob, classify, compare
 from .store import ResultStore
-from .verdicts import ID_FIELDS, KIND_CHECKS, KIND_CODE_QUALIFIERS, AgentVerdict, PackIdentity, accusation_identifiers
+from .verdicts import ID_FIELDS, KIND_CHECKS, KIND_CODE_QUALIFIERS, TRANSLATION_KINDS, UNCHECKED_KINDS, AgentVerdict, PackIdentity, accusation_identifiers
 from .view import OverseerView
 
 __all__ = [
     "validate_overseer_verdict", "VerdictAssessment", "AccusationAssessment", "EngineStatementAssessment", "FindingRef", "OUTCOME_CODES",
     "Outcome", "RefutedBy", "build_verdicts_audit", "assessment_digest", "finding_matches", "RESULT_KINDS", "LIVE_KINDS", "SHADOW_KINDS",
+    "TRANSLATION_CHECKS_NEEDED",
 ]
 
 Outcome = Literal["confirmed", "refuted", "unverifiable", "unresolved"]
@@ -111,6 +119,14 @@ RESULT_KINDS = frozenset({"result_unsigned_or_forged", "result_from_other_proble
 LIVE_KINDS = frozenset({"payload_altered", "receipt_altered"})
 #: Kinds decided (in part) by the shadow channel (RCPT-004, RCPT-008).
 SHADOW_KINDS = frozenset({"finding_missing", "receipt_status_wrong"})
+#: The translation checks (``checks_run`` of a translation record) that must have run on a named claim's translation
+#: before an accusation of the kind can be refuted.
+TRANSLATION_CHECKS_NEEDED: dict[str, tuple[str, ...]] = {
+    "translation_invalid": ("revalidate", "status", "eligibility"),
+    "translation_ungrounded": ("grounding", "trace"),
+    "translation_circular": ("circular",),
+    "receipt_altered": ("summary",),
+}
 
 
 def _now() -> str:
@@ -244,6 +260,7 @@ class _Base:
     replay_agrees: set[str]
     pooled_claims: set[str]
     replays: dict[str, Replay] = field(default_factory=dict)
+    translations: list = field(default_factory=list)
 
 
 def _pooled(view: OverseerView) -> set[str]:
@@ -358,7 +375,7 @@ class _Ctx:
             agrees = _replayable(self.store, self.view.channel_uid, covered) - bad
         return _Base(source="task_audit", audit_id=a.audit_id, findings=list(a.report.findings), covered_messages=set(a.message_ids),
                      shadow_ran=a.coverage.shadow_run == "run", live_checked=False, degraded=a.coverage.degraded or a.scope != "task" or a.mode != "batch",
-                     replay_agrees=agrees, pooled_claims=_pooled(self.view))
+                     replay_agrees=agrees, pooled_claims=_pooled(self.view), translations=list(a.translations))
 
     def rerun(self, forced: Iterable[str], need_shadow: bool) -> Optional[_Base]:
         """The targeted re-run (once per verdict): force-replay ``forced`` results, then every check on the journal."""
@@ -390,7 +407,8 @@ class _Ctx:
                                      batch=True, shadow=need_shadow, replay_mode=getattr(auditor, "replay_mode", "none"))
         self._rerun = _Base(source="rerun", audit_id=None, findings=[f for _s, f in result.findings], covered_messages=None,
                             shadow_ran=result.coverage.shadow_run == "run", live_checked=self.live is not None, degraded=result.coverage.degraded,
-                            replay_agrees={rid for rid, r in replays.items() if classify(r) is None}, pooled_claims=_pooled(fresh), replays=replays)
+                            replay_agrees={rid for rid, r in replays.items() if classify(r) is None}, pooled_claims=_pooled(fresh), replays=replays,
+                            translations=list(result.translations))
         return self._rerun
 
 
@@ -444,6 +462,33 @@ def _coverage_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) 
             return "the peer document is linked to its forward by text equality only"
     if kind in SHADOW_KINDS and not base.shadow_ran:
         return "the shadow channel did not run, so RCPT-004 and RCPT-008 were not decided"
+    if kind in TRANSLATION_KINDS or (kind == "receipt_altered" and ids["claim_ids"]):
+        gap = _translation_gap(kind, ids, base, ctx)
+        if gap is not None:
+            return gap
+    return None
+
+
+def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) -> Optional[str]:
+    """None when every check the kind needs ran on a checked translation of every named claim (on the named transfers and
+    reports); otherwise why the translation checks could not decide."""
+    claims = list(dict.fromkeys(ids["claim_ids"]))
+    if not claims:
+        return "no claim is named, so no translation check can be tied to the accusation"
+    reports = set(ids["report_ids"])
+    msgs = ctx.named_messages(ids)
+    need = TRANSLATION_CHECKS_NEEDED.get(kind, ())
+    for c in claims:
+        recs = [r for r in base.translations if r.claim_id == c and (not reports or r.report_id in reports) and (not msgs or r.message_id in msgs)]
+        if not recs:
+            if kind == "receipt_altered":
+                continue  # a claim without a translation: the receipt checks alone decide
+            return f"no checked translation of claim {c} is on the named transfers (not translated, not delivered, or not named there)"
+        for r in recs:
+            missing = [x for x in need if x not in r.checks_run]
+            if missing:
+                return (f"the {', '.join(missing)} check(s) did not run on the translation of claim {c} (not model-proposed, recorded under "
+                        "another policy version, no problem, or its result not retained), so the translation checks could not decide")
     return None
 
 
@@ -651,9 +696,10 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
         if faults:
             results.append(AccusationAssessment(**common, outcome="unverifiable", code=OUTCOME_CODES["unverifiable"], reasons=faults))
             continue
-        if acc.kind == "other":
-            results.append(AccusationAssessment(**common, outcome="unresolved", code=OUTCOME_CODES["unresolved"],
-                                                reasons=["kind other is decided by no check; human review"]))
+        if acc.kind in UNCHECKED_KINDS:
+            why = ("kind translation_unfaithful is decided by no check: whether an IR says what its claim says is a question of meaning, "
+                   "advisory only; human review") if acc.kind == "translation_unfaithful" else f"kind {acc.kind} is decided by no check; human review"
+            results.append(AccusationAssessment(**common, outcome="unresolved", code=OUTCOME_CODES["unresolved"], reasons=[why]))
             continue
         refs = [_ref(b.audit_id, i, f) for b in lookups for i, f in enumerate(b.findings) if finding_matches(acc.kind, ids, f, r2m)]
         if refs:

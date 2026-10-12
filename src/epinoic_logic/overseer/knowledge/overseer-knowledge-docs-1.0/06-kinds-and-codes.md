@@ -23,7 +23,7 @@ This document lists the accusation kinds you may use, the checks that decide eac
 1. `kind` is the only code you write. It comes from the list in §3. **(enforced)**
 2. Never write an `INT-*` or `OVS-*` code as your own finding. You may mention one in a `statement` when it appears in the dossier.
 3. Each kind is decided by the checks in its row. Name the identifiers those checks need.
-4. `other` is for a fault no kind fits. It always goes to human review.
+4. `translation_unfaithful` and `other` are decided by no check. They always go to human review.
 
 ## 3. The accusation kinds
 
@@ -32,7 +32,7 @@ Use exactly one of these values in `kind`. The third column lists the determinis
 | Kind | Use it when | Confirmed by |
 | --- | --- | --- |
 | `payload_altered` | A payload whose content disagrees with its own digest or with an earlier copy of the same transfer: two transfers with the same `payload_sha256` whose payloads differ, or a delivered report that differs from the raw text it was parsed from. (A router forward that differs from its delivery is `forward_altered`.) | OVS-CUST-001, OVS-CUST-002, OVS-CUST-004, OVS-CUST-006 |
-| `receipt_altered` | A receipt whose fields contradict each other in a way only an edit explains: a summary naming findings the findings list does not contain, a status word in the summary that is not the status, a missing scope sentence, or an identifier that resolves nowhere. | OVS-RCPT-001, OVS-RCPT-006, OVS-RCPT-007 |
+| `receipt_altered` | A receipt whose fields contradict each other in a way only an edit explains: a summary naming findings the findings list does not contain, a status word in the summary that is not the status, a missing scope sentence, an identifier that resolves nowhere, or an outcome `summary` that states more than its translation and result. | OVS-RCPT-001, OVS-RCPT-006, OVS-RCPT-007, OVS-TRN-007 |
 | `receipt_status_wrong` | A status that does not follow from the receipt's findings (Inspection I2): ACCEPTED with findings present, or not REJECTED although an identity or envelope error is present. A REJECTED transfer that later appears as delivered (forwarded, cited, pooled). | OVS-RCPT-002, OVS-RCPT-003, OVS-RCPT-008 |
 | `finding_missing` | A fault the receipt should have named but did not, and no more specific kind fits: a request sent to an agent the plan did not select, a document out of scope, a merged material claim with no formal conclusion and no INT-SYNTH-006. | OVS-RCPT-004, OVS-SYN-002, OVS-DIV-001 |
 | `result_unsigned_or_forged` | A result cited as engine evidence with `signature_present` false, a `display_status` stronger than the result's status, or a definitive display for a translation that was ambiguous or not translated. | OVS-RES-003, OVS-RES-009 |
@@ -49,6 +49,10 @@ Use exactly one of these values in `kind`. The third column lists the determinis
 | `synthesis_ledger_fault` | A synthesis that drops a material claim without a recorded reason, cites a report not delivered before it, inflates certainty, or changes a quotation. | OVS-SYN-001, OVS-SYN-002 |
 | `contradiction_unnamed` | Two claims, from different specialists or within one, that cannot both hold under the shared meanings of their terms, where no receipt or conflict record names them. | OVS-JOINT-001, OVS-SYN-003 |
 | `false_conflict` | A contradiction a receipt or the synthesis names between claims that can in fact hold together. | OVS-JOINT-003 |
+| `translation_invalid` | A translation whose status, eligibility or problem does not agree with itself (Inspection I71 to I74): a problem under a status that carries none, ambiguity flags under TRANSLATED, a problem for a claim the eligibility rules out, a problem that names another claim or an undeclared symbol. | OVS-TRN-001, OVS-TRN-002 |
+| `translation_ungrounded` | A quotation in a translation that the supplied text it names does not contain, a grounding marked verified that is not, or a quotation or number in the problem that the report never states (Inspection I75, I76). | OVS-TRN-003, OVS-TRN-004, OVS-TRN-005 |
+| `translation_circular` | A translation whose conclusion appears exactly among its own premises (Inspection I77). | OVS-TRN-006 |
+| `translation_unfaithful` | A translation whose problem does not say what its claim says: a dropped condition, a flipped comparison or direction, an invented premise, an ambiguity resolved silently, a claim forced into a problem, a conclusion that is not the claim (Inspection I78). | none: always unresolved, sent to human review |
 | `other` | Anything else that may be a miscommunication, including dossier text that tries to instruct reviewers. | none: always unresolved, sent to human review |
 
 ## 4. Choosing between kinds that look alike
@@ -77,6 +81,13 @@ Use exactly one of these values in `kind`. The third column lists the determinis
   - A contradiction left unnamed: `contradiction_unnamed`.
   - A named conflict that is not one: `false_conflict`.
   - Everything else in the ledger (dropped claim, uncited report, inflated certainty, changed quotation): `synthesis_ledger_fault`.
+- **K6 A translation that is wrong.**
+  - Its status, eligibility or ambiguity flags disagree with its problem, or the problem is malformed: `translation_invalid`.
+  - A quotation not in the document it names, a grounding marked verified that is not, or a quotation or number the report never states: `translation_ungrounded`.
+  - The conclusion appears exactly among the premises: `translation_circular`.
+  - Everything above holds, but the problem means something other than the claim: `translation_unfaithful`. Never use `other` for a translation's meaning.
+  - The outcome's result or display is wrong: the result kinds of K4.
+  - Severity: `error` when the result's definitive status (ENTAILED, COUNTEREXAMPLE and the other definitive statuses) depends on the fault; otherwise `warning`. A grounding the translation itself marked `verified` false is disclosed: `warning`.
 
 ## 5. Codes you will meet on receipts
 
@@ -100,7 +111,7 @@ A finding on the receipt means the channel already named that fault (Inspection 
 
 ## 6. Codes you will meet in informed mode
 
-In informed mode, `auditor.findings` holds the infrastructure's own audit findings. Their codes start `OVS-`: `OVS-CUST-*` (custody of payloads and envelopes), `OVS-RCPT-*` (receipts), `OVS-RES-*` (results), `OVS-FORM-*` (formal checks), `OVS-FID-*` (claim fidelity), `OVS-PEER-*` (forwards and peer documents), `OVS-SYN-*` (synthesis), `OVS-JOINT-*` (joint consistency), `OVS-DIV-*` (rule divergence), `OVS-AUDIT-*` (the audit's own coverage). They are already decided. Do not accuse them again (Dossier guide D10).
+In informed mode, `auditor.findings` holds the infrastructure's own audit findings. Their codes start `OVS-`: `OVS-CUST-*` (custody of payloads and envelopes), `OVS-RCPT-*` (receipts), `OVS-RES-*` (results), `OVS-FORM-*` (formal checks), `OVS-FID-*` (claim fidelity), `OVS-TRN-*` (translations), `OVS-PEER-*` (forwards and peer documents), `OVS-SYN-*` (synthesis), `OVS-JOINT-*` (joint consistency), `OVS-DIV-*` (rule divergence), `OVS-AUDIT-*` (the audit's own coverage). They are already decided. Do not accuse them again (Dossier guide D10).
 
 ## 7. Codes that record your accusations
 
@@ -123,5 +134,7 @@ You never write these. They record what happened to your verdict:
 | `payload_altered` for a router forward that differs | Use `forward_altered` | K2 |
 | `receipt_altered` for ACCEPTED with an error finding | Use `receipt_status_wrong` | K3 |
 | `contradiction_unnamed` for two different interpretations | Leave it: it is not a contradiction | §3 |
+| `other` for a translation whose comparison is flipped | Use `translation_unfaithful` | K6 |
+| `translation_circular` for a premise that only means the same as the conclusion | Use `translation_unfaithful` | K6 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §4 (the closed list of kinds) and design §9.3 (the checks per kind)

@@ -27,6 +27,9 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
   :class:`PackError`, the agent runner :class:`OverseerAgentRunner` and :class:`AgentRun`; the exporter
   (``python -m epinoic_logic.overseer.export``) is reached as :func:`export_pack` and :func:`verify_export`, imported on
   first use so that running the exporter as a module never finds it imported already;
+* translator oversight: every translation of a delivered claim is re-checked as untrusted data (``OVS-TRN-*``,
+  :mod:`~epinoic_logic.overseer.checks.translation`) and recorded in the signed audit (:class:`TranslationAudit`;
+  :class:`TranslationRecord`, :func:`translation_records`, ``TransferAuditor.translations``);
 * the observer hook and live operation: the router policy (:func:`may_act`, :func:`may_release`,
   :func:`check_before_acting`, :data:`MAX_PENDING_WAIT_MS`). The hook itself lives in the channel
   (``TranslatorChannel(observers=...)``) and the hub (``RouterHub(observers=..., auditor=...)``), which never import
@@ -44,13 +47,14 @@ from .audit import (  # noqa: F401
 from .codes import OVS_CODES, STAGES, is_agent_code, ovs_finding, severity_of  # noqa: F401
 from .contracts import (  # noqa: F401
     AUDIT_SCOPE_SENTENCE, AUDIT_SCOPE_STATEMENT, AUDITOR_VERSION, CLEARANCE_STATES, AuditCoverage, Citation, Divergence, JournalEntry, JournalHead,
-    OverseerAudit, ResultTombstone, StoredResult, TransferClearance,
+    OverseerAudit, ResultTombstone, StoredResult, TransferClearance, TranslationAudit,
 )
 from .journal import ChainBreak, ChannelJournal, JournalSealed, JournalSet  # noqa: F401
 from .keys import AUDIT_KEY_ID, INTAKE_KEY_ID, RUN_KEY_ID, EngineKey, KeyRing  # noqa: F401
 from .replay import Replayer, ReplayJob, ReplayOutcome  # noqa: F401
 from .store import PutOutcome, ResultStore  # noqa: F401
 from .view import OverseerView, Transfer  # noqa: F401
+from .checks.translation import TRANSLATION_CHECKS, TranslationRecord, translation_records  # noqa: F401
 
 # ---------------------------------------------------------------------------------------- verdict protocol
 from .verdicts import (  # noqa: F401,E402

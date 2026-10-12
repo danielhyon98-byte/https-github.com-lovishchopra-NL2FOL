@@ -260,7 +260,7 @@ def test_manifest_invalid(scratch, variant):
     elif variant == "duplicate_key":
         raw = render_manifest(m).replace('"dossier_version": "1.0",', '"dossier_version": "1.0",\n  "dossier_version": "1.0",', 1).encode()
     elif variant == "nan":
-        raw = render_manifest(m).replace('"bytes": 6005', '"bytes": NaN', 1).encode()
+        raw = render_manifest(m).replace(f'"bytes": {m["files"][0]["bytes"]}', '"bytes": NaN', 1).encode()
         assert b"NaN" in raw
     elif variant == "array":
         raw = b"[]\n"

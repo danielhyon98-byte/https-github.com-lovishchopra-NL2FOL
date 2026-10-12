@@ -86,6 +86,14 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   claims, quotations and figures are what the specialist actually wrote, that forwards and peer documents are the
   delivered text, and that a synthesis accounts for the delivered reports and names every contradiction. What it finds
   is a signed audit of `OVS-*` findings with identifiers.
+- **The translator is overseen too.** Every IR problem a translation provider proposed for a claim is re-checked as
+  untrusted data (`OVS-TRN-*`: re-validated by the engine's validator, its status and eligibility re-derived, its
+  quotation groundings re-checked against the named supplied texts, every quotation and number traced to what the
+  specialist said, a conclusion found among its own premises flagged as circular, its summary regenerated from the
+  signed result), and the signed audit records each translation: the claim text, the proposed IR, its validation
+  outcome and the signed engine result. Overseer agents receive each translation with its claim and may accuse it,
+  including of meaning faults (a dropped condition, a flipped comparison, an invented premise); those stay advisory and
+  go to human review.
 - **Before acting** the router calls `hub.clearance(task, message_id, receipt=...)` with the receipt it holds and acts
   only when `overseer.policy.may_act(receipt, clearance)`: an edited receipt, a forged or misattached result or an
   altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL

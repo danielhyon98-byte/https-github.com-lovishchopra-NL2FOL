@@ -51,6 +51,13 @@ OVS_CODES: dict[str, tuple[Severity, str, str]] = {
     "OVS-FID-007": ("warning", "fidelity", "quotations self-grounded (checked only against texts the specialist supplied)"),
     "OVS-FID-008": ("error", "fidelity", "a supplied text under a requested document id altered in the report"),
     "OVS-FID-009": ("warning", "fidelity", "the auditor's independent structural detector flags a self-certification delivered as content"),
+    "OVS-TRN-001": ("error", "translation", "a translation's IR fails re-validation as untrusted data (schema, claim or request ids, the engine validator's allowlist, sorts and limits, or the subject profile's sorts)"),
+    "OVS-TRN-002": ("error", "translation", "a translation's status, eligibility or engine run is not the image of its validation (a problem under a status that forbids one, ambiguity flags under TRANSLATED, a claim the eligibility policy rules out forced into IR, an engine result without a translated problem)"),
+    "OVS-TRN-003": ("error", "translation", "a translation's grounding states more than the deterministic grounding check gives (a verified flag or a verified grounding check the re-run on the delivered supplied texts does not reproduce)"),
+    "OVS-TRN-004": ("warning", "translation", "a quotation grounding's excerpt in a translation does not occur in the supplied text it names (disclosed as unverified; the result relies on it only as an ungrounded dependency)"),
+    "OVS-TRN-005": ("warning", "translation", "a quotation or number in a model-proposed translation traces to neither the claim nor a claim it cites"),
+    "OVS-TRN-006": ("error", "translation", "circular translation: the conclusion occurs verbatim among the premises, so the engine result rests on the claim assumed"),
+    "OVS-TRN-007": ("error", "translation", "an outcome's summary is not the deterministic statement of its translation and its signed result"),
     "OVS-PEER-001": ("error", "peer", "forward not byte-identical to the delivery, or a forward of an undelivered or REJECTED report"),
     "OVS-PEER-002": ("error", "peer", "peer document differs from the forwarded original_response, or no forward to that recipient preceded it"),
     "OVS-PEER-003": ("info", "peer", "peer document linked to its forward by text equality only"),
@@ -75,7 +82,7 @@ OVS_CODES: dict[str, tuple[Severity, str, str]] = {
 }
 
 #: The stage names an audit's ``checks_run`` uses, in run order.
-STAGES = ("custody", "receipts", "results", "formal", "fidelity", "peer", "synthesis", "joint", "divergence", "shadow", "replay", "verdicts")
+STAGES = ("custody", "receipts", "results", "formal", "fidelity", "translation", "peer", "synthesis", "joint", "divergence", "shadow", "replay", "verdicts")
 
 
 def severity_of(code: str) -> Severity:

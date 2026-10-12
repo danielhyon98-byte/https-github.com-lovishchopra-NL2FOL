@@ -1,8 +1,8 @@
 # Overseer: transfer audit and overseer agents
 
 Status: design for the `overseer-build` branch. Nothing described here is built, tested or
-deployed until `docs/OVERSEER_RESULTS.md` records it with evidence; the `audit` stage (section 14)
-is built and committed. An overseer agent's whole configuration is the knowledge-document pack
+deployed until `docs/OVERSEER_RESULTS.md` records it with evidence; the `audit`, `protocol`,
+`knowledge` and `hook` stages (section 14) are built, the last with translator oversight (section 18). An overseer agent's whole configuration is the knowledge-document pack
 `src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.0/` (section 17), which replaces
 the former agent brief; `docs/OVERSEER_AGENT_BRIEF.md` is now only a pointer to the pack.
 
@@ -135,6 +135,8 @@ after the `audit` stage was built. None of them changes the audit's behaviour.
 | 30 | Small-model affordances | **The dossier gives each transfer its own pointer (`at`) and an `index` from every identifier to its pointer**, so the agent never counts array positions; the pack's examples show dossiers as flat pointer/value lists. Pointer errors were the main expected cause of AGENT-002 for a small model. |
 | 31 | Kinds the brief left unmapped | **`KIND_CHECKS` gains CUST-006 (`payload_altered`), RCPT-006 and RCPT-007 (`receipt_altered`), and RCPT-006 (`result_out_of_task`).** The brief described `receipt_altered` by exactly the faults RCPT-007 decides, and a dangling identifier had no kind. The brief's example of `finding_missing` (an absent quotation with no finding) is filed under the more specific `quotation_absent`, as the brief's own example verdict did; FID-004 decides it. |
 | 32 | Contract versions | **`overseer_verdict/1.0` and dossier `1.0` ship with the pack fields.** The brief's draft of 1.0 was never implemented, so no verdict exists under it; a verdict written to the draft lacks `pack` and is invalid. |
+| 33 | Translator oversight in released contracts | **The translation kinds, the `translation_fidelity` lens, `links.translations` and `TranslationAudit` extend `overseer_verdict/1.0`, dossier `1.0` and pack `1.0` in place.** None of them had been released (merged or deployed), so no verdict, dossier or deployed pack exists under the earlier text; section 17.12's rule (a kind added is a MAJOR version) applies from the first release on. The pinned digest moved, as the knowledge stage's drift edits moved it. |
+| 34 | Translator oversight and the frozen audit stage | **The founder's requirement adds `checks/translation.py` and the `OVS-TRN-*` codes to the audit.** The audit stage's behaviour is otherwise unchanged: the new checks only add findings, run in the asynchronous tier for live transfers (with L5) and in the batch tier, and every existing code keeps its meaning. |
 
 ## 3. Threat model
 
@@ -218,7 +220,7 @@ later code does to the shared objects. This is what closes G2, G3 and G4.
 | Result store | `overseer/store.py` | `ResultStore`: signed results by id with origin, bounds and tombstones |
 | View | `overseer/view.py` | `OverseerView.from_journal` (authoritative), `from_channel` (degraded) |
 | Replay | `overseer/replay.py` | `Replayer`: worker process or inline mode, bounded queue, keyed sampling |
-| Checks | `overseer/checks/*.py` | custody, receipts, results, formal, fidelity, selfcert, peer, synthesis, joint, divergence, shadow |
+| Checks | `overseer/checks/*.py` | custody, receipts, results, formal, fidelity, selfcert, translation (section 18), peer, synthesis, joint, divergence, shadow |
 | Auditor | `overseer/audit.py` | `run_overseer_checks`, `TransferAuditor`, `sign_audit`, `verify_audit` |
 | Dossier | `overseer/dossier.py` | `build_dossier`, `resolve_pointer`, `dossier_digest` |
 | Verdicts | `overseer/verdicts.py` | `AgentVerdict`, `Accusation`, `EngineStatement`, `AccusationKind`, `KIND_CHECKS` |
@@ -777,7 +779,9 @@ JSON with the following structure. A dossier is issued for one agent under one p
                                 "signature_present", "signature_key_id", "problem": {...} } },
   "links": { "forwards": [{"forward_message_id", "report_id", "delivering_message_id"}],
              "peer_documents": [{"request_message_id", "document_id", "earlier_forward_message_ids"}],
-             "synthesis_citations": [{"synthesis_message_id", "report_id", "delivering_message_id"}] },
+             "synthesis_citations": [{"synthesis_message_id", "report_id", "delivering_message_id"}],
+             "translations": [{"message_id", "report_id", "claim_id", "claim_pointer", "cited_claim_pointers",
+                               "translation_pointer", "result_id"}] },
   "index": [ {"type": "message" | "receipt" | "report" | "claim" | "synthesized_claim" | "result" | "document" | "conflict",
               "id", "report_id" (claims only), "pointer"} ],
   "auditor": { "findings": [...] }            (informed mode only),
@@ -836,7 +840,7 @@ the two identical (section 17.5).
 | Kind | Confirmed by |
 | --- | --- |
 | `payload_altered` | CUST-001, CUST-002, CUST-004, CUST-006 |
-| `receipt_altered` | RCPT-001, RCPT-006, RCPT-007 |
+| `receipt_altered` | RCPT-001, RCPT-006, RCPT-007, TRN-007 |
 | `receipt_status_wrong` | RCPT-002, RCPT-003, RCPT-008 |
 | `finding_missing` | RCPT-004, SYN-002, DIV-001 |
 | `result_unsigned_or_forged` | RES-003, RES-009 |
@@ -853,6 +857,10 @@ the two identical (section 17.5).
 | `synthesis_ledger_fault` | SYN-001, SYN-002 |
 | `contradiction_unnamed` | JOINT-001, SYN-003 |
 | `false_conflict` | JOINT-003 |
+| `translation_invalid` | TRN-001, TRN-002 |
+| `translation_ungrounded` | TRN-003, TRN-004, TRN-005 |
+| `translation_circular` | TRN-006 |
+| `translation_unfaithful` | none: always unresolved, sent to human review (a meaning fault, section 18) |
 | `other` | none: always unresolved, sent to human review |
 
 ### 9.4 Intake (`overseer/intake.py`)
@@ -937,7 +945,8 @@ them.
   their instructions are byte-identical) and receive one of three lenses in their dossier:
   - `custody_results`: envelopes, receipts, results and formal checks;
   - `content_fidelity`: claims against the response, quotations, figures and self-certification;
-  - `peer_synthesis`: forwards, peer documents, the ledger and contradictions.
+  - `peer_synthesis`: forwards, peer documents, the ledger and contradictions;
+  - `translation_fidelity`: each translation against its claim and the claims it cites (section 18).
 
   A `general` lens covers everything. Lenses focus attention; they never restrict what an agent may
   accuse.
@@ -982,6 +991,7 @@ them.
 | L3 results (store, signature, binding, citation, display) | yes | | |
 | L4 formal status and satisfied | yes | | |
 | L5 fidelity and self-certification | yes | | |
+| Translation checks TRN-001..007 (section 18) | | yes (with L5; PENDING until run) | yes |
 | L6 peer, synthesis citation, pool | yes | | |
 | R1 replay | | yes (sampled only on overflow) | remaining results |
 | R2 re-derivation (packs, recount) | | yes | remaining |
@@ -1121,6 +1131,7 @@ manifest entry `{fault_id, class, injected identifiers, expected codes}`.
 | T19 | a pooled claim popped from `ch.formalized` between two responses | JOINT-004; the shadow gives RCPT-004 where a conflict went unnamed |
 | T20 | an exported pack tampered with: (a) one document edited; (b) one document edited and `manifest.json` recomputed to match; (c) a file added; (d) the version string changed | the loader refuses each (`file_digest`, `digest_mismatch`, `file_unlisted`, `unknown_pack`); no runner is built and no dossier is issued |
 | T21 | the runner given a dossier issued for another agent or another pack | refused before any provider call (`refused_input`); nothing reaches the intake |
+| T22 | translator side: (a) an IR the validator rejects attached as TRANSLATED; (b) ambiguity flags under TRANSLATED; (c) a claim the policy rules out forced into IR; (d) a grounding flipped to verified; (e) an excerpt absent from its document; (f) an invented number or quotation; (g) the conclusion among the premises; (h) an outcome summary that overclaims | (a) TRN-001, (b) TRN-002, (c) TRN-002, (d) TRN-003, (e) TRN-004, (f) TRN-005, (g) TRN-006, (h) TRN-007; agents: `translation_unfaithful` on a flipped comparison is unresolved, never refuted |
 
 ### 13.5 Arena with the auditor (`scripts/overseer/run_contained.py`)
 
@@ -1210,9 +1221,9 @@ anything but a loaded pack.
 | --- | --- | --- |
 | `audit` | built and committed | the deterministic transfer audit (sections 5 to 8) |
 | (design) | done with this amendment | the pack's documents: `master_prompt.txt` and `01` to `09`; the brief reduced to a pointer |
-| `protocol` | next | the dossier, the verdict contract with its pack fields, the intake, validation and combination (sections 9 and 10) |
-| `knowledge` | after `protocol` | the pack's schemas, manifest and deployer README; the loader, exporter and runner; the completion entry point; package data; drift tests (section 17) |
-| `hook` | after `knowledge` | the observer hook, hub integration and live operation, router policy, READMEs and package exports |
+| `protocol` | built and committed | the dossier, the verdict contract with its pack fields, the intake, validation and combination (sections 9 and 10) |
+| `knowledge` | built and committed | the pack's schemas, manifest and deployer README; the loader, exporter and runner; the completion entry point; package data; drift tests (section 17) |
+| `hook` | built, with translator oversight (section 18) | the observer hook, hub integration and live operation, router policy, READMEs and package exports |
 | `harness` | last | the tampering suite, dossier export, verdict scoring, and the contained harness configured only from an exported pack |
 
 ### Stage `audit`: the deterministic transfer audit, the result store and the signed IntegrityReport
@@ -1351,6 +1362,13 @@ Files:
     `verdicts`-scope audit. Agents never gate clearance (decision 16).
   - `src/epinoic_logic/overseer/__init__.py`: exports of the protocol, knowledge and hook names.
     This is the only later edit of an `audit` file; it adds exports and changes no behaviour.
+  - Translator oversight (founder's requirement, section 18; decisions 33 and 34): new
+    `src/epinoic_logic/overseer/checks/translation.py`; edited `overseer/audit.py`, `checks/__init__.py`, `codes.py`,
+    `contracts.py` (`TranslationAudit`), `verdicts.py` (the translation kinds, the lens), `dossier.py`
+    (`links.translations`), `validate.py` (the translation kinds' coverage), `pack.py` (the pinned digest), the pack's
+    documents with its regenerated schemas and manifest; tests `test_translation_oversight.py` and
+    `test_translation_agents.py`, and the exact expectations of the protocol and knowledge tests that pin the kinds
+    table, the lenses, the rule ranges and the worked examples.
 - New:
   - `src/epinoic_logic/overseer/policy.py`: `may_act`, `may_release`, bounded PENDING wait.
   - `src/epinoic_logic/overseer/README.md`: the package's parts, including the pack, exporter,
@@ -1368,7 +1386,9 @@ Acceptance:
 - the receipt the router presents is checked (T2);
 - T14 passes;
 - `hub.review` leaves every clearance unchanged;
-- the existing suite passes unchanged.
+- the existing suite passes unchanged;
+- translator oversight: every `OVS-TRN-*` code has a positive test and a control; genuine translations of the recorded
+  rounds r1 to r6 give no `OVS-TRN-*` finding; the arena r3 run is unchanged (41/41).
 
 ### Stage `harness`: the tampering suite, dossier export, verdict scoring and the contained harness
 
@@ -1461,6 +1481,13 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-FID-007 | warning | quotations self-grounded (checked only against texts the specialist supplied) |
 | OVS-FID-008 | error | a supplied text under a requested document id altered in the report |
 | OVS-FID-009 | warning | the auditor's independent structural detector flags a self-certification delivered as content |
+| OVS-TRN-001 | error | a translation's IR fails re-validation as untrusted data (schema, claim or request ids, the engine validator's allowlist, sorts and limits, or the subject profile's sorts) |
+| OVS-TRN-002 | error | a translation's status, eligibility or engine run is not the image of its validation (a problem under a status that forbids one, ambiguity flags under TRANSLATED, a claim the eligibility policy rules out forced into IR, an engine result without a translated problem) |
+| OVS-TRN-003 | error | a translation's grounding states more than the deterministic grounding check gives |
+| OVS-TRN-004 | warning | a quotation grounding's excerpt does not occur in the supplied text it names (disclosed as unverified) |
+| OVS-TRN-005 | warning | a quotation or number in a model-proposed translation that the specialist's report never states |
+| OVS-TRN-006 | error | circular translation: the conclusion occurs verbatim among the premises |
+| OVS-TRN-007 | error | an outcome's summary is not the deterministic statement of its translation and its signed result |
 | OVS-PEER-001 | error | forward not byte-identical to the delivery, or a forward of an undelivered or REJECTED report |
 | OVS-PEER-002 | error | peer document differs from the forwarded `original_response`, or no forward to that recipient preceded it |
 | OVS-PEER-003 | info | peer document linked to its forward by text equality only |
@@ -1527,17 +1554,17 @@ is the first. Several versions may sit side by side.
 overseer-knowledge-docs-1.0/
   master_prompt.txt       read first: the fixed procedure, the non-negotiables, lenses and modes, the authority order
   01-role-and-trust.md    Role and trust: the system, the job, what may be trusted, what a verdict is worth (T1-T12)
-  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, the facts (D1-D20)
+  02-dossier.md           Dossier guide: the input field by field, the header to copy, pointers, translations, the facts (D1-D23)
   03-inspection.md        Inspection: the checks per transfer type: request, response, response_text,
-                          relay_forward, relay_report, relay_synthesis (I1-I68)
+                          relay_forward, relay_report, relay_synthesis, and every translation (I1-I68, I70-I81)
   04-evidence.md          Evidence rule: identifiers, pointers, quotes, absences, engine statements (E1-E15)
   05-verdict-format.md    Verdict format: the skeleton, every field rule, the final check (V1-V20)
   06-kinds-and-codes.md   Kinds and codes: the closed list of kinds with their confirming checks, how to choose,
-                          the INT-* and OVS-* codes the agent meets, the OVS-AGENT-* codes that score it (K1-K5)
-  07-examples.md          Examples: 13 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch)
+                          the INT-* and OVS-* codes the agent meets, the OVS-AGENT-* codes that score it (K1-K6)
+  07-examples.md          Examples: 17 worked dossiers (genuine, faulty, tampered, injected, unsure, pack mismatch, translations)
                           with their correct verdicts, and a table of wrong verdicts (X1-X3)
   08-never.md             Never: what the agent must never do (N1-N12)
-  09-when-unsure.md       When unsure: no dossier, pack mismatch, unpinnable suspicions, meaning-only faults (U1-U9)
+  09-when-unsure.md       When unsure: no dossier, pack mismatch, unpinnable suspicions, meaning-only faults (U1-U10)
   README.md               for deployers, never sent to a model                                  (knowledge stage)
   verdict.schema.json     generated from AgentVerdict                                            (knowledge stage)
   dossier.schema.json     generated from Dossier                                                 (knowledge stage)
@@ -1796,5 +1823,92 @@ The exported `README.md` (audience `deployer`) tells whoever deploys the pack:
   a MINOR pack version (a When unsure rule) plus a runner option, measured first.
 - Translations of the pack for non-English-tuned models would each be a pack of their own version,
   accepted through `trusted` until pinned.
-- The cheapest-tier fit of the pack (about 16,600 words of system text) is to be measured by the
-  harness: invalid-verdict rate, AGENT-002 rate, contradictions with signed results.
+- The cheapest-tier fit of the pack (about 20,700 words of system text since translator oversight, up from 16,600)
+  is to be measured by the harness: invalid-verdict rate, AGENT-002 rate, contradictions with signed results.
+
+## 18. Translator oversight
+
+### 18.1 Requirement
+
+The translator agents (the translation provider that proposes an IR problem for each eligible claim:
+`translate/pipeline.py`, `translate/prompts/translate_v1.md`) are overseen like every other agent. For every
+model-proposed translation the overseer records the claim text, the proposed IR, its validation outcome and the signed
+engine result; the deterministic audit re-checks the translation as untrusted data; overseer agents receive each
+translation with its claim and judge whether it is faithful. Their verdicts on translations stay advisory: only the
+deterministic checks and the signed results decide.
+
+### 18.2 Where a translation is
+
+Every translation crosses the channel inside an outcome of the receipt of the report that carries its claim
+(`receipt.outcomes[i].translation`, with the engine result in `verification`). The journal therefore already holds, for
+each one, the delivered claim (in the report payload), the claims it cites (`supporting_claim_ids`, the claims the
+translator was given), the proposed IR, the translation's own validation outcome (status, eligibility, interpretation
+with its ambiguity flags, grounding checks, provider, diagnostics) and the cited result, which the store holds
+signature-verified. No hook is added: the checks read the journal, never live objects. A REJECTED transfer delivered
+nothing, so its outcomes are not checked (as for the fidelity checks).
+
+### 18.3 Deterministic checks (`checks/translation.py`)
+
+| Code | Decided by (the means of TR1: a re-run of this repository's rules on journaled inputs, a comparison with the signed result) |
+| --- | --- |
+| TRN-001 | the IR, taken as JSON from the journaled receipt, through `engine.validator.parse_and_validate` (strict schema, identifiers, sorts, operator allowlist, default limits); its `request_id` and `claim_id` against the delivered claim; its sorts against the claim's subject profile (the pipeline's own rules) |
+| TRN-002 | the status and engine run against the validation (a problem only under TRANSLATED or AMBIGUOUS_TRANSLATION; an engine result only with a problem; no ambiguity flags under TRANSLATED; the eligibility decision consistent with the status); for a model-proposed translation recorded under this code's policy version, the eligibility decision re-derived from the delivered claim (`decide_eligibility` and the subject policy) |
+| TRN-003 | the translator's grounding check (`check_problem_grounding`) re-run against the delivered report's supplied texts: a `verified: true` it does not reproduce |
+| TRN-004 | the same re-run: an excerpt the named document does not contain (warning: disclosed as unverified; the result relies on it only as an ungrounded dependency) |
+| TRN-005 | for a model-proposed translation, every quotation excerpt and number of the IR traced to the report (its response, claims and source excerpts; a quotation may also come verbatim from a supplied text; a task-setting premise may take its numbers from the request) under fixed spelling rules, each extension a named rule with its own test (`fraction-words`, `month-names`, `percent-as-fraction`, `date-encoding`, `supplied-text`); warning, because a spelling the rules do not read is possible |
+| TRN-006 | the conclusion's expression, as canonical JSON, equal to a premise's expression or to a conjunct of one |
+| TRN-007 | the outcome's `summary` regenerated with `translate.outcome.build_summary` from the translation and the stored signed result, under each signing configuration the composer could have used |
+
+The narrower tracing question (content outside the claim and the claims it cites) is recorded per translation
+(`outside_cited_claims`), not reported: the adapters' citation links are incomplete, so it is no evidence of a fault,
+but it shows a reviewer where the translator went beyond the claim. The checks that judge a model's proposal against
+the translator's contract (the eligibility re-derivation, the tracing) run only on translations that record a provider;
+every record says which checks ran (`checks_run`).
+
+Calibration: on the recorded rounds r1, r1-adv and r2 to r6 run through a hub carrying the auditor, every check ran on
+every delivered translation (r3: 197 translations, r5: 133) and no `OVS-TRN-*` finding was raised on any genuine
+transfer. The first calibration raised 169 TRN-005 warnings, all of them rule gaps (a supplied-text line widening the
+specialist's quotation, "two-thirds", "a tenth", "March", the 10000 that extracts a year from a YYYYMMDD encoding); each
+gap became a named rule with its own test.
+
+Tiers: live, the translation checks run with L5 in the asynchronous tier, so a transfer is AUDIT_PENDING until they have
+run; in the batch tier they run with the other live-tier checks.
+
+### 18.4 The signed record
+
+Every task audit carries `translations: [TranslationAudit]`, one per translation of a delivered claim: the claim text
+and its digest, the cited claim ids, the translation id, status, eligibility class and decision, whether a model
+proposed it (provider name, prompt version), the translator and policy versions, the proposed IR as journaled
+(`problem_json`) and its digest, the ambiguity flags, the targets of failed grounding checks, the diagnostics, the
+re-validation outcome and its detail, the signed result's id, status, content digest and signature outcome at put, the
+display status, the checks that ran, `outside_cited_claims`, and the `OVS-*` codes that name the claim on its transfer.
+The record is inside the audit's signature. `TransferAuditor.translations(channel_uid)` returns the same records with
+the full `TranslationResult`, read from the journal.
+
+### 18.5 Overseer agents
+
+- **Dossier.** `links.translations` lists, for every outcome of a delivered report transfer, the pointers of its
+  translation, its claim and the claims that claim cites, and the result id it cites. A link never states whether a
+  translation is faithful.
+- **Kinds.** `translation_invalid` (TRN-001, TRN-002), `translation_ungrounded` (TRN-003, TRN-004, TRN-005),
+  `translation_circular` (TRN-006) and `translation_unfaithful` (no check). TRN-007 confirms `receipt_altered`.
+  `translation_unfaithful` names the meaning faults no check compares: a dropped condition, a flipped comparison or
+  direction, an invented premise, an ambiguity resolved in words, a claim forced into IR that should have been left
+  unsupported, a conclusion that is not the claim. It is always unresolved (AGENT-004) and goes to human review.
+- **Lens.** `translation_fidelity` starts an agent on the translations; like every lens it never limits what the agent
+  may accuse.
+- **Validation.** An accusation of a translation kind must name a claim. It is refuted only when, for every named claim,
+  the evidence records a checked translation of it on the named transfers and reports on which every check the kind
+  needs ran (`translation_invalid`: re-validation, status and eligibility; `translation_ungrounded`: grounding and
+  tracing; `translation_circular`: circularity); otherwise it is unresolved. A `receipt_altered` accusation naming a claim
+  whose outcome summary was not re-checked is unresolved too.
+- **Pack.** Role and trust T1, T3, T12; Dossier guide §10 (D21 to D23: a translation, the formal problem, what a result
+  says about a translation); Inspection §10 (I70 to I81: find each translation; status, eligibility and ambiguity;
+  well-formed problem; quotations in their documents; nothing invented; the conclusion not assumed; the meaning check
+  with its six faults; the outcome around the translation; what a result shows; what is not a fault); Kinds and codes
+  K6 (choosing a translation kind and its severity); When unsure U10; Never N4, N6; Examples 14 to 17.
+
+### 18.6 What stays out of scope
+
+No check compares meanings: whether an IR says what its claim says is decided by no code, and an agent's view of it is
+advisory. Whether a claim is true is never in question. Results prove properties of the encoding only.

@@ -36,9 +36,10 @@ Rules marked **(enforced)** are checked by the infrastructure's code. Breaking o
 - **T1 The agents.** A tutoring system answers a student's task with several agents:
   - a **router**, which plans the task and sends requests;
   - **subject specialists**, which answer the requests;
+  - a **translator**, which turns each eligible claim of a specialist's answer into a formal problem (symbols, premises and a conclusion) that the engine decides. Its translations are proposals by an agent, reviewed like every other transfer;
   - a **combinator**, which synthesizes the specialists' answers into one.
 - **T2 The channel.** Every request, answer, forward and synthesis between these agents is a **transfer**. Every transfer crossed a translator channel. For each transfer the channel issued a **receipt** (a status, findings and checks) and, where it ran the engine, **signed engine results**. Infrastructure code has already checked every transfer deterministically.
-- **T3 What can go wrong.** A transfer can be **miscommunicated** (what arrived is not what was said or asked: a claim cut wrongly, a quotation changed, a figure changed, a contradiction left unnamed) or **tampered with** (something was altered after it was issued: a forward that differs from the delivery, a receipt status that does not follow from its findings, a result that is unsigned or belongs to another claim).
+- **T3 What can go wrong.** A transfer can be **miscommunicated** (what arrived is not what was said or asked: a claim cut wrongly, a quotation changed, a figure changed, a contradiction left unnamed) or **mistranslated** (the formal problem proposed for a claim says something the claim does not: a condition dropped, a comparison flipped, a premise invented, the conclusion assumed among the premises) or **tampered with** (something was altered after it was issued: a forward that differs from the delivery, a receipt status that does not follow from its findings, a result that is unsigned or belongs to another claim).
 
 ## 4. Your job
 
@@ -58,7 +59,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code. Breaking o
 - **T9 Your verdict is an agent output.** **(enforced)** The infrastructure validates it against the journal of transfers and the signed results. When your statement disagrees with a signed result, the signed result stands and your statement is recorded as refuted.
 - **T10 Other reviewers.** Other overseer agents may read the same dossier with another lens. You never see their verdicts. Agreement between reviewers is never evidence; each accusation is decided by its check.
 - **T11 Silence is not a clean bill.** Listing a transfer in `transfers_reviewed` without accusing it says only that you found nothing you could pin down. It is not a certificate. Never write that a transfer "passed", is "verified" or is "clean" in your notes.
-- **T12 The scope of everything here.** Engine results prove properties of the encoding only. The audit shows whether transfers, receipts and signed results agree with each other. Neither shows that any claim is true or any reading correct.
+- **T12 The scope of everything here.** Engine results prove properties of the encoding only. ENTAILED shows that the encoded premises imply the encoded conclusion; it never shows that the encoding says what the claim says. The audit shows whether transfers, receipts and signed results agree with each other. Neither shows that any claim is true or any reading correct.
 
 ## 6. Common mistakes
 
@@ -70,5 +71,6 @@ Rules marked **(enforced)** are checked by the infrastructure's code. Breaking o
 | Asserting a status other than the one in `results` | Copy the status from `/results/<id>/status` | T9 |
 | Accusing because another reviewer probably will | Accuse only what your own evidence shows | T10 |
 | Writing "transfer m-02 is verified" in notes | Say nothing about transfers you do not accuse, or say "nothing pinned down" | T11 |
+| Treating ENTAILED as proof that a translation is faithful | Compare the formal problem with its claim yourself (Inspection I78) | T12 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §1 and §6

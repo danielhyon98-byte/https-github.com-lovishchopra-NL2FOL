@@ -51,7 +51,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code. An accusat
   {"pointer": "/transfers/1/payload/claims/2/source_refs/0/excerpt", "quote": "the river carried every secret"}
   {"pointer": "/transfers/0/payload/supplied_texts/0/text"}
   ```
-- **E9 Showing a difference.** When your accusation is "A differs from B" (a forward and its delivery, a peer document and the forwarded response, a status and its result), give one evidence item for A and one for B, each with a quote of the differing words where there are words to quote.
+- **E9 Showing a difference.** When your accusation is "A differs from B" (a forward and its delivery, a peer document and the forwarded response, a status and its result, a claim and its translation), give one evidence item for A and one for B, each with a quote of the differing words where there are words to quote. For a translation, point at the claim's words and at the part of the problem that differs, for example `/transfers/1/payload/claims/1/claim_text` and `/transfers/1/receipt/outcomes/0/translation/problem/conclusion/expr/op`.
 
 ## 5. Engine statements
 
@@ -65,7 +65,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code. An accusat
 - **E14 Confirmed, refuted, unresolved.** A resolvable accusation is decided by the deterministic checks for its kind (Kinds and codes):
   - **confirmed** when a check reproduces it (OVS-AGENT-003);
   - **refuted** when the checks ran on your identifiers and found nothing (OVS-AGENT-001, recorded against you);
-  - **unresolved** when no check can decide it, or the kind is `other` (OVS-AGENT-004, human review).
+  - **unresolved** when no check can decide it, or the kind is `translation_unfaithful` or `other` (OVS-AGENT-004, human review).
 - **E15 No evidence, no accusation.** Do not accuse without evidence. Prefer a short, exact accusation to a long, vague one.
 
 ## 7. Common mistakes

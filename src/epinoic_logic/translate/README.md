@@ -45,3 +45,11 @@ thread-safe and `clear_grounding_caches()` empties them. Hashing agent text neve
 (like `ir.canonical.sha256_hex` and the grounding cache's `text_sha256`) encodes a lone UTF-16 surrogate with
 `surrogatepass`, so valid text hashes exactly as before and the channel can refuse such text (INT-REQ-009) instead of
 raising.
+
+**Overseen like every other agent.** Every translation this package proposes reaches the router inside a receipt
+outcome, and the Overseer re-checks it from its journal as untrusted data (`epinoic_logic.overseer.checks.translation`,
+codes `OVS-TRN-001` to `OVS-TRN-007`): the IR re-validated with the engine's validator, the status and eligibility
+re-derived, the quotation groundings re-run against the supplied texts, every quotation and number traced to the
+specialist's report, a conclusion found among its own premises flagged as circular, the outcome summary regenerated from
+the signed result. The signed task audit records each translation (claim text, proposed IR, validation outcome, signed
+result). Nothing in this package changed for it: the checks only read what the pipeline already records.

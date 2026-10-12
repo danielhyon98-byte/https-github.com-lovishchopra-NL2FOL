@@ -15,6 +15,9 @@ Modules (live tier L1-L6, re-derivation R2, batch tier B1-B5):
 * ``formal``    L4: FORM-001/002; R2: FORM-002 (branch), FORM-003/004
 * ``fidelity``  L5: FID-001..008 (FID-009 with ``selfcert``)
 * ``selfcert``  the independent structural self-certification detector
+* ``translation`` translator oversight: TRN-001..007 (each translation of a delivered claim re-validated as untrusted IR,
+  its status and eligibility re-derived, its grounding re-checked, traced to the claim and the claims it cites, checked
+  for circularity, and its summary regenerated from the signed result); run with L5
 * ``peer``      L6: PEER-001/002/003
 * ``synthesis`` L6: SYN-001; B2: SYN-002/003, RCPT-005 (ledger)
 * ``joint``     L6: JOINT-004; B3: JOINT-001/002/003
@@ -78,6 +81,7 @@ class CheckContext:
     auditor_result_ids: list[str] = field(default_factory=list)
     cited_result_ids: set[str] = field(default_factory=set)
     notes: list[str] = field(default_factory=list)
+    translations: list = field(default_factory=list)
     _universe: Optional[dict] = None
 
     # ------------------------------------------------------------------ findings

@@ -6,7 +6,7 @@
   of it after eviction.
 * ``TransferClearance``: the audit state of one transfer, for the router to read before acting.
 * ``OverseerAudit``: the signed audit, wrapping an ``IntegrityReport`` of ``OVS-*`` findings with its
-  coverage and rule divergences.
+  coverage, rule divergences and the record of every translation it checked (``TranslationAudit``).
 
 The ``IntegrityReport`` is the existing model, unchanged; an overseer agent's output is a different
 contract (``overseer_verdict/1.0``) so it can never be mistaken for the infrastructure's own report.
@@ -24,7 +24,7 @@ from ..integrity.contracts import IntegrityReport
 
 __all__ = [
     "AUDIT_SCOPE_SENTENCE", "AUDIT_SCOPE_STATEMENT", "AUDITOR_VERSION", "ClearanceState", "CLEARANCE_STATES", "JournalEntry", "StoredResult",
-    "ResultTombstone", "Citation", "TransferClearance", "AuditCoverage", "Divergence", "JournalHead", "OverseerAudit",
+    "ResultTombstone", "Citation", "TransferClearance", "AuditCoverage", "Divergence", "JournalHead", "OverseerAudit", "TranslationAudit",
 ]
 
 AUDITOR_VERSION = "overseer-audit/1.0"
@@ -169,6 +169,54 @@ class AuditCoverage(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class TranslationAudit(BaseModel):
+    """What an audit records about one translation of a delivered claim (translator oversight): the claim text and the
+    claims it cites, the proposed IR exactly as journaled (``problem_json``, canonical JSON, with its digest), the
+    translation's own validation outcome (status, eligibility, ambiguity flags, failed grounding checks, diagnostics),
+    the auditor's re-validation of the IR as untrusted data, the signed engine result the store holds (id, status,
+    content digest, whether its signature verified when stored), which translation checks ran, and every ``OVS-*`` code
+    that names this claim on this transfer. ``outside_cited_claims`` names the IR's symbols and assertions whose
+    quotation or number the specialist's report (or, for a quotation, a supplied text) states but neither the claim nor
+    a claim it cites does (recorded, not a finding: the adapters' citation links are incomplete). The record is part of the signed audit, so none of it can be
+    changed after signing; the journal entry at ``seq`` holds the same texts inside the delivered report and the
+    receipt's ``outcomes[outcome_index]``."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    seq: int
+    message_id: Optional[str] = None
+    receipt_id: Optional[str] = None
+    report_id: str
+    agent_id: str
+    claim_id: str
+    outcome_index: int
+    claim_text: str
+    claim_text_sha256: str
+    cited_claim_ids: list[str] = Field(default_factory=list)
+    translation_id: str
+    translation_status: str
+    eligibility_class: str
+    eligible: bool
+    model_proposed: bool
+    provider_name: Optional[str] = None
+    prompt_version: Optional[str] = None
+    translator_version: str
+    policy_version: str
+    problem_json: Optional[str] = None
+    problem_digest: Optional[str] = None
+    ambiguity_flags: list[str] = Field(default_factory=list)
+    grounding_unverified: list[str] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
+    revalidation: Literal["valid", "invalid", "no_problem"]
+    revalidation_detail: list[str] = Field(default_factory=list)
+    result_id: Optional[str] = None
+    result_status: Optional[str] = None
+    result_sha256: Optional[str] = None
+    signature_verified: Optional[bool] = None
+    display_status: str
+    checks_run: list[str] = Field(default_factory=list)
+    outside_cited_claims: list[str] = Field(default_factory=list)
+    codes: list[str] = Field(default_factory=list)
+
+
 class JournalHead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     index: int
@@ -196,6 +244,7 @@ class OverseerAudit(BaseModel):
     report: IntegrityReport
     coverage: AuditCoverage
     divergences: list[Divergence] = Field(default_factory=list)
+    translations: list[TranslationAudit] = Field(default_factory=list)
     key_ids_used: list[str] = Field(default_factory=list)
     auditor_version: str = AUDITOR_VERSION
     scope_statement: str = AUDIT_SCOPE_STATEMENT

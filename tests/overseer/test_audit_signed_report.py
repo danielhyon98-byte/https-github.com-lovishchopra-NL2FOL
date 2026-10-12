@@ -152,12 +152,12 @@ def test_run_overseer_checks_never_raises_on_a_broken_view(auditor):
 
 # ------------------------------------------------------------------------------------------- the code table
 def test_the_code_table_has_every_code_once_with_one_severity():
-    assert len(OVS_CODES) == 58
+    assert len(OVS_CODES) == 65  # design section 16, with the seven translator-oversight codes of section 18
     families = {}
     for code, (sev, stage, meaning) in OVS_CODES.items():
         assert code.startswith("OVS-") and sev in ("error", "warning", "info") and stage and meaning
         families[code.split("-")[1]] = families.get(code.split("-")[1], 0) + 1
-    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 4, "AGENT": 5}
+    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 4, "AGENT": 5, "TRN": 7}
     assert severity_of("OVS-RES-002") == "warning" and severity_of("OVS-PEER-003") == "info" and is_agent_code("OVS-AGENT-004")
     f = ovs_finding("OVS-RES-008", "x", message_ids=["m", "m", ""], formal_result_id="r", related_result_ids=["r", "q"])
     assert f.severity == "warning" and f.message_ids == ["m"] and f.related_result_ids == ["q"] and f.deterministic

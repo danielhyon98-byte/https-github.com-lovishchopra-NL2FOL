@@ -13,7 +13,8 @@ live objects) into the dossier of design section 9.2:
 * **Results**: every result a receipt cites that the auditor's store retains, with ``signature_present`` and
   ``signature_key_id`` in place of the signature.
 * **Links** say where to look (forwards and their deliveries, peer documents and the EARLIER forwards to the same
-  recipient, synthesis citations and their deliveries). A link never states that two texts are equal, so blind mode
+  recipient, synthesis citations and their deliveries, and every translation the router received with its claim and
+  the claims it cites). A link never states that two texts are equal or that a translation is faithful, so blind mode
   does not leak a check's outcome.
 * **Index**: every identifier with a ready pointer (a claim entry also names its ``report_id``).
 * **Auditor** (informed mode only): the task audit's ``OVS-*`` findings. Blind mode carries no auditor finding and no
@@ -44,7 +45,13 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.2, listed as each stage re
   its delivery and at its forward); a synthesis id is not indexed as a report (the design's index types have no
   synthesis type), but it resolves as an identifier because it occurs in the dossier;
 * transfers whose journal entries are digest-only carry ``payload: null``; calls that raised before issuing anything
-  are not transfers and are not listed.
+  are not transfers and are not listed;
+* translator oversight (design section 18): ``links.translations`` lists, for every outcome on the receipt of a
+  delivered report transfer (``response``, ``response_text``, ``relay_report``; a REJECTED transfer delivered nothing),
+  the pointer of its translation, of its claim and of the claims that claim cites (``supporting_claim_ids`` found in the
+  same report: what the translator was given as the claim), and the result id the outcome cites. The translation itself
+  (status, eligibility, problem, interpretation with its ambiguity flags, grounding checks, provider, diagnostics) is the
+  receipt's outcome as journaled, already in the transfer.
 """
 from __future__ import annotations
 
@@ -65,7 +72,7 @@ from .view import OverseerView, Transfer, cited_results
 
 __all__ = [
     "Dossier", "DossierTransfer", "DossierReceipt", "DossierResult", "DossierBinding", "DossierParty", "DossierPoolEntry", "DossierLinks",
-    "ForwardLink", "PeerDocumentLink", "SynthesisCitation", "IndexEntry", "IndexType", "DossierAuditor", "DossierLimits", "TruncatedField",
+    "ForwardLink", "PeerDocumentLink", "SynthesisCitation", "TranslationLink", "IndexEntry", "IndexType", "DossierAuditor", "DossierLimits", "TruncatedField",
     "DossierTask", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
     "visible_text", "truncated_pointers", "dossier_identifiers", "dossier_json", "TRUNCATE_AT", "TRUNCATION_MARKER", "RECEIPT_FIELDS",
 ]
@@ -182,11 +189,25 @@ class SynthesisCitation(BaseModel):
     delivering_message_id: Optional[str] = None
 
 
+class TranslationLink(BaseModel):
+    """Where one translation the router received is, with the claim it translates and the claims that claim cites. It
+    says where to look; it never states whether the translation is faithful."""
+    model_config = _FORBID
+    message_id: Optional[str] = None
+    report_id: Optional[str] = None
+    claim_id: str
+    claim_pointer: Optional[str] = None
+    cited_claim_pointers: list[str] = Field(default_factory=list)
+    translation_pointer: str
+    result_id: Optional[str] = None
+
+
 class DossierLinks(BaseModel):
     model_config = _FORBID
     forwards: list[ForwardLink] = Field(default_factory=list)
     peer_documents: list[PeerDocumentLink] = Field(default_factory=list)
     synthesis_citations: list[SynthesisCitation] = Field(default_factory=list)
+    translations: list[TranslationLink] = Field(default_factory=list)
 
 
 class IndexEntry(BaseModel):
@@ -466,6 +487,43 @@ def _links(view: OverseerView) -> dict:
     return {"forwards": forwards, "peer_documents": peers, "synthesis_citations": cites}
 
 
+_REPORT_TRANSFER_KINDS = ("response", "response_text", "relay_report")
+
+
+def _translation_links(transfers: list[dict]) -> list[dict]:
+    """One link per outcome of a delivered report transfer: pointers to its translation, its claim and the claims it
+    cites in the same report, and the result id it cites."""
+    out: list[dict] = []
+    for tr in transfers:
+        rc, p = tr.get("receipt"), tr.get("payload")
+        if tr["kind"] not in _REPORT_TRANSFER_KINDS or not isinstance(rc, dict) or rc.get("status") == "REJECTED" or not isinstance(p, dict) or "withheld" in p:
+            continue
+        at = tr["at"]
+        claims = [c for c in (p.get("claims") or [])]
+        pos: dict[str, int] = {}
+        for j, c in enumerate(claims):
+            if isinstance(c, dict) and isinstance(c.get("claim_id"), str):
+                pos.setdefault(c["claim_id"], j)
+        for k, o in enumerate(rc.get("outcomes") or []):
+            if not isinstance(o, dict) or not isinstance(o.get("translation"), dict) or not isinstance(o.get("claim_id"), str):
+                continue
+            cid = o["claim_id"]
+            j = pos.get(cid)
+            cited: list[str] = []
+            if j is not None:
+                for sid in claims[j].get("supporting_claim_ids") or []:
+                    if isinstance(sid, str) and sid != cid and sid in pos:
+                        ptr = f"{at}/payload/claims/{pos[sid]}"
+                        if ptr not in cited:
+                            cited.append(ptr)
+            ver = o.get("verification")
+            out.append({"message_id": tr.get("message_id"), "report_id": p.get("report_id") if isinstance(p.get("report_id"), str) else None,
+                        "claim_id": cid, "claim_pointer": f"{at}/payload/claims/{j}" if j is not None else None, "cited_claim_pointers": cited,
+                        "translation_pointer": f"{at}/receipt/outcomes/{k}/translation",
+                        "result_id": ver.get("result_id") if isinstance(ver, dict) and isinstance(ver.get("result_id"), str) else None})
+    return out
+
+
 def _index(transfers: list[dict], results: dict[str, dict]) -> list[dict]:
     entries: list[dict] = []
     seen: set[tuple] = set()
@@ -597,7 +655,8 @@ def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pa
         "dossier_version": DOSSIER_VERSION, "dossier_sha256": "", "verdict_contract": VERDICT_CONTRACT, "agent_id": agent_id,
         "pack": pack.model_dump(mode="json"), "mode": mode, "lens": lens,
         "task": {"task_id": task_id, "request_id": request_id, "plan": plan},
-        "transfers": transfers, "results": results, "links": _links(view), "index": _index(transfers, results),
+        "transfers": transfers, "results": results, "links": {**_links(view), "translations": _translation_links(transfers)},
+        "index": _index(transfers, results),
     }
     if mode == "informed":
         dossier["auditor"] = {"findings": [f.model_dump(mode="json", exclude_none=True) for f in audit.report.findings if not is_agent_code(f.code)]}

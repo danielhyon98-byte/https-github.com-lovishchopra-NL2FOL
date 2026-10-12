@@ -3,57 +3,57 @@
   "files": [
     {
       "audience": "agent",
-      "bytes": 6005,
+      "bytes": 6719,
       "path": "01-role-and-trust.md",
-      "sha256": "f6b1d83d449fc02e99ad934c99ead38ebc81f21b30f7d7878d2de373c40f8329"
+      "sha256": "cf631888c8db66643109f7959ff5422484ad95eeecd4cdfde6a0a13802528b66"
     },
     {
       "audience": "agent",
-      "bytes": 12561,
+      "bytes": 16119,
       "path": "02-dossier.md",
-      "sha256": "2f809dad3686467f96e1775c497222538b059782ff49e476ca72c2526f0b10e7"
+      "sha256": "32232891c41bacac3610c0b0a2bffbbee92d6a6fd509a9fa582dc8a7846121c3"
     },
     {
       "audience": "agent",
-      "bytes": 16766,
+      "bytes": 23414,
       "path": "03-inspection.md",
-      "sha256": "224ddff689ee80aeb69051121f49a9d4858375ad3f2ea08474c40af395a82079"
+      "sha256": "1e4734096246a4de852f29fc32aa9f9f76b9d8ab7ee2283c6df5b912f2fb7134"
     },
     {
       "audience": "agent",
-      "bytes": 5860,
+      "bytes": 6141,
       "path": "04-evidence.md",
-      "sha256": "81e99348bafd4e2b869d83964aaae4d51fc1646868e743a70d36043c07547a26"
+      "sha256": "6dddec0e9969c1668b85681f9b565a7824d97d54a2a7328058c12032e5c087f1"
     },
     {
       "audience": "agent",
-      "bytes": 7805,
+      "bytes": 7851,
       "path": "05-verdict-format.md",
-      "sha256": "8627b7ff2eef647b44870ff39ba48fe878b80f2de7fc50c890405f9bb5f4def1"
+      "sha256": "c809ba75150275aab6b9cf85c19375caab5afbbb171de4dda0b060249e8c1f49"
     },
     {
       "audience": "agent",
-      "bytes": 12283,
+      "bytes": 14604,
       "path": "06-kinds-and-codes.md",
-      "sha256": "94ddb62a22d10e00014034f80f70af874a390a2d522fc1b93a297fb8f3292ca1"
+      "sha256": "f3530a2f3018fde65c2bbca20f701ce2b9037f7b43257d4ea1b76cebc5b07062"
     },
     {
       "audience": "agent",
-      "bytes": 52316,
+      "bytes": 72516,
       "path": "07-examples.md",
-      "sha256": "167b9ada60a2be05b8d54cbcc724681b68f613d9cffde5e1f8048f334b0a1376"
+      "sha256": "dca53a02bdb95c93b5e2f3943ff5087052811345759c35be2c7987704f88934f"
     },
     {
       "audience": "agent",
-      "bytes": 4521,
+      "bytes": 4849,
       "path": "08-never.md",
-      "sha256": "6e1b70077081460a4e031dc9b92fdf08e899aa13341aa42c2009b937aaf94277"
+      "sha256": "e93d75c459fd51fd89b86101572a8d6be1f133369a9ea20394dea4eac31043b8"
     },
     {
       "audience": "agent",
-      "bytes": 4717,
+      "bytes": 5643,
       "path": "09-when-unsure.md",
-      "sha256": "e6d506bd587ba93d602d847bf7e5bb9c4e12e77167ef7ea3d65eb72be144a1ea"
+      "sha256": "1e394f84bc556d8c92b8738e22c56e03e0bbd8a1cde6d987b13054a5df140e60"
     },
     {
       "audience": "deployer",
@@ -63,26 +63,26 @@
     },
     {
       "audience": "machine",
-      "bytes": 19900,
+      "bytes": 21917,
       "path": "dossier.schema.json",
-      "sha256": "b1110bf949c9b808a7a43a3487cd2c077c990e90af87b07cbc1b683335cb3804"
+      "sha256": "17482e9a9698d63431a9f86c576285048c497d98f6e57dbc87300d5e1c51ac49"
     },
     {
       "audience": "agent",
-      "bytes": 6528,
+      "bytes": 7058,
       "path": "master_prompt.txt",
-      "sha256": "7a91b02ed049b061eab06e0aa18dcd50dd78908a53c0bbf6bace589ca2303cd6"
+      "sha256": "597daea924cc63d6910f3d936a81537fd84feb6117592c70784c6e02ba35f64c"
     },
     {
       "audience": "machine",
-      "bytes": 8820,
+      "bytes": 8999,
       "path": "verdict.schema.json",
-      "sha256": "3d0a5ee8a388cd1d65022cbec17b354148c1fc7b8336200beb7a3898ca72b1c2"
+      "sha256": "0c20efa732fa789381a8450da95fdfdb3c4de2ed9ab8969ba1a720778a8480e1"
     }
   ],
   "manifest_version": "1.0",
   "pack_name": "overseer-knowledge-docs",
-  "pack_sha256": "0d5454266b4d42a4e7526aa189c702d74d672f624f252d4cc2db30470de15d30",
+  "pack_sha256": "ffad92f92b0f4f704abe7a8ab67ca26f31acaebc81454199e61700f296ad0a4d",
   "pack_version": "1.0",
   "system_order": [
     "master_prompt.txt",
@@ -97,6 +97,6 @@
     "09-when-unsure.md"
   ],
   "system_separator": "===== {path} =====",
-  "system_sha256": "5c45052af930ef6475158ab43970ab866b37deb3b18d1dc4213b5e92090825ca",
+  "system_sha256": "80ad8dfb8e23d7294e850f2e0529e90ccf42109ba60763f7a89b49a534b2653c",
   "verdict_contract": "overseer_verdict/1.0"
 }

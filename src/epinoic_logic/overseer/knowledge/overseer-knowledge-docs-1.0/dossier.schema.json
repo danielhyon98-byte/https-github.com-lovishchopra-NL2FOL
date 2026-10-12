@@ -81,6 +81,13 @@
           },
           "title": "Synthesis Citations",
           "type": "array"
+        },
+        "translations": {
+          "items": {
+            "$ref": "#/$defs/TranslationLink"
+          },
+          "title": "Translations",
+          "type": "array"
         }
       },
       "title": "DossierLinks",
@@ -741,6 +748,81 @@
       "title": "SynthesisCitation",
       "type": "object"
     },
+    "TranslationLink": {
+      "additionalProperties": false,
+      "description": "Where one translation the router received is, with the claim it translates and the claims that claim cites. It\nsays where to look; it never states whether the translation is faithful.",
+      "properties": {
+        "cited_claim_pointers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cited Claim Pointers",
+          "type": "array"
+        },
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "claim_pointer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Pointer"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "report_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Id"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Id"
+        },
+        "translation_pointer": {
+          "title": "Translation Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "translation_pointer"
+      ],
+      "title": "TranslationLink",
+      "type": "object"
+    },
     "TruncatedField": {
       "additionalProperties": false,
       "properties": {
@@ -809,6 +891,7 @@
       "enum": [
         "custody_results",
         "content_fidelity",
+        "translation_fidelity",
         "peer_synthesis",
         "general"
       ],

@@ -26,6 +26,7 @@ from epinoic_logic.channel import contracts as channel_contracts
 from epinoic_logic.engine.results import VerificationResult
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
 from epinoic_logic.integrity import contracts as integrity_contracts
+from epinoic_logic.ir import schema as ir_schema
 from epinoic_logic.ir.schema import SourceRef
 from epinoic_logic.overseer import dossier as dossier_mod
 from epinoic_logic.overseer.codes import OVS_CODES
@@ -314,12 +315,22 @@ def _known_names() -> set[str]:
               integrity_contracts.SynthesizedClaim, integrity_contracts.LedgerEntry, integrity_contracts.ConflictRecord,
               integrity_contracts.IntegrityFinding, translate_contracts.SpecialistReport, translate_contracts.ClaimRecord,
               translate_contracts.SuppliedText, translate_contracts.TranslationResult, translate_contracts.ClaimVerificationOutcome, SourceRef,
-              VerificationResult]
+              VerificationResult,
+              # translator oversight: the translation and its formal problem, which the documents teach the agent to read
+              dossier_mod.TranslationLink, translate_contracts.EligibilityDecision, translate_contracts.Interpretation,
+              translate_contracts.AmbiguityFlag, translate_contracts.AtomGloss, translate_contracts.GroundingCheck, translate_contracts.ProviderInfo,
+              ir_schema.Problem, ir_schema.Symbol, ir_schema.Assertion, ir_schema.Grounding]
     names: set[str] = set()
     for m in models:
         names |= set(m.model_fields)
     values = set(KIND_CHECKS) | set(LENSES) | set(MODES) | set(typing.get_args(dossier_mod.TransferKind)) | set(typing.get_args(dossier_mod.IndexType))
     values |= {r.value for r in integrity_contracts.AgentRole}
+    # the IR's expression nodes (their fields and operators), grounding kinds and query kinds (Dossier guide D22)
+    for node in vars(ir_schema).values():
+        if isinstance(node, type) and "op" in getattr(node, "model_fields", {}):
+            values |= set(typing.get_args(node.model_fields["op"].annotation))
+            names |= set(node.model_fields)
+    values |= set(typing.get_args(ir_schema.GroundingKind)) | set(typing.get_args(ir_schema.QueryKind))
     for model, field in ((integrity_contracts.SynthesizedClaim, "transformation"), (integrity_contracts.SynthesizedClaim, "certainty"),
                          (integrity_contracts.SynthesizedClaim, "materiality"), (translate_contracts.ClaimRecord, "claim_role"),
                          (channel_contracts.TransmissionReceipt, "direction")):
@@ -396,7 +407,8 @@ def test_pack_digests_pin_the_installed_pack():
 
 def test_the_kinds_table_parses_every_kind():
     rows = kinds_table(SRC_PACK_DIR)
-    assert len(rows) == len(KIND_CHECKS) == 19 and rows[-1] == ("other", (), {})
+    assert len(rows) == len(KIND_CHECKS) == 23 and rows[-1] == ("other", (), {})
+    assert ("translation_unfaithful", (), {}) in rows and ("translation_circular", ("OVS-TRN-006",), {}) in rows
     assert ("figure_changed", ("OVS-FID-003", "OVS-SYN-002"), {"OVS-SYN-002": "INT-LEDGER-023"}) in rows
 
 
@@ -406,9 +418,10 @@ def test_every_rule_code_is_defined_once():
     assert len(defs) == len(set(defs)) and {c[0] for c in defs} == set(RULE_PREFIX_DOC)
     nums = {p: sorted(int(c[1:]) for c in defs if c[0] == p) for p in RULE_PREFIX_DOC}
     # the ranges design section 17.3 declares; every family but Inspection is numbered without gaps
-    for prefix, last in {"T": 12, "D": 20, "E": 15, "V": 20, "K": 5, "X": 3, "N": 12, "U": 9}.items():
+    for prefix, last in {"T": 12, "D": 23, "E": 15, "V": 20, "K": 6, "X": 3, "N": 12, "U": 10}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 68
+    assert nums["I"][0] == 1 and nums["I"][-1] == 81
+    assert [n for n in nums["I"] if n >= 70] == list(range(70, 82))  # the translation checks, I70 to I81
 
 
 def test_package_data_ships_every_pack_file():
@@ -434,9 +447,13 @@ def _swap(d: Path, name: str, old: str, new: str) -> None:
     (d / name).write_bytes(data.replace(old.encode(), new.encode(), 1))
 
 
+#: The size of the manifest's first file, read from the source manifest (the pack's documents change; the one-byte
+#: change of the manifest is to that number's last bit, so the length is kept).
+_FIRST_BYTES = manifest_of(SRC_PACK_DIR)["files"][0]["bytes"]
+
 ONE_BYTE = {
     "schemas": ("verdict.schema.json", '"title": "Accusation Id"', '"title": "Accusation Ie"'),
-    "manifest": (MANIFEST_FILE, '"bytes": 6005', '"bytes": 6006'),
+    "manifest": (MANIFEST_FILE, f'"bytes": {_FIRST_BYTES}', f'"bytes": {_FIRST_BYTES ^ 1}'),
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),

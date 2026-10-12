@@ -20,10 +20,10 @@ from epinoic_logic.overseer.verdicts import (
 
 PACK = {"name": "overseer-knowledge-docs", "version": "1.0", "sha256": "0123456789abcdef" * 4}
 
-#: The design's table (section 9.3, with decision 31's additions), row by row, in order.
+#: The design's table (section 9.3, with decision 31's additions and section 18's translation kinds), row by row, in order.
 DESIGN_TABLE = [
     ("payload_altered", ("OVS-CUST-001", "OVS-CUST-002", "OVS-CUST-004", "OVS-CUST-006")),
-    ("receipt_altered", ("OVS-RCPT-001", "OVS-RCPT-006", "OVS-RCPT-007")),
+    ("receipt_altered", ("OVS-RCPT-001", "OVS-RCPT-006", "OVS-RCPT-007", "OVS-TRN-007")),
     ("receipt_status_wrong", ("OVS-RCPT-002", "OVS-RCPT-003", "OVS-RCPT-008")),
     ("finding_missing", ("OVS-RCPT-004", "OVS-SYN-002", "OVS-DIV-001")),
     ("result_unsigned_or_forged", ("OVS-RES-003", "OVS-RES-009")),
@@ -40,6 +40,10 @@ DESIGN_TABLE = [
     ("synthesis_ledger_fault", ("OVS-SYN-001", "OVS-SYN-002")),
     ("contradiction_unnamed", ("OVS-JOINT-001", "OVS-SYN-003")),
     ("false_conflict", ("OVS-JOINT-003",)),
+    ("translation_invalid", ("OVS-TRN-001", "OVS-TRN-002")),
+    ("translation_ungrounded", ("OVS-TRN-003", "OVS-TRN-004", "OVS-TRN-005")),
+    ("translation_circular", ("OVS-TRN-006",)),
+    ("translation_unfaithful", ()),
     ("other", ()),
 ]
 
@@ -71,7 +75,7 @@ def rejects(obj) -> None:
 # ------------------------------------------------------------------------------------------- constants
 def test_contract_versions():
     assert VERDICT_CONTRACT == "overseer_verdict/1.0" and DOSSIER_VERSION == "1.0"
-    assert LENSES == ("custody_results", "content_fidelity", "peer_synthesis", "general") and MODES == ("blind", "informed")
+    assert LENSES == ("custody_results", "content_fidelity", "translation_fidelity", "peer_synthesis", "general") and MODES == ("blind", "informed")
     assert ID_FIELDS == ("message_ids", "receipt_ids", "claim_ids", "report_ids", "result_ids", "document_ids")
 
 
@@ -79,6 +83,14 @@ def test_kind_checks_equal_the_design_table_in_order():
     assert list(KIND_CHECKS.items()) == DESIGN_TABLE
     assert ACCUSATION_KINDS == tuple(k for k, _ in DESIGN_TABLE)
     assert set(typing.get_args(AccusationKind)) == set(ACCUSATION_KINDS)
+
+
+def test_section_18_translation_kinds():
+    from epinoic_logic.overseer.verdicts import TRANSLATION_KINDS, UNCHECKED_KINDS
+    assert UNCHECKED_KINDS == {"translation_unfaithful", "other"}
+    assert TRANSLATION_KINDS == {"translation_invalid", "translation_ungrounded", "translation_circular"}
+    assert "OVS-TRN-007" in KIND_CHECKS["receipt_altered"]
+    assert sorted(c for codes in KIND_CHECKS.values() for c in codes if c.startswith("OVS-TRN-")) == [f"OVS-TRN-00{i}" for i in range(1, 8)]
 
 
 def test_decision_31_additions():
@@ -90,7 +102,7 @@ def test_decision_31_additions():
 
 def test_every_mapped_code_is_a_transfer_code_with_error_or_warning_severity():
     for kind, codes in KIND_CHECKS.items():
-        assert (kind == "other") == (codes == ())
+        assert (kind in ("translation_unfaithful", "other")) == (codes == ())
         for code in codes:
             assert code in OVS_CODES and not code.startswith(("OVS-AGENT-", "OVS-AUDIT-"))
             assert OVS_CODES[code][0] in ("error", "warning")

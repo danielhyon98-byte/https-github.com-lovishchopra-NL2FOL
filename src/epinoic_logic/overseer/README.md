@@ -5,8 +5,9 @@ every request, report, relay, router forward and synthesis crosses it. This pack
 reports what is wrong, so the router never acts on a miscommunicated or tampered transfer. It has two parts:
 
 1. **The transfer auditor** (deterministic code). It journals every transfer as it is issued, keeps every signed
-   result, re-checks custody, receipts, results, formal checks, claim fidelity, peer exchange, synthesis and joint
-   consistency, and signs what it finds: an `OverseerAudit` wrapping an `IntegrityReport` of `OVS-*` findings.
+   result, re-checks custody, receipts, results, formal checks, claim fidelity, translations, peer exchange, synthesis
+   and joint consistency, and signs what it finds: an `OverseerAudit` wrapping an `IntegrityReport` of `OVS-*`
+   findings, with a record of every translation it checked.
 2. **Overseer agents** (model-based reviewers). Each reads one dossier of the transfers and returns one verdict of
    accusations. A verdict is an agent output: the code validates it against the journal and the signed results and
    never obeys it. An overseer agent is built ONLY from exportable parts: this package's code and a versioned
@@ -35,18 +36,51 @@ RouterHub(auditor=TransferAuditor(KeyRing(engine_keys, overseer_secret)))
 
 Without an auditor the hub and the channel behave exactly as before: no observer, no capture, no journal.
 
+## Translator oversight
+
+The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
+that proposal is untrusted data. Every translation crosses the channel inside an outcome of the receipt of the report
+that carries its claim, so the journal holds, for each one, the delivered claim, the proposed IR, the translation's own
+validation outcome and the cited result (signature-verified in the store). `checks/translation.py` re-checks every
+translation of a delivered claim from the journal (design section 18):
+
+| Code | Severity | Decided by |
+| --- | --- | --- |
+| `OVS-TRN-001` | error | the IR re-validated as untrusted JSON: the engine's parser and validator (schema, identifiers, sorts, operator allowlist, limits), its claim and request ids, the subject profile's sorts |
+| `OVS-TRN-002` | error | status, eligibility and engine run re-derived from the validation: a problem under a status that forbids one, ambiguity flags under TRANSLATED (an ambiguity resolved silently), and, for a model-proposed translation, an eligibility the policy does not re-derive (a claim forced into IR) |
+| `OVS-TRN-003` | error | a `verified` grounding the re-run of the translator's grounding check does not reproduce |
+| `OVS-TRN-004` | warning | a quotation excerpt absent from the supplied text it names (disclosed as unverified) |
+| `OVS-TRN-005` | warning | a quotation or number of a model-proposed translation that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test) |
+| `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one) |
+| `OVS-TRN-007` | error | the outcome's summary is not the deterministic statement of its translation and its signed result |
+
+The task audit records every translation it checked (`TranslationAudit`: the claim text, the claims it cites, the
+proposed IR as journaled with its digest, status, eligibility, ambiguity flags, failed grounding checks, diagnostics,
+the re-validation, the signed result's id, status, digest and signature, which checks ran, and the `OVS-*` codes naming
+it); `TransferAuditor.translations(channel_uid)` returns the same records with the full translation. Live, the
+translation checks run in the asynchronous tier with fidelity, so a transfer is AUDIT_PENDING until they have run.
+
+Overseer agents receive each translation with its claim in the dossier (`links.translations`: the claim, the claims it
+cites, the translation, the result) and may accuse it under four kinds: `translation_invalid` (TRN-001, 002),
+`translation_ungrounded` (TRN-003, 004, 005), `translation_circular` (TRN-006), and `translation_unfaithful` (a dropped
+condition, a flipped comparison or direction, an invented premise, an ambiguity resolved in words, a claim forced into
+IR, a conclusion that is not the claim), which no check decides: it is always unresolved and goes to human review. The
+lens `translation_fidelity` starts an agent on the translations. An accusation is refuted only when the checks its kind
+needs actually ran on the named claim's translation; their verdicts stay advisory, and only the deterministic checks
+and the signed results decide.
+
 ## Parts of the package
 
 | Part | Module | What it does |
 | --- | --- | --- |
 | Codes | `codes.py` | every `OVS-*` code with one severity and one stage (`OVS-AGENT-*` included) |
-| Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`; the audit scope sentence |
+| Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`, `TranslationAudit`; the audit scope sentence |
 | Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake) |
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
 | Replay | `replay.py` | `Replayer`: every stored problem re-run on a fresh engine in a worker process (inline for tests), keyed sampling on overflow |
-| Checks | `checks/*.py` | custody, receipts, results, formal, fidelity, self-certification, peer, synthesis, joint, divergence, shadow channel |
+| Checks | `checks/*.py` | custody, receipts, results, formal, fidelity, self-certification, translation (translator oversight), peer, synthesis, joint, divergence, shadow channel |
 | Auditor | `audit.py` | `run_overseer_checks` (the pure function), `TransferAuditor` (live use), `sign_audit`, `verify_audit` |
 | Router policy | `policy.py` | `may_act`, `check_before_acting` (bounded PENDING wait, 250 ms), `may_release` |
 | Dossier | `dossier.py` | `build_dossier`: the redacted view one agent reads, with pointers and an index; `resolve_pointer` |
@@ -70,8 +104,9 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 `knowledge/overseer-knowledge-docs-1.0/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
-`09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type, the evidence rule, the verdict
-format, the kinds and codes, worked examples, what never to do, what to do when unsure), the generated
+`09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
+evidence rule, the verdict format, the kinds and codes, 17 worked examples, what never to do, what to do when unsure),
+the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
 only a pointer to the pack.
@@ -98,4 +133,7 @@ verdict whose pack is unknown or differs from the dossier's (`OVS-AGENT-005`).
 `tests/overseer/`: `test_audit_*` (the auditor, one positive test and one control per code), `test_protocol_*` (dossier,
 verdicts, intake, validation, combination), `test_knowledge_*` (pack loading and every refusal, drift of schemas,
 manifest, kinds table and examples, export round trips, the runner with fake providers), `test_hook_*` (non-interference
-and equivalence of the bus hook, the hub's wiring and task lifecycle, clearance and router policy, `hub.review`).
+and equivalence of the bus hook, the hub's wiring and task lifecycle, clearance and router policy, `hub.review`),
+`test_translation_*` (translator oversight: every `OVS-TRN-*` code with a control and tampering cases through the real
+translation pipeline, the signed translation record, live clearance, the spelling rules; the dossier's translation
+links, the translation kinds' validation outcomes and a hub review over translations).

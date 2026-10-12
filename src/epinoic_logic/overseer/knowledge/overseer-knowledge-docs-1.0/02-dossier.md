@@ -11,6 +11,7 @@ This document describes the dossier: the one JSON object you receive for one tas
 - the index, which gives you a ready pointer for every identifier
 - how to build a JSON Pointer
 - lenses and modes
+- a translation and its formal problem
 - the facts about the system you can rely on
 
 **It does not cover.** Other documents handle these:
@@ -40,11 +41,11 @@ Rules marked **(enforced)** are checked by the infrastructure's code.
   "agent_id": "<your agent id>",                      copy into the verdict
   "pack": {"name": "...", "version": "...", "sha256": "..."},   copy into the verdict
   "mode": "blind" | "informed",
-  "lens": "custody_results" | "content_fidelity" | "peer_synthesis" | "general",   copy into the verdict
+  "lens": "custody_results" | "content_fidelity" | "translation_fidelity" | "peer_synthesis" | "general",   copy into the verdict
   "task": {"task_id": "...", "request_id": "...", "plan": {...}},    copy task_id into the verdict
   "transfers": [ {...}, {...} ],                      every transfer, in the order issued
   "results": { "<result_id>": {...} },                engine results by id
-  "links": { "forwards": [...], "peer_documents": [...], "synthesis_citations": [...] },
+  "links": { "forwards": [...], "peer_documents": [...], "synthesis_citations": [...], "translations": [...] },
   "index": [ {"type": "...", "id": "...", "pointer": "..."} ],
   "auditor": { "findings": [...] },                   informed mode only
   "limits": { "truncated_fields": [...] }
@@ -72,6 +73,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code.
 - **D4 Where to start.** Your `lens` tells you where to start:
   - `custody_results`: envelopes, receipts, engine results and formal checks.
   - `content_fidelity`: delivered claims against the response, quotations, figures and dates, and self-certifications.
+  - `translation_fidelity`: the translations: each claim, the claims it cites, and the formal problem the translator proposed for it.
   - `peer_synthesis`: router forwards, peer documents, the combinator's ledger, and contradictions between claims.
   - `general`: all of the above.
 - **D5 A lens never limits you.** Review every transfer. You may accuse anything you find, whatever your lens.
@@ -115,7 +117,7 @@ Each entry of `transfers` has these fields:
 
 - `status`: ACCEPTED, ACCEPTED_WITH_FINDINGS or REJECTED.
 - `findings`: each has `code`, `severity` (`error`, `warning` or `info`), `message`, and the identifiers it names (`claim_ids`, `message_ids`, `report_ids`, `agent_ids`, `document_ids`, `formal_result_id`).
-- `outcomes`: one per checked claim: `claim_id`, `translation` (its `status`, `claim_id`, `claim_text_sha256` and `problem`), `verification` (the engine result as carried on the receipt, with its `result_id` and `status`) and `display_status` (the status shown to the router).
+- `outcomes`: one per checked claim: `claim_id`, `translation` (what the translator proposed for the claim, with its `status`, `claim_id`, `claim_text_sha256` and `problem`; see §10), `verification` (the engine result as carried on the receipt, with its `result_id` and `status`), `display_status` (the status shown to the router) and `summary` (one plain statement of what was checked for that claim).
 - `constraint_results` and `formal_checks`: each has `constraint_id`, `satisfied` (true, false or null), `method`, `detail`, `formal_result_id` and `formal_status`.
 - `coverage`: each request item, whether it was `addressed`, and by which claim ids.
 - `structural_findings`: findings of the subject branch's own deterministic checks.
@@ -128,8 +130,9 @@ Each entry of `transfers` has these fields:
   - `forwards`: each router forward with the `report_id` it carries and the `message_id` of the transfer that delivered that report.
   - `peer_documents`: each `peer:<task>` document in a request, with the earlier forwards to the same recipient.
   - `synthesis_citations`: each synthesis with the reports it cites and the transfers that delivered them.
+  - `translations`: each translation the router received, with its `claim_id`, `report_id` and `message_id`, the `claim_pointer` of the claim it translates, the `cited_claim_pointers` of the claims that claim cites (what the translator was given with it), the `translation_pointer`, and the `result_id` of its engine result (null when the engine did not run).
   
-  A link says where to look. It does not say that the two are equal. Compare them yourself.
+  A link says where to look. It does not say that the two are equal, or that a translation is faithful. Compare them yourself.
 - **D9 Index.** `index` lists every identifier in the dossier with a ready pointer. Each entry has `type` (`message`, `receipt`, `report`, `claim`, `synthesized_claim`, `result`, `document`, `conflict`), `id`, and `pointer`; a claim entry also has `report_id`, because two reports may use the same claim id. Use the index to find an identifier and to build pointers. Never guess an array position.
 - **D10 Auditor.** In informed mode, `auditor.findings` holds the infrastructure's `OVS-*` findings. They are already decided. You may mention one in a statement; do not accuse it again.
 - **D11 Limits.** String fields longer than 20,000 characters are shortened. `limits.truncated_fields` lists each shortened field's pointer, the digest of the full text and its length. **(enforced)** Quote only from the visible part.
@@ -143,7 +146,28 @@ Each entry of `transfers` has these fields:
   - If a key contains `/`, write it as `~1`; if it contains `~`, write it as `~0`.
 - **D13 Never from seq.** `seq` starts at 1 and may skip; array positions start at 0. Never build `/transfers/N` from a `seq`. Use `at`.
 
-## 10. Facts you can rely on
+## 10. Translations
+
+- **D21 A translation.** Each outcome's `translation` is what the translator proposed for one claim:
+  - `status`: TRANSLATED, AMBIGUOUS_TRANSLATION, NOT_ELIGIBLE, UNSUPPORTED, INVALID_FORMALIZATION or TRANSLATION_FAILED. Only TRANSLATED and AMBIGUOUS_TRANSLATION carry a `problem`, and only those are run by the engine.
+  - `eligibility`: the infrastructure's policy decision about the claim: `eligibility_class`, `eligible` and `reasons`. A claim the policy rules out is never sent to the translator.
+  - `problem`: the formal problem (D22).
+  - `interpretation`: the translator's `reading` of the claim, its `glossary`, and its `ambiguity_flags`, each with `code`, `message` and `alternatives`: the readings it saw.
+  - `grounding_checks`: the code's checks of quotations: `target_id`, `document_id`, `method`, `verified` (true, false or null) and `detail`.
+  - `provider`: present, with its `provider_name`, when a model proposed the translation; absent when code built it.
+  - `diagnostics`: why an earlier attempt failed, or why the status is not TRANSLATED.
+- **D22 The formal problem.** A `problem` has:
+  - `symbols`: each with `name`, `sort` (Bool, Int or Real), `meaning` (in words) and `grounding`;
+  - `premises`: each with `id`, `expr`, `label` (the premise in words) and `grounding`;
+  - `conclusion`: the same fields: the claim, encoded;
+  - `query`: `entailment` asks whether the premises imply the conclusion.
+  
+  An `expr` is a tree of nodes, each with an `op`: `var` (a symbol, by `name`); the constants `bool`, `int` and `real` (in `value`); `not`; `and` and `or` (with `args`); `implies` and `iff` (with `left` and `right`); the arithmetic `add`, `sub`, `mul`, `neg`, `div`, `idiv` and `mod`; and the comparisons, each with `left` and `right`: `eq` (equal), `ne` (not equal), `lt` (less than), `le` (at most), `gt` (more than) and `ge` (at least).
+  
+  A `grounding` says where a symbol or assertion comes from: its `kind` (`quotation`, `supplied_text`, `task_setting`, `rubric_rule`, `arithmetic_fact`, `specialist_inference`, `assumption`, `knowledge_document`, `library_source` or `general_knowledge`), its `source_refs` (each with `document_id` and `excerpt`), its `certainty`, and `verified`, which only code sets: true when the excerpt was found in the named document, false when it was not, null when nothing could be checked.
+- **D23 What a result says about a translation.** ENTAILED means the premises, as encoded, imply the conclusion, as encoded. It never means that the encoding says what the claim says, nor that the claim is true. An AMBIGUOUS_TRANSLATION is displayed as AMBIGUOUS_TRANSLATION whatever the engine found.
+
+## 11. Facts you can rely on
 
 - **D14 Statuses.** A receipt status is ACCEPTED, ACCEPTED_WITH_FINDINGS or REJECTED. A REJECTED transfer was **not delivered**: nothing in it reached the recipient, the pool or any record.
 - **D15 The response.** A report's `original_response` is the specialist's text as received. Every delivered claim should be carried by that text.
@@ -153,7 +177,7 @@ Each entry of `transfers` has these fields:
 - **D19 Signatures.** You cannot verify signatures. You see only `signature_present` and `signature_key_id` (Role and trust T7).
 - **D20 Claim ids.** A claim id is unique inside one report. Two reports may use the same claim id; name the `report_id` too.
 
-## 11. Common mistakes
+## 12. Common mistakes
 
 | Mistake | Do instead | Rule |
 | --- | --- | --- |
@@ -163,5 +187,6 @@ Each entry of `transfers` has these fields:
 | Treating a link as proof two texts are equal | Compare the two texts yourself | D8 |
 | Quoting text past a truncation marker | Quote only the visible part | D11 |
 | Reading a REJECTED transfer as delivered | Remember it reached no one | D14 |
+| Reading ENTAILED as "the translation is faithful" | ENTAILED is about the encoding only; compare the problem with the claim | D23 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §2 and §3

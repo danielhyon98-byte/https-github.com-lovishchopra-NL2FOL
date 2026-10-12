@@ -74,7 +74,7 @@ Every rule in this document is **(enforced)**: the infrastructure parses your ou
 - **V7 `accusations`.** A list. An empty list is a valid verdict: it says you found nothing you could pin down.
 - **V8 `accusation_id`.** Unique within this verdict: `a1`, `a2`, `a3`, ...
 - **V9 `kind`.** Exactly one value from the closed list in Kinds and codes, spelled exactly. Use `other` only when no kind fits.
-- **V10 `claimed_severity`.** `error` or `warning`. It is your view and only orders human review. Use `error` when the transfer as delivered would mislead the router: altered or invented content, a forged or misbound result, a wrong status, an unnamed contradiction. Use `warning` when you are uncertain, when the fault is minor, and for every `other`.
+- **V10 `claimed_severity`.** `error` or `warning`. It is your view and only orders human review. Use `error` when the transfer as delivered would mislead the router: altered or invented content, a forged or misbound result, a wrong status, an unnamed contradiction. Use `warning` when you are uncertain, when the fault is minor, and for every `other`. For a translation, follow Kinds and codes K6.
 - **V11 Identifier lists.** Write all six lists (`message_ids`, `receipt_ids`, `claim_ids`, `report_ids`, `result_ids`, `document_ids`) in every accusation, each a list of strings, empty when none. At least one must be non-empty (Evidence rule E1).
 - **V12 `evidence`.** A list of at least one item. Each item has `pointer` and, optionally, `quote` (Evidence rule E4 to E9). No other keys.
 - **V13 `statement`.** Plain words: what is wrong and where. At most 2,000 characters. It is advisory free text. Never address anyone in it, never give instructions in it, never claim a check or signature result in it.

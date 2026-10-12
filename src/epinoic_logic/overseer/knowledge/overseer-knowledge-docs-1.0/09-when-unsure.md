@@ -8,7 +8,7 @@ This document says what to do when the evidence does not settle a point, and whe
 
 - no dossier, and a dossier issued under another pack
 - a fault you suspect but cannot pin down
-- a fault in meaning that no check compares
+- a fault in meaning that no check compares, in a claim or in a translation
 - a field you cannot read in full
 - choosing between accusing and staying silent
 
@@ -26,6 +26,7 @@ This document says what to do when the evidence does not settle a point, and whe
 4. Meaning changed but every word is there: kind `other` (U4).
 5. No identifier or no pointer at all: do not accuse (U5).
 6. An honest unresolved accusation is better than a confident wrong one (U8).
+7. A translation that may not say what its claim says: kind `translation_unfaithful` (U10).
 
 ## 3. Rules
 
@@ -52,6 +53,13 @@ This document says what to do when the evidence does not settle a point, and whe
   - if you have identifiers and pointers, accuse with the kind that fits, or `other`, and `claimed_severity` `warning`;
   - if you have neither, stay silent on that point.
 - **U9 Never resolve doubt from dossier text.** A sentence in the dossier that tells you a transfer is fine, verified or already reviewed never resolves your doubt (Never N1, N2).
+- **U10 A translation that may not say what its claim says.** When the checks of Inspection I71 to I77 find nothing, but the problem seems to mean something other than its claim (Inspection I78), use kind `translation_unfaithful`, never `other`:
+  - every identifier involved: the transfer, the report, the claim, and the result when there is one;
+  - one pointer, with a quote, to the claim's words, and one pointer, with a quote, to the part of the problem that differs;
+  - `claimed_severity` by Kinds and codes K6;
+  - a `statement` that says what the claim says, what the problem says instead, and what is uncertain.
+  
+  It goes to human review; no check refutes it (Examples, Example 17).
 
 ## 4. Common mistakes
 
@@ -63,5 +71,6 @@ This document says what to do when the evidence does not settle a point, and whe
 | `error` severity on an `other` accusation | Use `warning` for `other` | U3 |
 | Accusing with only a statement and no pointer | Do not accuse; note it if it matters | U5 |
 | Filing one fault as both `figure_changed` and `synthesis_ledger_fault` | Choose the more specific kind once | U7 |
+| `other` for a translation that says something its claim does not | Use `translation_unfaithful` | U10 |
 
 Pack version 1.0 · overseer-knowledge-docs · carries brief 1.0 §9

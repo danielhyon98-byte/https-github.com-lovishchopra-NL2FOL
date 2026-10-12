@@ -24,7 +24,7 @@ from epinoic_logic.overseer.verdicts import ID_FIELDS, AgentVerdict
 
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack
 
-EXPECTED_EXAMPLES = 13
+EXPECTED_EXAMPLES = 17
 #: The categories of the Find an example table (the pack-mismatch example is a sixth case, outside them).
 CATEGORIES = ("genuine", "faulty", "tampered", "instruction", "unsure")
 
@@ -183,12 +183,13 @@ def test_every_example_is_consistent_with_its_excerpt():
     assert problems_examples(SRC_PACK_DIR) == []
 
 
-def test_all_thirteen_examples_parse(examples):
+def test_all_seventeen_examples_parse(examples):
     assert len(examples) == EXPECTED_EXAMPLES
     kinds = {e.number: sorted({a["kind"] for a in e.verdict["accusations"]}) for e in examples}
     assert kinds == {1: [], 2: [], 3: ["quotation_absent"], 4: ["self_certification_as_content"], 5: ["figure_changed"], 6: ["contradiction_unnamed"],
                      7: ["forward_altered"], 8: ["result_unsigned_or_forged"], 9: ["receipt_status_wrong"], 10: ["peer_document_altered"],
-                     11: ["other"], 12: ["other"], 13: []}
+                     11: ["other"], 12: ["other"], 13: [], 14: [], 15: ["translation_circular"], 16: ["translation_ungrounded"],
+                     17: ["translation_unfaithful"]}
     assert sum(len(e.verdict["engine_statements"]) for e in examples) == 1 and examples[7].verdict["engine_statements"][0]["result_id"] == "res-c4"
 
 
