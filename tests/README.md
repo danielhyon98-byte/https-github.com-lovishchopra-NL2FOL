@@ -207,3 +207,21 @@ here.
      runs.
 
 Each step adds its results to this file.
+
+## Progress (updated every hour while the builds run)
+
+**2026-10-12 00:30 UTC.** The four builds resumed after a pause caused by an account spend limit:
+- the English/History arena loop;
+- STEM support;
+- the logic-checking overseer agents;
+- the breadth probe of eight further specialists.
+
+The arena loop now stops at round 10 at the latest (at most 10 rounds in all). From round 7:
+- its specialists use the v3 knowledge bases;
+- a fourth overseer measures the translation model claim by claim against the 98% target.
+
+The overseer build now also oversees the translator agents: each proposed claim-to-IR
+translation is audited and appears in the overseer agents' dossiers.
+
+The verified baseline, `3147d08`, and its review are recorded in `docs/BASELINE_REVIEW.md`.
+Work in progress after it is labelled as such.
