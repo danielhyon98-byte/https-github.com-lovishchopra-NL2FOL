@@ -430,3 +430,9 @@ Work in progress after it is labelled as such.
 - **Uploads.** The hourly update of `verified-updates` carries no new code (the round-7 version), checked by a fresh
   simulation before the push. The round-3 overseer commit is uploaded to `overseer-prototype` only if its full
   simulation passes, including round 7.
+
+### Progress, 21:58 UTC
+
+- STEM support merged into the translator (commit 83e97e9) and published to `verified-updates`: full suite 4,353 passed (45 stress tests deselected, 4 strict expected failures); harness r1 30/30, r1-adv 150/151 (the planted empty answer stays REJECTED), r2 to r6 46/46, r7 177/177 (the 162 recorded transmissions plus 15 STEM mutation variants, all 15 named).
+- Overseer build: contained-round c1 fixes committed on the build branch; its evaluation gave 2,281 tests passed, 110 of 110 tamperings detected and 0 false alarms on rounds 2 to 5. On round 7 the overseer still fails two contained gates (99 of 118 arena faults named and confirmed; 3 false alarms, all from one circular-translation check); the correction and a rebuild on the STEM-merged translator are in progress.
+- Arena round 8 is prepared: 24 tasks over all sixteen v4 specialists, with four peer pairs (two humanities pairs, one STEM pair, one STEM-humanities pair).
