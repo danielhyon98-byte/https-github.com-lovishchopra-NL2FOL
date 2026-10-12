@@ -313,3 +313,23 @@ Work in progress after it is labelled as such.
   - The overseer build committed its contained harness (tampering suite, dossier export, verdict scoring) and is
     building the consolidation and self-duplicating pool stage.
 - **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 07:28 UTC.**
+- **Arena round 7, lens verdicts.** None of the four lenses reaches 98%. They report 66 new findings in all:
+  3 blockers, 45 majors and 18 minors.
+
+  | Lens | Rate | Previous bugs confirmed fixed | Blockers | Majors | Minors |
+  | --- | --- | --- | --- | --- | --- |
+  | results-audit | 0.532 | 8 | 1 | 14 | 7 |
+  | communication-fidelity | 0.4246 | 13 | 1 | 11 | 6 |
+  | adversarial-live | 0.7477 | 13 | 1 | 12 | 2 |
+  | translation-fidelity (translation accuracy) | 0.6384 | first round | 0 | 8 | 3 |
+
+  The rates fall from round 6 because round 7 adds fourteen new subjects. The owner-partitioned fixers are working
+  now; the round's verified commit follows.
+- **STEM build.** Corpus evaluation is complete. All 38 injected faults are named, and no error-level finding falls
+  on correct work. Its suite has 3,470 tests passing and 4 expected failures, each marked against a documented
+  existing defect. It is writing its documentation and joins the arena at round 8.
+- **Overseer build.** Its first adversarial review found 31 defects: 1 blocker, 22 majors and 8 minors. The fixes are
+  in progress.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
