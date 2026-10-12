@@ -1,0 +1,11 @@
+/home/user/https-github.com-lovishchopra-NL2FOL                                                               361cc4e [claude/z3-verification-engine-plan-nk3luq]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import                                             650d1d3 [import/translator-baseline]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer                                           ef4ba9f [overseer-build]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/probe                                              3147d08 (detached HEAD)
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine                                      f902edd [review-engine]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics                                     2b1cad3 [review-metrics]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel                                eb66038 [review-stem-channel]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-checks                                 50611e6 [review-stem-checks]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-translate                                   6c3b802 [review-translate]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/stem                                               b5cf312 [stem-build]
+/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/review-fixes/integrate/rehearsal  361cc4e (detached HEAD)
