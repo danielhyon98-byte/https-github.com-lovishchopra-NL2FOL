@@ -391,3 +391,12 @@ Work in progress after it is labelled as such.
 - **Overseer build, review round 3.** All three reviews are in: 25 findings (1 blocker, 19 major, 5 minor), against
   26 in round 2 and 31 in round 1. The round-3 fix step is running.
 - **Bruno's `verified-updates`.** No new final translator fix, so nothing new was sent.
+
+**2026-10-12 17:27 UTC.**
+- **Overseer build stopped by a weekly usage limit, then resumed.** At 17:08 UTC the account's weekly usage limit
+  stopped the round-3 fix step after 58 minutes of work, before anything was committed. Its unfinished edits were
+  backed up, two one-word capacity tests succeeded, and the build resumed from its cache at 17:23 UTC; the round-3
+  fix step is running again. No spending limit was changed.
+- **Publishers.** The overseer upload scripts were checked by three independent review rounds; the last found no
+  blocker or major, and its small findings are fixed. No new final commit on either branch this hour, so nothing new
+  was sent to Bruno's repository.
