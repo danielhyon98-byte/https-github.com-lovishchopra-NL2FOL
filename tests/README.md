@@ -420,3 +420,13 @@ Work in progress after it is labelled as such.
 - **Uploads.** From now on an update is pushed every hour, with or without new final code. Every push is preceded by a
   simulation of exactly the uploaded code (full suite and every recorded round), and the replaced version is kept in
   the repository as a backup branch.
+
+**2026-10-12 18:28 UTC.**
+- **Overseer build, review round 3 fixed.** The round's 25 findings (20 blocker or major) are fixed on the build's own
+  branch (`87eaf86`, 18:11 UTC): 26 fixes, 6 items left undone and listed. Afterwards the transfer audit detected all
+  110 tamperings, with no false alarm on the 72 genuine transfers, and the suite has 2,244 tests passing (2,145 at
+  round 2). Arena round 3 replays at 41 of 41. The build has moved on to its contained rounds, in which overseer
+  agents configured only from the exported knowledge pack review live transfers.
+- **Uploads.** The hourly update of `verified-updates` carries no new code (the round-7 version), checked by a fresh
+  simulation before the push. The round-3 overseer commit is uploaded to `overseer-prototype` only if its full
+  simulation passes, including round 7.
