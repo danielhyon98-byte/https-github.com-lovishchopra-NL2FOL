@@ -70,7 +70,7 @@ Integrity properties the channel holds on every transmission and relay:
 - The envelope's sender is bound to the payload's owner: a specialist cannot relay a colleague's report, or a copy of it, under its own name (INT-ENV-008).
 - A report the router already holds is never overwritten: a report id re-delivered with a different payload is refused and the first delivery kept (INT-HANDOFF-015).
 - A response that merely echoes the request is named as such and counts for no request item (INT-REQ-011).
-- A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision) is a warning, never an invented quotation (INT-REQ-010).
+- A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
 
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
@@ -81,7 +81,7 @@ Integrity properties the channel holds on every transmission and relay:
 | Deterministic eligibility | Code, not the model, decides whether a claim may be formalized: argument structure (point + supporting claims), structural counts, exact numeric claims. Interpretive, factual and rubric judgements are routed elsewhere. | `eligibility.py` |
 | IB subject policy | Per-subject profiles say which claim classes are allowed (quantitative claims in Mathematics, Sciences, Economics, Business; argument structure only in Literature, History, Arts, TOK). The profile text is injected into the prompt so the model knows what cannot be established in that subject. | `subjects.py` |
 | Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. | `prompts/translate_v1.md` |
-| Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization) against the supplied text; `verified` is set only by this code. | `grounding.py` |
+| Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization, and through stated form-difference tiers such as a long elision or different accents) against the supplied text; `verified` is set only by this code. Each text's normalised forms and each located excerpt are cached in bounded caches keyed by the text's digest, so an answer never depends on the cache. | `grounding.py` |
 | Strict parsing | Model output is parsed with a plain JSON parser only (code fences stripped); anything else is a failed attempt. | `parsing.py` |
 | Bounded retries | Validation diagnostics are fed back for at most one retry; the status then becomes INVALID_FORMALIZATION rather than looping. | `pipeline.py` |
 | Ambiguity flags | The model must declare materially different readings; the result becomes AMBIGUOUS_TRANSLATION and is never shown as verified. | `pipeline.py` |
@@ -145,12 +145,17 @@ the runtime evidence); and it does not call any model provider in its tests.
 
 ## Arena: real agents, contained environment
 
-Isolated specialist agents configured only from the knowledge documents answer router
-tasks; every output crosses the hub as in production, independent overseer agents judge
-fidelity and fault naming, and fixes are regression-tested before the next round. The
-harness, the peer-exchange relay and the recorded rounds are described in
-`docs/ARENA_RESULTS.md`; stress figures for the engine, channel and hub are in
-`docs/STRESS_RESULTS.md`. The harness's functional rate checks that the hub delivered and
+Isolated specialist agents configured only from their subjects' knowledge documents answer
+router tasks; every output crosses the hub as in production, independent overseer lenses judge
+fidelity and fault naming, and fixes are regression-tested before the next round. Rounds 1 to 6
+used the English and History specialists; round 7 used sixteen specialists across fifteen IB
+subjects, added a fourth lens on translation fidelity, and attached overseer agents that judged
+blind dossiers. No round reached the target of 0.98 from every lens: round 7's four lenses gave
+0.532, 0.4246, 0.7477 and 0.6384. Each round's material, verdicts, findings, fixes, harness
+figures and what remains open are in `docs/ARENA_RESULTS.md`. Rounds 8 to 10 run after the STEM
+and overseer builds merge, and the optimisation checks run last, after every bug-testing round.
+Stress figures for the engine, channel and hub are in `docs/STRESS_RESULTS.md`; no stress iteration
+was run after the bug-fix rounds. The harness's functional rate checks that the hub delivered and
 decided every transmission and named every injected fault; it does not judge whether a
 finding is true. Its summary therefore states, under the headline, how many genuine receipts
 carry error-level findings and are still counted functional, and names every definitive
@@ -161,6 +166,6 @@ that carries syntheses has exactly one synthesis record, whatever happened to it
 so the number of transmissions never depends on what crashed. Whether the receipts are
 right is judged by the overseers.
 
-Bug testing and stress testing results (test layers, every overseer round's verdicts and findings, harness and stress numbers) are reported in `tests/README.md`.
+The test layers and a running log of bug and stress testing are in `tests/README.md`; the per-round arena record is `docs/ARENA_RESULTS.md`.
 
 What the engine accepts and returns, and what a result establishes, is the integration contract in `docs/integration-contract.md`. The baseline review in `docs/BASELINE_REVIEW.md` records the checks run on the baseline commit, its known limits and the next milestone.

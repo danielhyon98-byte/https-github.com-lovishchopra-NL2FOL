@@ -109,3 +109,26 @@ prints where `stress.json` was written. Verified by injecting a raising `receive
 returns `CRASH:RuntimeError` and the next cycle runs. The input the overseer used (about 600
 arithmetic sentences, which overflowed the receipt summary) no longer raises after the
 channel's summary fix, so this run counts 0 crashes.
+
+## After iteration 3: no stress runs after the bug-fix rounds
+
+No stress iteration was run after the bug-fix rounds of the arena (rounds 4 to 7), by the
+founder's instruction: no stress tests after bug fixes. The figures above are therefore the latest
+recorded stress results, and none of them measures the code as it now stands. During the round-4
+to round-6 fix rounds some fixers made informal before-and-after latency comparisons on a machine
+shared with the other fixers; those are not stress results and are not recorded here. In round 7
+no stress test or latency benchmark was run.
+
+- The caching that iteration 3 named as the next optimisation was added in the consolidation pass
+  before the round-4 verdicts (`translate/grounding.py`: each supplied text's normalised forms and
+  each located excerpt held in bounded caches keyed by the text's digest; see
+  `docs/ARENA_RESULTS.md`). The harness gave identical findings with it, record for record. Its
+  effect on latency has not been stress-measured here.
+- Every later fix round (rounds 4 to 7) added checks, some of them engine checks, and none was
+  stress-measured here. Round 6 also capped the formal checks of one transmission at 500, with the
+  statements beyond the cap named unchecked.
+- The round-6 performance finding (large answers take more than 5 s, growing with the number of
+  formal checks) is open and deferred to the optimisation checks.
+
+The optimisation checks run last, after every bug-testing round (rounds 8 to 10 run first, after
+the STEM and overseer builds merge). Any new stress figures will be recorded here then.
