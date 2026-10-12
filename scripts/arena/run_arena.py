@@ -71,10 +71,24 @@ entry also names its ``synthesis_id``).
 Per claim outcome the record keeps the display status, the translation status, the interpretation's ambiguity flags
 (why a claim is AMBIGUOUS_TRANSLATION), the translation diagnostics, and for a verified problem the engine status with
 the number of premises relied on, how many of those are ungrounded (assumptions, specialist inferences, unverified
-quotations) and how many are unverified, so an ENTAILED verdict is read together with what it rests on.
+quotations) and how many are unverified, so an ENTAILED verdict is read together with what it rests on. It also keeps
+what any other verdict rests on: the number of premises of the translated problem with how many are ungrounded and
+unverified (the engine's own rule), the conclusion's label, the engine's diagnostic codes and the assignment the engine
+returned (``model``: the counterexample of a COUNTEREXAMPLE, the witness of a CONSISTENT or SATISFIABLE result). A
+COUNTEREXAMPLE has no core: it holds every premise of the problem and falsifies the conclusion.
 Translation outcomes are provider-dependent: ``provider_dependent_translation_outcomes`` counts the genuine pass only
 (every eligible claim with a fixture exactly once; the distinct-claim counts are reported beside it) and
 ``translation_outcomes_by_variant`` keeps the totals of every variant, which repeat the same claims.
+
+The rate does not judge whether a finding is true. A genuine transmission, peer relay or combinator synthesis whose
+receipt carries an error-level finding is still functional when the hub delivered it and decided every check, whether
+the finding names a real fault of the specialist or is a false one. ``genuine_receipts_with_errors`` (results.json) and
+the line under the headline of summary.md say how many such records carry an error-level finding, how many carry
+warnings only, and that they are counted functional. ``displayed_non_entailed_definitive_outcomes`` lists every genuine
+claim shown to the router with a definitive verdict other than ENTAILED (COUNTEREXAMPLE: the claim does not follow;
+INCONSISTENT_PREMISES; a consistency or satisfiability verdict), with its claim id and what the verdict rests on, and
+summary.md lists each one under the translation outcomes, as it names the ENTAILED verdicts that rest only on
+ungrounded premises (``entailed_dependencies.resting_only_on_ungrounded_premises_claims``).
 """
 from __future__ import annotations
 
@@ -90,6 +104,8 @@ from typing import NamedTuple
 from epinoic_logic.branches import RouterHub
 from epinoic_logic.channel import TransmissionStatus
 from epinoic_logic.engine import SolverConfig
+from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
+from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from epinoic_logic.translate.outcome import verify_claim
@@ -107,6 +123,12 @@ QUOTATION_MUTATIONS = ("invented_quotation", "invented_quotation_single", "alter
 #: The fixture provider's own refusal of a fixture produced for another claim text.
 STALE_FIXTURE_MARK = "stale fixture"
 STALE_BUCKET = "STALE_FIXTURE_REFUSED"
+#: Definitive verdicts other than ENTAILED. Displayed on a claim, each tells the router something about the encoding of
+#: that claim (COUNTEREXAMPLE: it does not follow from its premises; INCONSISTENT_PREMISES: its premises conflict), so
+#: summary.md names every one with its claim id and what it rests on.
+DEFINITIVE_NON_ENTAILED = frozenset(s.value for s in DEFINITIVE) - {VerificationStatus.ENTAILED.value}
+#: How many assignments of a counterexample or witness a record keeps.
+MODEL_KEPT = 16
 
 
 #: What each appending mutation adds to the specialist's text (altered_quotation changes a real quotation instead).
@@ -512,7 +534,18 @@ def outcome_record(o: ClaimVerificationOutcome) -> dict:
     if v is not None:
         rec.update(engine_status=v.status.value, premises_relied_on=len(v.premises_relied_on), ungrounded_dependencies=len(v.ungrounded_dependencies),
                    unverified_dependencies=len(v.unverified_dependencies), ungrounded_dependency_ids=list(v.ungrounded_dependencies)[:16],
-                   engine_diagnostics=[d.message[:200] for d in v.diagnostics][:3])
+                   engine_diagnostics=[d.message[:200] for d in v.diagnostics][:3], engine_diagnostic_codes=sorted({d.code for d in v.diagnostics}))
+        p = t.problem
+        if p is not None:
+            # what a verdict without a core (a COUNTEREXAMPLE holds every premise) rests on: the problem's premises,
+            # counted by the engine's own grounding rule
+            ids = [a.id for a in p.premises]
+            rec.update(problem_premises=len(ids), problem_ungrounded_premises=len(ungrounded_dependencies(p, ids)),
+                       problem_unverified_premises=len(unverified_dependencies(p, ids)),
+                       conclusion_label=(p.conclusion.label or "")[:200] if p.conclusion is not None else None)
+        model = v.counterexample.assignments if v.counterexample is not None else (v.witness_model or [])
+        if model:
+            rec.update(model=[f"{a.symbol}={a.value}" for a in model[:MODEL_KEPT]], model_size=len(model))
     return rec
 
 
@@ -548,6 +581,81 @@ def genuine_findings_summary(records: list[dict]) -> list[dict]:
                 entry["recorded_relays_differing"] = list(r["recorded_relays_differing"])
             out.append(entry)
     return out
+
+
+def _record_tag(r: dict) -> str:
+    return f"{r['file']} [{r['variant']}{' ' + r['synthesis_id'] if r.get('synthesis_id') else ''}]"
+
+
+def genuine_error_receipts(records: list[dict]) -> dict:
+    """How many genuine transmissions, peer relays and combinator syntheses carry an error-level finding (and how many
+    carry warnings only), and how many of each the rate still counts as functional. The rate does not judge whether a
+    finding is true: a correct finding against a specialist's fault and a false finding on a correct statement both
+    leave the record functional. ``records_with_errors`` names each such record with its error codes and claim ids."""
+    gen = [r for r in records if r["variant"] in GENUINE_VARIANTS]
+    errors = [r for r in gen if any(f["severity"] == "error" for f in _record_findings(r))]
+    warnings_only = [r for r in gen if r not in errors and any(f["severity"] == "warning" for f in _record_findings(r))]
+    return {"genuine_records": len(gen), "with_error_findings": len(errors),
+            "with_error_findings_counted_functional": sum(1 for r in errors if r.get("functional")),
+            "with_warning_findings_only": len(warnings_only),
+            "with_warning_findings_only_counted_functional": sum(1 for r in warnings_only if r.get("functional")),
+            "records_with_errors": [{"record": _record_tag(r), "file": r["file"], "variant": r["variant"], "status": r.get("status"), "functional": bool(r.get("functional")),
+                                     "errors": [{"code": f["code"], "claim_ids": f["claim_ids"]} for f in _record_findings(r) if f["severity"] == "error"]} for r in errors],
+            "note": "the functional rate does not judge whether a finding is true: a record with an error-level finding, true or false, is counted functional when the hub delivered it and decided every check"}
+
+
+def error_receipt_line(s: dict) -> str:
+    """summary.md's line under the headline: the genuine records carrying errors or warnings, all counted functional."""
+    named = "; ".join(f"{e['record']}: " + ", ".join(f"{x['code']} {x['claim_ids']}" for x in e["errors"]) for e in s["records_with_errors"])
+    return (f"Genuine transmissions, peer relays and combinator syntheses: {s['genuine_records']}. "
+            f"With an error-level finding: {s['with_error_findings']}{' (' + named + ')' if named else ''}, of which {s['with_error_findings_counted_functional']} counted functional. "
+            f"With warning-level findings only: {s['with_warning_findings_only']}, of which {s['with_warning_findings_only_counted_functional']} counted functional. "
+            "The rate does not judge whether a finding is true: a false error on a correct statement is counted functional like a true one, "
+            "so read every finding in the genuine section below.")
+
+
+def displayed_non_entailed_definitive(records: list[dict]) -> list[dict]:
+    """Every genuine claim (genuine transmission, peer relay or synthesis record) whose displayed status is a definitive
+    verdict other than ENTAILED, with its claim id and what the verdict rests on. A refused stale fixture is no verdict."""
+    keys = ("translation_status", "engine_status", "problem_premises", "problem_ungrounded_premises", "problem_unverified_premises", "premises_relied_on",
+            "ungrounded_dependencies", "unverified_dependencies", "ungrounded_dependency_ids", "model", "model_size", "conclusion_label", "engine_diagnostic_codes",
+            "engine_diagnostics")
+    out = []
+    for r in records:
+        if r["variant"] not in GENUINE_VARIANTS:
+            continue
+        for o in r.get("outcomes", []):
+            if o["display_status"] in DEFINITIVE_NON_ENTAILED and not o.get("stale_fixture_refused"):
+                out.append({"file": r["file"], "variant": r["variant"], "task_id": r.get("task_id"), "claim_id": o["claim_id"], "display_status": o["display_status"],
+                            **{k: o[k] for k in keys if k in o}})
+    return out
+
+
+def rests_on_text(o: dict) -> str:
+    """What a displayed verdict rests on, in one line of summary.md."""
+    parts = []
+    if "problem_premises" in o:
+        parts.append(f"the problem's {o['problem_premises']} premise(s), {o['problem_ungrounded_premises']} ungrounded and {o['problem_unverified_premises']} unverified")
+    if o["display_status"] == VerificationStatus.COUNTEREXAMPLE.value:
+        parts.append("no premise relied on: a counterexample has no core, it holds every premise and falsifies the conclusion")
+    else:
+        ids = o.get("ungrounded_dependency_ids") or []
+        parts.append(f"{o.get('premises_relied_on', 0)} premise(s) relied on, {o.get('ungrounded_dependencies', 0)} ungrounded{' ' + str(ids) if ids else ''} and {o.get('unverified_dependencies', 0)} unverified")
+    if o.get("model"):
+        more = f" (+{o['model_size'] - len(o['model'])} more)" if o.get("model_size", 0) > len(o["model"]) else ""
+        parts.append(f"{'counterexample' if o['display_status'] == VerificationStatus.COUNTEREXAMPLE.value else 'model'}: {', '.join(o['model'])}{more}")
+    if o.get("conclusion_label"):
+        parts.append(f"conclusion: {o['conclusion_label']!r}")
+    parts.append(f"engine diagnostics: {o.get('engine_diagnostic_codes') or 'none'}")
+    return "; ".join(parts)
+
+
+def definitive_outcome_lines(entries: list[dict]) -> list[str]:
+    """summary.md lines naming every displayed definitive verdict other than ENTAILED on a genuine claim."""
+    lines = ["- definitive verdicts other than ENTAILED displayed on genuine claims (each is shown to the router as the engine's verdict on the claim's encoding: "
+             f"COUNTEREXAMPLE, the claim does not follow from its premises; INCONSISTENT_PREMISES, its premises conflict): {len(entries)}"]
+    lines += [f"  - {e['file']} {e['claim_id']}: {e['display_status']} (translation {e.get('translation_status')}, engine {e.get('engine_status')}); rests on {rests_on_text(e)}" for e in entries]
+    return lines
 
 
 def _render_value(v) -> str:
@@ -785,7 +893,7 @@ def run_round(round_dir: Path) -> dict:
     genuine_counts: dict[str, int] = {}
     distinct: dict[str, set] = {}
     by_variant_outcomes: dict[str, dict[str, int]] = {}
-    ungrounded_entailed = {"entailed": 0, "resting_only_on_ungrounded_premises": 0, "with_some_ungrounded_premise": 0}
+    ungrounded_entailed = {"entailed": 0, "resting_only_on_ungrounded_premises": 0, "with_some_ungrounded_premise": 0, "resting_only_on_ungrounded_premises_claims": []}
     for r in records:
         for o in r.get("outcomes", []):
             bucket = outcome_bucket(o)
@@ -800,6 +908,7 @@ def run_round(round_dir: Path) -> dict:
                         ungrounded_entailed["with_some_ungrounded_premise"] += 1
                         if o["ungrounded_dependencies"] >= o.get("premises_relied_on", 0):
                             ungrounded_entailed["resting_only_on_ungrounded_premises"] += 1
+                            ungrounded_entailed["resting_only_on_ungrounded_premises_claims"].append(f"{r['file']} {o['claim_id']}")
     all_variants: dict[str, int] = {}
     for bv in by_variant_outcomes.values():
         for k, n in bv.items():
@@ -815,17 +924,23 @@ def run_round(round_dir: Path) -> dict:
                                                        "distinct_claims": {k: len(v) for k, v in distinct.items()}, "distinct_claims_total": len(set().union(*distinct.values())) if distinct else 0,
                                                        "entailed_dependencies": ungrounded_entailed},
            "translation_outcomes_by_variant": by_variant_outcomes, "translation_outcomes_all_variants": all_variants,
+           "displayed_non_entailed_definitive_outcomes": displayed_non_entailed_definitive(records),
+           "genuine_receipts_with_errors": genuine_error_receipts(records),
            "genuine_with_errors": genuine_findings_summary(records),
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "failures": [r for r in records if not r.get("functional")], "records": records}
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
-    lines = [f"# Arena {round_dir.name}", "", f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%})", "", "| variant | functional | total |", "| --- | --- | --- |"]
+    lines = [f"# Arena {round_dir.name}", "", f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%})", "",
+             error_receipt_line(out["genuine_receipts_with_errors"]), "", "| variant | functional | total |", "| --- | --- | --- |"]
     lines += [f"| {k} | {v['functional']} | {v['total']} |" for k, v in out["by_variant"].items()]
     lines += ["", "## Translation outcomes (provider-dependent; genuine pass, one outcome per eligible claim with a fixture)", ""]
-    lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["(none)"]
-    lines += [f"- ENTAILED verdicts resting only on ungrounded premises: {ungrounded_entailed['resting_only_on_ungrounded_premises']} of {ungrounded_entailed['entailed']}",
-              f"- all variants together (the same claims repeated): {all_variants}"]
+    lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["- (no outcome)"]
+    only_ungrounded = ungrounded_entailed["resting_only_on_ungrounded_premises_claims"]
+    lines += [f"- ENTAILED verdicts resting only on ungrounded premises: {ungrounded_entailed['resting_only_on_ungrounded_premises']} of {ungrounded_entailed['entailed']}"
+              + (f": {', '.join(only_ungrounded)}" if only_ungrounded else "")]
+    lines += definitive_outcome_lines(out["displayed_non_entailed_definitive_outcomes"])
+    lines += [f"- all variants together (the same claims repeated): {all_variants}"]
     lines += ["", "## Genuine transmissions, peer relays and combinator syntheses carrying error- or warning-level findings (correct against a specialist's or the combinator's fault, or a false finding: read the message)", ""]
     for g in out["genuine_with_errors"]:
         tag = f"{g['variant']} {g['synthesis_id']}" if g.get("synthesis_id") else g["variant"]
@@ -856,6 +971,9 @@ if __name__ == "__main__":
     res = run_round(rd)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
+    ge = res["genuine_receipts_with_errors"]
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
+    print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",
+          "| definitive verdicts other than ENTAILED displayed on genuine claims:", len(res["displayed_non_entailed_definitive_outcomes"]))
     print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]))
     print("results written to", rd / "results.json", "and", rd / "summary.md")

@@ -433,6 +433,50 @@ def test_peer_attribution_is_decided_by_the_sentences_subject(sentence, attribut
     assert md.is_peer_attribution(sentence) is attributed
 
 
+@pytest.mark.parametrize("sentence, attributed", [
+    # the colleague as the subject of a verb reporting what it gave: the colleague's view
+    ("The History specialist gives about 8 million arrivals in the 1880s.", True),
+    ("The History specialist dates the sonnet to 1886.", True),
+    ("The History specialist also puts the figure at 5.2 million.", True),
+    ("The History specialist cites the Act of 1882.", True),
+    ("My colleague estimates the arrivals at five million.", True),
+    # the same words as nouns after a possessive, and a noun phrase that is not a colleague: not a reported view
+    ("The History specialist's dates are from memory.", False),
+    ("The History specialist's figures are from memory.", False),
+    ("The specialist literature gives no date.", False),
+    ("The peer review found errors.", False),
+])
+def test_a_colleague_reporting_a_figure_or_date_is_the_colleagues_view(sentence, attributed):
+    """Fixer self-check on the communication-fidelity minor: the reporting verbs that credit a colleague with a figure or a
+    date ("gives", "dates", "puts", "cites", "estimates") are read as the colleague's view, as the channel's credited spans
+    read them, but only with the colleague as the subject: after a possessive they are nouns."""
+    assert md.is_peer_attribution(sentence) is attributed
+
+
+@pytest.mark.parametrize("closing", [
+    "The History specialist gives about 8 million arrivals in the 1880s.",
+    "The History specialist dates the sonnet to 1886.",
+    "The History specialist dates the Chinese Exclusion Act to 1883.",
+])
+def test_a_closing_report_of_the_colleagues_figure_is_a_perspective_and_the_conclusion_stays_the_link(closing):
+    """The r6a adversarial en-p5 variants close on an unquoted report of the colleague's figure or date in place of the
+    note. That sentence is the colleague's view (``perspective``, certainty capped), so the closing-link rule passes over
+    it and over the caveat before it, and the paragraph's conclusion (p1-s11) is the material link. The figure is still
+    read against the peer's report by the channel (INT-REQ-014 for 8 million)."""
+    text = EN_P5["response_text"].replace(P5_NOTE, closing)
+    rep = english(text)
+    c = claim(rep, closing)
+    assert (c.claim_role, c.materiality, c.certainty) == ("perspective", "supporting", "probable")
+    assert any("attributes this view to a peer specialist" in a for a in c.assumptions)
+    assert [(x.claim_id, x.claim_text) for x in rep.claims if x.claim_role == "link"] == [("p1-s11", P5_CONCLUSION)]
+    _ch, _hrep, erep, erc = p5_exchange(text)
+    [d] = [x for x in erep.payload["claims"] if x["claim_text"] == closing]
+    misreported = [f for f in erc.findings if f.code == "INT-REQ-014"]
+    if "8 million" in closing:
+        assert misreported and d["claim_id"] in misreported[0].claim_ids
+    assert [x["claim_id"] for x in erep.payload["claims"] if x["claim_role"] == "link"] == ["p1-s11"]
+
+
 # ------------------------------------------------------------ harness regression: a fence of prose is the answer in the channel's word count
 
 

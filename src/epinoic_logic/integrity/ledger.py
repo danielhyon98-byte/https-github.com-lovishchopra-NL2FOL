@@ -138,8 +138,9 @@ def _words_as_digits(text: str) -> str:
 
 # --- figure pairing (INT-LEDGER-023, the swapped-figure case) -------------------------------------------------------
 #: Tokens of a clause: a numeral (thousands separators already removed), a word (apostrophes and hyphens inside), or a
-#: clause-breaking punctuation mark.
-_PAIR_TOKEN_RE = re.compile(r"[,;:()]|[.!?](?=\s|$)|(?:1\d{2}0|20\d0)s(?!\w)|\d+(?:\.\d+)?|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+#: clause-breaking punctuation mark. The full stop of an initial or of "c." / "ca." ("Chester A. Arthur", "c. 1963") does
+#: not end a clause, so a date is never cut from the event that follows the abbreviation.
+_PAIR_TOKEN_RE = re.compile(r"[,;:()]|(?<!\b[A-Z])(?<!\bc)(?<!\bca)[.](?=\s|$)|[!?](?=\s|$)|(?:1\d{2}0|20\d0)s(?!\w)|\d+(?:\.\d+)?|[^\W\d_]+(?:['’-][^\W\d_]+)*")
 #: Words a clause of nothing but a date is made of ("On 27 October", "in July 1932"): such a clause is not cut from its
 #: event by a comma ("On 27 October, the day ..., a second message added a demand").
 _DATE_WORDS = frozenset(("on in by of at from since until till during around about early late mid the end start beginning middle "
@@ -444,6 +445,9 @@ _NEGATORS = frozenset("not never no nor neither none nothing nobody nowhere cann
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
 _APPROX_RE = re.compile(r"\b(?:about|around|roughly|approximately|nearly|almost|some|close to|c\.|circa|ca\.|more than|over|under|less than|just over|just under)\s+(\d+(?:\.\d+)?)(?!\.\d)", re.IGNORECASE)
 _EXACT_RE = re.compile(r"\b(exactly|precisely|fully|a full|an exact)\s+(\d+(?:\.\d+)?)(?!\.\d)", re.IGNORECASE)
+#: Figures written in words as the approximation readers see them: "roughly fifteen" -> "roughly 15", so an approximate
+#: figure in words made exact ("exactly fifteen", "exactly 15") is read like one in digits.
+_EXACT_SHOWN_RE = re.compile(r"\b(exactly|precisely|fully|a full|an exact)\s+(\S+(?:\s+(?:thousand|million|billion|trillion))?)", re.IGNORECASE)
 
 
 def _words(text: str) -> list[str]:
@@ -453,8 +457,16 @@ def _words(text: str) -> list[str]:
 # --- aligned comparison: one statement copied with one word changed ---------------------------------------------------
 #: Tokens of the aligned comparison: a decade, a numeral (thousands separators removed), a word (an apostrophe inside it).
 _ALIGN_TOKEN_RE = re.compile(r"(?:1\d{2}0|20\d0)s(?!\w)|\d+(?:\.\d+)?|[^\W\d_]+(?:['’][^\W\d_]+)*")
-#: Phrases read as one token before aligning, so a three-word reversal ("fell short of" -> "exceeded") is one substitution.
-_CANON_PHRASES = ((re.compile(r"\b(?:fell|fall|falls|falling|fallen)\s+(?:far\s+|well\s+|just\s+)?short\s+of\b", re.IGNORECASE), "fellshortof", "fell short of"),)
+#: Phrases read as one token before aligning, so a three-word reversal ("fell short of" -> "exceeded") is one substitution,
+#: and a quantity qualifier ("at least", "no more than") is one word: "only one" -> "at least one" is one exchange.
+_CANON_PHRASES = (
+    (re.compile(r"\b(?:fell|fall|falls|falling|fallen)\s+(?:far\s+|well\s+|just\s+)?short\s+of\b", re.IGNORECASE), "fellshortof", "fell short of"),
+    (re.compile(r"\bno\s+more\s+than\b", re.IGNORECASE), "nomorethan", "no more than"),
+    (re.compile(r"\bno\s+fewer\s+than\b", re.IGNORECASE), "nofewerthan", "no fewer than"),
+    (re.compile(r"\bno\s+less\s+than\b", re.IGNORECASE), "nolessthan", "no less than"),
+    (re.compile(r"\bat\s+least\b", re.IGNORECASE), "atleast", "at least"),
+    (re.compile(r"\bat\s+most\b", re.IGNORECASE), "atmost", "at most"),
+)
 _CANON_SHOWN = {canon: shown for _re, canon, shown in _CANON_PHRASES}
 #: A parenthetical aside ("(from memory; check your notes)"): left out of the alignment, so a label the synthesis dropped
 #: never hides the one word it changed beside it.
@@ -463,8 +475,19 @@ _PARENTHETICAL_RE = re.compile(r"\([^()]{0,300}\)")
 
 def _akey(word: str) -> str:
     """The aligned comparison's key of a word: :func:`light_stem` applied twice, so the singular and plural of a noun
-    ending in -ing compare equal ("shilling", "shillings")."""
-    return light_stem(light_stem(word))
+    ending in -ing compare equal ("shilling", "shillings"), after a final -ies or -ied is read as -y ("territories",
+    "territory"; "carried", "carry")."""
+    w = word.casefold()
+    if len(w) > 4 and w.endswith(("ies", "ied")):
+        w = w[:-3] + "y"
+    return light_stem(light_stem(w))
+
+
+def _variants(a: str, b: str) -> bool:
+    """Two keys that are forms of one word the light stemmer leaves apart (they differ only in their last letter)."""
+    from os.path import commonprefix
+    n = len(commonprefix([a, b]))
+    return n >= 4 and n >= min(len(a), len(b)) - 1
 
 
 def _stems(words: str) -> frozenset[str]:
@@ -473,23 +496,50 @@ def _stems(words: str) -> frozenset[str]:
 
 #: Opposed word classes (light stems): a statement copied with one of these words exchanged for its opposite says the
 #: opposite. Each entry: (class A, class B, what the exchange reverses).
+#: The two sides of a degree verdict. A phrase is read as a unit (:func:`_degree_side`): one that carries a limiting word
+#: is limited whatever else it says ("significant but limited", "real but partial"), so "to a large extent" or "to a
+#: decisive extent" in place of "to a significant but limited extent" reverses the verdict.
+_DEGREE_HIGH = _stems("large great considerable significant substantial major high vast huge full strong profound dramatic wide decisive crucial pivotal "
+                      "overwhelming dominant central fundamental enormous immense tremendous primary principal complete total")
+_DEGREE_LOW = _stems("limited small lesser little minor slight modest partial low weak marginal negligible narrow secondary peripheral minimal moderate "
+                     "qualified incomplete")
 _OPPOSED: tuple[tuple[frozenset[str], frozenset[str], str], ...] = (
     (_stems(" ".join(sorted(_RISE_WORDS))), _stems(" ".join(sorted(_FALL_WORDS))), "the direction of a change"),
-    (_stems("large great considerable significant substantial major high vast huge full strong profound dramatic wide"),
-     _stems("limited small lesser little minor slight modest partial low weak marginal negligible narrow"), "a degree verdict"),
+    (_DEGREE_HIGH, _DEGREE_LOW, "a degree verdict"),
     (_stems("more greater larger higher bigger most greatest largest highest biggest faster fastest stronger strongest better best"),
      _stems("less fewer smaller lower least fewest smallest lowest slower slowest weaker weakest worse worst"), "a comparative or superlative"),
     (_stems("before earlier prior preceded precedes preceding"), _stems("after later following followed follows subsequent"), "an order in time"),
     (_stems("exceeded exceeds exceed surpassed surpasses surpass outstripped outstrips overtook beat topped above"), frozenset({"fellshortof"}) | _stems("below missed"),
      "a comparison with a target"),
+    (_stems("long longer longest lengthy"), _stems("short shorter shortest brief"), "a length"),
+    (_stems("include included includes including inclusion welcome welcomed welcomes welcoming admit admits admitted admitting admission embrace embraced "
+            "embracing invite invited inviting"),
+     _stems("exclude excluded excludes excluding exclusion bar barred barring ban banned banning expel expelled expelling forbid forbade forbidden "
+            "prohibit prohibited prohibiting restrict restricted restricting"), "inclusion or exclusion"),
+    (_stems("accept accepted accepting acceptance agree agreed agreeing agreement consent consented comply complied complying compliance"),
+     _stems("refuse refused refusing refusal reject rejected rejecting rejection resist resisted resisting resistance"), "acceptance or refusal"),
+    (_stems("succeed succeeded succeeds success successful win won wins victory"), _stems("fail failed fails failure unsuccessful lose lost loses defeat"),
+     "success or failure"),
+    (_stems("only just merely solely exactly precisely") | {"atmost", "nomorethan"}, _stems("upwards") | {"atleast", "nofewerthan", "nolessthan"},
+     "a quantity qualifier"),
+    (_stems("all every each universal"), _stems("some few several"), "the scope of a quantity"),
+    (_stems("positive optimistic favourable favorable"), _stems("negative pessimistic unfavourable unfavorable"), "an evaluation"),
 )
 _POLARITY_WORDS = frozenset().union(*(a | b for a, b, _what in _OPPOSED))
+#: Prefixes that negate the word they stand before ("limited" -> "unlimited", "complete" -> "incomplete").
+_NEGATING_PREFIXES = ("un", "non", "in", "im", "il", "ir", "dis")
+#: Words a negating prefix does not negate (an intensifier, a different word).
+_PREFIX_EXCEPTIONS = frozenset({"valuable", "flammable", "ravel", "loose", "press", "port", "form", "tend", "vent", "vest", "pose", "cover", "play", "tract", "close",
+                                "volve", "clude", "crease", "dicat", "stance", "ternal", "sist", "sight", "side", "spire"})
 #: Small counts written in words: "a shilling" against "two shillings" is a changed figure.
 _CARDINAL_WORDS = {"a": 1, "an": 1, **_ONES, **_TEENS, **_TENS, "dozen": 12, "single": 1, "both": 2, "twice": 2, "thrice": 3}
 _MONTH_KEYS = frozenset(_MONTHS)
 #: Function and filler words that are never a "changed content word".
 _ALIGN_STOP = _PARTNER_STOP | frozenset(("his her him he she they them we our you your i me my one ones such would could should shall will may might must can did does do "
-                                         "what how why where also yet thus therefore however whose than then there here made make makes very much many most").split())
+                                         "what how why where also yet thus therefore however whose than then there here made make makes very much many most "
+                                         "whereas whilst although though because since unless until whether wherever whenever where's within through "
+                                         "throughout across among amongst between beyond toward towards upon onto into itself himself herself themselves "
+                                         "rather instead indeed hence thereby whereby").split())
 
 
 def _align_tokens(text: str) -> list[tuple[str, str]]:
@@ -527,25 +577,81 @@ def _context(tokens: list[tuple[str, str]], i1: int, i2: int, width: int = 2) ->
     return " ".join(s for _k, s in tokens[max(0, i1 - width):i2 + width])
 
 
+def _degree_side(keys: list[str]) -> Optional[str]:
+    """The side of a degree verdict a phrase takes, read as a unit: "low" when it carries a limiting word, whatever else it
+    says ("significant but limited", "real but partial"), "high" when it carries only raising words ("large",
+    "decisive"), None when it states no degree."""
+    if any(k in _DEGREE_LOW for k in keys):
+        return "low"
+    if any(k in _DEGREE_HIGH for k in keys):
+        return "high"
+    return None
+
+
+def _negating_prefix(a: str, b: str) -> bool:
+    """``a`` is ``b`` with a negating prefix (or the reverse): "unlimited" against "limited", "incomplete" against "complete"."""
+    for x, y in ((a, b), (b, a)):
+        for p in _NEGATING_PREFIXES:
+            if x == p + y and len(y) >= 4 and y not in _PREFIX_EXCEPTIONS:
+                return True
+    return False
+
+
+def _class_side(key: str) -> Optional[tuple[int, int]]:
+    """``(class index, side)`` of a polarity word (:data:`_OPPOSED`), or None."""
+    for i, (a, b, _what) in enumerate(_OPPOSED):
+        if key in a:
+            return i, 0
+        if key in b:
+            return i, 1
+    return None
+
+
+def _reversal(syn_keys: list[str], src_keys: list[str]) -> Optional[str]:
+    """What a replaced span of up to three words reverses against the span it replaces: a degree verdict read as a phrase
+    (:func:`_degree_side`), a word of one side of an opposed class where the source has only the other side ("preceded
+    Ghana" for "followed", "welcoming all" for "excluding some"), or a word negated by its prefix. None otherwise."""
+    ds, dr = _degree_side(syn_keys), _degree_side(src_keys)
+    if ds is not None and dr is not None and ds != dr:
+        return "a degree verdict"
+    sy, sr = set(syn_keys), set(src_keys)
+    for a, b, what in _OPPOSED:
+        if a is _DEGREE_HIGH:
+            continue
+        ya, yb, ra, rb = bool(sy & a), bool(sy & b), bool(sr & a), bool(sr & b)
+        if (ya and not yb and rb and not ra) or (yb and not ya and ra and not rb):
+            return what
+    if any(_negating_prefix(x, y) for x in sy for y in sr):
+        return "a word by a negating prefix"
+    return None
+
+
 def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str], list[str]]:
     """``(figure_changes, meaning_changes)``: where ``synthesized_text`` copies a statement of ``source_text`` word for word
-    around ONE changed token (difflib alignment of the light-stemmed tokens; the change must stand between copied words
-    on both sides, at least three copied words in all, two on each side for an ordinary content word):
+    around one changed place (difflib alignment of the light-stemmed tokens; the change must stand between copied words
+    on both sides, at least three copied words in all; a replaced content word two on each side, four in all):
 
     * a small count written in words changed ("about a shilling a day" -> "about two shillings a day", "two contingents"
-      -> "three contingents", "ten years" -> "twenty years") or a month changed ("11 December" -> "11 October"): a changed
-      figure or date (INT-LEDGER-023);
-    * a word exchanged for its opposite (:data:`_OPPOSED`: rising/falling, a large/limited extent, more/less, most/least,
-      before/after, exceeded/fell short of), a negation added or dropped ("were the most decisive" -> "were not the most
-      decisive"), or a content word replaced in an otherwise copied statement ("the large majority from disease" -> "from
-      battle"): a changed meaning (INT-LEDGER-026, lexical).
+      -> "three contingents", "ten years" -> "twenty years"), a month changed ("11 December" -> "11 October"), or a figure
+      in digits replaced by another figure the source states elsewhere ("wrote the sonnet in 1883" -> "in 1886", the year
+      the source gives the dedication): a changed figure or date (INT-LEDGER-023);
+    * a word or a phrase of up to three words exchanged for its opposite (:data:`_OPPOSED`: rising/falling; a degree
+      verdict read as a phrase, so "to a large extent" or "to a decisive extent" reverses "to a significant but limited
+      extent"; more/less, most/least; before/after, "preceded Ghana" for "followed"; exceeded/fell short of; long/short;
+      including/excluding, "welcoming all" for "excluding some"; accepting/refusing; a quantity qualifier, "at least one"
+      for "only one"; the scope of a quantity, all/some), a word negated by its prefix ("unlimited" for "limited"), a
+      negation added or dropped ("were the most decisive" -> "were not the most decisive"), or a content word replaced in
+      an otherwise copied statement ("the large majority from disease" -> "from battle", "in unprecedented numbers" -> "in
+      declining numbers"; two synonyms of one class, "large" and "great", are not a replacement): a changed meaning
+      (INT-LEDGER-026, lexical).
 
-    A rewording that changes more than one word at a place is a paraphrase and is not read here."""
+    A rewording that changes more than three words at a place is a paraphrase and is not read here."""
     syn, src = _align_tokens(synthesized_text), _align_tokens(source_text)
     if not syn or not src:
         return [], []
     from difflib import SequenceMatcher
     ops = SequenceMatcher(None, [k for k, _s in syn], [k for k, _s in src], autojunk=False).get_opcodes()
+    src_numerals = {k for k, _s in src if k[0].isdigit()}
     figures: list[str] = []
     meaning: list[str] = []
     for n, (tag, i1, i2, j1, j2) in enumerate(ops):
@@ -562,29 +668,34 @@ def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str],
             meaning.append(f"it adds a negation its cited sources do not state ('{here}' where they state '{there}')" if syn_neg
                            else f"it drops the negation its cited sources state ('{here}' where they state '{there}')")
             continue
-        if tag != "replace" or i2 - i1 != 1 or j2 - j1 != 1:
+        if tag != "replace" or i2 - i1 > 3 or j2 - j1 > 3:
             continue
-        (ka, sa), (kb, sb) = syn[i1], src[j1]
-        va, vb = _cardinal(ka, sa), _cardinal(kb, sb)
-        if va is not None and vb is not None and va != vb and not (ka[0].isdigit() and kb[0].isdigit()):
-            nxt_syn = syn[i2][1] if i2 < len(syn) else ""
-            nxt_src = src[j2][1] if j2 < len(src) else ""
-            figures.append(f"'{(sa + ' ' + nxt_syn).strip()}' ({_fmt_value(va)}) where its cited sources state '{(sb + ' ' + nxt_src).strip()}' ({_fmt_value(vb)}): a count written in words changed")
-            continue
-        if sa.casefold() in _MONTH_KEYS and sb.casefold() in _MONTH_KEYS and sa.casefold() != sb.casefold():
-            figures.append(f"'{here}' where its cited sources state '{there}': a month changed")
-            continue
-        what = next((w for a, b, w in _OPPOSED if (ka in a and kb in b) or (ka in b and kb in a)), None)
+        if i2 - i1 == 1 and j2 - j1 == 1:
+            (ka, sa), (kb, sb) = syn[i1], src[j1]
+            va, vb = _cardinal(ka, sa), _cardinal(kb, sb)
+            if va is not None and vb is not None and va != vb:
+                if not (ka[0].isdigit() and kb[0].isdigit()):
+                    nxt_syn = syn[i2][1] if i2 < len(syn) else ""
+                    nxt_src = src[j2][1] if j2 < len(src) else ""
+                    figures.append(f"'{(sa + ' ' + nxt_syn).strip()}' ({_fmt_value(va)}) where its cited sources state '{(sb + ' ' + nxt_src).strip()}' ({_fmt_value(vb)}): a count written in words changed")
+                elif ka in src_numerals:  # a figure the source states elsewhere, put in place of the one it states here
+                    figures.append(f"'{here}' where its cited sources state '{there}': '{sa}' is a figure they state elsewhere, put in place of '{sb}'")
+                continue
+            if sa.casefold() in _MONTH_KEYS and sb.casefold() in _MONTH_KEYS and sa.casefold() != sb.casefold():
+                figures.append(f"'{here}' where its cited sources state '{there}': a month changed")
+                continue
+        what = _reversal([k for k, _s in syn_words], [k for k, _s in src_words])
         if what is not None:
             meaning.append(f"it reverses {what} ('{here}' where its cited sources state '{there}')")
             continue
-        content = all(w.isalpha() and len(w) >= 4 and k not in _ALIGN_STOP and k not in _POLARITY_WORDS for k, w in ((ka, sa), (kb, sb)))
-        if content and ka != kb and lb >= 2 and la >= 2 and not (ka in _RISE_STEMS_ALL and kb in _RISE_STEMS_ALL):
+        if i2 - i1 != 1 or j2 - j1 != 1:
+            continue
+        (ka, sa), (kb, sb) = syn[i1], src[j1]
+        content = all(w.isalpha() and len(w) >= 4 and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP for k, w in ((ka, sa), (kb, sb)))
+        sides = (_class_side(ka), _class_side(kb))
+        if content and ka != kb and not _variants(ka, kb) and lb >= 2 and la >= 2 and not (sides[0] is not None and sides[1] is not None):
             meaning.append(f"it replaces '{sb}' with '{sa}' in an otherwise copied statement ('{here}' where its cited sources state '{there}')")
     return figures, meaning
-
-
-_RISE_STEMS_ALL = _OPPOSED[0][0] | _OPPOSED[0][1]
 
 
 def _fmt_value(v: float) -> str:
@@ -592,14 +703,57 @@ def _fmt_value(v: float) -> str:
 
 
 def aligned_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str]]:
-    """:func:`aligned_changes` against every cited source text, deduplicated."""
+    """:func:`aligned_changes` against every cited source text, and :func:`day_month_differences` against all of them,
+    deduplicated."""
     figures: list[str] = []
     meaning: list[str] = []
     for t in source_texts:
         f, m = aligned_changes(synthesized_text, t)
         figures += f
         meaning += m
+    figures += day_month_differences(synthesized_text, source_texts)
     return list(dict.fromkeys(figures)), list(dict.fromkeys(meaning))
+
+
+_MONTH_ALT = "|".join(m.capitalize() for m in _MONTHS)
+#: A day-month date, "6 March", "6th of March" or "March 6" (a capitalised month name; "March 1957" is a month-year).
+_DAY_MONTH_RE = re.compile(rf"\b(?:(?P<d1>[0-3]?\d)(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<m1>{_MONTH_ALT})\b|(?P<m2>{_MONTH_ALT})\s+(?P<d2>[0-3]?\d)(?:st|nd|rd|th)?(?![\d.]?\d))")
+
+
+def _day_months(text: str) -> list[tuple[int, str, str]]:
+    """``(day, month, as written)`` for every day-month date of ``text``."""
+    out: list[tuple[int, str, str]] = []
+    for m in _DAY_MONTH_RE.finditer(text):
+        day = int(m.group("d1") or m.group("d2"))
+        if 1 <= day <= 31:
+            out.append((day, (m.group("m1") or m.group("m2")).casefold(), " ".join(m.group(0).split())))
+    return out
+
+
+def day_month_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """Day-month dates compared at month resolution: a date of the synthesis ("6 May") that no cited source states, while
+    a cited source states that day with another month ("6 March") or that month with another day the sources also give
+    as a figure, is a changed date, wherever it stands in the sentence (the aligned comparison needs copied words after
+    the change, and a date often closes its sentence). A day no source states at all is the plain introduced figure."""
+    syn = _day_months(synthesized_text)
+    if not syn:
+        return []
+    src = [d for t in source_texts for d in _day_months(t)]
+    if not src:
+        return []
+    stated = {(d, m) for d, m, _w in src}
+    src_days = {d for d, _m, _w in src}
+    out: list[str] = []
+    for d, m, written in syn:
+        if (d, m) in stated:
+            continue
+        same_day = sorted({w for d2, m2, w in src if d2 == d and m2 != m})
+        same_month = sorted({w for d2, m2, w in src if m2 == m and d2 != d}) if d in src_days else []
+        if same_day:
+            out.append(f"'{written}' where its cited sources state {same_day}: a month changed (no cited source states '{written}')")
+        elif same_month:
+            out.append(f"'{written}' where its cited sources state {same_month}: a day changed (no cited source states '{written}')")
+    return list(dict.fromkeys(out))
 
 
 def meaning_differences(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
@@ -623,11 +777,74 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     if out and any(a.startswith("it reverses the direction") for a in aligned):
         aligned = [a for a in aligned if not a.startswith("it reverses the direction")]
     out += aligned
-    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_THOUSANDS_RE.sub("", t))}
-    exact = sorted({(m.group(1).casefold(), m.group(2)) for m in _EXACT_RE.finditer(_THOUSANDS_RE.sub("", synthesized_text)) if m.group(2) in approx}, key=lambda x: x[1])
-    for word, fig in exact:
-        out.append(f"it states '{word} {fig}' where its cited sources give {fig} as an approximate figure")
+    out += reversed_comparisons(synthesized_text, source_texts)
+    # Figures in words are read as digits first, so "roughly fifteen" is an approximate 15 and "exactly fifteen" an exact one.
+    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_THOUSANDS_RE.sub("", t)))}
+    syn_plain = _THOUSANDS_RE.sub("", synthesized_text)
+    exact: dict[str, str] = {}
+    for m in _EXACT_RE.finditer(_words_as_digits(syn_plain)):
+        if m.group(2) in approx:
+            exact.setdefault(m.group(2), m.group(1).casefold())
+    for fig, word in sorted(exact.items()):
+        written = next((w.group(0) for w in _EXACT_SHOWN_RE.finditer(syn_plain) if _words_as_digits(w.group(2)).split()[0].rstrip(".,;:") == fig), f"{word} {fig}")
+        src_shown = next((w for t in source_texts for w in _approx_phrases(t) if w[1] == fig), None)
+        where = f"'{src_shown[0]}'" if src_shown else f"{fig} as an approximate figure"
+        out.append(f"it states '{written.strip(' .,;:')}' where its cited sources give {where}" + ("" if not src_shown else " (an approximate figure)"))
     return out
+
+
+def _approx_phrases(text: str) -> list[tuple[str, str]]:
+    """``(phrase as written, value)`` for every approximate figure of ``text`` ("roughly fifteen", 15)."""
+    plain = _THOUSANDS_RE.sub("", text)
+    out: list[tuple[str, str]] = []
+    for m in re.finditer(r"\b(?:about|around|roughly|approximately|nearly|almost|some|close to|c\.|circa|ca\.|more than|over|under|less than|just over|just under)\s+(\S+(?:[\s-](?:hundred|thousand|million|billion|five|four|three|two|one|six|seven|eight|nine))?)", plain, re.IGNORECASE):
+        value = _APPROX_RE.match(_words_as_digits(m.group(0)))
+        if value is not None:
+            out.append((m.group(0).strip(" .,;:"), value.group(1)))
+    return out
+
+
+#: "more X than Y", "less X than Y": the two sides of a comparison, read up to the end of the clause.
+_COMPARISON_RE = re.compile(r"\b(?P<cmp>more|less|rather)\s+(?P<x>[^,;:.!?()]{3,80}?)\s+than\s+(?P<y>[^,;:.!?()]{3,80}?)(?=\s*(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
+_RATHER_THAN_RE = re.compile(r"(?P<x>(?:[^\W\d_]+(?:['’-][^\W\d_]+)*\s+){1,6}?)rather\s+than\s+(?P<y>[^,;:.!?()]{3,80}?)(?=\s*(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
+
+
+def _content_keys(text: str) -> set[str]:
+    return {_akey(w) for w in _words(text) if len(w) >= 3 and w not in _ALIGN_STOP and _akey(w) not in _ALIGN_STOP}
+
+
+def _comparisons(text: str) -> list[tuple[str, set[str], set[str], str]]:
+    """``(kind, X, Y, phrase)`` for every "more X than Y" / "X rather than Y" of ``text`` (content stems of each side)."""
+    out: list[tuple[str, set[str], set[str], str]] = []
+    for m in _COMPARISON_RE.finditer(text):
+        if m.group("cmp").casefold() == "rather":
+            continue
+        x, y = _content_keys(m.group("x")), _content_keys(m.group("y"))
+        if x and y:
+            out.append((m.group("cmp").casefold(), x, y, " ".join(m.group(0).split())))
+    for m in _RATHER_THAN_RE.finditer(text):
+        x, y = _content_keys(m.group("x")), _content_keys(m.group("y"))
+        if x and y:
+            out.append(("rather", x, y, " ".join(m.group(0).split())))
+    return out
+
+
+def reversed_comparisons(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """A comparison whose two sides the synthesis exchanges: "more for its occurrence than for the timing of recovery"
+    where a cited source states "more for the timing of recovery than for its occurrence" (each side of the synthesis
+    shares more content words with the OTHER side of the source's comparison than with its own)."""
+    src = [c for t in source_texts for c in _comparisons(t)]
+    if not src:
+        return []
+    out: list[str] = []
+    for kind, x, y, phrase in _comparisons(synthesized_text):
+        for kind2, x2, y2, phrase2 in src:
+            if kind != kind2 or (x == x2 and y == y2):
+                continue
+            if len(x & y2) > len(x & x2) and len(y & x2) > len(y & y2):
+                out.append(f"it reverses the two sides of a comparison ('{phrase}' where its cited sources state '{phrase2}')")
+                break
+    return list(dict.fromkeys(out))
 
 
 def _quotation_corpus(reports: list[SpecialistReport], known: list[ClaimRecord], extra_texts: tuple[str, ...]) -> list[str]:
@@ -719,10 +936,87 @@ def _figures(text: str) -> list[_Figure]:
     return out
 
 
-def figure_spellings(text: str) -> list[tuple[str, frozenset[str]]]:
+def figure_spellings(text: str, *, with_scale: bool = False) -> list[tuple[str, frozenset[str]]]:
     """``(label, spellings)`` for every figure and date of ``text`` (digits, words, scale words, month-years): two figures
-    are the same when their spellings meet ("a million", "1 million" and "1,000,000")."""
-    return [(f.label, f.keys) for f in _figures(text)]
+    are the same when their spellings meet ("a million", "1 million" and "1,000,000"). With ``with_scale`` a numeral's
+    label carries its scale word ("2.5 million"), as a finding should name it."""
+    return [((f"{f.label} {f.scale}" if with_scale and f.scale and f.label == f.mantissa else f.label), f.keys) for f in _figures(text)]
+
+
+#: Words of a crediting clause that never pair a date with an event: the colleague's name and the crediting verbs.
+_CREDIT_FILLER = frozenset(light_stem(w) for w in ("history english economics psychology business specialist specialists colleague report account "
+                                                   "dates dated gives gave puts placed places records recorded notes noted states stated says said "
+                                                   "writes wrote reports reported according words figure figures date year years statistic").split())
+
+
+def _event_stem(word: str) -> str:
+    """An event word's key for date pairing: a possessive dropped, :func:`light_stem`, and a noun in -ion read as its verb
+    ("dedication" and "dedicated" meet at "dedicat", "the statue's" and "the statue" at "statu")."""
+    w = word.casefold()
+    if w.endswith(("'s", "’s")):
+        w = w[:-2]
+    w = light_stem(w.rstrip("'’"))
+    return w[:-3] if w.endswith("ion") and len(w) > 7 else w
+
+
+def _clause_event_words(clause: list[str], surface: dict[str, str]) -> set[str]:
+    out: set[str] = set()
+    for w in clause:
+        low = w.casefold()
+        if _is_numeral(w) or low in _PARTNER_STOP or len(low) < 3:
+            continue
+        key = _event_stem(low)
+        if key in _MONTH_STEMS or key in _CREDIT_FILLER or light_stem(low) in _CREDIT_FILLER:
+            continue
+        surface.setdefault(key, low)
+        out.add(key)
+    return out
+
+
+def _year_partners(text: str, surface: dict[str, str]) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """``(years_of_word, words_of_year)``: per event word (:func:`_event_stem`), the years and decades stated in the same
+    clause of ``text`` (:func:`_clauses`), and per year the event words of its clauses."""
+    years_of: dict[str, set[str]] = {}
+    words_of: dict[str, set[str]] = {}
+    for clause in _clauses(text):
+        years = {tok for i, tok in enumerate(clause) if _is_numeral(tok) and _figure_kind(clause, i) in ("year", "decade")}
+        if not years:
+            continue
+        words = _clause_event_words(clause, surface)
+        for w in words:
+            years_of.setdefault(w, set()).update(years)
+        for y in years:
+            words_of.setdefault(y, set()).update(words)
+    return years_of, words_of
+
+
+def credited_date_repairings(stated: str, peer_text: str) -> list[str]:
+    """Dates a clause credited to a colleague pairs with an event the colleague dates otherwise: a year (or decade) the
+    clause states with event words that the peer report states, in its clauses, only with other years, while the peer
+    states this year with another event ("The History specialist dates the sonnet to 1886" where the peer writes "wrote
+    the sonnet in 1883" and "dedicated on 28 October 1886"). Every event word of the clause that the peer dates must
+    disagree: one that the peer dates with this year too ("the statue's dedication to 1886") clears it. A year the peer
+    never states is the plain INT-REQ-014 case; event words the peer dates nowhere decide nothing."""
+    surface: dict[str, str] = {}
+    years_of, words_of = _year_partners(peer_text, surface)
+    if not years_of:
+        return []
+    out: list[str] = []
+    for clause in _clauses(stated):
+        words = _clause_event_words(clause, surface)
+        dated = {w: years_of[w] for w in words if w in years_of}
+        if not dated:
+            continue
+        for i, tok in enumerate(clause):
+            if not _is_numeral(tok) or _figure_kind(clause, i) not in ("year", "decade") or tok not in words_of:
+                continue
+            if any(tok in ys for ys in dated.values()):
+                continue
+            others = sorted(set().union(*dated.values()))
+            shown = [surface.get(w, w) for w in sorted(dated)]
+            own = [surface.get(w, w) for w in sorted(words_of[tok])][:6]
+            out.append(f"'{tok}' is stated with {shown}, which the peer report dates only {others}; the peer states '{tok}' with {own} (a date re-paired to another event)")
+    return list(dict.fromkeys(out))
 
 
 def figure_tokens(text: str) -> set[str]:
@@ -759,10 +1053,16 @@ def _sorted_tokens(tokens: set[str]) -> list[str]:
 
 
 # --- who a synthesized claim credits (INT-LEDGER-025 misattribution, INT-LEDGER-026 view credit) -----------------------
-def _credit_documents(reports: list[SpecialistReport]) -> dict[str, "SuppliedText"]:
+#: The author of a request text in scope: the router wrote the request, so its words quoted as the poem's are misattributed.
+REQUEST_AUTHOR = "router"
+
+
+def _credit_documents(reports: list[SpecialistReport], request_texts: tuple[str, ...] | list[str] = ()) -> dict[str, "SuppliedText"]:
     """The texts a synthesized quotation may be credited to: every supplied text of the reports in scope (first text per
-    document id) and, per report, its response as a document whose author is the reporting agent ("the English
-    specialist" names it), so a specialist's prose quoted as a supplied text's words is told apart from that text."""
+    document id), per report its response as a document whose author is the reporting agent ("the English specialist"
+    names it), so a specialist's prose quoted as a supplied text's words is told apart from that text, and every request
+    text that is not already one of those (the router's own words: a request's wording quoted as the poem's or its
+    author's is misattributed too, ``request:<n>``)."""
     from ..translate.contracts import SuppliedText
     docs: dict[str, SuppliedText] = {}
     for r in reports:
@@ -771,12 +1071,17 @@ def _credit_documents(reports: list[SpecialistReport]) -> dict[str, "SuppliedTex
     for r in reports:
         if r.original_response.strip():
             docs.setdefault(f"report:{r.report_id}", SuppliedText(document_id=f"report:{r.report_id}", title=None, author=r.agent_id, text=r.original_response))
+    known = {d.text for d in docs.values()}
+    for i, t in enumerate(dict.fromkeys(x for x in request_texts if x and x.strip() and x not in known), start=1):
+        docs.setdefault(f"request:{i}", SuppliedText(document_id=f"request:{i}", title=None, author=REQUEST_AUTHOR, text=t))
     return docs
 
 
 def _doc_label(doc_id: str, doc) -> str:
     if doc_id.startswith("report:"):
         return f"the {doc.author} report {doc_id[len('report:'):]}"
+    if doc_id.startswith("request:"):
+        return f"the router's request ({doc_id})"
     who = ", ".join(x for x in (doc.author, doc.title) if x)
     return f"{doc_id} ({who})" if who else doc_id
 
@@ -806,11 +1111,20 @@ def misattributed_quotations(text: str, docs: dict, *, skip: set[str] = frozense
         if holds(q, docs[credit.document_id]):
             continue
         located = [d for d, doc in docs.items() if d != credit.document_id and holds(q, doc)]
+        # A request's words count as a holder only for a quotation of three words or more that is no title of a text in
+        # scope (a request names the poem it asks about; quoting the title is no misattribution).
+        if located and all(d.startswith("request:") for d in located) and (len(q.split()) < 3 or _is_title(q, docs)):
+            continue
         if not located:
             continue
         out.append(f"'{q[:80]}' is credited to {credit.phrase!r} ({_doc_label(credit.document_id, docs[credit.document_id])}) but occurs only in "
                    + ", ".join(_doc_label(d, docs[d]) for d in located[:4]))
     return list(dict.fromkeys(out))
+
+
+def _is_title(q: str, docs: dict) -> bool:
+    low = " ".join(q.split()).casefold()
+    return any(doc.title and low in " ".join(doc.title.split()).casefold() for doc in docs.values())
 
 
 def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list[str]:
@@ -932,7 +1246,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         keys = set().union(*(f.keys for f in _figures(sc.text))) if sc.text else set()
         for cid in sc.source_claim_ids:
             carried_by_source.setdefault(cid, set()).update(keys)
-    credit_docs = _credit_documents(reports)
+    credit_docs = _credit_documents(reports, tuple(extra_texts))
     agents = sorted({r.agent_id for r in reports})
     memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and _MEMORY_LABEL_RE.search(c.claim_text) for c in r.claims)}
 

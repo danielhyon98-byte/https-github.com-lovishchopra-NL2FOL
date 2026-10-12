@@ -150,7 +150,12 @@ tasks; every output crosses the hub as in production, independent overseer agent
 fidelity and fault naming, and fixes are regression-tested before the next round. The
 harness, the peer-exchange relay and the recorded rounds are described in
 `docs/ARENA_RESULTS.md`; stress figures for the engine, channel and hub are in
-`docs/STRESS_RESULTS.md`.
+`docs/STRESS_RESULTS.md`. The harness's functional rate checks that the hub delivered and
+decided every transmission and named every injected fault; it does not judge whether a
+finding is true. Its summary therefore states, under the headline, how many genuine receipts
+carry error-level findings and are still counted functional, and names every definitive
+verdict other than ENTAILED shown on a genuine claim with what it rests on. Whether the
+receipts are right is judged by the overseers.
 
 Bug testing and stress testing results (test layers, every overseer round's verdicts and findings, harness and stress numbers) are reported in `tests/README.md`.
 

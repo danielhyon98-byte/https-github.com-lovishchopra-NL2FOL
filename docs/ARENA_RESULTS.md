@@ -28,6 +28,18 @@ peer relay recorded by an earlier run is compared with that parse, not delivered
 Translation outcomes depend on the translation provider and are reported separately from the
 infrastructure rate.
 
+The harness rate does not judge whether a finding is true. A genuine transmission, peer relay
+or synthesis whose receipt carries an error is still functional when the hub delivered it and
+decided every check, whether the error names a real fault of the specialist or is false (the
+round-6 hi-t12 receipt carried an engine-signed INT-SUBJ-001 that all three overseers judged
+false, and was counted functional). Whether a receipt is right is what the overseers judge,
+which is one reason their rates are lower. Since round 6, summary.md says this under its
+headline: how many genuine, relay and synthesis records carry an error-level finding (each
+named with its codes and claim ids) or warnings only, and that they are counted functional
+(`genuine_receipts_with_errors` in results.json). It also names every definitive verdict other
+than ENTAILED displayed on a genuine claim, with its claim id and what it rests on
+(`displayed_non_entailed_definitive_outcomes`).
+
 ## Round 1 (four tasks: two English analytical paragraphs on a supplied extract, two History responses)
 
 | Measure | Before fixes | After fixes |
@@ -417,3 +429,76 @@ were r1 26 / 26, r1-adv 148 / 151, r2 to r4 41 / 41):
 
 Apart from those two r4 records, every genuine, peer-relay and mutation record kept the same
 status and findings, and every synthesis kept the same status and codes.
+
+## Round 6 (six fresh tasks, including a History-to-English peer exchange)
+
+Fresh outputs from the isolated agents: English paragraphs on the opening of Jane Eyre (reported
+and direct speech) and on Herbert's 'Love (III)' in its 1633 spelling (unmarked dialogue, long
+and short lines), History answers on the Marshall Plan and Western European recovery from 1948
+to 1952 (one body paragraph, to what extent, money figures) and on the pace of decolonisation in
+Africa from 1957 to 1968 (dated and quantified, with a judgement on the decisive year), and a
+peer exchange. In that exchange the History specialist's context paragraph for Emma Lazarus's
+'The New Colossus' (immigration in the 1880s, the Chinese Exclusion Act, the Statue's dedication)
+was relayed through the hub to the English specialist as the document peer:hi-p5 and quoted in
+its reading of the poem.
+
+| Measure | Value |
+| --- | --- |
+| Harness, genuine outputs, 6 mutations each, the peer relay and the 5 syntheses (r6), as run for the overseers | 46 / 46 functional (100%) |
+| Round-6 overseer verdicts (results-audit / communication-fidelity / adversarial-live), on the round-5 fixes | 0.724 / 0.49 / 0.8329 (round 5: 0.366 / 0.617 / 0.79); 36 findings (0 blockers, 21 majors, 15 minors); the three overseers confirmed 18, 15 and 15 earlier findings fixed |
+
+The results audit found that the harness headline hid wrong receipts. The 46 / 46 counted as
+functional the genuine hi-t12 receipt, which carried an engine-signed INT-SUBJ-001 on a true
+sentence (h1.5, 'From 1961 ... by 1968, including Tanganyika in 1961'), and the p5 synthesis,
+which carried an INT-LEDGER-019 warning; the overseers judged both findings false. Both are
+listed in the genuine section of summary.md, but nothing near the headline said that
+error-carrying genuine receipts are counted. The five COUNTEREXAMPLE verdicts displayed on genuine claims were given only as a count,
+so a reader of summary.md never saw which claims the router was told do not follow. What the
+harness fix changed (`scripts/arena/run_arena.py`, regression tests in
+`scripts/arena/test_arena_rules.py`):
+
+- **Error-carrying genuine receipts are stated under the headline.** summary.md now has a line
+  under the headline giving the number of genuine transmissions, peer relays and syntheses, how
+  many carry an error-level finding (each named with its codes and claim ids), how many carry
+  warnings only, how many of each are counted functional, and that the rate does not judge
+  whether a finding is true. results.json carries the same figures as
+  `genuine_receipts_with_errors`. The functional definition is unchanged, so no rate moved.
+- **Every displayed verdict other than ENTAILED is named.** Each outcome record now also keeps
+  what a verdict without a core rests on. That is the number of premises of the translated
+  problem, with how many are ungrounded or unverified (by the engine's own rule), the
+  conclusion's label, the engine's diagnostic codes and the assignment the engine returned (the
+  counterexample, or the witness of a CONSISTENT or SATISFIABLE result). A COUNTEREXAMPLE relies
+  on no premise: it holds every premise and falsifies the conclusion. Every definitive verdict
+  other than ENTAILED displayed on a genuine claim is listed in results.json
+  (`displayed_non_entailed_definitive_outcomes`) and in the translation-outcome section of
+  summary.md with its claim id and what it rests on. A definitive engine status that the outcome
+  layer withholds (E108 vacuous, E110 unasserted figure; displayed INVALID_FORMALIZATION) is not
+  listed, because the router is not shown it. The line on ENTAILED verdicts that rest only on
+  ungrounded premises now names those claims too
+  (`entailed_dependencies.resting_only_on_ungrounded_premises_claims`).
+
+Applied to the records exactly as run for the overseers, the new lines read as follows. r6 has
+12 genuine, relay and synthesis records. One carries an error-level finding (hi-t12.json
+[genuine]: INT-SUBJ-001 ['h1.5']) and is counted functional, and seven carry warnings only. The
+displayed COUNTEREXAMPLE verdicts are hi-p5 h1.5, hi-t11 h1.4 and hi-t12 h1.2, h1.4 and h1.7. r4,
+whose summary also gave its verdicts only as a count, displayed eight COUNTEREXAMPLE verdicts on
+genuine claims: en-t8 p4-point, hi-p3 h1.6 and h1.7, hi-t7 h1.5 and h1.9, and hi-t8 h1.1, h1.3 and
+h1.4. The re-run below lists the same eight claims with what they rest on: each counterexample
+holds every premise of its problem and falsifies the conclusion, the eight problems have 32
+premises between them, 31 of them ungrounded, and hi-t8 h1.4 ('The turning point was 1930.') has
+a problem with no premise at all.
+
+The recorded rounds re-run with the harness fix, on copies of each round (the recorded round
+directories were not written), on the code as it stood during the round-6 fix round (package
+fixes were landing at the same time, so the per-round counts of findings and verdicts reflect that
+code, not the code the overseers judged):
+
+| Set | Functional before | After | Genuine, relay and synthesis records with an error-level finding (all counted functional unless noted) | Definitive verdicts other than ENTAILED displayed on genuine claims |
+| --- | --- | --- | --- | --- |
+| r6 | 46 / 46 | 46 / 46 | 0 of 12 (hi-t12's false INT-SUBJ-001 is gone on this code); 8 with warnings only | 0: the five COUNTEREXAMPLEs are now INVALID_FORMALIZATION with E110 (unasserted figure) |
+| r5 | 46 / 46 | 46 / 46 | 1 of 12 (hi-p4 synthesis: INT-LEDGER-002) | 0 |
+| r4 | 46 / 46 | 46 / 46 | 1 of 12 (en-p3 synthesis: INT-LEDGER-002 on h1.8 and p1-s08) | 8, as listed above |
+| r3 | 46 / 46 | 46 / 46 | 2 of 12 (hi-t5 and p2 syntheses) | 0 |
+| r2 | 46 / 46 | 46 / 46 | 2 of 12 (hi-t4 and p1 syntheses) | 0 |
+| r1 | 30 / 30 | 30 / 30 | 3 of 8 (the en-t2, hi-t1 and hi-t2 syntheses) | 0 |
+| r1-adv | 150 / 151 | 150 / 151 | 6 of 23: five INT-REQ-005 request constraints the hostile variants do not meet (four word bounds, one 'no claim carries a source reference'), counted functional, and the empty response's INT-REQ-009, the one record not counted functional | 0 |

@@ -20,7 +20,7 @@ router ──► RouterHub ──► TranslatorChannel: envelope · hand-off · 
 | Module | Role |
 | --- | --- |
 | `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs; `run_packs` runs each pack's checks and formal checks on their own, so a pack that fails internally adds `PACK-INTERNAL-001` (error) naming the pack and the call while every other pack's findings and formal checks still reach the receipt), `IntegrityPack` protocol, `FormalCheck` (with `claim_ids`: the delivered claims whose text holds the statement the check was built from, which the channel copies onto `INT-SUBJ-001` / `INT-SUBJ-002`), `BranchRegistry` (subject label → branch, generic fallback). |
-| `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction, fold change or multiple, absolute change or average rate; the direction a from/to pair is said to move; a comparison with a stated benchmark; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series, a decade superlative among them; shares; totals; the parts of a stated total; a share of the total; a difference between two named parties' figures; a stated length of years against its span; a rate verb between a one-year count and a multi-year count; figures written with a currency sign) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure, comparison or superlative no problem can be built for is returned as undecided (`undecided_quant_statements`). Each check carries the phrase it reads, so its finding names the claim that states it. No model is involved. |
+| `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction, fold change or multiple, absolute change or average rate; the direction a from/to pair is said to move; a comparison with a stated benchmark; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series, a decade superlative among them; shares; totals; the parts of a stated total, after it ('of which', 'alone') or opening the clause ('Of the $13 billion, ...'); a share of the total; a yearly average of a total dated by a decade or a span; a difference between two named parties' figures; a stated length of years against its span; a rate verb between a one-year count and a multi-year count; figures written with a currency sign) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure, comparison or superlative no problem can be built for is returned as undecided (`undecided_quant_statements`). Each check carries the phrase it reads, so its finding names the claim that states it. No model is involved. |
 | `packs.py` | `CorePack` (every branch: quotation grounding, a structured claim's quotation against its own source reference, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification, support cycles in any delivered report, parsed or structured; each check runs on its own, a failing one being `CORE-INTERNAL-001`; at most `MAX_FORMAL_CHECKS` (500) formal checks per transmission, the rest named as undecided), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic), `BusinessPack` (margins), `GenericPack`. |
 | `registry.py` | The default registry and how subjects map to branches. |
 | `generic_parser.py` | Fallback sentence-level parser for subjects without a dedicated adapter. |
@@ -106,7 +106,8 @@ stated figures and whose conclusion is the stated change.
   about 50 per cent` on that pair (true 30.5) is a COUNTEREXAMPLE.
 * Figure length: a numeral of more than `MAX_FIGURE_DIGITS` (1,000) digits is never converted; the
   statement holding it is reported undecided (`CORE-QNT-001`, 'too large to check') and the report's
-  other checks still run.
+  other checks still run. A figure never starts inside another (`4.03` is not `03`, `1234,567` is not
+  `4,567`), so a run of 200,000 digits is read, and refused, in linear time.
 * Units: scales (thousand, million, billion, trillion, quadrillion; `k`, `m`, `bn`, `tn`,
   `trn`), per cent, rates (`per thousand`, `per 1,000`, `per 100,000`, `per head`, an
   exchange rate `to the dollar`), seats, votes. A pair whose units are of different kinds, or
@@ -137,6 +138,11 @@ stated figures and whose conclusion is the stated change.
   tonnes is undecided), never a per cent, point, fraction or fold (those are the relative
   readings). `from about 1,500 miles in 1840 to about 6,000 miles in 1850, an increase of about
   6,500 miles` is a COUNTEREXAMPLE.
+* A yearly average of a dated total: `About 5.2 million people entered the United States in the 1880s,
+  an average of about 900,000 a year` reads the one total its clause dates by a decade (ten years) or a
+  span (`from 1881 to 1890`: nine or ten years, either count accepted) over those years, so 900,000 is a
+  COUNTEREXAMPLE and 520,000 is ENTAILED. A figure that is itself a rate (`500,000 people a year`) or the
+  amount of a derived phrase is no total, and the average is then undecided.
 * The direction of a pair: a from/to pair that no derived figure binds, governed by a direction
   word right before its `from` (`pig iron rising from about 3.3 million tonnes to about 6.2
   million`, `rose sharply from`; a fall also `devalued`, `depreciated`, `reduced`, `cut`,
@@ -197,17 +203,31 @@ stated figures and whose conclusion is the stated change.
   (a year inside the decade or range the total covers, or a named party: `the United Kingdom alone
   received`): the parts may not exceed the total by more than the tolerance (each figure may be
   rounded). `about $23.2 billion` of $13 billion, or `nearly 7.9 million` of 5.2 million, is a
-  COUNTEREXAMPLE. Parts whose units, nouns or currency cannot be compared with the total are
-  undecided (`CORE-QNT-001`).
+  COUNTEREXAMPLE. A total that opens its clause (`Of the $13 billion, Britain received about $3.2
+  billion and France about $2.7 billion`, `Out of about 5.2 million arrivals in the 1880s, about 790,000
+  came in 1882`, `Of the 608 seats in July 1932, the NSDAP won 230 and the SPD 133`) bounds the figures
+  after its comma the same way; those parts end at a comparison or a change (`more than the $2.7
+  billion of France`, `up from`, `against`), which states no part. A verb right after a figure is not
+  the noun of the thing counted (`790,000 came in 1882` counts arrivals like its total). Parts whose
+  units, nouns or currency cannot be compared with the total are undecided (`CORE-QNT-001`).
 * A share of the total (kind `share`): `<part>, about a quarter of the decade's total`, `about 60
   per cent of the total`, `about two-thirds of the total` (also `sum`, `whole`, `aggregate`, `the
   decade's arrivals`) is read as the figure right before it over the figure before that in its
   sentence, within the tolerance rule; hi-p5's `nearly 790,000, about a quarter of the decade's
-  total` (15 per cent of 5.2 million) is a COUNTEREXAMPLE. A share whose part or total is not stated
-  as a figure in its sentence is undecided (`CORE-QNT-001`). `N per cent of M, or P` is read as before.
+  total` (15 per cent of 5.2 million) is a COUNTEREXAMPLE. A share stated for a named party with no
+  figure right before it (`..., so the United Kingdom alone received about two-thirds of the total`)
+  is read as the one figure the paragraph states for that party (`the United Kingdom received about
+  $3.2 billion`) over the total its parts are stated `of which`: a COUNTEREXAMPLE there, ENTAILED for
+  `about a quarter`. A share whose part or total is not stated as a figure (a party with no figure, or
+  several) is undecided (`CORE-QNT-001`). `N per cent of M, or P` is read as before.
 * Totals: `A and B ..., a total of C` (`totalling`, `together`, `in total`, `making`, `giving`) with
   a currency sign or a noun after any figure (`3.2 billion dollars and France about 2.7 billion
-  dollars, a total of about 9 billion dollars` is a COUNTEREXAMPLE).
+  dollars, a total of about 9 billion dollars` is a COUNTEREXAMPLE). A stated total that no check
+  reads while its parts are meant is undecided (`CORE-QNT-001`), naming why: a subject that refers to
+  parts it does not state (`The two received a total of about 9 billion dollars`, `Both received a
+  combined $5.9 billion`), or a single figure before it (`Britain received about $3.2 billion, a total
+  of about $9 billion`). A plain stated quantity (`The famine killed a total of about 1 million
+  people`) states no arithmetic and is not read.
 * Differences (kind `difference`): `the United Kingdom received about $2 billion more than France`
   (`less`, `fewer`, `higher`, `lower`, `larger`, `smaller`, `greater`) is read against the one figure
   the paragraph states right after each named party (`the United Kingdom received about $3.2
@@ -227,8 +247,11 @@ stated figures and whose conclusion is the stated change.
   reason (units that cannot be compared, no figures in its sentence and no dated series in the
   paragraph that supplies them, two series that could be meant, an anaphor with two candidate
   years, a decade whose neighbours are not stated decade by decade, a compared figure that is not
-  stated, a part, share or difference whose figures cannot be read, a figure too large to check),
-  so no stated arithmetic crosses the hub silently.
+  stated, a part, share, total or difference whose figures cannot be read, a figure too large to
+  check), so no stated arithmetic crosses the hub silently. The reason is true to the sentence: `no
+  figures are stated with it in its sentence` only when it states none (`The United Kingdom thus
+  received twice as much as France.`), and otherwise `its sentence states no pair of figures it can be
+  read against (only 5.2 million)`, naming the figures it does state.
 * Tolerance rule (`TOLERANCE_RULE`, repeated in every check's `rule` and in the
   receipt's check description): the stated figure must lie within 5 per cent of the
   value computed from the report's own figures. The band is symmetric around the
@@ -307,7 +330,10 @@ can never disagree.
   is ENTAILED and `In 1956 Guinea followed` a COUNTEREXAMPLE; with no dated event before it the
   relation is undecided (`CORE-CHR-001`), never read against its own year. So `After the
   murder of Rathenau in June 1922, the Law ... followed in July 1922` is ENTAILED and the
-  reversed dates a COUNTEREXAMPLE.
+  reversed dates a COUNTEREXAMPLE. A comma right after an intransitive `followed` or `preceded` ends
+  the verb: in `From 1961 to 1968 roughly fifteen more states followed, including Botswana in 1969`
+  the dates after the comma belong to the list's cue (`including`: 1969 outside 1961 to 1968), never to
+  an order.
 * Coordinated cues: in `The Ruhr was occupied in January 1923, after the London ultimatum of
   May 1921 and before the Dawes Plan of 1922` the second cue orders the clause's subject
   (January 1923), not the first cue's object, so the stated (false) `January 1923 before 1922`
@@ -368,7 +394,18 @@ can never disagree.
   the outer period's one year (`Reverses in December 1899, including ... Magersfontein on 11
   December`); `11 November` there, or `The 1840s, which included the Railway Mania of 1855 to 1857`,
   is a COUNTEREXAMPLE. `Y during X`, `Y within X`, `amid X` put a dated event inside the period after
-  the cue, and an inner range need only meet it (kind `overlaps`). An inner date stated more coarsely
+  the cue, and an inner range need only meet it (kind `overlaps`).
+* `<period>, when <clause>` (relation kind `within`, cue `when`): a date the `when` clause gives an
+  occurrence (`The pace changed in 1960, when Nigeria became independent on 1 October`) lies within the
+  period standing right before `when`; `on 1 October 1961` there is a COUNTEREXAMPLE. A beginning dated
+  in an aside or relative clause of it (`for 1950 to 1952, when ... demand from the Korean War, begun on
+  25 June 1950, lifted orders`; `In 1960, when the war that began in 1954 ...`) or an occurrence in the
+  pluperfect (`In 1919, when the war had ended in November 1918, ...`) lies no later than the period's
+  end, an open start: hi-t11's genuine sentence is ENTAILED and `begun on 25 June 1953` a
+  COUNTEREXAMPLE. A date after an ordering cue in the clause belongs to that cue, and a date after
+  `would` or `later`, a bound (`until 1968`) or a period that is itself a bound (`By 1968, when ...`)
+  states nothing about the period and is not read. A date inside a `when` clause that follows an
+  ordering cue's object is the `when` clause's, never that object's. An inner date stated more coarsely
   than the period (a year inside a month) is undecided. The engine's problem bounds both intervals in
   day ordinals.
 * Same year (relation kind `same_year`): `the poem's 1902 date falls at the war's close` places a
@@ -393,7 +430,7 @@ can never disagree.
 | `CORE-SRC-005` | error / warning | a quotation credited in its sentence to a named source (a supplied text's author or title, a peer agent such as `the History specialist`, `the poem` when one text was supplied) with a saying verb (`says`, `writes`, `admits`, `identifies`, `suggests`, ...), but located only in a different supplied text: the words are genuine, the credit is wrong. A credit to an author or work that was NOT supplied to this agent (`Hardy's speaker himself admits that his justification "becomes circular"`, `Hardy's poem identifies ... "exposes a motive of poverty"`, `<Name> writes`, and `the poem` / `the speaker` when no literary text was supplied and the sentence names no other source) is an error when the words occur only in a colleague's report, in the colleague's own prose rather than inside a quotation the colleague makes (the colleague quoting the poem is the poem's words, so `Hardy's speaker says he "had sold his traps"` is no finding). In a reporting clause (`The English specialist argues that Blake presents ... "..."`) the OUTER speaker is the credited source, so a colleague's words reported correctly are no finding. When the sentence names a second source before the quotation and that source holds the words, the credit is ambiguous: a warning naming both, not an error. A quotation found in no text is left to the grounding check (`INT-REQ-003`) or, when uncredited, to `CORE-SRC-003`. The finding names the claim whose source reference carries the misattributed excerpt and the sentence's own claim, never the claims of the sentence's other, correctly credited quotations |
 | `CORE-SRC-006` | error | a claim whose text quotes words no supplied text holds, while the claim (or a claim it rests on) credits a supplied text through its source references and no reference or note carries those words: the claim's quotation and its reference's excerpt disagree (`"Had we two but met"` in the claim, `Had he and I but met` in the reference), so the grounding check, which reads the reference, does not vouch for the words stated. On the English branch a quotation with no reference at all, in a report on one literary text, is credited to that text as the English parser credits it. A parsed report never raises it (every quotation a parser reads is carried by a reference or recorded in an assumption); the structured contract does. The quotation is then not also reported as `CORE-SRC-003` |
 | `CORE-CHR-001` | warning | a sentence orders two dated events, places a date within a period or at a point of one, but the relation could not be decided (see above: an aside date, an unstated year, an equal month or year, a coordinated cue whose subject carries no date, an event dated only in another sentence beside one the paragraph does not date, a demonstrative that refers to no identifiable dated event, an interval against a named event never dated, a named event the paragraph does not date, an intransitive `followed` with no dated event before it, an inner date coarser than its period, a point of a period no duration states, a relation beyond the per-transmission check limit); the stated relation was not checked |
-| `CORE-QNT-001` | warning | a derived figure, comparison, trend or superlative the sentence states could not be checked (see the arithmetic section: incomparable units, no figures in its sentence and none in the paragraph's dated series, two series that could be meant, an ambiguous `that year`, a decade superlative whose other decades are not stated, a compared figure that is not stated, a part, share, difference or rate trend whose figures cannot be read, a figure too large to check, a statement beyond the per-transmission check limit); one finding per sentence and reason, naming the phrases and the claim that states them; the stated arithmetic was not checked |
+| `CORE-QNT-001` | warning | a derived figure, comparison, trend or superlative the sentence states could not be checked (see the arithmetic section: incomparable units, no figures in its sentence and none in the paragraph's dated series, two series that could be meant, an ambiguous `that year`, a decade superlative whose other decades are not stated, a compared figure that is not stated, a part, share, total, difference or rate trend whose figures cannot be read (a total whose parts are meant but not stated as figures), a figure too large to check, a statement beyond the per-transmission check limit); one finding per sentence and reason, naming the phrases and the claim that states them; the stated arithmetic was not checked |
 | `CORE-SELF-001` | warning | verification-status language or a receipt imitation in the body; agent self-reports are advisory |
 | `CORE-STR-001` | error | a claim supports itself, or claims form a cycle through `supporting_claim_ids`, in a delivered report on any branch, parsed or structured (the same cycle reading as the generic structured adapter's `GEN-STR-002`): none of them can be evidence for the others; the finding names the claims of each cycle |
 | `CORE-INTERNAL-001` | error | one check of the core pack failed internally; its findings (and the formal checks built from the same reading) are missing, the other checks ran |
@@ -444,7 +481,9 @@ what a verdict looks like.
   turning point was 1930.`, `1930 marked the turning point`, `the decisive year was`, `the
   most important cause was`, `mattered most`, `1960 marked the decisive break`, a degree adjective
   standing alone as the predicate (`1960 was decisive.`), `The year of decision was 1960.`, `The
-  real break came in 1960.`, with a singular or plural copula and a period or judgement noun: `The 1840s were the most decisive decade.`, `The 1840s were the decisive
+  real break came in 1960.`, a verb of standing as before the turning point, a verdict noun or the
+  watershed (`1960 stands out as the turning point.`, `1960 emerged as the decisive year.`, `1960 ranks
+  as the watershed.`; `1960 ranks as a year of change.` stays a description), with a singular or plural copula and a period or judgement noun: `The 1840s were the most decisive decade.`, `The 1840s were the decisive
   decade.`, `The most decisive decade was the 1840s.`, `The 1840s saw the most decisive
   expansion.`) or opens with the criterion of one (`Measured by what the network could do, ...`,
   `Judged by ...`, `By the criterion of ...`) a `judgement`, all material whatever they date or

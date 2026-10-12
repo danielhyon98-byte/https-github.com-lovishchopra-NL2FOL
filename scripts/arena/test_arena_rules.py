@@ -12,6 +12,11 @@ Round-5 audits: the combinator's synthesis relay was kept inside the genuine rec
 without claim ids and cut to 300 characters, absent from genuine_with_errors and summary.md); and a re-run delivered the
 payload relay_peer.py had recorded for a peer group's source task instead of parsing its raw text with the current code,
 so a re-run's receipts showed the old parser's output (r4: INT-HANDOFF-006 on hi-p3's h1.1 after the parser fix).
+
+Round-6 results audit: the headline 'functional: 46 (100.0%)' counted a genuine receipt with an engine-signed false error
+and a synthesis with a false warning as functional without saying so, and the five COUNTEREXAMPLE verdicts displayed on
+genuine claims were given only as a count. summary.md now states the error-carrying genuine records under the headline,
+and names every displayed definitive verdict other than ENTAILED with its claim id and what it rests on.
 """
 from __future__ import annotations
 
@@ -285,3 +290,121 @@ def test_recorded_relay_is_compared_with_the_current_parse_not_delivered(tmp_pat
     summary = (tmp_path / "summary.md").read_text()
     assert "- relayed/en-y1.json (hi-y1 relayed to en-y1): DIFFERS from the current parse" in summary
     assert '  - h1.1 advisory_verification_status: recorded "verified" -> current null' in summary
+
+
+# --- round 6: the rate does not judge whether a finding is true; every displayed non-ENTAILED verdict is named ------
+
+def _outcome(claim_id, display, engine=None, **kw):
+    o = {"claim_id": claim_id, "display_status": display, "translation_status": "TRANSLATED" if engine else display, "ambiguity_flags": [],
+         "translation_diagnostics": [], "stale_fixture_refused": False}
+    if engine:
+        o.update(engine_status=engine, premises_relied_on=0, ungrounded_dependencies=0, unverified_dependencies=0, ungrounded_dependency_ids=[],
+                 engine_diagnostics=[], engine_diagnostic_codes=[], problem_premises=3, problem_ungrounded_premises=3, problem_unverified_premises=0,
+                 conclusion_label=f"conclusion of {claim_id}")
+    o.update(kw)
+    return o
+
+
+def test_error_receipts_on_genuine_records_are_stated_and_counted_functional():
+    """r6 results audit: the headline read 'functional: 46 (100.0%)' although the genuine hi-t12 receipt carried an
+    engine-signed false INT-SUBJ-001 and the p5 synthesis a false INT-LEDGER-019 warning. The harness rate does not judge
+    whether a finding is true, so summary.md now says, under the headline, how many genuine, relay and synthesis records
+    carry an error-level finding (naming each with its codes and claim ids) or warnings only, and that they are counted
+    functional. Mutation records are not genuine traffic and are not counted here."""
+    records = [{"file": "hi-t12.json", "variant": "genuine", "status": "ACCEPTED_WITH_FINDINGS", "functional": True,
+                "findings": [_f("INT-REQ-004", [], "request item i1 appears unaddressed", "warning")],
+                "subject_findings": [_f("INT-SUBJ-001", ["h1.5"], "stated containment of dated events ('including': 1961 within 1968)")]},
+               {"file": "en-p5.json", "variant": "synthesis", "synthesis_id": "syn-p5", "status": "ACCEPTED_WITH_FINDINGS", "functional": True,
+                "findings": [_f("INT-LEDGER-019", ["p1-s13"], "MATERIAL source claims ['p1-s13'] were dropped", "warning")], "subject_findings": []},
+               {"file": "en-p5.json", "variant": "peer_relay", "status": "ACCEPTED", "functional": True, "findings": [], "subject_findings": []},
+               {"file": "hi-t12.json", "variant": "wrong_arithmetic", "status": "ACCEPTED_WITH_FINDINGS", "functional": True,
+                "findings": [_f("INT-SUBJ-001", ["h1.9"], "percent_change does not hold")], "subject_findings": []}]
+    s = ra.genuine_error_receipts(records)
+    assert (s["genuine_records"], s["with_error_findings"], s["with_error_findings_counted_functional"]) == (3, 1, 1)
+    assert (s["with_warning_findings_only"], s["with_warning_findings_only_counted_functional"]) == (1, 1)
+    assert s["records_with_errors"] == [{"record": "hi-t12.json [genuine]", "file": "hi-t12.json", "variant": "genuine", "status": "ACCEPTED_WITH_FINDINGS",
+                                         "functional": True, "errors": [{"code": "INT-SUBJ-001", "claim_ids": ["h1.5"]}]}]
+    assert "does not judge whether a finding is true" in s["note"]
+    line = ra.error_receipt_line(s)
+    assert "Genuine transmissions, peer relays and combinator syntheses: 3." in line
+    assert "With an error-level finding: 1 (hi-t12.json [genuine]: INT-SUBJ-001 ['h1.5']), of which 1 counted functional." in line
+    assert "With warning-level findings only: 1, of which 1 counted functional." in line
+    assert "The rate does not judge whether a finding is true" in line
+    # an error-level finding on a record the rate does not count functional is said so too
+    records[0]["functional"] = False
+    assert "of which 0 counted functional" in ra.error_receipt_line(ra.genuine_error_receipts(records))
+
+
+def test_every_displayed_non_entailed_definitive_outcome_is_listed_with_what_it_rests_on():
+    """r6 results audit: summary.md gave the five COUNTEREXAMPLE verdicts displayed on genuine claims only as a count, so
+    a reader never saw which claims the router was told do not follow. Every definitive verdict other than ENTAILED that
+    is displayed on a genuine claim is listed with its claim id and what it rests on; a definitive engine status the
+    outcome layer withholds (E110, displayed INVALID_FORMALIZATION), a non-result, a refused stale fixture and the
+    mutation variants' repeats of the same claims are not."""
+    cex = _outcome("h1.2", "COUNTEREXAMPLE", "COUNTEREXAMPLE", model=["only_one_1957=true", "num_states_1957=2"], model_size=2)
+    inc = _outcome("h1.4", "INCONSISTENT_PREMISES", "INCONSISTENT_PREMISES", premises_relied_on=2, ungrounded_dependencies=1, ungrounded_dependency_ids=["pr_a"])
+    withheld = _outcome("h1.5", "INVALID_FORMALIZATION", "COUNTEREXAMPLE", engine_diagnostic_codes=["E110"])
+    stale = {**_outcome("h1.6", "COUNTEREXAMPLE", "COUNTEREXAMPLE"), "stale_fixture_refused": True}
+    records = [{"file": "hi-t12.json", "task_id": "hi-t12", "variant": "genuine",
+                "outcomes": [_outcome("h1.1", "ENTAILED", "ENTAILED"), cex, inc, withheld, _outcome("h1.7", "AMBIGUOUS_TRANSLATION"), stale]},
+               {"file": "hi-t12.json", "task_id": "hi-t12", "variant": "chronology_error", "outcomes": [dict(cex)]}]
+    listed = ra.displayed_non_entailed_definitive(records)
+    assert [(e["file"], e["variant"], e["claim_id"], e["display_status"]) for e in listed] == [("hi-t12.json", "genuine", "h1.2", "COUNTEREXAMPLE"),
+                                                                                             ("hi-t12.json", "genuine", "h1.4", "INCONSISTENT_PREMISES")]
+    assert listed[0]["model"] == ["only_one_1957=true", "num_states_1957=2"] and listed[0]["problem_premises"] == 3 and listed[0]["problem_ungrounded_premises"] == 3
+    assert listed[1]["ungrounded_dependency_ids"] == ["pr_a"] and listed[1]["engine_status"] == "INCONSISTENT_PREMISES"
+    lines = ra.definitive_outcome_lines(listed)
+    assert lines[0].startswith("- definitive verdicts other than ENTAILED displayed on genuine claims") and lines[0].endswith(": 2")
+    assert lines[1].startswith("  - hi-t12.json h1.2: COUNTEREXAMPLE (translation TRANSLATED, engine COUNTEREXAMPLE); rests on the problem's 3 premise(s), 3 ungrounded and 0 unverified")
+    assert "a counterexample has no core" in lines[1] and "counterexample: only_one_1957=true, num_states_1957=2" in lines[1] and "conclusion: 'conclusion of h1.2'" in lines[1]
+    assert lines[2].startswith("  - hi-t12.json h1.4: INCONSISTENT_PREMISES") and "2 premise(s) relied on, 1 ungrounded ['pr_a'] and 0 unverified" in lines[2]
+    assert ra.definitive_outcome_lines([]) == [lines[0][:-1] + "0"]
+    assert ra.DEFINITIVE_NON_ENTAILED == {"COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "CONSISTENT", "SATISFIABLE", "UNSATISFIABLE"}
+
+
+_GK = {"kind": "general_knowledge", "certainty": "probable", "note": "stated from memory"}
+#: A translation of hi-x1's h1.1 whose premises do not carry the census figure: the engine returns a real COUNTEREXAMPLE
+#: (not an unasserted-figure E110), which the outcome layer displays.
+H11_COUNTEREXAMPLE_FIXTURE = {
+    "problem": {"ir_version": "1.0", "problem_id": "hi-x1-h1.1", "request_id": f"req-{TASK}", "claim_id": "h1.1", "query": "entailment",
+                "symbols": [{"name": "largest_city", "sort": "Bool", "meaning": "London in 1802 was the largest city in Europe", "grounding": _GK},
+                            {"name": "near_million", "sort": "Bool", "meaning": "London had close to a million inhabitants in 1801", "grounding": _GK}],
+                "premises": [{"id": "pr_largest", "expr": {"op": "var", "name": "largest_city"}, "label": "London in 1802 was the largest city in Europe",
+                              "grounding": _GK, "materiality": "material"}],
+                "conclusion": {"id": "concl", "expr": {"op": "and", "args": [{"op": "var", "name": "largest_city"}, {"op": "var", "name": "near_million"}]},
+                               "label": "London was the largest city in Europe, with close to a million inhabitants."}},
+    "interpretation": {"reading": "The census figure is not among the premises.",
+                       "glossary": [{"symbol": "largest_city", "meaning": "largest city in Europe", "grounding": None},
+                                    {"symbol": "near_million", "meaning": "close to a million inhabitants", "grounding": None}]},
+    "ambiguous": False, "unsupported_reason": None}
+FALSE_ARITHMETIC = " Its population rose from 800,000 in 1781 to 960,000 in 1801, an increase of 50 per cent."
+
+
+def test_round_states_error_receipts_under_the_headline_and_names_each_counterexample(tmp_path):
+    """Through the hub: a genuine History answer with a false percentage (a true INT-SUBJ-001 error on the genuine
+    receipt) and a translation of h1.1 that the engine answers with a COUNTEREXAMPLE. The genuine record is counted
+    functional, and summary.md says so under the headline; the COUNTEREXAMPLE is listed in results.json and summary.md with
+    claim id h1.1, the problem's premises, the counterexample and the conclusion."""
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "translations").mkdir()
+    (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps({**HISTORY_ITEM, "response_text": HISTORY_ITEM["response_text"] + FALSE_ARITHMETIC}))
+    (tmp_path / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": H11_COUNTEREXAMPLE_FIXTURE}}))
+    out = ra.run_round(tmp_path)
+    genuine = next(r for r in out["records"] if r["variant"] == "genuine")
+    err = [f for f in genuine["findings"] + genuine["subject_findings"] if f["severity"] == "error"]
+    assert genuine["functional"] and [f["code"] for f in err] == ["INT-SUBJ-001"]
+    s = out["genuine_receipts_with_errors"]
+    assert (s["genuine_records"], s["with_error_findings"], s["with_error_findings_counted_functional"]) == (1, 1, 1)
+    o = next(x for x in genuine["outcomes"] if x["claim_id"] == "h1.1")
+    assert o["display_status"] == o["engine_status"] == "COUNTEREXAMPLE" and o["engine_diagnostic_codes"] == []
+    listed = out["displayed_non_entailed_definitive_outcomes"]
+    assert [(e["file"], e["claim_id"], e["display_status"]) for e in listed] == [(f"{TASK}.json", "h1.1", "COUNTEREXAMPLE")]
+    assert listed[0]["model"] == ["largest_city=true", "near_million=false"] and listed[0]["problem_premises"] == 1 and listed[0]["problem_ungrounded_premises"] == 1
+    assert listed[0]["conclusion_label"].startswith("London was the largest city in Europe")
+    lines = (tmp_path / "summary.md").read_text().split("\n")
+    assert lines[2].startswith(f"Transmissions: {out['transmissions']}; functional: {out['functional']}")
+    assert lines[4].startswith("Genuine transmissions, peer relays and combinator syntheses: 1. With an error-level finding: 1 "
+                               f"({TASK}.json [genuine]: INT-SUBJ-001 {err[0]['claim_ids']}), of which 1 counted functional.")
+    assert "The rate does not judge whether a finding is true" in lines[4]
+    row = next(x for x in lines if x.startswith(f"  - {TASK}.json h1.1: COUNTEREXAMPLE"))
+    assert "rests on the problem's 1 premise(s), 1 ungrounded and 0 unverified" in row and "counterexample: largest_city=true, near_million=false" in row

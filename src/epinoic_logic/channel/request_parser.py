@@ -200,19 +200,40 @@ def _note_core(sentence: str) -> str:
     return split_note_clauses(sentence)[0].strip()
 
 
+def _segments(paragraph: str) -> list[tuple[str, bool]]:
+    """``(sentence, is_json)`` pieces of one paragraph, cut as the parsers cut it: every pasted JSON span (a receipt or a
+    payload glued to the prose, ``markdown.split_json_spans``) is one piece of its own, and the prose between spans is
+    split into sentences. A JSON span therefore never takes the prose around it out of the answer: only its own words
+    are meta-text, and the sentences around it are read (and counted) as the claims the parser delivers."""
+    from ..adapters.markdown import split_json_spans
+    out: list[tuple[str, bool]] = []
+    for piece, is_json in split_json_spans(paragraph):
+        if is_json:
+            out.append((piece, True))
+            continue
+        out += [(s, False) for s in _SENT_RE.split(piece.strip()) if s.strip()]
+    return out
+
+
 def count_answer_words(text: str) -> tuple[int, int]:
     """``(answer words, note words)``: the words of the answer proper and the words of the
     note blocks and note clauses :func:`count_paragraphs` leaves out (from-memory labels,
-    self-certification lines, task notes), so a word bound is measured over the same text as
-    a paragraph bound and the receipt can say how many words were meta-text. A sentence whose
-    only note is an inline label counts its substance as answer and the label as notes."""
+    self-certification lines, task notes, pasted JSON spans), so a word bound is measured over
+    the same text as a paragraph bound and the receipt can say how many words were meta-text.
+    A sentence whose only note is an inline label counts its substance as answer and the label
+    as notes. Sentences are cut as the parsers cut them (:func:`_segments`): a JSON fragment
+    glued into a paragraph is meta-text on its own and the sentences around it stay answer, so
+    adding ``{"n": 1}`` to a paragraph never takes its prose out of a word bound."""
     from ..adapters.markdown import strip_markup
     answer = notes = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():
             continue
-        for s in (x for x in _SENT_RE.split(p.strip()) if x.strip()):
+        for s, is_json in _segments(p.strip()):
             n = count_words(s)
+            if is_json:
+                notes += n
+                continue
             core = _note_core(s)
             if not core:
                 notes += n
@@ -226,16 +247,16 @@ def count_answer_words(text: str) -> tuple[int, int]:
 def count_paragraphs(text: str) -> int:
     """Paragraphs of the answer proper. A block that is only a note about the text (a
     from-memory label such as 'Dates and figures are from memory; verify them', or a
-    self-certification line) is not a paragraph the request asked for and is not counted;
-    markdown headings and code fences are not paragraphs either. A block whose sentences keep
-    a substance once their inline labels are set aside is a paragraph."""
+    self-certification line, or a pasted JSON span) is not a paragraph the request asked for
+    and is not counted; markdown headings and code fences are not paragraphs either. A block
+    whose sentences keep a substance once their inline labels are set aside is a paragraph."""
     from ..adapters.markdown import strip_markup
     count = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():
             continue
-        sentences = [s for s in _SENT_RE.split(p.strip()) if s.strip()]
-        if sentences and all(not _note_core(s) for s in sentences):
+        segments = _segments(p.strip())
+        if segments and all(is_json or not _note_core(s) for s, is_json in segments):
             continue
         count += 1
     return count

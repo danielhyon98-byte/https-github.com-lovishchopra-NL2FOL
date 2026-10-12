@@ -113,14 +113,26 @@ def _now() -> str:
 _TERM_RE = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
 
 
+def _place_of(word: str) -> str:
+    """A capitalised adjective of place read as its place ("African" -> "africa", "European" -> "europe", "Russian" ->
+    "russia"), so an item about "Africa" and a claim about "African states" share a term. Applied to both sides of the
+    comparison alike; any other word is returned unchanged (case-folded)."""
+    low = word.casefold()
+    if len(word) >= 6 and word[0].isupper() and low.endswith("an"):
+        return low[:-2] if low.endswith("ean") else low[:-1]
+    return low
+
+
 def _terms(text: str) -> set[str]:
     """Content terms of ``text`` for the coverage heuristic: quotation marks and a possessive ``'s`` stripped, function
-    words dropped, then light-stemmed (``light_stem``, the echo test's rule), so "the poem's 'smokeless air'" shares
-    ``poem``, ``smokeless`` and ``air`` with a claim about the smokeless air of the poem."""
+    words dropped, an adjective of place read as its place (:func:`_place_of`), then light-stemmed (``light_stem``, the
+    echo test's rule), so "the poem's 'smokeless air'" shares ``poem``, ``smokeless`` and ``air`` with a claim about the
+    smokeless air of the poem, and "decolonisation in Africa" shares ``africa`` with "African states"."""
     out: set[str] = set()
-    for w in _TERM_RE.findall(text.casefold()):
+    for w in _TERM_RE.findall(text):
         if w.endswith(("'s", "’s")):
             w = w[:-2]
+        w = _place_of(w)
         if len(w) < 3 or w in _STOP:
             continue
         out.add(light_stem(w))
@@ -230,22 +242,68 @@ def _check_sentence(description: str) -> str:
     return body
 
 
+#: The suffix the chronology checks give a period's premises ("1960 begins", "1 October 1960 ends"): not part of the text.
+_PERIOD_EDGE_RE = re.compile(r"\s+(?:begins|ends)$")
+_FIGURE_SCALE_RE = re.compile(r"[$£€¥]?\d[\d,]*(?:\.\d+)?(?:\s+(?:thousand|million|billion|trillion))?")
+_DAY_MONTH_YEAR_RE = re.compile(r"(\d{1,2}\s+[^\W\d_]{3,})\s+\d{3,4}$")
+
+
+def _find_anchor(low: str, anchor: str) -> tuple[int, int]:
+    """``(position, length)`` of ``anchor`` in ``low`` (both case-folded): the whole anchor, else its leading figure with any
+    scale word ("3.3 million in 1928" -> "3.3 million" when the text writes "3.3 million tonnes in 1928"); (-1, 0) when
+    neither occurs."""
+    a = anchor.casefold()
+    k = low.find(a)
+    if k >= 0:
+        return k, len(a)
+    m = _FIGURE_SCALE_RE.match(a)
+    if m and len(m.group(0)) >= 3:
+        k = low.find(m.group(0))
+        if k >= 0:
+            return k, len(m.group(0))
+    d = _DAY_MONTH_YEAR_RE.match(a)  # "2 october 1958" where the sentence writes "In 1958 Guinea followed on 2 October"
+    if d:
+        k = low.find(d.group(1))
+        if k >= 0:
+            return k, len(d.group(1))
+    return -1, 0
+
+
+def _find_figure(text: str, figure: str, start: int) -> Optional[tuple[int, int]]:
+    """The span of ``figure`` in ``text`` at or after ``start``, thousands separators ignored on both sides ("6500" meets
+    "6,500")."""
+    want = figure.replace(",", "")
+    for m in re.finditer(r"\d[\d,]*(?:\.\d+)?", text[start:]):
+        if m.group(0).rstrip(",").replace(",", "") == want:
+            return start + m.start(), start + m.start() + len(m.group(0).rstrip(","))
+    return None
+
+
 def _clause_of(text: str, anchors: list[str], stated: Optional[str]) -> Optional[str]:
     """The clause of ``text`` a check was built from: from the phrase holding its first figure or dated event to the
-    stated derived figure (or the last anchor) and the end of that phrase."""
+    stated derived figure (or the last anchor) and the end of that phrase. Boundaries are read with
+    :func:`~epinoic_logic.adapters.sources.clause_boundaries`, so the quote never starts or stops inside a decimal figure
+    ("3.3 million") or after an abbreviation ("c. 1963"), and it never starts inside a word or a figure."""
+    from ..adapters.sources import clause_boundaries
     low = text.casefold()
-    found = [(low.find(a.casefold()), len(a)) for a in anchors if a and low.find(a.casefold()) >= 0]
+    found = [x for x in (_find_anchor(low, _PERIOD_EDGE_RE.sub("", a)) for a in anchors if a) if x[0] >= 0]
     if not found:
         return None
     start = min(p for p, _n in found)
     end = max(p + n for p, n in found)
     if stated:
-        k = low.find(stated.casefold(), end)
-        if 0 <= k < end + 120:
-            end = k + len(stated)
-    tail = re.search(r"[,;.!?](?:\s|$)|$", text[end:end + 120])
-    end += tail.start() if tail else 0
-    back = max(text.rfind(ch, 0, start) for ch in ",;:.!?")
+        span = _find_figure(text, stated, end)
+        if span is not None and span[0] < end + 120:
+            end = span[1]
+    bounds = clause_boundaries(text)
+    paren = text.find(" (", end)  # a parenthetical label after the statement ("(from memory)") is not part of it
+    after = sorted([b for b in bounds if b >= end] + ([paren] if paren >= 0 else []))
+    end = after[0] if after and after[0] < end + 120 else min(len(text), end + 120 if not after else after[0])
+    if not after and end < len(text):
+        space = text.rfind(" ", 0, end)
+        end = space if space > start else end
+    before = [b for b in bounds if b < start]
+    back = before[-1] if before else -1
     if back >= 0 and start - back <= 90:
         start = back + 1
     elif start > 90:
@@ -253,6 +311,8 @@ def _clause_of(text: str, anchors: list[str], stated: Optional[str]) -> Optional
         start = space + 1 if space >= 0 else start
     else:
         start = 0
+    while 0 < start < len(text) and (text[start - 1].isalnum() or (text[start - 1] in ".,'’" and start >= 2 and text[start - 2].isalnum() and text[start].isalnum())):
+        start -= 1  # never start inside a word or a figure
     return " ".join(text[start:end].split())[:300] or None
 
 
@@ -302,6 +362,34 @@ def _coerce_payload(payload) -> tuple[Optional[Union[SpecialistReport, Synthesis
         except (ValidationError, TypeError, ValueError) as exc:
             return None, f"a mapping that does not validate against the {'synthesis' if model is Synthesis else 'specialist_report'} contract: {_shape_reason(exc)}"
     return None, f"a payload of type {type(payload).__name__}, which is neither a specialist report nor a synthesis"
+
+
+#: The provenance fields a claim shares with its report: a claim whose value differs carries another report's provenance.
+_CLAIM_PROVENANCE_FIELDS = ("report_id", "request_id", "task_id", "agent_id")
+
+
+def _raw_claim_provenance(data: Mapping) -> list[IntegrityFinding]:
+    """INT-HANDOFF-012 for every claim of a report received as a mapping whose ``report_id``, ``request_id``, ``task_id``
+    or ``agent_id`` differs from the report's, decided on the raw payload BEFORE contract validation (the contract
+    refuses such a claim with a bare value error), naming the claim and the fields."""
+    claims = data.get("claims")
+    if not isinstance(claims, list):
+        return []
+    out: list[IntegrityFinding] = []
+    rid, aid = _scrub(str(data.get("report_id") or ""))[:128], _scrub(str(data.get("agent_id") or ""))[:128]
+    for raw in claims:
+        if not isinstance(raw, Mapping):
+            continue
+        mismatch = [k for k in _CLAIM_PROVENANCE_FIELDS if k in raw and k in data and raw.get(k) != data.get(k)]
+        if not mismatch:
+            continue
+        cid = _scrub(str(raw.get("claim_id", "?")))[:128]
+        shown_claim = [_scrub(str(raw.get(k)))[:128] for k in mismatch]
+        shown_report = [_scrub(str(data.get(k)))[:128] for k in mismatch]
+        out.append(IntegrityFinding(code="INT-HANDOFF-012", severity="error",
+                                    message=f"claim {cid} carries provenance that differs from its report in {mismatch} (claim {shown_claim} vs report {shown_report}): a claim of another report, request, task or agent hidden inside this one; decided on the payload as received, before contract validation; not delivered",
+                                    claim_ids=[cid], report_ids=[rid] if rid else [], agent_ids=sorted({x for x in (aid, shown_claim[mismatch.index("agent_id")] if "agent_id" in mismatch else "") if x})))
+    return out
 
 
 class TranslatorChannel:
@@ -431,6 +519,9 @@ class TranslatorChannel:
         if isinstance(payload, SpecialistReport):
             return self.respond(request_message_id, payload, sender_agent_id=agent_id)
         if isinstance(payload, Mapping):
+            provenance = _raw_claim_provenance(payload)
+            if provenance:  # a claim of another report inside this one: named as such, never a bare contract value error
+                return self._withheld_payload(request_message_id, payload, agent_id=agent_id, report_id=report_id, branch_key=branch.key, message="", findings=provenance)
             try:
                 report = SpecialistReport.model_validate(dict(payload))
             except (ValidationError, TypeError, ValueError) as exc:
@@ -443,8 +534,11 @@ class TranslatorChannel:
                                       message=f"response from {agent_id!r} is {why}; it was not delivered")
 
     def _withheld_payload(self, in_reply_to: Optional[str], payload, *, agent_id: str, report_id: str, branch_key: str, message: str,
-                          sender_role: AgentRole = AgentRole.SPECIALIST, recipient_role: AgentRole = AgentRole.ROUTER, recipient_agent_id: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
-        """A payload the channel cannot read as a contract: the envelope carries its type and digest only; REJECTED with INT-REQ-009."""
+                          sender_role: AgentRole = AgentRole.SPECIALIST, recipient_role: AgentRole = AgentRole.ROUTER, recipient_agent_id: Optional[str] = None,
+                          findings: Optional[list[IntegrityFinding]] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+        """A payload the channel cannot read as a contract (or, with ``findings``, one it refuses before validation: a claim
+        carrying another report's provenance, INT-HANDOFF-012): the envelope carries its type and digest only; REJECTED
+        with INT-REQ-009 naming ``message``, or with the given findings."""
         try:
             digest = payload_hash(payload) if isinstance(payload, (Mapping, list)) else sha256_hex(repr(payload))
         except Exception:
@@ -454,7 +548,8 @@ class TranslatorChannel:
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=self.plan.request_id, task_id=self.plan.task_id, sender_agent_id=agent_id or "unknown",
                            sender_role=sender_role, recipient_role=recipient_role, recipient_agent_id=recipient_agent_id, contract="unreadable_payload/1.0",
                            payload=body, payload_sha256=payload_hash(body), in_reply_to=in_reply_to, created_at=_now())
-        findings = self.log.accept(msg) + [IntegrityFinding(code="INT-REQ-009", severity="error", message=message, report_ids=[report_id] if report_id else [], agent_ids=[agent_id] if agent_id else [], message_ids=[msg.message_id])]
+        given = [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in findings] if findings else None
+        findings = self.log.accept(msg) + (given or [IntegrityFinding(code="INT-REQ-009", severity="error", message=message, report_ids=[report_id] if report_id else [], agent_ids=[agent_id] if agent_id else [], message_ids=[msg.message_id])])
         return self._finish(msg, "specialist_to_router" if recipient_role is AgentRole.ROUTER and sender_role is AgentRole.SPECIALIST else "agent_to_agent", findings, [], [], [], branch_key=branch_key)
 
     def _sender_identity(self, agent_id: str, req: Optional[TaskRequest]) -> list[IntegrityFinding]:
@@ -621,6 +716,7 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {sorted(report_docs - req_docs)}", document_ids=sorted(report_docs - req_docs)))
         if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
+        findings += self._claim_id_collisions(report)
         covered, form_covered, source_findings = self._source_findings(report, supplied)
         findings += source_findings
         findings += self._peer_figures(report, supplied)
@@ -670,6 +766,11 @@ class TranslatorChannel:
         against the contract its shape names (``synthesis_id``: synthesis/1.0, ``report_id``: specialist_report/1.0) first;
         anything else, or a mapping that does not validate, is REJECTED with INT-REQ-009 and nothing raises."""
         if not isinstance(payload_obj, (SpecialistReport, Synthesis)):
+            provenance = _raw_claim_provenance(payload_obj) if isinstance(payload_obj, Mapping) and "report_id" in payload_obj and "synthesis_id" not in payload_obj else []
+            if provenance:  # decided on the payload as received, before contract validation (never a bare value error)
+                return self._withheld_payload(in_reply_to, payload_obj, agent_id=_scrub(str(from_agent_id))[:128], report_id=_scrub(str(payload_obj.get("report_id") or ""))[:128], branch_key=self.branch.key,
+                                              message="", sender_role=from_role if isinstance(from_role, AgentRole) else AgentRole.SPECIALIST,
+                                              recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None), findings=provenance)
             coerced, why = _coerce_payload(payload_obj)
             if coerced is None:
                 rid = str(payload_obj.get("report_id") or payload_obj.get("synthesis_id") or "") if isinstance(payload_obj, Mapping) else ""
@@ -722,6 +823,7 @@ class TranslatorChannel:
             findings += self._report_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+            findings += self._claim_id_collisions(payload_obj)
             findings += self._fold_findings(payload_obj, payload_obj.supplied_texts)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
             findings += self._foreign_credits(payload_obj, payload_obj.supplied_texts, structural)
@@ -991,13 +1093,17 @@ class TranslatorChannel:
     @staticmethod
     def _peer_figures(report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
         """INT-REQ-014 (warning): a claim that credits a relayed peer specialist's report ("the History specialist gives
-        close to two million inhabitants": the clause after the peer's possessive or after the peer as the subject of a
-        reporting verb, :func:`~epinoic_logic.adapters.sources.credited_spans`) states there, outside its quotations,
-        figures or dates that occur in no supplied text, the peer's report included. Quotations of the peer are checked as quotations (INT-REQ-003); this names a
-        figure misreported in an unquoted paraphrase of the colleague. Figures in words count (the ledger's reader)."""
+        close to two million inhabitants": the clause after the peer's possessive, after the peer as the subject of a
+        reporting verb, or after "according to" the peer, :func:`~epinoic_logic.adapters.sources.credited_spans`; a decimal
+        point or an abbreviation never ends that clause) states there, outside its quotations, figures or dates (digits or
+        words) that occur in no supplied text, the peer's report included, or a date the peer gives for another event
+        (:func:`~epinoic_logic.integrity.ledger.credited_date_repairings`: "The History specialist dates the sonnet to
+        1886" where the peer dates the sonnet 1883 and the statue's dedication 1886). Quotations of the peer are checked
+        as quotations (INT-REQ-003); this names a figure misreported in an unquoted paraphrase of the colleague, shown with
+        its scale word ("2.5 million"). Figures in words count (the ledger's reader)."""
         from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import credited_spans
-        from ..integrity.ledger import figure_spellings
+        from ..integrity.ledger import credited_date_repairings, figure_spellings
         peers = [t for t in supplied if t.document_id.startswith("peer:") or (t.author or "").endswith("-specialist")]
         if not peers:
             return []
@@ -1015,11 +1121,41 @@ class TranslatorChannel:
             if not credited:
                 continue
             stated = " ".join(text[a:b] for sp in spans.values() for a, b in sp)
-            unknown = sorted({label for label, keys in figure_spellings(stated) if not (keys & known)})
+            unknown = sorted({label for label, keys in figure_spellings(stated, with_scale=True) if not (keys & known)})
+            ids = dict(claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=credited)
             if unknown:
-                out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} but states figures or dates {unknown} that occur in neither the peer's report nor any other supplied text: a colleague's figure misreported in an unquoted paraphrase, or the agent's own unsupported figure",
-                                            claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=credited))
+                out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} but states figures or dates {unknown} that occur in neither the peer's report nor any other supplied text: a colleague's figure misreported in an unquoted paraphrase, or the agent's own unsupported figure", **ids))
+                continue
+            repaired = [d for p in peers if spans.get(p.document_id) for a, b in spans[p.document_id] for d in credited_date_repairings(text[a:b], p.text)]
+            if repaired:
+                out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} with a date the peer gives for another event: " + "; ".join(dict.fromkeys(repaired)) + ": a colleague's date misreported in an unquoted paraphrase", **ids))
         return out
+
+    def _claim_id_collisions(self, report: SpecialistReport) -> list[IntegrityFinding]:
+        """INT-REQ-016 (warning): a claim id of this report that a report of ANOTHER agent already delivered on this task
+        holds. The router would hold two different claims under one id, and a synthesis citing it cannot be accounted
+        for (INT-LEDGER-014), so the collision is named at delivery, with both reports, for the router and the
+        combinator to disambiguate before citing it. The same agent re-using its own ids is a supersession
+        (INT-HANDOFF-009), and a report already held under its id (a hand-off of the same report) collides with nothing."""
+        if report.report_id in self.transmitted_reports:
+            return []
+        mine = {c.claim_id for c in report.claims}
+        held: dict[str, list[str]] = {}
+        agents: set[str] = set()
+        for r in self.transmitted_reports.values():
+            if r.agent_id == report.agent_id:
+                continue
+            for c in r.claims:
+                if c.claim_id in mine:
+                    held.setdefault(c.claim_id, []).append(r.report_id)
+                    agents.add(r.agent_id)
+        if not held:
+            return []
+        ids = sorted(held)
+        where = "; ".join(f"{cid!r} in {sorted(set(rids))}" for cid, rids in sorted(held.items())[:_MAX_NAMED]) + (f" and {len(held) - _MAX_NAMED} more" if len(held) > _MAX_NAMED else "")
+        return [IntegrityFinding(code="INT-REQ-016", severity="warning",
+                                 message=f"report {report.report_id!r} of agent {report.agent_id!r} delivers claim id(s) {_named(ids)} that a report of another agent already delivered on this task holds ({where}): the router now holds two different claims under one id, and a synthesis citing it cannot be accounted for by id (INT-LEDGER-014); disambiguate before citing",
+                                 claim_ids=ids, report_ids=_dedupe_ids([report.report_id] + [rid for cid in ids for rid in held[cid]]), agent_ids=sorted(agents | {report.agent_id}))]
 
     def _channel_texts(self, supplied: list[SuppliedText]) -> dict[str, SuppliedText]:
         """Every text known on this channel: the agent's own supplied texts first, then the texts the router supplied to

@@ -89,7 +89,16 @@ def test_wordings_of_the_hi_t12_verdict_are_judgements(wording):
     assert (c.claim_role, c.materiality) == ("judgement", "material")
 
 
-@pytest.mark.parametrize("sentence", ["The significant growth was in 1960.", "The break-up of the federation came in 1963.", "1960 was a year of change."])
+@pytest.mark.parametrize("wording", ["1960 stands out as the turning point.", "1960 stood out as the decisive year.", "1960 emerged as the decisive year.",
+                                     "1960 counts as the turning point.", "1960 ranks as the watershed.", "1960 emerged as the watershed."])
+def test_a_verb_of_standing_as_states_the_verdict(wording):
+    rep = parse(HI_T12.replace("The decisive turning point was 1960.", wording))
+    [c] = [c for c in rep.claims if c.claim_text == wording]
+    assert (c.claim_role, c.materiality) == ("judgement", "material")
+
+
+@pytest.mark.parametrize("sentence", ["The significant growth was in 1960.", "The break-up of the federation came in 1963.", "1960 was a year of change.",
+                                      "1960 ranks as a year of change.", "The 1960 total stands out as large."])
 def test_descriptions_stay_evidence(sentence):
     rep = parse(HI_T12.replace("The decisive turning point was 1960.", sentence))
     [c] = [c for c in rep.claims if c.claim_text == sentence]

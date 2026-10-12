@@ -1256,8 +1256,21 @@ _DIFF_RE = re.compile(rf"{_fig(1)}\s+(?P<cmp>more|less|fewer|higher|lower|larger
 #: 'suspended Chinese labour immigration for ten years, from 1882 to 1892': a stated length against the span's own years.
 _DURATION_RE = re.compile(rf"\bfor\s+(?:(?P<q>about|some|roughly|nearly|almost|over|more\s+than|around)\s+)?(?P<n>\d{{1,3}}|{_WNUM})\s+years?\s*,?\s+"
                           r"(?:from|between)\s+(?P<y1>1[0-9]{3}|20[0-9]{2})\s+(?:to|and|until|till)\s+(?P<y2>1[0-9]{3}|20[0-9]{2})\b", re.IGNORECASE)
-_PART_HINT_RE = re.compile(r"of\s+(?:which|whom|these)\b|\balone\b|\btotal\b|\bsum\b|\bwhole\b|\baggregate\b|\barrivals\b|more\s+than|less\s+than|fewer\s+than|"
-                           r"higher\s+than|lower\s+than|larger\s+than|smaller\s+than|greater\s+than|\bfor\s+\S+\s+years?\b", re.IGNORECASE)
+#: 'Of the $13 billion, the United Kingdom received about $3.2 billion and France about $2.7 billion': a total that opens its clause
+#: ('Of the', 'Out of'), its parts after the comma.
+_OF_THE_LEAD_RE = re.compile(r"^\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s+(?:(?:the|this|that|its|their)\s+)?(?:(?:total|sum)\s+of\s+)?"
+                             r"(?P<lead>[^,;:]{1,80}?)\s*,\s*", re.IGNORECASE)
+#: Where the parts after a leading total end: a comparison or a change states no part ('more than in 1881', 'up from', 'against').
+_PARTS_STOP_RE = re.compile(r"\b(?:than|against|compared|from|since)\b", re.IGNORECASE)
+#: A stated total with its figure ('a total of about 9 billion dollars', 'totalling $5.9 billion', 'in total 790,000', 'a combined $5.9
+#: billion'). When no check reads it, it is undecided if its parts are meant but not stated as figures in its clause.
+_TOTAL_PHRASE_RE = re.compile(rf"\b(?:a\s+(?:combined\s+)?total\s+of|totall?ing|in\s+total|a\s+combined)\s+(?:(?:about|around|roughly|some|nearly|almost|"
+                              rf"over|more\s+than|just\s+over|just\s+under)\s+)?{_CUR}?\s?\d", re.IGNORECASE)
+#: The subject of a total that refers to its parts without stating them ('The two received a total of ...', 'Together they had ...').
+_PARTS_ANAPHOR_RE = re.compile(r"\b(?:the\s+(?:two|three|four|five|six|pair)|both|these|those|they|between\s+them|together)\b", re.IGNORECASE)
+_PART_HINT_RE = re.compile(r"of\s+(?:which|whom|these)\b|\balone\b|\btotal\b|\btotall?ing\b|\bcombined\b|\bsum\b|\bwhole\b|\baggregate\b|\barrivals\b|"
+                           r"more\s+than|less\s+than|fewer\s+than|higher\s+than|lower\s+than|larger\s+than|smaller\s+than|greater\s+than|\bfor\s+\S+\s+years?\b|"
+                           r"(?:^|;)\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s", re.IGNORECASE)
 _MONTH_NOUN_RE = re.compile(r"^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b", re.IGNORECASE)
 
 
@@ -1282,6 +1295,22 @@ def _amounts(clause: str, end: int) -> list[_Fig]:
     return [f for f in _magnitudes(clause[:end]) if not any(a <= f.start < b for a, b in spans) and not _RATE_PHRASE_RE.search(clause[f.start: f.end])]
 
 
+#: A word after a figure that is a verb, not the noun of the thing counted ('about 790,000 came in 1882', '230 were won'): the noun the
+#: amounts are compared on ends before it, so 'Out of about 5.2 million arrivals, about 790,000 came in 1882' compares arrivals with arrivals.
+_VERB_WORD_RE = re.compile(r"^(?:[a-z]{2,}(?<!e)ed|came|went|left|got|won|lost|took|gave|made|saw|brought|sent|fell|rose|grew|became|were|was|had|"
+                           r"are|is|has|have|did|ran)$")
+
+
+def _noun_head(noun: str) -> str:
+    """The words of a figure's noun before the first verb word ('people came' -> 'people', 'came' -> '')."""
+    words: list[str] = []
+    for w in noun.lower().split():
+        if _VERB_WORD_RE.match(w):
+            break
+        words.append(w)
+    return " ".join(words)
+
+
 def _amount_pair(whole: _Fig, part: _Fig) -> Optional[str]:
     """Why ``part`` cannot be read against ``whole`` as amounts of one thing, or None when it can."""
     if not _cur_compatible(whole.cur, whole.noun, part.cur, part.noun):
@@ -1289,7 +1318,7 @@ def _amount_pair(whole: _Fig, part: _Fig) -> Optional[str]:
     kinds = {_unit_kind(whole.unit), _unit_kind(part.unit)} - {None, "scale"}
     if kinds - {"count"}:
         return f"the units of '{_shown(part, part.unit)}' and '{_shown(whole, whole.unit)}' cannot be compared"
-    nw, np_ = (whole.noun if not _cur_of_noun(whole.noun) else ""), (part.noun if not _cur_of_noun(part.noun) else "")
+    nw, np_ = (_noun_head(whole.noun) if not _cur_of_noun(whole.noun) else ""), (_noun_head(part.noun) if not _cur_of_noun(part.noun) else "")
     if nw and np_ and not _same_noun(nw, np_):
         return f"'{_shown(part, part.unit)}' counts {np_.split()[-1]} while '{_shown(whole, whole.unit)}' counts {nw.split()[-1]}"
     return None
@@ -1401,10 +1430,11 @@ def _sum_expr(names: list[str]) -> dict:
 
 
 def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided]]:
-    """Parts of a total stated before them ('..., of which A received X and B Y', 'Y alone brought N'), a share of the total ('about a
-    quarter of the decade's total'), a difference between two named parties' figures ('about $2 billion more than France') and a
-    stated length against its span ('for ten years, from 1882 to 1892'). Each is decided against the sentence's own figures (a
-    difference against the paragraph's), or returned undecided with the reason."""
+    """Parts of a total stated before them ('..., of which A received X and B Y', 'Y alone brought N', 'Of the $13 billion, A received
+    X and B Y'), a share of the total ('about a quarter of the decade's total'), a difference between two named parties' figures ('about
+    $2 billion more than France') and a stated length against its span ('for ten years, from 1882 to 1892'). Each is decided against the
+    sentence's own figures (a difference against the paragraph's), or returned undecided with the reason, as is a stated total no check
+    reads whose parts are meant but not stated ('The two received a total of about 9 billion dollars')."""
     specs: list[_Spec] = []
     undecided: list[QuantUndecided] = []
     if not _PART_HINT_RE.search(sent):
@@ -1427,6 +1457,41 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                 undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
                 continue
             specs.append(_parts_spec(clause, whole, parts, tolerance, phrase, f"the parts stated after '{m.group(0).strip(' ,')}'"))
+        lead_parts = False
+        lead = _OF_THE_LEAD_RE.match(clause)
+        if lead is not None and not _OF_WHICH_RE.search(clause):
+            # 'Of the $13 billion, the United Kingdom received about $3.2 billion and France about $2.7 billion': the one figure of the
+            # lead is the total, the figures after the comma (up to a comparison or a change) its parts
+            wholes = _amounts(lead.group("lead"), len(lead.group("lead")))
+            rest = re.split(r"[;:]", clause[lead.end():])[0]
+            stop = _PARTS_STOP_RE.search(rest)
+            rest = rest[: stop.start()] if stop else rest
+            share_cut = _SHARE_OF_TOTAL_RE.search(rest)
+            parts = _amounts(rest, share_cut.start() if share_cut else len(rest))
+            if len(wholes) == 1 and parts:
+                lead_parts = True
+                whole = wholes[0]
+                phrase = " ".join(clause[: lead.end() + len(rest)].split())[:160].strip(" ,")
+                why = next((w for w in (_amount_pair(whole, p) for p in parts) if w), None)
+                if why:
+                    undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+                else:
+                    specs.append(_parts_spec(clause, whole, parts, tolerance, phrase, f"the parts stated after the total that opens the clause ('{lead.group(0).strip(' ,')}')"))
+        # a stated total no check reads ('The two received a total of about 9 billion dollars'; 'Britain received about $3.2 billion, a
+        # total of about $9 billion'): its parts are meant but not all stated as figures, so it is named, never passed silently; a plain
+        # quantity ('The famine killed a total of about one million people') states no arithmetic and is not read
+        tp = _TOTAL_PHRASE_RE.search(clause)
+        if tp is not None and not lead_parts and not _OF_WHICH_RE.search(clause) and not _TOTAL_RE.search(clause):
+            before = _amounts(clause, tp.start())
+            anaphor = _PARTS_ANAPHOR_RE.search(clause[: tp.start()])
+            phrase = " ".join(clause[tp.start():].split())[:120].strip(" ,.")
+            if before:
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase,
+                                                f"its sentence states {len(before)} figure(s) before the total ({', '.join(_shown(f, f.unit) for f in before[:3])}), "
+                                                f"not the two or more parts it totals"))
+            elif anaphor:
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase,
+                                                f"the parts it totals ('{anaphor.group(0)}') are not stated as figures in its sentence"))
         # 'Y alone brought N': one part of the total stated before it
         for m in _ALONE_RE.finditer(clause):
             fm = _LONE_FIG_RE.match(clause, m.end())

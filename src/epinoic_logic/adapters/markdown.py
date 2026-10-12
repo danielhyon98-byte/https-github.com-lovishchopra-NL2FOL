@@ -42,7 +42,8 @@ helpers so that
   they are reported unverified.", the quoted label read as a label: :func:`is_label_quotation`)
   or on where the answer's items come from ("Quotations are from the supplied extract", "The
   word count is approximate.") is a note on every branch (:func:`is_provenance_note`);
-* a sentence whose subject is a colleague's view ("The History specialist states that ...") is
+* a sentence whose subject is a colleague's view ("The History specialist states that ...", "The
+  History specialist gives about 5.2 million arrivals", "... dates the sonnet to 1883") is
   recognised the same way on every branch (:func:`is_peer_attribution`);
 * a fence of prose keeps its body (an answer wrapped in a fence is still the answer); code, a
   pasted receipt and a decoration inside a fence are removed (:func:`strip_markup`);
@@ -1186,13 +1187,23 @@ def is_provenance_note(sentence: str) -> bool:
 #: A sentence whose subject is a colleague's view: "The History specialist states that ...", "The English specialist's
 #: phrase "..." fits that record". The same shape as the History parser's attribution rule, so a colleague's reported
 #: statement is the colleague's view on every branch (role ``perspective``, certainty capped, the attribution recorded).
+#: The colleague as the subject of a verb that reports what it gave ("The History specialist gives about 5.2 million
+#: arrivals", "... dates the sonnet to 1883", "... also puts the figure at ...") is the colleague's view too; those verbs
+#: are also nouns ("the History specialist's dates"), so they are read only without the possessive, where they can only be
+#: verbs, and a possessive with a noun outside the view nouns ("The History specialist's figures are from memory") is not one.
+_PEER_REPORTING_VERBS = (
+    r"argues?|argued|notes?|noted|writes?|wrote|describes?|described|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested"
+    r"|identifies|identified|points?\s+out|pointed\s+out|calls?|called|reads?|presents?|presented|concludes?|concluded|holds?|held|maintains?|maintained"
+    r"|contends?|contended|reports?|reported|records?|recorded|explains?|explained|insists?|insisted|adds?|added")
+_PEER_GIVING_VERBS = (
+    r"gives?|gave|dates?|dated|puts?|places?|placed|counts?|counted|cites?|cited|quotes?|quoted|estimates?|estimated|remarks?|remarked"
+    r"|mentions?|mentioned|finds?|found|traces?|traced|attributes?|attributed|treats?|treated|interprets?|interpreted|judges?|judged"
+    r"|sees?|saw|admits?|admitted|acknowledges?|acknowledged|emphasi[sz]es|emphasi[sz]ed|stresses|stressed|links?|linked|ties|tied")
 PEER_ATTRIBUTION_RE = re.compile(
     r"^\W*(?:(?:as|yet|but|however|indeed|similarly|likewise|further|moreover|finally|first|second|third|here|and|so)[,\s]+)?"
-    r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)(?:'s|’s)?\s+"
-    r"(?:argues?|argued|notes?|noted|writes?|wrote|describes?|described|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested"
-    r"|identifies|identified|points?\s+out|pointed\s+out|calls?|called|reads?|presents?|presented|concludes?|concluded|holds?|held|maintains?|maintained"
-    r"|contends?|contended|reports?|reported|records?|recorded|explains?|explained|insists?|insisted|adds?|added"
-    r"|phrase|phrasing|claim|point|paragraph|reading|account|words?|view|argument|analysis|verdict|conclusion)\b",
+    r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)"
+    r"(?:(?:'s|’s)?\s+(?:" + _PEER_REPORTING_VERBS + r"|phrase|phrasing|claim|point|paragraph|reading|account|words?|view|argument|analysis|verdict|conclusion)"
+    r"|\s+(?:(?:also|then|here|rightly|elsewhere|later|likewise|similarly|even|instead|itself|himself|herself)\s+)?(?:" + _PEER_REPORTING_VERBS + "|" + _PEER_GIVING_VERBS + r"))\b",
     re.IGNORECASE,
 )
 

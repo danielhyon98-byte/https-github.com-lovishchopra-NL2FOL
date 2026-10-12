@@ -81,7 +81,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   judgement is my own, and it shows that ...", "The census figures are approximate" and "The figures are
   from the 1851 census" stay substantive), a colleague's reported view (`is_peer_attribution`: a
   sentence whose subject is a colleague's view, "The History specialist states that ...", "The History
-  specialist's reading ...", the same shape as the History parser's attribution rule; a colleague cited
+  specialist's reading ...", the same shape as the History parser's attribution rule, or the colleague as the
+  subject of a verb reporting what it gave, "The History specialist gives about 8 million arrivals", "... dates
+  the sonnet to 1886", "... also puts the figure at ..." (verbs that are also nouns, "dates", "counts", "quotes",
+  are read only without the possessive, so "The History specialist's dates are from memory" stays a note); a colleague cited
   mid-way, "..., bearing out the History specialist's claim", is the writer's own), inline labels separated from a substantive sentence
   (`split_note_clauses`: parentheticals, clauses before or after a semicolon or dash, a
   sentence-initial "From memory,", a comma-bounded ", from memory" with the figure that follows
@@ -159,7 +162,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   reported view and considers the argued sentence before them, so en-p5's conclusion is its link (a
   conclusion drawn from what the poem leaves unsaid, "The sonnet never names an origin, so its
   welcome ...", or a possessive "not the poem's" is not a caveat and stays the link); roles a sentence whose subject is a
-  colleague's view ("The History specialist states that ...") `perspective`, never the point, with
+  colleague's view ("The History specialist states that ...", "The History specialist gives about 8 million
+  arrivals in the 1880s.", "The History specialist dates the sonnet to 1886.") `perspective`, never the point
+  and passed over by the closing-link rule like a caveat, so an answer closing on the colleague's figure keeps
+  its conclusion as the link, with
   certainty `probable` and the attribution assumption the History parser records;
   reads a CR-only paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
   unlocated quotation, a quotation word in the writer's own words, or the method's own

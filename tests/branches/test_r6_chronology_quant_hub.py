@@ -415,3 +415,113 @@ def test_hub_calls_on_a_task_no_plan_opened_are_rejected_not_raised():
     assert req5.to_agent_id == "history-specialist"
     assert len(hub.receipts("no-such-task")) == 2 and hub.receipts("never-seen") == []
     assert "no-such-task" not in hub.channels
+
+
+# ------------------------------------------------------------------ '<period>, when <clause>': a date the 'when' clause gives lies in the period
+
+
+KOREAN = ("It weighs less for 1950 to 1952, when European exports had revived and demand from the Korean War, begun on 25 June 1950, lifted orders "
+          "further.")
+
+
+def test_a_when_clause_puts_its_dated_beginning_no_later_than_the_periods_end():
+    [ok] = [r for r in rels(KOREAN) if r.cue == "when"]
+    assert ok.kind == "within" and ok.decided and not ok.violated and "the period up to 1952" in ok.statement
+    [bad] = [r for r in rels(KOREAN.replace("25 June 1950", "25 June 1953")) if r.cue == "when"]
+    assert bad.decided and bad.violated and bad.later_text == "25 June 1953"
+    # a beginning before the period is no fault: what acted in it began no later than its end
+    assert all(not r.violated for r in rels(KOREAN.replace("25 June 1950", "25 June 1947")))
+    _reply, rc = through_hub(HI_T11.replace("begun on 25 June 1950", "begun on 25 June 1953"), HI_T11_Q, task_type="essay")
+    assert any("25 June 1953 within the period up to 1952" in f.message for f in subj_errors(rc))
+
+
+@pytest.mark.parametrize("sentence,expected", [
+    ("The pace changed in 1960, when Nigeria became independent on 1 October.", [("1 October", False)]),
+    ("The pace changed in 1960, when Nigeria became independent on 1 October 1961.", [("1 October 1961", True)]),
+    ("In 1960, when the war that began in 1954 was still being fought, the French conceded.", [("1954", False)]),   # an earlier beginning is no fault
+    ("In 1919, when the war had ended in November 1918, the treaty was signed.", [("November 1918", False)]),        # pluperfect: no later than
+    ("In 1960, when the war that would end in 1962 was still being fought, the French conceded.", []),             # a later time is not the period's
+    ("By 1968, when Botswana became independent in 1966, the flow had slowed.", []),                                # a bound is no period
+])
+def test_when_clause_dates_are_read_against_the_period_before_when(sentence, expected):
+    assert [(r.later_text, r.violated) for r in rels(sentence) if r.cue == "when"] == expected
+
+
+def test_a_comma_after_an_intransitive_followed_leaves_the_list_to_its_cue():
+    got = rels("From 1961 to 1968 roughly fifteen more states followed, including Botswana in 1969.")
+    assert [(r.kind, r.cue, r.later_text, r.violated) for r in got] == [("within", "including", "1969", True)]
+    assert [r.violated for r in rels("From 1961 to 1968 roughly fifteen more states followed, including Botswana in 1966.")] == [False]
+
+
+# ------------------------------------------------------------------ a yearly average of a dated total; reasons that are true
+
+
+@pytest.mark.parametrize("sentence,expected", [
+    ("About 5.2 million people entered the United States in the 1880s, an average of about 900,000 a year.", [("rate_change", "COUNTEREXAMPLE")]),
+    ("About 5.2 million people entered the United States in the 1880s, an average of about 520,000 a year.", [("rate_change", "ENTAILED")]),
+    ("About 5.2 million people entered the United States from 1881 to 1890, an average of about 570,000 a year.", [("rate_change", "ENTAILED")]),
+    ("About 5.2 million people entered the United States from 1881 to 1890, an average of about 900,000 a year.", [("rate_change", "COUNTEREXAMPLE")]),
+])
+def test_a_yearly_average_of_a_decade_total_is_checked(sentence, expected):
+    assert statuses(sentence) == expected and not undecided_quant_statements(sentence)
+
+
+@pytest.mark.parametrize("sentence,reason", [
+    ("The United Kingdom thus received twice as much as France.", "no figures are stated with it in its sentence"),
+    ("About 5.2 million people arrived, a rise of 40 per cent on the decade before.", "states no pair of figures it can be read against (only 5.2 million)"),
+    ("About 500,000 people a year entered the United States in the 1880s, an average of about 900,000 a year.", "states no pair of figures it can be read against"),
+])
+def test_an_unbuilt_relation_is_reported_with_a_true_reason(sentence, reason):
+    assert statuses(sentence) == []
+    [u] = undecided_quant_statements(sentence)
+    assert reason in u.reason
+
+
+# ------------------------------------------------------------------ a total that opens its clause; a total whose parts are not stated
+
+
+@pytest.mark.parametrize("sentence,expected", [
+    ("Of the $13 billion, Britain received about $3.2 billion and France about $2.7 billion.", ("parts", "ENTAILED")),
+    ("Of the $13 billion, Britain received about $10.2 billion and France about $4.7 billion.", ("parts", "COUNTEREXAMPLE")),
+    ("Of the 608 seats in July 1932, the NSDAP won 530 and the SPD 133.", ("parts", "COUNTEREXAMPLE")),
+    ("Out of about 5.2 million arrivals in the 1880s, about 790,000 came in 1882.", ("parts", "ENTAILED")),       # 'came' is no noun
+    ("Out of about 5.2 million arrivals in the 1880s, about 7.9 million came in 1882.", ("parts", "COUNTEREXAMPLE")),
+    ("Of the $13 billion, Britain received about $3.2 billion, more than the $2.7 billion of France.", ("parts", "ENTAILED")),  # a comparison is no part
+])
+def test_a_total_that_opens_its_clause_bounds_the_parts_after_it(sentence, expected):
+    assert statuses(sentence) == [expected] and not undecided_quant_statements(sentence)
+
+
+def test_a_lead_total_and_parts_in_other_currencies_are_undecided():
+    [u] = undecided_quant_statements("Of the 13 billion dollars, Britain received 3.2 billion marks.")
+    assert "currency" in u.reason and statuses("Of the 13 billion dollars, Britain received 3.2 billion marks.") == []
+    assert undecided_quant_statements("Of the reforms of 1948, the currency reform mattered most.") == []
+
+
+@pytest.mark.parametrize("sentence,reason", [
+    ("The two received a total of about 9 billion dollars.", "the parts it totals ('The two') are not stated as figures"),
+    ("Britain received about $3.2 billion, a total of about $9 billion.", "states 1 figure(s) before the total ($3.2 billion)"),
+    ("Both received a combined $5.9 billion.", "the parts it totals ('Both')"),
+])
+def test_a_total_whose_parts_are_not_stated_is_named(sentence, reason):
+    assert statuses(sentence) == []
+    [u] = undecided_quant_statements(sentence)
+    assert reason in u.reason
+
+
+def test_a_plain_stated_quantity_is_not_read_as_a_total():
+    for sentence in ("The famine killed a total of about 1 million people.", "Deaths exceeded 22,000 in 1916."):
+        assert statuses(sentence) == [] and undecided_quant_statements(sentence) == []
+
+
+# ------------------------------------------------------------------ a long run of digits costs linear time
+
+
+def test_a_long_run_of_digits_is_refused_in_linear_time():
+    sentence = "Output rose from " + "1" * 200_000 + " in 1929 to 120 in 1930, a rise of 20 per cent."
+    started = time.perf_counter()
+    assert statuses(sentence) == []
+    [u] = undecided_quant_statements(sentence)
+    assert "too large" in u.reason and time.perf_counter() - started < 5
+    # a figure never starts inside another: '4.03' is 4.03, not 4 and 03
+    assert statuses("Sterling fell from 4.03 to 2.80 dollars, a fall of about 30 per cent.") == [("percent_change", "ENTAILED")]

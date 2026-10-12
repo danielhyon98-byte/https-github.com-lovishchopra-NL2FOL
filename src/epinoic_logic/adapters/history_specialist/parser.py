@@ -116,7 +116,8 @@ _LINK_LEADS = ("against this background", "against that background", "in this li
 _LINK_LEAD_RE = re.compile(r"^(?:(?:set|seen|read|measured|weighed)\s+)?against\s+(?:this|that|these|those|such)\s+(?!is\b|was\b|are\b|were\b)[a-z][a-z'’-]*(?:\s+[a-z][a-z'’-]*)?\s*,", re.IGNORECASE)
 #: A sentence that states the verdict a request asks for ('The turning point was 1930.', 'X mattered most', 'The 1840s were the most
 #: decisive decade.', 'The most decisive decade was the 1840s.', 'The 1840s saw the most decisive expansion.'): a judgement, dated or
-#: not. The copula may be singular or plural ('was', 'were', 'is', 'are', 'proved', 'remained', 'became'), and the noun a period
+#: not. The copula may be singular or plural ('was', 'were', 'is', 'are', 'proved', 'remained', 'became'), or a verb of standing as
+#: ('stands out as', 'emerged as', 'counts as', 'ranks as') before the turning point, a verdict noun or the watershed, and the noun a period
 #: ('decade', 'period', 'phase', 'stage', 'era') or a request's judgement noun ('expansion', 'change', 'development', 'factor').
 #: Adjectives of a verdict: with 'most' any degree adjective ('the most significant change'); without it only those that are a verdict
 #: by themselves ('the decisive decade', 'the pivotal year'), so 'the significant growth was ...' stays a description.
@@ -137,7 +138,8 @@ _VERDICT_STATEMENT_RE = re.compile(
     r"|\bthe\s+(?:real|true|decisive|key|critical|crucial|main|great|major)\s+(?:break|shift|departure|watershed|rupture)\s+(?:came|was|fell|lay|occurred|happened)\b"
     r"|\b(?:was|were|is|are)\s+the\s+(?:single\s+)?most\s+(?:important|significant|decisive)\b"
     rf"|\b(?:saw|brought|witnessed|marked|produced|delivered)\s+the\s+(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}\s+[a-z]+"
-    r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b|\b(?:was|were|is|are|marked|(?:stands?|stood)\s+out\s+as)\s+(?:the|a)\s+watershed\b"
+    r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b"
+    r"|\b(?:was|were|is|are|marked|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)\s+(?:the|a)\s+watershed\b"
     r"|\b(?:mattered|matters)\s+most\b",
     re.IGNORECASE)
 #: A sentence that opens by naming the criterion of a verdict ('Measured by what the network could do, ...', 'Judged by the

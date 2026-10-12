@@ -92,8 +92,9 @@ Role rules (body paragraphs)
   label ("whose "dates and figures" are, in its own words, "from memory ..."") is the
   writer's analysis with no label assumption, and "from memory" as part of the
   argument ("The speaker recalls the scene from memory, which ...") is not a label;
-* a sentence whose subject is a colleague's view ("The History specialist states that ...":
-  :func:`~epinoic_logic.adapters.markdown.is_peer_attribution`) -> ``perspective``, certainty
+* a sentence whose subject is a colleague's view ("The History specialist states that ...", or the
+  colleague reporting a figure or date, "The History specialist gives about 5.2 million arrivals",
+  "... dates the sonnet to 1883": :func:`~epinoic_logic.adapters.markdown.is_peer_attribution`) -> ``perspective``, certainty
   ``probable`` and the attribution recorded as an assumption, as on the History branch; never the
   point or the link;
 * the first remaining sentence (neither meta nor a note nor a colleague's view) -> ``point``;

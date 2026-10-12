@@ -58,7 +58,7 @@ __all__ = [
     "ExcerptCheck", "ExcerptStatus", "FOUND_STATUSES", "check_excerpt", "strip_trailing_punctuation", "word_count",
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
-    "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents",
+    "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -282,6 +282,22 @@ _ACCORDING_TO_RE = re.compile(r"\b(?:according\s+to|in\s+the\s+words\s+of|as\s+(
 _CLAUSE_START_RE = re.compile(r"[;!?]\s*|[.:](?=\s)\s*|,\s+(?:and|but|while|whereas|although|though|yet|so)\b\s*|\s[-–—]\s")
 
 
+_BOUNDARY_RE = re.compile(r"[,;:](?=\s)|[.!?](?=[\s\"'”’)]|$)")
+
+
+def clause_boundaries(text: str) -> list[int]:
+    """Offsets of the clause boundaries of ``text``: a comma, semicolon or colon followed by whitespace, and a sentence stop
+    followed by whitespace, a closing mark or the end, but never the point of a decimal ("3.3 million"), the full stop of
+    an abbreviation or an initial ("c. 1963", "Chester A. Arthur"), nor the ":" of a time. Used wherever a clause of a
+    specialist's sentence is quoted back, so a quotation never starts or stops inside a figure."""
+    out: list[int] = []
+    for m in _BOUNDARY_RE.finditer(text):
+        if m.group(0) == "." and _ABBREVIATION_RE.search(text[:m.start()]):
+            continue
+        out.append(m.start())
+    return out
+
+
 def _clause_end(rest: str) -> int:
     """Offset in ``rest`` where its clause ends (:data:`_CLAUSE_END_RE`, skipping the full stop of an abbreviation)."""
     for m in _CLAUSE_END_RE.finditer(rest):
@@ -367,7 +383,7 @@ _CREDIT_VERBS = (r"(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claim
                  r"cited|presents?|presented|depicts?|depicted|portrays?|portrayed|labels?|labelled|labeled|terms?|termed|dubs?|dubbed|recounts?|recounted|"
                  r"reveals?|revealed|confirms?|confirmed|acknowledges?|acknowledged|exclaims?|exclaimed|protests?|protested|replies|replied|announces?|announced|"
                  r"dates?|dated|counts?|counted|gives?|gave|records?|recorded|estimates?|estimated|places?|placed|puts?|sees?|saw|treats?|treated|"
-                 r"interprets?|interpreted|attributes?|attributed|traces?|traced|finds?|found|judges?|judged|holds?|held)")
+                 r"interprets?|interpreted|attributes?|attributed|traces?|traced|finds?|found|judges?|judged|holds?|held|names?|named|uses?|used|employs?|employed)")
 #: Nouns a possessive may govern before the verb: "Hardy's speaker admits", "the English specialist's paragraph identifies".
 _CREDIT_NOUNS = (r"(?:speaker|narrator|persona|poem|poet|line|lines|words?|phrase|phrasing|text|voice|monologue|paragraph|reading|account|verse|"
                  r"stanza|soldier|man|character|report|analysis|essay|view|argument|claim|note|sonnet|novel|play|story)")
@@ -422,7 +438,7 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
     for name in other_sources:
         if len(name) >= 3:
             mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
-    literary = sorted({d for d, t in docs.items() if not is_peer_text(t)})
+    literary = sorted({d for d, t in docs.items() if not is_peer_text(t) and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
     for m in _GENERIC_LITERARY_RE.finditer(sentence):
         if not quoted(m.start()):
             mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
