@@ -1,6 +1,16 @@
 """Integrity packs: the subject-specific checks each branch carries, plus the core pack
 every branch runs. Deterministic findings cite the pack's working rules; formal checks
-are problems the engine decides about the report's own statements."""
+are problems the engine decides about the report's own statements.
+
+``CorePack(reading=...)`` takes a :class:`~epinoic_logic.stem.si_reading.QuantReading`. The
+default, ``quant.GENERAL``, is today's core pack byte for byte (every non-STEM branch). The STEM
+branches run ``CorePack(reading=SI_READING)`` (docs/STEM_DESIGN.md, section 12): the prose
+arithmetic is read in SI (``quant`` module docstring), quotations are read on the quotation view
+(code masked; an inch or arcsecond mark attached to a number, ``12″`` or ``0.5"``, is never a
+quotation mark, so CORE-SRC-004 does not fire on it), and chronology, self-certification and the
+sentences of every finding are read on the STEM statements of the prose view (maths and
+quantities masked, so ``1500 K`` is never a year). CORE-SRC-001 (per ``source_ref``) is the same
+under both readings."""
 from __future__ import annotations
 
 import re
@@ -10,10 +20,12 @@ from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
 from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes
 from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncredited_excerpt
+from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
+from ..translate.subjects import resolve_profile
 from .base import FormalCheck
-from .quant import extract_quant_checks, undecided_quant_statements
+from .quant import GENERAL, extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
 _STUDY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+)?(?:\set\sal\.?)?)\s*\((\d{4})\)")
@@ -64,7 +76,25 @@ def _sentences_with_paragraph(text: str) -> list[tuple[int, int, str, str]]:
     return out
 
 
-def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+def _sentences_for(text: str, reading: QuantReading = GENERAL, view: str = "prose") -> list[tuple[int, int, str, str]]:
+    """``_sentences_with_paragraph`` under a reading: the general reading's blank-line paragraphs and shared splitter, or
+    in the SI reading the STEM statements (numbered as the STEM claim ids) of the prose view (``view="prose"``: maths and
+    quantities masked) or the quotation view (``view="quote"``: code and number marks masked)."""
+    if not reading.si:
+        return _sentences_with_paragraph(text)
+    v = si_prose_view(text, reading.profile) if view == "prose" else si_quote_view(text, reading.profile)
+    paras: dict[int, list[tuple[int, int, int]]] = {}
+    for p, n, a, b in si_statements(text, reading.profile):
+        paras.setdefault(p, []).append((n, a, b))
+    out: list[tuple[int, int, str, str]] = []
+    for p in sorted(paras):
+        items = paras[p]
+        para_text = v[items[0][1]:items[-1][2]]
+        out.extend((p, n, v[a:b].strip(), para_text) for n, a, b in items)
+    return out
+
+
+def _chronology_formal(report: SpecialistReport, prefix: str, reading: QuantReading = GENERAL) -> list[FormalCheck]:
     """Every dated ordering a sentence asserts ('after', 'before', 'followed', 'preceded',
     with or without 'by') becomes an entailment problem: the event the sentence places
     later must have the later day ordinal ((year*12+month)*32+day). The relations come
@@ -76,7 +106,7 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
     from ..ir.schema import Problem
     out: list[FormalCheck] = []
     n = 0
-    for _pi, _si, sent, para in _sentences_with_paragraph(report.original_response):
+    for _pi, _si, sent, para in _sentences_for(report.original_response, reading):
         for rel in chronology_relations(sent, para):
             if not rel.decided or rel.later_ordinal is None or rel.earlier_ordinal is None:
                 continue
@@ -91,19 +121,34 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
                                "label": f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts" + (f" ({rel.reason})" if rel.reason else "")},
             }
             out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
-                                   description=f"stated order of dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}): {sent.strip()[:160]}", problem=Problem.model_validate(problem)))
+                                   description=f"stated order of dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}): {sent.strip()[:160]}", problem=Problem.model_validate(problem),
+                                   **({"claim_ids": _si_claims_for_fragment(report, sent, reading, si_prose_view)} if reading.si else {})))
     return out
 
 
-def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+def _quant_formal(report: SpecialistReport, prefix: str, reading: QuantReading = GENERAL) -> list[FormalCheck]:
     """The report's own arithmetic as engine problems. A relation stated across sentences (a
     derived figure, 'rose in each year', 'the greatest rise' whose figures stand in another
     sentence of the paragraph) says in its description where its year and figures were read."""
     out: list[FormalCheck] = []
-    for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
+    for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}", reading=reading):
         description = f"report's own arithmetic: {qc.sentence[:160]}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
-        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem))
+        extra = {"claim_ids": _si_claims_for_fragment(report, qc.sentence, reading, si_quant_view)} if reading.si else {}
+        out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem, **extra))
     return out
+
+
+def _si_claims_for_fragment(report: SpecialistReport, fragment: str, reading: QuantReading, view_of) -> tuple[str, ...]:
+    """SI reading only: the claims of the STEM statement whose text in ``view_of`` (the view the fragment was read on) holds
+    ``fragment``, so an INT-SUBJ finding about a prose relation names its claim."""
+    frag = " ".join(fragment.split())
+    if not frag:
+        return ()
+    view = view_of(report.original_response, reading.profile)
+    for p, n, a, b in si_statements(report.original_response, reading.profile):
+        if frag in " ".join(view[a:b].split()):
+            return tuple(_claims_for_statement(report, view[a:b], reading, p, n))
+    return ()
 
 
 def _is_peer_text(t: SuppliedText) -> bool:
@@ -227,6 +272,24 @@ def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
     return [c.claim_id for c in report.claims if frag and (frag in " ".join(c.claim_text.split()) or " ".join(c.claim_text.split()) in frag)]
 
 
+def _claims_for_statement(report: SpecialistReport, sentence: str, reading: QuantReading, paragraph: int, number: int) -> list[str]:
+    """The claims a finding about one sentence names. The general reading matches the sentence text
+    (:func:`_claims_mentioning`). The SI reading reads a masked view, so it names the STEM statement
+    ``s<paragraph>.<number>`` (``m``/``c`` in the mathematics and Computer Science branches) when the
+    report carries that claim, else the claims that mention the statement's original text."""
+    if not reading.si:
+        return _claims_mentioning(report, sentence)
+    sid = f"{paragraph}.{number}" if number else ".tail"
+    ids = {c.claim_id for c in report.claims}
+    for prefix in ("s", "m", "c"):  # the STEM branches' claim ids (adapters.stem_specialist.parser.ID_PREFIXES)
+        if prefix + sid in ids:
+            return [prefix + sid]
+    for p, n, a, b in si_statements(report.original_response, reading.profile):
+        if p == paragraph and n == number:
+            return _claims_mentioning(report, report.original_response[a:b])
+    return _claims_mentioning(report, sentence)
+
+
 class CorePack:
     """Runs for every subject: quotation grounding against supplied texts, numeric
     self-consistency of the report's own figures (and CORE-QNT-001 for a stated derived
@@ -237,7 +300,17 @@ class CorePack:
     words, exactly as the parsers read them, after pasted JSON fragments are removed."""
     name = "core"
 
+    def __init__(self, reading: QuantReading = GENERAL) -> None:
+        self.reading = reading
+
+    def _reading(self, report: SpecialistReport) -> QuantReading:
+        """The pack's reading for this report: the general reading as it is, the SI reading under the report's subject profile."""
+        if not self.reading.si:
+            return self.reading
+        return self.reading.for_profile(resolve_profile(report.subject).key)
+
     def checks(self, report: SpecialistReport, request_text: Optional[str] = None) -> list[StructuralFinding]:
+        r = self._reading(report)
         f: list[StructuralFinding] = []
         text = report.original_response
         for c in report.claims:
@@ -249,17 +322,17 @@ class CorePack:
         has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
-        f += self._unverifiable_quotations(report, has_memory_label)
+        f += self._unverifiable_quotations(report, has_memory_label, r)
         if report.supplied_texts:
-            f += self._misattributed_quotations(report)
-        f += self._unbalanced_quotation_marks(report)
-        f += self._self_certification(report)
-        f += self._undecided_chronology(report)
-        f += self._undecided_arithmetic(report)
+            f += self._misattributed_quotations(report, r)
+        f += self._unbalanced_quotation_marks(report, r)
+        f += self._self_certification(report, r)
+        f += self._undecided_chronology(report, r)
+        f += self._undecided_arithmetic(report, r)
         return f
 
     @staticmethod
-    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool) -> list[StructuralFinding]:
+    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-SRC-003: every quotation with no text to check it against is reported: with
         no text supplied, every quotation; with texts supplied, a quotation that no supplied
         text holds and that no claim credits to a text (the parser found no named source for
@@ -270,8 +343,9 @@ class CorePack:
         never goes silent. A from-memory label downgrades the finding to info only when it
         speaks of quotations or sits in the same sentence as the quotation; a label about dates
         and figures does not vouch for a quotation. Strings of a pasted JSON fragment are not
-        quotations."""
-        text, _removed = strip_json_spans(report.original_response)
+        quotations. In the SI reading the quotation view is read (code and number marks masked)."""
+        source = si_quote_view(report.original_response, reading.profile) if reading.si else report.original_response
+        text, _removed = strip_json_spans(source)
         quoted = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         texts = list(report.supplied_texts)
         recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text
@@ -306,7 +380,7 @@ class CorePack:
         return [StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: {where} and {why}: {shown}", claim_ids=claim_ids, rule_source=rule)]
 
     @staticmethod
-    def _misattributed_quotations(report: SpecialistReport) -> list[StructuralFinding]:
+    def _misattributed_quotations(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-SRC-005: a quotation that the sentence attributes to a named source (a
         supplied text's author or title, a peer agent such as 'the History specialist',
         'the poem' when one non-peer text was supplied) with a saying verb, but whose
@@ -324,7 +398,7 @@ class CorePack:
         out: list[StructuralFinding] = []
         seen: set[tuple[str, str]] = set()
         rule = "source integrity (attribute every quotation to the text that holds it; a colleague's words are not the author's and the author's are not the colleague's)"
-        for _pi, _si, sent, _para in _sentences_with_paragraph(report.original_response):
+        for _pi, _si, sent, _para in _sentences_for(report.original_response, reading, "quote"):
             sent, _removed = strip_json_spans(sent)
             spans = [(s, e, inner.strip()) for s, e, inner in find_quotation_spans(sent) if len(inner.strip()) >= 4]
             if not spans:
@@ -355,14 +429,15 @@ class CorePack:
         return out
 
     @staticmethod
-    def _unbalanced_quotation_marks(report: SpecialistReport) -> list[StructuralFinding]:
+    def _unbalanced_quotation_marks(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-SRC-004: a paragraph whose double quotation marks (straight, curly, mixed,
         guillemets) cannot be paired; the quotation at the dangling mark could not be
         delimited, so it was not checked against any text. The dangling mark is located by
         context (``markdown.dangling_quote_offset``), so the spans the writer did delimit
         around it are still checked."""
         out: list[StructuralFinding] = []
-        for pi, para in _paragraphs(report.original_response):
+        source = si_quote_view(report.original_response, reading.profile) if reading.si else report.original_response
+        for pi, para in _paragraphs(source):
             para, _removed = strip_json_spans(para)
             offset = dangling_quote_offset(para)
             if offset is None and not unbalanced_double_quotes(para):
@@ -375,23 +450,23 @@ class CorePack:
         return out
 
     @staticmethod
-    def _undecided_chronology(report: SpecialistReport) -> list[StructuralFinding]:
+    def _undecided_chronology(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-CHR-001: a sentence orders two dated events but the pair could not be
         decided (the only date before the cue sits in an aside about the subject, a year is
         not stated, or both events fall in the same month with no days / the same year with
         no months). The order was stated and not checked; silence would hide that."""
         out: list[StructuralFinding] = []
-        for pi, si, sent, para in _sentences_with_paragraph(report.original_response):
+        for pi, si, sent, para in _sentences_for(report.original_response, reading):
             for rel in chronology_relations(sent, para):
                 if rel.decided:
                     continue
                 out.append(StructuralFinding(code="CORE-CHR-001", severity="warning",
                                              message=f"paragraph {pi}, sentence {si} orders two dated events ('{rel.cue}': {rel.later_text} later than {rel.earlier_text}) but the order could not be decided: {rel.reason}; the stated order was not checked",
-                                             claim_ids=_claims_mentioning(report, sent)[:8], rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
+                                             claim_ids=_claims_for_statement(report, sent, reading, pi, si)[:8], rule_source="chronology (exact, dated items): a stated order that cannot be paired is reported, not skipped"))
         return out
 
     @staticmethod
-    def _undecided_arithmetic(report: SpecialistReport) -> list[StructuralFinding]:
+    def _undecided_arithmetic(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-QNT-001: a stated derived figure ('a rise of 50 per cent', 'tripled', 'a change of
         0 per cent') or a relation over dated figures ('rose in each year', 'the greatest rise of the
         period') that no engine problem could be built for: the units of its pair cannot be compared,
@@ -400,34 +475,35 @@ class CorePack:
         would hide that (``quant.undecided_quant_statements``)."""
         out: list[StructuralFinding] = []
         grouped: dict[tuple[int, int, str], list] = {}
-        for u in undecided_quant_statements(report.original_response):
+        for u in undecided_quant_statements(report.original_response, reading=reading):
             grouped.setdefault((u.paragraph, u.sentence, u.reason), []).append(u)
         for (pi, si, reason), items in grouped.items():
             phrases = "', '".join(dict.fromkeys(u.phrase[:120] for u in items))
             out.append(StructuralFinding(code="CORE-QNT-001", severity="warning",
                                          message=f"paragraph {pi}, sentence {si} states a derived figure or a relation over dated figures ('{phrases}') that could not be checked: {reason[:600]}; the stated arithmetic was not checked",
-                                         claim_ids=_claims_mentioning(report, items[0].sentence_text)[:8], rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
+                                         claim_ids=_claims_for_statement(report, items[0].sentence_text, reading, pi, si)[:8], rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
         return out
 
     @staticmethod
-    def _self_certification(report: SpecialistReport) -> list[StructuralFinding]:
+    def _self_certification(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-SELF-001: verification-status vocabulary in the response body. An agent's
         statement about its own checking is advisory and ignored; status comes only from
         signed engine results. The message never repeats the certifying words."""
         out: list[StructuralFinding] = []
         seen: set[str] = set()
-        for pi, si, sent, _para in _sentences_with_paragraph(report.original_response):
+        for pi, si, sent, _para in _sentences_for(report.original_response, reading):
             if not SELF_CERT_RE.search(sent):
                 continue
             key = " ".join(sent.split())
             if key in seen:
                 continue
             seen.add(key)
-            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material", claim_ids=_claims_mentioning(report, sent)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material", claim_ids=_claims_for_statement(report, sent, reading, pi, si)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        return _quant_formal(report, "core") + _chronology_formal(report, "core")
+        r = self._reading(report)
+        return _quant_formal(report, "core", r) + _chronology_formal(report, "core", r)
 
 
 _ESSAY_BAND_WORDS = 800

@@ -51,6 +51,19 @@ documents demand, such as quotation integrity for literature, chronology and dat
 figures for history, study attributions for psychology, elasticity arithmetic for
 economics and margins for business. See `src/epinoic_logic/branches/README.md`.
 
+STEM subjects (Physics, Chemistry, Biology, ESS, SEHS, Design Technology, Mathematics AA and AI,
+Computer Science) are three more branches of the same hub: `sciences`, `mathematics` and
+`computer_science` (`docs/STEM_DESIGN.md`). A deterministic front end (`src/epinoic_logic/stem/`)
+reads answers that mix equations and prose in LaTeX, Unicode, ASCII and words, without evaluating
+any text, and turns every relation it recognises into an IR problem the engine decides (written
+arithmetic, substitutions, unit conversions, algebra steps, stated roots, balances, Boolean
+identities, based numerals) under a documented tolerance rule, or names it undecided with the
+reason. A wrong step such as `a = (20 - 0)/4.0 = 6.0 m s⁻²` reaches the router as an INT-SUBJ-001
+error naming the claim, with the engine's computed and stated values; correct work is never an
+error. A STEM check proves a property of its encoding only: that the written arithmetic, step or
+balance holds or does not under the stated premises and readings, never that a law applies, that
+data are true or that a model is physically valid.
+
 Agents do not pass raw text to each other. The `channel` package
 (`src/epinoic_logic/channel/`) sits on the communication path. When the router sends
 a student's request to a specialist, the request is made explicit (what is asked,
@@ -122,7 +135,8 @@ only six are definitive and none means "the claim is true".
 - `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
 - `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
-- `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
+- `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
+- `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, evidence, context pack
@@ -139,8 +153,10 @@ epinoic-logic verify problem.json     # one verification from the command line
 ## What it does not do
 
 It does not decide literary, historical or rubric judgements; it does not check
-units, nonlinear algebra, quantifiers or symbolic calculus (these are reported as
-UNSUPPORTED); it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
+quantifiers or symbolic calculus (these are reported as UNSUPPORTED or, for STEM answers,
+named undecided); units are checked only by the STEM branches' dimension warnings and explicit
+conversion checks, and nonlinear algebra only under the named `nonlinear` engine policy the STEM
+checks use; it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
 the runtime evidence); and it does not call any model provider in its tests.
 
 ## Arena: real agents, contained environment

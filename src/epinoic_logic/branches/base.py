@@ -6,11 +6,26 @@ adapter that turns the specialist's output into claim records, and an
 problems the engine decides with no model involved). Everything else, the envelope,
 hand-off, ledger, staleness and cross-agent checks, the engine and the signing, is
 shared hub integrity and is never re-implemented per branch.
+
+Additions for the STEM branches (docs/STEM_DESIGN.md, sections 8.1 and 11.1), all with
+defaults that keep every existing pack and branch unchanged:
+
+* ``FormalCheck`` carries ``claim_ids`` (the claims its relation rests on; the channel puts
+  them on INT-SUBJ findings), ``policy`` (a named engine policy, ``linear`` or ``nonlinear``;
+  never raw ``Limits``), ``failure_severity`` (``error``: INT-SUBJ-001, ``warning``:
+  INT-SUBJ-004 for a check that relied on a reading the report did not state) and
+  ``inconsistent_is_failure`` (False: INCONSISTENT_PREMISES is undecided, not a failure).
+* ``SubjectBranch.hub_hooks`` (:class:`BranchHooks`): optional request and coverage readings
+  the channel applies for the branch (none for the non-STEM branches).
+* ``SubjectBranch.run_packs`` guards every pack call: a pack that raises yields a
+  BR-INTERNAL-001 warning naming it, and the other packs still run. It prefers a pack's
+  ``formal_checks_for(report, request_text)`` when the pack defines one (the request's
+  bindings and show-that targets matter to STEM checks); ``formal_checks(report)`` otherwise.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Protocol, runtime_checkable
+from typing import Callable, Literal, Optional, Protocol, runtime_checkable
 
 from ..ir.schema import Problem
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
@@ -19,12 +34,22 @@ from ..translate.subjects import SubjectProfile, resolve_profile
 
 @dataclass(frozen=True)
 class FormalCheck:
-    """A problem the engine should decide about the report itself (no model involved)."""
+    """A problem the engine should decide about the report itself (no model involved).
+
+    ``claim_ids``: the claims the checked relation rests on. ``policy``: the named engine
+    policy the channel verifies it under (``engine.policies``). ``failure_severity``: the
+    severity of a definitive failure (``error`` is INT-SUBJ-001, ``warning`` INT-SUBJ-004).
+    ``inconsistent_is_failure``: whether INCONSISTENT_PREMISES counts as a failure (True for
+    every pre-STEM check) or as undecided (STEM checks, design D13)."""
     check_id: str
     kind: str
     description: str
     problem: Problem
     expected_if_sound: str = "ENTAILED"
+    claim_ids: tuple[str, ...] = ()
+    policy: str = "linear"
+    failure_severity: Literal["error", "warning"] = "error"
+    inconsistent_is_failure: bool = True
 
 
 @runtime_checkable
@@ -34,6 +59,24 @@ class IntegrityPack(Protocol):
     def checks(self, report: SpecialistReport, request_text: Optional[str] = None) -> list[StructuralFinding]: ...
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]: ...
+
+
+@runtime_checkable
+class BranchHooks(Protocol):
+    """Readings a branch lends the channel (STEM: ``stem.hub_hooks.STEM_HOOKS``). Every method takes
+    and returns plain data; ``profile_key`` is the subject profile the channel resolved for the agent.
+
+    * ``request_imperatives``: extra imperative verbs that make a request sentence an item;
+    * ``coverage_terms``: extra words a claim offers the item-coverage heuristic;
+    * ``echo_exempt``: True when the answer is evidently not a restatement of the request;
+    * ``word_count_view``: the text a word bound is measured on."""
+    request_imperatives: tuple[str, ...]
+
+    def coverage_terms(self, claim_text: str, report_text: str, request_text: Optional[str], profile_key: str) -> frozenset[str]: ...
+
+    def echo_exempt(self, report_text: str, request_text: str, profile_key: str) -> bool: ...
+
+    def word_count_view(self, text: str, profile_key: str) -> str: ...
 
 
 @runtime_checkable
@@ -53,17 +96,36 @@ class SubjectBranch:
     parser_factory: Callable[[], ReportParser]
     packs: tuple[IntegrityPack, ...]
     notes: str = ""
+    hub_hooks: Optional[BranchHooks] = None
 
     def parser(self) -> ReportParser:
         return self.parser_factory()
 
     def run_packs(self, report: SpecialistReport, request_text: Optional[str] = None) -> tuple[list[StructuralFinding], list[FormalCheck]]:
+        """Every pack's findings and formal checks. A pack that raises is named by BR-INTERNAL-001
+        (warning) and the next pack still runs: its findings are missing, and the router must not
+        read the missing findings as a pass."""
         findings: list[StructuralFinding] = []
         formal: list[FormalCheck] = []
         for p in self.packs:
-            findings += p.checks(report, request_text)
-            formal += p.formal_checks(report)
+            try:
+                findings += p.checks(report, request_text)
+            except Exception as exc:  # one pack's failure never takes the receipt down
+                findings.append(_pack_failure(p, exc, "checks"))
+            try:
+                for_request = getattr(p, "formal_checks_for", None)
+                formal += for_request(report, request_text) if callable(for_request) else p.formal_checks(report)
+            except Exception as exc:
+                findings.append(_pack_failure(p, exc, "formal checks"))
         return findings, formal
+
+
+def _pack_failure(pack: object, exc: BaseException, stage: str) -> StructuralFinding:
+    name = str(getattr(pack, "name", type(pack).__name__))[:80]
+    return StructuralFinding(code="BR-INTERNAL-001", severity="warning",
+                             message=(f"pack {name!r} failed internally ({type(exc).__name__}) during {stage}; its findings are missing from this "
+                                      "receipt, and the router must not treat the pack as passed"),
+                             rule_source="branch infrastructure: a pack failure is named, never silent")
 
 
 class BranchRegistry:

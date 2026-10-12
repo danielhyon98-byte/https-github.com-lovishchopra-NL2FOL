@@ -75,7 +75,7 @@ and an altered citation of a colleague reaches the router as an error finding (I
 | Component | Role |
 | --- | --- |
 | `contracts.py` | `TaskRequest` (immutable user input hash, request items, constraints), `TransmissionReceipt` (status ACCEPTED / ACCEPTED_WITH_FINDINGS / REJECTED, findings, coverage, constraint results with signed formal result ids, claim outcomes, summary). |
-| `request_parser.py` | Deterministic extraction of questions/instructions and of word, paragraph and citation constraints. A word is a run of letters, digits, apostrophes and hyphens, and a figure with internal separators ("1.9", "100,000", "63.2%") is ONE word (`count_words`). Conservative: nothing asked is dropped. A sentence that mixes a constraint with a content instruction ("Write no more than 200 words and give a judgement on which effect mattered most") yields the instruction as an item with the constraint span removed; a sentence that is only a constraint yields none. `count_answer_words` measures a word bound over the answer proper, leaving out the note blocks and note clauses `count_paragraphs` leaves out, and the receipt says how many words were meta-text. A sentence is a note only when nothing is left once its note clauses are set aside (`markdown.split_note_clauses`), the rule the parsers role by: a dated sentence with an inline "(from memory)" is answer, its label meta-text. Re-exports `VERDICT_CUES`. |
+| `request_parser.py` | Deterministic extraction of questions/instructions and of word, paragraph and citation constraints (`extract_items(text, extra_imperatives=...)` and `count_answer_words(text, view=...)` take a branch's hooks; the defaults are the general reading). A word is a run of letters, digits, apostrophes and hyphens, and a figure with internal separators ("1.9", "100,000", "63.2%") is ONE word (`count_words`). Conservative: nothing asked is dropped. A sentence that mixes a constraint with a content instruction ("Write no more than 200 words and give a judgement on which effect mattered most") yields the instruction as an item with the constraint span removed; a sentence that is only a constraint yields none. `count_answer_words` measures a word bound over the answer proper, leaving out the note blocks and note clauses `count_paragraphs` leaves out, and the receipt says how many words were meta-text. A sentence is a note only when nothing is left once its note clauses are set aside (`markdown.split_note_clauses`), the rule the parsers role by: a dated sentence with an inline "(from memory)" is answer, its label meta-text. Re-exports `VERDICT_CUES`. |
 | `cues.py` | `VERDICT_CUES`: the lower-cased phrases that state a position on degree ("on balance", "mattered most", "matters most", "weighed by", "by the criteria", "by the criterion", "outweigh" and its inflections, "to a large extent", "therefore", ...). The channel's verdict test for INT-REQ-008 is built from it (`verdict_cue_regex()`), and the subject parsers import it (`from epinoic_logic.channel.cues import VERDICT_CUES`; the module has no imports, so no cycle) so the hub and a parser never disagree about what a judgement looks like. |
 | `bus.py` | `TranslatorChannel.request / respond / relay`. Numeric constraints are encoded as IR entailments and decided by the engine, so a word-limit check is a signed, bound result rather than an ad-hoc count. A response is REJECTED (not delivered) for identity or integrity violations; findings about content (unverified quotation, failed constraint, contradiction with another agent) are delivered with the report so the router can act. The receipt summary gives the report's own formal checks as counts (naming only the checks that did not hold) and is cut to the contract limit, never raised. One excerpt, one severity: when the hub has located an excerpt's words and reported a form difference (INT-REQ-010), every branch pack error ending in `-SRC-001` for that claim is kept off the receipt, so no pack calls the same excerpt invented. |
 
@@ -103,14 +103,62 @@ INT-LEDGER-000/008; everything else is delivered with the report.
 | INT-REQ-012 | error | the response carries no answer: none of its claims is material (every claim is roled `other`: a note, a label, a self-report) or its answer proper has 0 words; no item counts as addressed and it supersedes nothing. Delivered with the report (a content finding; the empty response stays INT-REQ-009) |
 | INT-REQ-013 | warning | the branch adapter merged the claims beyond the contract limit into one tail claim without roling or checking them (its `unresolved_issues` say so): the finding says how many claims and how many quotations of the original response went unchecked, and which of those quotations occur in no supplied text, so a quotation placed after the limit never crosses silently |
 | INT-REQ-014 | warning | a claim credits a relayed peer specialist's report ("the History specialist gives close to two million inhabitants": the clause after the peer's possessive or after the peer as the subject of a reporting verb) and states there, outside its quotations, figures or dates (digits or words) that occur in no supplied text, the peer's report included: a colleague's figure misreported in an unquoted paraphrase, or the agent's own unsupported figure |
-| INT-SUBJ-001 | error | a formal check the branch pack built from the report's own statement (arithmetic, chronology, elasticity, margin) does not hold (engine) |
-| INT-SUBJ-002 | warning | such a check was undecided |
+| INT-SUBJ-001 | error | a formal check the branch pack built from the report's own statement (arithmetic, chronology, elasticity, margin; a STEM step, substitution, conversion, balance, root, Boolean identity) does not hold (engine): the engine's status is definitive and not the expected one; names the check's claims; for a STEM check the counterexample's computed value `c` and stated value `r` |
+| INT-SUBJ-002 | warning | such a check was undecided: UNKNOWN, TIMEOUT, UNSUPPORTED, INVALID_FORMALIZATION, an internal error while deciding it, a vacuous proof (E108), INCONSISTENT_PREMISES on a check that does not count them as a failure (every STEM check), an unknown policy name (never run under another policy), or the report's STEM check budget (8 s) spent; names the check's claims |
 | INT-SUBJ-003 | error | a deterministic error of a branch pack, escalated with the branch key and rule |
+| INT-SUBJ-004 | warning | a check that relied on a reading the report did not state does not hold (a STEM check with `failure_severity="warning"`: a data-booklet value for an unstated symbol, a symbol's identity across request and answer, a show-that target, a step that brings in unrelated symbols, an unknown unit); names the check's claims |
+| BR-INTERNAL-001 | warning (structural) | a branch pack failed internally; its findings are missing and must not be read as a pass (`branches/base.py`) |
 | INT-STALE-011 | error | a claim outcome whose translation does not bind to the claim as transmitted (claim id, request, report, or `claim_text_sha256` of another text): stale; neither delivered nor pooled |
 | INT-SYNTH-013 | warning | the channel's synthesis-formalization hook failed internally; the entailment was not checked |
 
 Cross-agent findings (INT-GLOSSARY, INT-CONFLICT) over a pooled claim whose translation was AMBIGUOUS_TRANSLATION
 say so: its pooled formalization is one assumed reading, not a fixed one.
+
+## Branch formal checks (`_branch_checks`)
+
+Each branch formal check runs under its named engine policy (`engine.policies`): `linear` is the
+channel's configuration unchanged (every pre-STEM check; results byte-identical), `nonlinear` opens
+the nonlinear-term gate under a deterministic `rlimit` (`NONLINEAR_RLIMIT`), and the signed result
+records the non-default limits. An unknown policy name is never run under another policy
+(INT-SUBJ-002). The status maps to `ConstraintResult.satisfied`:
+
+| Engine status | satisfied | finding |
+| --- | --- | --- |
+| the expected status, with no E108 diagnostic | True | none |
+| the expected status with E108 (vacuous: no premise used) | None | INT-SUBJ-002 |
+| any other definitive status (COUNTEREXAMPLE, UNSATISFIABLE where SATISFIABLE is expected, SATISFIABLE where UNSATISFIABLE is expected, ...) | False | INT-SUBJ-001, or INT-SUBJ-004 for `failure_severity="warning"` |
+| INCONSISTENT_PREMISES when the check sets `inconsistent_is_failure=False` | None | INT-SUBJ-002 |
+| UNKNOWN, TIMEOUT, UNSUPPORTED, INVALID_FORMALIZATION, INTERNAL_ERROR | None | INT-SUBJ-002 |
+
+Every finding carries the check's `claim_ids`. A detail longer than the contract (2,000 characters)
+is cut, never raised (finding messages are cut by the finding contract), and an exception while
+deciding one check makes that check alone undecided. Recorded behaviour changes (design section 18):
+an ENTAILED result carrying E108 is undecided, no longer ok; SATISFIABLE where UNSATISFIABLE is
+expected is a failure, no longer undecided; INT-SUBJ-001 and INT-SUBJ-002 carry claim ids; INT-SUBJ-004
+and BR-INTERNAL-001 are new. Non-success statuses are never shown as success.
+
+## Branch hub hooks (STEM branches only)
+
+A branch may lend the channel `hub_hooks` (`branches.base.BranchHooks`); only the three STEM
+branches do (`stem/hub_hooks.py`), so every other branch reads requests and answers as before:
+
+* `request_imperatives` (determine, deduce, derive, state, find, solve, sketch, estimate, predict,
+  verify, show): passed to `extract_items(text, extra_imperatives=...)`, read at the start of a
+  sentence or after a part label, and a line that opens with a part label starts a new sentence,
+  so a multi-part STEM question is one item per part;
+* `coverage_terms`: words a claim offers the INT-REQ-004 heuristic beyond its own (the dimension
+  names of its quantities and bound symbols: m s⁻² gives "acceleration", N "force"; the computing
+  command words for a claim the engine checks), so an equation-only answer covers "Calculate the
+  acceleration"; still a lexical heuristic;
+* `echo_exempt`: an answer holding a planned computation link (`stem-eq`, `stem-alg`, `stem-sol`)
+  whose text is not in the request is never INT-REQ-011, so a correct show-that answer is not a
+  restatement;
+* `word_count_view`: the text `count_answer_words(text, view=...)` counts for word bounds and
+  INT-REQ-012: a maths span or a code block is one word, LaTeX control words are none.
+
+A hook that fails falls back to the channel's own reading. Raw text reaches a parser that declares
+`accepts_request_text` (the STEM parser) with the request text, so the parser and the STEM pack read
+one document.
 
 Coverage of request items is a lexical heuristic until adapters tag claims with the
 items they address; the receipt says so. Only material claims (not roled `other`) can

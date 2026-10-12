@@ -13,7 +13,11 @@ Summary of the rules (applied in this order; the first match decides):
                                      claim itself exist (a self-reference is discarded and recorded),
                                      else NOT_ELIGIBLE_OTHER ("no supporting claims")
 4. role structural | quantitative -> ARITHMETIC_CONSTRAINT | QUANTITATIVE_CLAIM when the
-                                     text has numerals or comparatives, else NOT_ELIGIBLE_OTHER
+                                     text has numerals or comparatives, or (subject profiles that
+                                     allow QUANTITATIVE_CLAIM only) a mathematical relation sign
+                                     between operands (=, ≠, <, >, ≤, ≥, ≈: "F = ma") or a
+                                     superscript or subscript digit ("x²", "v₀"), else
+                                     NOT_ELIGIBLE_OTHER
 5. role interpretation | effect | device | analysis | perspective | value | limitation (standalone)
                                   -> NOT_ELIGIBLE_INTERPRETIVE, route ``subject_evaluator``
 6. role evidence | counter_evidence | origin | purpose | content
@@ -29,6 +33,7 @@ from typing import Optional
 
 from ..version import POLICY_VERSION
 from .contracts import ClaimRecord, EligibilityClass, EligibilityDecision
+from .subjects import resolve_profile
 
 ARGUMENT_ROLES = frozenset({"point", "thesis", "link", "judgement"})           # a judgement is an argued position on degree
 COUNT_ROLES = frozenset({"structural", "quantitative"})
@@ -36,6 +41,10 @@ INTERPRETIVE_ROLES = frozenset({"interpretation", "effect", "device", "analysis"
 FACTUAL_ROLES = frozenset({"evidence", "counter_evidence", "origin", "purpose", "content"})  # checked by grounding/evidence, not the solver
 
 _NUMERAL_RE = re.compile(r"\d")
+#: Superscript and subscript digits (``x²``, ``v₀``), which ``\d`` does not match: numerals for rule 4 in quantitative profiles.
+_SCRIPT_DIGIT_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]")
+#: A mathematical relation sign between two operands ('F = ma', 'x ≤ 3', 'E ≈ hf'); '==' and arrows are not relations here.
+_RELATION_RE = re.compile(r"[\w)\]}²³¹⁰⁴-⁹₀-₉′]\s*(?:<=|>=|=|≠|<|>|≤|≥|≈)(?![=<>])\s*[\w(\[{√±−+-]")
 _NUMBER_WORDS = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
     "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
@@ -54,14 +63,20 @@ _COMPARATIVE_CUES = (
 _COMPARATIVE_RE = re.compile(r"\b(" + "|".join(re.escape(c) for c in _COMPARATIVE_CUES) + r")\b", re.IGNORECASE)
 
 
-def has_numeral(text: str) -> bool:
-    """True when ``text`` contains a digit or a spelled-out number word."""
-    return bool(_NUMERAL_RE.search(text) or _NUMBER_WORD_RE.search(text))
+def has_numeral(text: str, *, scripts: bool = False) -> bool:
+    """True when ``text`` contains a digit or a spelled-out number word; with ``scripts``, a superscript
+    or subscript digit counts too (rule 4 in profiles that allow quantitative claims)."""
+    return bool(_NUMERAL_RE.search(text) or _NUMBER_WORD_RE.search(text) or (scripts and _SCRIPT_DIGIT_RE.search(text)))
 
 
 def has_comparative(text: str) -> bool:
     """True when ``text`` contains a comparative or threshold cue."""
     return bool(_COMPARATIVE_RE.search(text))
+
+
+def has_relation_sign(text: str) -> bool:
+    """True when ``text`` states a mathematical relation between two operands (``F = ma``, ``x ≤ 3``)."""
+    return bool(_RELATION_RE.search(text))
 
 
 def _decision(
@@ -107,10 +122,14 @@ def _argument_role(claim: ClaimRecord, reasons: list[str], pv: str) -> Eligibili
 
 def _count_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityDecision:
     numeral, comparative = has_numeral(claim.claim_text), has_comparative(claim.claim_text)
-    if not (numeral or comparative):
+    relation = False
+    if not (numeral or comparative) and resolve_profile(claim.subject).allows(EligibilityClass.QUANTITATIVE_CLAIM):
+        numeral = has_numeral(claim.claim_text, scripts=True)
+        relation = not numeral and has_relation_sign(claim.claim_text)
+    if not (numeral or comparative or relation):
         reasons.append("no numerals or comparatives in claim text")
         return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
-    cues = ", ".join(c for c, present in (("numerals", numeral), ("comparatives", comparative)) if present)
+    cues = ", ".join(c for c, present in (("numerals", numeral), ("comparatives", comparative), ("a mathematical relation sign", relation)) if present)
     reasons.append(f"role {claim.claim_role} with {cues} in the text")
     cls = EligibilityClass.ARITHMETIC_CONSTRAINT if claim.claim_role == "structural" else EligibilityClass.QUANTITATIVE_CLAIM
     return _decision(cls, True, reasons, pv)

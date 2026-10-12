@@ -7,6 +7,13 @@ expressions only. It is deliberately conservative: anything it cannot classify i
 kept as one instruction item so nothing asked is lost. A model-backed structurer can
 be layered on top later through the same ``TaskRequest`` contract; its output would
 be data validated here, never trusted.
+
+A branch may widen two readings (``branches.base.BranchHooks``; the STEM branches only):
+``extract_items(text, extra_imperatives=...)`` takes more imperative verbs (at the start of a
+sentence or after a part label such as ``(a)``), and splits a request at a line that opens with
+a part label, so a multi-part question becomes one item per part; ``count_answer_words(text,
+view=...)`` measures the words of the branch's view of the answer (STEM: a maths span or a code
+block is one word). The defaults reproduce the general reading exactly.
 """
 from __future__ import annotations
 
@@ -150,14 +157,30 @@ def extract_constraints(text: str) -> list[Constraint]:
     return out
 
 
-def extract_items(text: str) -> list[RequestItem]:
+#: A line that opens with a part label ('(a)', 'b)', '(ii)', 'Part (c)'): a new item when a branch adds imperatives.
+_PART_LINE_RE = re.compile(r"\n[ \t]*(?=\(?(?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)\s|part\s+\(?[a-z0-9]{1,3}\)?\b)", re.IGNORECASE)
+#: A part label at the start of a sentence.
+_PART_LEAD_RE = re.compile(r"^(?:\(?(?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)\s*|part\s+\(?[a-z0-9]{1,3}\)?[:.]?\s*)+", re.IGNORECASE)
+
+
+def _leads_with(low: str, words: tuple[str, ...]) -> bool:
+    """True when ``low`` (a lower-cased sentence) opens with one of ``words``, after any part label."""
+    lead = _PART_LEAD_RE.sub("", low, count=1)
+    return any(lead.startswith(w) and (len(lead) == len(w) or not lead[len(w)].isalpha()) for w in words)
+
+
+def extract_items(text: str, *, extra_imperatives: tuple[str, ...] = ()) -> list[RequestItem]:
     """Questions and instructions of the request, one item each. A sentence that is only a
     constraint is left to ``extract_constraints``; a sentence that mixes a constraint with a
     content instruction ("Write no more than 200 words and give a judgement on which effect
     mattered most") yields the content instruction as an item, with the constraint span
-    removed, so an answer that omits it is seen as not covering it."""
+    removed, so an answer that omits it is seen as not covering it. ``extra_imperatives``
+    (a branch's hook) are further imperative verbs, read at the start of a sentence or after
+    a part label; with them, a line that opens with a part label also starts a new sentence."""
     items: list[RequestItem] = []
-    for sent in (s.strip() for s in _SENT_RE.split(text.strip()) if s.strip()):
+    pieces = _PART_LINE_RE.split(text.strip()) if extra_imperatives else [text.strip()]
+    sentences = [s.strip() for piece in pieces for s in _SENT_RE.split(piece.strip()) if s.strip()]
+    for sent in sentences:
         if is_constraint_only(sent):
             continue  # captured by extract_constraints; not a content item to cover
         item_text, topic_follows = _residual(sent)
@@ -165,7 +188,8 @@ def extract_items(text: str) -> list[RequestItem]:
             continue
         low = item_text.lower()
         is_q = item_text.endswith("?") or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways"))
-        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows)
+        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) \
+            or (bool(extra_imperatives) and _leads_with(low, extra_imperatives))
         if is_q or is_imp:
             term, level = detect_command_term(item_text)
             items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind="question" if is_q else "instruction", command_term=term, level=level))
@@ -193,13 +217,16 @@ def _note_core(sentence: str) -> str:
     return split_note_clauses(sentence)[0].strip()
 
 
-def count_answer_words(text: str) -> tuple[int, int]:
+def count_answer_words(text: str, *, view=None) -> tuple[int, int]:
     """``(answer words, note words)``: the words of the answer proper and the words of the
     note blocks and note clauses :func:`count_paragraphs` leaves out (from-memory labels,
     self-certification lines, task notes), so a word bound is measured over the same text as
     a paragraph bound and the receipt can say how many words were meta-text. A sentence whose
-    only note is an inline label counts its substance as answer and the label as notes."""
+    only note is an inline label counts its substance as answer and the label as notes.
+    ``view`` (a branch's hook) maps the answer to the text its words are counted on."""
     from ..adapters.markdown import strip_markup
+    if view is not None:
+        text = view(text)
     answer = notes = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():

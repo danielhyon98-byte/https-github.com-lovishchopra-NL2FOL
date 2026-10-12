@@ -93,6 +93,28 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   interpretation before evidence and evidence before material claims, carrying the source
   references of folded evidence on the tail claim so the hub still checks those quotations and
   naming in an unresolved issue how many claims and quotations were merged.
+- `stem_specialist/` — `StemTextParser`, the parser of the three STEM branches (`sciences`,
+  `mathematics`, `computer_science`; docs/STEM_DESIGN.md, section 9). It reads the same memoised
+  `stem.document.StemDocument` as `branches/stem_pack.StemPack` (the channel passes it the request
+  text: `accepts_request_text`), so claim ids and planned check ids cannot diverge. Claims are the
+  document's statements (a sentence, a derivation line, a display row, a list item, a code block,
+  a table, a data line), each an offset substring of the original answer cut to the contract's
+  4,000 characters, with ids `s<paragraph>.<n>` (`m<paragraph>.<n>` in mathematics,
+  `c<paragraph>.<n>` in Computer Science, so two STEM branches never share a claim id on one
+  task); `original_response` is verbatim and nothing vanishes (statements beyond 512 merge into
+  `s.tail` with the unresolved-issue text the channel turns into INT-REQ-013). Roles follow design
+  section 9.2 with no new role: notes and self-certifications `other` (the shared
+  `is_note_sentence` / `is_self_certification`; a statement that carries maths is never a note for
+  having no words), heading lines `structural`, Given and data lines and values bound to symbols
+  `evidence`/`arithmetic`, a law with no numerals `evidence`/`factual`, steps `quantitative`
+  (supporting), the last chain-bearing statement of each part and a prose value after a result cue
+  `quantitative` and material, code blocks material `point`s, and in an explanation paragraph the
+  point, `link`s and `analysis`; assumptions ("neglecting air resistance") are copied to the
+  report. Quotations are read on the quotation view (code masked; an inch mark `12"` is no
+  quotation mark) and credited by the shared `attribute_excerpt`, exactly as the generic parser
+  credits them. A claim whose relations the STEM pack decides records "numeric relations of this
+  statement are decided by the STEM pack checks <ids>". An empty answer raises `AdapterError`; a
+  code-only answer yields claims; adversarial input never raises out of the parser.
 - `fixtures_multi_subject.py` — Mathematics, Physics, Economics, Computer Science,
   History and English fixtures with expected statuses.
 

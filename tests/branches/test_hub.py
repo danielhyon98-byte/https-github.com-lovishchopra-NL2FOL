@@ -43,7 +43,9 @@ def test_three_subjects_through_one_hub():
     assert all(fc.satisfied for fc in rb.formal_checks) and len(rb.formal_checks) >= 2  # margin + percentage change both hold
     assert not rb.errors
 
-    assert hub.branch_for("Psychology") == "psychology" and hub.branch_for("Chemistry") == "generic"
+    # Recorded behaviour change (docs/STEM_DESIGN.md, sections 10.2 and 18, item 1): Chemistry routes to the STEM
+    # 'sciences' branch instead of 'generic'; an unrecognised subject still falls back to 'generic'.
+    assert hub.branch_for("Psychology") == "psychology" and hub.branch_for("Chemistry") == "sciences" and hub.branch_for("Underwater Basket Weaving") == "generic"
     assert len(hub.receipts("t-hist")) == 2
 
 

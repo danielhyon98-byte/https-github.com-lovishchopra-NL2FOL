@@ -75,6 +75,30 @@ computed value (rounding to the nearest whole per cent is never a finding). ``mo
 than``/``over`` before a stated change makes the check one-sided (a lower bound only),
 ``under``/``less than`` an upper bound only. The rule is repeated in every check's
 ``rule`` field so the receipt says how the figure was judged.
+
+Readings (``reading``, keyword-only on :func:`extract_quant_checks` and
+:func:`undecided_quant_statements`; part of the cache key). :data:`GENERAL`, the default, is
+the reading described above, byte for byte; every non-STEM branch uses it.
+:data:`~epinoic_logic.stem.si_reading.SI_READING` (the STEM branches, through
+``CorePack(reading=SI_READING)``) reads the same relations with these differences
+(docs/STEM_DESIGN.md, section 12):
+
+* only spelled-out scale words scale a figure; ``m``, ``k``, ``K``, ``M``, ``A`` and ``g`` are
+  units, so ``from 500 mm to 2 m, a fourfold increase`` and ``300 K`` read as written;
+* a unit symbol after a figure is read through the STEM unit table into an exact SI value:
+  ``from 500 g to 1.0 kg`` is a doubling and ``from 2 kg to 500 g`` a fall of 75 per cent;
+  figures of different dimensions, and a relative change on an offset temperature scale (°C,
+  °F), are not paired and the derived figure is reported undecided with the reason;
+* figures may be written in scientific notation (``1.5e-6 C``, ``6.67 × 10⁻¹¹``) and carry a
+  sign (``-4.0 m/s``; U+2212 is read as a minus); a relative change is taken against the
+  magnitude of the earlier figure, so a rise from -4.0 to -2.0 is a rise of 50 per cent;
+* repeated folds are read: ``halved twice`` is a factor of 1/4, ``doubled three times`` 8;
+* the band is sign-aware, ``|C - S| <= tolerance * |C| + floor``, encoded with ``ite`` (a
+  stated figure of 0 is decided by the same inequality);
+* the text read is the SI quant view: relation-bearing maths (LaTeX, math runs, verbal
+  arithmetic, chemistry, code) is masked, so this extractor reads only prose relations and the
+  STEM pack only the maths; sentences are the STEM segmenter's statements, so a CORE-QNT-001
+  finding's paragraph and sentence numbers are the STEM claim's ``s<paragraph>.<n>``.
 """
 from __future__ import annotations
 
@@ -82,10 +106,16 @@ import re
 from dataclasses import dataclass, field
 from fractions import Fraction
 from functools import lru_cache
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from ..adapters.history_specialist.sentences import split_clauses, split_sentences
 from ..ir.schema import Problem
+from ..stem.si_reading import (
+    SI_READING, SI_SCALE_UNIT, SI_SCALES, QuantReading, si_digits_pattern, si_number, si_quant_view, si_statements, si_unit, si_unit_pattern,
+)
+
+#: The general reading: today's extractor, byte for byte (see the module docstring).
+GENERAL = QuantReading(name="general")
 
 _SMALL_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
                 "sixteen", "seventeen", "eighteen", "nineteen")
@@ -122,10 +152,11 @@ _DATE_BODY = (rf"\s+(?:(?:in|by|of|on|at|during|for)\s+(?:(?:about|around|approx
 _DATE = rf"(?:{_DATE_BODY})?"
 
 
-def _fig(i: int, *, dated: bool = False) -> str:
-    """One figure of a pair, with named groups ``q<i>`` (qualifier), ``n<i>`` (number), ``u<i>`` (unit), ``noun<i>`` and ``d<i>`` (date)."""
+def _fig(i: int, *, dated: bool = False, numx: str = _NUMX, unit_words: str = _UNIT_WORDS) -> str:
+    """One figure of a pair, with named groups ``q<i>`` (qualifier), ``n<i>`` (number), ``u<i>`` (unit), ``noun<i>`` and ``d<i>`` (date).
+    ``numx`` and ``unit_words`` default to the general reading's; the SI reading passes its own."""
     date = _DATE_BODY if dated else _DATE
-    return (rf"(?:(?P<q{i}>{_QUAL})\s+)?(?P<n{i}>{_NUMX})(?:\s*(?P<u{i}>{_UNIT_WORDS})(?!\w))?(?P<noun{i}>{_NOUN}){_PER}(?P<d{i}>{date})")
+    return (rf"(?:(?P<q{i}>{_QUAL})\s+)?(?P<n{i}>{numx})(?:\s*(?P<u{i}>{unit_words})(?!\w))?(?P<noun{i}>{_NOUN}){_PER}(?P<d{i}>{date})")
 
 
 _FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+{_fig(1)}\s+(?:to|and)\s+{_fig(2)}", re.IGNORECASE)
@@ -202,6 +233,60 @@ _MAX_SERIES = 24
 POINT_FLOOR = Fraction(1, 2)
 TOLERANCE_RULE = ("tolerance: the stated figure must lie within {tol}% of the value computed from the report's own figures; the band is symmetric "
                   "around the computed value (understating a change earns no wider band){floor}{side}")
+
+
+class _Patterns(NamedTuple):
+    """The figure patterns of one reading (the general reading's are the module-level patterns themselves)."""
+    from_to: "re.Pattern[str]"
+    and_dated: "re.Pattern[str]"
+    list_item: "re.Pattern[str]"
+    cont: "re.Pattern[str]"
+    share: "re.Pattern[str]"
+    total: "re.Pattern[str]"
+
+
+_GENERAL_PATTERNS = _Patterns(_FROM_TO_RE, _AND_DATED_RE, _LIST_ITEM_RE, _CONT_RE, _SHARE_RE, _TOTAL_RE)
+
+
+def _build_patterns(numx: str, num: str, unit_words: str, unit: str) -> _Patterns:
+    """The six figure patterns from a reading's number, unit-word and unit pieces, composed exactly as the module-level
+    (general) patterns are."""
+    def fig(i: int, dated: bool = False) -> str:
+        return _fig(i, dated=dated, numx=numx, unit_words=unit_words)
+    return _Patterns(
+        re.compile(rf"\b(?:from|of)\s+{fig(1)}\s+(?:to|and)\s+{fig(2)}", re.IGNORECASE),
+        re.compile(rf"(?<![\w.,]){fig(1, True)}\s*,?\s+and\s+(?:(?:had\s+|then\s+)?{_TO_VERB}\s+)?{fig(2, True)}", re.IGNORECASE),
+        re.compile(rf"\s*(?:,\s*(?:and\s+)?|\s+and\s+)(?:then\s+)?(?:to\s+)?{fig(3, True)}", re.IGNORECASE),
+        re.compile(
+            rf"(?:\bbefore|\bthen|\band on|\band then|\band later|\blater)\s+(?:(?:climbing|rising|falling|dropping|increasing|decreasing|declining|growing|jumping|soaring|sinking|slumping|recovering|"
+            rf"returning|climbed|rose|fell|dropped|increased|decreased|declined|grew|jumped|soared|sank|slumped|recovered|returned)\s+)?(?:further\s+|again\s+|back\s+)?to\s+{fig(3)}"
+            rf"|(?:\bbefore|\bthen|\band then|\band later|\blater)\s+(?:reaching|reached|hitting|hit|peaking at|peaked at)\s+{fig(4)}", re.IGNORECASE),
+        re.compile(rf"\b{num}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{num}{unit}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{num}{unit}", re.IGNORECASE),
+        re.compile(rf"{num}{unit}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{num}{unit}[^.;]{{0,60}}?(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{num}{unit}", re.IGNORECASE),
+    )
+
+
+#: SI reading pieces: scientific notation and a sign on a figure; spelled-out scale words only; unit symbols of the STEM table.
+_SI_DIGITS = rf"{si_digits_pattern()}|{_DIGITS}"
+_SI_UNIT_RX = f"(?-i:{si_unit_pattern()})"
+_SI_NUMX = rf"(?:(?:-(?=\.?\d))?(?:{_SI_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"
+_SI_NUM = rf"((?:-(?=\.?\d))?(?:{_SI_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"
+_SI_UNIT_WORDS = (rf"(?:{SI_SCALE_UNIT}|{_RATE_UNIT}|per cent|percent(?!age)|%|seats|votes|to (?:the|one|a) (?:US |U\.S\. |American )?(?:dollar|pound)s?"
+                  rf"|{_SI_UNIT_RX})")
+_SI_UNIT = rf"(?:\s*({SI_SCALE_UNIT}|{_RATE_UNIT}|per cent|percent(?!age)|%|seats|votes|{_SI_UNIT_RX})(?!\w))?"
+#: 'halved twice', 'doubled three times': a fold repeated (SI reading only); at most 30 repetitions are read.
+_REPEAT_RE = re.compile(r"\s+(?:(twice)|(three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+times)\b", re.IGNORECASE)
+_REPEAT_WORDS = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_MAX_REPEAT = 30
+
+
+@lru_cache(maxsize=2)
+def _si_patterns() -> _Patterns:
+    return _build_patterns(_SI_NUMX, _SI_NUM, _SI_UNIT_WORDS, _SI_UNIT)
+
+
+def _patterns(reading: QuantReading) -> _Patterns:
+    return _si_patterns() if reading.si else _GENERAL_PATTERNS
 
 
 @dataclass(frozen=True)
@@ -314,6 +399,28 @@ def _within(expr: dict, stated: Fraction, tolerance: Fraction, floor: Fraction =
     return {"op": "and", "args": [ge, le]}
 
 
+_within_general = _within
+
+
+def _abs(expr: dict) -> dict:
+    return {"op": "ite", "cond": {"op": "ge", "left": expr, "right": _real(Fraction(0))}, "then": expr, "otherwise": {"op": "neg", "arg": expr}}
+
+
+def _within_si(expr: dict, stated: Fraction, tolerance: Fraction, floor: Fraction = Fraction(0), side: str = "both") -> dict:
+    """The SI reading's band, sign-aware: ``|computed - stated| <= tolerance * |computed| + floor``, with ``|.|`` encoded
+    by ``ite``. Linear in ``expr``. A stated figure of 0 is decided by the same inequality. One-sided: the stated figure
+    is a lower bound (``computed - stated >= -(slack)``) or an upper bound (``computed - stated <= slack``)."""
+    diff = {"op": "sub", "left": expr, "right": _real(stated)}
+    slack: dict = {"op": "mul", "args": [_real(tolerance), _abs(expr)]}
+    if floor:
+        slack = {"op": "add", "args": [_real(floor), slack]}
+    if side == "lower":
+        return {"op": "ge", "left": diff, "right": {"op": "neg", "arg": slack}}
+    if side == "upper":
+        return {"op": "le", "left": diff, "right": slack}
+    return {"op": "le", "left": _abs(diff), "right": slack}
+
+
 def _problem(pid: str, claim_id: str, request_id: str, symbols: list[tuple[str, str]], premises: list[tuple[str, dict, str]], conclusion: tuple[str, dict, str], note: str = "figure stated in the report itself") -> Problem:
     return Problem.model_validate({
         "problem_id": pid, "request_id": request_id, "claim_id": claim_id, "query": "entailment",
@@ -410,8 +517,9 @@ _FIGURE_HINT_RE = re.compile(rf"\d|\b(?:{_WNUM_TOKEN})\b", re.IGNORECASE)
 _DERIVED_HINT_RE = re.compile(r"per\s*cent|percent|%|points?\b|half|third|quarter|fifth|tenth|fold|doubl|trebl|tripl|quadrupl|halv", re.IGNORECASE)
 
 
-def _derived_phrases(clause: str) -> list[_Derived]:
-    """Every stated derived figure of ``clause``, in order of position."""
+def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
+    """Every stated derived figure of ``clause``, in order of position. In the SI reading a fold
+    may be repeated ('halved twice' is a factor of 1/4, 'doubled three times' 8)."""
     out: list[_Derived] = []
     if not _DERIVED_HINT_RE.search(clause):
         return out
@@ -449,13 +557,21 @@ def _derived_phrases(clause: str) -> list[_Derived]:
             factor = Fraction(m.group(3).replace(",", "")) if m.group(3) else Fraction(_FOLD_WORDS[m.group(4).lower()])
         if factor <= 0:
             continue
-        out.append(_Derived(m.start(), m.end(), "fold_change", m.group(0).strip(), None, factor, _side(m.group(1))))
+        end, words = m.end(), m.group(0).strip()
+        if si:
+            rep = _REPEAT_RE.match(clause, m.end())
+            if rep:
+                times = 2 if rep.group(1) else (_REPEAT_WORDS.get(rep.group(2).lower()) or int(rep.group(2)))
+                if 1 <= times <= _MAX_REPEAT:
+                    factor, end, words = factor ** times, rep.end(), clause[m.start():rep.end()].strip()
+        out.append(_Derived(m.start(), end, "fold_change", words, None, factor, _side(m.group(1))))
     out.sort(key=lambda d: d.start)
     return out
 
 
-def _pairs(clause: str) -> list[_Pair]:
-    """Every pair of figures of ``clause`` (from/to with its list and continuations, then 'X in D1 and Y in D2'), in order."""
+def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
+    """Every pair of figures of ``clause`` (from/to with its list and continuations, then 'X in D1 and Y in D2'), in order.
+    ``pat`` holds the reading's figure patterns (the general reading's by default)."""
     pairs: list[_Pair] = []
     covered: list[tuple[int, int]] = []
     if not _FIGURE_HINT_RE.search(clause):
@@ -464,11 +580,11 @@ def _pairs(clause: str) -> list[_Pair]:
     def overlaps(s: int, e: int) -> bool:
         return any(s < b and a < e for a, b in covered)
 
-    for m in _FROM_TO_RE.finditer(clause):
+    for m in pat.from_to.finditer(clause):
         p = _Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2))
         pos = m.end()
         while True:
-            li = _LIST_ITEM_RE.match(clause, pos)
+            li = pat.list_item.match(clause, pos)
             if not li or len(p.tail) >= _MAX_SERIES:
                 break
             p.tail.append(_fig_of(li, 3))
@@ -476,7 +592,7 @@ def _pairs(clause: str) -> list[_Pair]:
         p.end = pos
         pairs.append(p)
         covered.append((p.start, p.end))
-    for m in _CONT_RE.finditer(clause):
+    for m in pat.cont.finditer(clause):
         if overlaps(m.start(), m.end()):
             continue
         prior = [p for p in pairs if p.end <= m.start()]
@@ -485,7 +601,7 @@ def _pairs(clause: str) -> list[_Pair]:
         p = _Pair(m.start(), m.end(), max(prior, key=lambda x: x.end).last, _fig_of(m, 3 if m.group("n3") else 4))
         pos = m.end()
         while True:
-            li = _LIST_ITEM_RE.match(clause, pos)
+            li = pat.list_item.match(clause, pos)
             if not li or len(p.tail) >= _MAX_SERIES:
                 break
             p.tail.append(_fig_of(li, 3))
@@ -493,7 +609,7 @@ def _pairs(clause: str) -> list[_Pair]:
         p.end = pos
         pairs.append(p)
         covered.append((p.start, p.end))
-    for m in _AND_DATED_RE.finditer(clause):
+    for m in pat.and_dated.finditer(clause):
         if overlaps(m.start(), m.end()):
             continue
         p = _Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2))
@@ -559,6 +675,154 @@ def _values(before: _Fig, after: _Fig) -> tuple[Optional[_Values], str]:
     return _Values(a, b, _shown(before, u1), _shown(after, u2), _is_pct(u1) and _is_pct(u2)), ""
 
 
+# ------------------------------------------------------------------ the SI reading of a pair (STEM branches)
+
+_DIGIT_RE = re.compile(r"\d")
+
+
+def _si_kind(unit: Optional[str], profile: str) -> Optional[str]:
+    """``scale``, ``pct``, ``rate``, ``count``, ``si`` (a unit of the STEM table), ``si-affine`` (°C, °F) or ``unknown``
+    for a unit read in the SI reading; None for a bare figure."""
+    if not unit:
+        return None
+    u = unit.lower()
+    if u in SI_SCALES:
+        return "scale"
+    if _is_pct(u):
+        return "pct"
+    if u.startswith("per ") or u.startswith("to "):
+        return "rate"
+    if u in ("seats", "votes"):
+        return "count"
+    su = si_unit(unit, profile)
+    if su is None:
+        return "unknown"
+    return "si-affine" if su.affine else "si"
+
+
+def _si_number(num: str) -> Optional[Fraction]:
+    """A figure of the SI reading: digits (a sign, scientific notation) through the STEM number reader, words as in general."""
+    if _DIGIT_RE.search(num):
+        v = si_number(num)
+        if v is None and re.fullmatch(r"-?\d+,\d{1,2}", num.strip()):
+            v = _number(num)  # a decimal comma ('1,9 million'), read as the general reading reads it
+        return v
+    return _number(num)
+
+
+def _si_value(num: str, unit: Optional[str], profile: str) -> Optional[Fraction]:
+    """Exact value of a figure in the SI reading: a scale word multiplies, a unit of the table converts to SI (None when
+    the unit has no exact factor), anything else is read as written."""
+    v = _si_number(num)
+    if v is None:
+        return None
+    kind = _si_kind(unit, profile)
+    if kind == "scale":
+        return v * SI_SCALES[unit.lower()]
+    if kind in ("si", "si-affine"):
+        su = si_unit(unit, profile)
+        if su is None or su.factor is None or su.affine:
+            return None
+        return v * su.factor
+    return v
+
+
+def _si_shown(fig: _Fig, unit: Optional[str], value: Optional[Fraction], profile: str) -> str:
+    shown = _shown(fig, unit)
+    if value is not None and _si_kind(unit, profile) == "si":
+        written = _si_number(fig.num)
+        if written is not None and written != value:
+            shown += f" (= {_fmt(value)} in SI units)"
+    return shown
+
+
+_RELATIVE_KINDS = frozenset({"percent_change", "change", "fraction_change", "fold_change"})
+
+
+def _si_values(before: _Fig, after: _Fig, profile: str, kind: str = "") -> tuple[Optional[_Values], str]:
+    """The SI reading of :func:`_values`: units of the STEM table convert exactly to SI and pair only when their dimensions
+    agree; a relative change (``kind``) on an offset temperature scale is not defined."""
+    u1, u2 = before.unit, after.unit
+    k1, k2 = _si_kind(u1, profile), _si_kind(u2, profile)
+    cannot = f"the units of '{_shown(before, u1)}' and '{_shown(after, u2)}' cannot be compared, so the pair was not read"
+    if not u1 and u2:
+        if before.noun and k2 != "scale":
+            return None, cannot
+        u1, k1 = (None, None) if before.noun else (u2, k2)
+    elif u1 and not u2:
+        if k1 == "scale":
+            return None, cannot
+        u2, k2 = u1, k1
+    if "unknown" in (k1, k2):
+        return None, cannot
+    si1, si2 = bool(k1 and k1.startswith("si")), bool(k2 and k2.startswith("si"))
+    if si1 and si2:
+        a_u, b_u = si_unit(u1, profile), si_unit(u2, profile)
+        if a_u is None or b_u is None:
+            return None, cannot
+        if a_u.dim != b_u.dim:
+            return None, (f"'{_shown(before, u1)}' is a {a_u.dimension} and '{_shown(after, u2)}' a {b_u.dimension}: figures of different dimensions "
+                          "cannot be compared, so the pair was not read")
+    elif k1 and k2 and k1 != k2:
+        return None, cannot
+    if _year_like(before.num, u1) and _year_like(after.num, u2):
+        return None, "year span"
+    affine = "si-affine" in (k1, k2)
+    if affine and kind in _RELATIVE_KINDS:
+        return None, (f"a relative change between '{_shown(before, u1)}' and '{_shown(after, u2)}' is not defined on an offset temperature scale "
+                      "(°C, °F), so the pair was not read")
+    if si1 and si2 and (u1 or "").strip() == (u2 or "").strip():
+        a, b = _si_number(before.num), _si_number(after.num)  # the same unit: compared as written, the factor cancels
+        if a is not None and k1 == "scale":
+            a, b = a * SI_SCALES[u1.lower()], (b * SI_SCALES[u1.lower()] if b is not None else None)
+    elif affine:
+        return None, f"'{_shown(before, u1)}' and '{_shown(after, u2)}' are on offset temperature scales in different units, so the pair was not read"
+    else:
+        a, b = _si_value(before.num, u1, profile), _si_value(after.num, u2, profile)
+    if a is None or b is None:
+        return None, f"'{_shown(before, u1)}' or '{_shown(after, u2)}' has no exact value in SI units, so the pair was not read"
+    shown_a = _si_shown(before, u1, a, profile) if not (si1 and (u1 or "").strip() == (u2 or "").strip()) else _shown(before, u1)
+    shown_b = _si_shown(after, u2, b, profile) if not (si2 and (u1 or "").strip() == (u2 or "").strip()) else _shown(after, u2)
+    return _Values(a, b, shown_a, shown_b, _is_pct(u1) and _is_pct(u2)), ""
+
+
+def _si_series_of(pair: "_Pair", sentence_index: int, text: str, profile: str) -> Optional["_Series"]:
+    """The SI reading of :func:`_series_of`: the figures as written when they all carry the same unit (a scale word
+    applied), else in SI units; the series kind names the unit's dimension, so series of different dimensions never
+    merge, and an offset temperature scale is marked (``si-affine``) so no relative change is read from it."""
+    probe, _why = _si_values(pair.before, pair.after, profile)
+    if probe is None:
+        return None
+    unit = pair.after.unit or pair.before.unit
+    kind = _si_kind(unit, profile)
+    if kind in ("si", "si-affine"):
+        su = si_unit(unit, profile)
+        if su is None:
+            return None
+        kind = f"{kind}:{su.dim}"
+    figs = (pair.before, pair.after, *pair.tail)
+    same = len({(f.unit or unit or "").strip() for f in figs}) == 1
+    points: dict[int, tuple[Fraction, str]] = {}
+    for f in figs:
+        if not f.annual:
+            continue
+        u = f.unit or unit
+        if same:
+            value = _si_number(f.num)
+            if value is not None and _si_kind(u, profile) == "scale":
+                value *= SI_SCALES[u.lower()]
+        else:
+            value = _si_value(f.num, u, profile)
+        if value is None:
+            return None
+        if f.year in points and points[f.year][0] != value:
+            return None  # one pair states two values for one year: not a series
+        points[f.year] = (value, _shown(f, u))
+    if len(points) < 2:
+        return None
+    return _Series(kind, unit, points, sentence_index, text)
+
+
 @dataclass(frozen=True)
 class _Spec:
     """A check to build: kind, the statement it reads, the problem's parts."""
@@ -573,9 +837,14 @@ class _Spec:
     basis: str = ""
 
 
-def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction, note: str = "figure stated in the report itself", basis: str = "") -> tuple[Optional[_Spec], str]:
-    """The check of derived figure ``d`` against the pair ``values``, or None and why it cannot be built."""
+def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction, note: str = "figure stated in the report itself", basis: str = "",
+               *, si: bool = False) -> tuple[Optional[_Spec], str]:
+    """The check of derived figure ``d`` against the pair ``values``, or None and why it cannot be built. In the SI
+    reading the band is sign-aware (:func:`_within_si`) and a relative change is taken against the earlier figure's
+    magnitude (a rise from -4 to -2 is a rise of 50 per cent)."""
     a, b = values.a, values.b
+    _within = _within_si if si else _within_general
+    base = abs(a) if si else a
     premises = (("BEFORE", {"op": "eq", "left": _v("before"), "right": _real(a)}, f"before = {values.shown_a}"),
                 ("AFTER", {"op": "eq", "left": _v("after"), "right": _real(b)}, f"after = {values.shown_b}"))
     before_after = (("before", "the earlier figure as stated"), ("after", "the later figure as stated"))
@@ -592,13 +861,13 @@ def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction
         return None, "the earlier figure is zero, so no relative change can be computed"
     if d.kind in ("percent_change", "change"):
         direction = d.direction or ("rise" if b >= a else "fall")
-        change = {"op": "mul", "args": [_real(Fraction(100)), {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(a)}]}
+        change = {"op": "mul", "args": [_real(Fraction(100)), {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(base)}]}
         if direction == "fall":
             change = {"op": "neg", "arg": change}
         label = f"stated {direction} of {_fmt(d.stated)} per cent against the computed change" if d.kind == "percent_change" else f"stated change of {_fmt(d.stated)} per cent ({direction}, the figures' own direction) against the computed change"
         return _Spec("percent_change", statement, before_after, premises, ("STATED_CHANGE", _within(change, d.stated, tolerance, POINT_FLOOR, d.side), label), POINT_FLOOR, d.side, note, basis), ""
     if d.kind == "fraction_change":
-        change = {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(a)}
+        change = {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(base)}
         if d.direction == "fall":
             change = {"op": "neg", "arg": change}
         return _Spec("fraction_change", statement, before_after, premises, ("STATED_FRACTION", _within(change, d.stated, tolerance, Fraction(0), d.side),
@@ -739,27 +1008,83 @@ def _series_label(s: _Series, years: list[int]) -> str:
     return "; ".join(f"{y}: {s.points[y][1]}" for y in years)
 
 
+def _paragraph_sentences(text: str, reading: QuantReading):
+    """``(paragraph number, sentences, sentence numbers or None)`` of ``text``: the general reading splits blank-line
+    paragraphs with the shared splitter (numbers 1, 2, ...); the SI reading takes the STEM statements of the SI quant view
+    (maths masked), numbered as the STEM claim ids."""
+    if not reading.si:
+        for pi, para in enumerate((p for p in _PARA_RE.split(text.strip()) if p.strip()), start=1):
+            yield pi, split_sentences(para), None
+        return
+    view = si_quant_view(text, reading.profile)
+    grouped: dict[int, tuple[list[str], list[int]]] = {}
+    for pi, number, start, end in si_statements(text, reading.profile):
+        texts, numbers = grouped.setdefault(pi, ([], []))
+        texts.append(view[start:end])
+        numbers.append(number)
+    for pi in sorted(grouped):
+        yield pi, grouped[pi][0], grouped[pi][1]
+
+
+def _num(numbers: Optional[list[int]], index: int) -> int:
+    """The number a finding gives sentence ``index`` (0-based) of its paragraph: ``index + 1``, or the STEM statement number."""
+    return index + 1 if numbers is None else numbers[index]
+
+
+def _si_others(kind: str, groups: tuple, profile: str) -> tuple[Optional[tuple[Fraction, ...]], str]:
+    """Values of a share (percentage, whole, part) or a total (two addends and the total) in the SI reading, or None and
+    why: the figures carrying units must share one dimension."""
+    pairs = [(groups[0], None), (groups[1], groups[2]), (groups[3], groups[4])] if kind == "share" else [(groups[0], groups[1]), (groups[2], groups[3]), (groups[4], groups[5])]
+    measured = pairs[1:] if kind == "share" else pairs
+    dims = set()
+    for num, unit in measured:
+        k = _si_kind(unit, profile)
+        if k == "unknown":
+            return None, f"the unit '{unit}' could not be read"
+        if k in ("si", "si-affine"):
+            su = si_unit(unit, profile)
+            if su is None or su.affine:
+                return None, f"the unit '{unit}' is not read for a {kind}"
+            dims.add(str(su.dim))
+        elif k is not None:
+            dims.add(k)
+    if len(dims) > 1:
+        return None, f"the figures of the {kind} carry units of different kinds or dimensions, so it was not checked"
+    values = []
+    for num, unit in pairs:
+        v = _si_number(num) if unit is None else _si_value(num, unit, profile)
+        if v is None:
+            return None, f"the figure '{(num + ' ' + (unit or '')).strip()}' could not be read exactly"
+        values.append(v)
+    return tuple(values), ""
+
+
 @lru_cache(maxsize=128)
-def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[QuantUndecided, ...], tuple[tuple[str, tuple], ...]]:
+def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) -> tuple[tuple[_Spec, ...], tuple[QuantUndecided, ...], tuple[tuple[str, tuple], ...]]:
     """Read every paragraph of ``text``: the pair-bound checks, the cross-sentence checks, the
-    statements left undecided, and the share/total matches (built later). Memoised per text,
-    since the core pack asks for the checks and for the undecided statements of one report."""
+    statements left undecided, and the share/total matches (built later). Memoised per text
+    and reading, since the core pack asks for the checks and for the undecided statements of
+    one report. ``reading`` selects the general or the SI reading (module docstring)."""
+    si_mode = reading.si
+    pat = _patterns(reading)
     specs: list[_Spec] = []
     undecided: list[QuantUndecided] = []
     all_clauses: list[str] = []
-    for pi, para in enumerate((p for p in _PARA_RE.split(text.strip()) if p.strip()), start=1):
-        sentences = split_sentences(para)
+    clause_where: list[tuple[int, int, str]] = []   # (paragraph, sentence number, sentence) of every clause, for SI undecided shares
+    for pi, sentences, numbers in _paragraph_sentences(text, reading):
         series: list[_Series] = []
         pending: list[tuple[int, str, list[_Derived], Optional[tuple]]] = []   # (sentence index, clause, unbound derived, extras)
         per_sentence_specs: list[tuple[int, _Spec]] = []
         for si, sent in enumerate(sentences):
             clauses = split_clauses(sent) if (";" in sent or _LOWER_CONTINUATION_RE.search(sent)) else [sent]
             all_clauses.extend(clauses)
+            if si_mode:
+                clause_where.extend((pi, _num(numbers, si), sent.strip()) for _c in clauses)
             for clause in clauses:
-                derived = _derived_phrases(clause)
-                pairs = _pairs_outside(_pairs(clause), derived)
+                derived = _derived_phrases(clause, si_mode)
+                pairs = _pairs_outside(_pairs(clause, pat), derived)
                 for p in pairs:
-                    s = _series_of(p, si, clause)
+                    s = _si_series_of(p, si, clause, reading.profile) if si_mode else _series_of(p, si, clause)
                     if s is not None:
                         series.append(s)
                 bound: set[int] = set()
@@ -771,17 +1096,17 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                     for d in mine:
                         bound.add(id(d))
                         after = p.last if p.tail and d.start >= p.end else p.after
-                        values, why = _values(p.before, after)
+                        values, why = _si_values(p.before, after, reading.profile, d.kind) if si_mode else _values(p.before, after)
                         statement = clause.strip() if len(pairs) == 1 else clause[seg_start:seg_end].strip(" ,;")
                         if values is None:
                             if why != "year span":
-                                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), d.words, why))
+                                undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), d.words, why))
                             else:
                                 pending.append((si, clause, [d], None))
                             continue
-                        spec, why = _pair_spec(values, d, statement, tolerance)
+                        spec, why = _pair_spec(values, d, statement, tolerance, si=si_mode)
                         if spec is None:
-                            undecided.append(QuantUndecided(pi, si + 1, sent.strip(), d.words, why))
+                            undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), d.words, why))
                         else:
                             per_sentence_specs.append((si, spec))
                 loose = [d for d in derived if id(d) not in bound]
@@ -797,18 +1122,21 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
             for d in loose:
                 target, how = _target_years(sentences, si, clause, d.start, sorted({y for s in series for y in s.points}))
                 if target is None:
-                    undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"no figures are stated with it in its sentence and {how}"))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, d.words, f"no figures are stated with it in its sentence and {how}"))
                     continue
                 kinds = {"pct"} if d.kind == "points_change" and d.percentage_points else None
                 s, why = _pick_series(series, list(target), clause, kinds=kinds)
                 if s is None:
-                    undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"no figures are stated with it in its sentence and {why}"))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, d.words, f"no figures are stated with it in its sentence and {why}"))
+                    continue
+                if si_mode and (s.kind or "").startswith("si-affine") and d.kind in _RELATIVE_KINDS:
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, d.words, "a relative change is not defined on an offset temperature scale (°C, °F), so the figures were not read"))
                     continue
                 (va, sa), (vb, sb) = s.points[target[0]], s.points[target[1]]
-                values = _Values(va, vb, sa + f" (stated in sentence {s.sentence + 1} of the paragraph)", sb + f" (stated in sentence {s.sentence + 1} of the paragraph)", s.kind == "pct")
-                spec, why = _pair_spec(values, d, clause.strip(), tolerance, note, f"stated across sentences: {how}; figures from sentence {s.sentence + 1}: {_series_label(s, list(target))}")
+                values = _Values(va, vb, sa + f" (stated in sentence {_num(numbers, s.sentence)} of the paragraph)", sb + f" (stated in sentence {_num(numbers, s.sentence)} of the paragraph)", s.kind == "pct")
+                spec, why = _pair_spec(values, d, clause.strip(), tolerance, note, f"stated across sentences: {how}; figures from sentence {_num(numbers, s.sentence)}: {_series_label(s, list(target))}", si=si_mode)
                 if spec is None:
-                    undecided.append(QuantUndecided(pi, si + 1, sent, d.words, why))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, d.words, why))
                 else:
                     specs.append(spec)
             if not extras:
@@ -822,7 +1150,7 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                 in_range = [s for s in _merge(series) if len([y for y in s.points if anchor is None or y >= anchor]) >= 2]
                 if len(in_range) != 1:
                     why = "the paragraph states no dated series of two or more years" + (f" from {anchor}" if anchor else "") if not in_range else f"{len(in_range)} dated series of the paragraph could be meant"
-                    undecided.append(QuantUndecided(pi, si + 1, sent, mono.group(0), why))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, mono.group(0), why))
                 else:
                     s = in_range[0]
                     years = sorted(y for y in s.points if anchor is None or y >= anchor)[:_MAX_SERIES]
@@ -831,22 +1159,22 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                     op = "gt" if rising_dir == "rise" else "lt"
                     steps = [{"op": op, "left": _v(f"v{b}"), "right": _v(f"v{a}")} for a, b in zip(years, years[1:])]
                     concl = steps[0] if len(steps) == 1 else {"op": "and", "args": steps}
-                    label = f"stated '{mono.group(0)}' against the paragraph's dated series (sentence {s.sentence + 1}): every year's figure {'above' if rising_dir == 'rise' else 'below'} the previous one"
+                    label = f"stated '{mono.group(0)}' against the paragraph's dated series (sentence {_num(numbers, s.sentence)}): every year's figure {'above' if rising_dir == 'rise' else 'below'} the previous one"
                     specs.append(_Spec("series_monotonic", clause.strip(), symbols, premises, ("STATED_TREND", concl, label), Fraction(0), "both", note,
-                                       f"stated across sentences: figures from sentence {s.sentence + 1}: {_series_label(s, years)}"))
-            if extreme and not _pairs_outside(_pairs(clause), _derived_phrases(clause)):
+                                       f"stated across sentences: figures from sentence {_num(numbers, s.sentence)}: {_series_label(s, years)}"))
+            if extreme and not _pairs_outside(_pairs(clause, pat), _derived_phrases(clause, si_mode)):
                 proportional = bool(extreme.group(2) and extreme.group(2).strip().lower() in ("proportional", "relative", "percentage")) or bool(_PCT_CHANGE_RE.search(clause))
                 if extreme.group(2) and extreme.group(2).strip().lower() == "absolute":
                     proportional = False
                 target, how = _target_years(sentences, si, clause, extreme.start(), sorted({y for s in series for y in s.points}))
                 s, why = (None, how) if target is None else _pick_series(series, list(target), clause)
                 if s is None:
-                    undecided.append(QuantUndecided(pi, si + 1, sent, extreme.group(0), f"no figures are stated with it in its sentence and {why}"))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, extreme.group(0), f"no figures are stated with it in its sentence and {why}"))
                     continue
                 years = sorted(s.points)[:_MAX_SERIES]
                 steps_years = list(zip(years, years[1:]))
                 if target not in steps_years:
-                    undecided.append(QuantUndecided(pi, si + 1, sent, extreme.group(0), f"the years {target[0]} and {target[1]} are not consecutive figures of the paragraph's series"))
+                    undecided.append(QuantUndecided(pi, _num(numbers, si), sent, extreme.group(0), f"the years {target[0]} and {target[1]} are not consecutive figures of the paragraph's series"))
                     continue
                 if len(steps_years) < 2:
                     continue  # one step only: nothing to compare it with
@@ -865,33 +1193,42 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                 op = ("ge" if not falling else "le") if largest else ("le" if not falling else "ge")
                 cmp = [{"op": op, "left": measure(*target), "right": measure(a, b)} for a, b in steps_years if (a, b) != target]
                 concl = cmp[0] if len(cmp) == 1 else {"op": "and", "args": cmp}
-                label = (f"stated '{extreme.group(0)}' for {target[0]}-{target[1]} ({how}) against every other year-on-year {'proportional' if proportional else 'absolute'} change of the paragraph's series (sentence {s.sentence + 1})")
+                label = (f"stated '{extreme.group(0)}' for {target[0]}-{target[1]} ({how}) against every other year-on-year {'proportional' if proportional else 'absolute'} change of the paragraph's series (sentence {_num(numbers, s.sentence)})")
                 specs.append(_Spec("series_extreme", clause.strip(), symbols, premises, ("STATED_EXTREME", concl, label), Fraction(0), "both", note,
-                                   f"stated across sentences: {how}; figures from sentence {s.sentence + 1}: {_series_label(s, years)}"))
+                                   f"stated across sentences: {how}; figures from sentence {_num(numbers, s.sentence)}: {_series_label(s, years)}"))
     others: list[tuple[str, tuple]] = []
-    for sent in all_clauses:
-        sh = _SHARE_RE.search(sent)
-        if sh:
-            others.append(("share", (sent.strip(), sh.groups())))
-        tot = _TOTAL_RE.search(sent)
-        if tot:
-            others.append(("total", (sent.strip(), tot.groups())))
+    for k, sent in enumerate(all_clauses):
+        for kind, m in (("share", pat.share.search(sent)), ("total", pat.total.search(sent))):
+            if not m:
+                continue
+            if not si_mode:
+                others.append((kind, (sent.strip(), m.groups())))
+                continue
+            values, why = _si_others(kind, m.groups(), reading.profile)
+            if values is None:
+                p_no, s_no, s_text = clause_where[k]
+                undecided.append(QuantUndecided(p_no, s_no, s_text, m.group(0).strip()[:120], why))
+            else:
+                others.append((kind, (sent.strip(), m.groups(), values)))
     return tuple(specs), tuple(undecided), tuple(others)
 
 
-def undecided_quant_statements(text: str, tolerance: Fraction = Fraction(1, 20)) -> list[QuantUndecided]:
+def undecided_quant_statements(text: str, tolerance: Fraction = Fraction(1, 20), *, reading: QuantReading = GENERAL) -> list[QuantUndecided]:
     """Stated derived figures and series relations no check could be built for, with the reason
     (units that cannot be compared, no figures in the sentence and none the paragraph's dated
-    series supplies, an ambiguous series, a year that cannot be read)."""
-    return list(_analyse(text, tolerance)[1])
+    series supplies, an ambiguous series, a year that cannot be read). ``reading``: see the
+    module docstring (the general reading by default)."""
+    return list(_analyse(text, tolerance, reading)[1])
 
 
-def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance: Fraction = Fraction(1, 20)) -> list[QuantCheck]:
+def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance: Fraction = Fraction(1, 20), reading: QuantReading = GENERAL) -> list[QuantCheck]:
     """Find every stated derived figure bound to a pair of figures (in its own clause, or in
     the paragraph's dated series) and build an exact entailment problem for each, then the
     stated shares and totals. ``tolerance`` is the relative slack allowed for rounding (default
-    5 per cent of the computed value; see :data:`TOLERANCE_RULE`)."""
-    specs, _undecided, others = _analyse(text, tolerance)
+    5 per cent of the computed value; see :data:`TOLERANCE_RULE`). ``reading``: see the module
+    docstring (the general reading by default)."""
+    specs, _undecided, others = _analyse(text, tolerance, reading)
+    band = _within_si if reading.si else _within
     checks: list[QuantCheck] = []
     n = 0
     prefix = {"percent_change": "pct", "points_change": "points", "fraction_change": "frac", "fold_change": "fold", "series_monotonic": "trend", "series_extreme": "extreme"}
@@ -900,22 +1237,23 @@ def extract_quant_checks(text: str, *, request_id: str, claim_id: str, tolerance
         rule = _rule_text(tolerance, spec.floor, spec.side) if spec.kind not in ("series_monotonic", "series_extreme") else "exact comparison of the figures as stated (no tolerance)"
         checks.append(QuantCheck(f"quant-{n}", spec.kind, spec.sentence, _problem(f"quant-{prefix[spec.kind]}-{n}", claim_id, request_id, list(spec.symbols), list(spec.premises), spec.conclusion, spec.note),
                                  rule=rule, basis=spec.basis))
-    for kind, (sent, g) in others:
+    for kind, other in others:
+        sent, g = other[0], other[1]
         n += 1
         if kind == "share":
-            pct, whole, part = _number(g[0]), _frac(g[1], g[2]), _frac(g[3], g[4])
+            pct, whole, part = other[2] if reading.si else (_number(g[0]), _frac(g[1], g[2]), _frac(g[3], g[4]))
             computed = {"op": "div", "left": {"op": "mul", "args": [_real(pct), _v("whole")]}, "right": _real(Fraction(100))}  # constant * variable: linear
             checks.append(QuantCheck(f"quant-{n}", "share", sent, _problem(f"quant-share-{n}", claim_id, request_id,
                 [("pct", "stated percentage"), ("whole", "stated whole")],
                 [("PCT", {"op": "eq", "left": _v("pct"), "right": _real(pct)}, "percentage"), ("WHOLE", {"op": "eq", "left": _v("whole"), "right": _real(whole)}, "whole")],
-                ("STATED_PART", _within(computed, part, tolerance), f"stated part {g[3]} {g[4] or ''}".strip())),
+                ("STATED_PART", band(computed, part, tolerance), f"stated part {g[3]} {g[4] or ''}".strip())),
                 rule=_rule_text(tolerance, Fraction(0), "both")))
         else:
-            x, y, z = _frac(g[0], g[1]), _frac(g[2], g[3]), _frac(g[4], g[5])
+            x, y, z = other[2] if reading.si else (_frac(g[0], g[1]), _frac(g[2], g[3]), _frac(g[4], g[5]))
             s = {"op": "add", "args": [_v("x"), _v("y")]}
             checks.append(QuantCheck(f"quant-{n}", "total", sent, _problem(f"quant-total-{n}", claim_id, request_id,
                 [("x", "first addend"), ("y", "second addend")],
                 [("X", {"op": "eq", "left": _v("x"), "right": _real(x)}, "x"), ("Y", {"op": "eq", "left": _v("y"), "right": _real(y)}, "y")],
-                ("STATED_TOTAL", _within(s, z, tolerance), f"stated total {g[4]} {g[5] or ''}".strip())),
+                ("STATED_TOTAL", band(s, z, tolerance), f"stated total {g[4]} {g[5] or ''}".strip())),
                 rule=_rule_text(tolerance, Fraction(0), "both")))
     return checks

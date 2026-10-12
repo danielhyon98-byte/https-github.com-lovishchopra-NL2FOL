@@ -1,8 +1,8 @@
 # branches — one hub, a branch per subject, an integrity pack in each
 
 The router talks to every specialist (English, History, Psychology, Economics,
-Business Management, and any subject added later) through the same hub. What differs
-by subject lives in a branch:
+Business Management, the STEM subjects, and any subject added later) through the same hub.
+What differs by subject lives in a branch:
 
 ```
                  ┌────────────────────────── hub integrity (shared) ───────────────────────────┐
@@ -14,15 +14,19 @@ router ──► RouterHub ──► TranslatorChannel: envelope · hand-off · 
                  ├── branch psychology ......... profile + generic parser + [core pack, Psychology pack]
                  ├── branch economics .......... profile + generic parser + [core pack, Economics pack]
                  ├── branch business_management  profile + generic parser + [core pack, Business pack]
+                 ├── branch sciences ........... STEM parser + [core pack (SI reading), StemPack("sciences")] + STEM hooks
+                 ├── branch mathematics ........ STEM parser + [core pack (SI reading), StemPack("mathematics")] + STEM hooks
+                 ├── branch computer_science ... STEM parser + [core pack (SI reading), StemPack("computer_science")] + STEM hooks
                  └── branch generic ............ profile + generic parser + [core pack, generic pack]
 ```
 
 | Module | Role |
 | --- | --- |
-| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs), `IntegrityPack` protocol, `FormalCheck`, `BranchRegistry` (subject label → branch, generic fallback). |
+| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs, optional `hub_hooks`), `IntegrityPack` protocol, `BranchHooks` protocol, `FormalCheck` (with `claim_ids`, the named engine `policy`, `failure_severity`, `inconsistent_is_failure`), `BranchRegistry` (subject label → branch, generic fallback). `run_packs` guards every pack (BR-INTERNAL-001) and prefers a pack's `formal_checks_for(report, request_text)`. |
 | `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction or fold change; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series; shares; totals) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure no problem can be built for is returned as undecided (`undecided_quant_statements`). No model is involved. |
 | `packs.py` | `CorePack` (every branch: quotation grounding, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic), `BusinessPack` (margins), `GenericPack`. |
-| `registry.py` | The default registry and how subjects map to branches. |
+| `stem_pack.py` | `StemPack(mode)`: the STEM pack of the `sciences`, `mathematics` and `computer_science` branches (ST findings and the STEM engine checks of `stem.checks`, see below). |
+| `registry.py` | The default registry and how subjects map to branches (`CORE` in the general reading; `CORE_SI = CorePack(reading=SI_READING)` first in every STEM branch). |
 | `generic_parser.py` | Fallback sentence-level parser for subjects without a dedicated adapter. |
 | `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. |
 
@@ -307,6 +311,50 @@ what a verdict looks like.
 * Judgement and link claims are supported by the paragraph's point and other argument
   claims, so they are PROPOSITIONAL_ARGUMENT eligible like English links. Dated claims
   under a from-memory label are capped at certainty `probable`.
+
+## STEM branches (docs/STEM_DESIGN.md)
+
+Physics, Chemistry, Biology, ESS, SEHS, Design Technology and the `stem` profile (general
+science, engineering, a label naming two or more sciences) route to `sciences`; Mathematics AA,
+AI and an unspecified course to `mathematics`; Computer Science to `computer_science`.
+`generic` stays the default for an unrecognised subject. Each STEM branch runs:
+
+* `StemTextParser` (`adapters/stem_specialist`): claims are the shared `StemDocument`'s
+  statements, offset substrings of the answer with ids `s<paragraph>.<n>` (`m` in mathematics,
+  `c` in Computer Science, so two STEM branches never share a claim id on one task);
+* `CORE_SI`: the core pack in SI reading (`quant` module docstring, `stem/si_reading.py`): only
+  spelled-out scale words scale a figure (`300 K`, `500 mm to 2 m` read as written), units of
+  the STEM table convert exactly and pair only when their dimensions agree, scientific
+  notation and signs are read, `halved twice` is a factor of 1/4, the band is sign-aware, and
+  the prose extractor reads the SI quant view (maths masked) so it never checks the maths the
+  STEM pack checks; quotations are read on the quotation view (an inch mark `12"` is not a
+  quotation mark), chronology and self-certification on the prose view (`1500 K` is no year);
+  findings name the STEM claim ids. `CORE` (the general reading) is byte-identical to before
+  on every other branch (`tests/branches/test_quant_si_reading.py` pins it on a 570-text
+  reference corpus);
+* `StemPack(mode)`: the front end's and the checks stage's ST findings (codes and severities of
+  design section 8.2; never an error: every STEM error is an engine result) and one
+  `FormalCheck` per planned check (`stem-eq-N`, `stem-sub-N`, `stem-alg-N`, ...) with its claim
+  ids, its named policy (`linear` or `nonlinear`), its failure severity (`warning` for checks
+  that relied on a reading the report did not state) and `inconsistent_is_failure=False`. On
+  relay (no request) `stem-giv` and `stem-tgt` are not built. A failure inside the pack is
+  ST-INTERNAL-001, never an exception and never a silent pass;
+* the STEM hub hooks (`stem/hub_hooks.py`): coverage words from the dimensions of a claim's
+  quantities, the echo exemption for an answer that computes, the STEM imperatives, and the
+  word-count view (a maths span or a code block is one word).
+
+Recorded behaviour change (design section 18, item 1, for the overseer audit and sign-off):
+STEM subjects route to these branches instead of `generic`; the two routing assertions that
+encoded the old routing (`tests/branches/test_hub.py`, `tests/branches/test_quant_and_packs.py`)
+were replaced by assertions of equal strength for `sciences`, each with an unknown → `generic`
+assertion beside it.
+
+## Pack isolation (`BR-INTERNAL-001`)
+
+`SubjectBranch.run_packs` calls every pack's `checks` and formal checks in a guard. A pack that
+raises is named by a BR-INTERNAL-001 warning (the pack, the exception type, the stage; never the
+exception's text), its findings are missing from the receipt and the router must not read them
+as a pass; the other packs still run.
 
 Adding a subject: write a pack (deterministic checks citing the pack's working rules,
 plus any formal check templates), optionally an adapter, and register a branch. The

@@ -31,16 +31,32 @@ carries (or can be given) a formal conclusion, for entailment by its formalized 
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
 surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router.
+
+Branch formal checks (``_branch_checks``) run under the check's named engine policy
+(``engine.policies``: ``linear`` is the caller's configuration unchanged; ``nonlinear`` opens
+the nonlinear-term gate under a deterministic ``rlimit``); an unknown policy is never run under
+another one (INT-SUBJ-002). A check is satisfied only when the engine returns the expected
+status with a non-vacuous proof (no E108); it failed when the status is definitive and another
+one (INCONSISTENT_PREMISES only when the check counts it as a failure); otherwise it is
+undecided. A failure is INT-SUBJ-001 (error) or, for a check that relied on a reading the
+report did not state, INT-SUBJ-004 (warning); undecided is INT-SUBJ-002. Each finding names the
+check's claims; every detail and message is cut to its contract length, and an exception while
+deciding one check makes that check alone undecided. A branch may lend the channel hub hooks
+(``branches.base.BranchHooks``, the STEM branches only): extra request imperatives, extra
+coverage words, an echo exemption for an answer that computes, and the word-count view.
 """
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Callable, Optional, Union
 
 from pydantic import BaseModel, ValidationError
 
+from ..engine.errors import DiagnosticCode
+from ..engine.policies import UnknownPolicyError, policy_config, policy_limits
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S, is_definitive
@@ -51,6 +67,7 @@ from ..integrity.handoff import check_report_against_plan
 from ..integrity.ledger import check_synthesis_ledger, light_stem
 from ..ir.canonical import sha256_hex
 from ..ir.schema import Assertion, Problem
+from ..translate.common import truncate
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TranslationStatus, sha256_text
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
@@ -90,6 +107,12 @@ _ECHO_LENGTH_RATIO = 1.2
 _SCOPE_TAIL = "Formal results concern only the encoded checks under their premises; coverage is heuristic."
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
 _MAX_NAMED = 8
+#: Contract lengths of a ConstraintResult detail and of a finding message.
+_DETAIL_MAX = 2000
+_VACUOUS = DiagnosticCode.VACUOUS_RESULT.value
+#: Wall-clock budget for the STEM checks of one report (kinds ``stem_*``): checks left when it is spent are undecided
+#: (INT-SUBJ-002, "check budget"), never success. Other packs' checks are not budgeted.
+STEM_CHECK_BUDGET_S = 8.0
 #: A UTF-16 surrogate code point. In a Python string every one is unpaired as far as Unicode is concerned (a truncated
 #: emoji arriving in an agent's JSON as "\\ud83d"): it has no UTF-8 form and no contract accepts it, so text carrying one
 #: is rejected at the channel boundary (INT-REQ-009) before it is parsed or hashed.
@@ -251,11 +274,12 @@ class TranslatorChannel:
         bad_input = surrogate_offsets(user_input)
         if bad_input:  # a request that is not valid Unicode is built on the scrubbed text for the record and REJECTED below
             user_input = _scrub(user_input)
+        hooks = self._branch_for(to_agent_id)[0].hub_hooks
         req = TaskRequest(
             request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id,
             from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self._subject_for(to_agent_id), course_level=self.plan.course_level,
             task_type=self._task_type_for(to_agent_id), user_input=user_input, user_input_sha256=sha256_hex(user_input),
-            items=list(items) if items is not None else extract_items(user_input),
+            items=list(items) if items is not None else (extract_items(user_input, extra_imperatives=hooks.request_imperatives) if hooks else extract_items(user_input)),
             constraints=list(constraints) if constraints is not None else extract_constraints(user_input),
             supplied_texts=list(supplied_texts), created_at=_now(),
         )
@@ -302,9 +326,11 @@ class TranslatorChannel:
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("response text", bad), report_ids=[report_id], agent_ids=[agent_id])])
         parser = branch.parser()
+        extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
         try:
             report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
-                                           task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id)
+                                           task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id,
+                                           **extra)
         except Exception as exc:  # adapter and contract errors become a rejection, never an exception out of the hub
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=f"response could not be parsed into a report by branch {branch.key}: {type(exc).__name__}: {_shape_reason(exc)}", report_ids=[report_id], agent_ids=[agent_id])])
@@ -393,15 +419,15 @@ class TranslatorChannel:
             structural = [sf for sf in structural if not (sf.code.endswith("-SRC-001") and sf.severity == "error" and sf.claim_ids and set(sf.claim_ids) <= form_covered)]
         results: list[ConstraintResult] = []
         ids: list[str] = []
+        started = time.perf_counter()
         for fc in formal:
-            res = verify(fc.problem, self.config, signing_key=self.key, key_id=self.key_id)
-            ids.append(res.result_id)
-            sat = True if res.status.value == fc.expected_if_sound else (False if res.status in (S.COUNTEREXAMPLE, S.INCONSISTENT_PREMISES, S.UNSATISFIABLE) else None)
-            results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=sat, method="formal", detail=f"{fc.kind}: {fc.description}; solver {res.status.value}", formal_result_id=res.result_id, formal_status=res.status.value))
-            if sat is False:
-                findings.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement does not hold: {fc.description}", formal_result_id=res.result_id, deterministic=False))
-            elif sat is None:
-                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check undecided ({res.status.value}): {fc.description}", formal_result_id=res.result_id, deterministic=False))
+            if str(getattr(fc, "kind", "")).startswith("stem_") and time.perf_counter() - started > STEM_CHECK_BUDGET_S:
+                results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=None, method="formal",
+                                                detail=truncate(f"{fc.kind}: {fc.description}; not run: the report's STEM check budget ({STEM_CHECK_BUDGET_S:g} s) was spent", _DETAIL_MAX)))
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", claim_ids=list(getattr(fc, "claim_ids", ()) or ()),
+                                                 message=f"{fc.kind} check undecided (check budget: the report's STEM checks ran past {STEM_CHECK_BUDGET_S:g} s; not run): {fc.description}"))
+                continue
+            self._decide_branch_check(fc, results, ids, findings)
         seen: set[tuple[str, tuple[str, ...]]] = set()
         for sf in structural:
             if sf.severity != "error":
@@ -414,6 +440,60 @@ class TranslatorChannel:
                 continue  # the same excerpt is already an INT-REQ-003 / INT-REQ-010 finding naming the branch rule
             findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{branch.key}] {sf.code}: {sf.message}", claim_ids=list(sf.claim_ids)))
         return structural, results, ids
+
+    def _decide_branch_check(self, fc, results: list[ConstraintResult], ids: list[str], findings: list[IntegrityFinding]) -> None:
+        """Run one branch formal check under its named policy and map the engine status (module docstring).
+        Appends its ConstraintResult and finding; never raises (an exception makes this check alone undecided)."""
+        claim_ids = list(getattr(fc, "claim_ids", ()) or ())
+        policy = getattr(fc, "policy", "linear")
+        severity = getattr(fc, "failure_severity", "error")
+        try:
+            try:
+                limits, cfg = policy_limits(policy), policy_config(policy, self.config)
+            except UnknownPolicyError as exc:
+                results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=None, method="formal",
+                                                detail=truncate(f"{fc.kind}: {fc.description}; not run: {exc}", _DETAIL_MAX)))
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check undecided (not run: unknown policy; {exc}): {fc.description}",
+                                                 claim_ids=claim_ids, deterministic=True))
+                return
+            res = verify(fc.problem, cfg, limits=limits, signing_key=self.key, key_id=self.key_id)
+            vacuous = any(d.code == _VACUOUS for d in res.diagnostics)
+            if res.status.value == fc.expected_if_sound and not vacuous:
+                sat: Optional[bool] = True
+            elif is_definitive(res.status) and res.status.value != fc.expected_if_sound and not (res.status is S.INCONSISTENT_PREMISES and not getattr(fc, "inconsistent_is_failure", True)):
+                sat = False
+            else:
+                sat = None
+            detail = f"{fc.kind}: {fc.description}; solver {res.status.value}" + (" (vacuous: E108)" if vacuous else "")
+            result = ConstraintResult(constraint_id=fc.check_id, satisfied=sat, method="formal", detail=truncate(detail, _DETAIL_MAX), formal_result_id=res.result_id, formal_status=res.status.value)
+            ids.append(res.result_id)
+            results.append(result)
+            if sat is False:
+                model = self._model_note(fc, res)
+                if severity == "warning":
+                    findings.append(IntegrityFinding(code="INT-SUBJ-004", severity="warning", message=f"the report's own {fc.kind} statement does not hold under a reading the report did not state (a warning, not an error){model}: {fc.description}",
+                                                     claim_ids=claim_ids, formal_result_id=res.result_id, deterministic=False))
+                else:
+                    findings.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement does not hold{model}: {fc.description}",
+                                                     claim_ids=claim_ids, formal_result_id=res.result_id, deterministic=False))
+            elif sat is None:
+                why = res.status.value + ("; vacuous: E108" if vacuous else "") + ("; inconsistent premises are undecided for this check" if res.status is S.INCONSISTENT_PREMISES else "")
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check undecided ({why}): {fc.description}",
+                                                 claim_ids=claim_ids, formal_result_id=res.result_id, deterministic=False))
+        except Exception as exc:  # one check's failure never takes the receipt down, and never reads as success
+            results.append(ConstraintResult(constraint_id=str(getattr(fc, "check_id", "?"))[:200], satisfied=None, method="formal",
+                                            detail=truncate(f"{getattr(fc, 'kind', '?')}: not decided: internal error ({type(exc).__name__})", _DETAIL_MAX)))
+            findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning",
+                                             message=f"{getattr(fc, 'kind', '?')} check {getattr(fc, 'check_id', '?')} undecided (internal: {type(exc).__name__} while deciding it)",
+                                             claim_ids=claim_ids, deterministic=True))
+
+    @staticmethod
+    def _model_note(fc, res: VerificationResult) -> str:
+        """For a STEM check, the counterexample's computed and stated values (symbols ``c`` and ``r``) beside the statement."""
+        if not str(getattr(fc, "kind", "")).startswith("stem_") or res.counterexample is None:
+            return ""
+        shown = [f"{m.symbol} = {m.value}" for m in res.counterexample.assignments if m.symbol in ("c", "r")]
+        return f" (engine counterexample: {', '.join(shown)}; c is the value computed from the written expression, r the stated value)" if shown else ""
 
     @staticmethod
     def _name_branch_rules(findings: list[IntegrityFinding], structural: list[StructuralFinding]) -> list[IntegrityFinding]:
@@ -468,11 +548,15 @@ class TranslatorChannel:
         findings += source_findings
         findings += self._peer_figures(report, supplied)
         findings += self._fold_findings(report, supplied)
-        echo = self._request_echo(req, report, supplied)
+        branch, profile = self._branch_for(report.agent_id)
+        hooks = branch.hub_hooks
+        exempt = bool(hooks) and self._hook(lambda: hooks.echo_exempt(report.original_response, req.user_input, profile.key), False)
+        echo = None if exempt else self._request_echo(req, report, supplied)
         if echo is not None:
             findings.append(echo)
-        findings += self._no_answer(report)
-        coverage = self._coverage(req, report, echoed=echo is not None)
+        view = (lambda t: self._hook(lambda: hooks.word_count_view(t, profile.key), t)) if hooks else None
+        findings += self._no_answer(report, view=view)
+        coverage = self._coverage(req, report, echoed=echo is not None, hooks=hooks, profile_key=profile.key)
         for cov in coverage:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
@@ -484,7 +568,7 @@ class TranslatorChannel:
         for item in req.items:
             if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
-        constraint_results, formal_ids = self._constraints(req, report)
+        constraint_results, formal_ids = self._constraints(req, report, view=view)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
         findings = self._name_branch_rules(findings, structural)
         formal_ids = list(formal_ids) + branch_ids
@@ -842,11 +926,20 @@ class TranslatorChannel:
         return out
 
     @staticmethod
-    def _no_answer(report: SpecialistReport) -> list[IntegrityFinding]:
+    def _hook(call, fallback):
+        """A hub hook's answer, or ``fallback`` when the hook fails: a hook only ever refines a heuristic."""
+        try:
+            return call()
+        except Exception:
+            return fallback
+
+    @staticmethod
+    def _no_answer(report: SpecialistReport, view=None) -> list[IntegrityFinding]:
         """INT-REQ-012 (error): the response carries no material claim (every claim is a note, a label or a self-report)
-        or its answer proper has no words, so it addresses no request item whatever words its notes share with them."""
+        or its answer proper has no words, so it addresses no request item whatever words its notes share with them.
+        ``view``: the branch's word-count view (STEM: a maths span or code block is one word)."""
         material = _material_claims(report)
-        answer_words, note_words = count_answer_words(report.original_response)
+        answer_words, note_words = count_answer_words(report.original_response, view=view)
         if material and answer_words > 0:
             return []
         why = []
@@ -889,21 +982,28 @@ class TranslatorChannel:
             return None
         return IntegrityFinding(code="INT-REQ-011", severity="error", message=f"the response restates the request instead of answering it ({how}); no request item counts as addressed", claim_ids=[c.claim_id for c in report.claims], report_ids=[report.report_id], agent_ids=[report.agent_id])
 
-    def _coverage(self, req: TaskRequest, report: SpecialistReport, *, echoed: bool = False) -> list[CoverageRecord]:
+    def _coverage(self, req: TaskRequest, report: SpecialistReport, *, echoed: bool = False, hooks=None, profile_key: str = "") -> list[CoverageRecord]:
         out: list[CoverageRecord] = []
+        claim_terms: dict[str, set[str]] = {}
+        for c in _material_claims(report):
+            terms = _terms(c.claim_text)
+            if hooks is not None:  # the branch's extra words for this claim (STEM: the dimensions of its quantities)
+                extra = self._hook(lambda: hooks.coverage_terms(c.claim_text, report.original_response, req.user_input, profile_key), frozenset())
+                terms = terms | _terms(" ".join(sorted(extra)))
+            claim_terms[c.claim_id] = terms
         for item in req.items:
             if echoed:  # a restated request addresses nothing, whatever words it shares with the items
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
             it = _terms(item.text)
-            hits = [c.claim_id for c in _material_claims(report) if it and len(it & _terms(c.claim_text)) >= max(1, min(2, len(it) // 3))]  # a note never addresses an item
+            hits = [c.claim_id for c in _material_claims(report) if it and len(it & claim_terms[c.claim_id]) >= max(1, min(2, len(it) // 3))]  # a note never addresses an item
             out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits) or not it, addressed_by_claim_ids=hits, method="lexical_heuristic"))
         return out
 
-    def _constraints(self, req: TaskRequest, report: SpecialistReport) -> tuple[list[ConstraintResult], list[str]]:
+    def _constraints(self, req: TaskRequest, report: SpecialistReport, view=None) -> tuple[list[ConstraintResult], list[str]]:
         results: list[ConstraintResult] = []
         formal_ids: list[str] = []
-        words, meta_words = count_answer_words(report.original_response)
+        words, meta_words = count_answer_words(report.original_response, view=view)
         paras = count_paragraphs(report.original_response)
         for c in req.constraints:
             if c.kind in ("max_words", "min_words", "max_paragraphs", "min_paragraphs") and c.value is not None:
