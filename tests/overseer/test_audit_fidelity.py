@@ -38,7 +38,9 @@ def test_normalisation_is_fixed_and_case_sensitive():
 
 def test_named_rules_are_listed():
     # review round 1 added joined-list-markers (its own tests: tests/overseer/test_review1_content_checks.py)
-    assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers")
+    # review round 2 added three named rules (context-free, carried-list-number, invisible); the earlier five stay, in order
+    assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free",
+                              "carried-list-number", "invisible")
 
 
 def test_rule_contract_cut():

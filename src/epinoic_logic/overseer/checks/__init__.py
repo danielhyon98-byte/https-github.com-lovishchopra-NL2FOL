@@ -39,7 +39,8 @@ from ..keys import KeyRing
 from ..store import ResultStore
 from ..view import OverseerView, Transfer
 
-__all__ = ["CheckContext", "json_diff_paths", "normalise", "strip_list_markers", "claim_ids_for_paths", "Replay", "Rederived"]
+__all__ = ["CheckContext", "json_diff_paths", "normalise", "plain_form", "drop_invisible", "is_default_ignorable", "strip_list_markers", "claim_ids_for_paths",
+           "Replay", "Rederived"]
 
 
 @dataclass
@@ -242,8 +243,9 @@ def claim_ids_for_paths(payload: Optional[dict], paths: Iterable[str], other: Op
 
 # ---------------------------------------------------------------------------------------------- normalisation
 #: Fidelity normalisation (fixed and documented; any extension is a named rule with its own test):
-#: NFKC; typographic quotes, apostrophes and dashes folded; markdown emphasis and code markers, heading hashes and
-#: list bullets removed; whitespace runs collapsed. No case folding and no similarity threshold. Named rule
+#: invisible characters removed (named rule ``invisible``: category Cf and every default-ignorable code point, such as a
+#: zero-width no-break space U+FEFF inside a text); NFKC; typographic quotes, apostrophes and dashes folded; markdown
+#: emphasis and code markers, heading hashes and list bullets removed; whitespace runs collapsed. No case folding and no similarity threshold. Named rule
 #: ``joined-list-markers``: list markers are removed on both sides alike, at the start of a line AND where an adapter's
 #: line join left them after sentence or colon punctuation (a bullet ``- `` after ``.``, ``:``, ``;``, ``!`` or ``?``; a
 #: list number ``2.`` or ``2)`` after ``.``, ``!`` or ``?``, also at the very end of a text).
@@ -262,6 +264,36 @@ _JOINED_NUMBER_RE = re.compile(r"(?<=[.!?]) \d{1,3}[.)](?= |$)")
 _JOINED_DASH_RE = re.compile(r"(?<=[.:;!?]) [-+•](?= )")
 
 
+#: The Unicode Default_Ignorable_Code_Point ranges (DerivedCoreProperties), assigned or not. Invisible: removed on both
+#: sides of every comparison (with category Cf), so a zero-width no-break space (U+FEFF) left where two chunks of an
+#: answer were joined never makes a claim "absent" from its own response.
+_IGNORABLE_RANGES = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F),
+                     (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8),
+                     (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF))
+
+
+def is_default_ignorable(ch: str) -> bool:
+    o = ord(ch)
+    return any(a <= o <= b for a, b in _IGNORABLE_RANGES)
+
+
+def drop_invisible(text: str) -> str:
+    """``text`` without format characters (category Cf) and default-ignorable code points (named rule ``invisible``)."""
+    if text.isascii():
+        return text
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf" and not is_default_ignorable(ch))
+
+
+def plain_form(text: str) -> str:
+    """The context-free comparison form (named rule ``context-free``): invisible characters removed, NFKC, quotes and
+    dashes folded, emphasis markers removed, whitespace collapsed; NO list-marker or heading stripping, so a claim that
+    occurs verbatim in its response always occurs in this form, whatever markdown structure surrounds it."""
+    t = unicodedata.normalize("NFKC", drop_invisible(text or ""))
+    t = t.translate(_FOLD)
+    t = _EMPHASIS_RE.sub("", t)
+    return _WS_RE.sub(" ", t).strip()
+
+
 def strip_list_markers(text: str) -> str:
     """Rule ``joined-list-markers`` on raw text (for figures): list numbers and bullets at the start of a line, or left
     by a line join after sentence punctuation (bullets also after a colon), removed; everything else unchanged."""
@@ -271,7 +303,7 @@ def strip_list_markers(text: str) -> str:
 
 
 def normalise(text: str) -> str:
-    t = unicodedata.normalize("NFKC", text or "")
+    t = unicodedata.normalize("NFKC", drop_invisible(text or ""))
     t = _HEADING_RE.sub("", t)
     t = _BULLET_RE.sub("", t)
     t = t.translate(_FOLD)

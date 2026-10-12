@@ -1359,6 +1359,19 @@
       "title": "Index",
       "type": "array"
     },
+    "issue_binding": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Issue Binding"
+    },
     "lens": {
       "enum": [
         "custody_results",

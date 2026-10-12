@@ -17,7 +17,15 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   compared without the mark, as a prefix of a span of the response; its figures (FID-003) and quotations (FID-002,
   FID-004) are read without the mark and without the partial token left at the cut;
 * ``joined-list-markers`` (in the normalisation): list markers an adapter's line join left inside a claim are removed
-  on both sides alike, and list numbering is never read as a stated figure (FID-003).
+  on both sides alike, and list numbering is never read as a stated figure (FID-003);
+* ``context-free`` (review round 2): FID-001 first compares the claim and the response in the plain form (invisible
+  characters, NFKC, quotes, dashes, emphasis and whitespace only; no list-marker stripping), so a claim that occurs
+  verbatim is never failed because the normalisation strips a list marker in context on one side only (bold numbering
+  ``**2.**``, items without full stops, a bullet after a closing quotation mark, inline numbering ``1. X. 2. Y.``);
+* ``carried-list-number`` (review round 2): a list number at the start or the end of a claim that the response uses as a
+  list marker is structure, not a figure the claim states (FID-003);
+* ``invisible`` (in the normalisation, review round 2): format and default-ignorable characters (a U+FEFF where two chunks
+  were joined) are removed on both sides.
 
 * FID-001: a delivered ``claim_text`` does not occur in the normalised response.
 * FID-002: a quotation span inside a claim, or a ``source_refs[].excerpt``, does not occur in the response.
@@ -26,10 +34,11 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   INT-REQ-010, INT-REQ-013, INT-SUBJ-003 for a source rule, or a branch ``-SRC-`` rule), nor any other claim of the
   report that carries the same quotation (a sentence claim and its evidence claim quote the same words; the receipt
   names one of them).
-* FID-005: a self-report delivered as content: the claim carries ``advisory_verification_status`` or
-  ``advisory_verification_eligibility``, or the branch's own detector (``adapters.markdown.is_self_certification``)
-  flags it, and it is delivered with a role other than ``other``, with materiality ``material``, or counts towards
-  coverage.
+* FID-005: a self-report delivered as content: the branch's own detector (``adapters.markdown.is_self_certification``)
+  flags its TEXT, or (raw-text path) the adapter set ``advisory_verification_status`` or
+  ``advisory_verification_eligibility`` yet roled it as content, and it is delivered with a role other than ``other``,
+  with materiality ``material``, or counts towards coverage. On a structured report the advisory fields alone are the
+  contract's ignored self-report (INT-HANDOFF-006): FID-009, a warning (review round 2).
 * FID-006 (warning): parse loss: a quoted span, figure or sentence of the response that no claim carries and no
   INT-REQ-013 fold accounts for (markdown heading lines and list numbering are structure and are not scanned; a
   sentence counts when it has five words or more, does not end with a colon, and neither occurs in the claims nor
@@ -53,13 +62,14 @@ from ...channel.bus import _FOLDED_TAIL_RE, _located
 from ...integrity.ledger import figure_spellings
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
 from ..view import REPORT_KINDS, Transfer
-from . import CheckContext, normalise, strip_list_markers
+from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
-           "uncut_text"]
+           "uncut_text", "response_list_numbers"]
 
-FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers")
+FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
+                  "invisible")
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -100,11 +110,47 @@ def uncut_text(text: str) -> str:
     return body.rsplit(None, 1)[0] if len(body.split()) > 1 else ""
 
 
-def _claim_figures(text: str):
-    return figure_spellings(strip_list_markers(uncut_text(text)))
+#: A list number the response sets out as a list marker: at the start of a line, or left after sentence or colon
+#: punctuation by an inline list ("Answers: 1. X. 2. Y."), optionally in bold or in brackets.
+_RESPONSE_LIST_NUMBER_RE = re.compile(r"(?:(?m:^)[ \t]*|(?<=[.:;!?])[ \t]+)(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?(?=\s|$)")
+#: A list number at the start or the end of a claim (an adapter's line join or item cut carried it into the claim).
+_LEAD_NUMBER_RE = re.compile(r"^\s*(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?(?=\s|$)")
+_TRAIL_NUMBER_RE = re.compile(r"(?:(?<=\s)|^)(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?\s*$")
 
 
-def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False) -> bool:
+def response_list_numbers(response: str) -> set[str]:
+    """The numbers ``response`` uses as list markers (named rule ``carried-list-number``)."""
+    return {m.group(1) for m in _RESPONSE_LIST_NUMBER_RE.finditer(response or "")}
+
+
+def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
+    """Rule ``carried-list-number``: a list number at the start or the end of a claim that the response uses as a list
+    marker is list structure carried into the claim, never a figure the claim states."""
+    t = text
+    m = _LEAD_NUMBER_RE.match(t)
+    if m and m.group(1) in list_numbers:
+        t = t[m.end():]
+    m = _TRAIL_NUMBER_RE.search(t)
+    if m and m.group(1) in list_numbers:
+        t = t[:m.start()]
+    return t
+
+
+def _claim_figures(text: str, list_numbers: set[str] = frozenset()):
+    return figure_spellings(strip_list_markers(_strip_carried_numbers(uncut_text(text), set(list_numbers))))
+
+
+def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False, plain_response: Optional[str] = None) -> bool:
+    """Whether a claim occurs in its response. Rule ``context-free`` first: a claim that occurs verbatim (in the plain
+    comparison form, :func:`~epinoic_logic.overseer.checks.plain_form`, with no list-marker stripping) always occurs; the
+    fidelity normalisation's list-marker and heading rules only ACCEPT further matches, never reject a verbatim one."""
+    if plain_response is not None:
+        p = plain_form(claim_text)
+        if p and p in plain_response:
+            return True
+        q = plain_form(strip_enclosing_quotes(claim_text))
+        if q and q in plain_response:
+            return True
     n = normalise(claim_text)
     if n and n in norm_response:
         return True
@@ -202,11 +248,13 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         return
     ids = t.ids()
     norm_resp = normalise(rep.original_response)
+    plain_resp = plain_form(rep.original_response)
     tails = _folded_tail_ids(rep)
     known_figs: set[str] = set()
     for _label, keys in figure_spellings(rep.original_response):
         known_figs |= keys
-    claim_figures = {c.claim_id: _claim_figures(c.claim_text) for c in rep.claims}
+    list_numbers = response_list_numbers(rep.original_response)
+    claim_figures = {c.claim_id: _claim_figures(c.claim_text, list_numbers) for c in rep.claims}
     covering = {cid for cov in (t.receipt.coverage if t.receipt else []) for cid in cov.addressed_by_claim_ids}
     supplied, req_had_texts, self_supplied = _supplied_for(ctx, t, rep)
     named = _named_claims(t)
@@ -216,7 +264,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         cid = [c.claim_id]
         claim_texts_norm.append(normalise(c.claim_text))
         # FID-001
-        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails):
+        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp):
             ctx.ovs(t.seq, "OVS-FID-001", f"claim {c.claim_id} of report {rep.report_id} does not occur in the specialist's original_response: {c.claim_text[:160]!r}",
                     claim_ids=cid, **ids)
         # FID-002
@@ -238,10 +286,19 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         # FID-005 / FID-009
         as_content = c.claim_role != "other" or c.materiality == "material" or c.claim_id in covering
         if as_content:
-            self_report = c.advisory_verification_status is not None or c.advisory_verification_eligibility is not None or is_self_certification(c.claim_text)
-            if self_report:
+            advisory = c.advisory_verification_status is not None or c.advisory_verification_eligibility is not None
+            text_self = is_self_certification(c.claim_text)
+            # the advisory fields are the contract's "agent self-report; ignored, recorded for audit" (INT-HANDOFF-006): on a
+            # structured report they are the specialist's own record, so the field alone is a warning; the TEXT being a
+            # self-certification delivered as content, or an adapter that set the field yet roled the claim as content (raw
+            # text), is FID-005
+            if text_self or (advisory and t.kind == "response_text"):
                 ctx.ovs(t.seq, "OVS-FID-005", f"claim {c.claim_id} is a self-report or self-certification delivered as content (role {c.claim_role}, materiality {c.materiality}"
                         + (", counted towards coverage" if c.claim_id in covering else "") + ")", claim_ids=cid, **ids)
+            elif advisory:
+                ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} of a structured report carries the contract's advisory self-report fields (ignored, recorded by "
+                        f"INT-HANDOFF-006) while delivered as content (role {c.claim_role}, materiality {c.materiality}); its text is not a self-certification",
+                        claim_ids=cid, **ids)
             elif flags_self_certification(c.claim_text):
                 ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} reads as a self-certification of the answer's own items (auditor's structural detector) but is delivered as content "
                         f"(role {c.claim_role}, materiality {c.materiality})", claim_ids=cid, **ids)

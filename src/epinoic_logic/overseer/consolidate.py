@@ -57,6 +57,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -151,7 +153,7 @@ class ConsolidatedMember(BaseModel):
     clearance: str
     clean: bool = Field(description="status ACCEPTED and clearance AUDIT_PASSED: no finding of any severity")
     finding_codes: list[str] = Field(default_factory=list, description="the warning and info codes on its receipt and in the audit")
-    text_sha256: str = Field(description="sha256 of its original_response under the fidelity normalisation")
+    text_sha256: str = Field(description="sha256 of its original_response under the fidelity normalisation, together with its answer facts read on the raw text (the level-1 grouping key)")
     claims_key_sha256: Optional[str] = Field(default=None, description="digest of its material-claim key; null when it has no material claim")
     material_claims: int = 0
 
@@ -372,14 +374,51 @@ def claims_key(report: Any) -> Optional[list]:
     return sorted((_claim_key(c) for c in mats), key=canonical_json)
 
 
+#: Ordinal words read before "century" (rule ``century-words``): "the nineteenth century" is the 19th.
+_ORDINALS = {w: i for i, w in enumerate(("first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth "
+                                         "sixteenth seventeenth eighteenth nineteenth twentieth").split(), start=1)}
+_CENTURY_RE = re.compile(r"\b(" + "|".join(sorted(_ORDINALS, key=len, reverse=True)) + r"|twenty-first|twenty-second)\s+centur(?:y|ies)\b", re.IGNORECASE)
+#: "<count> dozen" / "<count> score" (rule ``dozen-score``): "a dozen" is 12, "two dozen" 24, "four score" 80.
+_COUNT_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "half a": 0.5, "several": None, "many": None}
+_DOZEN_RE = re.compile(r"\b(" + "|".join(sorted(_COUNT_WORDS, key=len, reverse=True)).replace(" ", r"\s+") + r")\s+(dozen|score)s?\b", re.IGNORECASE)
+#: Characters that make a token numeric: any character with a Unicode numeric value (ASCII and other digits, superscripts
+#: and subscripts, vulgar fractions such as "½" and "⅓").
+_STRIP = "\"'“”‘’()[]{}<>,;:!?…*_"
+
+
+def _numeric_tokens(text: str) -> set[str]:
+    """Every whitespace-delimited token of ``text`` holding a character with a numeric value (rule ``numeric-token``:
+    "£1.5m", "1830s", "19th", "12½", "⅔", "x10", "2⁵", "10²"), compared as written after NFC and case folding (never
+    NFKC, which would read "10²" as "102"), surrounding punctuation and a sentence-final full stop removed."""
+    out: set[str] = set()
+    for tok in unicodedata.normalize("NFC", text).split():
+        t = tok.strip(_STRIP)
+        if t.endswith(".") and not t.endswith(".."):
+            t = t[:-1]
+        if any(unicodedata.numeric(ch, None) is not None for ch in t):
+            out.add(t.casefold())
+    return out
+
+
 def answer_facts(report: Any) -> tuple[str, ...]:
     """What the whole answer states beyond its material claims (rule ``material-claim-key/2``): the figures and dates of
-    its ``original_response`` (``repeats.figures_of``, list numbering removed). Two answers whose material claims agree
-    but whose supporting claims or unclaimed prose state another figure or date are never presented as one answer. (A
-    quotation one answer adds as supporting evidence is not a difference: each quotation is checked against the
-    supplied texts on its own receipt, and an altered one excludes its answer.)"""
+    its ``original_response`` (``repeats.figures_of``, list numbering removed), and, since review round 2, every numeric
+    token as written (``numeric-token``: money with a scale suffix, decades, ordinals and centuries in digits, vulgar and
+    mixed fractions, superscript exponents), centuries in words (``century-words``) and counts of dozens or scores
+    (``dozen-score``). Two answers whose material claims agree but whose supporting claims or unclaimed prose state
+    another figure or date are never presented as one answer. (A quotation one answer adds as supporting evidence is not
+    a difference: each quotation is checked against the supplied texts on its own receipt, and an altered one excludes
+    its answer.)"""
     from .checks import strip_list_markers
-    return figures_of(strip_list_markers(getattr(report, "original_response", "") or ""))
+    text = strip_list_markers(getattr(report, "original_response", "") or "")
+    out = set(figures_of(text)) | {"num:" + t for t in _numeric_tokens(text)}
+    out |= {f"century:{_ORDINALS.get(m.group(1).casefold(), m.group(1).casefold())}" for m in _CENTURY_RE.finditer(text)}
+    for m in _DOZEN_RE.finditer(text):
+        count = " ".join(m.group(1).casefold().split())
+        value = _COUNT_WORDS.get(count)
+        out.add(f"{m.group(2).casefold()}:{value if value is not None else count}")
+    return tuple(sorted(out, key=lambda s: (len(s), s)))
 
 
 def _formalized(t: Transfer) -> list[tuple[str, Problem, bool]]:
@@ -589,12 +628,15 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
                        | {sf.code for sf in (rec.structural_findings if rec is not None else []) if sf.severity in ("error", "warning")})
         key = claims_key(report)
         key_digest = sha256_hex(canonical_json(key)) if key is not None else None
-        text_key = sha256_hex(normalise(report.original_response))
+        facts = answer_facts(report)
+        # level 1 keys on the normalised text AND the answer's facts read on the raw text: the normalisation folds
+        # compatibility forms (NFKC reads "10²" as "102"), so two answers that differ only there are never "identical"
+        text_key = sha256_hex(canonical_json([normalise(report.original_response), list(facts)]))
         member = ConsolidatedMember(message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=agent, report_id=t.report_id, seq=t.seq,
                                     receipt_status=t.status or "", clearance=state, clean=clean, finding_codes=codes, text_sha256=text_key,
                                     claims_key_sha256=key_digest, material_claims=len(material_claims(report)))
         eligible.append(_Answer(t=t, state=state, member=member, text_key=text_key, claims_key=key_digest, formalized=tuple(_formalized(t)),
-                                facts=answer_facts(report)))
+                                facts=facts))
     # ---------------------------------------------------------------- level 1: identical normalised text
     level1: list[list[_Answer]] = []
     by_text: dict[str, list[_Answer]] = {}

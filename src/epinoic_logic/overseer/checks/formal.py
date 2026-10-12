@@ -11,7 +11,9 @@ L4 (live, from the receipt and the stored result):
 
 R2 (deterministic code on journaled data; nothing in agent text is executed):
 
-* the branch packs are re-run on the journaled report and request text (``branch.run_packs``); each pack check's
+* the branch packs are re-run on the journaled report and request text (``branch.run_packs``); every error-level
+  STRUCTURAL finding they give (after the channel's covered / form-covered suppression, read from the receipt's
+  INT-REQ-003 and INT-REQ-010 findings) must be on the receipt with its INT-SUBJ-003, else RCPT-004; each pack check's
   problem digest is compared with the stored problem behind the receipt's formal check of the same id (pack ids are
   deterministic); a pack check absent from the receipt is FORM-004, a digest mismatch FORM-003;
 * request word and paragraph bounds are recounted from the journaled ``original_response`` with the channel's own
@@ -154,6 +156,51 @@ def _bound_status_contradicts(status: Optional[str], op: str, value: str, measur
             f"{expected}, but the signed result states {status} (re-derived from the journaled response, R2)")
 
 
+def _structural_implied(rc, t: Transfer, branch_key: str, structural, ids: dict) -> list:
+    """RCPT-004 for every error-level structural finding the branch packs re-derive from the journaled report that the
+    receipt lacks, or whose INT-SUBJ-003 it lacks, after the channel's own suppression rules: a claim whose excerpt the
+    receipt already reports (INT-REQ-003 not found, INT-REQ-010 form differs) has no CORE-SRC-001 of its own, and a claim
+    covered only by INT-REQ-010 has no ``-SRC-001`` error at all (``TranslatorChannel._branch_checks``). The covered sets
+    are read from the journaled receipt (a superset of the channel's, so the rule never expects more than it raises)."""
+    from ..codes import ovs_finding
+    covered: set[str] = set()
+    not_found: set[str] = set()
+    if t.kind != "relay_report":  # the relay path runs the packs with nothing covered
+        for f in rc.findings:
+            if f.code in ("INT-REQ-003", "INT-REQ-010"):
+                covered.update(f.claim_ids)
+            if f.code == "INT-REQ-003":
+                not_found.update(f.claim_ids)
+    form_covered = covered - not_found
+    out = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for sf in structural:
+        if sf.severity != "error":
+            continue
+        cids = tuple(sorted(sf.claim_ids))
+        if covered and sf.code == "CORE-SRC-001" and sf.claim_ids and set(sf.claim_ids) <= covered:
+            continue
+        if form_covered and sf.code.endswith("-SRC-001") and sf.claim_ids and set(sf.claim_ids) <= form_covered:
+            continue
+        key = (sf.code, cids)
+        if key in seen:
+            continue
+        seen.add(key)
+        on_receipt = any(x.code == sf.code and tuple(sorted(x.claim_ids)) == cids and x.severity == "error" for x in rc.structural_findings)
+        if not on_receipt:
+            out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id} implies the error-level structural finding {sf.code} "
+                                   f"(claims {list(cids)[:6]}) but lacks it: the branch {branch_key!r} packs re-derive it from the journaled report (R2)",
+                                   claim_ids=list(cids), **ids))
+        if sf.code.endswith("-SRC-001") and sf.claim_ids and set(sf.claim_ids) <= covered:
+            continue  # the excerpt is already an INT-REQ-003 / INT-REQ-010 finding naming the branch rule
+        has_subj = any(x.code == "INT-SUBJ-003" and x.severity == "error" and tuple(sorted(x.claim_ids)) == cids and f"{sf.code}:" in x.message for x in rc.findings)
+        if not has_subj:
+            out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id} implies INT-SUBJ-003 (error) for the structural finding "
+                                   f"{sf.code} (claims {list(cids)[:6]}) but lacks it: the channel raises INT-SUBJ-003 for every error-level branch finding (R2)",
+                                   claim_ids=list(cids), **ids))
+    return out
+
+
 def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
     """R2 for one delivered report transfer: pack checks and constraint encodings re-derived from journaled content."""
     if t.kind not in R2_KINDS or not t.delivered or t.receipt is None or t.report is None or t.digest_only:
@@ -172,7 +219,8 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
     branch = registry.for_subject(subject)[0]
     req = ctx.view.by_seq[t.request_seq].request if (t.kind != "relay_report" and t.request_seq is not None and t.request_seq in ctx.view.by_seq) else None
     request_text = req.user_input if req is not None else None
-    _structural, formal = branch.run_packs(rep, request_text)
+    structural, formal = branch.run_packs(rep, request_text)
+    red.findings.extend(_structural_implied(rc, t, branch.key, structural, ids))
     by_id = {c.constraint_id: c for c in rc.formal_checks}
     for fc in formal:
         red.expected_if_sound[fc.check_id] = fc.expected_if_sound

@@ -9,21 +9,21 @@
     },
     {
       "audience": "agent",
-      "bytes": 19790,
+      "bytes": 20008,
       "path": "02-dossier.md",
-      "sha256": "d1ca32b085a63fada0395ae22b1e47e19b3c631eb3fc2b8e96068f3083987a37"
+      "sha256": "a237345c9da154b9453a3562f60da91f2446715a68d89d39f70bc6dc389a5e9f"
     },
     {
       "audience": "agent",
-      "bytes": 28712,
+      "bytes": 30081,
       "path": "03-inspection.md",
-      "sha256": "7d3e55b1f5a61a4bb75b24cf9611c0c54b2b3c110d0790f573dc3251b028143b"
+      "sha256": "124722cfaf3109ccdffc7a8dbf8314308780ca4ef13df4f368cc07278a5258c1"
     },
     {
       "audience": "agent",
-      "bytes": 6564,
+      "bytes": 7091,
       "path": "04-evidence.md",
-      "sha256": "e0534d07e12ac010f394630a6a7abf5cfcccc873aa413050c4c2b7b131e5099f"
+      "sha256": "adee167211111af4e1b376ae42257854d1e9f4e6cd832fc9fc83346cb678e9be"
     },
     {
       "audience": "agent",
@@ -33,9 +33,9 @@
     },
     {
       "audience": "agent",
-      "bytes": 16307,
+      "bytes": 16498,
       "path": "06-kinds-and-codes.md",
-      "sha256": "a5d1810a1c9dc69a32e127c70e186a05da40fc09a2fcd24702b719f119432e72"
+      "sha256": "8124a951c283c868ef640d8e1dca8520b73bc51821df44c59e3f692de69a1a98"
     },
     {
       "audience": "agent",
@@ -63,9 +63,9 @@
     },
     {
       "audience": "machine",
-      "bytes": 32617,
+      "bytes": 32859,
       "path": "dossier.schema.json",
-      "sha256": "5f50ce2ce40e72293ed6995953b4c4906f23cf5fc283b289eec1fa161d065680"
+      "sha256": "dda7282d6f560ddf2ecaec10a1e05938473211d2433b3d7c92cfd676cea3425f"
     },
     {
       "audience": "agent",
@@ -82,7 +82,7 @@
   ],
   "manifest_version": "1.0",
   "pack_name": "overseer-knowledge-docs",
-  "pack_sha256": "5e8e4962390bb16f4e1d155e5ae6999bec61ac3364b56e1895e017a21a6e19a6",
+  "pack_sha256": "50ea8297b654c24ee7fd0229eadfefbd31fc689a4a406dc1d4db281489fe8127",
   "pack_version": "1.0",
   "system_order": [
     "master_prompt.txt",
@@ -97,6 +97,6 @@
     "09-when-unsure.md"
   ],
   "system_separator": "===== {path} =====",
-  "system_sha256": "fe33d24c75e4a0fbad3348b2d26e6a9b355477925854c3f3ea5f8988d17c5c31",
+  "system_sha256": "71bbe2f5ff2d3d3284efbff91b57c4376238637538e8005d43ad5925606bff1f",
   "verdict_contract": "overseer_verdict/1.0"
 }

@@ -26,7 +26,8 @@ saying so), each proportion with a Wilson 95% interval:
   counts as found when an accusation names it, and is reported apart);
 * **precision**: accusations matched to a fault or confirmed by a check, over all accusations;
 * **false accusations** per 100 transfers (error-level accusations on clean transfers that no fault and no check
-  supports, plus every accusation a check refuted) and as a rate of clean transfers;
+  supports, plus every accusation a check refuted, plus the refuted remainder of an accusation confirmed only in part:
+  the clean transfers it was padded with) and as a rate of clean transfers;
 * **contradictions with signed results** (``OVS-AGENT-001`` refuted by a signed result: accusations and engine
   statements);
 * **identifier accuracy**, the **unverifiable** (``OVS-AGENT-002``) and **unresolved** (``OVS-AGENT-004``) rates;
@@ -368,6 +369,18 @@ def _score_group(items: list[Assessed], gold: dict) -> dict:
             if is_false:
                 false_acc += 1
                 for m in msgs or set(clean_msgs[:1]):
+                    if m in clean_msgs:
+                        clean_with_false.add((a.dossier_sha256, m))
+            # a confirmed accusation padded with transfers or claims no confirming finding covers: the uncovered part the
+            # checks refuted is a false accusation of its own (its clean transfers count), and a refutation by a signed
+            # result is a contradiction
+            rem = getattr(x, "remainder", None)
+            if rem is not None and rem.outcome == "refuted":
+                false_acc += 1
+                if rem.refuted_by == "signed_result":
+                    contradictions += 1
+                ri = {k: set(rem.identifiers.get(k, [])) for k in ID_KINDS + ("receipt_ids",)}
+                for m in _acc_messages(ri, r2m):
                     if m in clean_msgs:
                         clean_with_false.add((a.dossier_sha256, m))
             for m in msgs:

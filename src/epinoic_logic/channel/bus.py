@@ -26,7 +26,8 @@ agents are named, not reconciled. A synthesis is checked for undisclosed contrad
 between the claims it accounts for (INT-CONFLICT-002), for figures and dates (in digits or
 words, with their scale words) that occur in none of its sources or are re-paired between
 events, for quotations no supplied text or cited report holds (INT-LEDGER-025), for a
-reversed direction or a dropped negation (INT-LEDGER-026), and, when a synthesized claim
+reversed direction or a dropped negation (INT-LEDGER-026), for a comparison turned the other
+way or a negation added against a single source (INT-LEDGER-027), and, when a synthesized claim
 carries (or can be given) a formal conclusion, for entailment by its formalized sources;
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
@@ -656,7 +657,7 @@ class TranslatorChannel:
             findings += ent_findings
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
-            findings += self._unchecked_paraphrases(payload_obj, scope, checked)
+            findings += self._unchecked_paraphrases(payload_obj, scope, checked, noted={f.claim_ids[0] for f in findings if f.code == "INT-LEDGER-011" and f.claim_ids})
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
 
     def _relay_parties(self, msg: AgentMessage, from_role: AgentRole, to_agent_id: str, to_role: AgentRole, payload_obj: BaseModel) -> list[IntegrityFinding]:
@@ -774,14 +775,26 @@ class TranslatorChannel:
         return list(dict.fromkeys(out))
 
     @staticmethod
-    def _unchecked_paraphrases(synthesis: Synthesis, scope: list[SpecialistReport], checked: dict[str, Optional[str]]) -> list[IntegrityFinding]:
+    def _unchecked_paraphrases(synthesis: Synthesis, scope: list[SpecialistReport], checked: dict[str, Optional[str]],
+                               noted: frozenset[str] | set[str] = frozenset()) -> list[IntegrityFinding]:
         """INT-SYNTH-012 (warning) on the channel: a material 'paraphrased' or 'narrowed' claim whose content change no
         formal conclusion checked here, so the router never reads an unchecked rewording of material content as checked
-        (the rule ``run_integrity_checks`` applies, stated on the synthesis receipt)."""
+        (the rule ``run_integrity_checks`` applies, stated on the synthesis receipt). Also a material 'merged' or
+        'generalized' claim (material itself, or from material sources) that was not checked and that no INT-LEDGER-011 of
+        this receipt states as not performed (``noted``): its unperformed entailment check is stated too, so the receipt
+        never stays silent where ``run_integrity_checks`` gives INT-SYNTH-006."""
         sources = {c.claim_id: c for r in scope for c in r.claims}
         out: list[IntegrityFinding] = []
         for sc in synthesis.claims:
-            if sc.transformation not in ("paraphrased", "narrowed") or checked.get(sc.claim_id):
+            if checked.get(sc.claim_id):
+                continue
+            if sc.transformation in ("merged", "generalized") and sc.claim_id not in noted:
+                known = [sources[x] for x in sc.source_claim_ids if x in sources]
+                if sc.materiality == "material" or any(c.materiality == "material" for c in known):
+                    out.append(IntegrityFinding(code="INT-SYNTH-012", severity="warning", message=f"material claim produced by '{sc.transformation}' from {list(sc.source_claim_ids)}: its synthesis-entailment check was NOT performed on this channel (no formal conclusion was supplied or could be formed), so the router must not treat the combined content as checked",
+                                                claim_ids=[sc.claim_id] + list(sc.source_claim_ids), agent_ids=[synthesis.combinator_agent_id]))
+                continue
+            if sc.transformation not in ("paraphrased", "narrowed"):
                 continue
             known = [sources[x] for x in sc.source_claim_ids if x in sources]
             if sc.materiality != "material" and not any(c.materiality == "material" for c in known):

@@ -1,7 +1,7 @@
 """R1 replay: every stored engine result re-verified on a fresh engine, and the auditor's other deferred work.
 
 * **Isolation.** The default mode is ``process``: a ``spawn`` worker process re-runs each stored problem under the
-  result's own ``solver_config``, isolated from the process-wide Z3 memory parameter and from any patching of the hub
+  channel's journaled ``solver_config`` (a local engine run; an external engine's result under its own), isolated from the process-wide Z3 memory parameter and from any patching of the hub
   process. ``inline`` runs in this process and exists for tests; only a ``process`` replay is accepted as independent
   by a FINAL audit, and the audit's coverage records which mode ran (``replay_mode``).
 * **Keys.** The worker never holds a key: it returns the unsigned result, and the parent signs it under the auditor's
@@ -18,6 +18,8 @@
 
 What is compared is decided by :func:`compare`: ``status``, and the binding's ``problem_digest`` and
 ``config_digest``. Unsat cores, counterexample models and witnesses are not unique and are not compared.
+:func:`classify` turns a definitive signed status the replay cannot reproduce (undecided, budget exceeded, versions
+changed, no result) into ``OVS-AUDIT-005`` (cannot pass), never into the ``OVS-RES-008`` warning.
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ from .checks import Replay
 from .faithful import faithful
 from .keys import RUN_KEY_ID, KeyRing
 
-__all__ = ["ReplayJob", "ReplayOutcome", "Replayer", "compare", "replay_problem", "QUEUE_BOUND", "MIN_SAMPLE_RATE"]
+__all__ = ["ReplayJob", "ReplayOutcome", "Replayer", "compare", "classify", "replay_problem", "build_replay_job", "QUEUE_BOUND", "MIN_SAMPLE_RATE"]
 
 QUEUE_BOUND = 256
 MIN_SAMPLE_RATE = 0.25
@@ -66,6 +68,31 @@ class ReplayOutcome:
     error: Optional[str] = None
     budget_exceeded: bool = False
     finished_at: float = field(default_factory=time.monotonic)
+
+
+def build_replay_job(view: Any, store: Any, rid: str, *, always: bool, seq: int, channel_uid: str) -> Optional[ReplayJob]:
+    """The replay job of engine result ``rid`` of this channel, or None when no content or no problem is held for it.
+
+    Content comes from :func:`~epinoic_logic.overseer.checks.results.replay_source` (the live store record, else the
+    journaled capture, so an eviction inside the result's own event never drops its replay). A local engine run is
+    replayed under the channel's JOURNALED configuration (``replay_config``), never under a budget the result itself
+    names; the comparison keeps the result's own config digest, so a result signed under another configuration
+    replays with another config digest (RES-007)."""
+    from .checks.results import replay_config, replay_source
+    src = replay_source(view, store, rid)
+    if src is None:
+        return None
+    result_json, problem_json, ev_seq, origin = src
+    if not problem_json:
+        return None
+    try:
+        res = faithful(VerificationResult, json.loads(result_json))
+    except Exception:
+        return None
+    cfg = replay_config(view, res, ev_seq or seq, origin)
+    return ReplayJob(result_id=rid, problem_json=problem_json, config_json=canonical_json(cfg.model_dump(mode="json")), original_status=res.status.value,
+                     problem_digest=res.binding.problem_digest, config_digest=res.binding.config_digest, versions_digest=res.binding.versions_digest,
+                     always=always, seq=seq, channel_uid=channel_uid)
 
 
 def replay_problem(problem_json: str, config_json: str) -> str:
@@ -106,17 +133,27 @@ def compare(job: ReplayJob, replayed: Optional[VerificationResult], *, budget_ex
 
 
 def classify(r: Replay) -> Optional[str]:
-    """``OVS-RES-007``, ``OVS-RES-008`` or None (the replay agrees)."""
+    """``OVS-RES-007``, ``OVS-AUDIT-005``, ``OVS-RES-008`` or None (the replay agrees).
+
+    A DEFINITIVE signed status that the replay cannot reproduce (no replay result, budget exceeded, an error, component
+    versions changed, or an undecided replay) is ``OVS-AUDIT-005``: it was never re-verified, so it cannot pass (a
+    re-signed status with a tiny budget or other versions must not clear as merely inconclusive). ``OVS-RES-008`` (a
+    warning) is kept for an original that was itself undecided."""
+    definitive = r.original_status not in _UNDECIDED
     if r.replay_status is None or r.budget_exceeded or r.error:
-        return "OVS-RES-008"
+        return "OVS-AUDIT-005" if definitive else "OVS-RES-008"
     if r.versions_changed:
-        return "OVS-RES-008" if (r.replay_status != r.original_status or not r.problem_digest_ok or not r.config_digest_ok) else None
+        if r.replay_status == r.original_status and r.problem_digest_ok and r.config_digest_ok:
+            return None
+        return "OVS-AUDIT-005" if definitive else "OVS-RES-008"
     if not r.problem_digest_ok or not r.config_digest_ok:
         return "OVS-RES-007"
     if r.replay_status == r.original_status:
         return None
-    if r.replay_status in _UNDECIDED or r.original_status in _UNDECIDED:
+    if r.original_status in _UNDECIDED:
         return "OVS-RES-008"
+    if r.replay_status in _UNDECIDED:
+        return "OVS-AUDIT-005"
     return "OVS-RES-007"
 
 

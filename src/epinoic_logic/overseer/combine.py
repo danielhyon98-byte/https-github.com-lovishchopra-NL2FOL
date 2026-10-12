@@ -10,13 +10,17 @@
 * **Union and grouping.** The union of the accusations of valid verdicts (unverifiable ones are listed apart: they
   resolve nowhere and are recorded against their agent as AGENT-002) is grouped by kind family (the ``KIND_CHECKS``
   code set: one family per kind) and overlapping identifier sets (the same identifier in the same list, transitively).
-  A group's **support** is the number of distinct agents in it.
+  An unresolved member whose named ``(report, claim)`` pairs (or, naming no claim, whose named transfers) the group's
+  confirming findings do not cover is split off into its own group, so it reaches human review instead of riding on a
+  confirmation about another claim or transfer (review round 2). A group's **support** is the number of distinct agents
+  in it; its **outcome support** the number whose own accusation has the group's outcome (a dissenter or an unresolved
+  member never backs a confirmation); the review queue orders by outcome support first.
 * **No voting on facts.** A group's outcome is the outcome of its check: **confirmed** when any member was confirmed
   (the router acts on the confirming ``OVS-*`` finding; a dissenting agent never vetoes it); otherwise **unresolved**
   when any member was unresolved (the group joins the human review queue); otherwise **refuted** (every member was
   refuted, and AGENT-001 stands for every accusing agent). Support never upgrades an unresolved group, and silence
   (a transfer listed as reviewed without an accusation) is never evidence of a clean transfer.
-* **Review queue**: unresolved groups ordered by support (descending), then the highest claimed severity, then the
+* **Review queue**: unresolved groups ordered by outcome support, then support (descending), then the highest claimed severity, then the
   earliest sequence number. A reliability history keyed by ``(agent_id, pack name, pack version)`` may break ties; it
   never confirms or refutes anything, and an agent's figure under one pack version is never applied to its verdict
   under another.
@@ -75,6 +79,9 @@ class AccusationGroup(BaseModel):
     identifiers: dict[str, list[str]] = Field(default_factory=dict)
     members: list[GroupMember] = Field(default_factory=list)
     support: int
+    #: The distinct agents whose own accusation has the group's outcome (a refuted or unresolved member never backs a
+    #: confirmed group; review round 2). The review queue orders unresolved groups by it.
+    outcome_support: int = 0
     outcome: GroupOutcome
     claimed_severity: str
     first_seq: Optional[int] = None
@@ -227,13 +234,14 @@ def combine_verdicts(assessments: Sequence[VerdictAssessment], *, intake=None,
         for i in range(len(members)):
             clusters.setdefault(find(i), []).append(i)
         for idx in clusters.values():
-            groups.append(_group(kind, [members[i] for i in idx], reliability))
+            for part in _split_uncovered([members[i] for i in idx]):
+                groups.append(_group(kind, part, reliability))
     groups.sort(key=lambda g: (g.kind, g.group_id))
     rel = reliability or {}
 
     def queue_key(g: AccusationGroup) -> tuple:
         best = max((rel.get((m.agent_id, m.pack.name, m.pack.version), 0.0) for m in g.members if m.pack is not None), default=0.0)
-        return (-g.support, _SEVERITY_RANK.get(g.claimed_severity, 2), g.first_seq if g.first_seq is not None else 1 << 30, -best, g.group_id)
+        return (-g.outcome_support, -g.support, _SEVERITY_RANK.get(g.claimed_severity, 2), g.first_seq if g.first_seq is not None else 1 << 30, -best, g.group_id)
 
     queue = [g.group_id for g in sorted((g for g in groups if g.outcome == "unresolved"), key=queue_key)]
     findings: dict[tuple, IntegrityFinding] = {}
@@ -245,6 +253,34 @@ def combine_verdicts(assessments: Sequence[VerdictAssessment], *, intake=None,
                               superseding_audit_ids=sorted({a.superseding_audit_id for a in ordered if a.superseding_audit_id}), packs=packs,
                               agents=agents, groups=groups, review_queue=queue, unverifiable=unverifiable,
                               findings=[findings[k] for k in sorted(findings)])
+
+
+def _covered_by(acc: AccusationAssessment, refs: list[FindingRef]) -> bool:
+    """Whether the confirming findings ``refs`` cover what ``acc`` names: every named (report, claim) pair and every named
+    message (a member about another claim or transfer is not covered by a confirmation of this one)."""
+    pairs = {(r, c) for f in refs for r in (f.report_ids or [""]) for c in f.claim_ids}
+    claims = {c for _r, c in pairs}
+    msgs = {m for f in refs for m in f.message_ids}
+    for c in acc.identifiers.get("claim_ids", []):
+        reps = acc.claim_report_ids.get(c) or [""]
+        if not any((r, c) in pairs or ("", c) in pairs or (r == "" and c in claims) for r in reps):
+            return False
+    if not acc.identifiers.get("claim_ids") and any(m not in msgs for m in acc.identifiers.get("message_ids", [])):
+        return False
+    return True
+
+
+def _split_uncovered(members: list[tuple[VerdictAssessment, AccusationAssessment]]) -> list[list[tuple[VerdictAssessment, AccusationAssessment]]]:
+    """An unresolved member of a group that another member's confirmation decides is kept in the group only when the
+    group's confirming findings cover what it names; otherwise it is split off into its own group, so it reaches human
+    review instead of riding on a confirmation about another claim or transfer."""
+    refs = [r for _a, acc in members if acc.outcome == "confirmed" for r in acc.confirming]
+    if not refs:
+        return [members]
+    keep, apart = [], []
+    for m in members:
+        (apart if m[1].outcome == "unresolved" and not _covered_by(m[1], refs) else keep).append(m)
+    return [keep] + [[m] for m in apart] if apart else [members]
 
 
 def _group(kind: str, members: list[tuple[VerdictAssessment, AccusationAssessment]], reliability) -> AccusationGroup:
@@ -264,7 +300,8 @@ def _group(kind: str, members: list[tuple[VerdictAssessment, AccusationAssessmen
     gid = "grp-" + sha256_hex(canonical_json([kind, [[m.agent_id, m.verdict_id or "", m.accusation_id] for m in mem]]))[:16]
     severity = min((m.claimed_severity for m in mem), key=lambda s: _SEVERITY_RANK.get(s, 2))
     return AccusationGroup(group_id=gid, kind=kind, checks=list(KIND_CHECKS.get(kind, ())), identifiers={k: sorted(v) for k, v in ids.items() if v},
-                           members=mem, support=len({m.agent_id for m in mem}), outcome=outcome, claimed_severity=severity,
+                           members=mem, support=len({m.agent_id for m in mem}), outcome_support=len({m.agent_id for m in mem if m.outcome == outcome}),
+                           outcome=outcome, claimed_severity=severity,
                            first_seq=min(seqs) if seqs else None, confirming=[confirming[k] for k in sorted(confirming)],
                            refuted_agents=sorted({m.agent_id for m in mem if m.outcome == "refuted"}))
 
@@ -280,7 +317,9 @@ def combined_audit(combined: CombinedAssessment, *, task_audit: Optional[Oversee
         notes.append(f"targeted re-runs issued task audit {sid}")
     for r in combined.agents:
         pk = f"{r.pack.name} {r.pack.version} {r.pack.sha256}" if r.pack is not None else "none"
-        notes.append(f"agent {r.agent_id} verdict {r.verdict_id} under pack {pk}: {'combined' if r.valid else 'excluded (' + str(r.excluded_reason) + ')'}")
+        vref = ("sha256:" + sha256_hex(r.verdict_id)[:12]) if r.verdict_id else "none"  # agent-chosen: shown as a digest
+        notes.append(f"agent {r.agent_id} verdict {vref} (intake message {r.intake_message_id}) under pack {pk}: "
+                     f"{'combined' if r.valid else 'excluded (' + str(r.excluded_reason) + ')'}")
     notes.append(f"combined assessment sha256 {combined_digest(combined)}")
     notes.append(f"groups {len(combined.groups)}; human review queue {len(combined.review_queue)}; no voting on facts")
     message_ids = list(task_audit.message_ids) if task_audit is not None else []

@@ -15,6 +15,10 @@ Links resolved here:
   delivered forward to the same recipient (the PEER-003 link: ``TaskRequest`` carries no link field); the document's
   attribution (its ``author``, and a forwarded report id its ``peer:<id>`` names) must be that forward's report and
   agent, or the link records why not (PEER-002);
+* a supplied text under ANY other id that presents a forwarded report (its author is the report's agent, its id is the
+  report or agent id, or its text is a near copy of the report's ``original_response``: ``near_copy``) is linked the
+  same way and held to the same byte identity; one presenting a delivered report never forwarded to that recipient is
+  linked to no forward (PEER-002);
 * a synthesis to the deliveries of the reports it cites;
 * a result id to the stored result and its citation kinds.
 
@@ -36,7 +40,7 @@ from .faithful import faithful
 from .journal import ChannelJournal
 from .store import ResultStore
 
-__all__ = ["Transfer", "PeerLink", "OverseerView", "cited_results", "REPORT_KINDS", "RESPONSE_KINDS"]
+__all__ = ["Transfer", "PeerLink", "OverseerView", "cited_results", "near_copy", "REPORT_KINDS", "RESPONSE_KINDS"]
 
 #: Transfers that deliver a report into the channel's records.
 REPORT_KINDS = ("response", "response_text", "relay_report")
@@ -305,8 +309,7 @@ class OverseerView:
             self._forwards.append(t)
         if t.kind == "request" and t.request is not None:
             for doc in t.request.supplied_texts:
-                if not doc.document_id.startswith("peer:"):
-                    continue
+                is_peer = doc.document_id.startswith("peer:")
                 cands = [f for f in self._forwards if f.delivered and f.seq < t.seq and f.recipient_agent_id == t.request.to_agent_id]
                 same_text = [f for f in reversed(cands) if (f.payload or {}).get("original_response") == doc.text]
                 # the text decides the link; among forwards of the same text, the one the document's attribution names
@@ -315,10 +318,25 @@ class OverseerView:
                     t.peer_links.append(PeerLink(doc.document_id, match.seq, match.message_id, match.report_id, True,
                                                  misattributed=_attribution_mismatch(doc, match, self._forwards)))
                     t.depends_on.append(match.seq)
-                else:
+                elif is_peer:
                     last = cands[-1] if cands else None
                     t.peer_links.append(PeerLink(doc.document_id, last.seq if last else None, last.message_id if last else None,
                                                  last.report_id if last else None, False))
+                else:
+                    # a document under any other id that PRESENTS a forwarded report (its author is that report's agent, its id
+                    # names the report or the agent, or its text is a near copy of the report's original_response) is held to
+                    # the same byte identity and attribution as a ``peer:`` document; one presenting a delivered report that
+                    # was never forwarded to this recipient is linked to no forward (PEER-002)
+                    shown = next((f for f in reversed(cands) if _presents(doc, f.payload or {}, f.report_id)), None)
+                    if shown is not None:
+                        t.peer_links.append(PeerLink(doc.document_id, shown.seq, shown.message_id, shown.report_id, False,
+                                                     misattributed=_attribution_mismatch(doc, shown, self._forwards)))
+                        t.depends_on.append(shown.seq)
+                        continue
+                    delivered = next((d for d in reversed(self.transfers) if d.seq < t.seq and d.kind in REPORT_KINDS and d.delivered
+                                      and _presents(doc, d.payload or {}, d.report_id)), None)
+                    if delivered is not None:
+                        t.peer_links.append(PeerLink(doc.document_id, None, None, delivered.report_id, False))
         if t.kind == "relay_synthesis" and t.synthesis is not None:
             for rid in t.synthesis.source_report_ids:
                 seq = self._first_delivery.get(rid)
@@ -446,6 +464,41 @@ class OverseerView:
 
     def transfers_for(self, seqs: Iterable[int]) -> list[Transfer]:
         return [self.by_seq[s] for s in seqs if s in self.by_seq]
+
+
+#: Word shingle length and the containment (both ways) at which a supplied text is a near copy of a report's answer.
+_SHINGLE = 4
+NEAR_COPY = 0.6
+
+
+def _shingles(text: str) -> set[tuple[str, ...]]:
+    words = text.casefold().split()
+    if len(words) < _SHINGLE:
+        return {tuple(words)} if words else set()
+    return {tuple(words[i:i + _SHINGLE]) for i in range(len(words) - _SHINGLE + 1)}
+
+
+def near_copy(a: str, b: str) -> bool:
+    """True when ``a`` and ``b`` are near copies of each other: at least :data:`NEAR_COPY` of each one's word 4-grams occur
+    in the other (a changed figure or word keeps both high; an extract the answer merely quotes keeps the answer's low)."""
+    sa, sb = _shingles(a), _shingles(b)
+    if not sa or not sb:
+        return False
+    common = len(sa & sb)
+    return common / len(sa) >= NEAR_COPY and common / len(sb) >= NEAR_COPY
+
+
+def _presents(doc: Any, payload: dict, report_id: Optional[str]) -> bool:
+    """Whether a supplied text presents the report ``payload``: its author is the report's agent, its id is the report id
+    or the agent id, or its text is a near copy of the report's ``original_response``."""
+    agent = payload.get("agent_id")
+    author = (getattr(doc, "author", None) or "").strip()
+    if agent and author == agent:
+        return True
+    if doc.document_id in {x for x in (report_id, agent) if x}:
+        return True
+    orig = payload.get("original_response")
+    return isinstance(orig, str) and near_copy(doc.text, orig)
 
 
 def _attribution_mismatch(doc: Any, forward: Transfer, forwards: list[Transfer]) -> Optional[str]:

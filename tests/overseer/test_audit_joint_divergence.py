@@ -94,14 +94,32 @@ def _merged_synthesis(with_conclusion: bool = False, created_at=None):
     return default_synthesis(claims=claims, created_at=created_at)
 
 
-def test_t18_a_merged_material_claim_without_a_formal_conclusion_is_div_001_rule_ownership(auditor):
+def _undisclosed(monkeypatch):
+    """A channel that states nothing about the unperformed synthesis-entailment check (no "NOT performed", no INT-SYNTH-012)."""
+    monkeypatch.setattr(TranslatorChannel, "_state_synthesis_checks", staticmethod(lambda findings, checked: list(findings)))
+    monkeypatch.setattr(TranslatorChannel, "_unchecked_paraphrases", staticmethod(lambda *a, **k: []))
+
+
+def test_t18_a_merged_material_claim_without_a_formal_conclusion_is_a_rule_ownership_divergence(auditor, monkeypatch):
+    """Review round 2 (rewritten more strictly; the grading was reversed on purpose): the synthesis receipt states the
+    check NOT performed, so the router was told; the divergence is recorded (rule ownership, owner integrity, INT
+    severity error) and reported as DIV-002, and the synthesis is not failed. Undisclosed, it stays DIV-001 and fails."""
     task = run_task(auditor, synthesis_obj=_merged_synthesis())
+    assert any(f.code == "INT-LEDGER-011" and "NOT performed" in f.message and not f.formal_result_id for f in task.receipts["syn"].findings)
     audit = task.audit()
-    f = [x for x in findings(audit, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]
-    assert f and f[0].severity == "error" and "s1" in f[0].claim_ids and task.mids["syn"] in f[0].message_ids
+    assert not [x for x in findings(audit, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]
+    f = [x for x in findings(audit, "OVS-DIV-002") if "INT-SYNTH-006" in x.message]
+    assert f and f[0].severity == "warning" and "s1" in f[0].claim_ids and task.mids["syn"] in f[0].message_ids and "NOT performed" in f[0].message
     d = [x for x in audit.divergences if x.int_code == "INT-SYNTH-006"]
     assert d and d[0].classification == "rule_ownership" and d[0].owner == "integrity" and d[0].severity == "error"
-    assert audit.transfer_states[task.mids["syn"]] == "AUDIT_FAILED"  # the router must not act on what the Overseer's rules reject
+    assert audit.transfer_states[task.mids["syn"]] == "AUDIT_PASSED_WITH_FINDINGS"
+    with monkeypatch.context() as mp:
+        _undisclosed(mp)
+        task2 = run_task(auditor, synthesis_obj=_merged_synthesis())
+    audit2 = task2.audit()
+    f2 = [x for x in findings(audit2, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]
+    assert f2 and f2[0].severity == "error" and "s1" in f2[0].claim_ids and task2.mids["syn"] in f2[0].message_ids
+    assert audit2.transfer_states[task2.mids["syn"]] == "AUDIT_FAILED"  # the router must not act on an unstated, unperformed check
 
 
 def test_t18_int_synth_006_is_excluded_when_the_receipt_shows_the_check_was_performed(auditor):

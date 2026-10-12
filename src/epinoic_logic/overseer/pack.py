@@ -88,6 +88,16 @@ one its text is) and a new I47 (a ``relay_report`` must reproduce a delivery its
 identifier list holds identifiers of its own type; now enforced) and E10 (the statement's pointer is the status field
 of that same result of this dossier); Kinds and codes (the ``forward_altered`` and ``peer_document_altered`` rows
 describe those cases; their codes are unchanged). The schemas did not change; the manifest was regenerated.
+
+Edits review round 2 made to pack 1.0 (still unreleased, so extended in place and re-pinned from the digest
+``export --refresh-source`` printed): Dossier guide (the header's ``issue_binding``, which is never copied); Inspection
+I12 (a supplied text under any id that presents a forwarded report, and one document id carrying one text), I47 (a
+hand-off may differ from the delivery only in ``created_at``), I67 (the receipt states the check NOT performed), I68 (a
+figure or date of the synthesis text that no claim states is ``figure_changed``) and a new I69 (a paraphrase that turns
+a comparison the other way or negates what its source states; a negation that rewords a ban is not that fault); Evidence rule E2 (an accusation is confirmed only for what the
+confirming finding covers; the rest is checked on its own; now enforced) and E12 (a contradiction is never hidden by a
+wrong pointer); Kinds and codes (``synthesis_ledger_fault`` and the ``INT-LEDGER-*`` family name INT-LEDGER-027). The
+dossier schema gained the optional ``issue_binding``; it and the manifest were regenerated with ``export --refresh-source``.
 """
 from __future__ import annotations
 
@@ -127,7 +137,7 @@ PACK_VERSION = "1.0"
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
-    (PACK_NAME, "1.0"): "5e8e4962390bb16f4e1d155e5ae6999bec61ac3364b56e1895e017a21a6e19a6",
+    (PACK_NAME, "1.0"): "50ea8297b654c24ee7fd0229eadfefbd31fc689a4a406dc1d4db281489fe8127",
 })
 
 MANIFEST_VERSION = "1.0"

@@ -8,7 +8,8 @@
 * Bounds: ``max_results`` and ``max_bytes`` per channel, ``global_max_bytes`` in total. Eviction takes sealed
   channels first, least-recently-used; an evicted result leaves a :class:`ResultTombstone`, so membership,
   origin and duplicate checks (RES-001, RES-005, RES-006) still decide, and RES-003 uses the verification
-  recorded at put. An evicted id whose content is needed later is RES-002 or RES-008, never an accusation.
+  recorded at put. An evicted id whose content is needed later is RES-002 (warning) when it is still decided on a
+  receipt's copy or replayed from the journal's capture, else OVS-AUDIT-005 (it cannot pass); never an accusation.
 * ``memo``: the auditor's own computations keyed by their inputs' digests (joint checks, replays,
   re-derivations), so the same journal and store give the same report on every audit.
 """

@@ -301,7 +301,11 @@ def test_the_summary_is_rechecked_against_the_verified_receipt_copy_of_an_evicte
 
 
 # ============================================================================================ clearance after a failing batch audit
-def test_a_clearance_after_a_batch_audit_failed_the_transfer_is_never_better(auditor):
+def test_a_clearance_after_a_batch_audit_failed_the_transfer_is_never_better(auditor, monkeypatch):
+    # review round 2: a stated "NOT performed" check is DIV-002 now; the batch-only error this test needs is the
+    # undisclosed case, a channel that states nothing about the unperformed synthesis-entailment check (DIV-001)
+    monkeypatch.setattr(TranslatorChannel, "_state_synthesis_checks", staticmethod(lambda findings, checked: list(findings)))
+    monkeypatch.setattr(TranslatorChannel, "_unchecked_paraphrases", staticmethod(lambda *a, **k: []))
     task = run_task(auditor, synthesis_obj=_merged_synthesis())
     audit = task.audit()
     assert audit.transfer_states[task.mids["syn"]] == "AUDIT_FAILED" and findings(audit, "OVS-DIV-001")

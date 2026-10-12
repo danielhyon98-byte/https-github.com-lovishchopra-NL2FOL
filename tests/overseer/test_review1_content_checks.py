@@ -136,7 +136,11 @@ def test_control_a_specialist_handing_on_its_own_delivered_report_is_not_peer_00
 
 
 # ============================================================================================ rule divergence
-def test_a_synthesis_rule_divergence_names_only_the_synthesis_never_the_genuine_reports(auditor):
+def test_a_synthesis_rule_divergence_names_only_the_synthesis_never_the_genuine_reports(auditor, monkeypatch):
+    # review round 2: a channel that states the unperformed check gets DIV-002 (asserted in test_audit_joint_divergence);
+    # here the channel states nothing, so the divergence is DIV-001 and must still name the synthesis only
+    monkeypatch.setattr(TranslatorChannel, "_state_synthesis_checks", staticmethod(lambda findings, checked: list(findings)))
+    monkeypatch.setattr(TranslatorChannel, "_unchecked_paraphrases", staticmethod(lambda *a, **k: []))
     task = run_task(auditor, synthesis_obj=_merged_synthesis())
     audit = task.audit()
     f = [x for x in findings(audit, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]

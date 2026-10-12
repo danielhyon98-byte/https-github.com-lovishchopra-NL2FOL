@@ -7,6 +7,8 @@ live objects) into the dossier of design section 9.2:
   and ``task``. The agent copies ``verdict_contract`` (as ``contract``), ``pack``, ``agent_id``, ``task.task_id``,
   ``dossier_sha256`` and ``lens`` into its verdict; the intake checks them against its issue record. Two agents never
   receive the same digest, because the header differs; their ``transfers`` and ``results`` are identical in one mode.
+  A dossier the intake issues also carries ``issue_binding``, a keyed digest only the intake can compute (review round
+  2): without it, an agent could derive another agent's ``dossier_sha256`` from its own dossier by swapping the header.
 * **Transfers**, in sequence order, each with its own pointer ``at`` (``/transfers/<i>``), so the agent never computes a
   pointer from ``seq``. Typed payloads stay JSON objects exactly as journaled, with the contract named beside them; a
   withheld response is ``{"withheld": {"response_sha256", "response_chars"}}``.
@@ -343,6 +345,9 @@ class Dossier(BaseModel):
     dossier_sha256: str = Field(pattern=SHA256_PATTERN)
     verdict_contract: Literal["overseer_verdict/1.0"]
     agent_id: str = Field(pattern=HEADER_ID_PATTERN)
+    #: Set by the intake: a keyed digest of this issue (agent, task, lens, mode, pack and content) that only the intake can
+    #: compute, so another agent cannot derive this dossier's ``dossier_sha256`` from its own. Never copied into a verdict.
+    issue_binding: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     pack: PackIdentity
     mode: Mode
     lens: Lens
@@ -763,7 +768,7 @@ def consolidation_entry(resp: Any, index: int, at_of: dict[str, str]) -> dict:
 
 
 def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None,
-                  consolidations: Any = ()) -> dict:
+                  consolidations: Any = (), issue_binding: Optional[str] = None) -> dict:
     """The dossier of ``view`` for one agent under one pack, as a JSON object (validated against :class:`Dossier`).
 
     ``mode`` is ``blind`` (no auditor finding) or ``informed`` (the ``OVS-*`` findings of ``audit``, which is then
@@ -809,6 +814,7 @@ def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pa
     request_id = (plan or {}).get("request_id") or view.request_id or ""
     dossier: dict[str, Any] = {
         "dossier_version": DOSSIER_VERSION, "dossier_sha256": "", "verdict_contract": VERDICT_CONTRACT, "agent_id": agent_id,
+        **({"issue_binding": issue_binding} if issue_binding is not None else {}),
         "pack": pack.model_dump(mode="json"), "mode": mode, "lens": lens,
         "task": {"task_id": task_id, "request_id": request_id, "plan": plan},
         "transfers": transfers, "results": results, "links": {**_links(view), "translations": _translation_links(transfers)},

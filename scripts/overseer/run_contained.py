@@ -28,8 +28,9 @@ Steps, every output under ``--out`` (never inside a recorded round):
 5. **Overseer agents** (scripted probe providers, no network, no model): ``hub.review`` runs probes whose replies
    exercise every validation outcome (a clean verdict, a confirmed accusation, a lie about a signed result, invented
    identifiers, a meaning fault, prose, the "no dossier" object, a verdict naming another pack, a provider failure) on
-   every genuine channel and one mutation channel per round (``--probe-scope all``: every channel). Asserted: each
-   probe's outcome, and that a review changes no clearance.
+   every genuine channel and one mutation channel per round (the first whose audit holds a finding an accusation kind
+   maps to, so the confirming probe has a finding to confirm, else the first; ``--probe-scope all``: every channel).
+   Asserted: each probe's outcome, and that a review changes no clearance.
 6. **Replies** (``--replies DIR --transfers EXPORT_DIR``): verdict texts recorded by whoever ran a live model configured
    from the same exported pack, keyed by dossier digest (``<sha256>.json``), served through runners built from the
    exported pack to the dossiers of an ``export_dossier.py`` export (rebuilt from its transfer records), then scored
@@ -64,8 +65,11 @@ from epinoic_logic.overseer import KIND_CHECKS, PackError, PackIdentity, verify_
 from epinoic_logic.translate.providers import ProviderError  # noqa: E402
 
 RESULTS_FORMAT = "overseer-contained/1.0"
-#: Codes that are true rule findings on genuine transfers, never false alarms (listed apart).
+#: Codes that are rule findings, listed apart for mutated transfers. On GENUINE transfers every error-level finding counts
+#: as a false alarm, OVS-DIV-001 included (review round 2: an error-level divergence on a genuine, untampered transfer
+#: fails it, so the precision gate must see it); the divergences are still listed under ``rule_findings``.
 RULE_CODES = ("OVS-DIV-001", "OVS-DIV-002")
+GENUINE_EXCLUDED: tuple[str, ...] = ()
 #: Codes by which the shadow re-derivation disagrees with a receipt.
 SHADOW_DISAGREE = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
 OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.1", sha256="cd" * 32)
@@ -296,8 +300,11 @@ def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_sco
         replay = {"results_replayed": 0, "disagreements": [], "inconclusive": 0}
         translations = {"checked": 0, "trn_codes_on_genuine": Counter()}
         channels = []
+        confirmable: set[str] = set()  # channels whose audit holds a finding an accusation kind maps to (the confirm probe's target)
         for c in rr.channels:
             audit = aud.audit(c.uid)
+            if any(f.severity != "info" and f.message_ids and any(f.code in kc for kc in KIND_CHECKS.values()) for f in audit.report.findings):
+                confirmable.add(c.key)
             codes = Counter(f.code for f in audit.report.findings)
             channels.append({"key": c.key, "variant": c.variant, "audit_id": audit.audit_id, "state": audit.state, "codes": dict(codes),
                              "verifies": verify_audit(audit, aud.keyring), "transfers": len(audit.message_ids)})
@@ -310,7 +317,7 @@ def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_sco
                 genuine["transfers"] += len(audit.message_ids)
                 genuine["states"][audit.state] += 1
                 genuine["false_alarms"] += [{"channel": c.key, "code": f.code, "message": f.message[:300]} for f in audit.report.findings
-                                            if f.severity == "error" and f.code not in RULE_CODES]
+                                            if f.severity == "error" and f.code not in GENUINE_EXCLUDED]
                 for d in audit.divergences:
                     genuine["rule_findings"].append({"channel": c.key, "int_code": d.int_code, "classification": d.classification, "owner": d.owner,
                                                      "severity": d.severity, "claim_ids": list(d.claim_ids)})
@@ -335,7 +342,9 @@ def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_sco
         # overseer agents: probes through hub.review
         keys = [c.key for c in rr.channels if c.variant == "genuine"]
         muts = [c.key for c in rr.channels if c.variant not in ("genuine", "closed")]
-        keys += muts if probe_scope == "all" else muts[:1]
+        if probe_scope != "all" and muts:
+            muts = [next((k for k in muts if k in confirmable), muts[0])]
+        keys += muts
         reviews = []
         for key in keys:
             hub = rr.hub_for(key)

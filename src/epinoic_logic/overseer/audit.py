@@ -62,7 +62,7 @@ from .contracts import (
 )
 from .journal import ChannelJournal, JournalSealed, JournalSet
 from .keys import AUDIT_KEY_ID, RUN_KEY_ID, KeyRing
-from .replay import Replayer, ReplayJob, classify as classify_replay, compare as compare_replay
+from .replay import Replayer, ReplayJob, build_replay_job, classify as classify_replay, compare as compare_replay
 from .store import ResultStore
 from .view import OverseerView, Transfer, cited_results
 
@@ -216,7 +216,8 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
     if not at_issue:  # at issue, L5 and the translation checks run in the asynchronous tier (the transfer is PENDING until they have)
         ctx.guard("fidelity", "fidelity", lambda: (fidelity.check_fidelity(ctx, t), fidelity.check_reparse(ctx, t)), transfer=t)
         run_translation_checks(ctx, t)
-    ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t), peer.check_relayed_report(ctx, t)), transfer=t)
+    ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t), peer.check_relayed_report(ctx, t),
+                                       peer.check_document_ids(ctx, t)), transfer=t)
     ctx.guard("synthesis", "synthesis citations", lambda: synthesis.check_synthesis_citations(ctx, t), transfer=t)
     ctx.guard("joint", "pool", lambda: joint.check_pool(ctx, t), transfer=t)
 
@@ -255,7 +256,7 @@ def translation_audits(records: Iterable[Any], findings: list[tuple[int, Integri
 
 
 def replay_findings(ctx: CheckContext, replays: dict[str, Replay]) -> None:
-    """RES-007 / RES-008 from replays; each names the transfers citing the result and cites the replay run."""
+    """RES-007 / AUDIT-005 / RES-008 from replays; each names the transfers citing the result and cites the replay run."""
     for rid in sorted(replays):
         r = replays[rid]
         code = classify_replay(r)
@@ -280,10 +281,15 @@ def replay_findings(ctx: CheckContext, replays: dict[str, Replay]) -> None:
             if not r.problem_digest_ok:
                 why.append("another problem digest")
             if not r.config_digest_ok:
-                why.append("another config digest")
+                why.append("another config digest (the result was not decided under the channel's solver configuration)")
             if r.replay_status != r.original_status:
                 why.append(f"status {r.replay_status} where the signed result states {r.original_status}")
             msg = f"replay of result {rid} on a fresh engine gives {', '.join(why)}"
+        elif code == "OVS-AUDIT-005":
+            why = ("budget exceeded" if r.budget_exceeded else r.error if r.error else "component versions changed" if r.versions_changed
+                   else f"replay {r.replay_status}")
+            msg = (f"replay of result {rid} cannot reproduce its definitive signed status {r.original_status} ({why}): the status was never re-verified, "
+                   "so the transfers citing it cannot pass")
         else:
             why = "budget exceeded" if r.budget_exceeded else (r.error or ("component versions changed" if r.versions_changed else f"{r.original_status} vs replay {r.replay_status}"))
             msg = f"replay of result {rid} is inconclusive ({why}); not an accusation"
@@ -365,6 +371,9 @@ def _run_all(ctx: CheckContext, replays: dict[str, Replay], rederived: Optional[
         ctx.guard("replay", "replay findings", lambda: replay_findings(ctx, replays))
     if not batch:
         return
+    if ctx.coverage.replay_mode in ("process", "inline"):  # the replay tier ran: an evicted definitive result it never replayed cannot pass
+        for t in view.transfers:
+            ctx.guard("results", "unreplayed evicted results", lambda t=t: results.check_unreplayed(ctx, t, replays), transfer=t)
     # B1 sweep
     ctx.guard("custody", "journal chain (B1)", lambda: custody.check_chain(ctx))
     ctx.guard("custody", "log sweep (B1)", lambda: custody.sweep_log(ctx))
@@ -527,6 +536,11 @@ class TransferAuditor:
         for o in rc.outcomes:
             if o.verification is not None and is_definitive(o.display_status):
                 out.add(o.verification.result_id)
+        # the results behind formal checks and constraint results decide ``satisfied`` and so the ABSENCE of an error
+        # finding (INT-SUBJ-001, INT-REQ-005): a re-signed status there leaves nothing for the error-finding rule below
+        for c in list(rc.formal_checks) + list(rc.constraint_results):
+            if c.formal_result_id:
+                out.add(c.formal_result_id)
         for f in rc.findings:
             if f.severity == "error" and f.code in ALWAYS_REPLAY_CODES and f.formal_result_id:
                 out.add(f.formal_result_id)
@@ -551,18 +565,13 @@ class TransferAuditor:
         for rid in dict.fromkeys(candidates):
             if rid in st.replay_jobs:
                 continue
-            rec = self.store.live(rid)
+            rec = self.store.get(rid)
             if rec is None or rec.origin not in ("captured", "external") or rec.channel_uid != st.uid:
                 continue
-            res = self.store.parsed(rid)
-            if res is None:
-                continue
-            problem_json = results.replayable_problem(st.view, rid, rec, res)
-            if not problem_json:
+            # built from the store or, when the store already evicted it (even inside this event), from the journaled capture
+            job = build_replay_job(st.view, self.store, rid, always=rid in always, seq=t.seq, channel_uid=st.uid)
+            if job is None:
                 continue  # a definitive result with no replayable problem is AUDIT-005 (L3), never silently skipped
-            job = ReplayJob(result_id=rid, problem_json=problem_json, config_json=canonical_json(res.solver_config.model_dump(mode="json")),
-                            original_status=res.status.value, problem_digest=res.binding.problem_digest, config_digest=res.binding.config_digest,
-                            versions_digest=res.binding.versions_digest, always=rid in always, seq=t.seq, channel_uid=st.uid)
             st.replay_jobs[rid] = job
             st.sampled_total += 1
             if self.replayer.submit(job) == "sampled_out":
@@ -643,6 +652,15 @@ class TransferAuditor:
         replays = self._replays(st)
         if replays:
             replay_findings(ctx, replays)
+        sampled = self.replayer.sampled_out()
+        if sampled:  # a transfer citing a result sampled out of live replay is never AUDIT_PASSED live: it discloses it (AUDIT-003)
+            for t in st.view.transfers:
+                if t.receipt is None or not t.message_id:
+                    continue
+                out = sorted({rid for rid, _k, _p in cited_results(t.receipt) if rid in sampled and rid in st.replay_jobs})
+                if out:
+                    ctx.ovs(t.seq, "OVS-AUDIT-003", f"{len(out)} result(s) cited by {t.kind} {t.message_id} were sampled out of live replay under load "
+                            f"({', '.join(out[:5])}); the batch tier replays them before any FINAL audit", formal_result_id=out[0], **t.ids())
         for seq, red in self._rederived(st).items():
             t = st.view.by_seq.get(seq)
             if t is None:

@@ -50,6 +50,21 @@ not the channel's pool; a relayed report must reproduce its sender's delivery an
 findings by (report, claim), message and report, and identifier lists resolve by type; the intake accepts a bare object or
 exactly one fence; consolidation keeps apart answers whose figures differ anywhere (`material-claim-key/2`).
 
+**After adversarial review round 2** (design section 21): a local engine result must carry the channel's journaled
+solver configuration and the running engine's versions (`OVS-RES-004`, live), is replayed under the channel's
+configuration, from the journaled capture when the store has evicted it, and a definitive status the replay cannot
+reproduce is `OVS-AUDIT-005`, never the `OVS-RES-008` warning; results behind formal checks and constraint results are
+always replayed, and a transfer citing a result sampled out of live replay carries `OVS-AUDIT-003`, never
+`AUDIT_PASSED`; the live implied findings re-derive a reused report id (INT-HANDOFF-015), the plan's scope rules
+(INT-HANDOFF-002/004) and the branch packs' error-level structural findings; a supplied text that presents a forwarded
+report is held to byte identity whatever its document id, and one document id carries one text (`OVS-PEER-002`); claims
+that occur verbatim in a response laid out with markdown structure, list numbers carried in a claim, a U+FEFF, the
+contract's advisory fields on a structured report and a re-timestamped hand-off no longer give false errors; no
+agent-chosen text reaches a signed finding; a contradiction with a signed result is `OVS-AGENT-001` whatever the pointer;
+a confirmation covers only what its findings name; an unresolved accusation always reaches human review; the intake's
+dossiers carry a keyed `issue_binding`; consolidation reads every figure as written and never folds superscripts; a
+returning invented quotation is a repeat under any weaker check; the pool's hard maximum holds for any configuration.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and

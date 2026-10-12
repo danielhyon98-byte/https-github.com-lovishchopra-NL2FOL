@@ -169,8 +169,9 @@ _DATE_WORDS = frozenset(("on in by of at from since until till during around abo
 #: Prepositions that attach a date to its event ("in force since 24 October", "before 1933") are deliberately not here, nor is
 #: "and", which joins the items of one dated statement ("37.3 per cent and 230 seats in July 1932").
 _CLAUSE_BREAK_WORDS = frozenset("but yet so when while whereas although though which who whom whose where because if unless then".split())
-#: Function words and unit words, never an event word a figure is paired with.
-_PARTNER_STOP = frozenset(("the a an and or of to in on for with by is are was were be been being this that these those as at from it its into their there "
+#: Function words and unit words, never an event word a figure is paired with. Prepositions of a range ("from", "to",
+#: "between") are among them: "between about 7.8 h and 8.2 h" states no event of 7.8.
+_PARTNER_STOP = frozenset(("the a an and or of to in on for with by is are was were be been being this that these those as at from between it its into their there "
                            "which who whom not had has have having some about than then when while but so per cent percent million billion trillion thousand "
                            "hundred around roughly nearly almost over under more less only also still even just such very").split())
 #: How far (in tokens of the same clause) an event word or another figure may stand from a figure to count as its partner.
@@ -203,10 +204,58 @@ def light_stem(word: str) -> str:
     return w
 
 
+def _undouble(stem: str) -> str:
+    """A stem with a doubled final consonant undone ("bann" from "banned" -> "ban", "stopp" -> "stop")."""
+    if len(stem) >= 4 and stem[-1] == stem[-2] and stem[-1] not in "aeiouls":
+        return stem[:-1]
+    return stem
+
+
+def _stem_hit(stem: str, words: set[str]) -> bool:
+    """Whether a light stem occurs among ``words`` (light stems) loosely: equal once a doubled final consonant is undone,
+    or one a prefix of the other with five letters or more ("employ" / "employment"), so a reworded event ("the ban on
+    employing" for "banned the employment") is still the same event."""
+    a = _undouble(stem)
+    for w in words:
+        b = _undouble(w)
+        if a == b or (min(len(a), len(b)) >= 5 and (a.startswith(b) or b.startswith(a))):
+            return True
+    return False
+
+
+#: Characters of mathematical notation: a whitespace-delimited chunk holding one is part of an expression, not prose.
+#: The hyphen and the en dash are not among them (ranges and compounds in prose: "1914–1918", "forty-five").
+_MATH_CHARS = frozenset("=<>≤≥≈≠±×÷∫∮√∑∏∞−^*|⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉")
+#: A chunk that is only a (signed, bracketed) number with trailing punctuation: a negative figure of prose ("−2.1 per
+#: cent") is not an expression by itself.
+_SIGNED_NUMBER_RE = re.compile(r"^[(\[]?[−-]?\d+(?:[.,]\d+)*[)\]%.,;:!?]*$")
+
+
+def _mask_math(text: str) -> str:
+    """``text`` with its mathematical expressions replaced by a clause break: every whitespace-delimited chunk holding an
+    operator, a relation, an integral or a superscript or subscript digit (``0 ≤ t ≤ 3``, ``3t(2 − t)``, ``∫₀² v dt``), and
+    every numeral chunk standing next to one. The numbers inside a worked solution are terms of an expression, not
+    figures of events, so the pairing readers never pair them (rule ``math-notation``)."""
+    parts = re.split(r"(\s+)", text)
+    words = parts[0::2]
+    if not any(ch in _MATH_CHARS for w in words for ch in w):
+        return text
+    math = [any(ch in _MATH_CHARS for ch in w) and not _SIGNED_NUMBER_RE.match(w) for w in words]
+    masked = list(math)
+    for i, w in enumerate(words):
+        if not math[i] and any(ch.isdigit() for ch in w) and ((i > 0 and math[i - 1]) or (i + 1 < len(words) and math[i + 1])):
+            masked[i] = True
+    for i in range(len(words)):
+        if masked[i]:
+            parts[2 * i] = ";"
+    return "".join(parts)
+
+
 def _plain_for_pairs(text: str) -> str:
-    """The text the pairing readers work on: list markers and thousands separators removed, figures written in words
-    rewritten as digits (so "roughly a tenth" pairs like "about 13 per cent")."""
-    return _words_as_digits(_THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text)))
+    """The text the pairing readers work on: mathematical expressions masked (:func:`_mask_math`), list markers and
+    thousands separators removed, figures written in words rewritten as digits (so "roughly a tenth" pairs like "about
+    13 per cent")."""
+    return _words_as_digits(_THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", _mask_math(text))))
 
 
 def _is_numeral(tok: str) -> bool:
@@ -267,40 +316,85 @@ def _clauses(text: str) -> list[list[str]]:
     return out
 
 
-def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], dict[str, str]]:
+#: The two ends of a range inside one clause: "from <a> [unit] to <b>", "between <a> [unit] and <b>" (an optional
+#: qualifier before each end).
+_RANGE_OPENERS = {"from": "to", "between": "and"}
+_RANGE_QUALIFIERS = frozenset("about some around roughly nearly almost over under c circa".split())
+
+
+def _clause_ranges(clause: list[str]) -> list[tuple[str, str]]:
+    """``(a, b)`` for every range of ``clause`` (:data:`_RANGE_OPENERS`): the opener, at most one qualifier, a numeral, at
+    most two unit words, the connector, at most one qualifier, a numeral."""
+    out: list[tuple[str, str]] = []
+    for k, tok in enumerate(clause):
+        conn = _RANGE_OPENERS.get(tok.casefold())
+        if conn is None:
+            continue
+        i = k + 1
+        if i < len(clause) and clause[i].casefold() in _RANGE_QUALIFIERS:
+            i += 1
+        if i >= len(clause) or not _is_numeral(clause[i]):
+            continue
+        j = next((x for x in range(i + 1, min(i + 4, len(clause))) if clause[x].casefold() == conn), None)
+        if j is None or any(_is_numeral(t) for t in clause[i + 1:j]):
+            continue
+        m = j + 1
+        if m < len(clause) and clause[m].casefold() in _RANGE_QUALIFIERS:
+            m += 1
+        if m < len(clause) and _is_numeral(clause[m]) and clause[m] != clause[i]:
+            out.append((clause[i], clause[m]))
+    return out
+
+
+def _figure_partners(text: str, *, share_ranges: bool = False) -> tuple[set[tuple[str, str]], dict[str, str], dict[str, str]]:
     """``(pairs, kinds, surface)``: every ``(figure, partner)`` of ``text``, the kind of each figure, and the word each
     stemmed partner was first seen as. A partner is an event word within :data:`_WORD_WINDOW` tokens of the figure in
     the same clause (light-stemmed, prefixed ``w:``) that has no nearer figure of the same kind, or another figure within
-    :data:`_FIGURE_WINDOW` tokens (prefixed ``f:``). Unit words and function words are not partners."""
+    :data:`_FIGURE_WINDOW` tokens (prefixed ``f:``). Unit words and function words are not partners. With
+    ``share_ranges`` (the sources' side, rule ``range-ends``), the two ends of a range in one clause ("the external
+    resistance rises from 2.4 Ω to 4.0 Ω") share that clause's event words: the event is the range's, not its nearer end's."""
     pairs: set[tuple[str, str]] = set()
     kinds: dict[str, str] = {}
     surface: dict[str, str] = {}
     for clause in _clauses(text):
-        figs = [(i, tok, _figure_kind(clause, i)) for i, tok in enumerate(clause) if _is_numeral(tok)]
-        for i, tok, kind in figs:
-            kinds.setdefault(tok, kind)
-            for j, other, _k in figs:
-                if j != i and abs(i - j) <= _FIGURE_WINDOW:
-                    pairs.add((tok, "f:" + other))
-        for j, word in enumerate(clause):
-            if _is_numeral(word):
-                continue
-            low = word.casefold()
-            if low in _PARTNER_STOP or len(low) < 3:
-                continue
-            key = "w:" + light_stem(low)
-            # An event word is the partner of the NEAREST figure of each kind within the window (ties: each), so in
-            # "announced on 22 October and in force from 24 October" 'force' belongs to 24, not to 22 as well.
-            for kind in {k for _i, _t, k in figs}:
-                near = [(abs(i - j), tok) for i, tok, k in figs if k == kind and abs(i - j) <= _WORD_WINDOW]
-                if not near:
-                    continue
-                best = min(d for d, _t in near)
-                for d, tok in near:
-                    if d == best:
-                        surface.setdefault(key, low)
-                        pairs.add((tok, key))
+        mine = _clause_partners(clause, kinds, surface)
+        if share_ranges:
+            for a, b in _clause_ranges(clause):
+                wa = {q for f, q in mine if f == a and q.startswith("w:")}
+                wb = {q for f, q in mine if f == b and q.startswith("w:")}
+                mine |= {(a, q) for q in wb} | {(b, q) for q in wa}
+        pairs |= mine
     return pairs, kinds, surface
+
+
+def _clause_partners(clause: list[str], kinds: dict[str, str], surface: dict[str, str]) -> set[tuple[str, str]]:
+    """The ``(figure, partner)`` pairs of one clause (:func:`_figure_partners`)."""
+    pairs: set[tuple[str, str]] = set()
+    figs = [(i, tok, _figure_kind(clause, i)) for i, tok in enumerate(clause) if _is_numeral(tok)]
+    for i, tok, kind in figs:
+        kinds.setdefault(tok, kind)
+        for j, other, _k in figs:
+            if j != i and abs(i - j) <= _FIGURE_WINDOW:
+                pairs.add((tok, "f:" + other))
+    for j, word in enumerate(clause):
+        if _is_numeral(word):
+            continue
+        low = word.casefold()
+        if low in _PARTNER_STOP or len(low) < 3:
+            continue
+        key = "w:" + light_stem(low)
+        # An event word is the partner of the NEAREST figure of each kind within the window (ties: each), so in
+        # "announced on 22 October and in force from 24 October" 'force' belongs to 24, not to 22 as well.
+        for kind in {k for _i, _t, k in figs}:
+            near = [(abs(i - j), tok) for i, tok, k in figs if k == kind and abs(i - j) <= _WORD_WINDOW]
+            if not near:
+                continue
+            best = min(d for d, _t in near)
+            for d, tok in near:
+                if d == best:
+                    surface.setdefault(key, low)
+                    pairs.add((tok, key))
+    return pairs
 
 
 def _dated_quantities(text: str) -> set[tuple[str, str, Optional[str]]]:
@@ -360,7 +454,8 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
     P, where the sources pair P only with figure B of the same kind (never with A), the synthesis does not state B with
     P, and A has left every event the sources pair it with ("The turning point was 1932" where the sources say "The
     turning point was 1930" and state 1932 as "the strongest counter-case"). A figure the sources state with no event
-    word, or one that keeps one of its own events, is a merge, not a re-pairing."""
+    word, or one that keeps one of its own events, is a merge, not a re-pairing (the sources' pairing gives a range's
+    event words to both of its ends: rule ``range-ends`` in :func:`_figure_partners`)."""
     moved: dict[tuple[str, tuple[str, ...]], list[str]] = {}
     for a, p in sorted(syn_pairs):
         if not p.startswith("w:") or p[2:] in _MONTH_STEMS or a not in src_figures or a in exchanged or (a, p) in src_pairs:
@@ -369,7 +464,10 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
         if not holders or any((b, p) in syn_pairs for b in holders):
             continue
         own = _event_words(src_pairs, a)
-        if not own or own & _event_words(syn_pairs, a):
+        # an event word the sources also pair with a competing figure ("Act", "Factory" of two Acts) is shared, not one of
+        # the figure's own events: keeping a shared noun while the verb moves is still a re-pairing (rule ``shared-partner``)
+        distinct = own - set().union(*(_event_words(src_pairs, b) for b in holders))
+        if not own or distinct & _event_words(syn_pairs, a):
             continue
         moved.setdefault((a, holders), []).append(p)
     out: list[str] = []
@@ -377,6 +475,55 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
         shown = ", ".join(_partner_label(p, surface) for p in words)
         own = ", ".join(_partner_label(p, surface) for p in sorted(_event_words(src_pairs, a)))
         out.append(f"'{a}' is stated with {shown}, where the cited sources pair {shown} only with {', '.join(repr(b) for b in holders)} and state '{a}' with {own} (re-paired)")
+    return out
+
+
+#: Sentence ends (and semicolons) of the text the substitution rule reads one sentence at a time.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+")
+
+
+def _substitutions(synthesized_text: str, syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[str, str]], kinds: dict[str, str],
+                   src_kinds: dict[str, str], src_figures: set[str], reported: set[str], surface: dict[str, str]) -> list[str]:
+    """A figure standing in another figure's place (rule ``substitution``): in a sentence of the synthesis, year A stands
+    with none of the event words the sources give A alone and with event words the sources give year B alone, while B is
+    left out of the synthesis ("The ban ..., which the Factory Act introduced, came in 1847", or "The Factory Act of 1847
+    banned ... The Ten Hours Act of 1847 followed it", where the sources say the 1833 Act banned and the 1847 Act
+    followed it). Read one sentence at a time, so a year stated twice, once with its own events and once with another
+    year's, is still caught. Event words are matched loosely (:func:`_stem_hit`: "the ban on employing" is "banned the
+    employment"). A figure whose own events are all shared with another is never held to this, nor one the sources
+    state with no event word."""
+    plain = _plain_for_pairs(synthesized_text)
+    sentences = [{light_stem(w) for w in _words(x)} | {"#" + t for t in _PAIR_TOKEN_RE.findall(x) if _is_numeral(t)}
+                 for x in _SENTENCE_SPLIT_RE.split(plain) if x.strip()]
+    syn_figs = {a for a, _ in syn_pairs} | set(kinds)
+    out: list[str] = []
+    for a in sorted(syn_figs):
+        if a not in src_figures or a in reported or kinds.get(a, src_kinds.get(a)) != "year":
+            continue
+        others = {b for b in src_figures if b != a and src_kinds.get(b) == "year" and b not in syn_figs}
+        if not others:
+            continue
+        own = _event_words(src_pairs, a)
+        distinct_a = own - set().union(*(_event_words(src_pairs, b) for b in src_figures if b != a and src_kinds.get(b) == "year"))
+        if not distinct_a:
+            continue
+        found = None
+        for words in sentences:
+            if "#" + a not in words or any(_stem_hit(p[2:], words) for p in distinct_a):
+                continue
+            for b in sorted(others):
+                distinct_b = {p for p in _event_words(src_pairs, b) - own}
+                taken = sorted(p for p in distinct_b if _stem_hit(p[2:], words))
+                if taken:
+                    found = (b, taken)
+                    break
+            if found:
+                break
+        if found:
+            b, taken = found
+            shown = ", ".join(_partner_label(p, surface) for p in taken)
+            out.append(f"'{a}' stands in the place of '{b}': the synthesis states {shown}, which the cited sources state only with '{b}', with '{a}' and "
+                       f"without '{b}', and none of the events the sources give '{a}' ({', '.join(_partner_label(p, surface) for p in sorted(distinct_a))}) (re-paired)")
     return out
 
 
@@ -388,7 +535,11 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
     * an exchange: figure A stands with event word (or figure) P and figure B with Q, where the sources state B with P
       and A with Q (A and B of the same kind: years, days of a month, or quantities);
     * a one-sided re-pairing: A stands with event word P, which the sources pair only with B, and A has left every
-      event the sources state it with (:func:`_one_sided_repairings`);
+      event the sources state it with alone (an event word the sources also pair with B is shared and does not count:
+      :func:`_one_sided_repairings`; a range the sources state gives its event words to both of its ends, rule
+      ``range-ends``, so "rises from 2.4 Ω to 4.0 Ω" restated as "rises to 4.0 Ω" re-pairs nothing);
+    * a substitution: year A takes the place of year B, which the synthesis leaves out, carrying B's own event words and
+      none of A's (:func:`_substitutions`);
     * a dated quantity ``<q> ... in [<month>] <year>`` that the sources date to another month or year;
     * a ``from X to Y`` pair the sources state as ``from Y to X``.
 
@@ -399,7 +550,7 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
     src_pairs: set[tuple[str, str]] = set()
     src_kinds: dict[str, str] = {}
     for t in source_texts:
-        p, k, sf = _figure_partners(t)
+        p, k, sf = _figure_partners(t, share_ranges=True)
         src_pairs |= p
         for fig, kind in k.items():
             src_kinds.setdefault(fig, kind)
@@ -423,7 +574,10 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
             exchanged |= {a, b}
             out.append(f"'{a}' is stated with {_partner_label(p, surface)} and '{b}' with {_partner_label(swapped[0], surface)}, "
                        f"where the cited sources state '{b}' with {_partner_label(p, surface)} and '{a}' with {_partner_label(swapped[0], surface)} (exchanged)")
-    out += _one_sided_repairings(syn_pairs, src_pairs, kinds, src_kinds, src_figures, exchanged, surface)
+    one_sided = _one_sided_repairings(syn_pairs, src_pairs, kinds, src_kinds, src_figures, exchanged, surface)
+    out += one_sided
+    moved = exchanged | {d.split("'")[1] for d in one_sided}
+    out += _substitutions(synthesized_text, syn_pairs, src_pairs, kinds, src_kinds, src_figures, moved, surface)
     out += _redated_quantities(synthesized_text, source_texts, exchanged, src_figures)
     src_from_to = set().union(*(_from_to_pairs(t) for t in source_texts)) if source_texts else set()
     for a, b in sorted(_from_to_pairs(synthesized_text)):
@@ -491,6 +645,94 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     for word, fig in exact:
         out.append(f"it states '{word} {fig}' where its cited sources give {fig} as an approximate figure")
     return out
+
+
+#: Comparison words that bound a figure from above (the figure is a maximum, an end or a later limit) and from below.
+#: A paraphrase that turns the comparison on the same figure the other way ("under nine" -> "over nine", "before 1847"
+#: -> "after 1847") states the opposite of its source (rule ``comparison-direction``).
+_UPPER_BOUND = ("under", "below", "less than", "fewer than", "at most", "no more than", "up to", "younger than", "before", "earlier than", "until", "not over",
+                "lower than", "smaller than", "shorter than")
+_LOWER_BOUND = ("over", "above", "more than", "greater than", "at least", "no less than", "no fewer than", "older than", "after", "later than", "since",
+                "higher than", "larger than", "longer than", "beyond", "exceeding")
+_DIRECTION_RE = re.compile(r"\b(?P<w>" + _alt(_UPPER_BOUND + _LOWER_BOUND).replace(" ", r"\s+") + r")\s+(?:the\s+age\s+of\s+)?(?P<n>\d+(?:\.\d+)?)(?!\.\d)(?!\w)",
+                           re.IGNORECASE)
+
+
+def _directions(text: str) -> dict[str, set[str]]:
+    """figure -> the directions (``upper`` / ``lower``) in which ``text`` bounds it with a comparison word ("under nine":
+    9 -> upper). Figures written in words are read as digits; mathematical notation is masked."""
+    out: dict[str, set[str]] = {}
+    for m in _DIRECTION_RE.finditer(_plain_for_pairs(text)):
+        w = " ".join(m.group("w").casefold().split())
+        out.setdefault(m.group("n"), set()).add("upper" if w in _UPPER_BOUND else "lower")
+    return out
+
+
+#: Words that state a prohibition, prevention or absence: a source that holds one can be paraphrased with a negation
+#: and keep its meaning ("banned employing children" -> "children could not be employed"), so an added negation is an
+#: error against such a source only when it negates that very word ("banned" -> "did not ban").
+_NEGATIVE_MEANING_WORDS = ("ban banned bans banning prohibit prohibited prohibits forbid forbade forbidden outlaw outlawed bar barred prevent prevented "
+                           "prevents stop stopped stops end ended ends abolish abolished refuse refused refuses reject rejected rejects deny denied denies "
+                           "lack lacked lacks fail failed fails exclude excluded excludes avoid avoided avoids cease ceased halt halted block blocked absent "
+                           "absence lose lost loses").split()
+#: How many words after a negator are read as what it negates.
+_NEGATION_SCOPE = 3
+
+
+def _negation_stem(word: str) -> str:
+    """``light_stem`` with a doubled final consonant undone ("banned" -> "bann" -> "ban"), so a negated base form compares
+    with the inflected form of its source."""
+    return _undouble(light_stem(word))
+
+
+_NEGATIVE_MEANING = frozenset(_negation_stem(w) for w in _NEGATIVE_MEANING_WORDS)
+
+
+def _negated_source_words(synthesized_text: str, source_text: str) -> list[str]:
+    """The source's own content words that a negator of ``synthesized_text`` negates (a content word within
+    :data:`_NEGATION_SCOPE` words after "not", "never", "no", "didn't", ...), named rule ``negated-source-content``. Empty
+    when every added negation negates something the source does not state (a different statement, not its opposite)
+    or when the source states a prohibition or absence other than the negated word (a polarity-preserving rewording)."""
+    src_words = _words(source_text)
+    src_stems = {_negation_stem(w) for w in src_words if w not in _PARTNER_STOP and w not in _NEGATORS and len(w) >= 3}
+    src_negative = {_negation_stem(w) for w in src_words} & _NEGATIVE_MEANING
+    words = _words(synthesized_text)
+    out: list[str] = []
+    for i, w in enumerate(words):
+        if not (w in _NEGATORS or w.endswith(("n't", "n’t"))):
+            continue
+        for v in words[i + 1:i + 1 + _NEGATION_SCOPE]:
+            if v in _PARTNER_STOP or v in _NEGATORS or len(v) < 3:
+                continue
+            stem = _negation_stem(v)
+            if stem in src_stems and not (src_negative - {stem}):
+                out.append(v)
+                break
+    return out
+
+
+def meaning_inversions(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
+    """How a 'carried' or 'paraphrased' claim with ONE cited source states the opposite of it, as descriptions for an
+    error (INT-LEDGER-027): a figure the source bounds one way ("children under nine") bounded the other way ("children
+    over nine"), or a negation added where the source states none that negates the source's own content ("did not ban"
+    where the source says "banned": rule ``negated-source-content``). These labels promise the source's content
+    unchanged, and the figure-anchored comparison or the negated statement is not a rewording a paraphrase needs. An
+    added negation over words the source does not state, or against a source that states a prohibition or absence of
+    its own ("could not be employed" for "banned employing"), stays the INT-LEDGER-026 warning, as does a dropped
+    negation (a paraphrase may turn "no child under nine could work" into "children under nine were banned")."""
+    if transformation not in _EQUIVALENCE_LABELS or len(source_texts) != 1:
+        return []
+    out: list[str] = []
+    syn, src = _directions(synthesized_text), _directions(source_texts[0])
+    for fig in sorted(set(syn) & set(src), key=lambda x: (len(x), x)):
+        if syn[fig] != src[fig] and len(syn[fig]) == 1 and len(src[fig]) == 1:
+            out.append(f"it bounds '{fig}' {'from below' if 'lower' in syn[fig] else 'from above'} where its cited source bounds it "
+                       f"{'from below' if 'lower' in src[fig] else 'from above'} (a comparison turned the other way)")
+    if _negations(synthesized_text) > 0 and _negations(source_texts[0]) == 0:
+        negated = _negated_source_words(synthesized_text, source_texts[0])
+        if negated:
+            out.append(f"it adds a negation its cited source does not state, negating the source's own {sorted(set(negated))}")
+    return _with_word_labels(out, [synthesized_text, *source_texts])
 
 
 def _quotation_corpus(reports: list[SpecialistReport], known: list[ClaimRecord], extra_texts: tuple[str, ...]) -> list[str]:
@@ -719,7 +961,13 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         invented = unlocated_quotations(sc.text, _quotation_corpus(reports, known, tuple(extra_texts)))
         if invented:
             f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') quotes {[q[:80] for q in invented[:8]]}, which occur in none of the supplied texts, the cited reports or its cited source claims {known_ids}: an altered or invented quotation", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        changed_meaning = meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
+        inverted = meaning_inversions(sc.text, [c.claim_text for c in known], sc.transformation)
+        if inverted:
+            f.append(IntegrityFinding(code="INT-LEDGER-027", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
+                                      + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
+        changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
+                           if not (neg_error and d.startswith("it adds a negation"))]
         if changed_meaning:
             f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):
@@ -789,12 +1037,20 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
 def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
-    (INT-LEDGER-017), every numeric literal in the text must occur in some claim
-    (INT-LEDGER-018; list markers such as '1.' are ignored), and the text must pair its
-    figures and dates with events as the synthesized claims do (INT-LEDGER-023, error:
-    a text that states the claims' figures re-paired miscommunicates them to the student
-    while every claim stays faithful)."""
+    (INT-LEDGER-017), every figure or date the text states (digits, number words, scale
+    words, month-years: ``figure_spellings``) must be stated by some synthesized claim
+    under some spelling (INT-LEDGER-023, error: "1834" or "under ten" where every claim
+    says "1833" and "under nine" miscommunicates to the student while every claim stays
+    faithful), every numeric literal in the text must occur in some claim (INT-LEDGER-018,
+    warning; list markers such as '1.' are ignored), and the text must
+    pair its figures and dates with events as the synthesized claims do (INT-LEDGER-023)."""
     f: list[IntegrityFinding] = []
+    claim_keys = set().union(*(fig.keys for c in synthesis.claims for fig in _figures(c.text))) if synthesis.claims else set()
+    stated = _sorted_tokens({fig.label for fig in _figures(synthesis.text) if not (fig.keys & claim_keys)})
+    if stated:
+        f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"the student-facing text states figures or dates {stated} that no synthesized claim states "
+                                  "under any spelling: a changed or introduced figure or date in what the student reads", claim_ids=[synthesis.synthesis_id],
+                                  agent_ids=[synthesis.combinator_agent_id]))
     body = _norm(synthesis.text)
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
     if absent:

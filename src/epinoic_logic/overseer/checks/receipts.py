@@ -27,7 +27,11 @@
   - a response that was not REJECTED passed the channel's identity checks, so they are re-run on the journaled
     envelope, request and plan: the sender is the agent the request was addressed to (else INT-REQ-001), the envelope
     binds the payload (``bind_payload``: INT-ENV-008), and every finding ``check_report_against_plan`` gives is on
-    the receipt at its severity.
+    the receipt at its severity;
+  - a delivered report (response, raw text or relay) whose report id an earlier journaled delivery carries with other
+    content (compared without ``created_at``) needs INT-HANDOFF-015 (error, blocking);
+  - a request needs INT-HANDOFF-002 when the journaled plan did not select its addressee, and INT-HANDOFF-004 when it
+    supplies a document outside the plan's retrieval scope (both errors, so the request is REJECTED).
 """
 from __future__ import annotations
 
@@ -55,7 +59,7 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-GLOSSARY-007", "INT-HANDOFF-001", "INT-HANDOFF-002", "INT-HANDOFF-003", "INT-HANDOFF-004", "INT-HANDOFF-007", "INT-HANDOFF-008",
         "INT-HANDOFF-011", "INT-HANDOFF-012", "INT-HANDOFF-013", "INT-HANDOFF-015", "INT-INTERNAL-001", "INT-LEDGER-000", "INT-LEDGER-001",
         "INT-LEDGER-002", "INT-LEDGER-003", "INT-LEDGER-004", "INT-LEDGER-005", "INT-LEDGER-006", "INT-LEDGER-008", "INT-LEDGER-009",
-        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025",
+        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-027",
         "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-003", "INT-REQ-007", "INT-REQ-009", "INT-REQ-011", "INT-REQ-012",
         "INT-STALE-001", "INT-STALE-002", "INT-STALE-003", "INT-STALE-004", "INT-STALE-005", "INT-STALE-006", "INT-STALE-007", "INT-STALE-008",
         "INT-STALE-009", "INT-STALE-010", "INT-STALE-011", "INT-SUBJ-001", "INT-SUBJ-003", "INT-SYNTH-001", "INT-SYNTH-006", "INT-SYNTH-010")},
@@ -374,6 +378,67 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
                 out.append((f.code, f.severity, f"constraint {cr.constraint_id} is a {kinds.get(cr.constraint_id)} bound, which the channel reports at severity error"))
     if t.kind in ("response", "response_text") and t.receipt.status is not TransmissionStatus.REJECTED and req is not None and t.report is not None:
         out.extend(_identity_implied(ctx, t, req))
+    out.extend(_reuse_implied(ctx, t))
+    if t.kind == "request":
+        out.extend(_request_scope_implied(ctx, t))
+    return out
+
+
+#: Findings after which the channel returns before its report-id reuse rule runs (no request, a payload that does not
+#: re-validate, a claim of another report).
+_REUSE_SKIPPED = frozenset({"INT-REQ-000", "INT-REQ-009", "INT-HANDOFF-012"})
+
+
+def _content(payload: Optional[dict]) -> Optional[dict]:
+    """A journaled report payload without its delivery timestamp: the channel's ``_content_dump`` of the report."""
+    if not isinstance(payload, dict):
+        return None
+    return {k: v for k, v in payload.items() if k != "created_at"}
+
+
+def _reuse_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """INT-HANDOFF-015 (error, blocking): a report id already delivered on this channel arrives again with different
+    content (the journaled payloads compared without ``created_at``, as the channel's ``_content_dump`` compares them).
+    Re-derived from the journaled earlier delivery, so a channel that omits the finding is caught live."""
+    rc = t.receipt
+    rep = t.report
+    if rc is None or rep is None or t.kind not in ("response", "response_text", "relay_report"):
+        return []
+    if {f.code for f in rc.findings} & _REUSE_SKIPPED:
+        return []
+    held = ctx.view.first_delivery(rep.report_id, before_seq=t.seq)
+    if held is None:
+        return []
+    a, b = _content(held.payload), _content(t.payload)
+    if a is None or b is None or a == b:
+        return []
+    how = _present(rc.findings, "INT-HANDOFF-015", "error")
+    if not how:
+        return []
+    changed = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    return [("INT-HANDOFF-015", how, f"report id {rep.report_id!r} was delivered at event {held.seq} ({held.message_id}) with other content ({changed[:8]} differ): "
+             "a reused report id with a different payload is blocking and is not delivered")]
+
+
+def _request_scope_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """The request path's plan-scope rules re-run on the journaled plan and request: the addressee is an agent the plan
+    selected (INT-HANDOFF-002) and every supplied document is within the plan's retrieval scope (INT-HANDOFF-004)."""
+    rc = t.receipt
+    req = t.request
+    plan = ctx.view.plan_at(t.seq)
+    if rc is None or req is None or plan is None:
+        return []
+    out: list[tuple[str, str, str]] = []
+    if req.to_agent_id not in plan.selected_agent_ids:
+        how = _present(rc.findings, "INT-HANDOFF-002", "error")
+        if how:
+            out.append(("INT-HANDOFF-002", how, f"the request is addressed to {req.to_agent_id!r}, which the journaled plan did not select ({sorted(plan.selected_agent_ids)})"))
+    if plan.allowed_document_ids:
+        outside = sorted({d.document_id for d in req.supplied_texts if d.document_id not in set(plan.allowed_document_ids)})
+        if outside:
+            how = _present(rc.findings, "INT-HANDOFF-004", "error")
+            if how:
+                out.append(("INT-HANDOFF-004", how, f"the request supplies documents outside the journaled plan's retrieval scope: {outside[:8]}"))
     return out
 
 

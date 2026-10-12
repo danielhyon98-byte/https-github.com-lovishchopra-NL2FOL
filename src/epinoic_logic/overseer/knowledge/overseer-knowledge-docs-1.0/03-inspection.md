@@ -76,6 +76,8 @@ This document says what to check on each transfer. It applies to every transfer 
   - The text differs, even by one word: kind `peer_document_altered`.
   - No earlier forward to that recipient: kind `peer_document_altered`.
   - The document's `author` is not the `agent_id` of the report whose text it is (or its `peer:<id>` names another forwarded report): the attributions were swapped. Kind `peer_document_altered`.
+  - The same rules hold for a supplied text under **any other** `document_id` that presents another specialist's report: its `author` is that report's `agent_id`, its `document_id` is that report's id or agent id, or its text is nearly the report's `original_response`. A changed word or figure in it: kind `peer_document_altered`.
+  - One `document_id` must carry one text in a task. The same `document_id` with a different text in two requests: kind `peer_document_altered`.
 - **I13 What was asked.** Compare `items` and `constraints` with `user_input`. A constraint whose value differs from the student's words (for example `user_input` says "no more than 350 words" and the constraint's `value` is "530") is a miscommunication no check decides: kind `other` (When unsure U3).
 - **I14 Request status.** Apply I2 (request rule).
 
@@ -133,7 +135,7 @@ The router may pass on a delivered report only exactly as it was delivered.
 
 - **I45 Owner sends.** `sender.agent_id` must equal `payload.agent_id`: only a report's owner relays it. Otherwise, with no `INT-HANDOFF` or `INT-ENV` error and a status that is not REJECTED: kind `receipt_status_wrong`.
 - **I46 Checked like a response.** Run I21 to I31 on it, then §10 on its translations.
-- **I47 Delivered before.** The same agent must have delivered this report earlier: a `response` or `response_text` with the same `report_id`, the same `payload_sha256` and the same `sender.agent_id`, with lower `seq`. A report relayed in an agent's name that the agent never delivered (a new `report_id`, or changed content) was written by someone else: kind `forward_altered`, `claimed_severity` `error`.
+- **I47 Delivered before.** The same agent must have delivered this report earlier: a `response` or `response_text` with the same `report_id`, the same content (the same `payload_sha256`, or a payload that differs only in its `created_at`) and the same `sender.agent_id`, with lower `seq`. A report relayed in an agent's name that the agent never delivered (a new `report_id`, or changed content) was written by someone else: kind `forward_altered`, `claimed_severity` `error`.
 
 ## 9. `relay_synthesis` (the combinator's synthesis)
 
@@ -144,8 +146,9 @@ The router may pass on a delivered report only exactly as it was delivered.
 - **I64 Certainty is not inflated.** A synthesized claim must not be more certain than its sources: `established` built only from `probable` or `possible` sources, or "certainly" where the sources say "probably". With no finding: kind `synthesis_ledger_fault`.
 - **I65 Contradictions are named.** Two claims (from different specialists, or within one report) that cannot both hold under the shared meanings of their terms must be named: in `synthesis.conflicts`, or on a receipt (INT-CONFLICT-001, or INT-CONFLICT-005 for one claim that refutes itself). Unnamed: kind `contradiction_unnamed`. A difference of emphasis, interpretation or judgement is not a contradiction.
 - **I66 Named conflicts are real.** A conflict a receipt or the synthesis names between claims that can in fact hold together (for example "built in 1932" and "opened in 1934", which describe different events): kind `false_conflict`.
-- **I67 Required checks performed.** A `material` synthesized claim with transformation `merged` or `generalized` needs a `formal_conclusion`. Without one, the receipt should carry INT-SYNTH-006. Neither: kind `finding_missing`.
-- **I68 Synthesis text.** The synthesis `text` should say what its `claims` say. A sentence in `text` that states a figure, quotation or verdict that no synthesized claim carries: kind `synthesis_ledger_fault`, `claimed_severity` `warning`.
+- **I67 Required checks performed.** A `material` synthesized claim with transformation `merged` or `generalized` needs a `formal_conclusion`. Without one, the receipt must say the check was NOT performed: INT-LEDGER-011 saying "NOT performed", INT-SYNTH-012 or INT-SYNTH-006 naming the claim. None of these: kind `finding_missing`.
+- **I68 Synthesis text.** The synthesis `text` should say what its `claims` say. A figure or date in `text` that no synthesized claim states (in any spelling: "1834" where the claims say "1833", "under ten" where they say "under nine"): kind `figure_changed`, `claimed_severity` `error` (the receipt must carry INT-LEDGER-023). A quotation or verdict in `text` that no synthesized claim carries: kind `synthesis_ledger_fault`, `claimed_severity` `warning`.
+- **I69 Meaning is kept.** A `carried` or `paraphrased` synthesized claim with one source must not turn the source's comparison the other way ("children under nine" becomes "children over nine"; "before 1847" becomes "after 1847") or negate what the source states ("banned" becomes "did not ban"). With no INT-LEDGER-027 finding: kind `synthesis_ledger_fault`. A negation that rewords a ban without changing it ("banned employing children" becomes "children could not be employed") is not this fault.
 
 ## 10. Translations (every outcome of a `response`, `response_text` or `relay_report`)
 

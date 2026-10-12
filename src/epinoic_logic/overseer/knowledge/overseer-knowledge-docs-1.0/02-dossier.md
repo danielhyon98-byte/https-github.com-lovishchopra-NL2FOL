@@ -40,6 +40,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code.
   "dossier_sha256": "<64 hex characters>",          copy into the verdict
   "verdict_contract": "overseer_verdict/1.0",        copy into the verdict as "contract"
   "agent_id": "<your agent id>",                      copy into the verdict
+  "issue_binding": "<32 hex characters>",             do not copy: it only makes dossier_sha256 yours
   "pack": {"name": "...", "version": "...", "sha256": "..."},   copy into the verdict
   "mode": "blind" | "informed",
   "lens": "custody_results" | "content_fidelity" | "translation_fidelity" | "peer_synthesis" | "general",   copy into the verdict
@@ -68,6 +69,7 @@ Rules marked **(enforced)** are checked by the infrastructure's code.
 | `dossier_sha256` | `dossier_sha256` |
 | `lens` | `lens` |
 
+  `issue_binding` is not copied. It is part of what `dossier_sha256` covers, so the digest you copy is yours alone.
 - **D3 The plan.** `task.plan` is the router's plan: the task and subject, `selected_agent_ids` (the agents it chose), `allowed_document_ids` (the documents in scope; empty means unrestricted), `agent_subjects` (each agent's subject) and `agent_task_types` (each agent's task type).
 
 ## 5. Lenses

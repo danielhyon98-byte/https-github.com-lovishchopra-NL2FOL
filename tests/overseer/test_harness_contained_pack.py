@@ -104,7 +104,21 @@ def test_every_probe_gets_the_outcome_the_protocol_gives_it_and_no_review_change
         assert set(rv["probes"]) == {p[0] for p in RC.PROBES}
         assert all(p["ok"] for p in rv["probes"].values()), rv["probes"]
         assert rv["agent_codes"].get("OVS-AGENT-005", 0) == 3 and rv["agent_codes"].get("OVS-AGENT-002", 0) >= 1 and rv["agent_codes"].get("OVS-AGENT-001", 0) >= 1
-    assert any(rv["probes"]["overseer-confirm-1"]["observed"] == "confirmed" for rv in reviews)
+    # Review round 2 (rewritten, not weakened): the recorded task's only finding the confirming probe could confirm was
+    # the INT-SYNTH-006 divergence on its genuine synthesis (DIV-001), a false alarm the round removed (the receipt states
+    # the unperformed check: DIV-002). The confirming path is now exercised, with the same probe set built from the same
+    # exported pack, on a channel that holds a genuine auditor finding (OVS-FID-001), and it must be confirmed there.
+    from .test_hook_hub import audited_hub
+    from .test_review2_protocol import fid001
+    pack = H.load_exported_pack(_out / "pack" / "overseer-knowledge-docs-1.0")
+    hub = audited_hub()
+    try:
+        task = fid001(hub)
+        rv = RC.review_channel(hub, task.key, pack)
+        assert rv["probes"]["overseer-confirm-1"]["observed"] == "confirmed", rv["probes"]
+        assert all(p["ok"] for p in rv["probes"].values()) and rv["clearances_unchanged"] and rv["verdicts_audit_verifies"], rv["probes"]
+    finally:
+        hub.close()
 
 
 @needs_r5

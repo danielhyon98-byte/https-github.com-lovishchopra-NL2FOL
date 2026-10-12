@@ -31,16 +31,20 @@ figures]))``, where the anchor is the normalised offending claim or quoted phras
 
 ``figures`` are the figures and dates of the anchor's source text (``ledger.figure_spellings``; a figure with a scale
 word keeps it, "6.1 million"), sorted and unique. **Content form** (:func:`content_form`): invisible format characters
-removed (category Cf, such as zero-width spaces and soft hyphens, and the other default-ignorable code points), the
-fidelity normalisation (``checks.normalise``: NFKC, quotes and dashes folded, markdown removed, whitespace collapsed),
-then case folded, confusable Cyrillic and Greek letters folded to the Latin letters they look like, thousands separators
+removed (category Cf, such as zero-width spaces and soft hyphens, and every other default-ignorable code point, assigned
+or not), confusable Cyrillic, Greek and Latin letters folded to the basic Latin letters they look like (before the
+normalisation, whose NFKC would turn some into other letters, and after it), the fidelity normalisation
+(``checks.normalise``: NFKC, quotes and dashes folded, markdown removed, whitespace collapsed), then case folded, thousands separators
 removed, the text read as words and numbers (a decimal point or separator inside a number kept), and the articles "a",
 "an" and "the" dropped. A rewording that changes only case, punctuation, markdown, whitespace, invisible characters,
 look-alike letters or articles leaves the signature unchanged; one that changes a word, a figure or a quotation changes
 it.
 
 **Repeats.** :func:`detect_repeats` walks the answers of one task in order (the views given, each in journal sequence
-order). An answer contributes each signature once. The first answer with a signature is its original; every later answer
+order). An answer contributes each signature once. Rule ``quotation-anchor`` (review round 2): a quoted phrase that an
+error-level source fault named earlier in the task, carried again by a later answer (in a claim, an excerpt or only the
+prose) that a weaker check flags (a warning-level ``-SRC-`` rule, OVS-FID-006 parse loss), is a repeat of that fault
+whatever code catches it now. The first answer with a signature is its original; every later answer
 with the same signature, from any agent (another agent, a duplicated instance, or the same agent resubmitting after a
 rejection), is a repeat: one ``OVS-REP-001`` finding (error) naming both answers, and one count against the repeating
 agent. The code is recorded in the :class:`RepeatReport` and in the consolidated response, never in a task audit: it
@@ -60,7 +64,7 @@ from ..adapters.markdown import find_quotation_spans
 from ..integrity.contracts import IntegrityFinding
 from ..integrity.ledger import figure_spellings
 from ..ir.canonical import canonical_json, sha256_hex
-from .checks import normalise
+from .checks import is_default_ignorable, normalise
 from .codes import is_agent_code, ovs_finding
 from .contracts import OverseerAudit
 from .view import RESPONSE_KINDS, OverseerView, Transfer
@@ -92,29 +96,33 @@ _HEX_ID_RE = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{16,}(?![0-9A-Za-z])|[0-9a-f]{
 
 
 # ============================================================================================ normalisation
-#: Default-ignorable code points beyond category Cf (variation selectors, the combining grapheme joiner, Mongolian
-#: free variation selectors, Hangul fillers): invisible, so never a word change.
-_IGNORABLE = frozenset([0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)])
-#: Confusable letters (Cyrillic and Greek forms that look like Latin ones), mapped to the Latin letter for the content
-#: form only (a skeleton in the spirit of UTS #39, restricted to lower-case letters after case folding).
+#: Confusable letters (Cyrillic, Greek and Latin forms that look like basic Latin ones), mapped to the Latin letter for
+#: the content form only (a skeleton in the spirit of UTS #39, restricted to lower-case letters after case folding). It
+#: is applied BEFORE the NFKC normalisation (which would turn the lunate sigma "ϲ" into "σ") and again after it.
 _CONFUSABLES = str.maketrans({
     "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
-    "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ԛ": "q", "ԝ": "w", "ɡ": "g", "һ": "h", "ӏ": "l",
-    "α": "a", "β": "b", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ϲ": "c", "ϳ": "j",
+    "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ԛ": "q", "ԝ": "w", "ɡ": "g", "һ": "h", "ӏ": "l", "ү": "y", "ԍ": "g", "ɩ": "i",
+    "α": "a", "β": "b", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ϳ": "j",
+    # the sigma forms (lunate, final, medial; NFKC turns the lunate sigma into the final one) are read as the letter they
+    # are, s: "ϲecret" is "secret" with its s in another script
+    "ϲ": "s", "ς": "s", "σ": "s",
+    "ı": "i", "ɑ": "a", "ʀ": "r", "ɪ": "i", "ʏ": "y", "ɴ": "n", "ʙ": "b", "ʜ": "h", "ʟ": "l", "ᴀ": "a", "ᴄ": "c", "ᴅ": "d", "ᴇ": "e",
+    "ᴋ": "k", "ᴍ": "m", "ᴏ": "o", "ᴘ": "p", "ᴛ": "t", "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "ᴢ": "z",
 })
 
 
 def _visible(text: str) -> str:
     """``text`` without invisible format characters (category Cf: zero-width spaces and joiners, soft hyphens, bidi
-    controls) and other default-ignorable code points."""
+    controls) and every other default-ignorable code point, assigned or not (U+2065, U+FFF0-FFF8, U+E0000-E0FFF)."""
     import unicodedata
-    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf" and ord(ch) not in _IGNORABLE)
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf" and not is_default_ignorable(ch))
 
 
 def content_form(text: Any) -> str:
-    """The content form of ``text`` (module docstring): invisible characters removed, normalised, case folded,
-    confusable letters folded to Latin, words and numbers only, no articles."""
-    t = normalise(_visible(text if isinstance(text, str) else "")).casefold().translate(_CONFUSABLES)
+    """The content form of ``text`` (module docstring): invisible characters removed, confusable letters folded to Latin
+    (before and after the normalisation), normalised, case folded, words and numbers only, no articles."""
+    pre = _visible(text if isinstance(text, str) else "").casefold().translate(_CONFUSABLES)
+    t = _visible(normalise(pre)).casefold().translate(_CONFUSABLES)
     t = _THOUSANDS_RE.sub("", t)
     return " ".join(tok for tok in _TOKEN_RE.findall(t) if tok not in _ARTICLES)
 
@@ -320,6 +328,40 @@ def fault_occurrences(view: OverseerView, t: Transfer, audit: Optional[OverseerA
     return found
 
 
+#: Audit findings that signal a quotation of an answer could not be placed (any severity): a weaker check catching a
+#: quoted phrase that an error-level source fault named earlier in the task (rule ``quotation-anchor``).
+_WEAK_SOURCE_AUDIT_CODES = frozenset({"OVS-FID-002", "OVS-FID-004", "OVS-FID-006", "OVS-FID-007", "OVS-TRN-004"})
+
+
+def _source_signal(t: Transfer, audit: Optional[OverseerAudit]) -> bool:
+    """Whether a check flagged a quotation of this answer as unplaced, at any severity: a receipt source finding (the
+    INT quotation codes, a branch ``-SRC-`` rule or its INT-SUBJ-003), a ``-SRC-`` structural finding, or an audit
+    finding of :data:`_WEAK_SOURCE_AUDIT_CODES` naming its message."""
+    rc = t.receipt
+    if rc is not None:
+        if any(f.code in QUOTATION_CODES or "-SRC-" in _branch_code(f) for f in rc.findings):
+            return True
+        if any("-SRC-" in sf.code for sf in rc.structural_findings):
+            return True
+    if audit is not None and t.message_id:
+        return any(f.code in _WEAK_SOURCE_AUDIT_CODES and t.message_id in f.message_ids for f in audit.report.findings)
+    return False
+
+
+def _answer_phrases(t: Transfer) -> set[str]:
+    """Every quoted phrase of an answer in content form: its claims' quotations and source excerpts, and every quotation
+    span of its ``original_response`` (a phrase kept only in the prose is the answer's too)."""
+    report = t.report
+    out: set[str] = set()
+    if report is None:
+        return out
+    for c in report.claims:
+        out.update(quotations_of(c))
+    out.update(content_form(inner) for _s, _e, inner in find_quotation_spans(report.original_response or ""))
+    out.discard("")
+    return out
+
+
 # ============================================================================================ repeats
 def detect_repeats(views: Sequence[OverseerView], audits: Optional[Mapping[str, OverseerAudit]] = None, *, keyring: Any = None) -> RepeatReport:
     """The repeat report of one task. ``views`` are the task's channels in the order they were used (a reopened task's
@@ -351,13 +393,33 @@ def detect_repeats(views: Sequence[OverseerView], audits: Optional[Mapping[str, 
     findings: list[IntegrityFinding] = []
     counts: dict[str, int] = {}
     answers = 0
+    quote_faults: dict[str, FaultOccurrence] = {}  # quoted phrase -> the first error-level quotation fault naming it
     for v in vs:
         audit = audits.get(v.channel_uid)
         for t in v.transfers:
             if t.kind not in ANSWER_KINDS or not t.message_id:
                 continue
             answers += 1
-            for o in fault_occurrences(v, t, audit):
+            occs = fault_occurrences(v, t, audit)
+            # rule quotation-anchor: an answer whose quotation a weaker check flags (a warning-level source rule, a parse-loss
+            # warning) and which carries a quoted phrase an error-level source fault named earlier in the task repeats that
+            # fault, whatever code catches it now (design 19.1: a fault that comes back, reworded or not)
+            if quote_faults and _source_signal(t, audit):
+                own = {o.signature for o in occs}
+                for ph in sorted(_answer_phrases(t)):
+                    f0 = quote_faults.get(ph)
+                    if f0 is None or f0.message_id == t.message_id or f0.signature in own:
+                        continue
+                    own.add(f0.signature)
+                    agent = t.sender_agent_id or (t.payload or {}).get("agent_id")
+                    occs.append(FaultOccurrence(signature=f0.signature, code=f0.code, anchor_kind="quotation", anchor=f0.anchor, figures=list(f0.figures),
+                                                channel_uid=v.channel_uid, seq=t.seq, message_id=t.message_id, receipt_id=t.receipt_id,
+                                                agent_id=agent if isinstance(agent, str) else None, report_id=t.report_id, claim_ids=[], source="receipt"))
+            for o in occs:
+                if o.anchor_kind == "quotation" and o.signature not in first:
+                    for ph in o.anchor.split(" | "):
+                        quote_faults.setdefault(ph, o)
+            for o in occs:
                 occurrences.append(o)
                 f0 = first.get(o.signature)
                 if f0 is None:

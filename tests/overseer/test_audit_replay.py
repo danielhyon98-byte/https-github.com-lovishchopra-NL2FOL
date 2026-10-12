@@ -44,11 +44,16 @@ def test_classification_of_replays():
     assert classify(_replay(replay_status="COUNTEREXAMPLE")) == "OVS-RES-007"
     assert classify(_replay(problem_digest_ok=False)) == "OVS-RES-007"
     assert classify(_replay(config_digest_ok=False)) == "OVS-RES-007"
-    assert classify(_replay(replay_status="TIMEOUT")) == "OVS-RES-008"
+    # review round 2 (rewritten more strictly): a DEFINITIVE signed status the replay cannot reproduce (undecided, versions
+    # changed, budget exceeded) is OVS-AUDIT-005 (error, cannot pass), no longer the RES-008 warning; RES-008 stays for an
+    # original that was itself undecided
+    assert classify(_replay(replay_status="TIMEOUT")) == "OVS-AUDIT-005"
     assert classify(_replay(original_status="UNKNOWN", replay_status="ENTAILED")) == "OVS-RES-008"
-    assert classify(_replay(versions_changed=True, replay_status="COUNTEREXAMPLE")) == "OVS-RES-008"
+    assert classify(_replay(versions_changed=True, replay_status="COUNTEREXAMPLE")) == "OVS-AUDIT-005"
     assert classify(_replay(versions_changed=True)) is None
-    assert classify(_replay(replay_status=None, replay_result_id=None, budget_exceeded=True)) == "OVS-RES-008"
+    assert classify(_replay(replay_status=None, replay_result_id=None, budget_exceeded=True)) == "OVS-AUDIT-005"
+    assert classify(_replay(original_status="TIMEOUT", replay_status=None, replay_result_id=None, budget_exceeded=True)) == "OVS-RES-008"
+    assert classify(_replay(original_status="TIMEOUT", replay_status="TIMEOUT")) is None
 
 
 def test_replay_problem_reproduces_status_and_binding():

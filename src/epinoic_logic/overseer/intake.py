@@ -8,7 +8,10 @@ pack, lens, mode)``. A later issue for the same agent and task replaces the earl
 **Submit.** :meth:`VerdictIntake.submit` takes the agent's reply text exactly as the model returned it and:
 
 1. requires an open issue for ``(agent_id, task_id)`` (``not_issued``) that has not been answered (``duplicate``: an
-   issue takes one submission, whatever its outcome, so a rejected verdict is never silently retried);
+   issue takes one submission, whatever its outcome, so a rejected verdict is never silently retried); a well-formed
+   object that does not carry the issued dossier's digest is ``dossier_mismatch`` and does NOT use up the issue (review
+   round 2: each dossier the intake issues carries a keyed ``issue_binding``, so no other agent can derive its digest,
+   and a party that can call ``submit`` cannot pre-empt the issued agent's verdict under that agent's id);
 2. parses the text strictly as ONE JSON object (``parse_json_object(strict=True)``: the bare object, or exactly one code
    fence opening and closing the whole reply; prose around a fence, a second fence, duplicate keys, NaN/Infinity,
    trailing prose and non-objects refused): ``unparseable``. The "no dossier" object of When unsure U1 is
@@ -244,7 +247,12 @@ class VerdictIntake:
             for c in shown:
                 if not verify_consolidated(c, self._keyring) or c.channel_uid != view.channel_uid:
                     raise IntakeRefused("consolidation", "a consolidated response does not verify under the consolidation key or belongs to another channel; it is not shown")
-        dossier = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else ())
+        plain = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else ())
+        # the binding is keyed: only this intake can compute it, so no agent can derive another agent's dossier digest from
+        # its own dossier (they differ only in the header); deterministic, so a re-issue gives the same dossier
+        binding = self._keyring.mac("intake", "issue-binding|" + canonical_json([agent_id, lens, mode, pack.model_dump(mode="json"), plain["dossier_sha256"]]))[:32]
+        dossier = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else (),
+                                issue_binding=binding)
         record = IssueRecord(issue_id=uuid.uuid4().hex, agent_id=agent_id, task_id=dossier["task"]["task_id"], request_id=dossier["task"]["request_id"],
                              channel_uid=view.channel_uid, dossier_sha256=dossier["dossier_sha256"], pack=pack, lens=lens, mode=mode,
                              task_audit_id=audit.audit_id if audit is not None else None, issued_at=_now())
@@ -299,6 +307,10 @@ class VerdictIntake:
                 return self._reject(reason="not_issued", detail="no dossier was issued to this agent for this task", **common)
             if issue.issue_id in self._answered:
                 return self._reject(reason="duplicate", detail="this dossier was already answered; an issue takes one submission", **common)
+            if not self._bound(text, issue):
+                # a reply that does not name this issue's dossier digest proves nothing about who sent it: it is refused and
+                # does NOT use up the issue, so whoever can call submit cannot pre-empt the issued agent's genuine verdict
+                return self._reject(reason="dossier_mismatch", detail="the reply does not carry the digest of the dossier issued to this agent", **common)
             self._answered.add(issue.issue_id)
             if not is_text:
                 return self._reject(reason="unparseable", detail="the reply is not text", **common)
@@ -346,6 +358,21 @@ class VerdictIntake:
                                 raw_chars=raw_chars, provider_info=info, received_at=_now())
             self._outcomes.append(out)
             return out
+
+    def _bound(self, text: Any, issue: IssueRecord) -> bool:
+        """Whether a reply can be from the holder of the issued dossier: it is text that carries the dossier's digest
+        (which only the holder can know, the dossier carrying the intake's keyed ``issue_binding``), or it is a reply the
+        strict parse refuses or the "no dossier" object (the agent's own malformed answer, which uses up the issue as
+        before). A well-formed object naming another digest is not bound."""
+        if not isinstance(text, str):
+            return True
+        if issue.dossier_sha256 in text:
+            return True
+        try:
+            obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
+        except ProviderOutputError:
+            return True
+        return is_no_dossier(obj)
 
     # ------------------------------------------------------------------ reading
     def accepted(self, message_id: str) -> Optional[AcceptedVerdict]:

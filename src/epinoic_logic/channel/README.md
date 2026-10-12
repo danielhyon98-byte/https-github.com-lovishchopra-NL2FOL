@@ -23,9 +23,10 @@ specialist ──respond()──► SpecialistReport in an envelope replying to 
             lone UTF-16 surrogate (half an emoji) is refused with INT-REQ-009 naming its offsets, never parsed or raised
 agent ──relay()──► another agent (report or synthesis): envelope, sender = payload owner (INT-ENV-008), sender and
             recipient selected by the plan (INT-HANDOFF-002; the router and the Overseer are infrastructure parties),
-            ledger, figure/date fidelity, quotations of the synthesis located (INT-LEDGER-025), direction and polarity
-            (INT-LEDGER-026), undisclosed contradictions (INT-CONFLICT-002), entailment checks, and every material
-            paraphrase left unchecked stated (INT-SYNTH-012)
+            ledger, figure/date fidelity (claims and the student-facing text), quotations of the synthesis located
+            (INT-LEDGER-025), direction and polarity (INT-LEDGER-026; an inverted comparison or an added negation against
+            one source, INT-LEDGER-027), undisclosed contradictions (INT-CONFLICT-002), entailment checks, and every material
+            paraphrase, merge or generalization left unchecked stated (INT-SYNTH-012)
 router ──relay()──► peer specialist: a DELIVERED report forwarded unchanged (`specialist_report_forward/1.0`);
             the channel checks the forward against the delivery (INT-HANDOFF-013: never delivered / altered in transit)
 ```

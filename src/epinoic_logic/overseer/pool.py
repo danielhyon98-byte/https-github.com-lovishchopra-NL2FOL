@@ -40,7 +40,7 @@ import re
 import threading
 from typing import Any, Callable, Literal, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ..ir.canonical import canonical_json, sha256_hex
 from .pack import KnowledgePack
@@ -101,8 +101,10 @@ class PoolPlan(BaseModel):
 
     @model_validator(mode="after")
     def _bounded(self) -> "PoolPlan":
-        if len(self.instances) > self.config.max_instances:
-            raise ValueError("a pool plan never grows past its maximum")
+        if len(self.instances) > self.config.max_instances or len(self.instances) > HARD_MAX_INSTANCES:
+            raise ValueError("a pool plan never grows past its maximum (nor past HARD_MAX_INSTANCES, whatever its config says)")
+        if not (MIN_REPEAT_REVIEWERS <= self.config.max_instances <= HARD_MAX_INSTANCES) or self.config.per_instance_quota < 1:
+            raise ValueError("the plan's configuration is outside the pool's bounds")
         if len(set(self.instances)) != len(self.instances):
             raise ValueError("instance ids are unique")
         known = set(self.instances)
@@ -124,10 +126,22 @@ def _plan_digest(data: dict) -> str:
     return sha256_hex(canonical_json(data))[:32]
 
 
+def _revalidated(config: PoolConfig) -> PoolConfig:
+    """The configuration re-validated against :class:`PoolConfig`: a config built around validation (``model_copy(update=...)``
+    is not validated by pydantic) can never plan past :data:`HARD_MAX_INSTANCES` or with a quota below one."""
+    try:
+        return PoolConfig.model_validate(config.model_dump())
+    except ValidationError as exc:
+        raise ValueError(f"the pool configuration is outside its bounds ({exc.error_count()} error(s): max_instances {MIN_REPEAT_REVIEWERS} to "
+                         f"{HARD_MAX_INSTANCES}, per_instance_quota at least 1)") from None
+
+
 def plan_pool(items: Sequence[PoolItem], config: PoolConfig, pack: PackIdentity) -> PoolPlan:
-    """The deterministic plan for a batch (module docstring). ``ValueError`` on a duplicated key."""
+    """The deterministic plan for a batch (module docstring). ``ValueError`` on a duplicated key or a configuration outside
+    the pool's bounds (re-validated here, so a config copied around validation is refused)."""
     if not isinstance(config, PoolConfig):
         raise TypeError("config must be a PoolConfig")
+    config = _revalidated(config)
     if not isinstance(pack, PackIdentity):
         raise TypeError("pack must be a PackIdentity")
     its = [it if isinstance(it, PoolItem) else PoolItem.model_validate(it) for it in items]
@@ -193,6 +207,7 @@ class OverseerPool:
         self.config = config if config is not None else PoolConfig()
         if not isinstance(self.config, PoolConfig):
             raise TypeError("config must be a PoolConfig")
+        self.config = _revalidated(self.config)
         self._plans: list[PoolPlan] = []
         self._runners: dict[str, OverseerAgentRunner] = {}
         self._lock = threading.Lock()

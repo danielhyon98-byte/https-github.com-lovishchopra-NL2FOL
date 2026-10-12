@@ -1561,13 +1561,29 @@ def t18(suite: Suite, target: str) -> list[Fault]:
     out: list[Fault] = []
 
     def merged(aud):
-        run = suite.run(target, aud, synthesis=merged_synthesis())
-        f = Fault("T18", target, "finding_missing", "INT-SYNTH-006 fires in the Overseer's report and on no receipt", expected_codes=["OVS-DIV-001"],
-                  expected_text={"OVS-DIV-001": "INT-SYNTH-006"}, injected=ids(message_ids=[run.mids["syn"]], claim_ids=["s1"]))
+        # the channel states nothing about the unperformed synthesis-entailment check (a channel fault): the integrity
+        # package's INT-SYNTH-006 fires on no receipt and the router was never told, so it is DIV-001 (review round 2)
+        silent = [(TranslatorChannel, "_state_synthesis_checks", staticmethod(lambda findings, checked: list(findings))),
+                  (TranslatorChannel, "_unchecked_paraphrases", staticmethod(lambda *a, **k: []))]
+        with H.patched(*silent):
+            run = suite.run(target, aud, synthesis=merged_synthesis())
+        f = Fault("T18", target, "finding_missing", "INT-SYNTH-006 fires in the Overseer's report and on no receipt, and the receipt states no unperformed check",
+                  expected_codes=["OVS-DIV-001"], expected_text={"OVS-DIV-001": "INT-SYNTH-006"}, injected=ids(message_ids=[run.mids["syn"]], claim_ids=["s1"]))
         audit = run.audit()
         d = [x for x in audit.divergences if x.int_code == "INT-SYNTH-006"]
         f.check("classified rule_ownership, owner integrity", bool(d) and d[0].classification == "rule_ownership" and d[0].owner == "integrity")
         return [suite.finish(f, run, audit=audit, transfer=run.mids["syn"])]
+
+    def disclosed(aud):
+        run = suite.run(target, aud, synthesis=merged_synthesis())
+        f = Fault("T18.disclosed", target, "rule_divergence", "the receipt states the merged claim's entailment check NOT performed: the divergence is reported "
+                  "as DIV-002 (a warning) and fails nothing", expected_codes=["OVS-DIV-002"], expected_text={"OVS-DIV-002": "INT-SYNTH-006"},
+                  injected=ids(message_ids=[run.mids["syn"]]))
+        audit = run.audit()
+        f.check("the receipt states the check NOT performed", any(x.code in ("INT-LEDGER-011", "INT-SYNTH-012") and "NOT performed" in x.message
+                                                                 for x in run.receipts["syn"].findings))
+        f.check("no OVS-* error", not ovs_errors(audit, allow=()))
+        return [suite.finish(f, run, audit=audit)]
 
     def clock(aud):
         run = suite.run(target, aud, synthesis=default_synthesis(created_at="2020-01-01T00:00:00Z"))
@@ -1579,6 +1595,7 @@ def t18(suite: Suite, target: str) -> list[Fault]:
         f.check("no OVS-* error", not ovs_errors(audit, allow=()))
         return [suite.finish(f, run, audit=audit)]
     out += _with(suite, target, merged)
+    out += _with(suite, target, disclosed)
     out += _with(suite, target, clock)
     return out
 

@@ -29,6 +29,11 @@ Excluded from the diff:
   combinator case only);
 * INT-INTERNAL-001 is not a rule: it becomes AUDIT-001.
 
+INT-SYNTH-006 for a synthesized claim whose synthesis receipt itself states the entailment check as NOT performed
+(INT-LEDGER-011 with the channel's statement, or INT-SYNTH-012) is reported as DIV-002, a warning (review round 2): the
+router was told, and the integrity package's stricter grading of the same fact is a rule-ownership difference, not a
+miscommunication; an undisclosed one stays DIV-001.
+
 Each remaining ``(code, claim set)`` no receipt of the task carries is classified: ``time_dependent`` (timestamps from
 a harness clock: INT-HANDOFF-005/016/017; owner the harness), ``rule_ownership`` (the rule lives in the integrity
 package only: INT-SYNTH-004/005/006, INT-HANDOFF-007/008/009 report-set rules, INT-STALE-*, INT-HANDOFF-004 for a
@@ -132,6 +137,7 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
         if t.receipt is not None:
             carried.update((f.code, frozenset(f.claim_ids)) for f in t.receipt.findings)
     performed = _performed_entailments(ctx, syn_t)
+    disclosed = _disclosed_unperformed(syn_t)
     synthesized_ids = {c.claim_id for c in synthesis.claims} | {synthesis.synthesis_id} if synthesis is not None else set()
     delivered_reports = {r.report_id for r in reports}
     out: list[Divergence] = []
@@ -155,6 +161,11 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
         out.append(d)
         syn_mids = [syn_t.message_id] if syn_t is not None and syn_t.message_id else []
         code = "OVS-DIV-001" if f.severity == "error" else "OVS-DIV-002"
+        told = ""
+        if f.code == "INT-SYNTH-006" and f.claim_ids and f.claim_ids[0] in disclosed:
+            # rule ownership, disclosed: the synthesis receipt itself states this claim's entailment check was NOT performed,
+            # so the router was told; the integrity package's stricter grading is reported, not a transfer failure
+            code, told = "OVS-DIV-002", " (the synthesis receipt states the check as NOT performed, so the router was told: reported, not a failure)"
         if synthesis is not None and _synthesis_scope(f, synthesis, synthesized_ids):
             # the synthesis receipt should have carried it: name only the synthesis transfer
             mids, rids, aids = syn_mids, [synthesis.synthesis_id], [synthesis.combinator_agent_id]
@@ -168,7 +179,7 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
             rids = list(f.report_ids) + rids
             aids = list(f.agent_ids) + aids
         ctx.ovs(syn_t.seq if syn_t is not None else last.seq, code,
-                f"{f.code} ({f.severity}) fires in the Overseer's integrity report but on no receipt of the task; classification {classification}, owner {owner}: {f.message[:400]}",
+                f"{f.code} ({f.severity}) fires in the Overseer's integrity report but on no receipt of the task; classification {classification}, owner {owner}{told}: {f.message[:400]}",
                 claim_ids=f.claim_ids, message_ids=mids, report_ids=rids, agent_ids=aids, document_ids=f.document_ids,
                 formal_result_id=f.formal_result_id, related_result_ids=f.related_result_ids)
     return out
@@ -181,6 +192,21 @@ SYNTHESIS_SCOPE_CODES = frozenset({"INT-HANDOFF-007", "INT-HANDOFF-016", "INT-HA
 def _synthesis_scope(f: IntegrityFinding, synthesis, synthesized_ids: set[str]) -> bool:
     return (f.code.startswith("INT-SYNTH") or f.code in SYNTHESIS_SCOPE_CODES or synthesis.synthesis_id in f.report_ids
             or bool(set(f.claim_ids) & synthesized_ids))
+
+
+def _disclosed_unperformed(syn_t) -> set[str]:
+    """The synthesized claims whose synthesis receipt states the entailment check was NOT performed: an INT-LEDGER-011
+    naming the claim with the channel's "NOT performed" statement, or an INT-SYNTH-012 naming it, citing no result."""
+    if syn_t is None or syn_t.receipt is None:
+        return set()
+    out: set[str] = set()
+    for f in syn_t.receipt.findings:
+        if not f.claim_ids:
+            continue
+        # a genuine "NOT performed" statement cites no result: one that cites a result claims a check and states none
+        if not f.formal_result_id and (f.code == "INT-SYNTH-012" or (f.code == "INT-LEDGER-011" and "NOT performed" in f.message)):
+            out.add(f.claim_ids[0])
+    return out
 
 
 def _performed_entailments(ctx: CheckContext, syn_t) -> set[str]:

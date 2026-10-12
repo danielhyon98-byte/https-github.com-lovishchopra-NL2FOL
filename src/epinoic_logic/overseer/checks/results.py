@@ -53,13 +53,17 @@ from ..faithful import faithful
 from ..view import Transfer, cited_results
 from . import CheckContext
 
-__all__ = ["store_captured", "check_results", "binding_problems", "replayable_problem", "check_replayable"]
+__all__ = ["store_captured", "check_results", "binding_problems", "replayable_problem", "check_replayable", "check_unreplayed", "engine_run_problems",
+           "journaled_capture", "replay_source", "replay_config"]
 
 
 
 def store_captured(ctx: CheckContext, t: Transfer) -> None:
     """Put every result this event captured into the store (signature verified at put); a second content under a held
-    id is RES-006."""
+    id is RES-006. Every captured result under a LOCAL key must also be a run of this channel's engine as journaled:
+    its solver configuration the channel's (``engine_run_problems``) and its component versions the running engine's,
+    else RES-004 (an insider re-signing a status with a tiny budget or other versions would otherwise make the replay
+    inconclusive instead of refuting it)."""
     plan = ctx.view.plan_at(t.seq)
     for c in t.event.captured:
         out = ctx.store.put(c, channel_uid=ctx.view.channel_uid, task_id=ctx.view.task_id, request_id=getattr(plan, "request_id", ctx.view.request_id),
@@ -67,8 +71,109 @@ def store_captured(ctx: CheckContext, t: Transfer) -> None:
         if out.conflict is not None:
             ctx.ovs(t.seq, "OVS-RES-006", f"result id {c.result_id} is held with two different contents ({out.conflict[0][:12]} and {out.conflict[1][:12]})",
                     formal_result_id=c.result_id, **t.ids())
+        _check_engine_run(ctx, t, c.result_id, c.result_json, c.key_id, "captured in this event")
     if t.event.captured_overflow:
         ctx.ovs(t.seq, "OVS-AUDIT-002", f"the capture of event {t.seq} overflowed: {t.event.captured_overflow} engine runs were not captured", **t.ids())
+
+
+def _allowed_configs(view, seq: int) -> Optional[list]:
+    """The solver configurations the channel's engine runs under at ``seq`` (the journaled config, and the same with
+    ``produce_unsat_core`` forced on, as the integrity package's cross-report, synthesis and paraphrase checks run it);
+    None when the journal records no config (nothing to compare)."""
+    info = view.info_at(seq) if view is not None else {}
+    if not info.get("config"):
+        return None
+    cfg = view.config_at(seq)
+    return [cfg, cfg.model_copy(update={"produce_unsat_core": True})]
+
+
+def engine_run_problems(view, res: VerificationResult, seq: int) -> list[str]:
+    """Why ``res`` is not a run of the channel's engine at ``seq`` (empty when it is): a solver configuration other than
+    the channel's journaled one, or component versions other than the running engine's. Decided for results under a
+    local key only (the caller's rule); an external engine runs under its own configuration and versions."""
+    from ...engine.provenance import compute_versions
+    why: list[str] = []
+    allowed = _allowed_configs(view, seq)
+    if allowed is not None and res.solver_config not in allowed:
+        cfg = allowed[0]
+        diff = sorted(k for k, v in res.solver_config.model_dump().items() if v != cfg.model_dump().get(k) and k != "produce_unsat_core")
+        why.append(f"solver configuration {diff or ['produce_unsat_core']} differs from the channel's journaled configuration")
+    if res.versions != compute_versions():
+        diff = sorted(k for k, v in res.versions.model_dump().items() if v != compute_versions().model_dump().get(k))
+        why.append(f"component versions {diff} differ from the running engine's")
+    return why
+
+
+def _check_engine_run(ctx: CheckContext, t: Transfer, rid: str, result_json: Optional[str], key_id: Optional[str], where: str) -> None:
+    if not result_json or ctx.keyring.key_status(key_id) != "local":
+        return
+    try:
+        res = faithful(VerificationResult, json.loads(result_json))
+    except Exception:
+        return
+    if ctx.keyring.key_status(res.signature_key_id) != "local":
+        return
+    why = engine_run_problems(ctx.view, res, t.seq)
+    if why:
+        ctx.ovs(t.seq, "OVS-RES-004", f"result {rid} ({where}, local key {res.signature_key_id!r}) is not a run of this channel's engine: {'; '.join(why)}; "
+                "a replay under it could not refute its status", formal_result_id=rid, **t.ids())
+
+
+def journaled_capture(view, rid: str):
+    """The journaled capture of ``rid`` (the event's own copy of the result and its problem), or None. The journal keeps it
+    when the store has evicted the result, so a replay never depends on the store's bound."""
+    if view is None:
+        return None
+    for t in view.transfers:
+        c = t.captured.get(rid)
+        if c is not None and c.result_json:
+            return t.seq, c
+    return None
+
+
+def replay_source(view, store, rid: str) -> Optional[tuple[str, Optional[str], int, str]]:
+    """(result JSON, problem JSON or None, event seq, origin) a replay of ``rid`` is built from: the live store record, else
+    the journaled capture, else a journaled receipt's outcome copy (a result of a declared external engine). None when no
+    content is held anywhere."""
+    rec = store.live(rid) if store is not None else None
+    if rec is not None and rec.origin in ("captured", "external") and rec.channel_uid == getattr(view, "channel_uid", rec.channel_uid):
+        res = store.parsed(rid)
+        return rec.result_json, replayable_problem(view, rid, rec, res), rec.event_seq, rec.origin
+    if rec is not None:
+        return None
+    jc = journaled_capture(view, rid)
+    if jc is not None:
+        seq, c = jc
+        try:
+            res = faithful(VerificationResult, json.loads(c.result_json))
+        except Exception:
+            return None
+        return c.result_json, c.problem_json or replayable_problem(view, rid, None, res), seq, "captured"
+    tomb = store.get(rid) if store is not None else None
+    if tomb is not None and getattr(tomb, "origin", None) == "external" and view is not None:
+        for t in view.transfers:
+            if t.receipt is None:
+                continue
+            for o in t.receipt.outcomes:
+                p = o.translation.problem
+                if o.verification is not None and o.verification.result_id == rid and p is not None:
+                    js = canonical_json(o.verification.model_dump(mode="json", exclude_none=True))
+                    if sha256_hex(js) == tomb.result_sha256:
+                        return js, canonical_json(p), tomb.event_seq, "external"
+    return None
+
+
+def replay_config(view, res: VerificationResult, seq: int, origin: str):
+    """The solver configuration a replay runs under: for a local engine run, the channel's journaled configuration (the
+    result's own only when it is one the channel runs under), never a configuration the result itself names; for an
+    external engine, the result's own (its budget cannot make a definitive status pass: an undecided replay of a
+    definitive status is OVS-AUDIT-005)."""
+    if origin != "captured":
+        return res.solver_config
+    allowed = _allowed_configs(view, seq)
+    if allowed is None or res.solver_config in allowed:
+        return res.solver_config
+    return allowed[0]
 
 
 def replayable_problem(view, rid: str, rec, res: Optional[VerificationResult]) -> Optional[str]:
@@ -92,22 +197,44 @@ def replayable_problem(view, rid: str, rec, res: Optional[VerificationResult]) -
 
 def check_replayable(ctx: CheckContext, t: Transfer) -> None:
     """AUDIT-005: a definitive engine result this transfer's receipt cites that cannot be replayed (captured without its
-    problem, and no journaled outcome carries the problem it is bound to). Replay is what exposes a status re-signed
-    with the engine key, so such a result is never passed."""
+    problem, and no journaled outcome carries the problem it is bound to; or evicted from the store with no journaled
+    copy to replay). Replay is what exposes a status re-signed with the engine key, so such a result is never passed.
+    An evicted result whose event still holds its capture is replayed from the journal (``replay_source``)."""
     rc = t.receipt
     if rc is None:
         return
     for rid in dict.fromkeys(r for r, _k, _p in cited_results(rc)):
-        rec = ctx.store.live(rid)
+        rec = ctx.store.get(rid)
         if rec is None or rec.origin not in ("captured", "external") or rec.channel_uid != ctx.view.channel_uid:
             continue
-        res = ctx.store.parsed(rid)
-        if res is None or not is_definitive(res.status):
+        status = rec.status if isinstance(rec, ResultTombstone) else None
+        res = ctx.store.parsed(rid) if isinstance(rec, StoredResult) else None
+        if res is not None:
+            status = res.status.value
+        if status is None or not is_definitive(status):
             continue
-        if replayable_problem(ctx.view, rid, rec, res) is None:
-            ctx.ovs(t.seq, "OVS-AUDIT-005", f"result {rid} ({res.status.value}) cited by {t.kind} {t.message_id} was captured without its problem and no journaled "
-                    "outcome carries the problem it is bound to: it cannot be replayed, so a re-signed status could not be exposed; the transfer cannot pass",
-                    formal_result_id=rid, **t.ids())
+        src = replay_source(ctx.view, ctx.store, rid)
+        if src is None or not src[1]:
+            why = ("was evicted from the store and no journaled capture or receipt copy holds it" if src is None and isinstance(rec, ResultTombstone)
+                   else "was captured without its problem and no journaled outcome carries the problem it is bound to")
+            ctx.ovs(t.seq, "OVS-AUDIT-005", f"result {rid} ({status}) cited by {t.kind} {t.message_id} {why}: it cannot be replayed, so a re-signed status "
+                    "could not be exposed; the transfer cannot pass", formal_result_id=rid, **t.ids())
+
+
+def check_unreplayed(ctx: CheckContext, t: Transfer, replays: dict) -> None:
+    """AUDIT-005 (batch, after the replay tier ran): a definitive result this transfer cites that the store evicted and
+    that no completed replay covers. Its status was never re-verified, so the transfer cannot pass."""
+    rc = t.receipt
+    if rc is None:
+        return
+    for rid in dict.fromkeys(r for r, _k, _p in cited_results(rc)):
+        rec = ctx.store.get(rid)
+        if not isinstance(rec, ResultTombstone) or rec.origin not in ("captured", "external") or rec.channel_uid != ctx.view.channel_uid:
+            continue
+        if not is_definitive(rec.status) or rid in replays:
+            continue
+        ctx.ovs(t.seq, "OVS-AUDIT-005", f"result {rid} ({rec.status}) cited by {t.kind} {t.message_id} was evicted from the store and no completed replay covers it: "
+                "its signed status was never re-verified; the transfer cannot pass", formal_result_id=rid, **t.ids())
 
 
 def binding_problems(result: VerificationResult, problem: Problem, key: Optional[bytes] = None) -> list[str]:
@@ -325,6 +452,9 @@ def _check_outcome(ctx: CheckContext, t: Transfer, i: int, o, channel_key_id: Op
             ctx.ovs(t.seq, "OVS-RES-006", f"the receipt's copy of result {rid} at {path}.verification is not byte-identical to the result the engine produced", claim_ids=claim_ids, formal_result_id=rid, **ids)
         elif isinstance(rec, ResultTombstone) and rec.result_sha256 != copy_sha and not sig_bad:
             ctx.ovs(t.seq, "OVS-RES-006", f"the receipt's copy of result {rid} at {path}.verification differs from the (evicted) result the engine produced", claim_ids=claim_ids, formal_result_id=rid, **ids)
+        if isinstance(rec, ResultTombstone):
+            ctx.ovs(t.seq, "OVS-RES-002", f"result {rid} at {path}.verification was evicted from the store: it is decided on the receipt's copy and replayed from the "
+                    "journaled capture; with no journaled copy and no completed replay it cannot pass (OVS-AUDIT-005)", claim_ids=claim_ids, formal_result_id=rid, **ids)
         if not captured_here:
             _outcome_membership(ctx, t, o, rec, path)
     if ok and ctx.keyring.key_status(ver.signature_key_id) == "external":
