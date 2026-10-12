@@ -78,6 +78,33 @@ and an altered citation of a colleague reaches the router as an error finding (I
 | `request_parser.py` | Deterministic extraction of questions/instructions and of word, paragraph and citation constraints. A word is a run of letters, digits, apostrophes and hyphens, and a figure with internal separators ("1.9", "100,000", "63.2%") is ONE word (`count_words`). Conservative: nothing asked is dropped. A sentence that mixes a constraint with a content instruction ("Write no more than 200 words and give a judgement on which effect mattered most") yields the instruction as an item with the constraint span removed; a sentence that is only a constraint yields none. `count_answer_words` measures a word bound over the answer proper, leaving out the note blocks and note clauses `count_paragraphs` leaves out, and the receipt says how many words were meta-text. A sentence is a note only when nothing is left once its note clauses are set aside (`markdown.split_note_clauses`), the rule the parsers role by: a dated sentence with an inline "(from memory)" is answer, its label meta-text. Re-exports `VERDICT_CUES`. |
 | `cues.py` | `VERDICT_CUES`: the lower-cased phrases that state a position on degree ("on balance", "mattered most", "matters most", "weighed by", "by the criteria", "by the criterion", "outweigh" and its inflections, "to a large extent", "therefore", ...). The channel's verdict test for INT-REQ-008 is built from it (`verdict_cue_regex()`), and the subject parsers import it (`from epinoic_logic.channel.cues import VERDICT_CUES`; the module has no imports, so no cycle) so the hub and a parser never disagree about what a judgement looks like. |
 | `bus.py` | `TranslatorChannel.request / respond / relay`. Numeric constraints are encoded as IR entailments and decided by the engine, so a word-limit check is a signed, bound result rather than an ad-hoc count. A response is REJECTED (not delivered) for identity or integrity violations; findings about content (unverified quotation, failed constraint, contradiction with another agent) are delivered with the report so the router can act. The receipt summary gives the report's own formal checks as counts (naming only the checks that did not hold) and is cut to the contract limit, never raised. One excerpt, one severity: when the hub has located an excerpt's words and reported a form difference (INT-REQ-010), every branch pack error ending in `-SRC-001` for that claim is kept off the receipt, so no pack calls the same excerpt invented. |
+| `events.py` | `ChannelEvent` (one immutable record per entry-point call: canonical JSON strings, digests and tuples only), `snapshot_event`, `observe_call`, `ObservationState`. Built inside the call from the channel's public state, before anything is returned; imports nothing from `bus.py` and nothing from the overseer package. |
+
+## Observers (optional)
+
+`TranslatorChannel(observers=[...])` and `add_observer(fn)` attach callables that receive one immutable `ChannelEvent`
+per call of the four entry points (`request`, `respond_text`, `respond`, `relay`). A private decorator wraps the four
+entry points; the method bodies are not edited.
+
+- **No observer**: the method is called straight through (one attribute check). No result capture is opened, nothing is
+  recorded, and the channel behaves exactly as it did without the hook (tested: identical receipts, returned messages
+  and channel state).
+- **With observers**: the outermost call runs inside a result capture (`engine/sink.py`), so every engine run the call
+  makes (claim outcomes, constraint bounds, branch formal checks, cross-report and synthesis runs) is in its event; the
+  event is built before the call returns; each observer runs inside `try/except`. An observer that raises never breaks
+  a transfer: its failure is recorded in `observer_errors` (event sequence number, observer name, exception type; at
+  most 64) and never reaches the caller. A method that raised emits a `raised` event and its exception is re-raised
+  unchanged.
+- **One router call, one event**: `respond_text` calling `respond`, or a channel call an observer makes during its own
+  notification, runs straight through and emits no event of its own. (A transfer issued that way is in the log but not
+  in an auditor's journal, and the audit reports it, `OVS-CUST-003`.)
+- **Immutable**: every event field is a string, a number, a boolean or a tuple of frozen records, shared by every
+  observer; an observer cannot change delivery, the returned objects or what another observer sees. (Deliberately
+  bypassing the frozen dataclass after an auditor journaled the event breaks the journal's hash chain, `OVS-CUST-005`.)
+- `channel_uid` names the channel instance (uuid4 hex, set at construction); several channels may share a task id.
+
+The channel never imports the overseer package. The Overseer's transfer auditor is one such observer, attached by
+`RouterHub(auditor=...)` (see `branches/README.md` and `overseer/README.md`).
 
 ## Codes raised by the channel
 

@@ -31,13 +31,40 @@ carries (or can be given) a formal conclusion, for entailment by its formalized 
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
 surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router.
+
+Observers (optional; ``docs/OVERSEER_DESIGN.md`` section 5.3). ``TranslatorChannel(observers=...)`` and
+``add_observer`` attach callables that receive one immutable ``ChannelEvent`` per call of the four entry points
+(``request``, ``respond_text``, ``respond``, ``relay``), built inside the call before anything is returned (see
+``channel/events.py``). A private decorator wraps the four entry points and changes nothing else:
+
+* with NO observer it calls the method straight through (one attribute check): the channel behaves exactly as it did
+  without the hook, and opens no result capture;
+* with observers, the outermost call runs through ``events.observe_call``: the method body, unchanged, runs inside a
+  result capture; the event is built from the channel's public state; each observer is called inside ``try/except``,
+  and a failure is recorded in the bounded ``observer_errors`` (sequence number, observer name, exception type) and
+  never reaches the caller; a method that raised emits a ``raised`` event and its exception is re-raised unchanged;
+* a call made while an observed call is in progress (``respond_text`` calling ``respond``; a call an observer makes
+  during notification) runs straight through and emits no event of its own, so one router call is one event.
+
+An observer cannot change delivery or the returned objects: the event is immutable and the returned tuple is the
+method's own. ``channel_uid`` names the channel instance (uuid4 hex, set at construction): several channels may share
+a task id. The channel never imports the overseer package.
+
+Deviations from ``docs/OVERSEER_DESIGN.md`` section 5.3 (stage ``hook``): the decorator delegates the observed call to
+``events.observe_call``, the very function the audit stage's manual observation helper drives, so the hook and the
+helper cannot drift apart (the per-instance ``ObservationState`` holds ``channel_uid``, the event counter, the depth and
+the failures); ``add_observer`` and the read-only ``observers`` are added so a hub can attach an observer that needs the
+channel object; ``observer_errors`` is a property returning a copy of the bounded record; a call made while an observed
+call is in progress, including one an observer makes during notification, is not observed (it is reported by the audit,
+CUST-003); only ``Exception`` raised by an observer is caught (an interrupt still stops the process).
 """
 from __future__ import annotations
 
+import functools
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Sequence, Union
 
 from pydantic import BaseModel, ValidationError
 
@@ -55,9 +82,12 @@ from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, Special
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
+from .events import ChannelEvent, ObservationState, observe_call
 from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items
 
 VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
+#: A channel observer: called once per entry-point call with the call's immutable event; its return value is ignored.
+ChannelObserver = Callable[[ChannelEvent], None]
 #: Given a synthesized claim and the formalized problems of its cited sources, propose the
 #: formal conclusion to test (an Assertion over the sources' shared glossary), or None.
 FormalizeSynthesisFn = Callable[[SynthesizedClaim, list[Problem]], Optional[Assertion]]
@@ -198,15 +228,45 @@ def _located(excerpt: str, text: str, document_id: Optional[str] = None) -> bool
                                       or locate_long_elision(excerpt, text, document_id=document_id) is not None)
 
 
+def _observed(method):
+    """The observer hook of one entry point (private). With no observer: a straight call. With observers: the
+    outermost call goes through ``observe_call`` (capture, event, guarded notification); a nested call (an entry point
+    called while an observed call is in progress) is a straight call, so one router call emits one event. The method
+    body is never edited and its return value is returned as it is."""
+    name = method.__name__
+
+    @functools.wraps(method)
+    def entry(self, *args, **kwargs):
+        observers = getattr(self, "_observers", None)
+        if not observers:
+            return method(self, *args, **kwargs)
+        state = self._observation
+        if state.depth:
+            return method(self, *args, **kwargs)
+        return observe_call(self, name, args, kwargs, observers, state=state)
+
+    return entry
+
+
+def _check_observer(observer) -> ChannelObserver:
+    if not callable(observer):
+        raise TypeError(f"a channel observer must be callable, not {type(observer).__name__}")
+    return observer
+
+
 class TranslatorChannel:
     """One channel per router task. Keeps the message log, the requests, and every
     formalized claim transmitted so far (for cross-agent consistency)."""
 
     def __init__(self, plan: WorkPlan, *, signing_key: bytes, key_id: str = "channel",
                  verify_claim_fn: Optional[VerifyClaimFn] = None, config: SolverConfig = SolverConfig(), registry=None,
-                 formalize_synthesis_fn: Optional[FormalizeSynthesisFn] = None) -> None:
+                 formalize_synthesis_fn: Optional[FormalizeSynthesisFn] = None, observers: Sequence[ChannelObserver] = ()) -> None:
         if not signing_key:
             raise ValueError("a signing key is required")
+        # Observation (optional, never part of the channel's checks): the observers, and the per-instance state that owns
+        # the channel uid, the event counter, the call depth and the bounded observer failures.
+        self._observers: tuple[ChannelObserver, ...] = tuple(_check_observer(o) for o in observers)
+        self._observation = ObservationState()
         if registry is None:
             from ..branches import default_registry
             registry = default_registry()
@@ -245,7 +305,29 @@ class TranslatorChannel:
     def _task_type_for(self, agent_id: Optional[str]) -> str:
         return self.plan.agent_task_types.get(agent_id or "", self.plan.task_type)
 
+    # --------------------------------------------------------------- observation
+    @property
+    def channel_uid(self) -> str:
+        """This channel instance's id (uuid4 hex, set at construction): the key of its events and of any journal."""
+        return self._observation.channel_uid
+
+    @property
+    def observers(self) -> tuple[ChannelObserver, ...]:
+        return self._observers
+
+    def add_observer(self, observer: ChannelObserver) -> None:
+        """Attach one more observer; it receives the events of the calls made from now on (an observer added during a
+        notification does not receive the event being delivered)."""
+        self._observers = self._observers + (_check_observer(observer),)
+
+    @property
+    def observer_errors(self) -> list[tuple[int, str, str]]:
+        """A copy of the recorded observer failures ``(event seq, observer name, exception type)``, at most
+        ``events.OBSERVER_ERRORS_MAX``. A failure never reached the caller."""
+        return list(self._observation.observer_errors)
+
     # ------------------------------------------------------------------ requests
+    @_observed
     def request(self, from_agent_id: str, to_agent_id: str, user_input: str, supplied_texts: list[SuppliedText] = (),
                 *, items=None, constraints=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
         bad_input = surrogate_offsets(user_input)
@@ -280,6 +362,7 @@ class TranslatorChannel:
         return (msg if status is not TransmissionStatus.REJECTED else None), req, receipt
 
     # ----------------------------------------------------------------- responses
+    @_observed
     def respond_text(self, request_message_id: str, text: str, *, agent_id: str, report_id: str, supplied_texts: Optional[list[SuppliedText]] = None,
                      agent_version: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         """Parse a specialist's raw text with the branch's adapter, then run ``respond``.
@@ -428,6 +511,7 @@ class TranslatorChannel:
             out.append(f)
         return out
 
+    @_observed
     def respond(self, request_message_id: str, report: SpecialistReport, *, sender_agent_id: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         """Check a specialist's report against the request it answers and deliver it with a receipt.
 
@@ -506,6 +590,7 @@ class TranslatorChannel:
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
 
     # --------------------------------------------------------------- agent relay
+    @_observed
     def relay(self, from_agent_id: str, from_role: AgentRole, to_agent_id: str, to_role: AgentRole,
               payload_obj: Union[SpecialistReport, Synthesis], in_reply_to: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         findings: list[IntegrityFinding] = []

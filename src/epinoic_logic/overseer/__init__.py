@@ -15,7 +15,25 @@ scope statement and the audit scope sentence: results prove properties of the en
 
 Main entry points: :class:`TransferAuditor` (live use), :func:`run_overseer_checks` (the pure function over a view),
 :class:`KeyRing`, :class:`ChannelJournal`, :class:`ResultStore`, :class:`OverseerView`, :func:`sign_audit` and
-:func:`verify_audit`. The design is ``docs/OVERSEER_DESIGN.md``.
+:func:`verify_audit`. The design is ``docs/OVERSEER_DESIGN.md``; the package's parts are listed in ``README.md`` beside
+this file.
+
+Overseer agents are built only from exportable parts: this package's code and a versioned knowledge pack shipped as
+package data (``knowledge/overseer-knowledge-docs-<version>/``). The names exported below are:
+
+* the verdict protocol: :func:`build_dossier`, :class:`VerdictIntake`, :func:`validate_overseer_verdict`,
+  :func:`combine_verdicts` and their contracts (:class:`AgentVerdict`, :class:`PackIdentity`, :data:`KIND_CHECKS`, ...);
+* the knowledge pack: :func:`load_pack`, :func:`installed_pack`, :class:`KnowledgePack`, :data:`PACK_DIGESTS`,
+  :class:`PackError`, the agent runner :class:`OverseerAgentRunner` and :class:`AgentRun`; the exporter
+  (``python -m epinoic_logic.overseer.export``) is reached as :func:`export_pack` and :func:`verify_export`, imported on
+  first use so that running the exporter as a module never finds it imported already;
+* the observer hook and live operation: the router policy (:func:`may_act`, :func:`may_release`,
+  :func:`check_before_acting`, :data:`MAX_PENDING_WAIT_MS`). The hook itself lives in the channel
+  (``TranslatorChannel(observers=...)``) and the hub (``RouterHub(observers=..., auditor=...)``), which never import
+  this package unless an auditor is attached.
+
+A verdict is advisory and decides nothing: only a deterministic check's ``OVS-*`` finding reaches the router, and
+``OVS-AGENT-*`` findings never change a clearance.
 """
 from __future__ import annotations
 
@@ -33,3 +51,38 @@ from .keys import AUDIT_KEY_ID, INTAKE_KEY_ID, RUN_KEY_ID, EngineKey, KeyRing  #
 from .replay import Replayer, ReplayJob, ReplayOutcome  # noqa: F401
 from .store import PutOutcome, ResultStore  # noqa: F401
 from .view import OverseerView, Transfer  # noqa: F401
+
+# ---------------------------------------------------------------------------------------- verdict protocol
+from .verdicts import (  # noqa: F401,E402
+    ACCUSATION_KINDS, DOSSIER_VERSION, KIND_CHECKS, LENSES, MODES, NO_DOSSIER_MARKER, VERDICT_CONTRACT, Accusation, AccusationKind, AgentVerdict,
+    EngineStatement, EvidenceItem, PackIdentity, is_no_dossier,
+)
+from .dossier import Dossier, build_dossier, dossier_digest, resolve_pointer, verify_dossier_digest  # noqa: F401,E402
+from .intake import INTAKE_REASONS, AcceptedVerdict, IntakeOutcome, IntakeRefused, IssueRecord, VerdictIntake  # noqa: F401,E402
+from .validate import (  # noqa: F401,E402
+    OUTCOME_CODES, AccusationAssessment, EngineStatementAssessment, FindingRef, VerdictAssessment, build_verdicts_audit, validate_overseer_verdict,
+)
+from .combine import AccusationGroup, CombinedAssessment, combine_verdicts, combined_audit, combined_digest  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------------------- knowledge pack and agent runner
+from .pack import (  # noqa: F401,E402
+    PACK_DIGESTS, PACK_ERROR_REASONS, PACK_NAME, PACK_VERSION, KnowledgePack, PackError, accepted_identities, installed_pack, load_pack,
+)
+from .runner import RUN_STATUSES, AgentRun, OverseerAgentRunner, render_dossier_block  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------------------- hook: router policy
+from .policy import (  # noqa: F401,E402
+    ACTABLE_STATES, MAX_PENDING_WAIT_MS, PolicyDecision, act_decision, bounded_wait_ms, check_before_acting, may_act, may_release, receipt_digest,
+    release_decision,
+)
+
+_EXPORTER_NAMES = frozenset({"export_pack", "verify_export", "ExportError", "ExportResult"})
+
+
+def __getattr__(name: str):
+    """The exporter's names, imported on first use (``python -m epinoic_logic.overseer.export`` must not find the module
+    imported by the package before it runs)."""
+    if name in _EXPORTER_NAMES:
+        from . import export
+        return getattr(export, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

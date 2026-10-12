@@ -183,6 +183,27 @@ message id is compared by `envelope_digest` (header and payload hash), so a chan
 is INT-ENV-002, not a replay. `bind_payload(msg, model)` compares the header with the
 parsed contract inside.
 
+**Contract senders (`ROLE_CONTRACTS`, `envelope.py`).** A `MessageLog` with `enforce_roles` (the default) accepts a
+contract only from the roles listed; any other sender is INT-ENV-007. A contract not listed is unrestricted, so every
+contract the infrastructure issues is listed.
+
+| Contract | Sender roles | Notes |
+| --- | --- | --- |
+| `work_plan` | router | |
+| `task_request` | router | |
+| `specialist_report` | specialist | |
+| `specialist_report_forward` | router | a delivered report handed on unchanged (INT-HANDOFF-013) |
+| `verification_result` | verifier | |
+| `synthesis` | combinator | |
+| `integrity_report` | overseer, verifier | the infrastructure's own report format; an overseer agent's output is never this contract |
+| `retrieval_result` | retrieval | |
+| `overseer_audit` | overseer | the transfer auditor's signed audit (`overseer/audit.py`): agent id `overseer-auditor`, envelope signed with `sign_message` under the audit subkey |
+| `overseer_verdict` | overseer | an overseer agent's verdict, wrapped and signed by the verdict intake (`overseer/intake.py`) under the intake subkey; the agent never builds its own envelope |
+
+The role alone grants no trust to the two Overseer contracts: trust comes from the key that signed them (audit key
+versus intake key), the contract and the schema. A verdict is an agent output: it is validated against the journal and
+the signed results and never obeyed (`overseer/README.md`).
+
 **Plan per agent.** `WorkPlan.agent_subjects` and `WorkPlan.agent_task_types` name a selected agent's own
 subject and task type when they differ from the plan's; both must name selected agents, and a plan without
 them keeps the digest it always had (`plan_digest` omits empty mappings).

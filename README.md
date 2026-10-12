@@ -73,6 +73,35 @@ Integrity properties the channel holds on every transmission and relay:
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision) is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
 
+## The Overseer: checks of every transfer between agents (`src/epinoic_logic/overseer/`)
+
+Every request, report, relay, router forward and synthesis crosses the channel; the Overseer checks those transfers so
+the router never acts on a miscommunicated or tampered one. It is optional and attached through the hub:
+`RouterHub(auditor=TransferAuditor(...))`. Without it the hub and the channel behave exactly as before.
+
+- **The transfer auditor** (deterministic code) journals every transfer as it is issued (a hash-chained, HMAC'd journal
+  per channel), keeps every signed engine result the transfer produced, and checks that the transfer the router is about
+  to act on is the one issued, that every receipt is the exact image of what was checked, that every result a receipt
+  cites is a signed engine run of the problem it names inside this task (re-run on a fresh engine), that delivered
+  claims, quotations and figures are what the specialist actually wrote, that forwards and peer documents are the
+  delivered text, and that a synthesis accounts for the delivered reports and names every contradiction. What it finds
+  is a signed audit of `OVS-*` findings with identifiers.
+- **Before acting** the router calls `hub.clearance(task, message_id, receipt=...)` with the receipt it holds and acts
+  only when `overseer.policy.may_act(receipt, clearance)`: an edited receipt, a forged or misattached result or an
+  altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL
+  audit; `policy.may_release` gates the student-facing synthesis on it.
+- **Overseer agents** are model-based reviewers built only from exportable parts: the package's code and a versioned
+  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.0/`: `master_prompt.txt` and
+  numbered documents, generated schemas, a manifest of digests). `python -m epinoic_logic.overseer.export --out DIR`
+  writes the pack out with a README for whoever deploys it with any model. `hub.review(task, runners)` issues each agent
+  a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory
+  and decides nothing: only an accusation a deterministic check confirms reaches the router, through that check's own
+  finding, and no agent ever changes a clearance. No live model provider is claimed; the tests use fake providers.
+
+Results prove properties of the encoding only; an audit shows whether the recorded transfers, receipts and signed
+results agree with each other and with the repository's rules, never that a claim is true. See
+`src/epinoic_logic/overseer/README.md` and `docs/OVERSEER_DESIGN.md`.
+
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 
 | Feature | What it does | Where |
@@ -122,6 +151,7 @@ only six are definitive and none means "the claim is true".
 - `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
 - `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
+- `src/epinoic_logic/overseer/` — the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; multi-subject fixtures)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `tests/` — unit, end-to-end, service and `stress/` suites

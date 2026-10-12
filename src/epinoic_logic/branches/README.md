@@ -24,7 +24,7 @@ router ──► RouterHub ──► TranslatorChannel: envelope · hand-off · 
 | `packs.py` | `CorePack` (every branch: quotation grounding, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic), `BusinessPack` (margins), `GenericPack`. |
 | `registry.py` | The default registry and how subjects map to branches. |
 | `generic_parser.py` | Fallback sentence-level parser for subjects without a dedicated adapter. |
-| `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. |
+| `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. Optional: `observers=` and `auditor=` (the Overseer's transfer auditor: `clearance`, `audit`, `view`, `review`, `close_task`, `closed_channels`; see below). |
 
 Two shared helpers live beside the History adapter and are read by the packs and the
 parser alike, so the parser's claims, the pack's sentence numbers and the engine's checks
@@ -312,3 +312,27 @@ Adding a subject: write a pack (deterministic checks citing the pack's working r
 plus any formal check templates), optionally an adapter, and register a branch. The
 hub integrity never has to be touched. Receipts carry `branch`, `structural_findings`
 and `formal_checks` so the router and Overseer can see which branch judged what.
+
+## The hub and the Overseer (optional)
+
+`RouterHub(observers=..., auditor=...)` attaches channel observers (`channel/README.md`, "Observers") to every channel
+the hub opens. A hub built without them opens unobserved channels that behave exactly as before, and its Overseer
+methods raise `AuditorNotAttached` (nothing is shown as passed without an auditor).
+
+With `auditor=TransferAuditor(...)` (`overseer/README.md`) the auditor is attached FIRST to every channel, so its
+journal is written before any other observer runs. The hub refuses an auditor that does not hold the hub's engine key
+under the hub's key id (it could verify none of the hub's results). Then:
+
+| Method | What it does |
+| --- | --- |
+| `clearance(task_key, message_id, receipt=None, wait_ms=0)` | The router's check immediately before acting on a transfer: custody of the message and of the transfers it depends on is re-checked against the journal, and the receipt the router presents (or the channel's own) is compared with the journaled receipt, field by field (a flipped status on the router's copy is `OVS-RCPT-001`). `wait_ms` is clamped to 250 ms. Act only when `overseer.policy.may_act(receipt, clearance)`; `policy.check_before_acting(hub, task_key, receipt)` does both, waits once on PENDING and holds a transfer still pending for the batch audit. |
+| `audit(task_key, final=False, shadow=None)` | The signed task audit (`OverseerAudit`, scope `task`) of the channel. |
+| `view(task_key)` | The authoritative view of the channel, parsed from its journal. |
+| `close_task(task_key, audit=True)` | The channel leaves `channels` (under every key it was registered by) for `closed_channels`; its FINAL task audit is issued and returned, and its journal is sealed. A transfer made later on the kept channel object is reported (`OVS-CUST-003`). `policy.may_release` gates the synthesis on that FINAL audit. |
+| `review(task_key, runners, mode="informed")` | Overseer agents review the task. Each runner is an `OverseerAgentRunner` built from a loaded knowledge pack. The hub takes a reference task audit (with the shadow channel run), issues each runner a dossier under its own pack (every dossier before any agent runs), runs each once, and passes every reply through the verdict intake, validation and combination. It returns a `HubReview` whose `audit` is the signed `verdicts`-scope audit, with the runs, assessments, combination and refusals. Agents never gate clearance: the verdicts audit copies the auditor's latest task audit's states, and a review changes no clearance unless the auditor itself finds a live object altered meanwhile. |
+| `close()` / `with RouterHub(...)` | No new task or transfer afterwards; the auditor's replay worker (process mode) stops when the last hub using that auditor closes. Journals and audits stay readable. |
+
+`task_key` is a key of `channels`, the `channel_uid` of a channel in `closed_channels`, or a channel this hub opened.
+`open_task` never loses a channel: a channel it would replace (a task id opened again) moves to `closed_channels`
+(keyed by `channel_uid`, at most 1024, oldest dropped first) where its journal continues, verifies and can still be
+audited. It is not sealed, so a router that puts it back under its key by hand (the arena harness does) keeps using it.
