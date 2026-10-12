@@ -83,7 +83,7 @@ def _sentences_with_paragraph_cached(text: str) -> tuple[tuple[int, int, str, st
     return tuple(out)
 
 
-def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+def _chronology_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = None) -> list[FormalCheck]:
     """Every dated relation a sentence asserts becomes an entailment problem. An ordering
     ('after', 'before', 'followed', 'preceded', with or without 'by', and a duration 'ran from D1
     to D2'): the event the sentence places later must have the later day ordinal
@@ -98,7 +98,8 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
     sentence does not state, so the proxy and the engine never disagree. A relation the extractor
     could not pair (an aside date, an unstated year, two events in the same month with no days) is
     not a problem here; ``CorePack`` reports it as ``CORE-CHR-001``. Each check names the claims
-    whose text holds the sentence."""
+    whose text holds the sentence. With ``limit``, only the first ``limit`` units are built (the rest are named by the core pack's
+    check-limit finding), so an oversized answer costs no work beyond the limit."""
     from ..ir.schema import Problem
     out: list[FormalCheck] = []
     n = 0
@@ -110,7 +111,8 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
     def eq(name: str, value: int, label: str, pid: str) -> dict:
         return {"id": pid, "expr": {"op": "eq", "left": var(name), "right": {"op": "int", "value": str(value)}}, "label": label[:1000], "grounding": grounding}
 
-    for sent, para, group in _chronology_units(report.original_response):
+    units = _chronology_units(report.original_response)
+    for sent, para, group in (units if limit is None else units[: max(0, limit)]):
         rel = group[0]
         ordinal_note = "as a day ordinal ((year*12+month)*32+day)"
         if len(group) > 1:
@@ -207,12 +209,15 @@ def _chronology_units(text: str) -> list[tuple[str, str, list]]:
     return units
 
 
-def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
+def _quant_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = None) -> list[FormalCheck]:
     """The report's own arithmetic as engine problems. A relation stated across sentences (a
     derived figure, 'rose in each year', 'the greatest rise' whose figures stand in another
-    sentence of the paragraph) says in its description where its year and figures were read."""
+    sentence of the paragraph) says in its description where its year and figures were read.
+    With ``limit``, only the first ``limit`` checks are built (their claims named), the rest being
+    the core pack's check-limit finding."""
     out: list[FormalCheck] = []
-    for qc in extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}"):
+    checks = extract_quant_checks(report.original_response, request_id=report.request_id, claim_id=f"{report.report_id}:{prefix}")
+    for qc in (checks if limit is None else checks[: max(0, limit)]):
         description = f"report's own arithmetic: {_excerpt_around(qc.sentence, qc.phrase)}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
         out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem,
                                claim_ids=tuple(_claims_for_statement(report, qc.sentence, qc.phrase))))
@@ -232,13 +237,29 @@ def _excerpt_around(statement: str, phrase: str, width: int = 160) -> str:
     return ("..." if start else "") + statement[start: start + width] + ("..." if start + width < len(statement) else "")
 
 
+#: report identity -> (the report, its claims' texts with whitespace collapsed): every formal check and undecided finding of one transmission
+#: names its claims from the same texts, so they are normalised once per report, not once per check (bounded: the last few reports).
+_NORMALISED_TEXTS: dict[int, tuple[SpecialistReport, list[tuple[str, str]]]] = {}
+
+
+def _normalised_claim_texts(report: SpecialistReport) -> list[tuple[str, str]]:
+    hit = _NORMALISED_TEXTS.get(id(report))
+    if hit is not None and hit[0] is report and len(hit[1]) == len(report.claims):
+        return hit[1]
+    texts = [(c.claim_id, " ".join(c.claim_text.split())) for c in report.claims]
+    if len(_NORMALISED_TEXTS) >= 8:
+        _NORMALISED_TEXTS.pop(next(iter(_NORMALISED_TEXTS)))
+    _NORMALISED_TEXTS[id(report)] = (report, texts)
+    return texts
+
+
 def _claims_for_statement(report: SpecialistReport, statement: str, phrase: str = "") -> list[str]:
     """The delivered claims a formal check about ``statement`` names: the claims whose text holds the statement; else, when the
     statement spans several claims (a long block the parser cut where the check did not), the claims inside it that hold the
     phrase the check reads; else every claim holding the phrase."""
     stmt = " ".join(statement.split())
     key = " ".join(phrase.split())
-    texts = [(c.claim_id, " ".join(c.claim_text.split())) for c in report.claims]
+    texts = _normalised_claim_texts(report)
     holding = [cid for cid, t in texts if stmt and stmt in t]
     if holding:
         return holding[:8]
@@ -760,8 +781,10 @@ class CorePack:
         :data:`MAX_FORMAL_CHECKS` per transmission (the rest are named by CORE-QNT-001 / CORE-CHR-001 in :meth:`checks`)."""
         out: list[FormalCheck] = []
         for build in (_quant_formal, _chronology_formal):
+            if len(out) >= MAX_FORMAL_CHECKS:
+                break  # nothing beyond the limit is built: the check-limit finding names it
             try:
-                out += build(report, "core")
+                out += build(report, "core", MAX_FORMAL_CHECKS - len(out))
             except Exception:  # noqa: BLE001 - checks() names the failing extractor (CORE-INTERNAL-001)
                 continue
         return out[:MAX_FORMAL_CHECKS]

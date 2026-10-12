@@ -108,8 +108,10 @@ Role rules (body paragraphs)
   so that admiration and laughter remain held together", "..., so the argument moves from
   persuasion to urgency") or a restatement of the point's terms; notes, a closing caveat on
   the reading's grounds ("The reading stays plausible: ... comes from context, not the poem.")
-  and a colleague's view are skipped and the argued sentence before them is considered; after a
-  signposted link only the quotation-free claim over the evidence is a second link;
+  and a colleague's view are skipped and the argued sentence before them is considered (a
+  conclusion drawn from what the poem leaves unsaid, "The sonnet never names an origin, so its
+  welcome ...", is not a caveat); after a signposted link only the quotation-free claim over the
+  evidence is a second link;
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
   irony, imagery, syntax, semantic field, pronoun, verb, adjective, adverb, noun,
   declarative, parallel structure, employs) -> ``device``;
@@ -635,22 +637,25 @@ def _draws_conclusion(sentence: Sentence, point: Optional[Sentence]) -> bool:
 
 #: A closing remark on the reading's grounds rather than its conclusion: "The reading stays plausible: the sonnet never
 #: mentions exclusion, and the History specialist's statistic ... comes from context, not the poem.", "..., so this reading
-#: rests on context". Read outside quotations.
+#: rests on context", "..., so the link cannot be proved". Read outside quotations. What the poem leaves unsaid is not a
+#: caveat by itself: "The sonnet never names an origin, so its universal welcome can be read as an ideal ..." draws the
+#: conclusion from that silence, and "..., not the poem's" is a possessive, not a source.
 _SOURCE_CAVEAT_RE = re.compile(
     r"\b(?:reading|interpretation|link|connection|inference|argument|parallel|claim)\s+(?:stays|remains|is|seems|is\s+still|stays\s+only|remains\s+only)\s+"
     r"(?:only\s+|still\s+|merely\s+|no\s+more\s+than\s+)?(?:plausible|tentative|speculative|conjectural|provisional|an?\s+inference|a\s+hypothesis|possible|contextual)\b"
+    r"|\b(?:reading|interpretation|link|connection|inference|parallel)\s+(?:cannot|can\s*not|can't)\s+be\s+(?:proved|proven|confirmed|established|settled)\b"
     r"|\b(?:rests?|depends?|relies?|draws?)\s+(?:only\s+|entirely\s+|partly\s+|wholly\s+|largely\s+)?(?:up)?on\s+(?:the\s+)?(?:historical\s+)?"
     r"(?:context|background|history|(?:[a-z]+\s+)?(?:specialist|colleague|peer)|(?:outside|external)\s+\w+)\b"
     r"|\bcomes?\s+from\s+(?:the\s+)?(?:historical\s+)?context\b|\bfrom\s+(?:outside|beyond)\s+the\s+(?:poem|text|extract|sonnet|passage|novel)\b"
-    r"|,\s*not\s+(?:from\s+)?the\s+(?:poem|text|extract|sonnet|passage|novel)\b"
-    r"|\b(?:poem|sonnet|text|extract|passage|novel|play)\s+(?:itself\s+)?(?:never|nowhere|does\s+not|doesn't)\s+(?:mentions?|names?|refers?\s+to|states?)\b",
+    r"|\bcomes?\s+from\s+[^,.;:!?]{1,60},\s*not\s+(?:from\s+)?the\s+(?:poem|text|extract|sonnet|passage|novel)\b(?!['’])",
     re.IGNORECASE,
 )
 
 
 def _is_source_caveat(sentence: Sentence) -> bool:
-    """True for a closing remark on the reading's grounds (it stays plausible, it rests on context, the poem never mentions
-    it, a figure comes from context, not the poem): a caveat, never the paragraph's conclusion."""
+    """True for a closing remark on the reading's grounds (it stays plausible, it rests on context, it cannot be proved, a
+    figure comes from context or from a colleague, not the poem): a caveat, never the paragraph's conclusion. A conclusion
+    drawn from what the poem leaves unsaid ("The sonnet never names an origin, so its welcome ...") is not one."""
     return _SOURCE_CAVEAT_RE.search(strip_quotations(sentence.text)) is not None
 
 

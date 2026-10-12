@@ -127,15 +127,17 @@ _VERDICT_NOUN = (r"(?:years?|decades?|period|phase|stage|era|moment|month|factor
 _VERDICT_ADJ_NOUN = rf"(?:(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}|{_VERDICT_ADJ_BARE})\s+{_VERDICT_NOUN}"
 _VERDICT_STATEMENT_RE = re.compile(
     r"\b(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\s+(?:was|were|came|is|lay|fell)\b"
-    r"|\b(?:was|were|is|are|marked|became|proved)\s+(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]points?\b"
+    r"|\b(?:was|were|is|are|marked|became|proved|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)\s+(?:the|a)\s+"
+    r"(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]points?\b"
     rf"|\bthe\s+{_VERDICT_ADJ_NOUN}\s+(?:of\s+[^,;.]{{1,60}}?\s+)?(?:was|were|is|are|came)\b"
-    rf"|\b(?:was|were|is|are|proved|remained|became|has\s+been|have\s+been|marked|represented|made)\s+(?:the|its|their)\s+{_VERDICT_ADJ_NOUN}\b"
+    rf"|\b(?:was|were|is|are|proved|remained|became|has\s+been|have\s+been|marked|represented|made|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)"
+    rf"\s+(?:the|its|their)\s+{_VERDICT_ADJ_NOUN}\b"
     rf"|\b(?:was|were|is|are|proved|remained|became)\s+(?:(?:truly|genuinely|clearly|plainly|therefore|thus|itself|then)\s+)?{_VERDICT_ADJ_BARE}\s*(?:[.;!?,]|$)"
     r"|\bthe\s+(?:year|decade|moment|point|hour|period|turn)\s+of\s+decision\s+(?:was|were|came|is|fell)\b"
     r"|\bthe\s+(?:real|true|decisive|key|critical|crucial|main|great|major)\s+(?:break|shift|departure|watershed|rupture)\s+(?:came|was|fell|lay|occurred|happened)\b"
     r"|\b(?:was|were|is|are)\s+the\s+(?:single\s+)?most\s+(?:important|significant|decisive)\b"
     rf"|\b(?:saw|brought|witnessed|marked|produced|delivered)\s+the\s+(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}\s+[a-z]+"
-    r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b|\b(?:was|were|is|are|marked)\s+(?:the|a)\s+watershed\b"
+    r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b|\b(?:was|were|is|are|marked|(?:stands?|stood)\s+out\s+as)\s+(?:the|a)\s+watershed\b"
     r"|\b(?:mattered|matters)\s+most\b",
     re.IGNORECASE)
 #: A sentence that opens by naming the criterion of a verdict ('Measured by what the network could do, ...', 'Judged by the

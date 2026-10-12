@@ -7,8 +7,16 @@ role and proposed kind) → `subjects.resolve_profile` applies the IB subject po
 claims, supplied texts, eligibility, subject profile text) → a `TranslationProvider`
 proposes JSON → `parsing.parse_json_object` (strict) → `Problem.model_validate` and
 the engine validator → `grounding.check_problem_grounding` marks quotation
-groundings verified or not → status TRANSLATED, AMBIGUOUS_TRANSLATION,
-UNSUPPORTED, INVALID_FORMALIZATION, NOT_ELIGIBLE or TRANSLATION_FAILED.
+groundings verified or not → stated figures: a premise that only defines an atom by a
+comparison of a figure no other premise mentions (`b <-> (n = 17)` with `n` free) asserts
+nothing, so when the conclusion fails only on such a figure (the engine's `E110`: the
+COUNTEREXAMPLE turns ENTAILED once the defined atoms are asserted) the output is
+INVALID_FORMALIZATION with that diagnostic, fed back once, ambiguous or not; otherwise the
+unasserted definitions are recorded as a note, and an ambiguity flag that says the figure "is
+encoded" (a literal equality) is named as not matching the IR → status TRANSLATED,
+AMBIGUOUS_TRANSLATION, UNSUPPORTED, INVALID_FORMALIZATION, NOT_ELIGIBLE or TRANSLATION_FAILED.
+`outcome.display_status_for` displays a definitive result carrying `E108` (vacuous) or `E110`
+(unasserted figure) as INVALID_FORMALIZATION, never as a verdict.
 
 `review.py` runs an independent, advisory semantic-fidelity review. `outcome.py`
 composes the Overseer-facing `ClaimVerificationOutcome` (display status derived

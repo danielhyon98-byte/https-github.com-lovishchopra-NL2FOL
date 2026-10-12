@@ -258,11 +258,20 @@ def test_a_difference_between_named_parties_is_read_against_their_figures():
     assert "Germany" in u.reason
 
 
-def test_a_share_of_the_total_with_no_part_figure_is_reported_undecided():
+def test_a_share_of_the_total_is_read_against_the_partys_stated_figure():
+    # Rewritten to a stricter rule: the share used to be reported undecided only. The paragraph states
+    # the party's figure (about $3.2 billion of about $13 billion), so the share is now decided: a wrong
+    # share is a counterexample, a right one is entailed, and a party with no stated figure stays undecided.
     eca = HI_T11.split(". ")[2]
-    text = eca + ", so the United Kingdom alone received about two-thirds of the total."
-    [u] = [u for u in undecided_quant_statements(text) if "two-thirds" in u.phrase]
-    assert "not both stated" in u.reason
+    wrong = eca + ", so the United Kingdom alone received about two-thirds of the total."
+    right = eca + ", so the United Kingdom alone received about a quarter of the total."
+    unknown = eca + ", so Belgium alone received about two-thirds of the total."
+    assert ("share", "COUNTEREXAMPLE") in statuses(wrong)
+    assert not [u for u in undecided_quant_statements(wrong) if "two-thirds" in u.phrase]
+    assert ("share", "ENTAILED") in statuses(right)
+    [u] = [u for u in undecided_quant_statements(unknown) if "two-thirds" in u.phrase]
+    assert "no figure for Belgium" in u.reason
+    assert not [s for s in statuses(unknown) if s[0] == "share"]
 
 
 def test_hi_t12_rate_trend_is_decided():

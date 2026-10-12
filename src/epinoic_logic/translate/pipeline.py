@@ -35,6 +35,7 @@ to the engine. Logs carry identifiers and statuses only, never claim or student 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -73,6 +74,8 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_OUTPUT_KEYS: tuple[str, ...] = ("problem", "interpretation", "ambiguous", "unsupported_reason")
 _MAX_DIAGNOSTIC_CHARS = 500
+#: An ambiguity flag's statement that a figure is encoded as stated ("literal equality to 15 is encoded").
+_ENCODED_CLAIM_RE = re.compile(r"\b(?:literal\s+)?equalit(?:y|ies)\b[^.;]*\b(?:is|are)\s+encoded\b|\bencoded\s+as\s+(?:a\s+)?literal\s+equalit", re.IGNORECASE)
 _MAX_SCHEMA_ERRORS = 12
 
 
@@ -314,18 +317,20 @@ class Translator:
             notes.append(
                 f"{len(failed)} grounding check(s) failed: " + ", ".join(sorted({c.target_id for c in failed}))
             )
-        notes += self._stated_figures(grounded, tag)
+        notes += self._stated_figures(grounded, tag, interpretation)
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")
         return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes)
 
-    def _stated_figures(self, problem: Problem, tag: str) -> list[str]:
+    def _stated_figures(self, problem: Problem, tag: str, interpretation: Optional[Interpretation] = None) -> list[str]:
         """A premise that only defines an atom by a comparison of a figure no other premise mentions asserts nothing.
         When the conclusion fails only on such a figure (the engine's ``E110``: COUNTEREXAMPLE as encoded, ENTAILED once
         the defined atoms are asserted), the output is rejected as INVALID_FORMALIZATION with the diagnostic, which is
         fed back once, so a counterexample that merely sets the stated figure to another value is never a verdict
-        (ambiguous or not). Otherwise each unasserted definition is recorded as a note: the verdict does not rest on it."""
+        (ambiguous or not). Otherwise each unasserted definition is recorded as a note: the verdict does not rest on it.
+        An ambiguity flag that says a figure "is encoded" (a literal equality) while the premise stating it only defines
+        it is named in the note too: the flag does not match the IR."""
         defs = unasserted_figure_definitions(problem)
         if not defs:
             return []
@@ -335,8 +340,13 @@ class Translator:
             if diag is not None:
                 raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {diag.code}: {truncate(diag.message, _MAX_DIAGNOSTIC_CHARS * 3)}" + (f" at {diag.path}" if diag.path else "")], retryable=True)
         named = ", ".join(f"{d.premise_id} ({d.atom} over {', '.join(d.figures)})" for d in defs[:8]) + (f" and {len(defs) - 8} more" if len(defs) > 8 else "")
-        return [truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
-                         "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2)]
+        notes = [truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
+                          "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2)]
+        flags = [f for f in (interpretation.ambiguity_flags if interpretation is not None else ()) if _ENCODED_CLAIM_RE.search(f.message)]
+        if flags:
+            notes.append(truncate(f"ambiguity flag(s) {sorted({f.code for f in flags})} say a stated figure is encoded (a literal equality), but premise(s) "
+                                  f"{', '.join(d.premise_id for d in defs[:8])} only define it: no premise asserts it, so the flag does not match the IR", _MAX_DIAGNOSTIC_CHARS * 2))
+        return notes
 
     def _result(
         self,

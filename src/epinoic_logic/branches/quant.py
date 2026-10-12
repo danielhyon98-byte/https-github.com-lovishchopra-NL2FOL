@@ -122,7 +122,9 @@ _WNUM_TOKEN = "|".join(sorted((*_SMALL_WORDS, *_TENS_WORDS), key=len, reverse=Tr
 #: A number in words below a thousand: 'forty-five', 'two hundred and sixty'. Scale words (thousand, million, ...) are units.
 _WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred))*(?![a-z])"
 #: Digits: thousands groups (with an optional decimal part), a plain decimal, or a decimal comma ('1,9': one or two digits after it).
-_DIGITS = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\d+,\d{1,2}"
+#: A figure never starts inside another ('1234,567' is not '4,567'; '4.03' is not '03'): besides reading what was written, the
+#: guard keeps every pattern linear on a long run of digits, since no match is attempted from each digit of the run.
+_DIGITS = r"(?<!\d)(?<!\d[.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\d+,\d{1,2})"
 #: A currency sign before a figure ('$4.03', '£600 million', 'US$13 billion'): carried with the figure as its unit of account, so a
 #: figure in dollars is compared only with a figure in dollars.
 _CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
@@ -210,7 +212,7 @@ _FOLD_RE = re.compile(
 _FOLD_STEMS = {"doubl": Fraction(2), "trebl": Fraction(3), "tripl": Fraction(3), "quadrupl": Fraction(4), "halv": Fraction(1, 2)}
 #: A multiple: 'six times its earlier length', 'four times as large', 'twice its 1928 level' (a fold change by another wording).
 _TIMES_RE = re.compile(
-    rf"\b(?:(?P<q>{_QUAL})\s+)?(?:(?P<n>\d+(?:\.\d+)?|{_WNUM}|a hundred)\s+times|(?P<twice>twice|thrice))\s+"
+    rf"\b(?:(?P<q>{_QUAL})\s+)?(?:(?P<n>(?<![\d.,])\d+(?:\.\d+)?|{_WNUM}|a hundred)\s+times|(?P<twice>twice|thrice))\s+"
     r"(?=as\b|its\b|their\b|his\b|her\b|the\b|that\b|what\b|over\b|larger\b|greater\b|bigger\b|higher\b|longer\b|more\b)", re.IGNORECASE)
 #: The amount of an absolute change: a figure with an optional scale or count unit and a noun ('roughly 4,500 miles', '2.9 million
 #: tonnes'), never a per-cent, point, fraction, fold or multiple (those are the relative readings above).
@@ -1272,6 +1274,14 @@ def _magnitudes(text: str) -> list[_Fig]:
     return out
 
 
+def _amounts(clause: str, end: int) -> list[_Fig]:
+    """The figures of ``clause[:end]`` that can be a total or a part: :func:`_magnitudes`, less the amount of a derived phrase ('an average
+    of about 900,000 a year', 'an increase of 6,500 miles') and a figure stated as a rate ('500,000 a year'), which are no stock of the thing
+    counted."""
+    spans = [(d.start, d.end) for d in _derived_phrases(clause)]
+    return [f for f in _magnitudes(clause[:end]) if not any(a <= f.start < b for a, b in spans) and not _RATE_PHRASE_RE.search(clause[f.start: f.end])]
+
+
 def _amount_pair(whole: _Fig, part: _Fig) -> Optional[str]:
     """Why ``part`` cannot be read against ``whole`` as amounts of one thing, or None when it can."""
     if not _cur_compatible(whole.cur, whole.noun, part.cur, part.noun):
@@ -1304,6 +1314,88 @@ def _entity_figures(name: str, para: str, exclude: tuple[int, int]) -> list[_Fig
 _ENTITY_GAP_RE = re.compile(r"(?:\s+(?:had\s+|has\s+|was\s+|were\s+)?(?:received|got|took|obtained|gained|given|granted|allotted|had|spent|lost|with|at))?\s+")
 
 
+def _no_pair_reason(clause: str, d: Optional[_Derived]) -> str:
+    """Why a derived figure or relation has no figures of its own to be read against: its sentence states no figures at all, or states
+    figures that are not a pair it binds to (a total, a lone figure), which the reason names."""
+    span = (d.start, d.end) if d is not None else (-1, -1)
+    figs = [f for f in _magnitudes(clause) if not (span[0] <= f.start < span[1])]
+    if not figs:
+        return "no figures are stated with it in its sentence"
+    return f"its sentence states no pair of figures it can be read against (only {', '.join(_shown(f, f.unit) for f in figs[:3])})"
+
+
+_RATE_PHRASE_RE = re.compile(r"\b(?:a|an|per|each|every)\s+(?:year|annum|month|week|day|head|capita)\b|\bannually\b", re.IGNORECASE)
+
+
+def _total_rate_spec(clause: str, d: _Derived, tolerance: Fraction) -> tuple[Optional[_Spec], str]:
+    """'About 5.2 million people entered the United States in the 1880s, an average of about 900,000 a year': a yearly rate stated after the
+    one total its clause dates by a decade (ten years) or a span ('from 1881 to 1890': nine or ten years, either count accepted) is that
+    total over those years (a decade dates the decade's total, never an annual point). ``(None, '')`` when the clause states no such
+    total; ``(None, reason)`` when the rate and the total cannot be compared."""
+    if d.kind != "rate_change" or d.per not in ("year", "annum"):
+        return None, ""
+    head = clause[: d.start]
+    if len(_magnitudes(head)) != 1:
+        return None, ""
+    figs = _amounts(clause, d.start)
+    if len(figs) != 1:
+        return None, ""  # the one figure before it is itself a rate ('500,000 a year in the 1880s') or a derived amount, not a total
+    total = figs[0]
+    decades = list(_DECADE_TOKEN_RE.finditer(head))
+    span = _YEAR_SPAN_RE.search(head)
+    years = {int(y) for y in _YEAR_TOKEN_RE.findall(head)}
+    if len(decades) == 1 and span is None and all(int(decades[0].group("d")) <= y < int(decades[0].group("d")) + 10 for y in years):
+        counts, over = (10,), f"'{decades[0].group(0).strip()}' (ten years)"
+    elif span is not None and not decades and int(span.group(2)) > int(span.group(1)):
+        y1, y2 = int(span.group(1)), int(span.group(2))
+        counts, over = (y2 - y1, y2 - y1 + 1), f"{y1} to {y2} ({y2 - y1} or {y2 - y1 + 1} years, counted either way)"
+    else:
+        return None, ""
+    shown = _shown(total, total.unit)
+    if (d.cur or total.cur or _cur_of_noun(total.noun) or _cur_of_noun(d.noun)) and not _cur_compatible(total.cur, total.noun, d.cur, d.noun):
+        return None, f"the currency of '{d.words}' and of the total it averages ({shown}) differ"
+    if {_unit_kind(d.unit), _unit_kind(total.unit)} - {None, "scale", "count"}:
+        return None, f"the unit of '{d.words}' and of the total it averages ({shown}) cannot be compared"
+    if d.noun and total.noun and not ({w.rstrip("s") for w in d.noun.lower().split()} & {w.rstrip("s") for w in total.noun.lower().split()}):
+        return None, f"'{d.words}' counts {d.noun.split()[-1]} while the total it averages ({shown}) counts {total.noun}"
+    premises = (("TOTAL", {"op": "eq", "left": _v("total"), "right": _real(_frac(total.num, total.unit))}, f"total = {shown}"),)
+    rates = [_within({"op": "div", "left": _v("total"), "right": _real(Fraction(n))}, d.stated, tolerance, Fraction(0), d.side) for n in counts]
+    concl = rates[0] if len(rates) == 1 else {"op": "or", "args": rates}
+    label = f"stated average of {_fmt(d.stated)} a year against the total {shown} over {over}"
+    return _Spec("rate_change", clause.strip(), (("total", "the total as stated"),), premises, ("STATED_RATE", concl, label), Fraction(0), d.side,
+                 "figure stated in the report itself", f"a yearly average of the total its clause dates by {over}", d.words), ""
+
+
+#: The party whose share a phrase states: '..., so the United Kingdom alone received about two-thirds of the total'.
+_SHARE_PARTY_RE = re.compile(r"(?P<who>(?:the\s+)?[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*)*)\s+(?:alone\s+|itself\s+)?(?:had\s+|has\s+)?"
+                             r"(?:received|got|took|obtained|absorbed|accounted\s+for|was\s+given|was\s+granted|was\s+allotted|gained|brought|sent|admitted)\s*$")
+
+
+def _party_share(clause: str, head: str, para: str, phrase_span: tuple[int, int]) -> tuple[str, Optional[_Fig], Optional[_Fig], str]:
+    """For a share stated with no figure right before it: ``(party, part, total, reason)``. The part is the one figure the paragraph states
+    for the party named before the share ('the United Kingdom alone received about two-thirds of the total': 'the United Kingdom received
+    about $3.2 billion'); the total is the figure the clause's parts are stated 'of which', else the one other figure of the clause. The
+    reason says which of them could not be read."""
+    pm = _SHARE_PARTY_RE.search(head)
+    if pm is None:
+        return "", None, None, "the part it is a share of is not stated as a figure right before it, and no party with a stated figure is named before it"
+    who = re.sub(r"^the\s+", "", pm.group("who"))
+    at = para.find(clause)
+    exclude = (at + phrase_span[0], at + phrase_span[1]) if at >= 0 else (0, 0)
+    found = {(_frac(f.num, f.unit), f.cur): f for f in _entity_figures(who, para, exclude)}
+    if len(found) != 1:
+        return who, None, None, (f"the paragraph states {'no figure' if not found else f'{len(found)} different figures'} for {who}, so the share stated for it "
+                                 f"could not be read against a part")
+    part = next(iter(found.values()))
+    of_which = _OF_WHICH_RE.search(clause)
+    wholes = _amounts(clause, of_which.start()) if of_which is not None else [f for f in _amounts(clause, len(head)) if (f.num, f.cur, f.unit) != (part.num, part.cur, part.unit)]
+    if of_which is None and len(wholes) != 1:
+        return who, part, None, f"the total the share of {who} is stated against is not stated as one figure in its sentence"
+    if not wholes:
+        return who, part, None, "the total it is a share of is not stated as a figure before its parts"
+    return who, part, wholes[-1], ""
+
+
 def _sum_expr(names: list[str]) -> dict:
     return _v(names[0]) if len(names) == 1 else {"op": "add", "args": [_v(n) for n in names]}
 
@@ -1322,7 +1414,7 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
     for clause in clauses:
         # parts after 'of which': their sum may not exceed the total before it
         for m in _OF_WHICH_RE.finditer(clause):
-            wholes = _magnitudes(clause[: m.start()])
+            wholes = _amounts(clause, m.start())
             rest = re.split(r"[;:]", clause[m.end():])[0]
             share_cut = _SHARE_OF_TOTAL_RE.search(rest)
             parts = _magnitudes(rest[: share_cut.start()] if share_cut else rest)
@@ -1343,7 +1435,7 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
             part = _fig_of(fm, 1)
             if not part.num[:1].isdigit() or _is_pct(part.unit) or _year_like(part.num, part.unit or part.cur):
                 continue
-            wholes = _magnitudes(clause[: m.start()])
+            wholes = _amounts(clause, m.start())
             if not wholes:
                 continue
             whole = wholes[-1]
@@ -1365,15 +1457,22 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
         # '<part>, about a quarter of the decade's total': the share of the total stated before the part
         for m in _SHARE_OF_TOTAL_RE.finditer(clause):
             head = clause[: m.start()]
-            figs = _magnitudes(head)
+            figs = _amounts(clause, m.start())
             phrase = " ".join(m.group(0).split()).strip(" ,")
             part = figs[-1] if figs and not head[figs[-1].end:].strip(" ,") else None
-            if part is None or len(figs) < 2:
-                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase,
-                                                "the part and the total it is a share of are not both stated as figures in its sentence" if part is None
-                                                else "the total it is a share of is not stated as a figure before it in its sentence"))
+            whole = figs[-2] if part is not None and len(figs) >= 2 else None
+            basis = ""
+            if part is None:
+                # 'of which the United Kingdom received about $3.2 billion ..., so the United Kingdom alone received about two-thirds of the
+                # total': the part is the one figure the paragraph states for the party, the total the figure its parts are 'of which'
+                party, part, whole, why = _party_share(clause, head, para, (m.start(), m.end()))
+                if part is None or whole is None:
+                    undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+                    continue
+                basis = f"the part is the figure the paragraph states for {party}"
+            elif whole is None:
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, "the total it is a share of is not stated as a figure before it in its sentence"))
                 continue
-            whole = figs[-2]
             why = _amount_pair(whole, part)
             if why:
                 undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
@@ -1397,7 +1496,7 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                 floor = POINT_FLOOR
                 label = f"stated share of {_fmt(stated)} per cent of the total against 100 * part / total"
             specs.append(_Spec("share", clause.strip(), (("whole", "the total as stated"), ("part", "the part as stated")), premises,
-                               ("STATED_SHARE", concl, label), floor, side, rule_note, "", phrase))
+                               ("STATED_SHARE", concl, label), floor, side, rule_note, basis, phrase))
         # 'about $2 billion more than France': the difference between two named parties' figures in the paragraph
         for m in _DIFF_RE.finditer(clause):
             diff = _fig_of(m, 1)
@@ -1638,16 +1737,24 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                 sent = sentences[si].strip()
                 note = "figure stated in the report itself, in another sentence of the paragraph"
                 for d in loose:
+                    # 'About 5.2 million people entered ... in the 1880s, an average of about 900,000 a year': a rate of the total its clause dates
+                    spec, why = _total_rate_spec(clause, d, tolerance)
+                    if spec is not None:
+                        specs.append(spec)
+                        continue
+                    if why:
+                        undecided.append(QuantUndecided(pi, si + 1, sent, d.words, why))
+                        continue
                     target, how = _target_years(sentences, si, clause, d.start, sorted({y for s in series for y in s.points}))
                     if target is None:
                         if d.soft and not series and _decade_before(clause, d.start) is None:
                             continue  # 'the army lost 22,000 men': a count, with no stated figures it could be a change of
-                        undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"no figures are stated with it in its sentence and {how}"))
+                        undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"{_no_pair_reason(clause, d)} and {how}"))
                         continue
                     kinds = {"pct"} if d.kind == "points_change" and d.percentage_points else None
                     s, why = _pick_series(series, list(target), clause, kinds=kinds, extra=standalone())
                     if s is None:
-                        undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"no figures are stated with it in its sentence and {why}"))
+                        undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"{_no_pair_reason(clause, d)} and {why}"))
                         continue
                     (va, sa), (vb, sb) = s.points[target[0]], s.points[target[1]]
                     values = _Values(va, vb, sa + f" (stated in sentence {s.sentence + 1} of the paragraph)", sb + f" (stated in sentence {s.sentence + 1} of the paragraph)", s.kind == "pct",
@@ -1693,7 +1800,7 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                     target, how = _target_years(sentences, si, clause, extreme.start(), sorted({y for s in series for y in s.points}))
                     s, why = (None, how) if target is None else _pick_series(series, list(target), clause)
                     if s is None:
-                        undecided.append(QuantUndecided(pi, si + 1, sent, extreme.group(0), f"no figures are stated with it in its sentence and {why}"))
+                        undecided.append(QuantUndecided(pi, si + 1, sent, extreme.group(0), f"{_no_pair_reason(clause, None)} and {why}"))
                         continue
                     years = sorted(s.points)[:_MAX_SERIES]
                     steps_years = list(zip(years, years[1:]))

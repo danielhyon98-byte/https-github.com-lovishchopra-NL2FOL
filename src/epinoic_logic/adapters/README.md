@@ -44,7 +44,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   participle, an accuracy adjective (anchored items, quotations, or items taken by a quoting participle:
   "the figures of the History report are accurate" may be the writer vouching for a source and is not
   one) or a reproduction-fidelity predicate ("reproduced exactly", "quoted verbatim", "copied word for
-  word", and "The History specialist's words are quoted above exactly"); compliance self-reports, a
+  word", and "The History specialist's words are quoted above exactly", the predicate closing the clause
+  or saying how the words stand, so "The speaker's words are quoted exactly by Love." is the poem's own
+  quoting and "... reproduced exactly in the final line" a repetition in the text); compliance self-reports, a
   sentence that opens on the answer, its quotations or the request's items and says nothing but that
   the answer satisfies the request ("The paragraph is under the word limit.", "This paragraph stays
   within the 300-word limit and answers every part of the question.", "The answer meets every
@@ -153,8 +155,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   account marks its figures as "from memory", so they are reported unverified.": its quoted label is
   still delivered as an evidence claim the hub checks, supporting nothing); in choosing the closing
   link, skips notes, a caveat on the reading's grounds ("The reading stays plausible: ... comes from
-  context, not the poem.", "... rests on context") and a colleague's reported view and considers the
-  argued sentence before them, so en-p5's conclusion is its link; roles a sentence whose subject is a
+  context, not the poem.", "... rests on context", "the link cannot be proved") and a colleague's
+  reported view and considers the argued sentence before them, so en-p5's conclusion is its link (a
+  conclusion drawn from what the poem leaves unsaid, "The sonnet never names an origin, so its
+  welcome ...", or a possessive "not the poem's" is not a caveat and stays the link); roles a sentence whose subject is a
   colleague's view ("The History specialist states that ...") `perspective`, never the point, with
   certainty `probable` and the attribution assumption the History parser records;
   reads a CR-only paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an

@@ -1,0 +1,2883 @@
+{
+ "source": "arena round 6 translator fixtures whose stated figures are defined (b <-> (n = k)) but never asserted",
+ "tasks": {
+  "hi-t12": {
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "short_answer",
+   "question": "Outline, with dated and quantified evidence, the pace of decolonisation in Africa between 1957 and 1968. Write no more than 200 words and give a judgement on which year marked the decisive turning point.",
+   "response_text": "Dates and figures here are from memory; check them against your notes. In 1957 only one African territory became independent: the Gold Coast, as Ghana, on 6 March. In 1958 Guinea followed on 2 October, having voted No in de Gaulle's referendum of 28 September and faced the immediate withdrawal of French aid and personnel. The pace changed in 1960, when seventeen African states became independent, Nigeria on 1 October and the Belgian Congo on 30 June among them; earlier that year Harold Macmillan had told the South African parliament that a \"wind of change\" was blowing through the continent. From 1961 the flow slowed to roughly fifteen states by 1968, including Tanganyika in 1961, Kenya in 1963 and Botswana in 1966. Settler communities resisted: Algeria won independence on 5 July 1962 only after a war that began in 1954, and Southern Rhodesia's white government declared independence unilaterally on 11 November 1965. The decisive turning point was 1960. Its scale, and the decision of Britain, France and Belgium to accept independence as the general course rather than a concession to single territories, made the later transfers a continuation rather than a new departure.",
+   "report_id": "rep-hi-t12-0",
+   "claims": {
+    "h1.2": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t12-h1.2",
+      "request_id": "req-hi-t12",
+      "claim_id": "h1.2",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_states_1957",
+        "sort": "Int",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "only_one_1957",
+        "sort": "Bool",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_ghana_6mar1957",
+        "sort": "Bool",
+        "meaning": "the Gold Coast became independent as Ghana on 6 March 1957",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_guinea_2oct1958",
+        "sort": "Bool",
+        "meaning": "Guinea followed on 2 October 1958",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_guinea_voted_no",
+        "sort": "Bool",
+        "meaning": "Guinea voted No in de Gaulle's referendum of 28 September 1958",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_french_withdrawal",
+        "sort": "Bool",
+        "meaning": "Guinea faced the immediate withdrawal of French aid and personnel",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_states_1960",
+        "sort": "Int",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1960_17",
+        "sort": "Bool",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "pace_changed_1960",
+        "sort": "Bool",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "num_states_1961_68",
+        "sort": "Int",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1961_68_15",
+        "sort": "Bool",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "flow_slowed",
+        "sort": "Bool",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "gk_algeria_1962",
+        "sort": "Bool",
+        "meaning": "Algeria won independence on 5 July 1962",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_algeria_war_1954",
+        "sort": "Bool",
+        "meaning": "the Algerian war began in 1954",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "algeria_only_after_war",
+        "sort": "Bool",
+        "meaning": "Algeria won independence only after a war that began in 1954",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "gk_rhodesia_udi",
+        "sort": "Bool",
+        "meaning": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "settlers_resisted",
+        "sort": "Bool",
+        "meaning": "settler communities resisted",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "h18_scale_continuation",
+        "sort": "Bool",
+        "meaning": "the scale of the transfers, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "rep_h17",
+        "sort": "Bool",
+        "meaning": "report claim h1.7: the decisive turning point was 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_only_one_1957",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "only_one_1957"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1957"
+          },
+          "right": {
+           "op": "int",
+           "value": "1"
+          }
+         }
+        },
+        "label": "In 1957 only one African territory became independent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_ghana_6mar1957",
+        "expr": {
+         "op": "var",
+         "name": "gk_ghana_6mar1957"
+        },
+        "label": "the Gold Coast, as Ghana, on 6 March",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_guinea_2oct1958",
+        "expr": {
+         "op": "var",
+         "name": "gk_guinea_2oct1958"
+        },
+        "label": "In 1958 Guinea followed on 2 October",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_guinea_voted_no",
+        "expr": {
+         "op": "var",
+         "name": "gk_guinea_voted_no"
+        },
+        "label": "having voted No in de Gaulle's referendum of 28 September",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_french_withdrawal",
+        "expr": {
+         "op": "var",
+         "name": "gk_french_withdrawal"
+        },
+        "label": "faced the immediate withdrawal of French aid and personnel",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_states_1960_17",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1960"
+          },
+          "right": {
+           "op": "int",
+           "value": "17"
+          }
+         }
+        },
+        "label": "when seventeen African states became independent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_pace_changed_1960",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "var",
+          "name": "pace_changed_1960"
+         }
+        },
+        "label": "The pace changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_states_1961_68_15",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1961_68"
+          },
+          "right": {
+           "op": "int",
+           "value": "15"
+          }
+         }
+        },
+        "label": "the flow slowed to roughly fifteen states by 1968",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_flow_slowed",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "var",
+          "name": "flow_slowed"
+         }
+        },
+        "label": "from 1961 the flow slowed",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_algeria_1962",
+        "expr": {
+         "op": "var",
+         "name": "gk_algeria_1962"
+        },
+        "label": "Algeria won independence on 5 July 1962",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_algeria_war_1954",
+        "expr": {
+         "op": "var",
+         "name": "gk_algeria_war_1954"
+        },
+        "label": "only after a war that began in 1954",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_algeria_only_after_war",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "gk_algeria_1962"
+           },
+           {
+            "op": "var",
+            "name": "gk_algeria_war_1954"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "algeria_only_after_war"
+         }
+        },
+        "label": "only after a war that began in 1954",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_rhodesia_udi",
+        "expr": {
+         "op": "var",
+         "name": "gk_rhodesia_udi"
+        },
+        "label": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_settlers_resisted",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "algeria_only_after_war"
+           },
+           {
+            "op": "var",
+            "name": "gk_rhodesia_udi"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "settlers_resisted"
+         }
+        },
+        "label": "Settler communities resisted",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_h18_scale_continuation",
+        "expr": {
+         "op": "var",
+         "name": "h18_scale_continuation"
+        },
+        "label": "Its scale, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_rep_h17",
+        "expr": {
+         "op": "var",
+         "name": "rep_h17"
+        },
+        "label": "The decisive turning point was 1960.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "only_one_1957"
+         },
+         {
+          "op": "var",
+          "name": "gk_ghana_6mar1957"
+         }
+        ]
+       },
+       "label": "In 1957 only one African territory became independent: the Gold Coast, as Ghana, on 6 March."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "'Only one African territory in 1957' is encoded as a literal equality of the count to 1, and the Gold Coast as Ghana on 6 March 1957 is general_knowledge. The listed supports (the later independence years, the 1960 pace, the settler wars, the scale judgement and the turning-point judgement) concern other years and are carried as supporting premises only.",
+      "glossary": [
+       {
+        "symbol": "num_states_1957",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": null
+       },
+       {
+        "symbol": "only_one_1957",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_ghana_6mar1957",
+        "meaning": "the Gold Coast became independent as Ghana on 6 March 1957",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_guinea_2oct1958",
+        "meaning": "Guinea followed on 2 October 1958",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_guinea_voted_no",
+        "meaning": "Guinea voted No in de Gaulle's referendum of 28 September 1958",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_french_withdrawal",
+        "meaning": "Guinea faced the immediate withdrawal of French aid and personnel",
+        "grounding": null
+       },
+       {
+        "symbol": "num_states_1960",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1960_17",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "pace_changed_1960",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": null
+       },
+       {
+        "symbol": "num_states_1961_68",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1961_68_15",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "flow_slowed",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_algeria_1962",
+        "meaning": "Algeria won independence on 5 July 1962",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_algeria_war_1954",
+        "meaning": "the Algerian war began in 1954",
+        "grounding": null
+       },
+       {
+        "symbol": "algeria_only_after_war",
+        "meaning": "Algeria won independence only after a war that began in 1954",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_rhodesia_udi",
+        "meaning": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": null
+       },
+       {
+        "symbol": "settlers_resisted",
+        "meaning": "settler communities resisted",
+        "grounding": null
+       },
+       {
+        "symbol": "h18_scale_continuation",
+        "meaning": "the scale of the transfers, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": null
+       },
+       {
+        "symbol": "rep_h17",
+        "meaning": "report claim h1.7: the decisive turning point was 1960",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "h1.4": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t12-h1.4",
+      "request_id": "req-hi-t12",
+      "claim_id": "h1.4",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_states_1960",
+        "sort": "Int",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1960_17",
+        "sort": "Bool",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_nigeria_1oct1960",
+        "sort": "Bool",
+        "meaning": "Nigeria became independent on 1 October 1960",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_congo_30jun1960",
+        "sort": "Bool",
+        "meaning": "the Belgian Congo became independent on 30 June 1960",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "assume_macmillan",
+        "sort": "Bool",
+        "meaning": "earlier in 1960 Harold Macmillan told the South African parliament that a 'wind of change' was blowing through the continent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "pace_changed_1960",
+        "sort": "Bool",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_states_1960_17",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1960"
+          },
+          "right": {
+           "op": "int",
+           "value": "17"
+          }
+         }
+        },
+        "label": "when seventeen African states became independent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_nigeria_1oct1960",
+        "expr": {
+         "op": "var",
+         "name": "gk_nigeria_1oct1960"
+        },
+        "label": "Nigeria on 1 October",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_congo_30jun1960",
+        "expr": {
+         "op": "var",
+         "name": "gk_congo_30jun1960"
+        },
+        "label": "the Belgian Congo on 30 June",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_assume_macmillan",
+        "expr": {
+         "op": "var",
+         "name": "assume_macmillan"
+        },
+        "label": "Harold Macmillan told the South African parliament that a 'wind of change' was blowing through the continent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_pace_changed_1960",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "var",
+          "name": "pace_changed_1960"
+         }
+        },
+        "label": "The pace changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         {
+          "op": "var",
+          "name": "gk_nigeria_1oct1960"
+         },
+         {
+          "op": "var",
+          "name": "gk_congo_30jun1960"
+         },
+         {
+          "op": "var",
+          "name": "assume_macmillan"
+         },
+         {
+          "op": "var",
+          "name": "pace_changed_1960"
+         }
+        ]
+       },
+       "label": "The pace changed in 1960, when seventeen African states became independent, Nigeria on 1 October and the Belgian Congo on 30 June among them; earlier that year Harold Macmillan had told the South African parliament that a \"wind of change\" was blowing through the continent."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified. The quoted phrase 'wind of change' has no supplied text to check against; it is grounded as assumption."
+     },
+     "interpretation": {
+      "reading": "Seventeen states in 1960 (literal equality), Nigeria and the Belgian Congo among them (general_knowledge), the Macmillan 'wind of change' remark, and one link from the 1960 count to the claim that the pace changed. The remark's quoted words are not in any supplied text and are encoded as an assumption, not as a quotation (the schema reserves quotation grounding for supplied texts).",
+      "glossary": [
+       {
+        "symbol": "num_states_1960",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1960_17",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_nigeria_1oct1960",
+        "meaning": "Nigeria became independent on 1 October 1960",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_congo_30jun1960",
+        "meaning": "the Belgian Congo became independent on 30 June 1960",
+        "grounding": null
+       },
+       {
+        "symbol": "assume_macmillan",
+        "meaning": "earlier in 1960 Harold Macmillan told the South African parliament that a 'wind of change' was blowing through the continent",
+        "grounding": null
+       },
+       {
+        "symbol": "pace_changed_1960",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "h1.5": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t12-h1.5",
+      "request_id": "req-hi-t12",
+      "claim_id": "h1.5",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_states_1961_68",
+        "sort": "Int",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1961_68_15",
+        "sort": "Bool",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_tanganyika_1961",
+        "sort": "Bool",
+        "meaning": "Tanganyika became independent in 1961",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_kenya_1963",
+        "sort": "Bool",
+        "meaning": "Kenya became independent in 1963",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_botswana_1966",
+        "sort": "Bool",
+        "meaning": "Botswana became independent in 1966",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "flow_slowed",
+        "sort": "Bool",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_states_1961_68_15",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1961_68"
+          },
+          "right": {
+           "op": "int",
+           "value": "15"
+          }
+         }
+        },
+        "label": "the flow slowed to roughly fifteen states by 1968",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_tanganyika_1961",
+        "expr": {
+         "op": "var",
+         "name": "gk_tanganyika_1961"
+        },
+        "label": "including Tanganyika in 1961",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_kenya_1963",
+        "expr": {
+         "op": "var",
+         "name": "gk_kenya_1963"
+        },
+        "label": "Kenya in 1963",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_botswana_1966",
+        "expr": {
+         "op": "var",
+         "name": "gk_botswana_1966"
+        },
+        "label": "Botswana in 1966",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_flow_slowed",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "var",
+          "name": "flow_slowed"
+         }
+        },
+        "label": "from 1961 the flow slowed",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         {
+          "op": "var",
+          "name": "gk_tanganyika_1961"
+         },
+         {
+          "op": "var",
+          "name": "gk_kenya_1963"
+         },
+         {
+          "op": "var",
+          "name": "gk_botswana_1966"
+         },
+         {
+          "op": "var",
+          "name": "flow_slowed"
+         }
+        ]
+       },
+       "label": "From 1961 the flow slowed to roughly fifteen states by 1968, including Tanganyika in 1961, Kenya in 1963 and Botswana in 1966."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "'Roughly fifteen states by 1968' is encoded as a literal equality to 15 and the three named independences are general_knowledge. 'The flow slowed' is one link from the count. The comparison with the 1960 pace is not stated as a number and is not encoded.",
+      "glossary": [
+       {
+        "symbol": "num_states_1961_68",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1961_68_15",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_tanganyika_1961",
+        "meaning": "Tanganyika became independent in 1961",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_kenya_1963",
+        "meaning": "Kenya became independent in 1963",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_botswana_1966",
+        "meaning": "Botswana became independent in 1966",
+        "grounding": null
+       },
+       {
+        "symbol": "flow_slowed",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": [
+       {
+        "code": "vague_quantity",
+        "message": "'roughly fifteen states' has no stated tolerance; literal equality to 15 is encoded.",
+        "alternatives": [
+         "exactly 15 states from 1961 to 1968",
+         "about 15 states within a tolerance of one or two (approximate reading)"
+        ]
+       }
+      ]
+     },
+     "ambiguous": true,
+     "unsupported_reason": null
+    },
+    "h1.7": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t12-h1.7",
+      "request_id": "req-hi-t12",
+      "claim_id": "h1.7",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_states_1957",
+        "sort": "Int",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "only_one_1957",
+        "sort": "Bool",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_ghana_6mar1957",
+        "sort": "Bool",
+        "meaning": "the Gold Coast became independent as Ghana on 6 March 1957",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_guinea_2oct1958",
+        "sort": "Bool",
+        "meaning": "Guinea followed on 2 October 1958",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_states_1960",
+        "sort": "Int",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1960_17",
+        "sort": "Bool",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "pace_changed_1960",
+        "sort": "Bool",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "num_states_1961_68",
+        "sort": "Int",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "states_1961_68_15",
+        "sort": "Bool",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "flow_slowed",
+        "sort": "Bool",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "gk_algeria_1962",
+        "sort": "Bool",
+        "meaning": "Algeria won independence on 5 July 1962",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_algeria_war_1954",
+        "sort": "Bool",
+        "meaning": "the Algerian war began in 1954",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "algeria_only_after_war",
+        "sort": "Bool",
+        "meaning": "Algeria won independence only after a war that began in 1954",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "gk_rhodesia_udi",
+        "sort": "Bool",
+        "meaning": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "settlers_resisted",
+        "sort": "Bool",
+        "meaning": "settler communities resisted",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "h18_scale_continuation",
+        "sort": "Bool",
+        "meaning": "the scale of the transfers, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "turning_point_1960",
+        "sort": "Bool",
+        "meaning": "the decisive turning point was 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_only_one_1957",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "only_one_1957"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1957"
+          },
+          "right": {
+           "op": "int",
+           "value": "1"
+          }
+         }
+        },
+        "label": "In 1957 only one African territory became independent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_ghana_6mar1957",
+        "expr": {
+         "op": "var",
+         "name": "gk_ghana_6mar1957"
+        },
+        "label": "the Gold Coast, as Ghana, on 6 March",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_guinea_2oct1958",
+        "expr": {
+         "op": "var",
+         "name": "gk_guinea_2oct1958"
+        },
+        "label": "In 1958 Guinea followed on 2 October",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_states_1960_17",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1960"
+          },
+          "right": {
+           "op": "int",
+           "value": "17"
+          }
+         }
+        },
+        "label": "when seventeen African states became independent",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_pace_changed_1960",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1960_17"
+         },
+         "right": {
+          "op": "var",
+          "name": "pace_changed_1960"
+         }
+        },
+        "label": "The pace changed in 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_states_1961_68_15",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_states_1961_68"
+          },
+          "right": {
+           "op": "int",
+           "value": "15"
+          }
+         }
+        },
+        "label": "the flow slowed to roughly fifteen states by 1968",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_flow_slowed",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "states_1961_68_15"
+         },
+         "right": {
+          "op": "var",
+          "name": "flow_slowed"
+         }
+        },
+        "label": "from 1961 the flow slowed",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_algeria_1962",
+        "expr": {
+         "op": "var",
+         "name": "gk_algeria_1962"
+        },
+        "label": "Algeria won independence on 5 July 1962",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_algeria_war_1954",
+        "expr": {
+         "op": "var",
+         "name": "gk_algeria_war_1954"
+        },
+        "label": "only after a war that began in 1954",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_algeria_only_after_war",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "gk_algeria_1962"
+           },
+           {
+            "op": "var",
+            "name": "gk_algeria_war_1954"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "algeria_only_after_war"
+         }
+        },
+        "label": "only after a war that began in 1954",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_rhodesia_udi",
+        "expr": {
+         "op": "var",
+         "name": "gk_rhodesia_udi"
+        },
+        "label": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_settlers_resisted",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "algeria_only_after_war"
+           },
+           {
+            "op": "var",
+            "name": "gk_rhodesia_udi"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "settlers_resisted"
+         }
+        },
+        "label": "Settler communities resisted",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_h18_scale_continuation",
+        "expr": {
+         "op": "var",
+         "name": "h18_scale_continuation"
+        },
+        "label": "Its scale, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_turning_point_1960",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "pace_changed_1960"
+           },
+           {
+            "op": "var",
+            "name": "h18_scale_continuation"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "turning_point_1960"
+         }
+        },
+        "label": "The decisive turning point was 1960",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "var",
+        "name": "turning_point_1960"
+       },
+       "label": "The decisive turning point was 1960."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "The turning point is one link from the 1960 pace change (count of seventeen states) and the specialist's scale-and-policy judgement, which the report asserts without a listed support. The listed supports (1957, 1958, the 1960 pace, the later years, the settler wars and the scale judgement) are carried as supporting premises where they are not already in the chain.",
+      "glossary": [
+       {
+        "symbol": "num_states_1957",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": null
+       },
+       {
+        "symbol": "only_one_1957",
+        "meaning": "only one African territory became independent in 1957 (literal equality to 1)",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_ghana_6mar1957",
+        "meaning": "the Gold Coast became independent as Ghana on 6 March 1957",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_guinea_2oct1958",
+        "meaning": "Guinea followed on 2 October 1958",
+        "grounding": null
+       },
+       {
+        "symbol": "num_states_1960",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1960_17",
+        "meaning": "seventeen African states became independent in 1960 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "pace_changed_1960",
+        "meaning": "the pace of independence changed in 1960",
+        "grounding": null
+       },
+       {
+        "symbol": "num_states_1961_68",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "states_1961_68_15",
+        "meaning": "roughly fifteen states became independent from 1961 to 1968 (literal equality to 15)",
+        "grounding": null
+       },
+       {
+        "symbol": "flow_slowed",
+        "meaning": "the flow of independence slowed from 1961",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_algeria_1962",
+        "meaning": "Algeria won independence on 5 July 1962",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_algeria_war_1954",
+        "meaning": "the Algerian war began in 1954",
+        "grounding": null
+       },
+       {
+        "symbol": "algeria_only_after_war",
+        "meaning": "Algeria won independence only after a war that began in 1954",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_rhodesia_udi",
+        "meaning": "Southern Rhodesia's white government declared independence unilaterally on 11 November 1965",
+        "grounding": null
+       },
+       {
+        "symbol": "settlers_resisted",
+        "meaning": "settler communities resisted",
+        "grounding": null
+       },
+       {
+        "symbol": "h18_scale_continuation",
+        "meaning": "the scale of the transfers, and the decision of Britain, France and Belgium to accept independence as the general course, made the later transfers a continuation rather than a new departure",
+        "grounding": null
+       },
+       {
+        "symbol": "turning_point_1960",
+        "meaning": "the decisive turning point was 1960",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   }
+  },
+  "hi-t11": {
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "essay",
+   "question": "To what extent was the Marshall Plan responsible for the economic recovery of Western Europe between 1948 and 1952? Write one body paragraph only, following your method, in no more than 350 words, with dated and quantified evidence.",
+   "response_text": "The Marshall Plan was responsible for the speed of Western European recovery between 1948 and 1952 to a significant but limited extent, and more for the timing of recovery than for its occurrence. Its most direct effect was to relieve the dollar shortage that capped European imports. The Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme that had transferred about $13 billion in grants and loans by mid-1952, of which the United Kingdom received about $3.2 billion and France about $2.7 billion. That dollar credit bought American coal, grain and machinery which European currencies could not buy, and the constraint was still binding when sterling was devalued from $4.03 to $2.80 on 18 September 1949. Yet the aid was small beside the economies it served, averaging around 2 to 3 per cent of recipients' combined national income in its heaviest years, which is why some economic historians argue that it could not by its own weight have produced the recovery. Output had already begun to revive: West Germany's currency reform of 20 June 1948 ended the black market and restored the incentive to sell, and it came before most Marshall deliveries had arrived. The strongest counter-case, that reconstruction would have stalled without dollars, holds for 1948 and 1949, when aid decided what could be bought at all. It weighs less for 1950 to 1952, when European exports had revived and demand from the Korean War, begun on 25 June 1950, lifted orders further. Weighed by timing and scale, the Plan was decisive for the pace and the import capacity of recovery but not for its origin, so its responsibility was real but partial.\n\nDates and figures are from memory; verify them against your notes before use.",
+   "report_id": "rep-hi-t11-0",
+   "claims": {
+    "h1.3": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t11-h1.3",
+      "request_id": "req-hi-t11",
+      "claim_id": "h1.3",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "gk_erp_launch",
+        "sort": "Bool",
+        "meaning": "the Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_erp_total",
+        "sort": "Int",
+        "meaning": "the programme had transferred about 13 billion dollars by mid-1952 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "erp_13bn",
+        "sort": "Bool",
+        "meaning": "the programme had transferred about 13 billion dollars by mid-1952 (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_uk_received",
+        "sort": "Int",
+        "meaning": "the United Kingdom received about 3.2 billion dollars (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "uk_3_2bn",
+        "sort": "Bool",
+        "meaning": "the United Kingdom received about 3.2 billion dollars (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_france_received",
+        "sort": "Int",
+        "meaning": "France received about 2.7 billion dollars (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "france_2_7bn",
+        "sort": "Bool",
+        "meaning": "France received about 2.7 billion dollars (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_gk_erp_launch",
+        "expr": {
+         "op": "var",
+         "name": "gk_erp_launch"
+        },
+        "label": "the Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_erp_13bn",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "erp_13bn"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_erp_total"
+          },
+          "right": {
+           "op": "int",
+           "value": "13000000000"
+          }
+         }
+        },
+        "label": "transferred about $13 billion in grants and loans by mid-1952",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_uk_3_2bn",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "uk_3_2bn"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_uk_received"
+          },
+          "right": {
+           "op": "int",
+           "value": "3200000000"
+          }
+         }
+        },
+        "label": "the United Kingdom received about $3.2 billion",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_france_2_7bn",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "france_2_7bn"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_france_received"
+          },
+          "right": {
+           "op": "int",
+           "value": "2700000000"
+          }
+         }
+        },
+        "label": "France received about $2.7 billion",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "gk_erp_launch"
+         },
+         {
+          "op": "var",
+          "name": "erp_13bn"
+         },
+         {
+          "op": "var",
+          "name": "uk_3_2bn"
+         },
+         {
+          "op": "var",
+          "name": "france_2_7bn"
+         }
+        ]
+       },
+       "label": "The Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme that had transferred about $13 billion in grants and loans by mid-1952, of which the United Kingdom received about $3.2 billion and France about $2.7 billion."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "Launch of the programme by the Act on 3 April 1948 and three transfer totals from memory. 'About' is read as literal equality, so the totals are encoded as exact values; the stated transfer date (mid-1952) is part of the total's description.",
+      "glossary": [
+       {
+        "symbol": "gk_erp_launch",
+        "meaning": "the Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme",
+        "grounding": null
+       },
+       {
+        "symbol": "num_erp_total",
+        "meaning": "the programme had transferred about 13 billion dollars by mid-1952 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "erp_13bn",
+        "meaning": "the programme had transferred about 13 billion dollars by mid-1952 (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "num_uk_received",
+        "meaning": "the United Kingdom received about 3.2 billion dollars (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "uk_3_2bn",
+        "meaning": "the United Kingdom received about 3.2 billion dollars (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "num_france_received",
+        "meaning": "France received about 2.7 billion dollars (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "france_2_7bn",
+        "meaning": "France received about 2.7 billion dollars (literal equality)",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": [
+       {
+        "code": "vague_quantity",
+        "message": "'about $13 billion', '$3.2 billion' and '$2.7 billion' carry no stated tolerance; literal equalities are encoded.",
+        "alternatives": [
+         "the totals are exact as written",
+         "the totals are within a tolerance of the stated figures (approximate reading)"
+        ]
+       }
+      ]
+     },
+     "ambiguous": true,
+     "unsupported_reason": null
+    },
+    "h1.4": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-t11-h1.4",
+      "request_id": "req-hi-t11",
+      "claim_id": "h1.4",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "gk_dollar_credit",
+        "sort": "Bool",
+        "meaning": "the dollar credit bought American coal, grain and machinery which European currencies could not buy",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_devalued_1949",
+        "sort": "Bool",
+        "meaning": "sterling was devalued on 18 September 1949",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_sterling_before",
+        "sort": "Real",
+        "meaning": "the sterling rate before devaluation was 4.03 dollars",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "rate_before_4_03",
+        "sort": "Bool",
+        "meaning": "the sterling rate before devaluation was 4.03 dollars",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_sterling_after",
+        "sort": "Real",
+        "meaning": "the sterling rate after devaluation was 2.80 dollars",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "rate_after_2_80",
+        "sort": "Bool",
+        "meaning": "the sterling rate after devaluation was 2.80 dollars",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "constraint_binding_1949",
+        "sort": "Bool",
+        "meaning": "the dollar constraint was still binding when sterling was devalued",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_gk_dollar_credit",
+        "expr": {
+         "op": "var",
+         "name": "gk_dollar_credit"
+        },
+        "label": "that dollar credit bought American coal, grain and machinery which European currencies could not buy",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_devalued_1949",
+        "expr": {
+         "op": "var",
+         "name": "gk_devalued_1949"
+        },
+        "label": "sterling was devalued on 18 September 1949",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_rate_before_4_03",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "rate_before_4_03"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_sterling_before"
+          },
+          "right": {
+           "op": "real",
+           "value": "4.03"
+          }
+         }
+        },
+        "label": "sterling was devalued from $4.03",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_rate_after_2_80",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "rate_after_2_80"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_sterling_after"
+          },
+          "right": {
+           "op": "real",
+           "value": "2.80"
+          }
+         }
+        },
+        "label": "to $2.80",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_constraint_binding_1949",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "gk_devalued_1949"
+         },
+         "right": {
+          "op": "var",
+          "name": "constraint_binding_1949"
+         }
+        },
+        "label": "the constraint was still binding when sterling was devalued",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "gk_dollar_credit"
+         },
+         {
+          "op": "var",
+          "name": "constraint_binding_1949"
+         },
+         {
+          "op": "var",
+          "name": "rate_before_4_03"
+         },
+         {
+          "op": "var",
+          "name": "rate_after_2_80"
+         },
+         {
+          "op": "var",
+          "name": "gk_devalued_1949"
+         }
+        ]
+       },
+       "label": "That dollar credit bought American coal, grain and machinery which European currencies could not buy, and the constraint was still binding when sterling was devalued from $4.03 to $2.80 on 18 September 1949."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "The dollar credit's purchases (general_knowledge), the devaluation from 4.03 to 2.80 on 18 September 1949 (Real equalities from memory), and the claim that the constraint was still binding, as one link from the devaluation.",
+      "glossary": [
+       {
+        "symbol": "gk_dollar_credit",
+        "meaning": "the dollar credit bought American coal, grain and machinery which European currencies could not buy",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_devalued_1949",
+        "meaning": "sterling was devalued on 18 September 1949",
+        "grounding": null
+       },
+       {
+        "symbol": "num_sterling_before",
+        "meaning": "the sterling rate before devaluation was 4.03 dollars",
+        "grounding": null
+       },
+       {
+        "symbol": "rate_before_4_03",
+        "meaning": "the sterling rate before devaluation was 4.03 dollars",
+        "grounding": null
+       },
+       {
+        "symbol": "num_sterling_after",
+        "meaning": "the sterling rate after devaluation was 2.80 dollars",
+        "grounding": null
+       },
+       {
+        "symbol": "rate_after_2_80",
+        "meaning": "the sterling rate after devaluation was 2.80 dollars",
+        "grounding": null
+       },
+       {
+        "symbol": "constraint_binding_1949",
+        "meaning": "the dollar constraint was still binding when sterling was devalued",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   }
+  },
+  "hi-p5": {
+   "subject": "History",
+   "agent_id": "history-specialist",
+   "task_type": "short_answer",
+   "question": "A literature student is reading Emma Lazarus's sonnet 'The New Colossus' (written in 1883 for an auction to raise money for the pedestal of the Statue of Liberty). In one paragraph of no more than 200 words, outline for that student the historical context of the poem: the scale and origins of immigration to the United States in the 1880s, the Chinese Exclusion Act of 1882, and the dedication of the Statue of Liberty in 1886, with dated evidence labelled from memory as your method requires.",
+   "response_text": "Dates and figures here are from memory; check them against your notes. About 5.2 million people entered the United States in the 1880s, and 1882 alone brought nearly 790,000, while arrivals increasingly came from southern and eastern Europe rather than from the north and west. Hostility toward one group was already written into law: on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act, which suspended Chinese labour immigration for ten years. Emma Lazarus, a New York writer already active in aid for Jewish refugees from Russia, wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal, and the statue, a gift from France, was dedicated on 28 October 1886. The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+   "report_id": "rep-hi-p5-0",
+   "claims": {
+    "h1.2": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-p5-h1.2",
+      "request_id": "req-p5",
+      "claim_id": "h1.2",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_entrants_1880s",
+        "sort": "Int",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "entrants_5_2m",
+        "sort": "Bool",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "num_arrivals_1882",
+        "sort": "Int",
+        "meaning": "nearly 790,000 people entered the United States in 1882 (literal strict bound below 790,000)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "arrivals_1882_near_790k",
+        "sort": "Bool",
+        "meaning": "nearly 790,000 people entered the United States in 1882 (literal strict bound below 790,000)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "trend_se_europe",
+        "sort": "Bool",
+        "meaning": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "sup_h13",
+        "sort": "Bool",
+        "meaning": "report claim h1.3: hostility was written into law by the Chinese Exclusion Act",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "sup_h14",
+        "sort": "Bool",
+        "meaning": "report claim h1.4: Lazarus and the 1883 sonnet, statue dedicated in 1886",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "sup_h15",
+        "sort": "Bool",
+        "meaning": "report claim h1.5: the welcome was spoken into an excluding country",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_entrants_5_2m",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "entrants_5_2m"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_entrants_1880s"
+          },
+          "right": {
+           "op": "int",
+           "value": "5200000"
+          }
+         }
+        },
+        "label": "About 5.2 million people entered the United States in the 1880s",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_arrivals_1882_near_790k",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "arrivals_1882_near_790k"
+         },
+         "right": {
+          "op": "lt",
+          "left": {
+           "op": "var",
+           "name": "num_arrivals_1882"
+          },
+          "right": {
+           "op": "int",
+           "value": "790000"
+          }
+         }
+        },
+        "label": "1882 alone brought nearly 790,000",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_trend_se_europe",
+        "expr": {
+         "op": "var",
+         "name": "trend_se_europe"
+        },
+        "label": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_sup_h13",
+        "expr": {
+         "op": "var",
+         "name": "sup_h13"
+        },
+        "label": "Hostility toward one group was already written into law: on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act, which suspended Chinese labour immigration for ten years.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_sup_h14",
+        "expr": {
+         "op": "var",
+         "name": "sup_h14"
+        },
+        "label": "Emma Lazarus, a New York writer already active in aid for Jewish refugees from Russia, wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal, and the statue, a gift from France, was dedicated on 28 October 1886.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_sup_h15",
+        "expr": {
+         "op": "var",
+         "name": "sup_h15"
+        },
+        "label": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "entrants_5_2m"
+         },
+         {
+          "op": "var",
+          "name": "arrivals_1882_near_790k"
+         },
+         {
+          "op": "var",
+          "name": "trend_se_europe"
+         }
+        ]
+       },
+       "label": "About 5.2 million people entered the United States in the 1880s, and 1882 alone brought nearly 790,000, while arrivals increasingly came from southern and eastern Europe rather than from the north and west."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "The claim has three figures and a trend, all from memory with no supplied text. 'About 5.2 million' is encoded as a literal equality and 'nearly 790,000' as a strict bound below 790,000. The trend is general_knowledge. The listed supports h1.3 to h1.5 do not derive these figures; they are carried as supporting premises only.",
+      "glossary": [
+       {
+        "symbol": "num_entrants_1880s",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "entrants_5_2m",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "num_arrivals_1882",
+        "meaning": "nearly 790,000 people entered the United States in 1882 (literal strict bound below 790,000)",
+        "grounding": null
+       },
+       {
+        "symbol": "arrivals_1882_near_790k",
+        "meaning": "nearly 790,000 people entered the United States in 1882 (literal strict bound below 790,000)",
+        "grounding": null
+       },
+       {
+        "symbol": "trend_se_europe",
+        "meaning": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": null
+       },
+       {
+        "symbol": "sup_h13",
+        "meaning": "report claim h1.3: hostility was written into law by the Chinese Exclusion Act",
+        "grounding": null
+       },
+       {
+        "symbol": "sup_h14",
+        "meaning": "report claim h1.4: Lazarus and the 1883 sonnet, statue dedicated in 1886",
+        "grounding": null
+       },
+       {
+        "symbol": "sup_h15",
+        "meaning": "report claim h1.5: the welcome was spoken into an excluding country",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": [
+       {
+        "code": "vague_quantity",
+        "message": "'About 5.2 million' and 'nearly 790,000' carry no stated tolerance; literal equality and strict bound are encoded.",
+        "alternatives": [
+         "the total is exactly 5,200,000",
+         "the total is within a tolerance of 5,200,000 (approximate reading)"
+        ]
+       }
+      ]
+     },
+     "ambiguous": true,
+     "unsupported_reason": null
+    },
+    "h1.5": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "hi-p5-h1.5",
+      "request_id": "req-p5",
+      "claim_id": "h1.5",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "num_entrants_1880s",
+        "sort": "Int",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "entrants_5_2m",
+        "sort": "Bool",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "trend_se_europe",
+        "sort": "Bool",
+        "meaning": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_act_1882",
+        "sort": "Bool",
+        "meaning": "President Chester A. Arthur signed the Chinese Exclusion Act on 6 May 1882",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_act_10yrs",
+        "sort": "Bool",
+        "meaning": "the Chinese Exclusion Act suspended Chinese labour immigration for ten years",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_lazarus",
+        "sort": "Bool",
+        "meaning": "Emma Lazarus was a New York writer already active in aid for Jewish refugees from Russia",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_sonnet_1883",
+        "sort": "Bool",
+        "meaning": "Lazarus wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "gk_statue_1886",
+        "sort": "Bool",
+        "meaning": "the statue, a gift from France, was dedicated on 28 October 1886",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        }
+       },
+       {
+        "name": "hostility_in_law",
+        "sort": "Bool",
+        "meaning": "hostility toward one group was already written into law",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "admitting_unprecedented",
+        "sort": "Bool",
+        "meaning": "the country was admitting immigrants in unprecedented numbers",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "welcome_spoken_excluding",
+        "sort": "Bool",
+        "meaning": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "pr_entrants_5_2m",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "entrants_5_2m"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "num_entrants_1880s"
+          },
+          "right": {
+           "op": "int",
+           "value": "5200000"
+          }
+         }
+        },
+        "label": "About 5.2 million people entered the United States in the 1880s",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_trend_se_europe",
+        "expr": {
+         "op": "var",
+         "name": "trend_se_europe"
+        },
+        "label": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_act_1882",
+        "expr": {
+         "op": "var",
+         "name": "gk_act_1882"
+        },
+        "label": "on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_act_10yrs",
+        "expr": {
+         "op": "var",
+         "name": "gk_act_10yrs"
+        },
+        "label": "the Act suspended Chinese labour immigration for ten years",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_lazarus",
+        "expr": {
+         "op": "var",
+         "name": "gk_lazarus"
+        },
+        "label": "Emma Lazarus, a New York writer already active in aid for Jewish refugees from Russia",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_gk_sonnet_1883",
+        "expr": {
+         "op": "var",
+         "name": "gk_sonnet_1883"
+        },
+        "label": "she wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_gk_statue_1886",
+        "expr": {
+         "op": "var",
+         "name": "gk_statue_1886"
+        },
+        "label": "the statue, a gift from France, was dedicated on 28 October 1886",
+        "grounding": {
+         "kind": "general_knowledge",
+         "certainty": "probable",
+         "note": "stated from memory in the specialist report; no supplied text checks it"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "pr_hostility_in_law",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "gk_act_1882"
+           },
+           {
+            "op": "var",
+            "name": "gk_act_10yrs"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "hostility_in_law"
+         }
+        },
+        "label": "hostility toward one group was already written into law",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_admitting_unprecedented",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "entrants_5_2m"
+         },
+         "right": {
+          "op": "var",
+          "name": "admitting_unprecedented"
+         }
+        },
+        "label": "the country was admitting immigrants in unprecedented numbers",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "pr_welcome_spoken_excluding",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "admitting_unprecedented"
+           },
+           {
+            "op": "var",
+            "name": "hostility_in_law"
+           },
+           {
+            "op": "var",
+            "name": "gk_sonnet_1883"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "welcome_spoken_excluding"
+         }
+        },
+        "label": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "var",
+        "name": "welcome_spoken_excluding"
+       },
+       "label": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin."
+      },
+      "notes": "No supplied text exists for this task. Dates and figures are from memory and are grounded as general_knowledge, matching the History adapter fixtures; the engine reports them as unverified."
+     },
+     "interpretation": {
+      "reading": "'Therefore' is one specialist link from three antecedents: the admitting of immigrants in unprecedented numbers (from the 5.2 million figure), the hostility written into law (from the Chinese Exclusion Act facts), and the 1883 sonnet context. The report gives 'unprecedented' no comparator, so the link carries that gap; the trend and the Lazarus and statue facts are carried as supporting premises.",
+      "glossary": [
+       {
+        "symbol": "num_entrants_1880s",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "entrants_5_2m",
+        "meaning": "about 5.2 million people entered the United States in the 1880s (literal equality)",
+        "grounding": null
+       },
+       {
+        "symbol": "trend_se_europe",
+        "meaning": "arrivals increasingly came from southern and eastern Europe rather than from the north and west",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_act_1882",
+        "meaning": "President Chester A. Arthur signed the Chinese Exclusion Act on 6 May 1882",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_act_10yrs",
+        "meaning": "the Chinese Exclusion Act suspended Chinese labour immigration for ten years",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_lazarus",
+        "meaning": "Emma Lazarus was a New York writer already active in aid for Jewish refugees from Russia",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_sonnet_1883",
+        "meaning": "Lazarus wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal",
+        "grounding": null
+       },
+       {
+        "symbol": "gk_statue_1886",
+        "meaning": "the statue, a gift from France, was dedicated on 28 October 1886",
+        "grounding": null
+       },
+       {
+        "symbol": "hostility_in_law",
+        "meaning": "hostility toward one group was already written into law",
+        "grounding": null
+       },
+       {
+        "symbol": "admitting_unprecedented",
+        "meaning": "the country was admitting immigrants in unprecedented numbers",
+        "grounding": null
+       },
+       {
+        "symbol": "welcome_spoken_excluding",
+        "meaning": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   }
+  }
+ }
+}

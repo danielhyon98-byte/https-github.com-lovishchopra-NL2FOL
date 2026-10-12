@@ -270,20 +270,57 @@ def document_mentions(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]
     return _mentions(sentence, doc)
 
 
-_CLAUSE_END_RE = re.compile(r"[;:.!?]|,\s+(?:but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
+#: Where a credited clause ends: a semicolon, "!" or "?", a full stop or colon followed by whitespace or the end of the
+#: text (never the "." of a decimal, "5.2 million", nor the ":" of a time), a comma before a conjunction, or a spaced dash.
+#: A full stop after an abbreviation or an initial ("c. 1963", "Chester A. Arthur") does not end it either.
+_CLAUSE_END_RE = re.compile(r"[;!?]|[.:](?=\s|$)|,\s+(?:but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
+_ABBREVIATION_RE = re.compile(r"(?:^|[\s(\[])(?:c|ca|cf|approx|circa|e\.g|i\.e|vs|viz|vol|pp?|nos?|fig|St|Mr|Mrs|Ms|Dr|Jr|Sr|Gen|Col|Capt|Lt|Rev|Prof|Mt|[A-Z])$", re.IGNORECASE)
+#: A credit that names the colleague after the words it credits: "according to the History specialist", "in the words
+#: of the History specialist" (the mention follows it).
+_ACCORDING_TO_RE = re.compile(r"\b(?:according\s+to|in\s+the\s+words\s+of|as\s+(?:reported|stated|given|recorded|noted)\s+by)\s+(?:the\s+)?$", re.IGNORECASE)
+#: The start of the clause that ends where "according to <peer>" begins ("About 7.2 million arrived, according to ...").
+_CLAUSE_START_RE = re.compile(r"[;!?]\s*|[.:](?=\s)\s*|,\s+(?:and|but|while|whereas|although|though|yet|so)\b\s*|\s[-–—]\s")
+
+
+def _clause_end(rest: str) -> int:
+    """Offset in ``rest`` where its clause ends (:data:`_CLAUSE_END_RE`, skipping the full stop of an abbreviation)."""
+    for m in _CLAUSE_END_RE.finditer(rest):
+        if m.group(0) == "." and _ABBREVIATION_RE.search(rest[:m.start()]):
+            continue
+        return m.start()
+    return len(rest)
+
+
+def _clause_start(head: str) -> int:
+    """Offset in ``head`` where the clause it ends with begins."""
+    start = 0
+    for m in _CLAUSE_START_RE.finditer(head):
+        if m.group(0).startswith(".") and _ABBREVIATION_RE.search(head[:m.start()]):
+            continue
+        start = m.end()
+    return start
 
 
 def credited_spans(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
     """The spans of ``sentence`` it credits to ``doc``: after each mention of ``doc`` that is a possessive ("the History
-    specialist's figure of ...") or the subject of a reporting verb ("the History specialist gives ..."), the rest of
-    that clause. A figure inside such a span is stated as the colleague's."""
+    specialist's figure of ...", "in the History specialist's account, ..."), the subject of a reporting verb ("the
+    History specialist gives ...", "as the History specialist notes, ...") or the object of "according to" ("According
+    to the History specialist, about 7.2 million ..."), the rest of that clause; when "according to <peer>" closes its
+    clause ("About 7.2 million arrived, according to the History specialist."), the clause before it. A clause never ends
+    at the point of a decimal ("5.2 million") or of an abbreviation ("c. 1963"). A figure inside such a span is stated
+    as the colleague's."""
     out: list[tuple[int, int]] = []
-    for _a, b in _mentions(sentence, doc):
+    for a, b in _mentions(sentence, doc):
         rest = sentence[b:]
-        if not (rest.startswith(("'s", "’s", "'", "’")) or _REPORTING_VERB_RE.match(rest)):
+        leading = _ACCORDING_TO_RE.search(sentence[:a])
+        if not (rest.startswith(("'s", "’s", "'", "’")) or _REPORTING_VERB_RE.match(rest) or leading):
             continue
-        end = _CLAUSE_END_RE.search(rest)
-        out.append((b, b + (end.start() if end else len(rest))))
+        end = _clause_end(rest)
+        if leading and not re.search(r"[^\W_]", rest[:end]):  # "..., according to the History specialist." credits the clause before
+            head = sentence[:leading.start()]
+            out.append((_clause_start(head), leading.start()))
+            continue
+        out.append((b, b + end))
     return out
 
 

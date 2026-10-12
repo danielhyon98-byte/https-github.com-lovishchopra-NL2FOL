@@ -444,6 +444,15 @@ _FIDELITY_END_RE = re.compile(
 )
 
 
+def _quoted_words_fidelity(sentence: str) -> bool:
+    """A colleague's or the poem's words said to be quoted exactly in the answer (:data:`_QUOTED_WORDS_FIDELITY_RE`), the
+    predicate closing the clause or saying how the words stand ("... quoted above exactly as delivered."). "The speaker's
+    words are quoted exactly by Love." credits the quoting to a figure of the poem and "... reproduced exactly in the final
+    line" places the repetition in the text: both are the writer's analysis, not a self-report."""
+    m = _QUOTED_WORDS_FIDELITY_RE.match(sentence)
+    return m is not None and _FIDELITY_END_RE.match(sentence, m.end()) is not None
+
+
 def _sourced_kind(subject: str) -> str:
     """How a subject named with its source ("each quotation of the History specialist above", "the figures quoted from the
     History specialist", "the figures of the History report") certifies: ``anchored`` when it is anchored in the answer
@@ -628,7 +637,7 @@ def _self_certification(sentence: str) -> bool:
         return True
     # compliance with the request and word-count lines: decided before the dated-item guard, since "the 1633 spelling of the
     # supplied text" and "the 300-word limit" carry numbers that date nothing
-    if len(sentence) <= 400 and (_WORD_COUNT_RE.match(sentence) or _COMPLIANCE_RE.match(sentence) or _QUOTED_WORDS_FIDELITY_RE.match(sentence)):
+    if len(sentence) <= 400 and (_WORD_COUNT_RE.match(sentence) or _COMPLIANCE_RE.match(sentence) or _quoted_words_fidelity(sentence)):
         return True
     if _DATED_ITEM_RE.search(sentence):
         return False

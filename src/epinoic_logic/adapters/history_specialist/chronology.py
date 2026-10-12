@@ -98,7 +98,7 @@ the proxy's report.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Optional
 
@@ -641,7 +641,7 @@ def chronology_relations(sentence: str, context: Optional[str] = None) -> list[C
     return list(_chronology_relations_cached(sentence, context))
 
 
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=8192)
 def _chronology_relations_cached(sentence: str, context: Optional[str]) -> tuple[ChronologyRelation, ...]:
     return tuple(_chronology_relations(sentence, context))
 
@@ -795,6 +795,11 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
                 later, earlier = (subject, other) if cue.startswith("followed") else (other, subject)
                 emit(resolve(cue, later, earlier, how))
                 continue
+            if cue in ("followed", "preceded") and re.match(r"\s*,", right_text):
+                # 'From 1961 to 1968 roughly fifteen more states followed, including Botswana in 1969': a comma ends the verb, so it has no
+                # object here; the dates after the comma belong to the list ('including', 'among them'), never to the order, and the dates
+                # before it to the subject's own span
+                continue
         breaks = list(_CLAUSE_BREAK_RE.finditer(left_text))
         clause_start = breaks[-1].end() if breaks else 0
         left_clause = left_text[clause_start:]
@@ -832,6 +837,11 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
                 continue
             d2 = right_tokens[0]
             if _CUE_RE.search(right_seg[: d2.start]):
+                continue
+            when_at = re.search(r",?\s*\bwhen\b", right_seg[: d2.start], re.IGNORECASE)
+            if when_at:
+                # 'In 1960, after the crisis, when talks resumed in 1961, ...': the date belongs to the 'when' clause, not to the cue's object
+                across(cue, d1, None, left_clause, right_seg[: when_at.start()])
                 continue
             later, earlier = _orient_cue(cue, d1, d2)
             emit(resolve(cue, later, earlier))
@@ -1216,6 +1226,63 @@ def _containment(cue: str, inner: _Period, outer: _Period, sentence: str, *, ove
     return ChronologyRelation(cue, inner.text, outer.text, None, None, True, year_note, sentence, kind=kind, bounds=(ilo, ihi, olo, ohi))
 
 
+#: '<period>, when <clause>': the clause says what happened in the period ('for 1950 to 1952, when European exports had revived').
+_WHEN_RE = re.compile(r"(?:,\s*|\s+)when\s+", re.IGNORECASE)
+#: A beginning dated in an aside or a relative clause of a 'when' clause ('the Korean War, begun on 25 June 1950,', 'the war that had begun
+#: in 1954'): what acted in the period began no later than the period's end, though possibly before it.
+_BEGUN_BEFORE_DATE_RE = re.compile(r"(?:,\s*(?:having\s+)?|\b(?:which|that)\s+(?:had\s+)?)(?:begun|began|started|broken\s+out|broke\s+out)\s+(?:on|in)\s+"
+                                   r"(?:(?:early|late|mid)[\s-]+|c\.\s+|about\s+|around\s+)?$", re.IGNORECASE)
+#: An occurrence the 'when' clause itself dates ('when Kenya became independent in 1963', 'when the Tsar abdicated on 15 March').
+_WHEN_DATE_HEAD_RE = re.compile(r"\b(?:in|on|during)\s+(?:(?:early|late|mid)[\s-]+|c\.\s+|about\s+|around\s+)?$", re.IGNORECASE)
+#: What makes the rest of a 'when' clause no statement about the period: a time after it ('the war that would end in 1962', 'later in 1963').
+_WHEN_LATER_RE = re.compile(r"\b(?:would|will|was\s+to|were\s+to|about\s+to|later|afterwards)\b", re.IGNORECASE)
+
+
+def _when_relations(sentence: str) -> list[ChronologyRelation]:
+    """'<period>, when <clause>' (``within``): a date the 'when' clause gives an occurrence ('in 1960, when Nigeria became independent on
+    1 October') lies within the period that stands right before 'when'. A beginning dated in an aside or relative clause of it ('for 1950 to
+    1952, when ... demand from the Korean War, begun on 25 June 1950, lifted orders'), or an occurrence in the pluperfect ('when the war had
+    ended in November 1918'), lies no later than the period's end (an open start). A date after an ordering cue belongs to that cue; a date
+    in another relative clause or aside, a bound ('until', 'by', 'since') or a later time ('would', 'later') states nothing about the period,
+    and a period that is itself a bound ('by 1968, when') is not read."""
+    out: list[ChronologyRelation] = []
+    for m in _WHEN_RE.finditer(sentence):
+        clause = _clause_before(sentence[: m.start()])
+        periods = _periods(clause)
+        if not periods:
+            continue
+        outer = periods[-1]
+        if clause[outer.end:].strip(" ,") or (not outer.is_range and _RANGE_BEFORE_DATE_RE.search(clause[: outer.start])):
+            continue  # the period must stand right before 'when', and not as a bound ('until 1968, when')
+        if outer.decade is None and outer.bounds() is None:
+            continue
+        when = _clause_after(sentence[m.end():])
+        for inner in _periods(when):
+            pre = when[: inner.start]
+            if _CUE_RE.search(pre) or _WHEN_LATER_RE.search(pre):
+                break  # the dates after an ordering cue are that cue's, and after 'would' or 'later' no date is the period's
+            if _RANGE_BEFORE_DATE_RE.search(pre):
+                continue  # a bound ('until 1968', 'since 1945') is not the date of an occurrence
+            segment = pre[pre.rfind(",") + 1:]
+            if _BEGUN_BEFORE_DATE_RE.search(pre):
+                upto, how = True, "a beginning dated in an aside of a 'when' clause: what acted in the period began no later than its end"
+            elif _WHEN_DATE_HEAD_RE.search(pre) and not _RELATIVE_CLAUSE_RE.search(segment) and not _PARTICIPLE_OPENER_RE.match(segment):
+                upto = bool(re.search(r"\bhad\b", pre, re.IGNORECASE))
+                how = "an occurrence the 'when' clause states in the pluperfect: no later than the period's end" if upto else ""
+            else:
+                continue
+            period = outer
+            if upto:
+                end = outer.last if outer.last is not None else DateToken(outer.start, outer.end, str((outer.decade or 0) + 9), None, (outer.decade or 0) + 9)
+                period = _Period(outer.start, outer.end, f"the period up to {end.text if outer.decade is None else 'the end of ' + outer.text}",
+                                 end, end, open_start=True)
+            rel = _containment("when", inner, period, sentence, overlap_ok=False)
+            if how:
+                rel = replace(rel, reason=f"{how}; {rel.reason}" if rel.reason else how)
+            out.append(rel)
+    return out
+
+
 def _span_in(sentence: str) -> Optional[tuple[DateToken, DateToken, "re.Match[str]"]]:
     """The first duration span of ``sentence`` ('ran from D1 to D2'): its two date tokens and the verb match."""
     for m in _SPAN_VERB_RE.finditer(sentence):
@@ -1283,6 +1350,8 @@ def _period_relations(sentence: str, context: Optional[str]) -> list[ChronologyR
                 periods = _periods(inner_text[a:b])
                 if periods:
                     out.append(_containment(cue, periods[0], outer, sentence, overlap_ok=False))
+    if " when " in low or ",when " in low:
+        out.extend(_when_relations(sentence))
     if any(c in low for c in ("during", "within", "in the course of", "in the midst of", "amid")):
         for m in _DURING_CUE_RE.finditer(sentence):
             left = _clause_before(sentence[: m.start()])

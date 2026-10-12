@@ -212,12 +212,28 @@ def test_a_synthesis_that_leaves_the_note_out_without_a_record_is_not_named_but_
 @pytest.mark.parametrize("closing, role", [
     ("The reading stays plausible: the poem never mentions the war.", "interpretation"),
     ("This reading rests on the historical context, so it is offered tentatively.", "interpretation"),
+    ("The poem never mentions the war, so the link cannot be proved.", "interpretation"),
+    ("The date comes from the History specialist, not the poem, so it is offered tentatively.", "interpretation"),
 ])
 def test_a_closing_caveat_is_never_the_link_and_the_conclusion_before_it_is(closing, role):
     text = ('The city is held still at dawn. The houses "seem asleep" and the river "glideth at his own sweet will". '
             f"The verb therefore keeps the city still. {closing}")
     [para] = segment(text)
     assert [s.role for s in para.sentences] == ["point", "interpretation", "link", role]
+
+
+@pytest.mark.parametrize("conclusion", [
+    "The sonnet never names an origin, so its universal welcome can be read as an ideal that the country's law contradicted.",
+    "The poem nowhere states who may enter, so its universal welcome stands as an ideal that the country's law contradicted.",
+    "The welcome is therefore the statue's, not the poem's alone, an ideal that the country's law contradicted.",
+])
+def test_a_conclusion_drawn_from_what_the_poem_leaves_unsaid_is_still_the_link(conclusion):
+    """Fixer self-check on the closing-link rule: what the poem leaves unsaid, or a possessive "not the poem's", is not a
+    caveat on the reading's grounds, so en-p5's conclusion rephrased that way is still the material link (and the note
+    after it is not)."""
+    rep = english(EN_P5["response_text"].replace(P5_CONCLUSION, conclusion))
+    assert [(c.claim_id, c.claim_text) for c in rep.claims if c.claim_role == "link"] == [("p1-s11", conclusion)]
+    assert claim(rep, P5_NOTE).claim_role == "other"
 
 
 # ------------------------------------------------------------ adversarial-live major: an English answer made only of notes
@@ -332,6 +348,9 @@ def test_word_count_lines_and_further_compliance_shapes_are_self_reports(sentenc
     "The paragraph should stay within the word limit.",
     "The answer is not under the word limit.",
     "The History specialist's figures show that immigration rose.",
+    # a figure of the poem quoting another, and a repetition placed in the text (fixer self-check)
+    "The speaker's words are quoted exactly by Love.",
+    "The speaker's words are reproduced exactly in the final line.",
 ])
 def test_argument_sentences_of_the_same_shapes_are_not_self_reports(sentence):
     assert not md.is_self_certification(sentence)
