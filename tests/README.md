@@ -283,3 +283,19 @@ Work in progress after it is labelled as such.
 - **STEM and overseer builds.** Both were interrupted at 03:45 UTC and resumed at 04:28 UTC from their last
   completed steps. Their unfinished edits were backed up first.
 - **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 05:27 UTC.**
+- **Arena round 7, material.** The material is complete:
+  - 22 answers from all sixteen specialists, on the cheapest model tier from the v4 knowledge bases;
+  - 22 translations and 22 syntheses;
+  - 3 of 3 cross-subject peer reports delivered through the hub (Economics to Business Management, Physics to
+    Mathematics: Analysis and Approaches, History to English A: Literature).
+- **Arena round 7, harness before fixes.** 161 transmissions, 148 functional (91.9%). 13 failed; most are
+  syntheses, along with one peer answer. 35 genuine answers or syntheses carry findings to be judged. The full suite
+  has 1,617 tests, all passing. The overseer lenses will now decide which findings are real defects.
+- **STEM in round 7.** The STEM build was not merged into round 7: its routing and corpus-evaluation stages were not
+  committed when the round reached its harness. It joins at round 8, after the merge.
+- **Builds.** The STEM build is in its routing stage and the overseer build in its contained-test harness stage.
+  Neither has a new commit this hour.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent. Round 7's verified fix commit is the
+  next candidate.
