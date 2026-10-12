@@ -344,3 +344,20 @@ Work in progress after it is labelled as such.
 - **Overseer build.** Its first review round fixed defects in tamper evasion, agent abuse and precision. Its second
   review round is running.
 - **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 09:27 UTC.**
+- **Arena round 7, verified.** The fixes are committed (`dc77853`) with the round's results report (`99e435b`).
+  Round 7's harness now passes 162 of 162 transmissions, against 148 of 161 before the fixes. The full suite has
+  1,855 tests, all passing (1,617 before). No earlier round dropped: r1 30/30, r1-adv 150/151, and 46/46 for each of
+  r2 to r6. Before their fixes, the four lenses had rated round 7 at:
+  - results-audit 0.532;
+  - communication-fidelity 0.4246;
+  - adversarial-live 0.7477;
+  - translation accuracy 0.6384.
+
+  Testing continues in rounds 8 to 10, after the STEM and overseer builds merge. Findings that need the STEM or
+  overseer code are kept in handoff files and applied after those merges.
+- **Bruno's repository.** The second verified update was sent to `verified-updates` (from source `99e435b`). It
+  carries `UPDATE_README.md` (what changed, the bugs found, the fixes, the before and after counts) and a note
+  backfilled for the first update.
+- **Overseer build.** Its second review round is in its fix stage. The STEM build is complete and waiting to merge.
