@@ -245,3 +245,17 @@ Work in progress after it is labelled as such.
   The full suite must be green, and no replayed round may score lower than in the last update.
   Work-in-progress commits are never published. Nothing qualifies yet.
 - **Builds.** The four builds resumed at 02:41 UTC.
+
+**2026-10-12 03:30 UTC.**
+- **Arena round 6.** Fixes are still in progress. The English, History and harness fixers
+  have finished, and the channel fixer is still working. The round's verified commit follows
+  once the suite and the replays of every recorded round pass.
+- **Overseer build.** The live hook stage is committed on its own branch (`6bb22b7`). Its
+  contained-test harness is being built now.
+- **STEM build.** It is in its checks stage.
+- **Breadth probe.** It finished all its steps. Its 45 distinct findings feed the first
+  combined clearance round.
+- **Stress tests.** Per Daniel's instruction, no stress tests run after bug fixes, and no model
+  is stress tested. The only load testing will be the scalability tests with many agents on
+  the infrastructure, in the scaling step and the multi-agent test.
+- **Bruno's repository.** Nothing is final yet, so nothing new was sent.
