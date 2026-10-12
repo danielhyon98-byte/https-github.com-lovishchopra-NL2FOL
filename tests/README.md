@@ -225,3 +225,23 @@ translation is audited and appears in the overseer agents' dossiers.
 
 The verified baseline, `3147d08`, and its review are recorded in `docs/BASELINE_REVIEW.md`.
 Work in progress after it is labelled as such.
+
+**2026-10-12 02:45 UTC.**
+- **Publication.** The verified baseline was published to Bruno's private repository at
+  about 00:35 UTC, as branch `import/translator-baseline` (`650d1d3`). Its tree is identical to
+  the baseline (`3147d08`, tree `cc82e93`) plus documentation.
+- **Interruptions.** Between 00:30 and 02:40 UTC the four builds were resumed twice. Both times
+  an account usage limit stopped them within minutes, and the round-6 fixers were cut off again.
+- **Round 6.** The round-6 work so far is checkpointed as `4461ab2`: default suite 1,504 passed,
+  1 skipped. That checkpoint is work in progress. Its harness replays and the overseer re-check
+  are still to run.
+- **Final-only publishing.** From now on, Bruno's repository is updated every hour on branch
+  `verified-updates`, and only with final fixes. A final fix is one of these verified arena
+  commits:
+  - "Fix the rN arena overseer findings";
+  - "Fix defects found by the contained stress runs";
+  - "Arena results: …".
+
+  The full suite must be green, and no replayed round may score lower than in the last update.
+  Work-in-progress commits are never published. Nothing qualifies yet.
+- **Builds.** The four builds resumed at 02:41 UTC.
