@@ -259,3 +259,27 @@ Work in progress after it is labelled as such.
   is stress tested. The only load testing will be the scalability tests with many agents on
   the infrastructure, in the scaling step and the multi-agent test.
 - **Bruno's repository.** Nothing is final yet, so nothing new was sent.
+
+**2026-10-12 04:27 UTC.**
+- **Arena round 6.** Verified and committed (`23707b9`). The full suite has 1,617 tests, all passing. The harness
+  counts are r1 30/30, r1-adv 150/151 and 46/46 for each of r2 to r6. This was the first verified update sent to
+  Bruno's repository.
+- **Arena round 7.** It now uses all sixteen specialists from the v4 knowledge bases, on the cheapest model tier,
+  each reading its whole knowledge base as a single bundle. The task design has 22 tasks covering all sixteen
+  specialists, with three cross-subject peer pairs. Each pair shares one group, so the hub can relay between them:
+  - Economics to Business Management;
+  - Physics to Mathematics: Analysis and Approaches;
+  - History to English A: Literature.
+
+  The specialists are answering now. The STEM build joins round 7 if its implementation is committed before the
+  round's checks begin, after an independent verification; otherwise it joins round 8.
+- **Plan changes requested by Daniel.**
+  - Bug-testing rounds come first. The optimisation checks (at most three) now run last, after every bug-testing
+    round, and the stand-alone optimisation pass was stopped.
+  - Rounds 8 to 10 run after the STEM and overseer builds merge. In those rounds the overseer agents run on the
+    cheapest tier under the self-duplication protocol.
+  - The multi-agent test uses all sixteen specialists, not duplicated agents.
+  - Every update to Bruno's repository now includes an update README.
+- **STEM and overseer builds.** Both were interrupted at 03:45 UTC and resumed at 04:28 UTC from their last
+  completed steps. Their unfinished edits were backed up first.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
