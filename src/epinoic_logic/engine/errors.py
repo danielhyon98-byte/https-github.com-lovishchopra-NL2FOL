@@ -16,6 +16,7 @@ class DiagnosticCode(str, Enum):
     NON_BOOLEAN_ASSERTION = "E107"
     VACUOUS_RESULT = "E108"         # a definitive status that used no premise (tautology / empty problem)
     CLOSED_CONCLUSION = "E109"      # conclusion mentions no declared symbol
+    UNASSERTED_FIGURE = "E110"      # a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
     # UNSUPPORTED (policy)
     UNKNOWN_OPERATOR = "E200"
     NONLINEAR_TERM = "E201"

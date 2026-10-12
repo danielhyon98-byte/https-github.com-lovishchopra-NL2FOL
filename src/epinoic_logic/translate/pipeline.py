@@ -17,6 +17,12 @@ Order of operations (each step is deterministic code except the provider call):
    policy (``UNSUPPORTED``) and identity failures are not retried.
 4. **Grounding** (``grounding``): quotation groundings are checked verbatim against
    the supplied texts and ``verified`` is set by code only.
+4b. **Stated figures** (``engine.runner.unasserted_figure_definitions``): a premise that
+   only defines an atom by a comparison of a figure no other premise mentions
+   (``b <-> (n = 17)`` with ``n`` free) asserts nothing. When the conclusion fails only
+   because of such a figure (the engine's COUNTEREXAMPLE turns ENTAILED once the defined
+   atoms are asserted: ``E110``), the output is INVALID_FORMALIZATION with that diagnostic
+   (fed back once); otherwise the unasserted definitions are recorded as a note.
 5. **Status**: ``TRANSLATED``, or ``AMBIGUOUS_TRANSLATION`` when the provider
    flagged ambiguity, ``UNSUPPORTED`` when it declined or the validator rejected a
    construct by policy, ``INVALID_FORMALIZATION`` when no valid encoding was
@@ -34,6 +40,9 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from ..engine.errors import DiagnosticCode
+from ..engine.results import SolverConfig
+from ..engine.runner import unasserted_figure_definitions, verify as engine_verify
 from ..engine.statuses import VerificationStatus
 from ..engine.validator import validate_problem
 from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
@@ -128,7 +137,9 @@ class Translator:
     ``provider`` is any :class:`~epinoic_logic.translate.providers.base.TranslationProvider`.
     ``max_attempts`` bounds provider calls per claim (default 2: one retry with the
     previous attempt's diagnostics). ``limits`` are the IR shape limits enforced by
-    the engine validator before anything is accepted.
+    the engine validator before anything is accepted. ``config`` bounds the solver run
+    that decides whether a conclusion fails only on a figure the problem defines but
+    never asserts (run only when such a definition is present).
     """
 
     def __init__(
@@ -138,6 +149,7 @@ class Translator:
         max_attempts: int = 2,
         prompt_version: str = prompts.TRANSLATE_PROMPT_VERSION,
         limits: Limits = DEFAULT_LIMITS,
+        config: SolverConfig = SolverConfig(),
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
@@ -146,6 +158,7 @@ class Translator:
         self.max_attempts = max_attempts
         self.prompt_version = prompt_version
         self.limits = limits
+        self.config = config
 
     # ------------------------------------------------------------------ public
 
@@ -301,10 +314,29 @@ class Translator:
             notes.append(
                 f"{len(failed)} grounding check(s) failed: " + ", ".join(sorted({c.target_id for c in failed}))
             )
+        notes += self._stated_figures(grounded, tag)
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")
         return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes)
+
+    def _stated_figures(self, problem: Problem, tag: str) -> list[str]:
+        """A premise that only defines an atom by a comparison of a figure no other premise mentions asserts nothing.
+        When the conclusion fails only on such a figure (the engine's ``E110``: COUNTEREXAMPLE as encoded, ENTAILED once
+        the defined atoms are asserted), the output is rejected as INVALID_FORMALIZATION with the diagnostic, which is
+        fed back once, so a counterexample that merely sets the stated figure to another value is never a verdict
+        (ambiguous or not). Otherwise each unasserted definition is recorded as a note: the verdict does not rest on it."""
+        defs = unasserted_figure_definitions(problem)
+        if not defs:
+            return []
+        if problem.query == "entailment" and problem.conclusion is not None:
+            probe = engine_verify(problem, self.config)
+            diag = next((d for d in probe.diagnostics if d.code == DiagnosticCode.UNASSERTED_FIGURE.value), None)
+            if diag is not None:
+                raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {diag.code}: {truncate(diag.message, _MAX_DIAGNOSTIC_CHARS * 3)}" + (f" at {diag.path}" if diag.path else "")], retryable=True)
+        named = ", ".join(f"{d.premise_id} ({d.atom} over {', '.join(d.figures)})" for d in defs[:8]) + (f" and {len(defs) - 8} more" if len(defs) > 8 else "")
+        return [truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
+                         "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2)]
 
     def _result(
         self,

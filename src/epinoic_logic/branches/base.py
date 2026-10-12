@@ -62,11 +62,26 @@ class SubjectBranch:
         return self.parser_factory()
 
     def run_packs(self, report: SpecialistReport, request_text: Optional[str] = None) -> tuple[list[StructuralFinding], list[FormalCheck]]:
+        """Every pack's findings and formal checks. Each pack, and each of its two calls, runs on its own: a pack that fails internally
+        adds ``PACK-INTERNAL-001`` (error) naming the pack and the call, and the other packs' findings and formal checks still reach
+        the receipt, so one failing check never discards the rest."""
         findings: list[StructuralFinding] = []
         formal: list[FormalCheck] = []
         for p in self.packs:
-            findings += p.checks(report, request_text)
-            formal += p.formal_checks(report)
+            for what, call in (("checks", lambda p=p: p.checks(report, request_text)), ("formal checks", lambda p=p: p.formal_checks(report))):
+                try:
+                    out = list(call())
+                except Exception as exc:  # noqa: BLE001 - reported on the receipt, never silent
+                    findings.append(StructuralFinding(
+                        code="PACK-INTERNAL-001", severity="error",
+                        message=f"the {getattr(p, 'name', type(p).__name__)} integrity pack's {what} failed internally ({type(exc).__name__}); its {what} are missing "
+                                f"from this receipt and the router must not treat them as passed; the other packs ran",
+                        rule_source="hub integrity (a failing pack is reported, never silently skipped)"))
+                    continue
+                if what == "checks":
+                    findings += out
+                else:
+                    formal += out
         return findings, formal
 
 

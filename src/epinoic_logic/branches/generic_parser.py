@@ -21,8 +21,12 @@ checked ...", "all of these figures have been verified", "the figures here are a
 "no errors were found", "Z3 proved the argument above", and by the clause's structure "every
 mileage figure above has been checked", "these figures are reliable and need no further
 checking", "Nothing in this answer needs checking", "The router has confirmed that every item
-is addressed") carry the advisory status, and a note on how the answer was composed ("The
-historical setting is my own addition, not part of that paragraph.") is a note.
+is addressed", items named with their source, "each quotation of the History specialist above is
+exact", and compliance with the request, "The paragraph is under the word limit.", "Word count:
+258.") carry the advisory status, and a note on how the answer was composed ("The historical
+setting is my own addition, not part of that paragraph.") or on what a received report says of its
+own figures ("That account marks its figures as "from memory", so they are reported unverified.")
+is a note.
 Quotations are found in double marks of any kind (straight, curly, guillemet, mixed, two
 adjacent marks as one nested mark) and in single marks around two or more words, paired by
 context so a quotation that carries an apostrophe ('I don't know') is still one quotation;

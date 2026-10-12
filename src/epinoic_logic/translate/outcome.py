@@ -11,8 +11,9 @@ Display rules (never relaxed):
   bound to exactly the translated problem; a missing or mis-bound result is
   ``INTERNAL_ERROR``. When the composer holds the signing key, a result whose
   signature does not verify is likewise rejected (``E501``). A definitive status
-  that the engine marked vacuous (``E108``: no premise was used) is displayed as
-  ``INVALID_FORMALIZATION``, never as a verdict.
+  that the engine marked vacuous (``E108``: no premise was used) or a COUNTEREXAMPLE
+  that only reassigns a figure the problem defines but never asserts (``E110``) is
+  displayed as ``INVALID_FORMALIZATION``, never as a verdict.
 * ``AMBIGUOUS_TRANSLATION``  -> ``AMBIGUOUS_TRANSLATION`` (the best-reading problem may
   have been verified for inspection, but an ambiguous claim is never displayed as
   a result).
@@ -117,8 +118,19 @@ def _binding_problem(
     return None
 
 
+#: Engine diagnostics that make a definitive status no verdict on the claim: a vacuous result (E108) and a counterexample
+#: that only reassigns a figure the problem defines but never asserts (E110).
+_NO_VERDICT_CODES = (DiagnosticCode.VACUOUS_RESULT.value, DiagnosticCode.UNASSERTED_FIGURE.value)
+
+
+def _no_verdict_diagnostic(verification: VerificationResult):
+    if verification.status not in DEFINITIVE:
+        return None
+    return next((d for d in verification.diagnostics if d.code in _NO_VERDICT_CODES), None)
+
+
 def _is_vacuous(verification: VerificationResult) -> bool:
-    return verification.status in DEFINITIVE and any(d.code == DiagnosticCode.VACUOUS_RESULT.value for d in verification.diagnostics)
+    return _no_verdict_diagnostic(verification) is not None
 
 
 def display_status_for(
@@ -207,10 +219,11 @@ def _verification_lines(
             f"The best-reading encoding was run for inspection and returned {verification.status.value}; "
             "because the claim is ambiguous this is not displayed as a result."
         )
-    if _is_vacuous(verification):
-        vacuous = next(d for d in verification.diagnostics if d.code == DiagnosticCode.VACUOUS_RESULT.value)
+    vacuous = _no_verdict_diagnostic(verification)
+    if vacuous is not None:
+        what = "Vacuous result" if vacuous.code == DiagnosticCode.VACUOUS_RESULT.value else "Unasserted figure"
         lines.append(
-            f"Vacuous result: the engine returned {verification.status.value} but {truncate(vacuous.message, _DIAG_CHARS)} "
+            f"{what}: the engine returned {verification.status.value} but {truncate(vacuous.message, _DIAG_CHARS * 2)} "
             f"({vacuous.code}); it is displayed as INVALID_FORMALIZATION, not as a verdict."
         )
     if verification.premises_relied_on:

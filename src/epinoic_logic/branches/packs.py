@@ -17,6 +17,10 @@ from .base import FormalCheck
 from .quant import extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
+#: The most formal checks the core pack sends to the engine for one transmission (arithmetic first, then chronology). An answer far
+#: beyond any request's length could otherwise hold the hub for seconds; the statements beyond the limit are named, never dropped
+#: silently (CORE-QNT-001 / CORE-CHR-001: 'not checked: the check limit was reached').
+MAX_FORMAL_CHECKS = 500
 _STUDY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s(?:and|&)\s[A-Z][a-z]+)?(?:\set\sal\.?)?)\s*\((\d{4})\)")
 _PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent(?!age)|%)")
 #: A from-memory label that speaks of quotations (a figures label does not vouch for a quotation).
@@ -85,7 +89,9 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
     to D2'): the event the sentence places later must have the later day ordinal
     ((year*12+month)*32+day). A containment ('December 1899, including ... on 11 December', 'The
     1840s, which included the Railway Mania of 1845 to 1847'): the inner interval of day ordinals
-    lies within the outer one; after 'during' an inner range must meet the outer period. A same-year
+    lies within the outer one (the items of one list, 'including A in d1, B in d2 and C in d3', are one
+    problem whose conclusion holds every item inside the period, and its description names first the
+    items the dates place outside); after 'during' an inner range must meet the outer period. A same-year
     relation ('the poem's 1902 date falls at the war's close'): the two years are equal. The
     relations come from ``history_specialist.chronology.chronology_relations``, the extractor the
     History proxy ``HI-CHR-001`` also reads, with the paragraph as context for a date whose year the
@@ -104,51 +110,101 @@ def _chronology_formal(report: SpecialistReport, prefix: str) -> list[FormalChec
     def eq(name: str, value: int, label: str, pid: str) -> dict:
         return {"id": pid, "expr": {"op": "eq", "left": var(name), "right": {"op": "int", "value": str(value)}}, "label": label[:1000], "grounding": grounding}
 
-    for _pi, _si, sent, para in _sentences_with_paragraph(report.original_response):
+    for sent, para, group in _chronology_units(report.original_response):
+        rel = group[0]
+        ordinal_note = "as a day ordinal ((year*12+month)*32+day)"
+        if len(group) > 1:
+            # 'including Tanganyika in 1961, Kenya in 1963 and Botswana in 1966': one problem, every item inside the one outer period
+            olo, ohi = group[0].bounds[2], group[0].bounds[3]
+            symbols = [{"name": "outer_start", "sort": "Int", "meaning": f"first day of {rel.earlier_text} {ordinal_note}"},
+                       {"name": "outer_end", "sort": "Int", "meaning": f"last day of {rel.earlier_text} {ordinal_note}"}]
+            premises = [eq("outer_start", olo, f"{rel.earlier_text} begins", "D0S"), eq("outer_end", ohi, f"{rel.earlier_text} ends", "D0E")]
+            args = []
+            for i, r in enumerate(group, start=1):
+                ilo, ihi = r.bounds[0], r.bounds[1]
+                symbols += [{"name": f"inner{i}_start", "sort": "Int", "meaning": f"first day of {r.later_text} {ordinal_note}"},
+                            {"name": f"inner{i}_end", "sort": "Int", "meaning": f"last day of {r.later_text} {ordinal_note}"}]
+                premises += [eq(f"inner{i}_start", ilo, f"{r.later_text} begins", f"D{i}S"), eq(f"inner{i}_end", ihi, f"{r.later_text} ends", f"D{i}E")]
+                args += [{"op": "ge", "left": var(f"inner{i}_start"), "right": var("outer_start")}, {"op": "le", "left": var(f"inner{i}_end"), "right": var("outer_end")}]
+            concl = {"op": "and", "args": args}
+            items = ", ".join(r.later_text for r in group[:-1]) + f" and {group[-1].later_text}"
+            outside = [r.later_text for r in group if r.violated]
+            label = f"{items} each lie within '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+            reasons = "; ".join(dict.fromkeys(r.reason for r in group if r.reason))
+            if reasons:
+                label += f" ({reasons})"
+            n += 1
+            problem = {"problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
+                       "symbols": symbols, "premises": premises, "conclusion": {"id": "ORDER", "expr": concl, "label": label[:1000]}}
+            statement = "; ".join(r.statement for r in (group if not outside else [r for r in group if r.violated] + [r for r in group if not r.violated]))
+            out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
+                                   description=(f"stated containment of dated events ('{rel.cue}': {statement})"
+                                                + (f" [read by date: {', '.join(outside)} outside {rel.earlier_text}]" if outside else "")
+                                                + f": {_excerpt_around(sent.strip(), rel.cue)}"),
+                                   problem=Problem.model_validate(problem), claim_ids=tuple(_claims_for_statement(report, sent, rel.cue))))
+            continue
+        if rel.kind in ("within", "overlaps") and rel.bounds:
+            ilo, ihi, olo, ohi = rel.bounds
+            symbols = [{"name": "inner_start", "sort": "Int", "meaning": f"first day of {rel.later_text} {ordinal_note}"},
+                       {"name": "inner_end", "sort": "Int", "meaning": f"last day of {rel.later_text} {ordinal_note}"},
+                       {"name": "outer_start", "sort": "Int", "meaning": f"first day of {rel.earlier_text} {ordinal_note}"},
+                       {"name": "outer_end", "sort": "Int", "meaning": f"last day of {rel.earlier_text} {ordinal_note}"}]
+            premises = [eq("inner_start", ilo, f"{rel.later_text} begins", "D1"), eq("inner_end", ihi, f"{rel.later_text} ends", "D2"),
+                        eq("outer_start", olo, f"{rel.earlier_text} begins", "D3"), eq("outer_end", ohi, f"{rel.earlier_text} ends", "D4")]
+            if rel.kind == "within":
+                concl = {"op": "and", "args": [{"op": "ge", "left": var("inner_start"), "right": var("outer_start")}, {"op": "le", "left": var("inner_end"), "right": var("outer_end")}]}
+                label = f"'{rel.later_text}' lies within '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+            else:
+                concl = {"op": "and", "args": [{"op": "le", "left": var("inner_start"), "right": var("outer_end")}, {"op": "ge", "left": var("inner_end"), "right": var("outer_start")}]}
+                label = f"'{rel.later_text}' falls during '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+            kind_word = "containment"
+        elif rel.kind == "same_year" and rel.bounds:
+            symbols = [{"name": "stated_year", "sort": "Int", "meaning": f"the year of {rel.later_text}"},
+                       {"name": "reference_year", "sort": "Int", "meaning": f"the year of {rel.earlier_text}"}]
+            premises = [eq("stated_year", rel.bounds[0], rel.later_text, "D1"), eq("reference_year", rel.bounds[1], rel.earlier_text, "D2")]
+            concl = {"op": "eq", "left": var("stated_year"), "right": var("reference_year")}
+            label = f"'{rel.later_text}' falls in the year of {rel.earlier_text}, as the sentence's '{rel.cue}' asserts"
+            kind_word = "same year"
+        elif rel.later_ordinal is not None and rel.earlier_ordinal is not None:
+            symbols = [{"name": "later_event", "sort": "Int", "meaning": f"{rel.later_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"},
+                       {"name": "earlier_event", "sort": "Int", "meaning": f"{rel.earlier_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"}]
+            premises = [eq("later_event", rel.later_ordinal, rel.later_text, "D1"), eq("earlier_event", rel.earlier_ordinal, rel.earlier_text, "D2")]
+            concl = {"op": "gt", "left": var("later_event"), "right": var("earlier_event")}
+            label = f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
+            kind_word = "order"
+        else:
+            continue
+        n += 1
+        if rel.reason:
+            label += f" ({rel.reason})"
+        problem = {"problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
+                   "symbols": symbols, "premises": premises, "conclusion": {"id": "ORDER", "expr": concl, "label": label[:1000]}}
+        out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
+                               description=f"stated {kind_word} of dated events ('{rel.cue}': {rel.statement}): {_excerpt_around(sent.strip(), rel.cue)}", problem=Problem.model_validate(problem),
+                               claim_ids=tuple(_claims_for_statement(report, sent, rel.cue))))
+    return out
+
+
+def _chronology_units(text: str) -> list[tuple[str, str, list]]:
+    """The decided dated relations of ``text`` as the units the engine checks: ``(sentence, paragraph, relations)``. The items of one
+    containment list (one cue, one outer period: 'including A in d1, B in d2 and C in d3') are one unit, so a list costs one engine
+    call; every other relation is a unit of its own."""
+    units: list[tuple[str, str, list]] = []
+    for _pi, _si, sent, para in _sentences_with_paragraph(text):
+        lists: dict[tuple, list] = {}
         for rel in chronology_relations(sent, para):
             if not rel.decided:
                 continue
-            ordinal_note = "as a day ordinal ((year*12+month)*32+day)"
-            if rel.kind in ("within", "overlaps") and rel.bounds:
-                ilo, ihi, olo, ohi = rel.bounds
-                symbols = [{"name": "inner_start", "sort": "Int", "meaning": f"first day of {rel.later_text} {ordinal_note}"},
-                           {"name": "inner_end", "sort": "Int", "meaning": f"last day of {rel.later_text} {ordinal_note}"},
-                           {"name": "outer_start", "sort": "Int", "meaning": f"first day of {rel.earlier_text} {ordinal_note}"},
-                           {"name": "outer_end", "sort": "Int", "meaning": f"last day of {rel.earlier_text} {ordinal_note}"}]
-                premises = [eq("inner_start", ilo, f"{rel.later_text} begins", "D1"), eq("inner_end", ihi, f"{rel.later_text} ends", "D2"),
-                            eq("outer_start", olo, f"{rel.earlier_text} begins", "D3"), eq("outer_end", ohi, f"{rel.earlier_text} ends", "D4")]
-                if rel.kind == "within":
-                    concl = {"op": "and", "args": [{"op": "ge", "left": var("inner_start"), "right": var("outer_start")}, {"op": "le", "left": var("inner_end"), "right": var("outer_end")}]}
-                    label = f"'{rel.later_text}' lies within '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
-                else:
-                    concl = {"op": "and", "args": [{"op": "le", "left": var("inner_start"), "right": var("outer_end")}, {"op": "ge", "left": var("inner_end"), "right": var("outer_start")}]}
-                    label = f"'{rel.later_text}' falls during '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
-                kind_word = "containment"
-            elif rel.kind == "same_year" and rel.bounds:
-                symbols = [{"name": "stated_year", "sort": "Int", "meaning": f"the year of {rel.later_text}"},
-                           {"name": "reference_year", "sort": "Int", "meaning": f"the year of {rel.earlier_text}"}]
-                premises = [eq("stated_year", rel.bounds[0], rel.later_text, "D1"), eq("reference_year", rel.bounds[1], rel.earlier_text, "D2")]
-                concl = {"op": "eq", "left": var("stated_year"), "right": var("reference_year")}
-                label = f"'{rel.later_text}' falls in the year of {rel.earlier_text}, as the sentence's '{rel.cue}' asserts"
-                kind_word = "same year"
-            elif rel.later_ordinal is not None and rel.earlier_ordinal is not None:
-                symbols = [{"name": "later_event", "sort": "Int", "meaning": f"{rel.later_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"},
-                           {"name": "earlier_event", "sort": "Int", "meaning": f"{rel.earlier_text} as a day ordinal ((year*12+month)*32+day; an unstated month or day counts 0)"}]
-                premises = [eq("later_event", rel.later_ordinal, rel.later_text, "D1"), eq("earlier_event", rel.earlier_ordinal, rel.earlier_text, "D2")]
-                concl = {"op": "gt", "left": var("later_event"), "right": var("earlier_event")}
-                label = f"'{rel.later_text}' is later than '{rel.earlier_text}', as the sentence's '{rel.cue}' asserts"
-                kind_word = "order"
-            else:
+            if rel.kind == "within" and rel.bounds:
+                key = (rel.cue, rel.earlier_text, rel.bounds[2], rel.bounds[3])
+                if key in lists:
+                    lists[key].append(rel)
+                    continue
+                lists[key] = [rel]
+                units.append((sent, para, lists[key]))
                 continue
-            n += 1
-            if rel.reason:
-                label += f" ({rel.reason})"
-            problem = {"problem_id": f"chron-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:chronology-{n}", "query": "entailment",
-                       "symbols": symbols, "premises": premises, "conclusion": {"id": "ORDER", "expr": concl, "label": label[:1000]}}
-            out.append(FormalCheck(check_id=f"{prefix}-chronology-{n}", kind="chronology",
-                                   description=f"stated {kind_word} of dated events ('{rel.cue}': {rel.statement}): {_excerpt_around(sent.strip(), rel.cue)}", problem=Problem.model_validate(problem),
-                                   claim_ids=tuple(_claims_for_statement(report, sent, rel.cue))))
-    return out
+            units.append((sent, para, [rel]))
+    return units
 
 
 def _quant_formal(report: SpecialistReport, prefix: str) -> list[FormalCheck]:
@@ -394,16 +450,68 @@ class CorePack:
         has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
-        disagreeing, disputed = self._quotation_ref_disagreements(report) if report.supplied_texts else ([], frozenset())
-        f += disagreeing
-        f += self._unverifiable_quotations(report, has_memory_label, disputed)
+        disagreeing, disputed = self._guarded("quotation references", lambda: self._quotation_ref_disagreements(report), f) if report.supplied_texts else ([], frozenset())
+        f += disagreeing or []
+        f += self._guarded("unverifiable quotations", lambda: self._unverifiable_quotations(report, has_memory_label, disputed or frozenset()), f) or []
         if report.supplied_texts:
-            f += self._misattributed_quotations(report)
-        f += self._unbalanced_quotation_marks(report)
-        f += self._self_certification(report)
-        f += self._undecided_chronology(report)
-        f += self._undecided_arithmetic(report)
+            f += self._guarded("misattributed quotations", lambda: self._misattributed_quotations(report), f) or []
+        f += self._guarded("quotation marks", lambda: self._unbalanced_quotation_marks(report), f) or []
+        f += self._guarded("self-certification", lambda: self._self_certification(report), f) or []
+        f += self._guarded("chronology", lambda: self._undecided_chronology(report), f) or []
+        f += self._guarded("arithmetic", lambda: self._undecided_arithmetic(report), f) or []
+        f += self._guarded("support links", lambda: self._support_cycles(report), f) or []
+        f += self._guarded("check limit", lambda: self._formal_overflow(report), f) or []
         return f
+
+    @staticmethod
+    def _formal_overflow(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-QNT-001 / CORE-CHR-001 for the stated relations beyond :data:`MAX_FORMAL_CHECKS`: they were read but not sent to the engine,
+        so the receipt says so and names their claims rather than passing them silently."""
+        text = report.original_response
+        quant = extract_quant_checks(text, request_id=report.request_id, claim_id=f"{report.report_id}:core")
+        chron = [(sent, group[0]) for sent, _para, group in _chronology_units(text)]
+        if len(quant) + len(chron) <= MAX_FORMAL_CHECKS:
+            return []
+        out: list[StructuralFinding] = []
+        rule = f"hub integrity: at most {MAX_FORMAL_CHECKS} formal checks per transmission; a stated relation beyond the limit is reported, not skipped"
+        over_q = quant[MAX_FORMAL_CHECKS:]
+        over_c = chron[max(0, MAX_FORMAL_CHECKS - len(quant)):]
+        if over_q:
+            ids = list(dict.fromkeys(cid for qc in over_q[:40] for cid in _claims_for_statement(report, qc.sentence, qc.phrase)))[:8]
+            out.append(StructuralFinding(code="CORE-QNT-001", severity="warning", claim_ids=ids, rule_source=rule,
+                                         message=f"{len(over_q)} statement(s) of the report's own arithmetic were not checked: the limit of {MAX_FORMAL_CHECKS} formal checks per "
+                                                 f"transmission was reached (first unchecked: '{_excerpt_around(over_q[0].sentence, over_q[0].phrase, 120)}'); the stated arithmetic was not checked"))
+        if over_c:
+            ids = list(dict.fromkeys(cid for sent, rel in over_c[:40] for cid in _claims_for_statement(report, sent, rel.cue)))[:8]
+            out.append(StructuralFinding(code="CORE-CHR-001", severity="warning", claim_ids=ids, rule_source=rule,
+                                         message=f"{len(over_c)} dated relation(s) were not checked: the limit of {MAX_FORMAL_CHECKS} formal checks per transmission was reached "
+                                                 f"(first unchecked: '{over_c[0][1].cue}': {over_c[0][1].statement}); the stated relations were not checked"))
+        return out
+
+    @staticmethod
+    def _guarded(what: str, fn, out: list[StructuralFinding]):
+        """Run one check of the core pack on its own: a check that fails internally adds CORE-INTERNAL-001 (error) naming it, and
+        every other check still runs, so one failing extractor never discards the receipt's other findings."""
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - reported, never silent
+            out.append(StructuralFinding(code="CORE-INTERNAL-001", severity="error",
+                                         message=f"the core pack's {what} check failed internally ({type(exc).__name__}); its findings (and the formal checks built from "
+                                                 f"the same reading) are missing from this receipt, and the router must not treat it as passed; the other checks ran",
+                                         rule_source="hub integrity (a failing check is reported, never silently skipped)"))
+            return None
+
+    @staticmethod
+    def _support_cycles(report: SpecialistReport) -> list[StructuralFinding]:
+        """CORE-STR-001 (error): a claim that supports itself, or claims whose ``supporting_claim_ids`` form a cycle, in any delivered
+        report on any branch, parsed or structured: none of them can be evidence for the others, so an argument the translator
+        builds from them would be circular. The finding names the claims of each cycle once."""
+        from ..adapters.generic_structured import generic_cycle_findings
+        if not any(c.supporting_claim_ids for c in report.claims):
+            return []
+        rule = "argument structure: support links run from evidence to the point and to the judgement, never in a circle"
+        return [StructuralFinding(code="CORE-STR-001", severity="error", message=x.message, claim_ids=list(x.claim_ids)[:16], rule_source=rule)
+                for x in generic_cycle_findings(report, code="CORE-STR-001")][:16]
 
     @staticmethod
     def _quotation_ref_disagreements(report: SpecialistReport) -> tuple[list[StructuralFinding], frozenset]:
@@ -647,7 +755,16 @@ class CorePack:
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        return _quant_formal(report, "core") + _chronology_formal(report, "core")
+        """The report's own arithmetic and chronology as engine problems, each extractor on its own (a failure of one is reported by
+        :meth:`checks` as CORE-INTERNAL-001, which reads the same extraction, and never discards the other), capped at
+        :data:`MAX_FORMAL_CHECKS` per transmission (the rest are named by CORE-QNT-001 / CORE-CHR-001 in :meth:`checks`)."""
+        out: list[FormalCheck] = []
+        for build in (_quant_formal, _chronology_formal):
+            try:
+                out += build(report, "core")
+            except Exception:  # noqa: BLE001 - checks() names the failing extractor (CORE-INTERNAL-001)
+                continue
+        return out[:MAX_FORMAL_CHECKS]
 
 
 _ESSAY_BAND_WORDS = 800

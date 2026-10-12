@@ -111,7 +111,11 @@ def test_judgement_cues_and_supports_make_the_verdict_a_formalizable_argument():
     criterion = claim(rep, "By the criterion")
     point = claim(rep, "The Wall Street Crash")
     assert balance.claim_role == "judgement" and balance.materiality == "material"
-    assert balance.supporting_claim_ids[0] == point.claim_id and criterion.claim_id in balance.supporting_claim_ids
+    # r6: a judgement rests on the point and the claims before it, never on a later judgement (no cycle): the criterion, stated after
+    # the balance, rests on the balance, not the other way round
+    assert balance.supporting_claim_ids[0] == point.claim_id and criterion.claim_id not in balance.supporting_claim_ids
+    assert criterion.supporting_claim_ids[0] == point.claim_id and balance.claim_id in criterion.supporting_claim_ids
+    assert balance.claim_id not in point.supporting_claim_ids and criterion.claim_id not in point.supporting_claim_ids
     assert balance.claim_id not in balance.supporting_claim_ids and not any(c.claim_role == "other" and c.claim_id in balance.supporting_claim_ids for c in rep.claims)
     for j in (balance, criterion):
         e = decide_eligibility(j)

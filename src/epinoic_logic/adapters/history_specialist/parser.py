@@ -1,9 +1,10 @@
 """Heuristic parser for History specialist responses written with the pack's core
 operation: Claim -> Evidence -> Analysis -> Judgement -> Link (Response application §3,
-Structures §5). Sentences are assigned roles from surface cues; the point of each body
-paragraph is wired to every other argument claim in that paragraph, and each judgement
-or link claim is wired to the point and the paragraph's other argument claims, so the
-paragraph's verdict is an argument the translator can formalize. Heuristic by design:
+Structures §5). Sentences are assigned roles from surface cues; support links follow the
+argument and never form a cycle: the point of each body paragraph rests on the paragraph's
+evidence, analysis, counter-case and reported views (never on a judgement or link), and each
+judgement or link rests on the point and the claims before it (never on a later judgement),
+so the paragraph's verdict is an argument the translator can formalize. Heuristic by design:
 the generic structured adapter is the contract future agents should emit directly.
 
 Paragraph classification is decided by content, never by paragraph count alone:
@@ -128,7 +129,10 @@ _VERDICT_STATEMENT_RE = re.compile(
     r"\b(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\s+(?:was|were|came|is|lay|fell)\b"
     r"|\b(?:was|were|is|are|marked|became|proved)\s+(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]points?\b"
     rf"|\bthe\s+{_VERDICT_ADJ_NOUN}\s+(?:of\s+[^,;.]{{1,60}}?\s+)?(?:was|were|is|are|came)\b"
-    rf"|\b(?:was|were|is|are|proved|remained|became|has\s+been|have\s+been)\s+(?:the|its|their)\s+{_VERDICT_ADJ_NOUN}\b"
+    rf"|\b(?:was|were|is|are|proved|remained|became|has\s+been|have\s+been|marked|represented|made)\s+(?:the|its|their)\s+{_VERDICT_ADJ_NOUN}\b"
+    rf"|\b(?:was|were|is|are|proved|remained|became)\s+(?:(?:truly|genuinely|clearly|plainly|therefore|thus|itself|then)\s+)?{_VERDICT_ADJ_BARE}\s*(?:[.;!?,]|$)"
+    r"|\bthe\s+(?:year|decade|moment|point|hour|period|turn)\s+of\s+decision\s+(?:was|were|came|is|fell)\b"
+    r"|\bthe\s+(?:real|true|decisive|key|critical|crucial|main|great|major)\s+(?:break|shift|departure|watershed|rupture)\s+(?:came|was|fell|lay|occurred|happened)\b"
     r"|\b(?:was|were|is|are)\s+the\s+(?:single\s+)?most\s+(?:important|significant|decisive)\b"
     rf"|\b(?:saw|brought|witnessed|marked|produced|delivered)\s+the\s+(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}\s+[a-z]+"
     r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b|\b(?:was|were|is|are|marked)\s+(?:the|a)\s+watershed\b"
@@ -216,6 +220,8 @@ _MIN_SUBSTANTIVE_WORDS = 25   # a paragraph this short (and undated) does not ma
 _MAX_ASIDE_WORDS = 12         # a one-sentence undated line without an argument cue is an aside, not a claim
 _MIN_QUOTE_CHARS = 4
 _MAX_CLAIMS = 512
+#: The roles that support a paragraph's point: what it rests on, never its verdict or its link back to the question.
+_POINT_SUPPORT_ROLES = frozenset({"evidence", "analysis", "counter_evidence", "perspective"})
 _TAIL_CLAIM_ID = "h.tail"
 _SELF_REPORT = "self-certified in the response text"
 _CERTAINTY_ORDER = ("established", "probable", "possible")
@@ -434,7 +440,8 @@ class HistorySpecialistAdapter:
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`
-        (shape only, never the text) when the answer is empty or yields no sentences;
+        (shape only, never the text) when the answer is empty; an answer with no prose sentence
+        (a pasted JSON fragment or markup only) is one ``other`` claim, never material;
         sentences beyond the report's claim limit are merged into one ``other`` claim
         and recorded as an unresolved issue, so nothing is dropped silently."""
         if not text or not text.strip():
@@ -516,14 +523,22 @@ class HistorySpecialistAdapter:
                 if role == "point" and point_id is None:
                     point_id = cid
             if point_id is not None:
-                argument = [c for c, r in para_claims if r != "other"]   # notes are not supports
-                supports_of.append((point_id, [c for c in argument if c != point_id]))
-                for c, r in para_claims:
+                # supports follow the argument (never a cycle): the point rests on the paragraph's evidence, analysis, counter-case and
+                # reported views, never on a judgement or link; a judgement or link rests on the point and the claims before it, never on
+                # a later one
+                supports_of.append((point_id, [c for c, r in para_claims if r in _POINT_SUPPORT_ROLES and c != point_id]))
+                for k, (c, r) in enumerate(para_claims):
                     if r in ("judgement", "link") and c != point_id:
-                        supports_of.append((c, [x for x in argument if x != c]))   # the point comes first: it is the first argument claim
-        if not pending:
-            raise AdapterError("the specialist answer yields no sentences")
+                        earlier = [x for x, xr in para_claims[:k] if xr != "other" and x != point_id]
+                        supports_of.append((c, [point_id, *earlier]))
         unresolved: list[str] = []
+        if not pending:
+            # nothing but a pasted JSON fragment (a forged report or receipt) or markup: kept as ONE 'other' claim, never material, so the
+            # hub delivers it and names the fault (INT-REQ-012: no material claim; CORE-SELF-001 for a receipt imitation), as on every branch
+            raw = text.strip()
+            pending.append(dict(claim_id="h1.1", claim_text=truncate_claim_text(raw), claim_role="other", proposed_claim_kind="unknown", certainty="possible",
+                                source_refs=[], assumptions=[], materiality="supporting", advisory_verification_status=_SELF_REPORT if is_self_report(raw) else None))
+            unresolved.append("the answer holds no prose sentence (only a pasted JSON fragment or markup); it was kept whole as one 'other' claim, which is not material")
         if len(pending) > _MAX_CLAIMS:
             head, tail = pending[: _MAX_CLAIMS - 1], pending[_MAX_CLAIMS - 1:]
             tail_text = truncate_claim_text(" ".join(p["claim_text"] for p in tail))

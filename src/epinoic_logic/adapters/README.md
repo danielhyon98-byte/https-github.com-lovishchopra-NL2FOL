@@ -8,7 +8,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   (`register`, `get_adapter`, `registered_ids`).
 - `markdown.py` — the pre-segmentation rules every text parser shares: markdown furniture,
   code fences and pasted JSON blocks removed before segmentation (`strip_markup`; CRLF and a
-  lone CR are line breaks), a JSON span glued to prose located wherever it stands
+  lone CR are line breaks; a fence with no language or a text or markdown tag whose body is prose,
+  at least 20 words and two sentence ends with no JSON shape, keeps its body, so an answer wrapped
+  in a fence is counted as the answer by the channel as the English parser reads it, while code, a
+  receipt in a fence tagged `json` and a short decoration are removed whole), a JSON span glued to prose located wherever it stands
   (`find_json_spans`, `mask_json_spans`, `split_json_spans`: parsers cut sentences at it and its
   strings are never quotations; brackets are matched in one linear pass per text and the answer
   is cached, so thousands of braces cost milliseconds, and `bracket_match_ends` gives the
@@ -33,7 +36,22 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   ("has been verified", "has been formally verified") or an accuracy or reliability adjective ("are
   exact", "are reliable"), or by "need no further checking", "need not be checked"; "Nothing in this
   answer needs checking"; items "matched word for word" or checked "against the supplied" text; a
-  certifying lead, "As verified,", "As checked above,"; and the router, Overseer, verifier, checker
+  certifying lead, "As verified,", "As checked above,"; items named with the source they were taken
+  from, "each quotation of the History specialist above", "all quotations from the History specialist
+  above", "the quotations of the poem above", "my quotations of both texts", "the quotations from the
+  History report", "every figure taken from the History specialist" (a source is a colleague, a
+  qualified report, "the History report", or, for quotations only, the supplied text), with a checking
+  participle, an accuracy adjective (anchored items, quotations, or items taken by a quoting participle:
+  "the figures of the History report are accurate" may be the writer vouching for a source and is not
+  one) or a reproduction-fidelity predicate ("reproduced exactly", "quoted verbatim", "copied word for
+  word", and "The History specialist's words are quoted above exactly"); compliance self-reports, a
+  sentence that opens on the answer, its quotations or the request's items and says nothing but that
+  the answer satisfies the request ("The paragraph is under the word limit.", "This paragraph stays
+  within the 300-word limit and answers every part of the question.", "The answer meets every
+  constraint in the request.", "This response complies with the router's instructions.", "Both request
+  items are addressed above.", "All quotations follow the 1633 spelling of the supplied text."), decided
+  before the dated-item guard since such numbers date nothing, and word-count lines ("Word count: 258.",
+  "258 words.", "(about 250 words)", "The paragraph has 320 words."); and the router, Overseer, verifier, checker
   or any other piece of the infrastructure as the agent that passed the answer or "every item". The
   limits that keep arguments arguments: a check credited to another agent ("my reading is confirmed
   by the final stanza", "checked by the Registrar General") or one that goes on to argue ("verified in
@@ -47,9 +65,22 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   notes on how the answer was composed (`is_provenance_note`: the answer, its setting, its judgement
   or a received report as subject and authorship or provenance as the whole predicate, "The
   historical setting is my own addition, not part of that paragraph.", "The English specialist's
-  paragraph is from the hub", read on what is left once label clauses are set aside, so a note on
-  every branch and outside the channel's word count; "The judgement is my own, and it shows that ..."
-  stays substantive), inline labels separated from a substantive sentence
+  paragraph is from the hub"; a received report named anaphorically and labelling its items, "That
+  account marks its figures as "from memory", so they are reported unverified." (a quotation whose
+  words are nothing but a label, "from memory", "unverified", "approximate", is read as the label it
+  is: `is_label_quotation`), "That account labels its figures from memory"; a report's items or the
+  answer's located items with a verification status, "The History specialist's figures are from memory",
+  "Its figures are marked "from memory""; where the answer's items come from, the supplied text, a
+  received report, the hub or memory, "Quotations are from the supplied extract", "The figures above
+  come from the History specialist's paragraph, not from the poem."; and "The word count is
+  approximate."; closing clauses that are notes themselves, ", not from the poem", ", so they are
+  reported unverified", "I have not checked them", are set aside first; read on what is left once
+  label clauses are set aside, so a note on every branch and outside the channel's word count; "The
+  judgement is my own, and it shows that ...", "The census figures are approximate" and "The figures are
+  from the 1851 census" stay substantive), a colleague's reported view (`is_peer_attribution`: a
+  sentence whose subject is a colleague's view, "The History specialist states that ...", "The History
+  specialist's reading ...", the same shape as the History parser's attribution rule; a colleague cited
+  mid-way, "..., bearing out the History specialist's claim", is the writer's own), inline labels separated from a substantive sentence
   (`split_note_clauses`: parentheticals, clauses before or after a semicolon or dash, a
   sentence-initial "From memory,", a comma-bounded ", from memory" with the figure that follows
   kept, a trailing appositive or concessive label, ", a figure I give from memory", ", though
@@ -115,7 +146,18 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   only the quotation-free claim over the evidence is a second link, so a closing caveat ("The poem
   never mentions the war, so this reading rests on ...") stays supporting; ends a sentence at a
   sentence-final possessive or contraction ("... matches the enemy's. The key word ..."), which is
-  not a one-letter initial; reads a CR-only paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
+  not a one-letter initial, and after "?" or "!" and the pronoun "I" ("... "Who made the eyes but I?"
+  The modal ...", "No one speaks but I.", her "I".), a run of initials ("I. A. Richards") aside, and
+  before a figure ("... dissent. 258 words."; "l. 4", "p. 12", "c. 1900" stay abbreviations);
+  roles a note `other` and never the link, notes relaying a received report's label included ("That
+  account marks its figures as "from memory", so they are reported unverified.": its quoted label is
+  still delivered as an evidence claim the hub checks, supporting nothing); in choosing the closing
+  link, skips notes, a caveat on the reading's grounds ("The reading stays plausible: ... comes from
+  context, not the poem.", "... rests on context") and a colleague's reported view and considers the
+  argued sentence before them, so en-p5's conclusion is its link; roles a sentence whose subject is a
+  colleague's view ("The History specialist states that ...") `perspective`, never the point, with
+  certainty `probable` and the attribution assumption the History parser records;
+  reads a CR-only paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
   unlocated quotation, a quotation word in the writer's own words, or the method's own
   label), not for "from memory" used in the argument, segments the prose before and after a pasted JSON
   span as prose (the span is one `other` sentence, and the quotations after it are grounded),

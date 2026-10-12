@@ -13,19 +13,24 @@ Trust rules enforced here:
   dependency; other asserted-but-unchecked groundings are listed separately as
   ``unverified_dependencies`` so a summary can never call them established;
 * a definitive status that used no premise at all carries ``E108`` (vacuous) so the
-  outcome layer never displays a tautology as a verified claim.
+  outcome layer never displays a tautology as a verified claim;
+* a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
+  (a premise ``b <-> (n = 17)`` whose numeric symbol no other premise mentions, and with
+  ``b`` asserted the conclusion is ENTAILED) carries ``E110`` (unasserted figure), so the
+  outcome layer never displays such a counterexample as a verdict on the claim.
 """
 from __future__ import annotations
 
 import hashlib
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Union
 
 import z3
 
-from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol
+from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol, Var
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
 from .procedures import (
@@ -152,6 +157,125 @@ def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: Solver
     return None
 
 
+_COMPARE_OPS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
+_NUMERIC_SORTS = frozenset({"Int", "Real"})
+
+
+@dataclass(frozen=True)
+class FigureDefinition:
+    """A premise that only DEFINES a Bool ``atom`` as a comparison over numeric ``figures`` that no other premise
+    mentions (``b <-> (n = 17)`` with ``n`` free): it asserts nothing, so the figure its label states is never stated."""
+    premise_id: str
+    atom: str
+    figures: tuple[str, ...]
+    label: Optional[str]
+
+
+def _expr_vars(expr, out: set[str]) -> set[str]:
+    """Every symbol name ``expr`` mentions (an iterative walk: the validator bounds depth, this never recurses)."""
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        if getattr(node, "op", None) == "var":
+            out.add(node.name)
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or ())
+    return out
+
+
+def _is_figure_comparison(expr) -> bool:
+    """A comparison of numeric terms, or a conjunction, disjunction or negation of such comparisons."""
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op in _COMPARE_OPS:
+            continue
+        if op in ("and", "or"):
+            stack.extend(node.args)
+        elif op == "not":
+            stack.append(node.arg)
+        else:
+            return False
+    return True
+
+
+def unasserted_figure_definitions(problem: Problem) -> list[FigureDefinition]:
+    """The premises of ``problem`` that define a Bool atom by a comparison of numeric symbols (``iff`` with the atom on
+    one side) while every numeric symbol of that comparison occurs in no premise other than such definitions. Each
+    asserts nothing: whatever value the figure takes, the atom can be chosen to match. Purely syntactic, no solver."""
+    sorts = {s.name: s.sort for s in problem.symbols}
+    defs: list[tuple[str, str, set[str], Optional[str]]] = []
+    for pr in problem.premises:
+        e = pr.expr
+        if getattr(e, "op", None) != "iff":
+            continue
+        for atom, other in ((e.left, e.right), (e.right, e.left)):
+            if getattr(atom, "op", None) == "var" and sorts.get(atom.name) == "Bool" and _is_figure_comparison(other):
+                figures = {v for v in _expr_vars(other, set()) if sorts.get(v) in _NUMERIC_SORTS}
+                if figures:
+                    defs.append((pr.id, atom.name, figures, pr.label))
+                break
+    if not defs:
+        return []
+    def_ids = {d[0] for d in defs}
+    mentioned: set[str] = set()
+    for pr in problem.premises:
+        if pr.id not in def_ids:
+            _expr_vars(pr.expr, mentioned)
+    return [FigureDefinition(premise_id=pid, atom=atom, figures=tuple(sorted(figs)), label=label)
+            for pid, atom, figs, label in defs if not (figs & mentioned)]
+
+
+def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig) -> Optional[Diagnostic]:
+    """``E110`` when a COUNTEREXAMPLE only reassigns figures the problem defines but never asserts: the entailment is
+    re-run with each such defined atom asserted (as the premise's label states it) and is then ENTAILED. The
+    counterexample is still the solver's answer about the encoding, but it is no verdict on the claim, so the outcome
+    layer displays it as INVALID_FORMALIZATION. A re-run that is not ENTAILED leaves the counterexample as it is."""
+    if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None:
+        return None
+    defs = unasserted_figure_definitions(problem)
+    if not defs:
+        return None
+    taken = {p.id for p in problem.premises} | {problem.conclusion.id}
+    extra: list[Assertion] = []
+    by_id: dict[str, FigureDefinition] = {}
+    for i, d in enumerate(defs):
+        aid = f"asserted_figure_{i}"
+        while aid in taken:
+            aid += "_"
+        taken.add(aid)
+        by_id[aid] = d
+        extra.append(Assertion(id=aid, expr=Var(op="var", name=d.atom)))
+    probe = problem.model_copy(update={"premises": list(problem.premises) + extra})
+    try:
+        again = _PROCEDURES["entailment"](compile_problem(probe), config.model_copy(update={"produce_smt2": False, "produce_unsat_core": True}))
+    except Exception:  # a probe that cannot run leaves the counterexample as the solver gave it
+        return None
+    if again.status is not VerificationStatus.ENTAILED:
+        return None
+    model = proc.model or {}
+    # The figures the conclusion needs are the asserted atoms the re-run's proof used (its unsat core).
+    reassigned = [by_id[pid] for pid in again.core if pid in by_id] or [d for d in defs if model.get(d.atom) == "false"] or defs
+    parts = []
+    for d in reassigned:
+        values = ", ".join(f"{f}={model[f]}" for f in d.figures if f in model)
+        label = f" ({d.label[:120]!r})" if d.label else ""
+        parts.append(f"premise {d.premise_id}{label} defines {d.atom} by a comparison of {', '.join(d.figures)}, which no premise asserts or constrains"
+                     + (f" (the counterexample sets {values}, {d.atom}={model.get(d.atom, '?')})" if values else ""))
+    return Diagnostic(
+        code=DiagnosticCode.UNASSERTED_FIGURE.value,
+        message=("unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
+                 + "; with the defined atom(s) asserted as the labels state them the conclusion is ENTAILED, so this COUNTEREXAMPLE is "
+                 "no verdict on the claim (the translation must assert the stated figure: the atom, or the comparison itself, as a premise)"),
+        path=f"premises.{reassigned[0].premise_id}",
+    )
+
+
 def _assignments(problem: Problem, model: dict[str, str]) -> list[ModelAssignment]:
     sorts = {s.name: s.sort for s in problem.symbols}
     return [ModelAssignment(symbol=name, sort=sorts[name], value=value) for name, value in model.items() if name in sorts]
@@ -225,8 +349,10 @@ def verify(
         timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
 
         apply_global_memory_limit(config)
+        figure_note: Optional[Diagnostic] = None
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
+            figure_note = _unasserted_figure_diagnostic(problem, proc, config)
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
             # verifications can work within so later calls are not left under the exhausted one.
@@ -244,6 +370,8 @@ def verify(
         vacuous = _vacuous_diagnostic(problem, proc, config)
         if vacuous is not None:
             diagnostics.append(vacuous)
+        if figure_note is not None:
+            diagnostics.append(figure_note)
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2),

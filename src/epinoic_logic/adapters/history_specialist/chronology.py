@@ -51,7 +51,9 @@ Shapes recognised:
   1922``, ``followed, on 13 January 1923,``): the date is the cue's own subject's, and the
   other event is the one dated last before the cue in the sentence (across a coordinate
   clause or a leading ``After ...`` clause), else the one date of the previous sentence
-  (several dates there: undecided).
+  (several dates there: undecided). A year opening the cue's own clause (``In 1958 Guinea
+  followed on 2 October``) dates the subject (2 October 1958), never the event it follows.
+* coordinated objects: ``X in D0, after A in D1 and B in D2`` orders D0 against D1 and D2.
 * coordinated cues: in ``X in D0, after Y of D1 and before Z of D2`` the second cue orders
   the clause's subject (D0), never the first cue's object (D1); with no subject date the
   second relation is undecided.
@@ -63,7 +65,11 @@ Shapes recognised:
   came from. One side dated: undecided when the undated side is a demonstrative that must
   refer back, or when the dated side's date came from another sentence (stated across
   sentences); a dated and an undated, non-anaphoric event in one sentence state no checkable
-  order and yield nothing.
+  order and yield nothing, unless the undated side is a named event (``the Marshall Act``), which
+  is undecided. A noun is dated in another sentence also by a participial aside after it (``The
+  Act, signed on 3 April 1948, ...``) and by a date opening a clause whose verb of enactment takes
+  it as object (``on 6 May 1882 ... signed the Chinese Exclusion Act``); a pronoun subject (``...,
+  and it came before ...``) takes the one date of the clause before it.
 
 * a side named by a proper name dated earlier in the same sentence (``the London and Birmingham
   Railway opened in 1838, and the Great Western reached Bristol in 1841, three years before the
@@ -73,10 +79,13 @@ Shapes recognised:
 Relations other than an ordering cue (``ChronologyRelation.kind``):
 
 * a duration (``ran from D1 to D2``, ``lasted from D1 until D2``) orders its ends (``order``);
-* containment (``X, including Y``, ``X, which included Y``: ``within``) puts the inner date or
-  range inside the outer period (a decade, a range, a month, a year); ``Y during X`` / ``within
-  X`` too, an inner range needing only to meet the period (``overlaps``); an inner date with no
-  year takes the period's one year, and an inner date coarser than the period is undecided;
+* containment (``X, including Y``, ``X, which included Y``: ``within``) puts EVERY dated item of the
+  list after the cue inside the outer period of the clause before it (a decade, a range, the span
+  ``From 1961 ... by 1968``, a bare ``by 1968`` as an upper bound with an open start, a month, a
+  year); ``..., A on d1 and B on d2 among them`` puts the list before the cue inside the period of
+  the clause governing it; ``Y during X`` / ``within X`` too, an inner range needing only to meet
+  the period (``overlaps``); an inner date with no year takes the period's one year, and an inner
+  date coarser than the period is undecided;
 * ``<date> falls at the <period>'s close`` (``same_year``) shares its year with the end (or the
   start, for ``outbreak``/``start``) of the duration the sentence or the paragraph states.
 
@@ -465,6 +474,13 @@ def _paragraph_sentences(context: str) -> tuple[tuple[str, str, tuple[DateToken,
     return tuple((s, " ".join(s.split()), tuple(_tokens(s))) for s in split_sentences(context))
 
 
+#: A date that opens its clause ('on 6 May 1882 ...', 'In 1919 ...'), possibly after a conjunction: it governs the clause's verb.
+_GOVERNING_DATE_HEAD_RE = re.compile(r"\s*(?:(?:and|but|then|so)\s+)?(?:on|in)\s+(?:c\.\s+)?", re.IGNORECASE)
+#: Verbs that bring a dated act or document into being: the date governing the clause dates their object.
+_ENACTMENT_VERBS = frozenset("""signed signs passed enacted issued proclaimed announced launched declared concluded ratified adopted introduced published
+    approved promulgated decreed ordered founded established convened opened""".split())
+
+
 def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[set] = None) -> tuple[Optional[DateToken], str]:
     """The one date the paragraph gives the event noun ``head`` outside ``sentence``: a date
     within a few words of the noun in the same clause ('the September 1930 election', 'the
@@ -484,13 +500,25 @@ def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[
             before = other[: tok.start]
             if _RANGE_BEFORE_DATE_RE.search(before):
                 continue
-            clause_before = re.split(r"[,;:()]", before)[-1]
+            pieces = re.split(r"[,;:()]", before)
+            clause_before = pieces[-1]
             after = other[tok.end:]
+            noun_before: list[str] = []
             if _PARTICIPLE_OPENER_RE.match(clause_before) and _PARTICIPIAL_DATE_RE.match(clause_before):
                 window_after = " ".join(re.split(r"[;:()]", after)[0].split(",")[:2])  # 'Signed on 28 June 1919, the treaty': the noun follows the comma
+                if len(pieces) >= 2 and before.rstrip()[len(before.rstrip()) - len(clause_before.rstrip()) - 1: len(before.rstrip()) - len(clause_before.rstrip())] == ",":
+                    # 'The Economic Cooperation Act, signed on 3 April 1948, launched ...': the aside dates the noun before its comma
+                    noun_before = [_stem(w) for w in _WORD_RE.findall(pieces[-2])][-4:]
             else:
                 window_after = re.split(r"[,;:()]", after)[0]
-            words = [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
+            words = noun_before + [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
+            if head not in words and _GOVERNING_DATE_HEAD_RE.fullmatch(clause_before):
+                # 'on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act': a date opening its clause dates the
+                # object of the clause's verb of enactment
+                governed = [w.lower() for w in _WORD_RE.findall(window_after)][:14]
+                stems = [_stem(w) for w in governed]
+                if head in stems and any(w in _ENACTMENT_VERBS for w in governed[: stems.index(head)]):
+                    words = words + [head]
             if head in words:
                 if side_words is not None and not set(_premodifiers(other, head, tok.start)) <= side_words:
                     continue
@@ -519,6 +547,33 @@ def _side_date(text: str, *, trailing: bool, context: Optional[str], sentence: s
     return tok, phrase, anaphoric, f"the date of '{phrase}' ({tok.text}) was taken from another sentence of the paragraph: '{where[:120]}'"
 
 
+_PRONOUN_SUBJECT_RE = re.compile(r"^\s*(?:it|this|they|these)\b", re.IGNORECASE)
+
+
+def _pronoun_subject_date(sentence: str, cue_start: int, left_clause: str) -> Optional[tuple[DateToken, str]]:
+    """For a cue whose clause opens with a pronoun subject ('..., and it came before the Act was signed'): the one date of the clause
+    before it in the same sentence ('West Germany's currency reform of 20 June 1948 ended the black market ...'), which the pronoun
+    takes up; None when that clause states no date or several, or a date only in an aside."""
+    if not _PRONOUN_SUBJECT_RE.match(left_clause):
+        return None
+    words = _np_words(left_clause, trailing=True)
+    if len(words) != 1:
+        return None
+    prev_text = sentence[: max(0, cue_start - len(left_clause))]
+    breaks = list(_CLAUSE_BREAK_RE.finditer(prev_text))
+    if not breaks or prev_text[breaks[-1].end():].strip():
+        return None
+    end = breaks[-1].start()
+    start = breaks[-2].end() if len(breaks) >= 2 else 0
+    clause = prev_text[start:end]
+    toks = [t for t in _tokens(clause) if t.year is not None and not date_in_aside(clause, t)]
+    if len(toks) != 1:
+        return None
+    t = toks[0]
+    tok = DateToken(t.start + start, t.end + start, t.text, t.month, t.year, t.day)
+    return tok, f"'{words[0]}' takes up the subject of the clause before it, dated {t.text}"
+
+
 def _cue_name(m: "re.Match[str]") -> str:
     return " ".join(m.group("cue").lower().split())
 
@@ -543,10 +598,37 @@ def _previous_sentence_date(sentence: str, context: Optional[str]) -> tuple[Opti
             if i == 0:
                 return None, ""
             prev = [t for t in sentences[i - 1][2] if t.year is not None]
+            yearless = [t for t in sentences[i - 1][2] if t.year is None and t.day is not None]
+            if len(prev) == 1 and prev[0].month is None and len(yearless) == 1:
+                # 'In 1957 ... Ghana, on 6 March.': the one yearless day takes the sentence's one year (6 March 1957)
+                y, d = prev[0], yearless[0]
+                return DateToken(d.start, d.end, f"{d.text} {y.year}", d.month, y.year, d.day), sentences[i - 1][0].strip()
             if len(prev) == 1:
                 return prev[0], sentences[i - 1][0].strip()
             return None, f"the previous sentence states {len(prev)} dates" if prev else ""
     return None, ""
+
+
+def _leading_year(left_text: str, tokens: list[DateToken]) -> Optional[DateToken]:
+    """The year that opens the clause of an intransitive 'followed'/'preceded' ('In 1958 Guinea followed on 2 October'): the last
+    date before the cue is a year alone, introduced by 'in'/'by'/'during' at the start of its clause, with only a short noun phrase
+    (no verb) between it and the cue. That year dates the cue's own subject, not the event it follows."""
+    if not tokens:
+        return None
+    year = tokens[-1]
+    if year.month is not None or year.year is None:
+        return None
+    breaks = list(_CLAUSE_BREAK_RE.finditer(left_text[: year.start]))
+    clause_start = breaks[-1].end() if breaks else 0
+    if not re.fullmatch(r"\s*,?\s*(?:(?:and|then|so|but|yet)\s+)?(?:in|by|during)\s+(?:(?:early|late|mid)[\s-]+)?", left_text[clause_start: year.start], re.IGNORECASE):
+        return None
+    between = left_text[year.end:]
+    words = _WORD_RE.findall(between)
+    if not words or len(words) > 8 or re.search(r"[;:]", between):
+        return None
+    if any(w.lower() in _VERBISH or (w[:1].islower() and len(w) > 4 and w.lower().endswith("ed")) for w in words):
+        return None
+    return year
 
 
 def chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
@@ -609,15 +691,22 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
         l_anaphor = r_anaphor = False
         l_phrase = r_phrase = ""
         l_cross = r_cross = False
+        l_pron = False   # the left side is a pronoun dated by the clause before it (same sentence: not stated across sentences)
         if left_tok is None:
             left_tok, l_phrase, l_anaphor, lhow = _side_date(left_text, trailing=True, context=context, sentence=sentence)
             l_cross = left_tok is not None
+            if left_tok is None:
+                # '..., and it came before ...': the pronoun is the subject of the clause before it, dated there once
+                pron = _pronoun_subject_date(sentence, cue_start, left_text)
+                if pron is not None:
+                    left_tok, lhow = pron
+                    l_pron = True
         if right_tok is None:
             right_tok, r_phrase, r_anaphor, rhow = _side_date(right_text, trailing=False, context=context, sentence=sentence)
             r_cross = right_tok is not None
         if left_tok is not None and right_tok is not None:
             later, earlier = _orient_cue(cue, left_tok, right_tok)
-            emit(resolve(cue, later, earlier, "; ".join(h for h in (lhow if l_cross else "", rhow if r_cross else "") if h)))
+            emit(resolve(cue, later, earlier, "; ".join(h for h in (lhow if (l_cross or l_pron) else "", rhow if r_cross else "") if h)))
             return
         if left_tok is None and right_tok is None:
             return  # no dated event on either side: no checkable order
@@ -633,14 +722,22 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
         missing, missing_anaphor, missing_how = (r_phrase, r_anaphor, rhow) if left_tok is not None else (l_phrase, l_anaphor, lhow)
         if not (missing_anaphor or dated_cross):
             interval = _INTERVAL_BEFORE_CUE_RE.search(sentence[:cue_start])
+            missing_words = missing.split()
+            reason = ""
             if interval and named_phrase:
                 # 'three years before the London and Birmingham opened': an order with a stated interval, against an event the text never dates
                 reason = f"'{interval.group(0).strip()} {cue}' orders the dated event against '{named_phrase}', which the sentence does not date"
+            elif (any(w[:1].isupper() and w.lower() not in ("the", "a", "an") for w in named_phrase.split()) and missing_words and missing_words[0] in _DEFINITES
+                  and _np_head(missing_words) is not None):
+                # '... came before the Economic Cooperation Act was signed': a named event the paragraph does not date (or dates ambiguously)
+                reason = (f"'{named_phrase}' names an event that the paragraph does not date ({missing_how or 'no other sentence of the paragraph dates it'}), "
+                          f"so the order stated against it was not checked")
+            if reason:
                 if (left_tok is not None) == _is_after_type(cue):
                     undecided(cue, dated.text, named_phrase, reason)
                 else:
                     undecided(cue, named_phrase, dated.text, reason)
-            return  # one dated event and an undated, non-anaphoric one in the same sentence: no checkable order (see the module docstring)
+            return  # one dated event and an undated, non-anaphoric, unnamed one in the same sentence: no checkable order (see the module docstring)
         if missing_anaphor:
             reason = f"'{missing}' refers to an event dated in another sentence, which could not be identified ({missing_how or 'no other sentence of the paragraph dates it'})"
         else:
@@ -670,9 +767,18 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
             if rt and head_re.match(right_text[: rt[0].start]):
                 subject = rt[0]
                 lt = _tokens(left_text)
+                own = _leading_year(left_text, lt)
+                own_how = ""
+                if own is not None and (subject.year is None or subject.year == own.year):
+                    # 'In 1958 Guinea followed on 2 October': the clause's leading year is the subject's own (2 October 1958), not the
+                    # event it follows; that event is dated before the clause, or in the previous sentence
+                    subject = DateToken(subject.start, subject.end, subject.text if subject.year is not None else f"{subject.text} {own.year}",
+                                        subject.month, own.year, subject.day)
+                    lt = [t for t in lt if t.end <= own.start]
+                    own_how = f"the clause's leading year ({own.text}) dates the subject of '{cue}' ({subject.text})"
                 if lt:
                     other = lt[-1]
-                    how = ""
+                    how = own_how
                     if date_in_aside(left_text, other) and not _EVENT_VERB_RE.search(left_text[max(left_text[: other.start].rfind(","), 0): other.start]):
                         undecided(cue, subject.text if cue.startswith("followed") else other.text, other.text if cue.startswith("followed") else subject.text,
                                   f"'{cue} {right_text[: rt[0].end].strip()}' dates its own subject; the only earlier date ({other.text}) sits in an aside about the subject, not about another event")
@@ -680,11 +786,12 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
                 else:
                     other, where = _previous_sentence_date(sentence, context)
                     if other is None:
-                        if where:  # the previous sentence dates several events: which one is followed is not stated
+                        if where or own_how:  # the previous sentence dates several events (or none): which one is followed is not stated
                             later_txt, earlier_txt = (subject.text, "the previous sentence's event") if cue.startswith("followed") else ("the previous sentence's event", subject.text)
-                            undecided(cue, later_txt, earlier_txt, f"'{cue}' has no object here and {where}; which event it orders its subject against is not stated")
+                            why = where or "the previous sentence dates no event"
+                            undecided(cue, later_txt, earlier_txt, f"'{cue}' has no object here and {why}{'; ' + own_how if own_how else ''}; which event it orders its subject against is not stated")
                         continue  # no other dated event to order the subject against
-                    how = f"'{cue}' with no object orders its subject after the event of the previous sentence, dated {other.text} ('{where[:120]}')"
+                    how = (own_how + "; " if own_how else "") + f"'{cue}' with no object orders its subject after the event of the previous sentence, dated {other.text} ('{where[:120]}')"
                 later, earlier = (subject, other) if cue.startswith("followed") else (other, subject)
                 emit(resolve(cue, later, earlier, how))
                 continue
@@ -728,6 +835,18 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
                 continue
             later, earlier = _orient_cue(cue, d1, d2)
             emit(resolve(cue, later, earlier))
+            # 'Kenya became independent in 1963, after Tanganyika in 1961 and Botswana in 1966': every dated object of the cue is ordered
+            # against the subject, not only the first
+            items = _list_items(right_seg)
+            if len(items) > 1 and items[0][0] <= d2.start < items[0][1]:
+                for a, b in items[1:]:
+                    toks = _tokens(right_seg[a:b])
+                    if not toks or _CUE_RE.search(right_seg[a: a + toks[0].start]):
+                        break
+                    tok = toks[0]
+                    obj = DateToken(tok.start + a, tok.end + a, tok.text, tok.month, tok.year, tok.day)
+                    later, earlier = _orient_cue(cue, d1, obj)
+                    emit(resolve(cue, later, earlier))
             continue
         lead = left_clause.strip(" ,")
         if cue not in _LEADING_CUES or (lead and not _LEAD_OK_RE.match(lead)):
@@ -853,8 +972,20 @@ _SPAN_VERB_RE = re.compile(
     r"\b(?:ran|runs?|running|lasted|lasts?|lasting|continued|continues|continuing|stretched|stretches|stretching|extended|extends|extending|raged|rages|raging|"
     r"endured|persisted|went\s+on|was\s+fought|were\s+fought|was\s+waged|were\s+waged|took\s+place|unfolded)\s+(?:[a-z]+\s+){0,2}?from\s+", re.IGNORECASE)
 _SPAN_SEP_RE = re.compile(r"\s+(?:to|until|till|through|up\s+to)\s+", re.IGNORECASE)
-#: 'X, including Y', 'X, which included Y': the inner date or range (after the cue) lies within the outer period (before it).
-_INCLUDE_CUE_RE = re.compile(r"(?:,\s*|\s+)(?:(?:which|that)\s+(?:had\s+)?(?:included|includes|include|encompassed|encompasses|took\s+in)|including|among\s+them)\b", re.IGNORECASE)
+#: 'X, including Y', 'X, which included Y': the inner dates or ranges (the list after the cue) lie within the outer period (before it).
+_INCLUDE_CUE_RE = re.compile(r"(?:,\s*|\s+)(?:(?:which|that)\s+(?:had\s+)?(?:included|includes|include|encompassed|encompasses|took\s+in)|including)\b", re.IGNORECASE)
+#: '..., Nigeria on 1 October and the Belgian Congo on 30 June among them': the inner list stands BEFORE the cue, the outer period in the
+#: clause that governs the list; 'among them Tanganyika in 1961 and Kenya in 1963' (the list after the cue) is read like 'including'.
+_AMONG_CUE_RE = re.compile(r"\b(?:among|amongst)\s+(?:them|these|those|which|whom)\b", re.IGNORECASE)
+#: A period's start and end bounds before a date: 'From 1961 ... by 1968' is the span 1961 to 1968; a bare 'by 1968' is an upper bound.
+_FROM_HEAD_RE = re.compile(r"\b(?:from|since|starting\s+in|beginning\s+in)\s+(?:(?:early|late|mid)[\s-]+|about\s+|around\s+|c\.\s+|the\s+)?$", re.IGNORECASE)
+_UNTIL_HEAD_RE = re.compile(r"\b(?:by|until|till|up\s+to|through|to)\s+(?:(?:early|late|mid)[\s-]+|about\s+|around\s+|c\.\s+|the\s+end\s+of\s+)?$", re.IGNORECASE)
+#: Words that make a fragment of a list a clause rather than a noun phrase with a date ('..., added roughly 4,500 miles', '..., the mark
+#: collapsed in 1923'): the list ends before such a fragment.
+_VERBISH = frozenset("""was were is are be been being had has have did do does came come comes began begun begins started occurred happened took take followed
+    ended broke arrived fell rose met collapsed erupted passed signed held declared announced issued resumed continued persisted emerged appeared developed grew
+    spread made led caused produced brought turned saw won became gained achieved left joined reached opened closed remained stayed peaked ran got went""".split())
+_LIST_SEP_RE = re.compile(r"\s*,\s*(?:and\s+|as\s+well\s+as\s+)?|\s+(?:and|as\s+well\s+as)\s+", re.IGNORECASE)
 #: 'Y during X', 'Y within X': the inner date (before the cue) lies within the outer period (after it); an inner range must meet it.
 _DURING_CUE_RE = re.compile(r"\b(?:during|within|in\s+the\s+course\s+of|in\s+the\s+midst\s+of|amid|amidst)\s+", re.IGNORECASE)
 #: 'the poem's 1902 date falls at the war's close': the date shares its year with the named point of a span the paragraph states.
@@ -865,19 +996,27 @@ _DECADE_RE = re.compile(r"\b(?:the\s+)?(?P<decade>1[0-9]{2}0|20[0-9]0)s\b")
 _RANGE_JOIN_RE = re.compile(r"^\s*(?:-|–|—|to|until|till|and|through)\s*$", re.IGNORECASE)
 
 
+#: The open end of a period stated with one bound only ('by 1968': no start; 'from 1961': no end), in day ordinals.
+_OPEN_LO = 0
+_OPEN_HI = (9999 * 12 + 12) * 32 + 31
+
+
 @dataclass(frozen=True)
 class _Period:
-    """A date or a period as an interval of day ordinals ((year*12+month)*32+day); ``lo``/``hi`` are None while a year is missing."""
+    """A date or a period as an interval of day ordinals ((year*12+month)*32+day); ``lo``/``hi`` are None while a year is missing.
+    ``open_start`` / ``open_end``: a period stated with one bound only ('by 1968' is every day up to the end of 1968)."""
     start: int
     end: int
     text: str
     first: Optional[DateToken]   # None for a decade
     last: Optional[DateToken]
     decade: Optional[int] = None
+    open_start: bool = False
+    open_end: bool = False
 
     @property
     def is_range(self) -> bool:
-        return self.decade is not None or (self.first is not None and self.last is not None and self.first is not self.last)
+        return self.decade is not None or self.open_start or self.open_end or (self.first is not None and self.last is not None and self.first is not self.last)
 
     def bounds(self, year: Optional[int] = None) -> Optional[tuple[int, int]]:
         if self.decade is not None:
@@ -887,10 +1026,12 @@ class _Period:
         y2 = self.last.year if self.last.year is not None else y1
         if y1 is None or y2 is None:
             return None
-        return _lo(self.first, y1), _hi(self.last, y2)
+        return (_OPEN_LO if self.open_start else _lo(self.first, y1)), (_OPEN_HI if self.open_end else _hi(self.last, y2))
 
     @property
     def years(self) -> Optional[set]:
+        if self.open_start or self.open_end:
+            return None  # an open period spans an unstated number of years: a yearless inner date cannot take its year
         if self.decade is not None:
             return set(range(self.decade, self.decade + 10))
         ys = {t.year for t in (self.first, self.last) if t is not None and t.year is not None}
@@ -942,6 +1083,105 @@ def _periods(text: str) -> list[_Period]:
 def _clause_after(text: str) -> str:
     brk = _CLAUSE_BREAK_RE.search(text)
     return text[: brk.start()] if brk else text
+
+
+def _is_clause_fragment(fragment: str, upto: Optional[int] = None) -> bool:
+    """True when ``fragment`` (up to offset ``upto``, its date) reads as a clause rather than a noun phrase with a date: it opens with a
+    preposition or conjunction ('in 1923 the mark collapsed') or carries a verb ('the mark collapsed in 1923', 'added roughly 4,500
+    miles'). A list of dated items ends before such a fragment."""
+    words = _WORD_RE.findall(fragment[:upto] if upto is not None else fragment)
+    if not words:
+        return False
+    first = words[0].lower()
+    if first in ("in", "on", "at", "by", "of", "for", "from", "to", "with", "into", "when", "while", "after", "before", "which", "who", "that", "but", "so", "yet"):
+        return True
+    for w in words:
+        low = w.lower()
+        if low in _VERBISH or (w[:1].islower() and len(low) > 4 and low.endswith("ed")):
+            return True
+    return False
+
+
+#: The most fragments a coordinated list is read over: a longer run of commas is not a list of dated items, and the bound keeps the
+#: reading linear on adversarial input.
+_MAX_LIST_FRAGMENTS = 64
+
+
+def _list_items(text: str, *, from_end: bool = False) -> list[tuple[int, int]]:
+    """The spans of the dated items of a coordinated list at the start of ``text`` ('Tanganyika in 1961, Kenya in 1963 and Botswana in
+    1966'), or, with ``from_end``, at its end ('..., Nigeria on 1 October and the Belgian Congo on 30 June'). Items are cut at commas,
+    'and' and 'as well as' (never inside a date such as 'October 12, 1962'); reading forward, a fragment with no date joins the next
+    one ('the London and Birmingham Railway in 1838') and the list closes after an item introduced by 'and'; either way it closes
+    before a fragment that reads as a clause (:func:`_is_clause_fragment`), and reading back from the end, before a fragment with no
+    date. At most :data:`_MAX_LIST_FRAGMENTS` fragments are read; the dates of the text are read once."""
+    periods = _periods(text)
+    spans = [(t.start, t.end) for t in _tokens(text)]
+    seps = [(m.start(), m.end(), bool(re.search(r"\band\b|\bas\s+well\s+as\b", m.group(0), re.IGNORECASE))) for m in _LIST_SEP_RE.finditer(text)
+            if not any(x < m.end() and m.start() < y for x, y in spans)]
+    frags: list[tuple[int, int, bool]] = []   # (start, end, introduced by 'and')
+    prev_end, prev_and = 0, False
+    for s0, e0, is_and in seps:
+        frags.append((prev_end, s0, prev_and))
+        prev_end, prev_and = e0, is_and
+    frags.append((prev_end, len(text), prev_and))
+    frags = [f for f in frags if f[1] > f[0]]
+    frags = frags[-_MAX_LIST_FRAGMENTS:] if from_end else frags[:_MAX_LIST_FRAGMENTS]
+
+    def first_period(a: int, b: int) -> Optional[int]:
+        """Offset of the first date or period inside text[a:b], relative to a; None when it holds none."""
+        for per in periods:
+            if per.start >= a and per.end <= b:
+                return per.start - a
+            if per.start >= b:
+                break
+        return None
+
+    items: list[tuple[int, int]] = []
+    if not from_end:
+        start: Optional[int] = None
+        final = False
+        for a, b, is_and in frags:
+            if start is None:
+                start, final = a, is_and and bool(items)
+            at = first_period(start, b)
+            if at is None:
+                if b - start > 600:
+                    break  # a long undated run is no list item
+                continue
+            if _is_clause_fragment(text[start:b], at):
+                break
+            items.append((start, b))
+            start = None
+            if final:
+                break
+        return items
+    for a, b, _is_and in reversed(frags):
+        at = first_period(a, b)
+        if at is None or _is_clause_fragment(text[a:b], at):
+            break
+        items.insert(0, (a, b))
+    return items
+
+
+def _outer_period(left: str) -> Optional["_Period"]:
+    """The period a containment cue's list falls within, read from the clause before it: a range ('from 1961 to 1968', 'between 1961
+    and 1968', '1899-1902', a decade), the span 'From 1961 ... by 1968', a bare 'by 1968' as an upper bound with an open start, a bare
+    'from 1961' as a lower bound with an open end, else the clause's last date."""
+    periods = _periods(left)
+    if not periods:
+        return None
+    last = periods[-1]
+    if last.is_range or last.first is None:
+        return last
+    if _UNTIL_HEAD_RE.search(left[: last.start]):
+        starts = [p for p in periods[:-1] if p.first is not None and not p.is_range and _FROM_HEAD_RE.search(left[: p.start])]
+        if starts:
+            s = starts[-1]
+            return _Period(s.start, last.end, f"{s.text} to {last.text}", s.first, last.last)
+        return _Period(last.start, last.end, f"the period up to {last.text}", last.first, last.last, open_start=True)
+    if _FROM_HEAD_RE.search(left[: last.start]):
+        return _Period(last.start, last.end, f"the period from {last.text}", last.first, last.last, open_end=True)
+    return last
 
 
 def _clause_before(text: str) -> str:
@@ -1016,18 +1256,33 @@ def _period_relations(sentence: str, context: Optional[str]) -> list[ChronologyR
         rel = _resolve("from ... to", d2, d1, sentence, sentence_years, context_years, dated_context_years)
         out.append(ChronologyRelation(f"{verb.group(0).strip()} ... to", rel.later_text, rel.earlier_text, rel.later, rel.earlier, rel.decided,
                                       rel.reason, sentence, rel.later_ordinal, rel.earlier_ordinal))
-    if any(c in low for c in ("includ", "among them", "encompass", "took in")):
-        for m in _INCLUDE_CUE_RE.finditer(sentence):
-            left = _clause_before(sentence[: m.start()])
-            right = _clause_after(sentence[m.end():])
-            outers = _periods(left)
-            inners = _periods(right)
-            if not outers or not inners:
+    if any(c in low for c in ("includ", "among", "encompass", "took in")):
+        # 'X, including A in d1, B in d2 and C in d3': every item of the list after the cue lies within the outer period of the clause
+        # before it ('From 1961 ... by 1968' is 1961 to 1968; a bare 'by 1968' bounds only the end)
+        cues = [(m, False) for m in _INCLUDE_CUE_RE.finditer(sentence)] + [(m, True) for m in _AMONG_CUE_RE.finditer(sentence)]
+        for m, among in sorted(cues, key=lambda x: x[0].start()):
+            cue = " ".join(m.group(0).strip(" ,").split())
+            before = sentence[: m.start()]
+            after = _clause_after(sentence[m.end():])
+            if among and not _periods(after):
+                # '..., A on d1 and B on d2 among them': the list stands before the cue, the outer period in the clause governing it
+                inner_text = _clause_before(before)
+                items = _list_items(inner_text, from_end=True)
+                if not items:
+                    continue
+                outer = _outer_period(inner_text[: items[0][0]])
+            else:
+                inner_text = after
+                items = _list_items(after)
+                if not items:
+                    continue
+                outer = _outer_period(_clause_before(before))
+            if outer is None:
                 continue
-            inner = inners[0]
-            if re.search(r"[;:]", right[: inner.start]):
-                continue
-            out.append(_containment(" ".join(m.group(0).strip(" ,").split()), inner, outers[-1], sentence, overlap_ok=False))
+            for a, b in items:
+                periods = _periods(inner_text[a:b])
+                if periods:
+                    out.append(_containment(cue, periods[0], outer, sentence, overlap_ok=False))
     if any(c in low for c in ("during", "within", "in the course of", "in the midst of", "amid")):
         for m in _DURING_CUE_RE.finditer(sentence):
             left = _clause_before(sentence[: m.start()])

@@ -30,12 +30,22 @@ helpers so that
   by the clause's structure: a subject that refers to the answer's own items, "every
   mileage figure above", "each of the figures given above", "these quotations", "my
   reading", with a checking participle, an accuracy adjective or "need no further
-  checking"; "Nothing in this answer needs checking"; "As verified, ..."; the router or the
-  Overseer passing the answer) is recognised by every branch the same way
+  checking"; "Nothing in this answer needs checking"; "As verified, ..."; items named with their
+  source, "each quotation of the History specialist above", "every figure taken from the History
+  specialist has been reproduced exactly"; compliance with the request, "The paragraph is under the
+  word limit.", "The answer meets every constraint in the request.", "Word count: 258."; the router or
+  the Overseer passing the answer) is recognised by every branch the same way
   (:func:`is_self_certification`);
 * a note on how the answer was composed ("The historical setting is my own addition, not
-  part of that paragraph.", "The English specialist's paragraph is from the hub") is a note
-  on every branch (:func:`is_provenance_note`);
+  part of that paragraph.", "The English specialist's paragraph is from the hub"), on what a
+  received report says of its own items ("That account marks its figures as "from memory", so
+  they are reported unverified.", the quoted label read as a label: :func:`is_label_quotation`)
+  or on where the answer's items come from ("Quotations are from the supplied extract", "The
+  word count is approximate.") is a note on every branch (:func:`is_provenance_note`);
+* a sentence whose subject is a colleague's view ("The History specialist states that ...") is
+  recognised the same way on every branch (:func:`is_peer_attribution`);
+* a fence of prose keeps its body (an answer wrapped in a fence is still the answer); code, a
+  pasted receipt and a decoration inside a fence are removed (:func:`strip_markup`);
 * a pasted JSON span (a receipt, a payload) is found wherever it stands, glued to
   prose included (:func:`find_json_spans`), so its strings are never read as
   quotations and the prose around it is segmented as prose; brackets are matched in
@@ -59,6 +69,7 @@ Everything here is deterministic text handling; no finding is decided here.
 from __future__ import annotations
 
 import functools
+import itertools
 import json
 import re
 from typing import Optional
@@ -71,7 +82,8 @@ __all__ = [
     "is_note_sentence", "is_task_note", "split_note_clauses", "unbalanced_double_quotes", "normalize_double_marks",
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
-    "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note",
+    "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
+    "PEER_ATTRIBUTION_RE",
 ]
 
 BOM = "\ufeff"
@@ -80,11 +92,18 @@ MAX_CLAIM_TEXT_CHARS = 4000
 LIST_MARKER_RE = re.compile(r"^[ \t]*(?:\(?\d{1,3}[.)]|[-*•–—])[ \t]+")
 LIST_LINE_RE = re.compile(r"\n(?=[ \t]*(?:\(?\d{1,3}[.)]|[-*•–—])[ \t]+)")
 HEADING_LINE_RE = re.compile(r"^[ \t]*#{1,6}[ \t]+.*$", re.MULTILINE)
-#: A paired code fence and everything inside it. Fenced text is machine output or
-#: decoration (a footer, a table dump), not argument prose: it is removed whole.
+#: A paired code fence and everything inside it. Fenced code, a pasted receipt or a decoration (a footer, a table dump) is
+#: not argument prose and is removed whole; a fence of prose keeps its body (:func:`strip_markup`).
 FENCE_BLOCK_RE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.MULTILINE | re.DOTALL)
 #: A stray (unpaired) fence line.
 FENCE_LINE_RE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
+#: The same paired fence with its info string and body captured (:func:`strip_markup` keeps a prose body).
+_FENCE_PARTS_RE = re.compile(r"^[ \t]*(```|~~~)[ \t]*([^\n]*)\n(.*?)^[ \t]*\1[ \t]*$", re.MULTILINE | re.DOTALL)
+#: Info strings under which a fenced body may be the writer's prose (no language, or a text or markdown tag).
+_PROSE_FENCE_TAGS = frozenset({"", "text", "txt", "markdown", "md", "plain", "plaintext", "prose"})
+_FENCE_SENTENCE_END_RE = re.compile(r"[.!?][\"”’')\]]*(?=\s|$)")
+#: A fenced body is prose when it has at least this many words and two sentence ends.
+_MIN_FENCED_PROSE_WORDS = 20
 #: Emphasis markers must stand at word boundaries: ``_emphasis_`` is markup, but the
 #: underscores of ``receipt_id`` or ``Reichsbank_crisis`` are part of the word and stay.
 EMPHASIS_RE = re.compile(r"(?<!\w)(\*\*|__|\*|_|`)(?=\S)(.+?)(?<=\S)\1(?!\w)")
@@ -226,8 +245,30 @@ _SELF_UNIVERSAL_DET = r"(?:every|each(?:\s+one)?(?:\s+of\s+(?:the|these|those|my
 #: The answer itself, as the writer names it: "this paragraph", "the argument above", "my reading", "the whole answer".
 _SELF_ANSWER = (rf"(?:{_ANSWER_ITSELF}|(?:my|our)\s+(?:own\s+)?(?:reading|argument|answer|analysis|interpretation|paragraph|essay|response|account"
                 r"|outline|summary|conclusion|judge?ment|work)|(?:the|this)\s+(?:whole|entire)\s+(?:answer|paragraph|response|essay|analysis|argument))")
+#: A received report or a supplied text named as the source of the answer's items: "the History specialist", "the History
+#: report", "that account", "the poem", "both texts", "the supplied extract". A report source qualifies any item; a text
+#: source only quotations (the poem's "figures" may be figures of speech).
+_SOURCE_REPORT = (r"(?:(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:(?:'s|’s)\s+(?:paragraph|report|account|answer|analysis))?"
+                  r"|(?:the|that|this|its)\s+(?:history|english|peer|colleague['’]s|specialist['’]s|relayed|received)\s+(?:report|account|paragraph|answer))")
+_SOURCE_TEXT = (r"(?:(?:the|both|each|all\s+the|these)\s+(?:(?:supplied|source|original|given)\s+)?(?:poem|poems|sonnet|texts?|extracts?|passages?|novel|play|story)"
+                r"|(?:the|both)\s+(?:supplied|source|original|given)\s+(?:texts?|documents?))")
+#: The participle or preposition that ties an item to its source: "of", "from", "taken from", "quoted from".
+_SOURCE_LINK = r"(?:of|from|(?:taken|quoted|drawn|reproduced|copied|cited|borrowed|lifted)\s+from)"
+_QUOTE_ITEMS = r"(?:quotations?|quotes?|excerpts?|citations?|(?:quoted|cited)\s+lines?)"
+#: Items of the answer named with the source they were taken from, optionally anchored: "each quotation of the History
+#: specialist above", "all quotations from the History specialist above", "the quotations of the poem above", "my
+#: quotations of both texts", "the quotations from the History report", "every figure taken from the History specialist".
+_SELF_SOURCED = (rf"(?:{_SELF_UNIVERSAL_DET}\s+|(?:the|these|those|my|our)\s+)?"
+                 rf"(?:{_SELF_ITEM_LIST}\s+{_SOURCE_LINK}\s+{_SOURCE_REPORT}|{_SELF_MOD}{_QUOTE_ITEMS}\s+{_SOURCE_LINK}\s+(?:{_SOURCE_REPORT}|{_SOURCE_TEXT}))"
+                 rf"(?:\s+{_SELF_ANCHOR})?")
+#: Items named with their source, read in a pass of their own (:func:`_structural_self_report`) and only when the sentence
+#: names a source after "of" or "from" (:data:`_SOURCE_CUE_RE`), so the subject scan of every other sentence costs what it did.
+_SELF_SOURCED_RE = re.compile(rf"\b(?P<sourced>{_SELF_SOURCED})\b", re.IGNORECASE)
+_SOURCE_CUE_RE = re.compile(r"\b(?:of|from)\s+(?:\w+\s+){0,3}?(?:specialist|colleague|peer|report|account|paragraph|answer|poems?|sonnet|texts?|extracts?"
+                            r"|passages?|novel|play|story|documents?)\b", re.IGNORECASE)
 #: One subject, by kind: anchored items, the answer itself, every item, demonstrative items ("these figures", "my
-#: quotations") and bare definite items ("the quotations"). The kind decides which predicates certify (:func:`_structural_self_report`).
+#: quotations") and bare definite items ("the quotations"). The kind decides which predicates certify
+#: (:func:`_structural_self_report`).
 _SELF_SUBJECT_KINDS_RE = re.compile(
     rf"\b(?:(?P<anchored>(?:{_SELF_UNIVERSAL_DET}\s+|(?:the|these|those|my|our)\s+)?{_SELF_ITEM_LIST}\s+{_SELF_ANCHOR})"
     rf"|(?P<answer>{_SELF_ANSWER})"
@@ -237,16 +278,21 @@ _SELF_SUBJECT_KINDS_RE = re.compile(
     re.IGNORECASE,
 )
 #: What follows the subject: a copula, then adverbs, then a checking participle or an accuracy adjective.
-_SELF_COPULA = r"\s+(?:is|are|was|were|has\s+been|have\s+been|had\s+been|has\s+now\s+been|have\s+now\s+been|remains?)\s+"
-_SELF_PERFECT_RE = re.compile(r"\s+(?:is|are|has\s+been|have\s+been|has\s+now\s+been|have\s+now\s+been)\s+", re.IGNORECASE)
+_SELF_COPULA = r"\s+(?:is|are|was|were|(?:has|have|had)\s+(?:(?:all|each|now|both|already|also)\s+)?been|remains?)\s+"
+_SELF_PERFECT_RE = re.compile(r"\s+(?:is|are|(?:has|have)\s+(?:(?:all|each|now|both|already|also)\s+)?been)\s+", re.IGNORECASE)
 _SELF_ADVERBS = (r"(?:(?:all|now|fully|carefully|independently|formally|thoroughly|individually|each|already|also|both|entirely|completely"
                  r"|wholly|perfectly|properly|rigorously|systematically|duly|personally|again)\s+)*")
 _SELF_CHECK = (r"(?:checked|verified|confirmed|validated|corroborated|audited|proof-?read|double[- ]checked|cross[- ]checked|fact[- ]checked"
                r"|re-?checked|compared\s+(?:with|against)|matched\s+(?:against|with|to))")
 _SELF_ACCURACY = (r"(?:accurate|correct|exact|reliable|sound|right|error[- ]free|verbatim|trustworthy|faithful|free\s+(?:of|from)\s+errors?"
                   r"|without\s+(?:any\s+)?errors?)")
+#: Reproduction fidelity: "reproduced exactly", "quoted verbatim", "copied word for word", "transcribed without alteration".
+#: Only the writer reproduces the answer's own items, so this certifies whatever the subject's kind.
+_SELF_FIDELITY = (r"(?:reproduced|quoted|copied|transcribed|rendered|cited)\s+(?:(?:here|above|below|in\s+full)\s+)?"
+                  r"(?:exactly|verbatim|word\s+for\s+word|letter\s+for\s+letter|faithfully|accurately|precisely|correctly"
+                  r"|without\s+(?:any\s+)?(?:change|alteration|error|omission)s?)")
 _SELF_PREDICATE_TAIL_RE = re.compile(
-    rf"{_SELF_COPULA}{_SELF_ADVERBS}(?:(?P<check>{_SELF_CHECK})|(?P<accuracy>{_SELF_ACCURACY}))\b",
+    rf"{_SELF_COPULA}{_SELF_ADVERBS}(?:(?P<fidelity>{_SELF_FIDELITY})|(?P<check>{_SELF_CHECK})|(?P<accuracy>{_SELF_ACCURACY}))\b",
     re.IGNORECASE,
 )
 #: An accuracy adjective that closes the clause ("these figures are accurate.", "... are reliable and need no further
@@ -299,6 +345,66 @@ _SELF_LEAD_RE = re.compile(
     rf"|^\W*As\s+{_INFRASTRUCTURE}\s+(?:has\s+|have\s+|had\s+)?(?:already\s+)?(?:verified|checked|confirmed|proved|shown|accepted|certified|validated)\b",
     re.IGNORECASE,
 )
+# ---- the compliance self-report rule (:func:`is_self_certification`): the answer, its quotations or the request's items as
+# subject, a predicate saying that the answer satisfies the request ("is under the word limit", "meets every constraint",
+# "complies with the router's instructions", "are addressed above", "follow the 1633 spelling of the supplied text"), and a
+# word-count line ("Word count: 258.", "258 words."). The sentence must open on the subject and say nothing else, so "The
+# poem answers every question the speaker asks" and "The paragraph argues that ..." stay arguments; a negated or modal
+# predicate ("should stay within the word limit", "is not under") never matches.
+_COMPLIANCE_LEAD = r"^\W*(?:(?:overall|finally|note|also|in\s+total|in\s+sum|for\s+the\s+record|as\s+requested)\s*[,:]\s*)?"
+_COMPLIANCE_ANSWER = (rf"(?:{_SELF_ANSWER}|(?:the|this|my|our)\s+(?:whole\s+|entire\s+|final\s+)?(?:paragraph|answer|response|essay|analysis|outline|summary|reply"
+                      r"|submission))")
+_COMPLIANCE_ITEMS = (rf"(?:(?:{_SELF_UNIVERSAL_DET}|both|the|my|our|these)\s+)?(?:(?:request|question|task|router['’]s|prompt['’]s|request['’]s|question['’]s)\s+"
+                     r"(?:items?|parts?|requirements?|constraints?|instructions?|conditions?|criteria|demands?)"
+                     r"|(?:items?|parts?|requirements?|constraints?|instructions?|conditions?|criteria|demands?)\s+of\s+the\s+(?:question|request|task|prompt))")
+_COMPLIANCE_QUOTES = rf"(?:(?:{_SELF_UNIVERSAL_DET}|the|my|our|these)\s+)?(?:\w+\s+)?{_QUOTE_ITEMS}(?:\s+{_SELF_ANCHOR})?"
+#: "is under the word limit", "stays within the 300-word limit", "is 258 words long", "runs to about 250 words".
+_COMPLIANCE_LIMIT = (r"(?:is|are|was|stays?|remains?|keeps?|falls?|sits?|comes?\s+in|runs?)\s+(?:(?:well|comfortably|safely|just|also|exactly|therefore)\s+)?"
+                     r"(?:(?:under|within|below|inside|beneath)\s+(?:the\s+|its\s+|a\s+|my\s+)?(?:\d[\d,]*[- ]word\s+|requested\s+|required\s+|stated\s+|set\s+|given\s+|maximum\s+)?"
+                     r"(?:word[- ])?(?:limit|count|bound|maximum|length|cap|target|ceiling|allowance)"
+                     r"|(?:to\s+)?(?:about\s+|around\s+|roughly\s+|approximately\s+|exactly\s+|only\s+)?\d[\d,]*\s+words(?:\s+long|\s+in\s+(?:total|length))?)"
+                     r"|(?:has|contains|uses)\s+(?:about\s+|around\s+|roughly\s+|approximately\s+|exactly\s+|only\s+|fewer\s+than\s+|under\s+)?\d[\d,]*\s+words")
+#: "meets every constraint in the request", "answers every part of the question", "complies with the router's instructions".
+_COMPLIANCE_MEETS = (r"(?:meets?|satisf(?:ies|y)|fulfil(?:l?s)?|respects?|observes?|obeys?|follows?|honou?rs?|(?:complies|comply)\s+with|conforms?\s+to|adheres?\s+to"
+                     r"|answers?|addresses|covers?|(?:keeps?|sticks?)\s+to)\s+"
+                     r"(?:(?:each|every|all(?:\s+of)?|both)\s+(?:the\s+|its\s+|of\s+the\s+)?|the\s+|its\s+)(?:[\w'’-]+\s+){0,3}?"
+                     r"(?:constraints?|requirements?|instructions?|limits?|parts?|items?|criteria|criterion|conditions?|rules?|questions?|demands?|specifications?"
+                     r"|brief|task|request|prompt)")
+#: "are addressed above", "have all been answered" (the request's items as subject).
+_COMPLIANCE_DONE = (r"(?:is|are|has\s+been|have\s+been)\s+(?:(?:all|each|both|fully|now|also)\s+)?"
+                    r"(?:addressed|answered|covered|met|satisfied|fulfill?ed|respected|observed|followed|dealt\s+with|handled)")
+#: "follow the 1633 spelling of the supplied text", "keep the original punctuation of the poem".
+_COMPLIANCE_SPELLING = (r"(?:follow|keep|retain|preserve|use|reproduce|respect|match)(?:s|es)?\s+(?:the\s+|its\s+)?(?:(?:\d{3,4}|original|exact|source|supplied|old|archaic)\s+)*"
+                        r"(?:spellings?|punctuation|wording|lineation|line\s+breaks|capitali[sz]ation|orthography)\s+(?:of|in|used\s+in)\s+(?:the\s+)?"
+                        r"(?:supplied|original|given|source|provided|printed)?\s*(?:text|extract|poem|passage|edition|document|sonnet)")
+#: What may follow a compliance predicate inside its clause ("in the request", "of the question", "above", "in full").
+_COMPLIANCE_TAIL = (r"(?:\s+(?:in|of|for|from|set\s+by|given\s+by|stated\s+in|above|here|in\s+full|as\s+(?:set|stated|given|requested)"
+                    r"|as\s+(?:it|they)\s+(?:appears?|stands?|reads?)\s+in)\b[^,;.!?]{0,60})?")
+_COMPLIANCE_PRED = rf"(?:{_COMPLIANCE_LIMIT}|{_COMPLIANCE_MEETS}|{_COMPLIANCE_SPELLING}){_COMPLIANCE_TAIL}"
+_COMPLIANCE_RE = re.compile(
+    rf"{_COMPLIANCE_LEAD}(?:"
+    rf"{_COMPLIANCE_ANSWER}\s+{_COMPLIANCE_PRED}(?:\s*,?\s+(?:and|while|but\s+also)\s+(?:it\s+)?{_COMPLIANCE_PRED}){{0,3}}"
+    rf"|(?:{_COMPLIANCE_ITEMS})\s+{_COMPLIANCE_DONE}{_COMPLIANCE_TAIL}"
+    rf"|{_COMPLIANCE_QUOTES}\s+(?:{_COMPLIANCE_SPELLING}|(?:is|are)\s+(?:all\s+)?{_SELF_FIDELITY}){_COMPLIANCE_TAIL}"
+    r")\s*(?:\([^()]{0,40}\)\s*)?[.!]?[\"'”’)\]]*\s*$",
+    re.IGNORECASE,
+)
+#: A word-count line: "Word count: 258.", "258 words.", "(about 250 words)", "Words: 258", "The word count is 258."
+_WORD_COUNT_RE = re.compile(
+    r"^\W*(?:(?:approximate|approx\.?|total|final|actual|my)\s+)?word[- ]?count\s*(?:[:=—–-]|is|of)?\s*(?:approx(?:imately|\.)?\s+|about\s+|around\s+|roughly\s+|c\.\s*|~\s*)?"
+    r"\d[\d,]*(?:\s+words?)?\s*(?:\(\s*approx(?:imately|\.)?\s*\)|\(\s*excluding[^()]{0,40}\))?\W*$"
+    r"|^\W*(?:approx(?:imately|\.)?\s+|about\s+|around\s+|roughly\s+|c\.\s*|~\s*)?\d[\d,]*\s+words?(?:\s+(?:in\s+total|total|long|exactly|approx(?:imately|\.)?))?\W*$"
+    r"|^\W*(?:total\s+)?words?(?:\s+used)?\s*[:=]\s*\d[\d,]*\W*$"
+    r"|^\W*(?:the|my)\s+word[- ]count\s+(?:is|was|comes\s+to)\s+(?:approx(?:imately|\.)?\s+|about\s+|around\s+|roughly\s+)?\d[\d,]*(?:\s+words?)?\W*$",
+    re.IGNORECASE,
+)
+#: A colleague's or the poem's words said to be quoted exactly in the answer: "The History specialist's words are quoted above exactly as delivered."
+_QUOTED_WORDS_FIDELITY_RE = re.compile(
+    r"^\W*(?:the\s+)?(?:[A-Za-z]+\s+)?(?:specialist|colleague|peer|poem|poet|author|sonnet|extract|speaker)(?:'s|’s)\s+(?:own\s+)?(?:words|figures|quotations?|lines|phrasing|wording|phrases)"
+    r"\s+(?:is|are|has\s+been|have\s+been)\s+(?:all\s+)?"
+    rf"(?:{_SELF_FIDELITY}|(?:quoted|reproduced|copied|cited|given)\s+(?:here|above)\s+(?:exactly|verbatim|word\s+for\s+word|faithfully|accurately|precisely|correctly))\b",
+    re.IGNORECASE,
+)
 #: The infrastructure as the agent of a certifying verb: "the router has confirmed ...", "Z3 proved ...", "... signed off by the Overseer".
 _INFRA_AGENT_RE = re.compile(
     rf"{_INFRASTRUCTURE}(?:\s+(?:has|have|had|already|now|also|itself|formally|independently|fully|duly))*\s+"
@@ -323,10 +429,34 @@ _CHECK_END_RE = re.compile(
 )
 #: "the quotations" with no modifier: a bare definite subject, whose accuracy adjective may certify the answer's items.
 _BARE_DEFINITE_RE = re.compile(rf"the\s+{_SELF_ITEMS}(?:,?\s+(?:and|or)\s+{_SELF_ITEMS})*", re.IGNORECASE)
+#: How firmly a subject named with its source points at the answer's own items (:func:`_sourced_kind`).
+_SOURCED_ANCHOR_RE = re.compile(rf"\s{_SELF_ANCHOR}$", re.IGNORECASE)
+_SOURCED_QUOTING_RE = re.compile(rf"\b{_QUOTE_ITEMS}\s+{_SOURCE_LINK}\b|\b(?:taken|quoted|drawn|reproduced|copied|cited|borrowed|lifted)\s+from\b", re.IGNORECASE)
+#: The determiners that make a subject more than a bare definite one ("every", "these", "my" ...).
+_NON_DEFINITE_DETERMINERS = frozenset({"every", "each", "all", "these", "those", "my", "our"})
+#: Where a reproduction-fidelity predicate closes for a subject not anchored in the answer: the clause ends, or the item is
+#: said to stand as it does in the supplied text ("as it appears in the extract"). "The census figures are reproduced exactly
+#: in Mitchell's tables" is a historian's statement about another work, not a self-report.
+_FIDELITY_END_RE = re.compile(
+    r"\s*(?:[.;!:,)\]\"'”’]|$)|\s+(?:as\s+(?:it|they)\s+(?:appears?|stands?|is|are|was|were|reads?)\b|as\s+(?:written|printed|given|delivered|supplied|received)\b"
+    r"|(?:from|in)\s+the\s+(?:supplied|original|source|given)\b|in\s+(?:this|my)\s+(?:answer|paragraph|response|essay)\b|against\b|and\b|so\b|here\b|above\b|throughout\b)",
+    re.IGNORECASE,
+)
+
+
+def _sourced_kind(subject: str) -> str:
+    """How a subject named with its source ("each quotation of the History specialist above", "the figures quoted from the
+    History specialist", "the figures of the History report") certifies: ``anchored`` when it is anchored in the answer
+    ("above", "here"), ``quoted`` when its items are quotations or were taken by a quoting participle ("quoted from", "taken
+    from"), so they are the answer's own reproductions, and ``weak`` otherwise (a report's figures may be weighed, so only a
+    checking participle certifies them)."""
+    if _SOURCED_ANCHOR_RE.search(subject):
+        return "anchored"
+    return "quoted" if _SOURCED_QUOTING_RE.search(subject) else "weak"
 #: Cheap pre-filter for the structural rule: a sentence with none of these stems certifies nothing.
 _SELF_CUE_RE = re.compile(
     r"check|verif|confirm|validat|corroborat|audit|proof|compar|match|accura|correct|exact|reliab|sound|right|error|faithful|verbatim|trust"
-    r"|need|requir|warrant|merit|call|prov|accept|certif|approv|signed|passed|clear|entail|beyond",
+    r"|need|requir|warrant|merit|call|prov|accept|certif|approv|signed|passed|clear|entail|beyond|precis|word\s+for\s+word|letter\s+for\s+letter|without",
     re.IGNORECASE,
 )
 
@@ -350,17 +480,30 @@ def strip_json_blocks(text: str) -> tuple[str, int]:
     return JSON_BLOCK_RE.sub(take, text), removed
 
 
+def _fenced_body(m: "re.Match[str]") -> str:
+    """What a paired fence leaves in the text to segment: its body when the fence carries no language (or a text or
+    markdown tag) and the body is prose (at least :data:`_MIN_FENCED_PROSE_WORDS` words, two sentence ends, no JSON
+    shape): an answer wrapped in a fence is still the answer, as the English parser reads it. Code, a pasted receipt
+    (```json ...```) and a short decoration (a footer) are removed whole."""
+    info, body = m.group(2).strip().lower(), m.group(3)
+    if (info in _PROSE_FENCE_TAGS and len(body.split()) >= _MIN_FENCED_PROSE_WORDS and len(_FENCE_SENTENCE_END_RE.findall(body)) >= 2
+            and not JSON_KEY_RE.search(body) and not is_json_block(body.strip())):
+        return body
+    return ""
+
+
 def strip_markup(text: str) -> str:
     """Return ``text`` without a byte-order mark, CRLF, heading lines, fenced code
-    blocks (fence lines and their body), stray fence lines, pasted JSON blocks or
-    emphasis markers. Paragraph breaks (blank lines) are preserved. The caller keeps
-    the untouched original for ``original_response``; this is only the text to segment."""
+    blocks (fence lines and their body; a fence of prose keeps its body, :func:`_fenced_body`),
+    stray fence lines, pasted JSON blocks or emphasis markers. Paragraph breaks (blank lines)
+    are preserved. The caller keeps the untouched original for ``original_response``; this is
+    only the text to segment."""
     s = text.replace("\r\n", "\n").replace("\r", "\n")
     if s.startswith(BOM):
         s = s[len(BOM):]
     s = s.replace(BOM, "")
     s = HEADING_LINE_RE.sub("", s)
-    s = FENCE_BLOCK_RE.sub("", s)
+    s = _FENCE_PARTS_RE.sub(_fenced_body, s)
     s = FENCE_LINE_RE.sub("", s)
     s, _removed = strip_json_blocks(s)
     s = EMPHASIS_RE.sub(r"\2", s)
@@ -418,12 +561,40 @@ def _structural_self_report(sentence: str) -> bool:
       figures were checked" narrates history); an accuracy adjective only when it closes the clause, and only for the
       items an adjective can certify (figures, dates, quotations, statistics, ...; not claims or facts) with no modifier on
       a definite subject ("the census figures are reliable" weighs a source)."""
-    for m in _SELF_SUBJECT_KINDS_RE.finditer(sentence):
+    sourced = _SELF_SOURCED_RE.finditer(sentence) if _SOURCE_CUE_RE.search(sentence) else ()
+    for m in itertools.chain(sourced, _SELF_SUBJECT_KINDS_RE.finditer(sentence)):
         tail = _SELF_PREDICATE_TAIL_RE.match(sentence, m.end())
         if tail is None:
             continue
         kind = m.lastgroup
         after = tail.end()
+        if kind == "sourced":
+            # items named with their source: anchored in the answer, the answer's own quotations, or a report's items
+            strength = _sourced_kind(m.group(0))
+            definite = m.group(0).split()[0].lower() not in _NON_DEFINITE_DETERMINERS
+            if strength == "anchored":
+                return True
+            if tail.group("fidelity"):
+                if _FIDELITY_END_RE.match(sentence, after):
+                    return True
+                continue
+            if tail.group("check"):
+                if (definite and not _SELF_PERFECT_RE.match(sentence, m.end())) or _BY_OTHER_AGENT_RE.match(sentence, after):
+                    continue
+                if tail.group("check").lower().endswith(("with", "against", "to")) or _CHECK_END_RE.match(sentence, after):
+                    return True
+                continue
+            if strength == "quoted" and _SELF_CLOSING_RE.match(sentence, after):
+                return True
+            continue
+        if tail.group("fidelity"):
+            # only the writer reproduces the answer's items: "Every quotation is reproduced exactly as it appears in the extract";
+            # a modified definite subject may be another work's items ("the census figures are reproduced exactly ...")
+            if kind == "definite" and not _BARE_DEFINITE_RE.fullmatch(m.group(0)):
+                continue
+            if kind == "anchored" or _FIDELITY_END_RE.match(sentence, after):
+                return True
+            continue
         if tail.group("check"):
             if kind == "anchored":
                 return True
@@ -454,6 +625,10 @@ def _self_certification(sentence: str) -> bool:
     cue = _SELF_CUE_RE.search(sentence) is not None
     if cue and (_positive(_NOTHING_NEEDS_CHECK_RE, sentence)
                 or (_SELF_SUBJECT_KINDS_RE.search(sentence) is not None and _positive(_NO_FURTHER_CHECK_RE, sentence))):
+        return True
+    # compliance with the request and word-count lines: decided before the dated-item guard, since "the 1633 spelling of the
+    # supplied text" and "the 300-word limit" carry numbers that date nothing
+    if len(sentence) <= 400 and (_WORD_COUNT_RE.match(sentence) or _COMPLIANCE_RE.match(sentence) or _QUOTED_WORDS_FIDELITY_RE.match(sentence)):
         return True
     if _DATED_ITEM_RE.search(sentence):
         return False
@@ -497,6 +672,18 @@ def is_self_certification(sentence: str) -> bool:
       goes on to argue ("verified in later scholarship") is not a self-report, an adjective must close the clause unless
       the items are anchored in the answer ("here", "above", "in this answer"), and a subject that mentions only items
       in general ("every figure in the sculpture is exact") needs a checking verb;
+    * items named with the source they were taken from ("each quotation of the History specialist above", "my
+      quotations of both texts", "the quotations from the History report", "every figure taken from the History
+      specialist") with a checking participle, an accuracy adjective (anchored items, quotations, or items taken by a
+      quoting participle) or a reproduction-fidelity predicate ("has been reproduced exactly", "are quoted verbatim");
+      a report's figures with only an adjective ("the figures of the History report are accurate") may be the writer
+      vouching for a source and are not one;
+    * compliance with the request, decided before the dated-item guard: a sentence that opens on the answer, its
+      quotations or the request's items and says nothing but that the answer satisfies the request ("The paragraph is
+      under the word limit.", "This paragraph stays within the 300-word limit and answers every part of the
+      question.", "The answer meets every constraint in the request.", "Both request items are addressed above.",
+      "This response complies with the router's instructions.", "All quotations follow the 1633 spelling of the
+      supplied text."), and a word-count line ("Word count: 258.", "258 words.");
     * items matched word for word or checked against "the supplied" text ("The quotations were matched word for word
       against the supplied extract");
     * the infrastructure (Z3, the engine, solver, verifier, checker, hub, channel, router, translator, Overseer,
@@ -831,6 +1018,7 @@ fact facts detail details data year years total totals estimate estimates item i
 references source sources claim claims example examples statement statements paragraph paragraphs answer answers response text
 essay report outline summary section passage note notes examination exam assessment please accordingly therefore further
 independently carefully first again thereby then verify verified check checked confirm confirmed memory recollection
+reported reports marked marks labelled labeled flagged treated left presented offered
 """.split())
 _NOTE_TOKEN_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
 #: "<subject> is/are (given) from memory" as the clause's whole predicate: "The causes of the banking crisis of 1931 are
@@ -872,15 +1060,139 @@ _PROVENANCE_NOTE_RE = re.compile(
 )
 
 
+#: A quoted label ("from memory", "unverified", "approximate"): inside a provenance note it is read as the label it is.
+_QUOTED_LABEL_RE = re.compile(
+    r"\s*(?:(?:given|quoted|cited|stated|written|reproduced|taken)\s+)?(?:from\s+(?:memory|recollection)|un(?:verified|checked|confirmed|corroborated)"
+    r"|approximate|approximations?|approx\.?|estimates?|estimated|illustrative|provisional|to\s+be\s+(?:checked|verified|confirmed)|not\s+(?:yet\s+)?(?:checked|verified|confirmed))"
+    r"\s*[.,;:!?]*\s*",
+    re.IGNORECASE,
+)
+
+
+def is_label_quotation(inner: str) -> bool:
+    """True when a quotation's words are nothing but a label ("from memory", "unverified", "approximate"): a writer who
+    quotes a colleague's label ("That account marks its figures as "from memory"") relays the label, not evidence."""
+    return len(inner) <= 60 and _QUOTED_LABEL_RE.fullmatch(inner) is not None
+
+
+#: The items a provenance note speaks of.
+_PROV_ITEMS = r"(?:figures?|dates?|numbers?|statistics?|quotations?|quotes?|excerpts?|estimates?|totals?|details?|data|claims?|facts?)"
+#: A received report or its writer as the subject: "That account", "the History specialist's paragraph", "the colleague".
+_PROV_REPORT = (r"(?:(?:that|this|the|its)\s+(?:(?:history|english|peer|colleague['’]s|specialist['’]s|relayed|received|forwarded|other)\s+)?"
+                r"(?:account|report|paragraph|contribution)"
+                r"|(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:(?:'s|’s)\s+(?:paragraph|report|account|answer|analysis|contribution))?)")
+#: The items of a received report, or of the answer located in it: "its figures", "the History specialist's figures",
+#: "that account's dates", "the quotations above", "my figures". A bare subject ("the census figures") is not one: a source's
+#: precision is a historian's claim.
+_PROV_ITEM_SUBJECT = (r"(?:(?:(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)|(?:that|this|the)\s+(?:(?:history|english|peer|relayed|received)\s+)?"
+                      r"(?:account|report|paragraph)(?:'s|’s)|its|their)\s+(?:own\s+)?(?:[a-z]+\s+)?" + _PROV_ITEMS +
+                      r"|(?:the|my|our|these|all\s+(?:the|my)|all|every|each)\s+(?:[a-z]+\s+)?" + _PROV_ITEMS +
+                      r"\s+(?:above|here|below|(?:used|given|cited|quoted)(?:\s+(?:here|above|below))?|in\s+(?:this|my)\s+(?:paragraph|answer|response|essay))"
+                      r"|(?:my|our)\s+" + _PROV_ITEMS + r")")
+#: The answer's quotations or figures, determined or not ("Quotations are from the supplied extract"), for a provenance predicate only.
+_PROV_ANY_ITEMS = r"(?:(?:the|my|our|these|all(?:\s+(?:the|my))?|every|each)\s+)?(?:[a-z]+\s+)?" + _PROV_ITEMS + r"(?:\s+(?:above|here|below|used|given|cited|quoted))?"
+#: Where a provenance predicate says the items come from: the supplied text, a received report, the hub, memory.
+_PROV_SOURCE = (r"(?:(?:the\s+)?(?:supplied|given|provided|original|source)\s+(?:text|extract|poem|passage|sonnet|document|edition)"
+                r"|the\s+(?:poem|extract|passage|sonnet|text)|the\s+hub|memory|recollection|(?:that|this)\s+(?:account|report|paragraph)"
+                r"|(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)?(?:\s+(?:paragraph|report|account|answer))?"
+                r"|the\s+(?:(?:history|english|peer|relayed|received|forwarded)\s+)+(?:report|paragraph|account))")
+_PROVENANCE_EXTRA_RE = re.compile(
+    r"(?:(?:but|and|so|also|note(?:\s+that)?|please\s+note(?:\s+that)?)[,:\s]+)?(?:"
+    # a received report labelling its items: "That account marks its figures as "from memory"", "labels its figures from memory"
+    rf"{_PROV_REPORT}\s+(?:itself\s+|also\s+|explicitly\s+|openly\s+|clearly\s+)?"
+    r"(?:marks?|marked|labels?|labell?ed|flags?|flagged|tags?|tagged|describes?|described|presents?|presented|gives?|gave|lists?|listed|offers?|offered"
+    r"|qualifies|qualified|notes?|noted|calls?|called|treats?|treated|introduces?|introduced|states?|stated|reports?|reported)"
+    rf"\s+(?:all\s+(?:of\s+)?)?(?:its|their|his|her|the|these|those)\s+(?:own\s+)?(?:[a-z]+\s+)?{_PROV_ITEMS}\s+(?:as\s+(?:being\s+)?)?"
+    r"(?:labelq|from\s+(?:memory|recollection)|un(?:verified|checked|confirmed)|approximate|provisional|illustrative|estimates?|recollections?)"
+    # a report's items, or the answer's located items, with a verification status: "Its figures are marked "from memory"", "are reported unverified"
+    rf"|{_PROV_ITEM_SUBJECT}\s+(?:is|are|was|were)\s+(?:all\s+|both\s+|also\s+|therefore\s+|only\s+)?"
+    r"(?:(?:reported|given|left|presented|treated|offered|marked|labell?ed|flagged|cited|relayed|passed\s+on|kept)\s+)?(?:as\s+)?"
+    r"(?:labelq|un(?:verified|checked|confirmed|corroborated)|provisional|approximate|illustrative|from\s+(?:memory|recollection))"
+    # where the answer's items come from: "Quotations are from the supplied extract", "The figures above come from the History specialist's paragraph"
+    rf"|{_PROV_ANY_ITEMS}\s+(?:(?:is|are|was|were)\s+(?:all\s+|both\s+|also\s+|only\s+)?(?:(?:taken|drawn|quoted|copied|reproduced|cited|given|relayed)\s+)?(?:from|in)"
+    rf"|(?:comes?|came|derives?|derived|(?:is|are)\s+derived)\s+(?:only\s+|entirely\s+|directly\s+|all\s+)?from)\s+{_PROV_SOURCE}"
+    # the answer's word count: "The word count is approximate."
+    r"|(?:the|my|this|its)\s+(?:word[- ]count|word\s+total|count|length)(?:\s+(?:of|for)\s+(?:this|the|my)\s+(?:paragraph|answer|response|essay))?"
+    r"\s+(?:is|was)\s+(?:only\s+|also\s+)?(?:an?\s+)?(?:approximate|approximation|estimate|estimated|rough|indicative)"
+    r")(?:\s+(?:as\s+well|too|also|alone))?",
+    re.IGNORECASE,
+)
+#: Clauses that may close a provenance note after a comma or semicolon: ", not from the poem", ", so they are reported unverified"
+#: (label-shaped), "I have not checked them", "check them before use".
+_PROV_TRAIL_RE = re.compile(
+    r"(?:(?:and|but|so)\s+)?(?:(?:it|they)\s+(?:is|are)\s+)?not\s+(?:from\s+|in\s+|part\s+of\s+|taken\s+from\s+)?(?:the|my|this|that|its|their)\s+"
+    r"(?:[a-z'’-]+\s+){0,2}?(?:poem|text|extract|passage|sonnet|novel|play|argument|analysis|reading|paragraph|answer|report|account)"
+    r"|(?:and\s+|but\s+|so\s+)?(?:I|we)\s+(?:have\s+not|haven't|did\s+not|didn't|could\s+not|couldn't|cannot|can't)\s+(?:yet\s+)?(?:checked|verified|confirmed|check|verify|confirm)\b[^,;:]{0,60}",
+    re.IGNORECASE,
+)
+
+
+def _provenance_body(sentence: str) -> str:
+    """``sentence`` with its terminal punctuation removed, every quotation replaced by one placeholder word and a quoted
+    label (:func:`is_label_quotation`) by the word ``labelq``, whitespace collapsed: the text a provenance note is read on."""
+    parts: list[str] = []
+    cursor = 0
+    for a, b, inner in find_quotation_spans(sentence):
+        parts.append(sentence[cursor:a])
+        parts.append(" labelq " if is_label_quotation(inner) else " xquotex ")
+        cursor = b
+    parts.append(sentence[cursor:])
+    text = "".join(parts)
+    text = text[: len(text) - len(_TERMINAL_RE.search(text).group(0))]
+    return re.sub(r"\s+([,;])", r"\1", " ".join(text.split()))
+
+
 def is_provenance_note(sentence: str) -> bool:
-    """True when ``sentence`` speaks only of how the answer was composed: "The historical setting is my own addition,
-    not part of that paragraph.", "The judgement on which decade saw the most decisive expansion is from memory as well",
-    "The English specialist's paragraph is from the hub". Read with quotations masked. :func:`split_note_clauses` applies
-    it to what is left once the label clauses are set aside, so "...; verify it before use" or "...; I have not checked its
-    quotations" beside it still leaves a note, on every branch and in the channel's word count."""
-    masked = mask_quotations(sentence)
-    body = " ".join(masked[: len(masked) - len(_TERMINAL_RE.search(masked).group(0))].split())
-    return bool(body) and len(body) <= 400 and _PROVENANCE_NOTE_RE.fullmatch(body) is not None
+    """True when ``sentence`` speaks only of how the answer was composed or of what a received report says about its own
+    items: "The historical setting is my own addition, not part of that paragraph.", "The judgement on which decade saw
+    the most decisive expansion is from memory as well", "The English specialist's paragraph is from the hub", "That
+    account marks its figures as "from memory", so they are reported unverified." (the quoted label read as the label it
+    is), "The History specialist's figures are from memory", "Quotations are from the supplied extract", "The figures
+    above come from the History specialist's paragraph, not from the poem.", "The word count is approximate.". Read with
+    quotations masked; closing clauses that are notes themselves (", not from the poem", ", so they are reported
+    unverified", "I have not checked them") are set aside first. :func:`split_note_clauses` applies it to what is left
+    once the label clauses are set aside, so "...; verify it before use" beside it still leaves a note, on every branch and
+    in the channel's word count. A subject that is not the answer, its located items or a received report ("The census
+    figures are approximate") and a predicate that asserts anything else stay substantive."""
+    if len(sentence) > 1200:
+        return False
+    body = _provenance_body(sentence)
+    if not body or len(body) > 400:
+        return False
+    if _PROVENANCE_NOTE_RE.match(body) is None and _PROVENANCE_EXTRA_RE.match(body) is None:
+        return False  # no prefix is a provenance clause, so no clause can be left once closing notes are set aside
+    for _ in range(4):
+        if _PROVENANCE_NOTE_RE.fullmatch(body) is not None or _PROVENANCE_EXTRA_RE.fullmatch(body) is not None:
+            return True
+        cut = max(body.rfind(","), body.rfind(";"))
+        if cut <= 0:
+            return False
+        tail = body[cut + 1:].strip()
+        if not tail or not (_PROV_TRAIL_RE.fullmatch(tail) or _label_shaped(tail)):
+            return False
+        body = body[:cut].rstrip()
+    return False
+
+
+#: A sentence whose subject is a colleague's view: "The History specialist states that ...", "The English specialist's
+#: phrase "..." fits that record". The same shape as the History parser's attribution rule, so a colleague's reported
+#: statement is the colleague's view on every branch (role ``perspective``, certainty capped, the attribution recorded).
+PEER_ATTRIBUTION_RE = re.compile(
+    r"^\W*(?:(?:as|yet|but|however|indeed|similarly|likewise|further|moreover|finally|first|second|third|here|and|so)[,\s]+)?"
+    r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)(?:'s|’s)?\s+"
+    r"(?:argues?|argued|notes?|noted|writes?|wrote|describes?|described|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested"
+    r"|identifies|identified|points?\s+out|pointed\s+out|calls?|called|reads?|presents?|presented|concludes?|concluded|holds?|held|maintains?|maintained"
+    r"|contends?|contended|reports?|reported|records?|recorded|explains?|explained|insists?|insisted|adds?|added"
+    r"|phrase|phrasing|claim|point|paragraph|reading|account|words?|view|argument|analysis|verdict|conclusion)\b",
+    re.IGNORECASE,
+)
+
+
+def is_peer_attribution(sentence: str) -> bool:
+    """True when the sentence's subject is a colleague's view ("The History specialist states that ...", "The English
+    specialist's reading ..."), read with quotations masked; a sentence that cites the colleague mid-way ("..., bearing
+    out the History specialist's claim that ...") is the writer's own."""
+    return PEER_ATTRIBUTION_RE.match(mask_quotations(sentence)) is not None
 
 
 _PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
@@ -1024,7 +1336,7 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     #    filler around the labels removed: the whole sentence is a note
     if _LETTER_RE.search(masked) and (
         _label_shaped(masked) or is_self_certification(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked)
-        or (notes and _filler_only(masked)) or is_provenance_note(masked.strip(" ,;:"))
+        or (notes and _filler_only(masked)) or is_provenance_note(orig.strip(" ,;:"))  # read on the words: a quoted label is a label
     ):
         return "", (sentence.strip(),)
     core = re.sub(r",(?:\s*,)+", ",", orig)
