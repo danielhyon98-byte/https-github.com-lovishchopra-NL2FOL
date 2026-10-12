@@ -400,3 +400,23 @@ Work in progress after it is labelled as such.
 - **Publishers.** The overseer upload scripts were checked by three independent review rounds; the last found no
   blocker or major, and its small findings are fixed. No new final commit on either branch this hour, so nothing new
   was sent to Bruno's repository.
+
+**2026-10-12 17:45 UTC.**
+- **Where testing stands.** Seven of the ten bug-testing rounds are done (r1 to r7; r7 was the first with all sixteen
+  specialists). Rounds 8 to 10 run in phase 2, after the STEM and overseer builds are merged. A live round takes about
+  2 to 5.5 hours (r4 2h20, r5 3h40, r6 5h30, r7 5h20); replaying one recorded round through the translator code takes
+  6 to 9 seconds and is used as the functional simulation before every upload.
+- **Translator.** After the round-7 fixes the replay passes 162 of 162 transmissions and the suite 1,855 tests. The
+  reviewers' ratings of round 7 before those fixes were translation accuracy 0.64, results-audit 0.53,
+  communication-fidelity 0.42 and adversarial-live 0.75; the fixes are re-rated by live reviewers in round 8, so the 98%
+  target is not yet demonstrated.
+- **STEM translator.** Built and evaluated on its own branch (all 38 injected faults named, no false errors); it joins
+  the arena at round 8.
+- **Overseer build.** Round-3 review fixes in progress (25 findings: 1 blocker, 19 major, 5 minor). The contained
+  simulation of the uploaded overseer prototype passes rounds 2 to 5 (41 of 41 each, 110 of 110 tamperings detected) and
+  fails on round 7 (139 of 143 functional, 3 false alarms, 235 of 254 injected faults named), because its translator
+  base predates the round 5 to 7 fixes; no further overseer code is uploaded until it passes, which the phase-2 merge
+  addresses.
+- **Uploads.** From now on an update is pushed every hour, with or without new final code. Every push is preceded by a
+  simulation of exactly the uploaded code (full suite and every recorded round), and the replaced version is kept in
+  the repository as a backup branch.
