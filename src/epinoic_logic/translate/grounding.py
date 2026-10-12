@@ -922,11 +922,57 @@ def _check_symbol(symbol: Symbol, docs: dict[str, SuppliedText], checks: list[Gr
     return symbol.model_copy(update={"grounding": grounding})
 
 
+#: Literals that are no stated figure of an excerpt: a zero, a one, and the powers of ten a percentage or a unit
+#: conversion brings in.
+_TRIVIAL_LITERALS = frozenset({"0", "1", "-1", "10", "100", "1000"})
+_EXCERPT_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _literal_figures(expr) -> list[str]:
+    """The numeric literals of an expression (integers and decimals as written; fractions and trivial constants aside)."""
+    out: list[str] = []
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op in ("int", "real"):
+            value = node.value.lstrip("-")
+            if "/" not in value and value not in _TRIVIAL_LITERALS:
+                out.append(value)
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or ())
+    return out
+
+
+def _same_figure(a: str, b: str) -> bool:
+    from decimal import Decimal, InvalidOperation
+    try:
+        return Decimal(a.replace(",", "")) == Decimal(b.replace(",", ""))
+    except InvalidOperation:
+        return False
+
+
 def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks: list[GroundingCheck]) -> Assertion:
+    """Check an assertion's grounding. A premise whose excerpt is located but does not state the premise's figures (a
+    premise 'items[1] is 3' grounded by the excerpt 'scores = [12, 19, 23, ...]') is not verified by that excerpt:
+    ``verified=False`` with a ``figures_in_excerpt`` check naming the figures the excerpt lacks."""
     if assertion.grounding is None:
         return assertion
     grounding, found = check_grounding(assertion.id, assertion.grounding, docs)
     checks.extend(found)
+    excerpts = [r.excerpt for r in grounding.source_refs if r.excerpt and r.excerpt.strip()]
+    if grounding.verified is True and excerpts:
+        stated = [m.group(0).rstrip(",") for e in excerpts for m in _EXCERPT_NUMBER_RE.finditer(e)]
+        missing = [f for f in dict.fromkeys(_literal_figures(assertion.expr)) if not any(_same_figure(f, x) for x in stated)]
+        if missing:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="figures_in_excerpt", verified=False,
+                                         document_id=grounding.source_refs[0].document_id if grounding.source_refs else None,
+                                         detail=f"the excerpt is located but does not state the premise's figures {missing[:8]}: it does not ground this premise"))
+            grounding = grounding.model_copy(update={"verified": False})
     return assertion.model_copy(update={"grounding": grounding})
 
 

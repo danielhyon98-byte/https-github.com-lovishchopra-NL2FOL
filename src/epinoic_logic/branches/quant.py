@@ -68,7 +68,14 @@ such as ``1923-24``, or a circa before the year: ``by about 1700``, ``in c. 1700
   years, from 1882 to 1892``) against its span; a rate verb (``From 1961 the flow slowed to fifteen
   by 1968``) compares the span's count per year with the one-year count of the year before;
 * a numeral of more than :data:`MAX_FIGURE_DIGITS` digits is never converted: its statement is
-  reported undecided and the report's other checks still run.
+  reported undecided and the report's other checks still run;
+* a stated length of years in any wording (``lasted five years, from June 1924 to January 1926``,
+  ``which lasted about five years from 1924 to 1926``) against its span, in elapsed days when the dates
+  carry months or days, or against the one span an adjacent sentence states (stated across sentences);
+  a signed change (``changed by −6 per 1,000``, ``a change of −6``; an ASCII or Unicode minus); a share
+  written ``356 of the 535 seats, about three-quarters``;
+* a worked equation (``$6,000 ÷ $2.00 = 3,000 loaves``, :func:`worked_equations`) is written arithmetic
+  this reader does not decide: it is returned undecided with that reason, never skipped.
 
 Relations stated across sentences: a derived figure whose clause states no pair (``The
 annual average grew by roughly 60 per cent that year``, ``The 1840s ... added roughly 4,500
@@ -133,7 +140,7 @@ _CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
 MAX_FIGURE_DIGITS = 1000
 _NUM = rf"({_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
 _NUMX = rf"(?:{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
-_AMOUNT = rf"([-+]?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"  # a derived figure may carry a sign
+_AMOUNT = rf"([-+−]?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"  # a derived figure may carry a sign (ASCII or Unicode minus)
 _PCT_UNIT = r"(?:per cent|percent(?!age)|%)"  # 'percentage points' is a difference, not a per-cent unit
 _RATE_UNIT = r"per (?:thousand|1,?000|10,?000|100,?000|million|head|capita)"
 _SCALE_UNIT = r"quadrillion|trillion|billion|million|thousand|trn|tn|bn|m|k"
@@ -189,8 +196,8 @@ _PCT_CHANGE_RE = re.compile(
     rf"|(?:an?\s+)?(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}\s+{_DIR_NOUN}"
     rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)",
     re.IGNORECASE)
-#: 'a change of 20 per cent': the direction is the figures' own (a sign is read as stated).
-_CHANGE_OF_RE = re.compile(rf"(?:an?\s+)?(?:net\s+|overall\s+|total\s+)?change\s+of\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)", re.IGNORECASE)
+#: 'a change of 20 per cent', 'changed by −6 per cent': the direction is the figures' own (a sign is read as stated).
+_CHANGE_OF_RE = re.compile(rf"(?:(?:an?\s+)?(?:net\s+|overall\s+|total\s+)?change\s+of|\bchanged\s+by)\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)", re.IGNORECASE)
 # 'a fall of 4.2 percentage points' / 'rose by 3 points' between two per-cent figures: an absolute difference.
 _POINTS_CHANGE_RE = re.compile(
     rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*(percentage\s+)?points?\b"
@@ -227,6 +234,12 @@ _ABS_CHANGE_RES = (
     re.compile(rf"\b(?P<dir>added|adding|adds|gained|gaining|gains|lost|losing|loses|shed|shedding|sheds)\s+(?:a\s+further\s+|another\s+|some\s+)?{_ABS_AMOUNT}(?:{_RATE_TAIL})?", re.IGNORECASE),
     re.compile(rf"\b(?P<dir>rose|grew|increased|expanded|climbed|fell|dropped|declined|decreased|shrank|contracted|slumped|collapsed|risen|grown|fallen|reduced|cut|lowered|raised)"
                rf"\s+by\s+{_ABS_AMOUNT}(?:{_RATE_TAIL})?", re.IGNORECASE),
+    # 'changed by −6 per 1,000', 'a change of -$34.50 million': a sign states the direction (minus a fall, plus a rise); an unsigned amount
+    # takes the direction of its figures
+    re.compile(rf"\b(?P<dir>(?:an?\s+)?(?:net\s+|overall\s+|total\s+)?change\s+of|changed\s+by)\s+(?:(?P<q>{_QUAL})\s+)?(?P<sign>[-+−])?\s?(?P<cur>{_CUR})?\s?"
+               rf"(?P<n>{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
+               r"(?!\s*(?:per\s*cent|percent|%|percentage|points?\b|times\b|-?fold\b)|[\s-]+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b)"
+               rf"(?:\s*(?P<u>{_SCALE_UNIT}|seats|votes)\b)?(?P<noun>{_NOUN})(?:{_RATE_TAIL})?", re.IGNORECASE),
 )
 #: An average rate: 'an average of 450 miles a year', 'averaging 450 miles a year', 'at an average rate of 450 miles per year'.
 _RATE_RES = (
@@ -361,7 +374,7 @@ def _number(num: str) -> Fraction:
     Raises :class:`FigureTooLarge` for a numeral of more than :data:`MAX_FIGURE_DIGITS` digits."""
     if sum(ch.isdigit() for ch in num) > MAX_FIGURE_DIGITS:
         raise FigureTooLarge(f"figure of {sum(ch.isdigit() for ch in num)} digits")
-    s = num.strip().lstrip("+")
+    s = num.strip().replace("−", "-").lstrip("+")
     if re.fullmatch(r"-?\d+,\d{1,2}", s):
         return Fraction(s.replace(",", "."))  # '1,9': a decimal comma, never a thousands group
     if re.fullmatch(r"-?[\d,.]+", s):
@@ -595,8 +608,9 @@ _FIGURE_HINT_RE = re.compile(rf"\d|\b(?:{_WNUM_TOKEN})\b", re.IGNORECASE)
 #: A clause with none of these states no derived figure (a cheap test before the five patterns run).
 _DERIVED_HINT_RE = re.compile(r"per\s*cent|percent|%|points?\b|half|third|quarter|fifth|tenth|fold|doubl|trebl|tripl|quadrupl|halv|times|twice|thrice|average|averag|"
                               r"\b(?:increase|rise|fall|decrease|decline|drop|growth|reduction|cut|gain|loss|expansion|contraction|addition)\s+of\b|\badd(?:ed|ing|s)\b|\bgain(?:ed|ing|s)\b|"
-                              r"\blos(?:t|ing|es)\b|\bshed|\bby\s+(?:about\s+|roughly\s+|some\s+|nearly\s+|almost\s+|around\s+|over\s+|more\s+than\s+)?(?:US)?[$£€¥]?\d", re.IGNORECASE)
-_ABS_HINT_RE = re.compile(r"\b(?:increase|rise|fall|decrease|decline|drop|growth|reduction|cut|gain|loss|expansion|contraction|addition)\s+of\b|\badd(?:ed|ing|s)\b|\bgain(?:ed|ing|s)\b|\blos(?:t|ing|es)\b|\bshed|\bby\s", re.IGNORECASE)
+                              r"\blos(?:t|ing|es)\b|\bshed|\bby\s+(?:about\s+|roughly\s+|some\s+|nearly\s+|almost\s+|around\s+|over\s+|more\s+than\s+)?(?:US)?[$£€¥]?\d|"
+                              r"\bchange\s+of\b|\bchanged\s+by\b", re.IGNORECASE)
+_ABS_HINT_RE = re.compile(r"\b(?:increase|rise|fall|decrease|decline|drop|growth|reduction|cut|gain|loss|expansion|contraction|addition|change)\s+of\b|\badd(?:ed|ing|s)\b|\bgain(?:ed|ing|s)\b|\blos(?:t|ing|es)\b|\bshed|\bby\s", re.IGNORECASE)
 
 
 def _derived_phrases(clause: str) -> list[_Derived]:
@@ -618,7 +632,8 @@ def _derived_phrases(clause: str) -> list[_Derived]:
             out.append(_Derived(m.start(), m.end(), "percent_change", m.group(0).strip(), d, v, _side(m.group(8))))
     for m in (_CHANGE_OF_RE.finditer(clause) if pct and "change" in low else ()):
         value = _number(m.group(2))
-        out.append(_Derived(m.start(), m.end(), "change", m.group(0).strip(), "fall" if value < 0 else None, abs(value), _side(m.group(1))))
+        direction = "fall" if value < 0 else "rise" if m.group(2).strip().startswith("+") else None  # an explicit sign states the direction
+        out.append(_Derived(m.start(), m.end(), "change", m.group(0).strip(), direction, abs(value), _side(m.group(1))))
     for m in (_POINTS_CHANGE_RE.finditer(clause) if "point" in low else ()):
         if m.group(1):
             (d, v), q, pp = _signed(_direction(m.group(1)), m.group(3)), m.group(2), bool(m.group(4))
@@ -668,7 +683,10 @@ def _derived_phrases(clause: str) -> list[_Derived]:
                 if amount <= 0:
                     continue
                 word = m.group("dir").lower()
-                direction = "fall" if word in _FALL_WORDS else "rise"
+                direction: Optional[str] = "fall" if word in _FALL_WORDS else "rise"
+                if "change" in word:
+                    sign = m.groupdict().get("sign") or ""
+                    direction = "fall" if sign in ("-", "−") else "rise" if sign == "+" else None
                 if m.group("per") or m.group("annually"):
                     out.append(_Derived(m.start(), m.end(), "rate_change", m.group(0).strip(), direction, amount, _side(m.group("q")), unit=m.group("u"),
                                         noun=(m.group("noun") or "").strip(), per=(m.group("per") or "year").lower(), cur=_cur_key(m.group("cur") or "")))
@@ -805,6 +823,7 @@ class _Spec:
     note: str = "figure stated in the report itself"
     basis: str = ""
     phrase: str = ""          # the derived phrase or relation the check reads ('added roughly 4,500 miles'), for naming its claim
+    rule: str = ""            # the rule the check applies, when it is not the kind's default (a duration with a qualifier or day dates)
 
 
 def _amount_comparable(values: _Values, d: _Derived) -> str:
@@ -866,7 +885,8 @@ def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction
         change = {"op": "mul", "args": [_real(Fraction(100)), {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(a)}]}
         if direction == "fall":
             change = {"op": "neg", "arg": change}
-        label = f"stated {direction} of {_fmt(d.stated)} per cent against the computed change" if d.kind == "percent_change" else f"stated change of {_fmt(d.stated)} per cent ({direction}, the figures' own direction) against the computed change"
+        how = "the stated sign's direction" if d.direction else "the figures' own direction"
+        label = f"stated {direction} of {_fmt(d.stated)} per cent against the computed change" if d.kind == "percent_change" else f"stated change of {_fmt(d.stated)} per cent ({direction}, {how}) against the computed change"
         return _Spec("percent_change", statement, before_after, premises, ("STATED_CHANGE", _within(change, d.stated, tolerance, POINT_FLOOR, d.side), label), POINT_FLOOR, d.side, note, basis, d.words), ""
     if d.kind == "fraction_change":
         change = {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(a)}
@@ -1253,9 +1273,31 @@ _SHARE_OF_TOTAL_RE = re.compile(
     re.IGNORECASE)
 #: 'about $2 billion more than France': a difference between two figures the paragraph states for two named parties.
 _DIFF_RE = re.compile(rf"{_fig(1)}\s+(?P<cmp>more|less|fewer|higher|lower|larger|smaller|greater)\s+than\s+(?P<other>(?:the\s+)?[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*)*)")
-#: 'suspended Chinese labour immigration for ten years, from 1882 to 1892': a stated length against the span's own years.
-_DURATION_RE = re.compile(rf"\bfor\s+(?:(?P<q>about|some|roughly|nearly|almost|over|more\s+than|around)\s+)?(?P<n>\d{{1,3}}|{_WNUM})\s+years?\s*,?\s+"
-                          r"(?:from|between)\s+(?P<y1>1[0-9]{3}|20[0-9]{2})\s+(?:to|and|until|till)\s+(?P<y2>1[0-9]{3}|20[0-9]{2})\b", re.IGNORECASE)
+#: A stated length of years: 'for ten years', 'lasted five years', 'had run for more than twelve years', 'which lasted about five years'.
+_DUR_VERBS = (r"lasted|lasting|lasts|last|ran|run|running|runs|continued|continuing|continues|endured|enduring|endures|spanned|spanning|spans|persisted|"
+              r"persisting|went\s+on|going\s+on")
+_DUR_PHRASE_RE = re.compile(rf"\b(?:(?P<verb>{_DUR_VERBS})\s+(?:for\s+)?|for\s+)(?:(?P<q>{_QUAL})\s+)?(?P<n>\d{{1,3}}(?:\.\d+)?|{_WNUM})\s+(?:full\s+|whole\s+|long\s+)?years?\b"
+                            r"(?![-'’]|\s+(?:old|of\s+age|each|apiece|at\s+a\s+time|later|earlier|ago|per|running|in\s+a\s+row)\b)", re.IGNORECASE)
+_MONTHS_TEXT = "January|February|March|April|May|June|July|August|September|October|November|December"
+_MONTH_NUMBER = {m.lower(): i for i, m in enumerate(_MONTHS_TEXT.split("|"), start=1)}
+#: A date of a span: a year, a month and year, or a day, month and year ('7 October 1949', 'October 7, 1949').
+_SPAN_DATE = (rf"(?:(?:\d{{1,2}}(?:st|nd|rd|th)?\s+)?(?:{_MONTHS_TEXT})\s+(?:\d{{1,2}}(?:st|nd|rd|th)?,?\s+)?)?(?:1[0-9]{{3}}|20[0-9]{{2}})(?![\d,.]?\d)"
+              r"(?!\s*(?:per\s*cent|percent|%|million|billion|thousand|seats|votes)\b)")
+_ONE_DATE_RE = re.compile(rf"^(?:(?:(?P<day>\d{{1,2}})(?:st|nd|rd|th)?\s+)?(?P<month>{_MONTHS_TEXT})\s+(?:(?P<day2>\d{{1,2}})(?:st|nd|rd|th)?,?\s+)?)?(?P<year>1[0-9]{{3}}|20[0-9]{{2}})$",
+                          re.IGNORECASE)
+_SPAN_DATE_RE = re.compile(rf"(?<![\d,.$£€]){_SPAN_DATE}", re.IGNORECASE)
+_SPAN_LEAD = r"(?:(?:the\s+)?(?:early|late|mid)[\s-]+|(?:about|around|c\.|ca\.|circa)\s+)?"
+#: A span: 'from 1882 to 1892', 'from June 1924 to January 1926', 'between the founding of the GDR on 7 October 1949 and 1961', 'after the
+#: GDR's founding on 7 October 1949, until 13 August 1961'. Words before a date end with 'on', 'in' or 'of' and hold no figure.
+_DUR_SPAN_RE = re.compile(
+    rf"\b(?P<open>from|between|since|after)\s+(?:[^\d;:!?]{{0,80}}?\b(?:on|in|of)\s+)?{_SPAN_LEAD}(?P<d1>{_SPAN_DATE})"
+    rf"(?:\s*,)?\s+(?:and|to|until|till|through|up\s+to)\s+(?:[^\d;:!?]{{0,60}}?\b(?:on|in|of)\s+)?{_SPAN_LEAD}(?P<d2>{_SPAN_DATE})", re.IGNORECASE)
+#: Days in a year, for an elapsed time stated between day or month dates (the mean Gregorian year).
+_DAYS_PER_YEAR = Fraction(3652425, 10000)
+#: Half a year: a length stated in whole years and read against day or month dates passes when it rounds the elapsed time.
+YEAR_FLOOR = Fraction(1, 2)
+_STRICT_LOWER = frozenset({"more than", "over"})
+_STRICT_UPPER = frozenset({"less than", "under"})
 #: 'Of the $13 billion, the United Kingdom received about $3.2 billion and France about $2.7 billion': a total that opens its clause
 #: ('Of the', 'Out of'), its parts after the comma.
 _OF_THE_LEAD_RE = re.compile(r"^\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s+(?:(?:the|this|that|its|their)\s+)?(?:(?:total|sum)\s+of\s+)?"
@@ -1269,8 +1311,8 @@ _TOTAL_PHRASE_RE = re.compile(rf"\b(?:a\s+(?:combined\s+)?total\s+of|totall?ing|
 #: The subject of a total that refers to its parts without stating them ('The two received a total of ...', 'Together they had ...').
 _PARTS_ANAPHOR_RE = re.compile(r"\b(?:the\s+(?:two|three|four|five|six|pair)|both|these|those|they|between\s+them|together)\b", re.IGNORECASE)
 _PART_HINT_RE = re.compile(r"of\s+(?:which|whom|these)\b|\balone\b|\btotal\b|\btotall?ing\b|\bcombined\b|\bsum\b|\bwhole\b|\baggregate\b|\barrivals\b|"
-                           r"more\s+than|less\s+than|fewer\s+than|higher\s+than|lower\s+than|larger\s+than|smaller\s+than|greater\s+than|\bfor\s+\S+\s+years?\b|"
-                           r"(?:^|;)\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s", re.IGNORECASE)
+                           r"more\s+than|less\s+than|fewer\s+than|higher\s+than|lower\s+than|larger\s+than|smaller\s+than|greater\s+than|"
+                           r"(?:^|;)\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s|\d\s+(?:out\s+)?of\s", re.IGNORECASE)
 _MONTH_NOUN_RE = re.compile(r"^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b", re.IGNORECASE)
 
 
@@ -1343,14 +1385,111 @@ def _entity_figures(name: str, para: str, exclude: tuple[int, int]) -> list[_Fig
 _ENTITY_GAP_RE = re.compile(r"(?:\s+(?:had\s+|has\s+|was\s+|were\s+)?(?:received|got|took|obtained|gained|given|granted|allotted|had|spent|lost|with|at))?\s+")
 
 
+def _stated_figures(text: str) -> list[_Fig]:
+    """Every figure ``text`` states, per cents included: digits (or a currency sign), not a year, not the day of a date."""
+    out: list[_Fig] = []
+    for m in _LONE_FIG_RE.finditer(text):
+        f = _fig_of(m, 1)
+        if not f.num[:1].isdigit() or _year_like(f.num, f.unit or f.cur) or _MONTH_NOUN_RE.match(f.noun):
+            continue
+        if re.match(r"\s*(?:s\b|-|–|st\b|nd\b|rd\b|th\b)", text[m.end("n1"):]) and _year_like(f.num, None):
+            continue
+        out.append(f)
+    return out
+
+
 def _no_pair_reason(clause: str, d: Optional[_Derived]) -> str:
     """Why a derived figure or relation has no figures of its own to be read against: its sentence states no figures at all, or states
-    figures that are not a pair it binds to (a total, a lone figure), which the reason names."""
+    figures that are not a pair it binds to (a total, a lone figure, a per cent), which the reason names."""
     span = (d.start, d.end) if d is not None else (-1, -1)
-    figs = [f for f in _magnitudes(clause) if not (span[0] <= f.start < span[1])]
+    figs = [f for f in _stated_figures(clause) if not (span[0] <= f.start < span[1])]
     if not figs:
         return "no figures are stated with it in its sentence"
-    return f"its sentence states no pair of figures it can be read against (only {', '.join(_shown(f, f.unit) for f in figs[:3])})"
+    working = worked_equations(clause)
+    if working:  # 'Result: the krona appreciated by 20.00%' under lines of working: its figures are in the working, not in a pair of words
+        return (f"its sentence states its figures only as written arithmetic ('{working[0].phrase[:100]}'), which this reader does not decide, "
+                f"and no pair of figures in words it can be read against")
+    shown = [_shown(f, f.unit).replace(" %", "%") for f in figs[:3]]
+    return f"its sentence states no pair of figures it can be read against (only {', '.join(shown)})"
+
+
+#: An arithmetic operator between two figures of written working ('+', '−', '×', '÷', '/', '*', '^', '·', or a spaced hyphen or dash), up to
+#: two unit words between the first figure and the operator ('105 million litres ×', '2.4 Ω +'); a figure with a letter attached ('6t') is a term
+#: of algebra, not a figure, and the end of a range label ('aged 15–64 × 100') is no operand.
+_OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:US)?[$£€¥]?[ \t]?[-−]?[ \t]?\({0,3}(?:US)?[$£€¥]?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
+#: The result of a link of a worked equation: a figure (a sign or a currency sign before it allowed).
+_RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-\u2212]?[ \t]?(?:US)?[$£€¥]?[ \t]?[-\u2212]?\d")
+#: A line that continues the equation of the line before it ('= 20 ÷ 10').
+_CONTINUATION_LINE_RE = re.compile(r"^\s*(?:\$\s*)?[=≈]")
+#: The reason a worked equation is reported undecided (``CORE-QNT-001``): written arithmetic in '=' form has no reader on this branch.
+WORKED_EQUATION_REASON = "it is written arithmetic in '=' form (a worked equation), which this branch's prose arithmetic reader does not decide"
+
+
+@dataclass(frozen=True)
+class WorkedEquation:
+    """One worked equation of a text: ``line`` is its whole line (with its '=' continuation lines), from ``start`` to ``end`` of the text;
+    ``statement`` the statement of the line that holds it (a line is cut at semicolons and full stops); ``phrase`` the arithmetic it states,
+    from the first link that computes to the stated result ('$6,000 ÷ $2.00 = 3,000 loaves per month')."""
+    start: int
+    end: int
+    line: str
+    statement: str
+    phrase: str
+
+
+#: Where a line of working holds several statements: a semicolon, or a full stop before a capital or a figure ('Table 1. 4,200 × 12 = ...').
+_WORKING_SEGMENT_RE = re.compile(r";\s*|(?<=[.!?])\s+(?=[A-Z0-9(])")
+#: Where the stated result of a link ends: a comma or full stop before a space, or an opening bracket ('$192.00 million per year (no tax, ...').
+_RESULT_END_RE = re.compile(r",\s|\.\s|\s\(|;|[”\"’]")
+#: Where the words before the arithmetic of a link end ('Check: $31.50 million + ...', 'Answer: 2,000').
+_LINK_LEAD_END_RE = re.compile(r".*(?::\s|\.\s)")
+
+
+def worked_equations(text: str) -> list[WorkedEquation]:
+    """Every worked equation of ``text``: a statement of a line (with the lines after it that open with '=' or '≈'; a line's statements are
+    cut at semicolons and full stops) whose '=' links put an arithmetic operator between two figures before a link whose value is a figure
+    with no further arithmetic ('$6,000 ÷ $2.00 = 3,000 loaves', '(12 − 8) − 0 = 4', '= 31 ÷ 69 × 100 = 44.9'). A formula with no figures
+    on both sides of an operator ('Dependency ratio = (aged 0–14 + aged 65 and over) ÷ aged 15–64'), an expression of algebra ('a = 6 − 6t')
+    and a stated value ('PED = −0.67') are not worked equations."""
+    out: list[WorkedEquation] = []
+    if "=" not in text and "≈" not in text:
+        return out
+    lines: list[tuple[int, int]] = []
+    pos = 0
+    for raw in text.split("\n"):
+        start, end = pos, pos + len(raw)
+        pos = end + 1
+        if lines and _CONTINUATION_LINE_RE.match(raw):
+            lines[-1] = (lines[-1][0], end)
+        else:
+            lines.append((start, end))
+    for start, end in lines:
+        line = text[start:end]
+        if "=" not in line and "≈" not in line:
+            continue
+        shown_line = " ".join(line.split())
+        cuts = [0] + [m.end() for m in _WORKING_SEGMENT_RE.finditer(line)] + [len(line)]
+        for a, b in zip(cuts, cuts[1:]):
+            segment = " ".join(line[a:b].split())  # one space between words: every pattern below reads at most one blank in a row
+            bounds = [-1] + [m.start() for m in re.finditer(r"[=≈]", segment)] + [len(segment)]
+            links = [segment[x + 1: y] for x, y in zip(bounds, bounds[1:])]
+            if len(links) < 2:
+                continue
+            for k in range(1, len(links)):
+                # a result is a figure with no further arithmetic in its link ('3,000 loaves per month', '−4 A1'); '6 − 6t' or
+                # '4000(1 + 0.036)^5' is an expression, not a stated result
+                if not (_RESULT_START_RE.match(links[k]) and not _OPERATOR_BETWEEN_RE.search(links[k])):
+                    continue
+                first = next((f for f in range(k) if _OPERATOR_BETWEEN_RE.search(links[f])), None)
+                if first is None:
+                    continue
+                lead = _LINK_LEAD_END_RE.match(links[first])
+                p_start = bounds[first] + 1 + (lead.end() if lead else 0)
+                stop = _RESULT_END_RE.search(links[k])
+                p_end = bounds[k] + 1 + (stop.start() if stop else len(links[k]))
+                out.append(WorkedEquation(start, end, shown_line, segment, segment[p_start:p_end].strip().rstrip(" .,;:")))
+                break
+    return out
 
 
 _RATE_PHRASE_RE = re.compile(r"\b(?:a|an|per|each|every)\s+(?:year|annum|month|week|day|head|capita)\b|\bannually\b", re.IGNORECASE)
@@ -1429,6 +1568,55 @@ def _sum_expr(names: list[str]) -> dict:
     return _v(names[0]) if len(names) == 1 else {"op": "add", "args": [_v(n) for n in names]}
 
 
+#: '356 of the 535 seats, about three-quarters', '3.2 million of the 5.2 million arrivals (about 60 per cent)': a part, the whole it is
+#: stated 'of', and the share stated right after them.
+_N_OF_M_SHARE_RE = re.compile(
+    rf"(?<![\w.,])(?P<cp>{_CUR})?\s?(?P<np>{_NUMX})(?:\s*(?P<up>{_SCALE_UNIT})\b)?\s+(?:out\s+)?of\s+(?:(?:the|its|their|all(?:\s+the)?)\s+)?"
+    rf"(?:(?:about|around|roughly|some|nearly)\s+)?(?P<cw>{_CUR})?\s?(?P<nw>{_NUMX})(?:\s*(?P<uw>{_SCALE_UNIT})\b)?(?P<noun>{_NOUN})"
+    rf"\s*(?:,|\()\s*(?:or\s+|that\s+is\s+|i\.e\.\s+)?(?:(?P<q>{_QUAL})\s+)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})(?![\w-])",
+    re.IGNORECASE)
+#: A share stated right after a part, with no 'of the total' ('..., the list was guaranteed 356, about three-quarters').
+_BARE_SHARE_TAIL_RE = re.compile(
+    rf"\s*(?:,|\()\s*(?:or\s+)?(?:(?P<q>{_QUAL})\s+)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})(?![\w-])"
+    r"(?=\s*(?:[,;.)]|$|\s+of\s+(?:them|these|those|it|the\s+(?:total|whole|seats|votes))\b|\s+(?:and|but|while)\b))", re.IGNORECASE)
+
+
+def _share_fig(m: "re.Match[str]", side: str) -> _Fig:
+    """The part (``side`` 'p') or the whole ('w') of an 'N of the M' share, as a figure (the noun is the whole's)."""
+    unit = m.group(f"u{side}")
+    noun = (m.group("noun") or "").strip() if side == "w" else ""
+    return _Fig(m.group(f"n{side}"), unit, noun, "", m.start(f"n{side}"), m.end(f"n{side}"), _cur_key(m.group(f"c{side}") or ""))
+
+
+def _share_spec(clause: str, whole: _Fig, part: _Fig, frac: Optional[str], pn: Optional[str], qualifier: Optional[str], tolerance: Fraction, phrase: str,
+                basis: str = "") -> tuple[Optional[_Spec], str]:
+    """The check of a stated share (a word fraction or a per cent) of ``whole`` held by ``part``: part / whole within the tolerance
+    rule of the stated share, or ``(None, reason)`` when the two figures cannot be compared."""
+    why = _amount_pair(whole, part)
+    if why:
+        return None, why
+    wv, pv = _frac(whole.num, whole.unit), _frac(part.num, part.unit)
+    if wv == 0:
+        return None, ""
+    side = _side(qualifier)
+    premises = (("WHOLE", {"op": "eq", "left": _v("whole"), "right": _real(wv)}, f"total = {_shown(whole, whole.unit)}"),
+                ("PART", {"op": "eq", "left": _v("part"), "right": _real(pv)}, f"part = {_shown(part, part.unit)}"))
+    ratio = {"op": "div", "left": _v("part"), "right": _real(wv)}
+    if frac:
+        key = re.sub(r"^(?:a|one)\s+", "", frac.lower()).replace("-", " ")
+        stated = _FRACTION_WORDS[key]
+        concl = _within(ratio, stated, tolerance, Fraction(0), side)
+        floor = Fraction(0)
+        label = f"stated share '{frac}' (= {stated}) of the total against part / total"
+    else:
+        stated = _number(pn or "0")
+        concl = _within({"op": "mul", "args": [_real(Fraction(100)), ratio]}, stated, tolerance, POINT_FLOOR, side)
+        floor = POINT_FLOOR
+        label = f"stated share of {_fmt(stated)} per cent of the total against 100 * part / total"
+    return _Spec("share", clause.strip(), (("whole", "the total as stated"), ("part", "the part as stated")), premises,
+                 ("STATED_SHARE", concl, label), floor, side, "figure stated in the report itself", basis, phrase), ""
+
+
 def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided]]:
     """Parts of a total stated before them ('..., of which A received X and B Y', 'Y alone brought N', 'Of the $13 billion, A received
     X and B Y'), a share of the total ('about a quarter of the decade's total'), a difference between two named parties' figures ('about
@@ -1477,6 +1665,16 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                     undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
                 else:
                     specs.append(_parts_spec(clause, whole, parts, tolerance, phrase, f"the parts stated after the total that opens the clause ('{lead.group(0).strip(' ,')}')"))
+                # 'Of the 535 seats, the list was guaranteed 356, about three-quarters': a share stated right after the last part
+                tail = _BARE_SHARE_TAIL_RE.match(rest, parts[-1].end)
+                if tail is not None and not why:
+                    share_phrase = " ".join((rest[parts[-1].start: tail.end()]).split()).strip(" ,")
+                    spec, why_share = _share_spec(clause, whole, parts[-1], tail.group("frac"), tail.group("pn"), tail.group("q"), tolerance, share_phrase,
+                                                  f"the share of the total that opens the clause ('{lead.group(0).strip(' ,')}')")
+                    if spec is not None:
+                        specs.append(spec)
+                    elif why_share:
+                        undecided.append(QuantUndecided(pi, si + 1, sent.strip(), share_phrase, why_share))
         # a stated total no check reads ('The two received a total of about 9 billion dollars'; 'Britain received about $3.2 billion, a
         # total of about $9 billion'): its parts are meant but not all stated as figures, so it is named, never passed silently; a plain
         # quantity ('The famine killed a total of about one million people') states no arithmetic and is not read
@@ -1538,30 +1736,22 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
             elif whole is None:
                 undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, "the total it is a share of is not stated as a figure before it in its sentence"))
                 continue
-            why = _amount_pair(whole, part)
-            if why:
+            spec, why = _share_spec(clause, whole, part, m.group("frac"), m.group("pn"), m.group("q"), tolerance, phrase, basis)
+            if spec is not None:
+                specs.append(spec)
+            elif why:
                 undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+        # '356 of the 535 seats, about three-quarters' / '..., about 75 per cent': a share of the whole named right before it
+        for m in (_N_OF_M_SHARE_RE.finditer(clause) if " of " in clause else ()):
+            part, whole = _share_fig(m, "p"), _share_fig(m, "w")
+            if _year_like(part.num, part.unit or part.cur) or _year_like(whole.num, whole.unit or whole.cur):
                 continue
-            wv, pv = _frac(whole.num, whole.unit), _frac(part.num, part.unit)
-            if wv == 0:
-                continue
-            side = _side(m.group("q"))
-            premises = (("WHOLE", {"op": "eq", "left": _v("whole"), "right": _real(wv)}, f"total = {_shown(whole, whole.unit)}"),
-                        ("PART", {"op": "eq", "left": _v("part"), "right": _real(pv)}, f"part = {_shown(part, part.unit)}"))
-            ratio = {"op": "div", "left": _v("part"), "right": _real(wv)}
-            if m.group("frac"):
-                key = re.sub(r"^(?:a|one)\s+", "", m.group("frac").lower()).replace("-", " ")
-                stated = _FRACTION_WORDS[key]
-                concl = _within(ratio, stated, tolerance, Fraction(0), side)
-                floor = Fraction(0)
-                label = f"stated share '{m.group('frac')}' (= {stated}) of the total against part / total"
-            else:
-                stated = _number(m.group("pn"))
-                concl = _within({"op": "mul", "args": [_real(Fraction(100)), ratio]}, stated, tolerance, POINT_FLOOR, side)
-                floor = POINT_FLOOR
-                label = f"stated share of {_fmt(stated)} per cent of the total against 100 * part / total"
-            specs.append(_Spec("share", clause.strip(), (("whole", "the total as stated"), ("part", "the part as stated")), premises,
-                               ("STATED_SHARE", concl, label), floor, side, rule_note, basis, phrase))
+            phrase = " ".join(m.group(0).split()).strip(" ,(")
+            spec, why = _share_spec(clause, whole, part, m.group("frac"), m.group("pn"), m.group("q"), tolerance, phrase, "the part and the whole stated as 'N of the M'")
+            if spec is not None:
+                specs.append(spec)
+            elif why:
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
         # 'about $2 billion more than France': the difference between two named parties' figures in the paragraph
         for m in _DIFF_RE.finditer(clause):
             diff = _fig_of(m, 1)
@@ -1600,20 +1790,6 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                                ("STATED_DIFFERENCE", _within(gap, vd, tolerance, Fraction(0), side), f"stated difference '{phrase}' against {subject} minus {other}"
                                 if larger else f"stated difference '{phrase}' against {other} minus {subject}"),
                                Fraction(0), side, "figure stated in the report itself, in the paragraph", f"figures read for {subject} and {other} in the paragraph", phrase))
-    for m in _DURATION_RE.finditer(sent):
-        raw = m.group("n")
-        stated = _number(raw)
-        y1, y2 = int(m.group("y1")), int(m.group("y2"))
-        if y2 < y1 or stated <= 0:
-            continue
-        premises = (("START", {"op": "eq", "left": _v("start"), "right": _real(Fraction(y1))}, f"start = {y1}"),
-                    ("END", {"op": "eq", "left": _v("end"), "right": _real(Fraction(y2))}, f"end = {y2}"))
-        span = {"op": "sub", "left": _v("end"), "right": _v("start")}
-        concl = {"op": "and", "args": [{"op": "le", "left": span, "right": _real(stated)}, {"op": "ge", "left": {"op": "add", "args": [span, _real(Fraction(1))]}, "right": _real(stated)}]}
-        phrase = " ".join(m.group(0).split())
-        specs.append(_Spec("duration", sent.strip(), (("start", "the first year as stated"), ("end", "the last year as stated")), premises,
-                           ("STATED_DURATION", concl, f"stated length '{raw} years' against the span {y1} to {y2} (counted either exclusively or inclusively)"),
-                           Fraction(0), "both", rule_note, "", phrase))
     return specs, undecided
 
 
@@ -1678,6 +1854,220 @@ def _rate_trend_specs(sentences: list[str], si: int, pi: int) -> tuple[list[_Spe
     return specs, undecided
 
 
+@dataclass(frozen=True)
+class _SpanDate:
+    text: str
+    year: int
+    month: Optional[int]
+    day: Optional[int]
+
+    @property
+    def days(self) -> tuple[int, int]:
+        """The first and last day the date can denote, as proleptic Gregorian ordinals (a year: 1 January to 31 December)."""
+        import calendar
+        from datetime import date
+        if self.month is None:
+            return date(self.year, 1, 1).toordinal(), date(self.year, 12, 31).toordinal()
+        if self.day is None:
+            return date(self.year, self.month, 1).toordinal(), date(self.year, self.month, calendar.monthrange(self.year, self.month)[1]).toordinal()
+        d = date(self.year, self.month, self.day).toordinal()
+        return d, d
+
+
+def _span_date(text: str) -> Optional[_SpanDate]:
+    m = _ONE_DATE_RE.match(" ".join(text.split()))
+    if m is None:
+        return None
+    month = _MONTH_NUMBER[m.group("month").lower()] if m.group("month") else None
+    day = m.group("day") or m.group("day2")
+    out = _SpanDate(" ".join(text.split()), int(m.group("year")), month, int(day) if day else None)
+    try:
+        out.days  # noqa: B018 - a day the month does not have ('31 February') is no date
+    except ValueError:
+        return None
+    return out
+
+
+def _span_of(sentence: str, phrase: "re.Match[str]", spans: list, starts: list[int], ends: list[int]) -> Optional["re.Match[str]"]:
+    """The span a stated length is read against in its own sentence (``spans``: the sentence's spans in order, read once): the first span
+    after the phrase, within 40 characters and with no clause break between ('for ten years, from 1882 to 1892', 'which lasted five years
+    from 1924 to 1926', 'for more than twelve years after the GDR's founding on 7 October 1949, until 13 August 1961'), else the last span
+    before it in its clause, within 200 characters ('From 1924 to 1926 the secession lasted five years'). Each lookup is a bisection, so a
+    sentence of thousands of stated lengths costs no quadratic scan."""
+    import bisect
+    k = bisect.bisect_left(starts, phrase.end())
+    if k < len(spans):
+        sp = spans[k]
+        if sp.start() - phrase.end() <= 40 and not _EDGE_SEP_RE.search(sentence, phrase.end(), sp.start()):
+            return sp
+    k = bisect.bisect_right(ends, phrase.start()) - 1
+    if k >= 0:
+        sp = spans[k]
+        if phrase.start() - sp.end() <= 200 and not _EDGE_SEP_RE.search(sentence, sp.end(), phrase.start()):
+            return sp
+    return None
+
+
+def _band(stated: Fraction, qualifier: Optional[str], tolerance: Fraction) -> tuple[Optional[Fraction], bool, Optional[Fraction], bool, str]:
+    """``(low, low strict, high, high strict, how)``: the elapsed years a stated length allows. A one-sided qualifier is exact ('more than
+    twelve years' needs more than twelve); 'nearly'/'almost' approach it from below and 'just over' from above (the approach band); 'about',
+    'roughly' and no qualifier allow the tolerance rule or half a year (a length rounded to whole years)."""
+    q = " ".join((qualifier or "").lower().split())
+    if q in _LOWER_ONLY:
+        return stated, q in _STRICT_LOWER, None, False, f"more than {_fmt(stated)} years" if q in _STRICT_LOWER else f"at least {_fmt(stated)} years"
+    if q in _UPPER_ONLY:
+        return None, False, stated, q in _STRICT_UPPER, f"less than {_fmt(stated)} years" if q in _STRICT_UPPER else f"at most {_fmt(stated)} years"
+    if q in _APPROACH_BELOW:
+        return stated * APPROACH_BAND, False, stated * (1 + APPROACH_ROUNDING), False, f"approaching {_fmt(stated)} years from below (from 85 per cent of it up to it)"
+    if q in _APPROACH_ABOVE:
+        return stated * (1 - APPROACH_ROUNDING), False, stated / APPROACH_BAND, False, f"just over {_fmt(stated)} years (up to it divided by 0.85)"
+    lo, hi = min(stated / (1 + tolerance), stated - YEAR_FLOOR), max(stated / (1 - tolerance), stated + YEAR_FLOOR)
+    return lo, False, hi, False, f"{_fmt(stated)} years within {float(tolerance) * 100:g}% of the elapsed time or half a year of it"
+
+
+def _band_expr(expr: dict, band: tuple) -> dict:
+    lo, lo_strict, hi, hi_strict, _how = band
+    parts = []
+    if lo is not None:
+        parts.append({"op": "gt" if lo_strict else "ge", "left": expr, "right": _real(lo)})
+    if hi is not None:
+        parts.append({"op": "lt" if hi_strict else "le", "left": expr, "right": _real(hi)})
+    return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
+
+
+def _inside(value_lo: Fraction, value_hi: Fraction, band: tuple) -> Optional[bool]:
+    """True when every elapsed time from ``value_lo`` to ``value_hi`` satisfies the band, False when none does, None when some do."""
+    lo, lo_strict, hi, hi_strict, _how = band
+
+    def ok(x: Fraction) -> bool:
+        return (lo is None or (x > lo if lo_strict else x >= lo)) and (hi is None or (x < hi if hi_strict else x <= hi))
+    if ok(value_lo) and ok(value_hi):
+        return True
+    below = lo is not None and (value_hi <= lo if lo_strict else value_hi < lo)
+    above = hi is not None and (value_lo >= hi if hi_strict else value_lo > hi)
+    return False if below or above else None
+
+
+_DURATION_RULE = ("a stated length of years against its span: in whole years, the difference of the years or the difference plus one (both end years "
+                  "counted); with day or month dates, the elapsed days / 365.2425; 'more than', 'over', 'at least', 'less than', 'under' are exact bounds, "
+                  "'nearly'/'almost' approach the length from below (85 per cent of it up to it), and 'about', 'roughly' or no qualifier allow 5% of the "
+                  "elapsed time or half a year; a span whose dates are too coarse to decide the length is reported undecided")
+
+
+def _duration_specs(sentences: list[str], si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided]]:
+    """A stated length of years against its span: 'for ten years, from 1882 to 1892', 'lasted five years, from June 1924 to January 1926',
+    'which lasted about five years from 1924 to 1926', 'continued for more than twelve years after the GDR's founding on 7 October 1949, until
+    13 August 1961'. A sentence that states no span of its own is read against the one span an adjacent sentence of the paragraph states, when
+    that span shares a year with the sentence's own dates (hi-p7c: 'ended a drain that had run for more than twelve years' with 'Between the
+    founding of the German Democratic Republic on 7 October 1949 and 1961' next; the bare end year is read as the day the duration's own
+    sentence dates in it, 13 August 1961), and the check says it was stated across sentences. A stated length whose dates cannot be paired
+    into a span, or whose span is too coarse to decide it, is returned undecided."""
+    sent = sentences[si]
+    specs: list[_Spec] = []
+    undecided: list[QuantUndecided] = []
+    spans_here = list(_DUR_SPAN_RE.finditer(sent))
+    span_starts, span_ends = [sp.start() for sp in spans_here], [sp.end() for sp in spans_here]
+    own_cache: list = []
+    adjacent_cache: list = []
+    for m in _DUR_PHRASE_RE.finditer(sent):
+        raw = m.group("n")
+        try:
+            stated = _number(raw)
+        except FigureTooLarge:
+            continue
+        if stated <= 0:
+            continue
+        phrase = " ".join(m.group(0).split())
+        qualifier = m.group("q")
+        basis = ""
+        span = _span_of(sent, m, spans_here, span_starts, span_ends)
+        if span is not None:
+            d1, d2 = _span_date(span.group("d1")), _span_date(span.group("d2"))
+        else:
+            if not own_cache:
+                own_cache.append([d for d in (_span_date(x.group(0)) for x in _SPAN_DATE_RE.finditer(sent)) if d is not None])
+            own = own_cache[0]
+            if not adjacent_cache:
+                adjacent: list = []
+                for j in (si - 1, si + 1):
+                    if not 0 <= j < len(sentences):
+                        continue
+                    spans = list(_DUR_SPAN_RE.finditer(sentences[j]))
+                    if len(spans) != 1:
+                        continue
+                    a, b = _span_date(spans[0].group("d1")), _span_date(spans[0].group("d2"))
+                    if a is not None and b is not None:
+                        adjacent.append((j, spans[0], a, b))
+                adjacent_cache.append(adjacent)
+            found = [(j, sp, a, b) for j, sp, a, b in adjacent_cache[0] if own and ({a.year, b.year} & {d.year for d in own})]
+            if len(found) != 1:
+                if len({d.text for d in own}) >= 2:
+                    elsewhere = spans_here
+                    how = (f"the span its sentence states ('{' '.join(elsewhere[0].group(0).split())[:80]}') stands in another clause, so it was not read as the "
+                           f"span of the stated length" if elsewhere else
+                           f"its sentence states {', '.join(dict.fromkeys(d.text for d in own))} but no 'from ... to ...' or 'between ... and ...' span")
+                    undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, f"a stated length of years whose dates cannot be paired into a span: {how}"
+                                                    + ("" if not found else f", and {len(found)} adjacent sentences state spans that could be meant")))
+                continue
+            j, sp, d1, d2 = found[0]
+            refined = []
+            for which, d in (("first", d1), ("last", d2)):
+                if d.month is None:
+                    finer = [x for x in own if x.year == d.year and x.month is not None]
+                    if len({x.text for x in finer}) == 1:
+                        refined.append(f"its {which} year {d.year} read as {finer[0].text}, the date the duration's own sentence gives in that year")
+                        d = finer[0]
+                if which == "first":
+                    d1 = d
+                else:
+                    d2 = d
+            basis = (f"stated across sentences: the span is the one sentence {j + 1} of the paragraph states ('{' '.join(sp.group(0).split())[:120]}')"
+                     + (f"; {'; '.join(refined)}" if refined else ""))
+        if d1 is None or d2 is None:
+            continue
+        shown = f"{d1.text} to {d2.text}"
+        if d1.month is None and d2.month is None:
+            if d2.year < d1.year:
+                continue
+            premises = (("START", {"op": "eq", "left": _v("start"), "right": _real(Fraction(d1.year))}, f"start = {d1.year}"),
+                        ("END", {"op": "eq", "left": _v("end"), "right": _real(Fraction(d2.year))}, f"end = {d2.year}"))
+            symbols = (("start", "the first year as stated"), ("end", "the last year as stated"))
+            diff = {"op": "sub", "left": _v("end"), "right": _v("start")}
+            if not qualifier:
+                concl = {"op": "and", "args": [{"op": "le", "left": diff, "right": _real(stated)}, {"op": "ge", "left": {"op": "add", "args": [diff, _real(Fraction(1))]}, "right": _real(stated)}]}
+                specs.append(_Spec("duration", sent.strip(), symbols, premises,
+                                   ("STATED_DURATION", concl, f"stated length '{raw} years' against the span {d1.year} to {d2.year} (counted either exclusively or inclusively)"),
+                                   Fraction(0), "both", "figure stated in the report itself", basis, phrase))
+                continue
+            band = _band(stated, qualifier, tolerance)
+            concl = {"op": "or", "args": [_band_expr(diff, band), _band_expr({"op": "add", "args": [diff, _real(Fraction(1))]}, band)]}
+            specs.append(_Spec("duration", sent.strip(), symbols, premises,
+                               ("STATED_DURATION", concl, f"stated length '{phrase}' ({band[4]}) against the span {d1.year} to {d2.year} (counted either exclusively or inclusively)"),
+                               Fraction(0), "both", "figure stated in the report itself", basis, phrase, _DURATION_RULE))
+            continue
+        (s_lo, s_hi), (e_lo, e_hi) = d1.days, d2.days
+        if e_hi <= s_lo:
+            continue  # a span that runs backwards states no length (its order is the chronology check's)
+        band = _band(stated, qualifier, tolerance)
+        lo_years, hi_years = Fraction(e_lo - s_hi) / _DAYS_PER_YEAR, Fraction(e_hi - s_lo) / _DAYS_PER_YEAR
+        verdict = _inside(lo_years, hi_years, band)
+        if verdict is None:
+            undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase,
+                                            f"the stated length ({band[4]}) cannot be decided at the resolution of its dates: {shown} is between "
+                                            f"{float(lo_years):.1f} and {float(hi_years):.1f} years" + (f" ({basis})" if basis else "")))
+            continue
+        premises = (("START_FROM", {"op": "ge", "left": _v("start"), "right": _real(Fraction(s_lo))}, f"start on or after the first day of {d1.text}"),
+                    ("START_TO", {"op": "le", "left": _v("start"), "right": _real(Fraction(s_hi))}, f"start on or before the last day of {d1.text}"),
+                    ("END_FROM", {"op": "ge", "left": _v("end"), "right": _real(Fraction(e_lo))}, f"end on or after the first day of {d2.text}"),
+                    ("END_TO", {"op": "le", "left": _v("end"), "right": _real(Fraction(e_hi))}, f"end on or before the last day of {d2.text}"))
+        symbols = (("start", f"the first day of the span ({d1.text}) as a day ordinal"), ("end", f"the last day of the span ({d2.text}) as a day ordinal"))
+        elapsed = {"op": "div", "left": {"op": "sub", "left": _v("end"), "right": _v("start")}, "right": _real(_DAYS_PER_YEAR)}
+        specs.append(_Spec("duration", sent.strip(), symbols, premises,
+                           ("STATED_DURATION", _band_expr(elapsed, band), f"stated length '{phrase}' ({band[4]}) against the elapsed time from {shown} (days / 365.2425)"),
+                           Fraction(0), "both", "figure stated in the report itself", basis, phrase, _DURATION_RULE))
+    return specs, undecided
+
+
 def _parts_spec(clause: str, whole: _Fig, parts: list[_Fig], tolerance: Fraction, phrase: str, how: str) -> _Spec:
     """The parts of a stated total may not exceed it (beyond the tolerance, since each figure may be rounded)."""
     wv = _frac(whole.num, whole.unit)
@@ -1712,10 +2102,16 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                 if _RATE_TREND_RE.search(sent):
                     trend_specs, trend_undecided = _rate_trend_specs(sentences, si, pi)
                     part_specs, part_undecided = part_specs + trend_specs, part_undecided + trend_undecided
+                if "year" in sent.lower() and _DUR_PHRASE_RE.search(sent):
+                    dur_specs, dur_undecided = _duration_specs(sentences, si, pi, tolerance)
+                    part_specs, part_undecided = part_specs + dur_specs, part_undecided + dur_undecided
             except FigureTooLarge:
                 part_specs, part_undecided = [], [QuantUndecided(pi, si + 1, sent.strip(), sent.strip()[:120], _TOO_LARGE_REASON)]
             per_sentence_specs.extend((si, sp) for sp in part_specs)
             undecided.extend(part_undecided)
+            # a worked equation ('$6,000 ÷ $2.00 = 3,000 loaves') is written arithmetic this reader does not decide: named, never silent
+            for eq in worked_equations(sent):
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), eq.phrase[:160], WORKED_EQUATION_REASON))
             for clause in clauses:
                 try:
                     derived = _derived_phrases(clause)
@@ -1811,14 +2207,19 @@ def _analyse(text: str, tolerance: Fraction) -> tuple[tuple[_Spec, ...], tuple[Q
                         undecided.append(QuantUndecided(pi, si + 1, sent, d.words, why))
                         continue
                     target, how = _target_years(sentences, si, clause, d.start, sorted({y for s in series for y in s.points}))
+                    in_equation = any(eq.start <= d.start < eq.end for eq in worked_equations(clause))
                     if target is None:
                         if d.soft and not series and _decade_before(clause, d.start) is None:
                             continue  # 'the army lost 22,000 men': a count, with no stated figures it could be a change of
+                        if in_equation:
+                            continue  # '(9.6 − 3.8) ÷ 9.6 × 100 = 60.4% decrease': the worked equation is named with its true reason
                         undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"{_no_pair_reason(clause, d)} and {how}"))
                         continue
                     kinds = {"pct"} if d.kind == "points_change" and d.percentage_points else None
                     s, why = _pick_series(series, list(target), clause, kinds=kinds, extra=standalone())
                     if s is None:
+                        if in_equation:
+                            continue
                         undecided.append(QuantUndecided(pi, si + 1, sent, d.words, f"{_no_pair_reason(clause, d)} and {why}"))
                         continue
                     (va, sa), (vb, sb) = s.points[target[0]], s.points[target[1]]
@@ -1936,7 +2337,9 @@ def _extract(text: str, *, request_id: str, claim_id: str, tolerance: Fraction) 
               "duration": "dur", "rate_trend": "trend"}
     for spec in specs:
         n += 1
-        if spec.kind in ("series_monotonic", "series_extreme", "pair_direction", "rate_trend"):
+        if spec.rule:
+            rule = spec.rule
+        elif spec.kind in ("series_monotonic", "series_extreme", "pair_direction", "rate_trend"):
             rule = "exact comparison of the figures as stated (no tolerance)"
         elif spec.kind == "parts":
             rule = (f"the stated parts may not exceed the stated total by more than {float(tolerance) * 100:g}% of it (each figure may be rounded)")

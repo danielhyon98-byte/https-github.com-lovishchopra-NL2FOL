@@ -84,7 +84,7 @@ __all__ = [
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
-    "PEER_ATTRIBUTION_RE",
+    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE",
 ]
 
 BOM = "\ufeff"
@@ -1215,6 +1215,17 @@ def is_peer_attribution(sentence: str) -> bool:
     return PEER_ATTRIBUTION_RE.match(mask_quotations(sentence)) is not None
 
 
+#: A sentence opened by a note lead is a note as a whole, on every branch and in the channel's word count: "Note: my sources
+#: do not confirm the exact emigration total ...", "Note on the Physics specialist's uncertainty: ...", "N.B. ...", "NB:
+#: ...", "Next step: trace find_position(scores, 12) yourself ...", "Confidence: lowered." (a self-rating of the answer).
+#: Read with quotations masked, so a quoted "Note:" is the quoted text's. "Note that ..." (no colon) is an argument's own
+#: signpost and stays substantive.
+NOTE_LEAD_RE = re.compile(
+    r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence)\s*:"
+    r"|^[\s*_>#-]*n\.\s?b\.(?:\s*:)?"
+    r"|^[\s*_>#-]*note\s+on\b[^:.!?]{1,80}:",
+    re.IGNORECASE,
+)
 _PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
 _PAREN_INNER_RE = re.compile(r"\([^()]*\)")
 _CLAUSE_SEPARATOR_RE = re.compile(r"[;—–]")
@@ -1307,6 +1318,9 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     orig = sentence
     masked = mask_quotations(sentence)
     notes: list[str] = []
+    # 0. a note lead ("Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:") makes the whole sentence a note
+    if NOTE_LEAD_RE.match(masked):
+        return "", (sentence.strip(),)
     # 1. parentheticals: a from-memory label word anywhere inside the brackets, a label, a self-report or a task note
     cuts = [(m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(masked) if _note_clause(m.group(0), parenthetical=True)]
     notes += [orig[a:b].strip(" ;—–()\t\n") for a, b in cuts]

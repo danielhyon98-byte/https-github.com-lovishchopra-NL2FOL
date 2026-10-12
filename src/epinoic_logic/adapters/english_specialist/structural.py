@@ -38,11 +38,16 @@ Source integrity
                           in order): S12, but not an invented quotation; the same case the
                           channel reports as INT-REQ-010, never ES-SRC-001.
 * ``ES-SRC-007`` info    an elided quotation (``...``); the span it covers is stated.
-* ``ES-SRC-008`` error / warning a quotation attributed by the sentence to one supplied text
-                          (its author, title or the peer specialist named) but located only in
+* ``ES-SRC-008`` error / warning a quotation credited by the phrase that governs it (the nearest
+                          possessive or crediting verb in its own clause: "the History
+                          specialist's "..."", "Shelley writes that "...""; or the one text the
+                          sentence names, with no other quotation, colon or semicolon between
+                          the name and the quotation) to one supplied text but located only in
                           another: an error when a relayed colleague's report is involved
                           (the poem's words credited to the colleague, or the colleague's to
-                          the poet), a warning between two literary texts.
+                          the poet), a warning between two literary texts. Credit is read per
+                          quotation, so the poem's line after "... the History specialist's
+                          "...":" is credited to no one by the colleague's possessive.
   When no supplied text contains an excerpt, the ``ES-SRC-001`` message lists every text
   searched.
 
@@ -80,9 +85,9 @@ from ...translate.common import truncate
 from ...translate.contracts import SpecialistReport, StructuralFinding
 from ..generic_structured import generic_source_findings
 from ..markdown import split_note_clauses
-from ..sources import check_excerpt, strip_trailing_punctuation
+from ..sources import check_excerpt, document_mentions, quotation_credit, strip_trailing_punctuation
 from .parser import (
-    Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
+    _TEXT_CUE_RE, Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
 )
 
 __all__ = [
@@ -355,10 +360,57 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
     return out
 
 
+_CLAUSE_BREAK_RE = re.compile(r"[:;](?=\s|$)")
+
+
+def _governing_document(sentence: Sentence, quote_index: int, named: list[str], docs: dict) -> Optional[str]:
+    """The supplied text that the phrase governing the ``quote_index``-th quotation of ``sentence`` credits with its
+    words: the nearest possessive or crediting verb before it in its own clause ("the History specialist's "..."", "The
+    History specialist observes that "..."", "Shelley writes that "..."": ``sources.quotation_credit``), else, when the
+    sentence names exactly one text, that text if nothing stands between the name and the quotation but the quotation's
+    own clause (no other quotation, no colon or semicolon). A credit is not raised against a text the sentence also names
+    before the quotation and that holds its words (an ambiguous credit, which the core pack's CORE-SRC-005 warns of). A
+    quotation that follows another quotation's attribution
+    across a colon ("... consistent with the History specialist's "...": "By Wednesday they were bricking up the windows"")
+    is credited to no one by that phrase."""
+    q = sentence.quotations[quote_index]
+    credit = quotation_credit(sentence.text, q.start, docs)
+    if credit is not None:
+        return credit.document_id if credit.document_id in docs else None
+    if len(named) != 1:
+        return None
+    doc = docs[named[0]]
+    others = [o for k, o in enumerate(sentence.quotations) if k != quote_index]
+    plain = sentence.text
+    spans = list(document_mentions(plain, doc))
+    if not is_peer_document(doc):
+        spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(plain)]
+    spans = [(a, b) for a, b in spans if not any(o.start <= a < o.end for o in sentence.quotations)]
+    for a, b in spans:
+        lo, hi = (b, q.start) if b <= q.start else (q.end, a)
+        if lo > hi:
+            continue
+        between = plain[lo:hi]
+        if any(lo <= o.start < hi for o in others) or _CLAUSE_BREAK_RE.search(between):
+            continue
+        return named[0]
+    return None
+
+
+def _named_before(sentence: Sentence, position: int, doc) -> bool:
+    """True when ``sentence`` names ``doc`` outside its quotations before ``position``."""
+    spans = list(document_mentions(sentence.text, doc))
+    if not is_peer_document(doc):
+        spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(sentence.text)]
+    return any(b <= position and not any(o.start <= a < o.end for o in sentence.quotations) for a, b in spans)
+
+
 def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-SRC-008: a sentence names exactly one supplied text (author, surname, title, the peer
-    specialist, or "the poem" when one literary text was supplied) but its quotation is located
-    only in another supplied text. An error when a relayed colleague's report is on either side."""
+    """ES-SRC-008: a quotation that the phrase governing it credits to one supplied text (author, surname, title, the peer
+    specialist, or "the poem" when one literary text was supplied) but whose words are located only in another supplied
+    text. Credit is read per quotation, not per sentence (:func:`_governing_document`): in "Its timetable is consistent
+    with the History specialist's "...": "By Wednesday ..."" the colleague's possessive governs its own quotation only and
+    the poem's line after the colon is credited to no one. An error when a relayed colleague's report is on either side."""
     docs = {t.document_id: t for t in report.supplied_texts}
     if len(docs) < 2:
         return []
@@ -370,20 +422,23 @@ def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, 
             if not sentence.quotations or sentence.role == "other":
                 continue
             named = documents_named(strip_quotations(sentence.text), docs)
-            if len(named) != 1:
-                continue
-            for q in sentence.quotations:
+            for k, q in enumerate(sentence.quotations):
                 if not q.delimited:
                     continue
-                located = [d for d in docs if excerpt_located(q.excerpt, d, docs)]
-                if not located or named[0] in located:
+                credited = _governing_document(sentence, k, named, docs)
+                if credited is None:
                     continue
-                peer = is_peer_document(docs[named[0]]) or any(is_peer_document(docs[d]) for d in located)
+                located = [d for d in docs if excerpt_located(q.excerpt, d, docs)]
+                if not located or credited in located:
+                    continue
+                if any(_named_before(sentence, q.start, docs[d]) for d in located):
+                    continue  # the sentence also names the text that holds the words before them: an ambiguous credit (CORE-SRC-005 warns)
+                peer = is_peer_document(docs[credited]) or any(is_peer_document(docs[d]) for d in located)
                 claim_ids = [c.claim_id for c in report.claims if any(r.excerpt == q.excerpt for r in c.source_refs)] or _claims_for_sentence(report, sentence)
                 out.append(_finding(
                     "ES-SRC-008", "error" if peer else "warning",
                     f"paragraph {para.index}, sentence {sentence.index} attributes the quotation '{truncate(q.excerpt, _EXCERPT_CHARS)}' to "
-                    f"{named[0]} but the words occur only in {', '.join(located)}; the quotation is real but credited to the wrong text",
+                    f"{credited} but the words occur only in {', '.join(located)}; the quotation is real but credited to the wrong text",
                     claim_ids,
                 ))
     return out

@@ -20,7 +20,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   once its labels are set aside, read with its quotations masked by `mask_quotations`, so a
   colleague's from-memory label quoted by the writer is quotation and counts toward a word
   bound; a label word inside a substantive sentence, "recalls the scene from memory, which
-  ...", "is illustrative of how ...", never makes it a note), disclaimers told apart from
+  ...", "is illustrative of how ...", never makes it a note; a sentence opened by a note lead,
+  `NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "NB:", "Next step:", "Confidence:", is a note as a
+  whole on the English, History and generic branches and outside the channel's word and paragraph
+  counts, so hi-t13's closing "Note: Paper 2 essays are marked out of 15 ..." is no second body
+  paragraph and counts toward no bound, while "Note that ..." with no colon stays the argument's own
+  signpost), disclaimers told apart from
   self-certifications (`is_self_certification`: a positive check only, so "should be checked
   before they are cited", "have not been verified", "must be verified" and "unverified" are
   notes with no self-report; the semantic rule covers a sentence about the answer or its items,
@@ -133,8 +138,25 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   analytical paragraphs (point, evidence quotations, device, interpretation, link),
   structural checks derived from the agent's own knowledge documents (quotation not
   in text, invented citation, from-memory quote, misattributed quotation, strand count,
-  length, first person, spelling variety), and fixtures from its model essay including
+  length, first person, spelling variety; a misattribution, `ES-SRC-008`, is read per quotation:
+  each quotation is credited by the phrase that governs it in its own clause, the nearest possessive
+  or crediting verb before it, "the History specialist's "..."", "The History specialist calls the
+  street "two streets"", or the one text the sentence names with no other quotation, colon or
+  semicolon between, so the poem's lines after "... consistent with the History specialist's "...":"
+  are credited to no one by the colleague's possessive, and a text the sentence also names before the
+  quotation and that holds its words makes the credit ambiguous, left to `CORE-SRC-005`), and fixtures from its model essay including
   deliberately corrupted variants (`example1_texts.py` holds the verbatim Example 1 texts).
+  The parser reads a marking-feedback layout as feedback: a line break before a label-led line
+  ("Biggest gap: ...", "Fix it: ...", "Model: ...") or a bullet ends a sentence (outside a quotation
+  spanning the lines), an inline list number ("Fix it: 1. Choose ...", "... explanation. 2. Add ...")
+  opens its item instead of being cut off as a sentence ("The total was 12." still ends one), the
+  layout's furniture (`FEEDBACK_LABEL_RE`: the task heading "Task — Paper 1, SL — ...?", the restated
+  task "What the task wants: ...", the "Provisional marks: ..." line, a bare label "Why these marks:")
+  is roled `other`, and the judgement and the fixes ("Biggest gap: ...", "Fix it: 1. ...", the numbered
+  fixes after it until another labelled line) are roled `judgement` and material, so a synthesis that
+  drops a requested fix is named (`INT-LEDGER-002`) while dropping a label is not (`INT-LEDGER-019`);
+  a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so
+  ...") is notes throughout without being meta-text (no `ES-META-001`).
   The parser carries the hub-stated `agent_id` into the report unchanged, roles a
   self-certifying, narrated or JSON-shaped sentence `other` with no source reference
   wherever it stands, roles a quotation-free sentence that is nothing but a note about the

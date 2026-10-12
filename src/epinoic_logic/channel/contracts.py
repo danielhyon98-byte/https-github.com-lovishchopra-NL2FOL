@@ -40,6 +40,10 @@ class Constraint(BaseModel):
     kind: ConstraintKind
     value: Optional[str] = Field(default=None, description="numeric value as exact text, when applicable")
     text: str = Field(min_length=1, max_length=1000, description="the constraint as stated in the request")
+    excludes: list[Literal["working", "diagram"]] = Field(default_factory=list, max_length=2, description=(
+        "what the request sets outside a word bound ('Write no more than 350 words, plus working and your diagram'): the "
+        "bound is measured over the prose only, without working lines (equations, calculation lines, tables) and, for "
+        "'diagram', without the description of a diagram"))
 
 
 class TaskRequest(BaseModel):
@@ -74,12 +78,14 @@ class TransmissionStatus(str, Enum):
 
 
 class CoverageRecord(BaseModel):
-    """Which claims address which request item. Heuristic unless an adapter tags claims."""
+    """Which claims address which request item. Heuristic unless an adapter tags claims: ``part_label`` when the item is a
+    lettered or numbered part and the answer labels its parts (the claims under the same label address it),
+    ``lexical_heuristic`` otherwise (shared content terms with a claim or with a paragraph's claims together)."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     item_id: str
     addressed: bool
     addressed_by_claim_ids: list[str] = Field(default_factory=list)
-    method: Literal["adapter_tag", "lexical_heuristic", "not_checkable"]
+    method: Literal["adapter_tag", "part_label", "lexical_heuristic", "not_checkable"]
 
 
 class ConstraintResult(BaseModel):

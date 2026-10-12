@@ -154,8 +154,12 @@ harness, the peer-exchange relay and the recorded rounds are described in
 decided every transmission and named every injected fault; it does not judge whether a
 finding is true. Its summary therefore states, under the headline, how many genuine receipts
 carry error-level findings and are still counted functional, and names every definitive
-verdict other than ENTAILED shown on a genuine claim with what it rests on. Whether the
-receipts are right is judged by the overseers.
+verdict other than ENTAILED shown on a genuine claim with what it rests on, beside the
+number of genuine claims whose encoding got no verdict (vacuous, circular, an unasserted
+figure, an unencoded reason, a rounded figure encoded as exact). Every group of a round
+that carries syntheses has exactly one synthesis record, whatever happened to its members,
+so the number of transmissions never depends on what crashed. Whether the receipts are
+right is judged by the overseers.
 
 Bug testing and stress testing results (test layers, every overseer round's verdicts and findings, harness and stress numbers) are reported in `tests/README.md`.
 

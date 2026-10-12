@@ -172,7 +172,7 @@ __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS", "LINK_LEADS",
     "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
-    "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of",
+    "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of", "FEEDBACK_LABEL_RE", "is_feedback_label", "FEEDBACK_JUDGEMENT_RE", "feedback_item",
 ]
 
 AGENT_ID = "english-specialist"
@@ -407,12 +407,42 @@ def _span_index(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
     return starts, furthest
 
 
+#: A line break before a label-led line ("Biggest gap: ...", "Fix it: ...", "Model: ...") or a bullet ends a sentence: a
+#: marking-feedback layout writes one labelled item per line, often with no full stop before the next label.
+_LINE_LABEL_BREAK_RE = re.compile(r"\n(?=[ \t]*(?:[A-Z][\w’' ]{0,30}:\s|[-*•]\s))")
+_LINE_BULLET_RE = re.compile(r"^[ \t]*[-*•][ \t]+")
+#: A list number written inline ("Fix it: 1. Choose ...", "... explanation. 2. Add ..."): the number opens an item, it does
+#: not close a sentence.
+_INLINE_LIST_NUMBER_RE = re.compile(r"(?:^|[:;—–]\s*)\(?\d{1,2}\)?$")
+
+
+def _label_chunks(paragraph: str) -> list[str]:
+    """``paragraph`` cut at each line break before a label-led line or a bullet that lies outside any quotation (the
+    double marks before it are balanced), bullet markers removed."""
+    chunks: list[str] = []
+    start = 0
+    for m in _LINE_LABEL_BREAK_RE.finditer(paragraph):
+        head = paragraph[start:m.start()]
+        if head.count('"') % 2 or head.count("\u201c") != head.count("\u201d") or head.count("\u00ab") != head.count("\u00bb"):
+            continue  # the break lies inside a quotation (a verse line quoted across lines)
+        chunks.append(head)
+        start = m.end()
+    chunks.append(paragraph[start:])
+    return [_LINE_BULLET_RE.sub("", c, count=1) for c in chunks if c.strip()]
+
+
 def split_sentences(paragraph: str) -> list[str]:
     """Split ``paragraph`` into sentences (see module docstring).
 
     A pasted JSON span glued to the prose (``... answers. {"receipt_id": ...} The narrator
     ...``) is one sentence of its own: the prose before it and after it are split as prose,
-    and the JSON's strings are not read as quotation marks."""
+    and the JSON's strings are not read as quotation marks. A line break before a label-led
+    line or a bullet ends a sentence (:func:`_label_chunks`), and a list number written inline
+    ("Fix it: 1. Choose ...") opens its item rather than closing a sentence."""
+    if "\n" in paragraph.strip() and _LINE_LABEL_BREAK_RE.search(paragraph.strip()):
+        chunks = _label_chunks(paragraph.strip())
+        if len(chunks) > 1:
+            return [s for chunk in chunks for s in split_sentences(chunk)]
     text = " ".join(paragraph.split())
     if not text:
         return []
@@ -433,6 +463,8 @@ def split_sentences(paragraph: str) -> list[str]:
         prev = max(last_cut, json_cuts[k - 1] if k else 0)
         if _is_abbreviation(masked[prev:m.start()], m.group(0), masked[m.end():m.end() + 8]):
             continue
+        if m.group(0).startswith(".") and _INLINE_LIST_NUMBER_RE.search(masked[prev:m.start()].strip()):
+            continue  # "Fix it: 1. Choose ...": the list number opens the item
         cuts.add(m.end())
         last_cut = m.end()
     pieces: list[str] = []
@@ -481,6 +513,37 @@ def is_note_only(sentence: str) -> bool:
         return False
     core, _notes = split_note_clauses(sentence)
     return not core
+
+
+#: A block opened by a bare note lead is a note as a whole ("Note on ...:" introduces a discussion and is not one).
+_BARE_NOTE_BLOCK_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence)\s*:|n\.\s?b\.)", re.IGNORECASE)
+#: The content of a marking-feedback layout besides its point: the judgement ("Biggest gap: ...") and the fixes ("Fix it: 1.
+#: ...", "2. ...", "3. ..."). Roled ``judgement`` and material, so a combinator that drops a requested fix is named.
+FEEDBACK_JUDGEMENT_RE = re.compile(r"^\W*(?:(?:biggest|main|key)\s+gaps?|fix\s+it|fixes|how\s+to\s+improve|to\s+improve|improvements?)\s*:", re.IGNORECASE)
+_NUMBERED_ITEM_RE = re.compile(r"^\W*\(?\d{1,2}[.)]\s+\S")
+_FIXES_LEAD_RE = re.compile(r"^\W*(?:fix\s+it|fixes|how\s+to\s+improve|to\s+improve|improvements?)\s*:", re.IGNORECASE)
+_LABEL_LINE_RE = re.compile(r"^\W*[A-Z][\w’' ]{0,30}:\s")
+#: The furniture of a marking-feedback layout: the task heading ("Task — Paper 1, SL — How does ...?"), the restated task
+#: ("What the task wants: ..."), the provisional marks line ("Provisional marks: A 3/5 · B 2/5 ...") and a bare label
+#: closing on a colon ("Why these marks:"). A self-rating ("Confidence: lowered.") is a note on every branch
+#: (``markdown.NOTE_LEAD_RE``). The judgement and the fixes are the feedback's content.
+FEEDBACK_LABEL_RE = re.compile(
+    r"^\W*(?:task\s*[—–]|task\s*:|provisional\s+marks?\s*:|what\s+the\s+(?:task|question)\s+(?:wants|asks(?:\s+for)?)\s*:)"
+    r"|^\W*[A-Z][\w’' ]{0,40}:\s*$",
+    re.IGNORECASE,
+)
+
+
+def feedback_item(sentence: str, after_fixes: bool = False) -> bool:
+    """True for the judgement or a fix of a marking-feedback layout (:data:`FEEDBACK_JUDGEMENT_RE`), or a numbered item
+    that continues a list of fixes (``after_fixes``)."""
+    plain = strip_quotations(sentence)
+    return FEEDBACK_JUDGEMENT_RE.match(plain) is not None or (after_fixes and _NUMBERED_ITEM_RE.match(plain) is not None)
+
+
+def is_feedback_label(sentence: str) -> bool:
+    """True for the furniture of a marking-feedback layout (:data:`FEEDBACK_LABEL_RE`), read with quotations masked."""
+    return FEEDBACK_LABEL_RE.match(strip_quotations(sentence).strip()) is not None
 
 
 def is_meta_block(block: str) -> bool:
@@ -590,11 +653,17 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         raw_sentences = _list_sentences(block) if kind == "list" else split_sentences(block)
         sentences: list[Sentence] = []
         argued = 0  # sentences that are neither meta nor a note: the first of them is the point
+        in_fixes = False  # a list of fixes is open ("Fix it: 1. ...", "2. ...") until another labelled line
+        # a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so ..."): what
+        # follows the lead explains the note, so every sentence is a note; the block is not meta-text (no ES-META-001)
+        note_led = kind in ("thesis", "body", "conclusion") and bool(_BARE_NOTE_BLOCK_RE.match(block.strip())) and not _block_quotations(block)
         for j, s in enumerate(raw_sentences, start=1):
             notes: tuple[str, ...] = ()
-            if kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+            if note_led:
                 role: ClaimRole = "other"
-            elif kind in ("thesis", "body", "conclusion") and is_note_only(s):
+            elif kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+                role = "other"
+            elif kind in ("thesis", "body", "conclusion") and (is_note_only(s) or is_feedback_label(s)):
                 role = "other"  # a label about the text is never the point, wherever it stands
             elif kind == "body" and is_peer_attribution(split_note_clauses(s)[0] or s):
                 notes = tuple(split_note_clauses(s)[1])
@@ -604,6 +673,14 @@ def segment(text: str) -> tuple[Paragraph, ...]:
                     notes = tuple(split_note_clauses(s)[1])  # an inline label is kept out of the role
                 argued += 1
                 role = _role_for(argued, s, kind)
+                if kind == "body" and role != "point" and feedback_item(s, in_fixes):
+                    role = "judgement"  # a marking-feedback judgement or fix: material content of the feedback
+                if kind == "body":
+                    plain = strip_quotations(s)
+                    if _FIXES_LEAD_RE.match(plain):
+                        in_fixes = True
+                    elif _LABEL_LINE_RE.match(plain):
+                        in_fixes = False  # another labelled line ("Model: ...") closes the list of fixes
             sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s), notes=notes))
         if kind == "body" and single_prose:
             sentences = _closing_link(sentences)
@@ -996,6 +1073,10 @@ def parse_response(
                 pending_conclusion.append((sid, sentence.text, quote_ids))
             elif sentence.role == "link":
                 pending_links.append((sid, sentence.text, quote_ids))
+            elif sentence.role == "judgement":
+                # a marking-feedback judgement or fix: material, resting on its own quotations; it does not support the point
+                add(sid, sentence.text, "judgement", proposed_claim_kind="interpretive", materiality="material", certainty="probable",
+                    supporting_claim_ids=quote_ids, parent_claim_id=point_id, assumptions=inline_notes[sid])
             else:
                 attributed = sentence.role == "perspective"
                 add(

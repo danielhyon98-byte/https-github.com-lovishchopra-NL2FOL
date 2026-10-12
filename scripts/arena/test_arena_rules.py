@@ -17,6 +17,15 @@ Round-6 results audit: the headline 'functional: 46 (100.0%)' counted a genuine 
 and a synthesis with a false warning as functional without saying so, and the five COUNTEREXAMPLE verdicts displayed on
 genuine claims were given only as a count. summary.md now states the error-carrying genuine records under the headline,
 and names every displayed definitive verdict other than ENTAILED with its claim id and what it rests on.
+
+Round-7 audits: when the last member of a peer group (maa-p7b) raised, the group's synthesis of the delivered report was
+never run and was in neither the records nor the failures (161 transmissions instead of 162); the sp-t13 synthesis was
+charged INT-LEDGER-004 only because the syntheses format could not carry evidence references; the altered quotation was
+changed at the first occurrence of its words anywhere in the text (mai-t13's prose 'complete years'), was chosen even when
+it quoted the request, and had 'ly' appended after punctuation ('box.ly'); an invented quotation was accepted as the
+unverifiable CORE-SRC-003 although the task supplied a text. Every group now has one synthesis record whatever happened to
+its members, the references a synthesized claim reproduces are kept, the altered quotation is a supplied text's, changed
+at a word inside its own span, and a task with a supplied text of its own must refute a quotation mutation (INT-REQ-003).
 """
 from __future__ import annotations
 
@@ -408,3 +417,212 @@ def test_round_states_error_receipts_under_the_headline_and_names_each_counterex
     assert "The rate does not judge whether a finding is true" in lines[4]
     row = next(x for x in lines if x.startswith(f"  - {TASK}.json h1.1: COUNTEREXAMPLE"))
     assert "rests on the problem's 1 premise(s), 1 ungrounded and 0 unverified" in row and "counterexample: largest_city=true, near_million=false" in row
+
+
+# --- round 7: one synthesis record per group whatever happened to its members; evidence references; altered quotation --
+
+def test_synthesis_failure_reasons_name_a_member_that_was_not_delivered():
+    """r7: a group whose member was not delivered has an incomplete synthesis; the record says so and is not functional,
+    however cleanly the synthesis of the delivered members went through."""
+    assert ra.synthesis_failure_reasons("ACCEPTED", True, [], 0, ["maa-p7b"]) == [
+        "the report(s) of ['maa-p7b'] were not delivered through the hub, so the group's synthesis covers only the delivered reports"]
+    assert ra.synthesis_failure_reasons("ACCEPTED", True, [], 0, []) == []
+
+
+def test_a_group_with_no_delivered_member_still_has_a_failed_synthesis_record():
+    """No member delivered: nothing to relay, but the group's synthesis transmission is recorded (and fails), so the
+    round's count of transmissions does not depend on what crashed."""
+    items = [{**HISTORY_ITEM, "_path": Path("specialists") / f"{TASK}.json"}]
+    ch = types.SimpleNamespace(plan=ra.group_plan(items, TASK))
+    rec = ra.synthesis_record(ch, items, items[0], TASK, {TASK: HISTORY_SYNTHESIS}, {})
+    assert rec["variant"] == "synthesis" and rec["functional"] is False and rec["members_not_delivered"] == [TASK]
+    assert "no report of the group" in rec["error"] and f"syntheses/{TASK}.json" in rec["error"]
+
+
+class _CrashingHub(ra.RouterHub):
+    """The r7 maa-p7b shape: the hub raises on the genuine reply of the group's last member (an exception escaping
+    RouterHub.receive), after the first member's report was delivered and relayed."""
+    def receive(self, task_id, request_message_id, payload, **kw):
+        if kw.get("report_id") == "rep-en-y1-0":
+            raise ValueError("invalid literal for int() with base 10: '¹'")
+        return super().receive(task_id, request_message_id, payload, **kw)
+
+
+def test_a_crash_on_the_last_member_still_records_the_group_synthesis_as_a_failure(tmp_path, monkeypatch):
+    """r7 results-audit and communication-fidelity: maa-p7b (the p7b group's last member) raised, so the harness never
+    ran the p7b synthesis of the delivered ph-p7b report; it was in neither the records nor the failures and the
+    headline counted 161 transmissions instead of 162. The synthesis of the delivered member is now run and recorded,
+    names the member that was not delivered, fails for it, and is counted."""
+    monkeypatch.setattr(ra, "RouterHub", _CrashingHub)
+    hi = {**HISTORY_ITEM, "task_id": "hi-y1", "group": "y1"}
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "syntheses").mkdir()
+    (tmp_path / "specialists" / "hi-y1.json").write_text(json.dumps(hi))
+    (tmp_path / "specialists" / "en-y1.json").write_text(json.dumps(ENGLISH_PEER_ITEM))
+    (tmp_path / "syntheses" / "hi-y1.json").write_text(json.dumps({**HISTORY_SYNTHESIS, "report_id": "rep-hi-y1-0"}))
+    (tmp_path / "syntheses" / "en-y1.json").write_text(json.dumps({"report_id": "rep-en-y1-0", "claims": [
+        {"text": "Read against that, the calm of the sonnet is an exception rather than the rule.", "source_claim_ids": ["p1-s02"], "transformation": "carried"}]}))
+    out = ra.run_round(tmp_path)
+    recs = {(r["file"], r["variant"]): r for r in out["records"]}
+    crashed = recs[("en-y1.json", "genuine")]
+    assert crashed["functional"] is False and crashed["error"].startswith("ValueError")
+    syn = [r for r in out["records"] if r["variant"] == "synthesis"]
+    assert len(syn) == 1, "exactly one synthesis record for the group"
+    s = syn[0]
+    assert s["functional"] is False and s["members_not_delivered"] == ["en-y1"] and s["group"] == "y1"
+    assert s["source_report_ids"] == ["rep-hi-y1-0"] and s["delivered"] is True, "the delivered member's synthesis was relayed"
+    assert any("['en-y1'] were not delivered" in x for x in s["failure_reasons"])
+    assert s in out["failures"] and out["by_variant"]["synthesis"] == {"functional": 0, "total": 1}
+    assert out["transmissions"] == 2 * (1 + len(ra.MUTATIONS)) + 1 + 1  # two agents, the peer relay and the synthesis
+    summary = (tmp_path / "summary.md").read_text()
+    assert "- en-y1.json [synthesis]: the report(s) of ['en-y1'] were not delivered through the hub" in summary
+
+
+SPANISH_ITEM = {
+    "task_id": "sp-x1", "subject": "Language B: Spanish", "agent_id": "language-b-spanish-specialist", "task_type": "reading_comprehension",
+    "question": "Indica si la frase es verdadera (V) o falsa (F) y justifica tu respuesta con palabras del texto: "
+                "b) El proyecto ha ayudado a personas mayores que vivían solas.",
+    "supplied_texts": [{"document_id": "doc-huertos", "title": "Los huertos que cambiaron un barrio",
+                        "text": "Los más jóvenes del barrio aprenden a plantar junto a personas mayores que, en muchos casos, vivían solas. "
+                                "Según Ferrer, «aquí no solo crecen lechugas: crecen amistades»."}],
+    "response_text": "b) V: «personas mayores que, en muchos casos, vivían solas»; «crecen amistades»\n"
+                     "Why: the text never says \"ayudar\"; the help is shown by the older people who lived alone and the friendships that grow, "
+                     "so both quotations are needed.",
+}
+
+
+def _material_quoting_claim(item):
+    """The delivered id of the item's material claim that carries source references (ids depend on the parser)."""
+    from epinoic_logic.branches import default_registry
+    branch, _ = default_registry().for_subject(item["subject"])
+    report = branch.parser().parse_response(item["response_text"], request_id="req-x", task_id=item["task_id"], report_id=f"rep-{item['task_id']}-0",
+                                            subject=item["subject"], task_type=item["task_type"], supplied_texts=ra.supplied(item), agent_id=item["agent_id"])
+    return next(c for c in report.claims if c.materiality == "material" and c.source_refs)
+
+
+def test_a_synthesized_claim_keeps_the_evidence_references_its_text_reproduces(tmp_path):
+    """r7 results-audit: the sp-t13 synthesis was charged INT-LEDGER-004 ('evidence references of material source claims
+    ['g4.1'] were not preserved') only because the syntheses format had no field for evidence references, although s2
+    quotes both of g4.1's excerpts word for word. The harness now copies the references whose excerpts the synthesized
+    text reproduces (and passes on evidence_refs the format carries); a claim that does not reproduce them is still
+    charged INT-LEDGER-004."""
+    src = _material_quoting_claim(SPANISH_ITEM)
+    assert len(src.source_refs) == 2
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "syntheses").mkdir()
+    (tmp_path / "specialists" / "sp-x1.json").write_text(json.dumps(SPANISH_ITEM, ensure_ascii=False))
+    (tmp_path / "syntheses" / "sp-x1.json").write_text(json.dumps({"report_id": "rep-sp-x1-0", "claims": [
+        {"text": "Item b is true (V), and both quotations are needed: 'personas mayores que, en muchos casos, vivían solas' and 'crecen amistades'.",
+         "source_claim_ids": [src.claim_id], "transformation": "carried"},
+        {"text": "Item b is true, because the article shows older people and new friendships.", "source_claim_ids": [src.claim_id], "transformation": "paraphrased"},
+        {"text": "Item b is true (V).", "source_claim_ids": [src.claim_id], "transformation": "paraphrased",
+         "evidence_refs": [{"document_id": r.document_id, "locator": r.locator, "excerpt": r.excerpt} for r in src.source_refs]}]}, ensure_ascii=False))
+    out = ra.run_round(tmp_path)
+    s = next(r for r in out["records"] if r["variant"] == "synthesis")
+    lost = {tuple(f["claim_ids"][:1]) for f in s["findings"] if f["code"] == "INT-LEDGER-004"}
+    assert ("s0",) not in lost and ("s2",) not in lost, s["findings"]
+    assert ("s1",) in lost, "a synthesized claim that does not reproduce the evidence is still charged"
+    assert s["evidence_refs_copied"] == {"s0": [{"source_claim_id": src.claim_id, "document_id": r.document_id, "locator": r.locator, "excerpt": r.excerpt}
+                                                for r in src.source_refs]}
+
+
+def test_reproduced_evidence_refs_requires_the_excerpt_word_for_word():
+    claims = {"g1": {"claim_id": "g1", "source_refs": [{"document_id": "d", "locator": None, "excerpt": "crecen amistades."},
+                                                      {"document_id": "d", "locator": "para:3", "excerpt": "vivían solas"},
+                                                      {"document_id": "d", "locator": "para:4", "excerpt": None}]}}
+    got = ra.reproduced_evidence_refs("They say “crecen  amistades” and that people vivían solas.", ["g1", "missing"], claims)
+    assert [(r["locator"], r["excerpt"]) for r in got] == [(None, "crecen amistades."), ("para:3", "vivían solas")]
+    assert ra.reproduced_evidence_refs("They say crecen amistad and Vivían Solas.", ["g1"], claims) == [], "a changed word or case is not a reproduction"
+    supporting = {"g1": {**claims["g1"], "materiality": "supporting"}}
+    assert ra.reproduced_evidence_refs("They say crecen amistades.", ["g1"], supporting) == [], "only material sources' references are required (INT-LEDGER-004)"
+
+
+MAI_TEXT = ("Kai has to count complete years only. The question asks for \"complete years\", so a part year is not counted. "
+            "Kai's working says \"the loan runs for 4.5 years\", which is the error.")
+MAI_DOC = types.SimpleNamespace(document_id="doc-kai-student", text="Working: the loan runs for 4.5 years, so n = 4.5.")
+
+
+def test_altered_quotation_changes_a_supplied_text_quotation_inside_its_own_span():
+    """r7 communication-fidelity and the channel fixer: the mutation altered the first occurrence of the quotation's words
+    anywhere in the text, so mai-t13's prose 'complete years' (before its quotation of the question) was changed and the
+    quotation left intact. With a supplied text the quotation altered is the first one found in a supplied text, and the
+    change is made inside the quoted span."""
+    from epinoic_logic.translate.contracts import SuppliedText
+    doc = SuppliedText(document_id=MAI_DOC.document_id, text=MAI_DOC.text)
+    q = ra.quotation_to_alter(MAI_TEXT, [doc])
+    assert q[2] == "the loan runs for 4.5 years" and q[3] == "the loan runs forly 4.5 years"
+    mutated, expected = ra.mutate(MAI_TEXT, "altered_quotation", [doc])
+    assert expected == "INT-REQ-003" and mutated == MAI_TEXT.replace("\"the loan runs for 4.5 years\"", "\"the loan runs forly 4.5 years\"")
+    assert ra.injection(MAI_TEXT, "altered_quotation", [doc]).markers == ("the loan runs forly 4.5 years",)
+    # with no supplied text the first quotation is altered, inside its span: the prose 'complete years' is untouched
+    mutated, _ = ra.mutate(MAI_TEXT, "altered_quotation")
+    assert mutated.startswith("Kai has to count complete years only.") and "asks for \"complete yearsly\"" in mutated
+    assert mutated.count("complete years") == 2  # the prose and 'complete yearsly'
+
+
+def test_altered_quotation_changes_a_word_never_punctuation_or_a_figure():
+    """r7 communication-fidelity: en-t13 and ll-t13 alterations read 'I fill a box.ly I fill another.' and 'Drink from any
+    stream.ly ...'; maa-p7b's read '1620 − 20ly'. An alphabetic word is changed, before its punctuation; the middle word
+    stays the one changed when it is a word (hi-p3's 'smokeless airly')."""
+    assert ra.alter_word("I fill a box. I fill another.") == "I fill a boxly. I fill another."
+    assert ra.alter_word("Drink from any stream. Worry about nothing.") == "Drink from any streamly. Worry about nothing."
+    assert ra.alter_word("t = 0 h: 1620 − 20 = 1600 ± 32 counts min⁻¹") == "t = 0 h: 1620 − 20 = 1600 ± 32 countsly min⁻¹"
+    assert ra.alter_word("smokeless air") == "smokeless airly" and ra.alter_word("the best of times") == "the best ofly times"
+    assert ra.alter_word("Something / in me\nkeeps sorting") == "Something / in mely\nkeeps sorting", "spacing and line breaks are kept"
+    assert ra.alter_word("1600 ± 32") is None
+
+
+def test_quotation_mutations_with_a_supplied_text_expect_int_req_003_only():
+    """r7 results-audit: the harness accepted CORE-SRC-003 ('cannot be verified') for an invented quotation although the
+    task supplied a text, contrary to its own docstring. With a supplied text of its own the task must refute it
+    (INT-REQ-003); a task whose only supplied text is a relayed peer report keeps either code for an invented quotation;
+    without any text, CORE-SRC-003."""
+    for kind in ra.QUOTATION_MUTATIONS:
+        _, e = ra.mutate(MAI_TEXT, kind)
+        assert ra.quotation_expectation(kind, e, own_texts=True, any_text=True) == "INT-REQ-003"
+        assert ra.quotation_expectation(kind, e, own_texts=False, any_text=False) == "CORE-SRC-003"
+    assert ra.quotation_expectation("invented_quotation", "INT-REQ-003|CORE-SRC-003", own_texts=False, any_text=True) == "INT-REQ-003|CORE-SRC-003"
+    assert ra.quotation_expectation("altered_quotation", "INT-REQ-003", own_texts=False, any_text=True) == "INT-REQ-003"
+    assert ra.quotation_expectation("altered_quotation", "SKIP", own_texts=True, any_text=True) == "SKIP"
+    assert ra.quotation_expectation("wrong_arithmetic", "INT-SUBJ-001", own_texts=True, any_text=True) == "INT-SUBJ-001"
+
+
+def test_withheld_verdicts_are_counted_by_code_on_genuine_claims():
+    """r7 results-audit asked summary.md to give the number of circular ENTAILED encodings beside the ungrounded-reliance
+    line. The engine withholds a definitive status (E108 vacuous, E110 unasserted figure, E111 unencoded reason, E112
+    circular) and the translation pipeline rejects a circular encoding (E112) or an exact equality to a rounded figure
+    ('stated precision') before the engine runs; both are displayed INVALID_FORMALIZATION. Each is counted on genuine
+    claims with its claim id; mutation repeats and stale fixtures are not."""
+    circ = _outcome("h1.4", "INVALID_FORMALIZATION", "ENTAILED", engine_diagnostic_codes=["E112"])
+    vac = _outcome("g5.3", "INVALID_FORMALIZATION", "COUNTEREXAMPLE", engine_diagnostic_codes=["E108"])
+    rejected = _outcome("h1.7", "INVALID_FORMALIZATION", translation_diagnostics=["attempt 1: E112: circular: premise(s) a_king restate the conclusion",
+                                                                                "attempt 2: E112: circular: premise(s) a_king restate the conclusion"])
+    rounded = _outcome("g9.1", "INVALID_FORMALIZATION", translation_diagnostics=["attempt 1: stated precision: the problem is COUNTEREXAMPLE as encoded"])
+    stale = {**_outcome("h1.6", "INVALID_FORMALIZATION", "ENTAILED", engine_diagnostic_codes=["E112"]), "stale_fixture_refused": True}
+    records = [{"file": "hi-t13.json", "variant": "genuine", "outcomes": [circ, rejected, stale, _outcome("h1.1", "ENTAILED", "ENTAILED")]},
+               {"file": "ec-t13.json", "variant": "synthesis", "outcomes": [vac]},
+               {"file": "bm-t13.json", "variant": "genuine", "outcomes": [rounded]},
+               {"file": "hi-t13.json", "variant": "chronology_error", "outcomes": [dict(circ)]}]
+    w = ra.withheld_verdicts(records)
+    assert w["E112"]["count"] == 2 and w["E112"]["claims"] == ["hi-t13.json h1.4 (ENTAILED)", "hi-t13.json h1.7 (rejected at translation)"]
+    assert w["E108"]["claims"] == ["ec-t13.json g5.3 (COUNTEREXAMPLE)"] and w["E110"]["count"] == w["E111"]["count"] == 0
+    assert w["stated precision"]["claims"] == ["bm-t13.json g9.1 (rejected at translation)"]
+    line = ra.withheld_verdict_line(w)
+    assert line.startswith("- encodings given no verdict on genuine claims (displayed INVALID_FORMALIZATION: a definitive engine status withheld, "
+                           "or the encoding rejected at translation): 4;")
+    assert "E112 circular encoding: 2 (hi-t13.json h1.4 (ENTAILED), hi-t13.json h1.7 (rejected at translation))" in line
+    assert "E111 unencoded reason: 0" in line and "stated precision: 1 (bm-t13.json g9.1 (rejected at translation))" in line
+
+
+def test_fixtures_under_ids_the_parse_does_not_deliver_are_reported(tmp_path):
+    """A translation fixture recorded under a claim id the current parse does not deliver is never served: the genuine
+    record, results.json and summary.md say which, so a smaller outcome count is not read as fewer eligible claims."""
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "translations").mkdir()
+    (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    (tmp_path / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": H11_COUNTEREXAMPLE_FIXTURE, "g9.9": H11_COUNTEREXAMPLE_FIXTURE}}))
+    out = ra.run_round(tmp_path)
+    genuine = next(r for r in out["records"] if r["variant"] == "genuine")
+    assert genuine["fixtures_matching_no_delivered_claim"] == ["g9.9"]
+    assert out["translation_fixtures_matching_no_delivered_claim"] == {"count": 1, "by_file": {f"{TASK}.json": ["g9.9"]}}
+    assert f"never served; those claims have no outcome): 1 ({TASK}.json: ['g9.9'])" in (tmp_path / "summary.md").read_text()

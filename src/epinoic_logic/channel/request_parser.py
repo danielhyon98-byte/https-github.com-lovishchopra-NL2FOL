@@ -81,6 +81,7 @@ def _residual(sentence: str) -> tuple[str, bool]:
             cursor = end
     out.append(sentence[cursor:])
     residual = _RESIDUAL_JOIN_RE.sub(r"\1", re.sub(r"\s{2,}", " ", "".join(out))).strip()
+    residual = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", residual)  # "for me, about 600 words, so" -> "for me, so"
     residual = _RESIDUAL_LEAD_RE.sub("", residual).strip()
     residual = _RESIDUAL_TAIL_RE.sub(r"\1", residual).strip()
     if not re.search(r"[^\W\d_]", residual):
@@ -115,32 +116,58 @@ _ABOUT_Q = ("about", "around", "approximately")
 _MIN_Q = ("at least", "minimum of", "min", "minimum")
 
 
+#: What a request sets outside a word bound, right after it ("no more than 350 words, plus working and your diagram",
+#: "(excluding working)", "not counting calculations", "plus your diagram"): the bound is measured over the prose only.
+_EXEMPT_RE = re.compile(
+    r"^[\s,;(\u2013\u2014-]*(?:plus|excluding|not\s+(?:counting|including)|exclusive\s+of|in\s+addition\s+to|besides)\s+"
+    r"(?P<what>(?:(?:your|the|any|all|its)\s+)?(?:working|workings|calculations?|diagrams?|graphs?|sketch(?:es)?|tables?)"
+    r"(?:\s*(?:,|and|&|or)\s*(?:(?:your|the|any|all|its)\s+)?(?:working|workings|calculations?|diagrams?|graphs?|sketch(?:es)?|tables?))*)", re.IGNORECASE)
+
+
+def _exemptions(text: str, end: int) -> list[str]:
+    """``["working"]``, ``["diagram"]`` or both when the words right after a word bound set them outside it."""
+    rest = text[end:end + 160]
+    lead = re.match(r"\s*(?:in\s+total|overall|altogether|in\s+all|for\s+the\s+whole\s+answer)\b", rest, re.IGNORECASE)
+    m = _EXEMPT_RE.match(rest[lead.end():] if lead else rest)
+    if m is None:
+        return []
+    what = m.group("what").casefold()
+    out = []
+    if re.search(r"working|calculation|table", what):
+        out.append("working")
+    if re.search(r"diagram|graph|sketch", what):
+        out.append("diagram")
+    return out
+
+
 def extract_constraints(text: str) -> list[Constraint]:
     out: list[Constraint] = []
     n = 0
 
-    def add(kind: str, value: str | None, span: str) -> None:
+    def add(kind: str, value: str | None, span: str, excludes: list[str] = ()) -> None:
         nonlocal n
         n += 1
-        out.append(Constraint(constraint_id=f"c{n}", kind=kind, value=value, text=span.strip()))
+        out.append(Constraint(constraint_id=f"c{n}", kind=kind, value=value, text=span.strip(), excludes=list(excludes)))
 
     for m in _RANGE_RE.finditer(text):
-        add("min_words", m.group("a"), m.group(0))
-        add("max_words", m.group("b"), m.group(0))
+        ex = _exemptions(text, m.end())
+        add("min_words", m.group("a"), m.group(0), ex)
+        add("max_words", m.group("b"), m.group(0), ex)
     for m in _WORD_RE.finditer(text):
         q = m.group("q").lower()
+        ex = _exemptions(text, m.end())
         if q in _MAX_Q:
-            add("max_words", m.group("n"), m.group(0))
+            add("max_words", m.group("n"), m.group(0), ex)
         elif q in _MIN_Q:
-            add("min_words", m.group("n"), m.group(0))
+            add("min_words", m.group("n"), m.group(0), ex)
         elif q == "exactly":
-            add("min_words", m.group("n"), m.group(0))
-            add("max_words", m.group("n"), m.group(0))
+            add("min_words", m.group("n"), m.group(0), ex)
+            add("max_words", m.group("n"), m.group(0), ex)
         elif q in _ABOUT_Q:  # "about 250 words": bounded on both sides, 10% either way (225 to 275)
-            add("min_words", str(math.ceil(int(m.group("n")) * 0.9)), m.group(0))
-            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0))
+            add("min_words", str(math.ceil(int(m.group("n")) * 0.9)), m.group(0), ex)
+            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0), ex)
         else:  # "in 350 words": a soft maximum with 10% tolerance
-            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0))
+            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0), ex)
     for m in _PARA_RE.finditer(text):
         raw = m.group("n").lower()
         val = str(_WORD_NUM.get(raw, raw))
@@ -157,25 +184,100 @@ def extract_constraints(text: str) -> list[Constraint]:
     return out
 
 
-def extract_items(text: str) -> list[RequestItem]:
-    """Questions and instructions of the request, one item each. A sentence that is only a
-    constraint is left to ``extract_constraints``; a sentence that mixes a constraint with a
-    content instruction ("Write no more than 200 words and give a judgement on which effect
-    mattered most") yields the content instruction as an item, with the constraint span
-    removed, so an answer that omits it is seen as not covering it."""
-    items: list[RequestItem] = []
-    for sent in (s.strip() for s in _SENT_RE.split(text.strip()) if s.strip()):
-        if is_constraint_only(sent):
+#: A part label of a multi-part question: "(a)", "a)", "(ii)", "ii)", "1.", "2)" standing at the start of the request, of a
+#: line, or after the end of a sentence, a mark annotation or a closing quotation mark ("... [3] (b) Find ...", "... exam.
+#: 1. Según ...", "... en 2020? 3. Indica ..."), never inside prose ("part (a)", "Paper 2", "1.5").
+_PART_LABEL_RE = re.compile(r"(?:^|(?<=\n)|(?<=[.?!:;\]»\"'”’)])\s+|(?<=[.?!:;\]»\"'”’])(?=\())[ \t]*(?P<label>\((?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)])(?=\s)")
+#: The end of a part: its mark annotation, with any closing quotation mark of the question it belongs to ("... [3]' My
+#: answer is pasted below."); what follows is the request's own text again.
+_PART_END_RE = re.compile(r"\[\s*\d+\s*(?:marks?)?\s*\][\'’\"”»]?(?=\s+[A-Z¿¡«\"“])")
+#: Sentences for items: like the parsers' cut, but a sentence may also open with an inverted question or exclamation mark,
+#: a guillemet or a figure ("¿Quién tuvo ...?").
+_ITEM_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(¿¡«“‘\d])")
+#: A request for content that names no command term: "Please write ...", "Please mark it ... and tell me ...".
+_PLEASE_RE = re.compile(r"^(?:please|could you|can you|would you)\b", re.IGNORECASE)
+
+
+def part_label(text: str) -> str | None:
+    """The part label an item or an answer section opens with ("(a) Find ..." -> "a", "3. Indica ..." -> "3", "**Part
+    (b) — find" -> "b", "ii) ..." -> "ii"), lower-cased without brackets; None when it opens with none."""
+    m = re.match(r"^\W{0,4}(?:part\s+)?(\(?(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)]|\((?:\d{1,2})\))(?=[\s*:—–-]|$)", text.strip(), re.IGNORECASE)
+    if m is None:
+        return None
+    return m.group(1).strip("().").casefold()
+
+
+def request_parts(text: str) -> list[tuple[str | None, str]]:
+    """``(label, text)`` pieces of a request in order: the text before the first part label (label None), each lettered or
+    numbered part with its own text (to the next label, or to its mark annotation when the request's own text follows),
+    and any text after the last part (label None). A request with no part labels is one piece."""
+    t = text.strip()
+    marks = list(_PART_LABEL_RE.finditer(t))
+    if not marks:
+        return [(None, t)] if t else []
+    out: list[tuple[str | None, str]] = []
+    head = t[:marks[0].start("label")].strip()
+    if head:
+        out.append((None, head))
+    for k, m in enumerate(marks):
+        end = marks[k + 1].start("label") if k + 1 < len(marks) else len(t)
+        chunk = t[m.start("label"):end]
+        tail = ""
+        if k + 1 == len(marks):
+            stop = _PART_END_RE.search(chunk)
+            if stop is not None:
+                chunk, tail = chunk[:stop.end()], chunk[stop.end():]
+        out.append((part_label(chunk), chunk.strip()))
+        if tail.strip():
+            out.append((None, tail.strip()))
+    return out
+
+
+def _sentence_items(chunk: str) -> list[tuple[str, str, bool]]:
+    """``(item text, kind, is_item)`` per sentence of an unlabelled piece: questions, imperatives and requests ("Please
+    ..."), a constraint span removed; a sentence that is only a constraint is not an item."""
+    out: list[tuple[str, str, bool]] = []
+    for sent in (s.strip() for s in _ITEM_SENT_RE.split(chunk.strip()) if s.strip()):
+        if is_constraint_only(sent) and not _PLEASE_RE.match(sent):
             continue  # captured by extract_constraints; not a content item to cover
         item_text, topic_follows = _residual(sent)
         if not item_text:
             continue
         low = item_text.lower()
-        is_q = item_text.endswith("?") or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways"))
-        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows)
-        if is_q or is_imp:
-            term, level = detect_command_term(item_text)
-            items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind="question" if is_q else "instruction", command_term=term, level=level))
+        is_q = item_text.endswith("?") or "?" in item_text or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways", "¿"))
+        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) or bool(_PLEASE_RE.match(item_text))
+        out.append((item_text, "question" if is_q else "instruction", is_q or is_imp))
+    return out
+
+
+def extract_items(text: str) -> list[RequestItem]:
+    """Questions and instructions of the request, one item each. A lettered or numbered part ("(a)", "a)", "(ii)", "1.")
+    is one item with its own text, whatever language it is in, so a reply that leaves a part out is seen as leaving it out
+    (:func:`request_parts`); the request's own text around the parts yields an item per question, imperative or request
+    ("Please mark it ... and tell me where I lost marks"). A sentence that is only a constraint is left to
+    ``extract_constraints``; a sentence that mixes a constraint with a content instruction ("Write no more than 200 words
+    and give a judgement on which effect mattered most") yields the content instruction as an item, with the constraint
+    span removed, so an answer that omits it is seen as not covering it. Conservative: a sentence that carries a question
+    mark is never dropped."""
+    items: list[RequestItem] = []
+
+    def add(item_text: str, kind: str) -> None:
+        if len(items) >= 64:
+            return
+        term, level = detect_command_term(item_text)
+        items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind=kind, command_term=term, level=level))
+
+    for label, chunk in request_parts(text):
+        if label is None:
+            for item_text, kind, is_item in _sentence_items(chunk):
+                if is_item:
+                    add(item_text, kind)
+            continue
+        kept = [it for it, _k, _i in _sentence_items(chunk)]
+        body = " ".join(kept).strip()
+        if not body or not re.search(r"[^\W\d_]", body):
+            continue
+        add(body, "question" if "?" in body else "instruction")
     if not items:
         items.append(RequestItem(item_id="i1", text=text.strip()[:4000], kind="instruction"))
     return items
@@ -215,45 +317,136 @@ def _segments(paragraph: str) -> list[tuple[str, bool]]:
     return out
 
 
+#: A block the writer labels as a note ("Note: ...", "NB:", "Notes -", "Note on sources:"): meta-text when its sentences are
+#: about the answer's sources, the task or the method (:data:`_META_CUE_RE`), not part of the answer.
+_NOTE_LABEL_RE = re.compile(r"^\W{0,3}(?:notes?|n\.?\s?b\.?|source\s+notes?|notes?\s+on\s+(?:sources?|method|the\s+task|figures?))\s*(?:\([^)]{0,40}\))?\s*[:\-\u2013\u2014]", re.IGNORECASE)
+#: What a note says: where the answer's material came from (or did not: a library unavailable, a figure unconfirmed), a
+#: correction of the task's own statement (marks, timings, level), or what the writer did or used.
+_META_CUE_RE = re.compile(
+    r"\b(?:sources?|textbooks?|librar(?:y|ies)|mylib|knowledge\s+(?:base|documents?)|unavailable|not\s+available|(?:un)?confirm\w*|verif\w*|check\w*|"
+    r"memory|this\s+session|marked\s+out\s+of|marks?|mark\s+scheme|syllabus|the\s+question|your\s+question|the\s+task|IB|level|assum\w*|"
+    r"I\s+(?:use|used|have|had|did|do|give|gave|follow|followed|rely|relied|draw|drew|quote|quoted)|my\s+\w+|its\s+own\s+note|note\s+says)\b", re.IGNORECASE)
+
+
+def is_note_block(block: str) -> bool:
+    """A blank-line block that opens with a note label ("Note:", "NB:", "Note on sources:") and whose every sentence is
+    about the answer rather than part of it (its sources or their availability, a correction of the task's figures,
+    what the writer used: :data:`_META_CUE_RE`). Such a block is meta-text: no paragraph, no words of a bound. A block
+    labelled a note that states content without any such cue stays answer."""
+    body = block.strip()
+    m = _NOTE_LABEL_RE.match(body)
+    if m is None:
+        return False
+    rest = body[m.end():].strip()
+    sentences = [s for s in _SENT_RE.split(rest) if s.strip()] if rest else []
+    return bool(sentences) and all(_META_CUE_RE.search(s) for s in sentences)
+
+
+#: A line of working: an equation or a calculation ("PED = −12.50 ÷ 18.75 = −0.67", "t = 0 h: 1620 − 20 = 1600"), an
+#: arrow chain of figures, or a table row.
+_EQUATION_RE = re.compile(r"[=≈≅]|\d\s*(?:→|->)\s*[-−]?\$?\d")
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
+#: A label line with nothing to count but a part label and its marks ("(i) [2 marks]", "(b) [2]", "2025", "2024 (no tax)").
+_LABEL_LINE_RE = re.compile(r"^\s*(?:\(?[a-z]{1,4}\)|\d{1,2}[.)]|part\s+\(?[a-z0-9]{1,4}\)?)?\s*(?:\[\s*\d+(?:\s+(?:marks?|spare))?\s*\])?\s*$|^\s*\d{4}(?:\s*\([^)]{0,30}\))?\s*$", re.IGNORECASE)
+#: A block of working the writer labels as such ("Working for (b):", "Calculation:", "Workings").
+_WORKING_BLOCK_RE = re.compile(r"^\W{0,3}(?:working|workings|calculations?|method)\b[^\n]{0,40}:?\s*$", re.IGNORECASE | re.MULTILINE)
+#: A diagram described in words: a block opening "Diagram 1: ...", "Figure 2 -", "Graph:", "Sketch:", or a block of
+#: "Axes:", "Curves:", "Labels:" lines.
+_DIAGRAM_HEAD_RE = re.compile(r"^\W{0,3}(?:diagram|figure|graph|sketch|chart)\b[^\n]{0,120}?[:.\-\u2013\u2014]", re.IGNORECASE)
+_DIAGRAM_LINE_RE = re.compile(r"^\s*(?:axes|axis|x-axis|y-axis|curves?|lines?|labels?|change|shift|equilibri(?:a|um)|areas?|shading|arrows?|key|title)\s*:", re.IGNORECASE)
+
+
+def _is_working_sentence(sentence: str) -> bool:
+    """A sentence of working: an equation or a calculation outside its quotations (a quoted equation in a prose
+    sentence, 'the Economics specialist calculates "PED = −0.67"', stays prose)."""
+    from ..adapters.markdown import find_quotation_spans
+    bare = sentence
+    for start, end, _inner in reversed(find_quotation_spans(sentence)):
+        bare = bare[:start] + " " * (end - start) + bare[end:]
+    return bool(_EQUATION_RE.search(bare))
+
+
+def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = ()) -> tuple[int, int, int]:
+    """``(answer words, note words, exempt words)`` for a word bound. Notes are left out as :func:`count_answer_words`
+    leaves them out (note blocks, note clauses, JSON spans). With ``"working"`` in ``excludes`` (the request said "plus
+    working"), lines and sentences of working (equations and calculations outside quotations, arrow chains of figures,
+    table rows, part-and-mark label lines, a block the writer heads "Working ...") are exempt; with ``"diagram"``, a
+    diagram described in words (a block opening "Diagram 1:", or one of "Axes:", "Curves:", "Labels:" lines) is exempt.
+    A line that holds an equation outside its quotations is working as a whole ("Result: PED = −0.67. Demand is price
+    inelastic ..." states the result of the working on its line); a prose line that quotes an equation stays prose."""
+    from ..adapters.markdown import strip_markup
+    answer = notes = exempt = 0
+    working, diagram = "working" in excludes, "diagram" in excludes
+    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
+        if not p.strip():
+            continue
+        if is_note_block(p):
+            notes += count_words(p)
+            continue
+        lines = [ln for ln in p.strip().split("\n") if ln.strip()]
+        if diagram and lines and (_DIAGRAM_HEAD_RE.match(lines[0]) or sum(1 for ln in lines if _DIAGRAM_LINE_RE.match(ln)) >= max(2, len(lines) // 2)):
+            exempt += count_words(p)
+            continue
+        if working and lines and _WORKING_BLOCK_RE.match(lines[0]):
+            exempt += count_words(p)
+            continue
+        pieces = ["\n".join(lines)]
+        if working:  # a line of working is set aside whole: a table row, a part-and-mark label, a line holding an equation
+            pieces = []
+            worked = [bool(_TABLE_ROW_RE.match(ln) or _LABEL_LINE_RE.match(ln) or _is_working_sentence(ln)) for ln in lines]
+            # In a block of working (at least half its lines), a line that quotes an equation sources a step of it
+            # ('the Economics specialist gives "Pp = $1.90 − $0.40 = $1.50 per litre"') and is working too.
+            in_working_block = len(lines) >= 2 and sum(worked) * 2 >= len(lines)
+            for ln, w in zip(lines, worked):
+                if w or (in_working_block and _EQUATION_RE.search(ln)):
+                    exempt += count_words(ln)
+                    continue
+                pieces.append(ln)
+            pieces = [" ".join(pieces)] if pieces else []
+        for piece in pieces:
+            for s, is_json in _segments(piece.strip()):
+                n = count_words(s)
+                if is_json:
+                    notes += n
+                    continue
+                if working and _is_working_sentence(s):
+                    exempt += n
+                    continue
+                core = _note_core(s)
+                if not core:
+                    notes += n
+                    continue
+                kept = min(n, count_words(core))
+                answer += kept
+                notes += n - kept
+    return answer, notes, exempt
+
+
 def count_answer_words(text: str) -> tuple[int, int]:
     """``(answer words, note words)``: the words of the answer proper and the words of the
     note blocks and note clauses :func:`count_paragraphs` leaves out (from-memory labels,
-    self-certification lines, task notes, pasted JSON spans), so a word bound is measured over
-    the same text as a paragraph bound and the receipt can say how many words were meta-text.
+    self-certification lines, task notes, pasted JSON spans, a block labelled "Note:" that is
+    about the answer's sources or the task, :func:`is_note_block`), so a word bound is measured
+    over the same text as a paragraph bound and the receipt can say how many words were meta-text.
     A sentence whose only note is an inline label counts its substance as answer and the label
     as notes. Sentences are cut as the parsers cut them (:func:`_segments`): a JSON fragment
     glued into a paragraph is meta-text on its own and the sentences around it stay answer, so
     adding ``{"n": 1}`` to a paragraph never takes its prose out of a word bound."""
-    from ..adapters.markdown import strip_markup
-    answer = notes = 0
-    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
-        if not p.strip():
-            continue
-        for s, is_json in _segments(p.strip()):
-            n = count_words(s)
-            if is_json:
-                notes += n
-                continue
-            core = _note_core(s)
-            if not core:
-                notes += n
-                continue
-            kept = min(n, count_words(core))
-            answer += kept
-            notes += n - kept
+    answer, notes, _exempt = measure_answer_words(text)
     return answer, notes
 
 
 def count_paragraphs(text: str) -> int:
     """Paragraphs of the answer proper. A block that is only a note about the text (a
-    from-memory label such as 'Dates and figures are from memory; verify them', or a
+    from-memory label such as 'Dates and figures are from memory; verify them', a block labelled
+    "Note:" about the answer's sources or the task, :func:`is_note_block`, or a
     self-certification line, or a pasted JSON span) is not a paragraph the request asked for
     and is not counted; markdown headings and code fences are not paragraphs either. A block
     whose sentences keep a substance once their inline labels are set aside is a paragraph."""
     from ..adapters.markdown import strip_markup
     count = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
-        if not p.strip():
+        if not p.strip() or is_note_block(p):
             continue
         segments = _segments(p.strip())
         if segments and all(is_json or not _note_core(s) for s, is_json in segments):

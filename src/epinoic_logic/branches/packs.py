@@ -4,6 +4,7 @@ are problems the engine decides about the report's own statements."""
 from __future__ import annotations
 
 import re
+from fractions import Fraction
 from functools import lru_cache
 from typing import Optional
 
@@ -14,7 +15,7 @@ from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncred
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from .base import FormalCheck
-from .quant import extract_quant_checks, undecided_quant_statements
+from .quant import WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
 #: The most formal checks the core pack sends to the engine for one transmission (arithmetic first, then chronology). An answer far
@@ -444,6 +445,31 @@ def _claims_for_excerpt(report: SpecialistReport, sentence: str, excerpt: str, s
     return ids or [c.claim_id for c in report.claims if excerpt in c.claim_text]
 
 
+#: Words before a quoted word that say the text lacks it: 'has no "like"', 'never says "ayudar"', 'does not use "toda"', 'without "as"'.
+_ABSENT_BEFORE_RE = re.compile(
+    r"(?:\b(?:has|have|had|contains?|uses?|includes?|gives?|offers?)\s+no\s+(?:(?:word|words|term|mention|instance|use)\s+(?:of\s+|like\s+)?)?"
+    r"|\b(?:never|nowhere)\s+(?:says?|uses?|writes?|mentions?|contains?|includes?|states?)\s+(?:the\s+word\s+)?"
+    r"|\b(?:does|did|do)\s*(?:not|n['’]t)\s+(?:say|use|write|mention|contain|include|state)\s+(?:the\s+word\s+)?"
+    r"|\blacks?\s+(?:the\s+word\s+)?|\bwithout\s+(?:the\s+word\s+|a\s+|an\s+)?|\bno\s+(?:word\s+)?|\bneither\s+)$", re.IGNORECASE)
+#: What may stand between two quoted words of one absent mention: 'has no "like" or "as"', 'neither "like" nor "as"'.
+_ABSENT_JOIN_RE = re.compile(r"^\s*(?:,\s*)?(?:or|nor|and)\s+$|^\s*,\s*$", re.IGNORECASE)
+
+
+def _absent_mentions(text: str, spans: list[tuple[int, int, str]]) -> list[str]:
+    """The quoted words of ``text`` that its sentence says the text lacks ('the bruise comparison has no "like" or "as"', 'the text never
+    says "ayudar"'): a mention of a word, not a quotation of a text."""
+    out: list[str] = []
+    prev_absent_end: Optional[int] = None
+    for s, e, inner in spans:
+        before = text[max(0, s - 60): s]
+        if _ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and _ABSENT_JOIN_RE.match(text[prev_absent_end: s])):
+            out.append(inner.strip())
+            prev_absent_end = e
+        else:
+            prev_absent_end = None
+    return out
+
+
 def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
     frag = " ".join(fragment.split())
     return [c.claim_id for c in report.claims if frag and (frag in " ".join(c.claim_text.split()) or " ".join(c.claim_text.split()) in frag)]
@@ -473,7 +499,7 @@ class CorePack:
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
         disagreeing, disputed = self._guarded("quotation references", lambda: self._quotation_ref_disagreements(report), f) if report.supplied_texts else ([], frozenset())
         f += disagreeing or []
-        f += self._guarded("unverifiable quotations", lambda: self._unverifiable_quotations(report, has_memory_label, disputed or frozenset()), f) or []
+        f += self._guarded("unverifiable quotations", lambda: self._unverifiable_quotations(report, has_memory_label, disputed or frozenset(), request_text), f) or []
         if report.supplied_texts:
             f += self._guarded("misattributed quotations", lambda: self._misattributed_quotations(report), f) or []
         f += self._guarded("quotation marks", lambda: self._unbalanced_quotation_marks(report), f) or []
@@ -589,7 +615,7 @@ class CorePack:
         return out, frozenset(found)
 
     @staticmethod
-    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool, disputed: frozenset = frozenset()) -> list[StructuralFinding]:
+    def _unverifiable_quotations(report: SpecialistReport, has_memory_label: bool, disputed: frozenset = frozenset(), request_text: Optional[str] = None) -> list[StructuralFinding]:
         """CORE-SRC-003: every quotation with no text to check it against is reported: with
         no text supplied, every quotation; with texts supplied, a quotation that no supplied
         text holds and that no claim credits to a text (the parser found no named source for
@@ -600,25 +626,40 @@ class CorePack:
         never goes silent. A from-memory label downgrades the finding to info only when it
         speaks of quotations or sits in the same sentence as the quotation; a label about dates
         and figures does not vouch for a quotation. Strings of a pasted JSON fragment are not
-        quotations."""
+        quotations. A quotation a parser recorded as credited to no text is reported whatever its length
+        with no text supplied too ('Me ne frego'). Two kinds of quoted words are no quotation to verify: words the request
+        itself holds (the guiding question's 'returning home', a true/false statement's 'toda',
+        the pasted question's 'complete years': they are located in the request), and a word the
+        sentence says the text lacks ('the bruise comparison has no "like" or "as"', 'the text
+        never says "ayudar"': a mention, not a quotation). A word quoted from a quotation the
+        answer already gives ('the verb "killed"' after '"We killed him openly"') is that quotation's."""
         text, _removed = strip_json_spans(report.original_response)
-        quoted = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
+        spans = find_quotation_spans(text)
+        mentions = {_quote_key(q) for q in _absent_mentions(text, spans)}
+        quoted = [inner.strip() for _s, _e, inner in spans if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         texts = list(report.supplied_texts)
-        recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text
+        recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text, whatever its length, texts or none
+        seen = {strip_trailing_punctuation(q) for q in quoted}
+        for c in report.claims:
+            for a in c.assumptions:
+                ex = uncredited_excerpt(a)
+                if ex is None:
+                    continue
+                recorded.append((c.claim_id, strip_trailing_punctuation(ex)))
+                if strip_trailing_punctuation(ex) not in seen:
+                    seen.add(strip_trailing_punctuation(ex))
+                    quoted.append(ex)
         if texts:
             docs = {t.document_id: t for t in texts}
             cited = {strip_trailing_punctuation(r.excerpt) for c in report.claims for r in c.source_refs if r.excerpt}
-            seen = {strip_trailing_punctuation(q) for q in quoted}
-            for c in report.claims:
-                for a in c.assumptions:
-                    ex = uncredited_excerpt(a)
-                    if ex is None:
-                        continue
-                    recorded.append((c.claim_id, strip_trailing_punctuation(ex)))
-                    if strip_trailing_punctuation(ex) not in seen:
-                        seen.add(strip_trailing_punctuation(ex))
-                        quoted.append(ex)
             quoted = [q for q in quoted if strip_trailing_punctuation(q) not in cited and not any(check_excerpt(q, d, docs).located for d in docs) and _quote_key(q) not in disputed]
+        if request_text and request_text.strip():
+            request_doc = {"the request": SuppliedText(document_id="the request", title=None, author="router", text=request_text)}
+            quoted = [q for q in quoted if not check_excerpt(q, "the request", request_doc).located]
+        quoted = [q for q in quoted if _quote_key(q) not in mentions]
+        # a word quoted from a quotation the answer already gives ('the verb "killed"' after '"We killed him openly"') is that quotation's
+        keys = [_quote_key(q) for q in quoted]
+        quoted = [q for q, k in zip(quoted, keys) if not any(k != other and re.search(rf"(?<!\w){re.escape(k)}(?!\w)", other) for other in keys)]
         if not quoted:
             return []
         reported = {strip_trailing_punctuation(q) for q in quoted}
@@ -744,17 +785,34 @@ class CorePack:
         0 per cent') or a relation over dated figures ('rose in each year', 'the greatest rise of the
         period') that no engine problem could be built for: the units of its pair cannot be compared,
         or no pair stands in its clause and the paragraph's dated series does not supply one (none,
-        several, or a year that cannot be read). The arithmetic was stated and not checked; silence
-        would hide that (``quant.undecided_quant_statements``)."""
+        several, or a year that cannot be read); a stated length of years whose dates cannot be paired
+        or are too coarse; and a worked equation ('$6,000 ÷ $2.00 = 3,000 loaves'), written arithmetic
+        the prose reader does not decide, unless the branch's own subject pack decides it (an elasticity
+        on the Economics branch, a margin on the Business branch). The arithmetic was stated and not
+        checked; silence would hide that (``quant.undecided_quant_statements``). One finding per sentence
+        and reason; the phrases it names are bounded, the rest counted."""
         out: list[StructuralFinding] = []
         grouped: dict[tuple[int, int, str], list] = {}
+        decided = pack_decided_equations(report)
         for u in undecided_quant_statements(report.original_response):
+            if u.reason == WORKED_EQUATION_REASON and any(u.phrase and (u.phrase in d or d.startswith(u.phrase)) for d in decided):
+                continue  # decided by the subject pack (an elasticity or a margin worked as a division)
             grouped.setdefault((u.paragraph, u.sentence, u.reason), []).append(u)
         for (pi, si, reason), items in grouped.items():
-            phrases = "', '".join(dict.fromkeys(u.phrase[:120] for u in items))
+            names = list(dict.fromkeys(u.phrase[:120] for u in items))
+            shown, more = [], 0
+            for name in names:
+                if sum(len(x) + 4 for x in shown) + len(name) > 900:
+                    more += 1
+                    continue
+                shown.append(name)
+            phrases = "', '".join(shown) + (f"' and {more} more" if more else "'")
+            what = "states worked arithmetic" if reason == WORKED_EQUATION_REASON else "states a derived figure or a relation over dated figures"
+            ids = list(dict.fromkeys(cid for u in items for cid in (_claims_for_statement(report, u.sentence_text, u.phrase) or _claims_for_statement(report, u.phrase, u.phrase)
+                                                                      or _claims_mentioning(report, u.sentence_text))))
             out.append(StructuralFinding(code="CORE-QNT-001", severity="warning",
-                                         message=f"paragraph {pi}, sentence {si} states a derived figure or a relation over dated figures ('{phrases}') that could not be checked: {reason[:600]}; the stated arithmetic was not checked",
-                                         claim_ids=(_claims_for_statement(report, items[0].sentence_text, items[0].phrase) or _claims_mentioning(report, items[0].sentence_text))[:8],
+                                         message=f"paragraph {pi}, sentence {si} {what} ('{phrases}) that could not be checked: {reason[:600]}; the stated arithmetic was not checked",
+                                         claim_ids=ids[:8],
                                          rule_source="numeric self-consistency: a stated change that cannot be bound to its figures is reported, not skipped"))
         return out
 
@@ -880,6 +938,141 @@ class PsychologyPack:
         return []  # numeric self-consistency comes from CorePack
 
 
+#: An elasticity named in full or by its abbreviation: 'price elasticity of demand', 'income elasticity of demand', 'PED', 'YED', 'XED', 'PES'.
+_ELASTICITY_TERM = r"(?:(?:price|income|cross(?:-price)?)\s+elasticity\s+of\s+(?:demand|supply)|elasticity|\bPED\b|\bYED\b|\bXED\b|\bPES\b)"
+_ELASTICITY_TERM_RE = re.compile(_ELASTICITY_TERM, re.IGNORECASE)
+#: A signed figure of written working: an ASCII or Unicode minus, a currency sign, thousands separators ('−12.50', '$100,800', '-0.67').
+_WORKED_NUM = r"[-+−]?\s?(?:US)?[$£€¥]?\s?[-−]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[-+−]?\s?(?:US)?[$£€¥]?\s?[-−]?\d+(?:\.\d+)?"
+#: 'PED of −1.67', 'a price elasticity of demand of -0.5', 'the elasticity is 2': a stated value (not the first figure of a division).
+_ELASTICITY_VALUE_RE = re.compile(rf"{_ELASTICITY_TERM}[^.;\n]{{0,80}}?(?:\b(?:is|was|of|equals|at)\b|=)\s*(?P<v>[-+−]?\d+(?:\.\d+)?)(?!\s*(?:%|per\s*cent|percent|[÷/×*]|\d))",
+                                   re.IGNORECASE)
+_PCT_SIGNED_RE = re.compile(r"(?<![\d.])([-+−]?\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent(?!age)|%)")
+#: Words naming the numerator (the quantity's change) and the denominator (the price's or income's change) of an elasticity.
+_ELASTICITY_NUMERATOR_RE = re.compile(r"\b(?:quantity|quantities|demanded|demand|sales|sold|bought|purchases|supplied|output)\b", re.IGNORECASE)
+_ELASTICITY_DENOMINATOR_RE = re.compile(r"\b(?:price|prices|income|incomes)\b", re.IGNORECASE)
+#: One link of written working that divides two figures ('−12.50 ÷ 18.75', '(−12.50%) / (18.75%)') and the link after it that states the result.
+_DIVISION_LINK_RE = re.compile(rf"^\s*\(?\s*(?P<a>{_WORKED_NUM})\s*%?\s*\)?\s*[÷/]\s*\(?\s*(?P<b>{_WORKED_NUM})\s*%?\s*\)?\s*$")
+#: A margin's working: '(A ÷ B) × 100', 'A ÷ B × 100', with currency signs.
+_MARGIN_LINK_RE = re.compile(rf"^\s*\(?\s*(?P<a>{_WORKED_NUM})\s*[÷/]\s*(?P<b>{_WORKED_NUM})\s*\)?\s*[×x*]\s*100\s*$")
+_RESULT_LINK_RE = re.compile(rf"^\s*(?P<c>{_WORKED_NUM})(?P<pct>\s*(?:%|per\s*cent|percent(?!age)))?(?![\d,.]*\d)")
+_MARGIN_LABEL_RE = re.compile(r"\b(?:(?:gross|net|operating)\s+)?(?:profit\s+)?margin\b(?!\s+of\s+safety)", re.IGNORECASE)
+
+
+def _worked_value(text: str) -> Fraction:
+    """The exact value of one figure of written working ('−12.50', '$100,800', '- 0.67')."""
+    t = re.sub(r"(?:US)?[$£€¥]|\s", "", text).replace("−", "-").replace(",", "")
+    negative = t.count("-") % 2 == 1
+    return -Fraction(t.replace("-", "").lstrip("+")) if negative else Fraction(t.replace("-", "").lstrip("+"))
+
+
+def _rational(x: Fraction) -> dict:
+    return {"op": "real", "value": f"{x.numerator}/{x.denominator}" if x.denominator != 1 else str(x.numerator)}
+
+
+def _labelled_divisions(text: str, label_re: "re.Pattern[str]", link_re: "re.Pattern[str]", *, percent: bool) -> list[tuple[str, Fraction, Fraction, Fraction, str]]:
+    """``(chain, a, b, stated, label)`` for every worked equation of ``text`` whose first link names ``label_re`` and which divides two figures
+    (``link_re``) before a link stating the result: 'PED = −12.50 ÷ 18.75 = −0.67', 'Gross profit margin = (gross profit ÷ sales revenue) × 100
+    = ($100,800 ÷ $201,600) × 100 = 50.00%'. A result in per cent is required when ``percent``."""
+    from .quant import worked_equations
+    out: list[tuple[str, Fraction, Fraction, Fraction, str]] = []
+    for eq in worked_equations(text):
+        chain = eq.phrase
+        links = re.split(r"[=≈]", eq.statement)
+        label = label_re.search(links[0])
+        if label is None:
+            continue
+        for k in range(len(links) - 1, 0, -1):
+            m, r = link_re.match(links[k - 1]), _RESULT_LINK_RE.match(links[k])
+            if m is None or r is None or (percent and not r.group("pct")):
+                continue
+            try:
+                a, b, c = _worked_value(m.group("a")), _worked_value(m.group("b")), _worked_value(r.group("c"))
+            except (ValueError, ZeroDivisionError):
+                break
+            if b != 0:
+                out.append((chain, a, b, c, " ".join(label.group(0).split())))
+            break
+    return out
+
+
+def elasticity_equations(text: str) -> list[tuple[str, Fraction, Fraction, Fraction, str]]:
+    """The elasticities a report works out as a division ('PED = −12.50 ÷ 18.75 = −0.67'): ``(chain, numerator, denominator, stated, term)``."""
+    return _labelled_divisions(text, _ELASTICITY_TERM_RE, _DIVISION_LINK_RE, percent=False)
+
+
+def margin_equations(text: str) -> list[tuple[str, Fraction, Fraction, Fraction, str]]:
+    """The margins a report works out as '(A ÷ B) × 100 = m%': ``(chain, A, B, m, label)``."""
+    return _labelled_divisions(text, _MARGIN_LABEL_RE, _MARGIN_LINK_RE, percent=True)
+
+
+def pack_decided_equations(report: SpecialistReport) -> set[str]:
+    """The worked equations of ``report`` its subject pack decides (an elasticity on the Economics branch, a margin on the Business
+    branch), so the core pack does not also name them undecided."""
+    from ..translate.subjects import resolve_profile
+    key = resolve_profile(report.subject).key
+    if key == "economics":
+        return {chain for chain, *_rest in elasticity_equations(report.original_response)}
+    if key == "business_management":
+        return {chain for chain, *_rest in margin_equations(report.original_response)}
+    return set()
+
+
+def _ratio_check(check_id: str, kind: str, report: SpecialistReport, n: int, statement: str, phrase: str, a: Fraction, b: Fraction, stated: Fraction,
+                 *, scale: Fraction, signed: bool, floor: Fraction, label: str, meanings: tuple[str, str]) -> FormalCheck:
+    """``scale * a / b`` against the stated figure within the tolerance rule (5 per cent of the computed value, or ``floor``). With ``signed``
+    the stated sign must be the computed one ('−12.50 ÷ 18.75 = 0.67' fails); otherwise magnitudes are compared."""
+    from ..ir.schema import Problem
+    from .quant import _within
+    V = lambda name: {"op": "var", "name": name}  # noqa: E731
+    ratio = {"op": "mul", "args": [_rational(scale), {"op": "div", "left": V("num"), "right": _rational(b)}]} if scale != 1 else {"op": "div", "left": V("num"), "right": _rational(b)}
+    if not signed:
+        if (a < 0) != (b < 0):
+            ratio = {"op": "neg", "arg": ratio}
+        concl = _within(ratio, abs(stated), Fraction(1, 20), floor)
+    else:
+        sign = -1 if stated < 0 else 1
+        oriented = ratio if sign > 0 else {"op": "neg", "arg": ratio}
+        concl = _within(oriented, abs(stated), Fraction(1, 20), floor)
+    prob = {"problem_id": f"{kind}-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:{kind}-{n}", "query": "entailment",
+            "symbols": [{"name": "num", "sort": "Real", "meaning": meanings[0]}, {"name": "den", "sort": "Real", "meaning": meanings[1]}],
+            "premises": [{"id": "NUM", "expr": {"op": "eq", "left": V("num"), "right": _rational(a)}, "label": f"{meanings[0]} = {_fmt_fraction(a)}", "grounding": {"kind": "supplied_text", "verified": True}},
+                         {"id": "DEN", "expr": {"op": "eq", "left": V("den"), "right": _rational(b)}, "label": f"{meanings[1]} = {_fmt_fraction(b)}", "grounding": {"kind": "supplied_text", "verified": True}}],
+            "conclusion": {"id": kind.upper(), "expr": concl, "label": label[:1000]}}
+    rule = ("tolerance: the stated figure must lie within 5% of the value computed from the report's own figures"
+            + (f", or within {float(floor):g} of it" if floor else "") + ("; the stated sign must be the computed one" if signed else "; magnitudes compared"))
+    return FormalCheck(check_id=check_id, kind=kind, description=f"{_excerpt_around(statement, phrase)} [{rule}]", problem=Problem.model_validate(prob),
+                       claim_ids=tuple(_claims_for_statement(report, statement, phrase) or _claims_for_statement(report, phrase, phrase)))
+
+
+def _quantity_first(sentence: str, p1: "re.Match[str]", p2: "re.Match[str]") -> bool:
+    """Whether the first of two percentage changes of ``sentence`` is the quantity's (the elasticity's own term set aside). When a word
+    naming the other change stands between them ('Quantity demanded fell by 10 per cent when price rose by 20 per cent'), each figure is
+    the change of the word nearest before it; when both follow their words ('the quantity bought falls by proportionally less than the price
+    rises (12.50% against 18.75%)'), they come in the order the words were last named."""
+    masked = _ELASTICITY_TERM_RE.sub(lambda x: " " * len(x.group(0)), sentence)
+    nums = [m.start() for m in _ELASTICITY_NUMERATOR_RE.finditer(masked)]
+    dens = [m.start() for m in _ELASTICITY_DENOMINATOR_RE.finditer(masked)]
+
+    def nearest(pos: int) -> Optional[str]:
+        cands = [(x, "q") for x in nums if x < pos] + [(x, "p") for x in dens if x < pos]
+        return max(cands)[1] if cands else None
+    k1, k2 = nearest(p1.start()), nearest(p2.start())
+    if any(p1.end() <= x < p2.start() for x in nums + dens) and k1 and k2 and k1 != k2:
+        return k1 == "q"
+    last_q = max((x for x in nums if x < p1.start()), default=None)
+    last_p = max((x for x in dens if x < p1.start()), default=None)
+    if last_p is None:
+        return True
+    if last_q is None:
+        return False
+    return last_q < last_p
+
+
+def _fmt_fraction(x: Fraction) -> str:
+    from .quant import _fmt
+    return _fmt(x)
+
+
 class EconomicsPack:
     name = "economics"
 
@@ -889,35 +1082,51 @@ class EconomicsPack:
         if "diagram" in text and not re.search(r"\b(shift|curve|axis|equilibrium|intersect)", text):
             f.append(StructuralFinding(code="EC-STR-001", severity="info", message="a diagram is mentioned but no curve, shift or equilibrium is described", rule_source="blueprint core operation (Economics: Define -> Model/Diagram -> Mechanism -> Apply -> Evaluate); working rule"))
         for c in report.claims:
-            if re.search(r"\belasticity\b", c.claim_text, re.IGNORECASE) and not re.search(r"\d", c.claim_text):
+            if _ELASTICITY_TERM_RE.search(c.claim_text) and not re.search(r"\d", c.claim_text):
                 f.append(StructuralFinding(code="EC-STR-002", severity="info", message="elasticity asserted without a value or the percentage changes it is computed from", claim_ids=[c.claim_id], rule_source="command terms C7 (working rule)"))
         return f
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        """Elasticity = %change in quantity / %change in price when all three are stated."""
+        """An elasticity stated with the figures it is computed from: worked as a division ('PED = −12.50 ÷ 18.75 = −0.67': the quotient,
+        sign included, against the stated result), or stated in prose with the two percentage changes on its line ('a PED of −1.67 means
+        that the quantity bought falls by proportionally less than the price rises (12.50% against 18.75%)', 'the price elasticity of demand is
+        0.5'): the quantity's change over the price's (or income's) change against the stated value, magnitudes compared. The term may be
+        written in full or as PED, YED, XED or PES, with an ASCII or Unicode minus."""
         out: list[FormalCheck] = []
         n = 0
-        for sent in _split_sentences(report.original_response):
-            m = re.search(r"elasticity[^.]{0,80}?(?:is|was|of|=|equals)\s*(-?\d+(?:\.\d+)?)", sent, re.IGNORECASE)
-            pcts = _PCT_RE.findall(sent)
-            if m and len(pcts) >= 2:
+        text = report.original_response
+        chains = elasticity_equations(text)
+        for chain, a, b, c, term in chains:
+            n += 1
+            out.append(_ratio_check(f"economics-elasticity-{n}", "elasticity", report, n, chain, chain, a, b, c, scale=Fraction(1), signed=True, floor=Fraction(0),
+                                    label=f"stated {term} {_fmt_fraction(c)} against {_fmt_fraction(a)} / {_fmt_fraction(b)} as worked", meanings=("the dividend as worked", "the divisor as worked")))
+        worked = [chain for chain, *_rest in chains]
+        for _pi, _si, sent, _para in _sentences_with_paragraph(text):
+            if len(_PCT_SIGNED_RE.findall(sent)) < 2:
+                continue
+            for m in _ELASTICITY_VALUE_RE.finditer(sent):
+                # the value and its two percentage changes stand on one line ('a PED of −1.67 means ... (12.50% against 18.75%)'); a result line
+                # under lines of working ('Result: PED = −0.67') is read with its worked division, never with figures of other lines
+                line_start = sent.rfind("\n", 0, m.start()) + 1
+                line_end = sent.find("\n", m.end())
+                raw_line = sent[line_start: line_end if line_end >= 0 else len(sent)]
+                line = " ".join(raw_line.split())
+                if any(w and w in line for w in worked):
+                    continue  # the worked division of this line is checked above
+                pcts = list(_PCT_SIGNED_RE.finditer(raw_line))
+                if len(pcts) < 2:
+                    continue
+                stated = _worked_value(m.group("v"))
+                first, second = abs(_worked_value(pcts[0].group(1))), abs(_worked_value(pcts[1].group(1)))
+                q, p = (first, second) if _quantity_first(raw_line, pcts[0], pcts[1]) else (second, first)
+                if p == 0:
+                    continue
                 n += 1
-                from fractions import Fraction
-                from ..ir.schema import Problem
-                stated = Fraction(m.group(1)).__abs__()
-                q, p = Fraction(pcts[0]), Fraction(pcts[1])
-                if "price" in sent.lower()[: sent.lower().find(pcts[0])] if pcts[0] in sent else False:
-                    q, p = p, q  # price change named first
-                lo, hi = stated * Fraction(19, 20), stated * Fraction(21, 20)
-                R = lambda x: {"op": "real", "value": f"{x.numerator}/{x.denominator}" if x.denominator != 1 else str(x.numerator)}
-                V = lambda s: {"op": "var", "name": s}
-                ratio = {"op": "div", "left": V("dq"), "right": R(p)}
-                prob = {"problem_id": f"ped-{report.report_id}-{n}", "request_id": report.request_id, "claim_id": f"{report.report_id}:elasticity-{n}", "query": "entailment",
-                        "symbols": [{"name": "dq", "sort": "Real", "meaning": "percentage change in quantity"}, {"name": "dp", "sort": "Real", "meaning": "percentage change in price"}],
-                        "premises": [{"id": "DQ", "expr": {"op": "eq", "left": V("dq"), "right": R(q)}, "grounding": {"kind": "supplied_text", "verified": True}},
-                                     {"id": "DP", "expr": {"op": "eq", "left": V("dp"), "right": R(p)}, "grounding": {"kind": "supplied_text", "verified": True}}],
-                        "conclusion": {"id": "PED", "expr": {"op": "and", "args": [{"op": "ge", "left": ratio, "right": R(lo)}, {"op": "le", "left": ratio, "right": R(hi)}]}, "label": f"stated elasticity {stated}"}}
-                out.append(FormalCheck(check_id=f"economics-elasticity-{n}", kind="elasticity", description=sent.strip()[:160], problem=Problem.model_validate(prob)))
+                phrase = " ".join(m.group(0).split())
+                out.append(_ratio_check(f"economics-elasticity-{n}", "elasticity", report, n, line, phrase, q, p, stated, scale=Fraction(1), signed=False, floor=Fraction(0),
+                                        label=f"stated elasticity {_fmt_fraction(abs(stated))} against {_fmt_fraction(q)} / {_fmt_fraction(p)} (the percentage changes its sentence states)",
+                                        meanings=("percentage change in quantity", "percentage change in price or income")))
+                break  # one stated value per sentence is read against its two percentage changes
         return out
 
 
@@ -932,15 +1141,21 @@ class BusinessPack:
         return f
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        """Margins stated with the figures they are computed from: margin = profit / revenue."""
+        """Margins stated with the figures they are computed from: margin = profit / revenue, in prose ('a profit of 50,000 on revenue of
+        250,000 ... the profit margin is 20 per cent') or worked as '(A ÷ B) × 100 = m%' under a margin label ('Gross profit margin = (gross
+        profit ÷ sales revenue) × 100 = ($100,800 ÷ $201,600) × 100 = 50.00%'), within the tolerance rule (or half a percentage point)."""
         out: list[FormalCheck] = []
         n = 0
+        for chain, a, b, m, label in margin_equations(report.original_response):
+            n += 1
+            out.append(_ratio_check(f"business-margin-{n}", "margin", report, n, chain, chain, a, b, m, scale=Fraction(100), signed=True, floor=Fraction(1, 2),
+                                    label=f"stated {label} {_fmt_fraction(m)} per cent against 100 * {_fmt_fraction(a)} / {_fmt_fraction(b)} as worked",
+                                    meanings=("the numerator as worked (profit)", "the denominator as worked (revenue)")))
         for sent in _split_sentences(report.original_response):
             m = re.search(r"(?:profit|gross|net)\s+margin[^.]{0,60}?(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent|%)", sent, re.IGNORECASE)
             nums = re.findall(r"(?:profit|revenue|sales)\s+of\s+(?:\$|£|€)?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(million|m|thousand|k)?", sent, re.IGNORECASE)
             if m and len(nums) >= 2:
                 n += 1
-                from fractions import Fraction
                 from ..ir.schema import Problem
                 scale = {"million": 10**6, "m": 10**6, "thousand": 10**3, "k": 10**3}
                 vals = [Fraction(v.replace(",", "")) * scale.get((u or "").lower(), 1) for v, u in nums[:2]]
@@ -956,7 +1171,8 @@ class BusinessPack:
                         "premises": [{"id": "PROFIT", "expr": {"op": "eq", "left": V("profit"), "right": R(profit)}, "grounding": {"kind": "supplied_text", "verified": True}},
                                      {"id": "REVENUE", "expr": {"op": "eq", "left": V("revenue"), "right": R(revenue)}, "grounding": {"kind": "supplied_text", "verified": True}}],
                         "conclusion": {"id": "MARGIN", "expr": {"op": "and", "args": [{"op": "ge", "left": margin, "right": R(lo)}, {"op": "le", "left": margin, "right": R(hi)}]}, "label": f"stated margin {stated} per cent"}}
-                out.append(FormalCheck(check_id=f"business-margin-{n}", kind="margin", description=sent.strip()[:160], problem=Problem.model_validate(prob)))
+                out.append(FormalCheck(check_id=f"business-margin-{n}", kind="margin", description=sent.strip()[:160], problem=Problem.model_validate(prob),
+                                       claim_ids=tuple(_claims_for_statement(report, sent, m.group(0)))))
         return out
 
 

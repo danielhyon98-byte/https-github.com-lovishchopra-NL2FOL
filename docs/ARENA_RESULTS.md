@@ -23,7 +23,10 @@ not already carry. Since round 5 the combinator's synthesis of each task (one sy
 group, citing every delivered report) is a transmission of its own, counted in the rate under the
 same conservative rule: a synthesis of the delivered reports must be delivered (REJECTED is a
 failure, never re-labelled) and no check on it may fail internally. Its errors and warnings are
-listed with the genuine ones. A re-run parses every raw answer with the code as it stands; a
+listed with the genuine ones. Since round 7 every group of a round that carries syntheses has
+exactly one synthesis record, whatever happened to its members, and it fails when a member was not
+delivered; a quotation mutation of a task with a supplied text of its own must be refuted
+(INT-REQ-003), not merely called unverifiable. A re-run parses every raw answer with the code as it stands; a
 peer relay recorded by an earlier run is compared with that parse, not delivered in its place.
 Translation outcomes depend on the translation provider and are reported separately from the
 infrastructure rate.
@@ -502,3 +505,103 @@ code, not the code the overseers judged):
 | r2 | 46 / 46 | 46 / 46 | 2 of 12 (hi-t4 and p1 syntheses) | 0 |
 | r1 | 30 / 30 | 30 / 30 | 3 of 8 (the en-t2, hi-t1 and hi-t2 syntheses) | 0 |
 | r1-adv | 150 / 151 | 150 / 151 | 6 of 23: five INT-REQ-005 request constraints the hostile variants do not meet (four word bounds, one 'no claim carries a source reference'), counted functional, and the empty response's INT-REQ-009, the one record not counted functional | 0 |
+
+## Round 7 fix round: the harness (`scripts/arena`)
+
+Round 7 carried 22 specialist answers in 19 hub tasks, three of them peer groups (p7a: Economics
+and Business Management; p7b: Physics and Mathematics: Analysis and Approaches; p7c: History and
+English A: Literature), each with a recorded combinator synthesis. As run for the overseers the
+harness counted 161 transmissions, 148 functional (91.9%). The four overseers' rates were 0.532
+(results audit), 0.4246 (communication fidelity), 0.7477 (adversarial live) and 0.6384 (translation
+fidelity, new this round). Two minor findings concerned the harness itself, and two majors had a
+harness half. What changed (`scripts/arena/run_arena.py`, regression tests in
+`scripts/arena/test_arena_rules.py`):
+
+- **Every group has one synthesis record, whatever happened to its members.** maa-p7b, the last
+  member of p7b, raised inside the hub, so the harness never ran the p7b synthesis of the delivered
+  ph-p7b report. It was in neither the records nor the failures, and the headline counted 161
+  transmissions instead of 162, contrary to the docstring. In a round that carries syntheses, the
+  group's synthesis is now made after its last member whatever happened to the members (a crash, a
+  rejection, a peer report never relayed). The synthesis of the delivered members is relayed and its
+  receipt kept. A member that was not delivered is named (`members_not_delivered`) and makes the
+  record a failure, and a group with no delivered member gets a failed record saying so. A crash in
+  the router's forward to a peer, or in a mutation's peer set-up, is recorded on its record and no
+  longer ends the round.
+- **Evidence references a synthesized claim reproduces are kept.** The sp-t13 synthesis was charged
+  INT-LEDGER-004 ('evidence references of material source claims ['g4.1'] were not preserved')
+  only because the syntheses format had no field for references, although s2 quotes both of g4.1's
+  excerpts word for word. A synthesized claim may now carry `evidence_refs`, which are passed on as
+  written. A claim without them keeps the references of its cited material source claims whose
+  excerpts its text reproduces word for word (`evidence_refs_copied` on the record). A claim that
+  drops or rewords the evidence is still charged INT-LEDGER-004. With both of g4.1's references
+  kept, the ledger raises an INT-LEDGER-020 warning ('evidence excerpt differs ... under the same
+  (document, locator)'). The warning is false: it keys references by (document, locator) alone, and
+  g4.1's two quotations of one document both have no locator. This was handed to the integrity
+  owner.
+- **The altered quotation misquotes a supplied text, at a word, inside its own span.** The mutation
+  replaced the first occurrence of the quotation's words anywhere in the text. In mai-t13 that
+  occurrence was the prose 'complete years' before the quotation, so the quotation stayed intact and
+  the mutation could not be detected. The mutation also chose a quotation of the request when one
+  came first, and appended 'ly' after punctuation ('I fill a box.ly', 'stream.ly', '20ly'). The
+  quotation altered is now the first one found verbatim in a supplied text (a relayed peer report
+  included), else the first quotation. It is changed inside its quoted span, at an alphabetic word:
+  the middle word when it is a word, as before, else the nearest word, so 'boxly.', 'streamly.' and
+  'countsly'. On r1 to r6 only the five quotations whose middle word carried punctuation or was a
+  mark change (r1-adv hi-t1, r5 en-p4, en-t9 and en-t10, r6 en-t12). Every other altered quotation
+  is as before.
+- **A task with a supplied text must refute a quotation mutation.** The harness accepted the
+  unverifiable CORE-SRC-003 for an invented quotation even when the task supplied a text, contrary
+  to its docstring (results audit, major). With a supplied text of the task's own, invented and
+  altered quotations are now expected as INT-REQ-003 only. When the only supplied text is a relayed
+  peer report, an invented quotation credited to 'the narrator' is unverifiable rather than refuted,
+  so either code is accepted. With no supplied text, CORE-SRC-003 is expected.
+- **Encodings given no verdict are counted.** summary.md now counts, beside the line on ENTAILED
+  verdicts resting on ungrounded premises, the genuine claims displayed INVALID_FORMALIZATION under
+  each rule, with their claim ids (`withheld_verdicts`). The rules are: a definitive engine status
+  withheld (E108 vacuous, E110 unasserted figure, E111 unencoded reason, E112 circular), or an
+  encoding the translation pipeline rejected before the engine ran (E112 circular; 'stated
+  precision', an exact equality to a figure the specialist rounded). The results audit asked for the
+  number of circular ENTAILED verdicts.
+- **Fixtures that match no delivered claim are reported.** A translation fixture recorded under a
+  claim id the current parse does not deliver is never served. Each genuine record now names such
+  fixtures, and results.json and summary.md total them
+  (`translation_fixtures_matching_no_delivered_claim`).
+
+The same fix round changed the package (`src/`, with its own tests and package READMEs) in ways
+these re-runs show. The engine and the translation pipeline give no verdict on a COUNTEREXAMPLE over
+zero premises (E108, ec-t13 g5.3), on an unencoded reason (E111) or on a circular encoding (E112).
+A contradiction that exists only because one symbol names quantities the claims gloss differently
+is an INT-CONFLICT-004 warning, not an INT-CONFLICT-001 error. INT-REQ-007 is a warning when the
+claim's translation is AMBIGUOUS_TRANSLATION. The generic parser qualifies claim ids by agent
+('g4.1@language-b-spanish-specialist') and reads working line by line. As a result, the recorded r7
+fixtures and syntheses, which cite the ids of the earlier parse ('g4.1'), mostly no longer match. A
+re-run of r7 serves 24 of the recorded fixtures (200 match no delivered claim id, all named in
+summary.md), and the generic-branch syntheses carry INT-LEDGER-001 / INT-LEDGER-002 for the old ids.
+The fixtures carry no `claim_text_sha256`, and the earlier claim texts are not recorded, so the
+harness cannot re-key them safely. Keying by the bare id would serve a fixture to another sentence.
+A copy of r7 with fixtures and cited ids re-keyed by claim text against the earlier parse gives
+162 / 162, 159 translation outcomes and no unserved fixture. On that copy, sp-t13's synthesis
+carries no INT-LEDGER-004, and 17 genuine claims get no verdict (9 circular, 8 stated precision).
+Rounds from 8 on should record `claim_text_sha256` for every fixture (`list_claims.py --json`
+prints it).
+
+The recorded rounds were re-run on copies of each round directory (the recorded directories were
+not written), on the code as it stood during the round-7 fix round, first with the harness as it
+was and then with the fix:
+
+| Set | Functional, harness before | After | Synthesis records | Genuine claims given no verdict (after) |
+| --- | --- | --- | --- | --- |
+| r7 | 161 / 162 (recorded: 148 / 161) | 162 / 162 | 19 of 19 groups | 6 (E112); 200 fixtures unserved (ids changed) |
+| r6 | 46 / 46 | 46 / 46 | 5 | 10 (8 E110, 2 E112) |
+| r5 | 46 / 46 | 46 / 46 | 5 | 3 (E112) |
+| r4 | 46 / 46 | 46 / 46 | 5 | 1 (E108, hi-t8 h1.4) |
+| r3 | 46 / 46 | 46 / 46 | 5 | 6 (E112) |
+| r2 | 46 / 46 | 46 / 46 | 5 | 3 (E112) |
+| r1 | 30 / 30 | 30 / 30 | 4 | 1 (E112) |
+| r1-adv | 150 / 151 | 150 / 151 | none (no syntheses) | 0; the empty response's REJECTED genuine record remains the one failure |
+
+On r7, with the harness before the fix and the same code, the one failure was mai-t13's altered
+quotation, which had been altered in the prose. With the fix, 40 of the 52 quotation-mutation records
+across r7 are held to INT-REQ-003 alone, and every one is named by it. The genuine records and
+syntheses carry the same finding codes in both harness runs on the same code. The functional rate
+still does not judge whether a finding is true.

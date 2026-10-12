@@ -17,6 +17,8 @@ class DiagnosticCode(str, Enum):
     VACUOUS_RESULT = "E108"         # a definitive status that used no premise (tautology / empty problem)
     CLOSED_CONCLUSION = "E109"      # conclusion mentions no declared symbol
     UNASSERTED_FIGURE = "E110"      # a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
+    UNENCODED_REASON = "E111"       # a COUNTEREXAMPLE that only reassigns conclusion symbols no premise mentions
+    CIRCULAR_PREMISES = "E112"      # an ENTAILED proof whose premises restate the conclusion (it, or each of its conjuncts)
     # UNSUPPORTED (policy)
     UNKNOWN_OPERATOR = "E200"
     NONLINEAR_TERM = "E201"

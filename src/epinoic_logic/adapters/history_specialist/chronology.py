@@ -1003,6 +1003,7 @@ _FALLS_AT_RE = re.compile(
     r"\b(?:date\s+)?(?:falls|fell|comes|came|sits|sat|lies|lay|stands|stood)\s+(?:right\s+|just\s+|squarely\s+)?(?:at|in|near|towards?|on)\s+(?:the\s+)?(?:very\s+)?"
     r"(?:[\w'’]+\s+){0,2}?(?P<point>close|end|outbreak|start|beginning|opening|eve|conclusion|finish)\b", re.IGNORECASE)
 _DECADE_RE = re.compile(r"\b(?:the\s+)?(?P<decade>1[0-9]{2}0|20[0-9]0)s\b")
+_BETWEEN_BEFORE_RE = re.compile(r"\bbetween\s+(?:(?:early|late|mid)[\s-]+|the\s+years?\s+|about\s+|c\.\s+)?$", re.IGNORECASE)
 _RANGE_JOIN_RE = re.compile(r"^\s*(?:-|–|—|to|until|till|and|through)\s*$", re.IGNORECASE)
 
 
@@ -1070,7 +1071,11 @@ def _periods(text: str) -> list[_Period]:
     i = 0
     while i < len(toks):
         t = toks[i]
-        if i + 1 < len(toks) and _RANGE_JOIN_RE.match(text[t.end: toks[i + 1].start]) and toks[i + 1].year is not None and (t.year is None or t.year <= toks[i + 1].year):
+        join = text[t.end: toks[i + 1].start] if i + 1 < len(toks) else ""
+        # 'and' joins a range only after 'between' ('between 1961 and 1968'); 'peaks in 1953 and 1963' is two dates, not a period
+        and_join = bool(re.match(r"^\s*and\s*$", join, re.IGNORECASE))
+        if (i + 1 < len(toks) and _RANGE_JOIN_RE.match(join) and toks[i + 1].year is not None and (t.year is None or t.year <= toks[i + 1].year)
+                and (not and_join or _BETWEEN_BEFORE_RE.search(text[max(0, t.start - 40): t.start]))):
             u = toks[i + 1]
             out.append(_Period(t.start, u.end, text[t.start: u.end], t, u))
             i += 2

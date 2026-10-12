@@ -17,7 +17,18 @@ Trust rules enforced here:
 * a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
   (a premise ``b <-> (n = 17)`` whose numeric symbol no other premise mentions, and with
   ``b`` asserted the conclusion is ENTAILED) carries ``E110`` (unasserted figure), so the
-  outcome layer never displays such a counterexample as a verdict on the claim.
+  outcome layer never displays such a counterexample as a verdict on the claim;
+* a COUNTEREXAMPLE over zero premises carries ``E108`` (it says only that the conclusion
+  is not a tautology), and one whose falsification needs nothing but conclusion symbols
+  that no premise mentions, a figure among them (for every assignment of the premises some
+  value of those symbols makes the conclusion true: the figures the conclusion compares, or
+  the claim's own reason, were not encoded) carries ``E111`` (unencoded reason). A Bool
+  point that no premise links to stays a COUNTEREXAMPLE: that is the non sequitur verdict;
+* an ENTAILED proof whose relied-on premises restate the conclusion (the conclusion, or
+  each of its "and" conjuncts, is one of them or one of their conjuncts) carries ``E112``
+  (circular) when those premises are the writer's own (an assumption, a specialist
+  inference, general knowledge, an unchecked arithmetic_fact): the claim was assumed, not
+  derived. A restated premise grounded in the task or a text is a transcription check.
 """
 from __future__ import annotations
 
@@ -154,7 +165,126 @@ def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: Solver
             message=f"vacuous: the {problem.query} query has no premises, so {proc.status.value} asserts nothing",
             path="premises",
         )
+    if proc.status is VerificationStatus.COUNTEREXAMPLE and not problem.premises:
+        return Diagnostic(
+            code=DiagnosticCode.VACUOUS_RESULT.value,
+            message="vacuous: the entailment query has no premises, so its COUNTEREXAMPLE says only that the conclusion is not a "
+                    "tautology (nothing the claim rests on was encoded)",
+            path="premises",
+        )
     return None
+
+
+def _assertion_vars(problem: Problem) -> tuple[set[str], set[str]]:
+    """``(symbols the premises mention, symbols the conclusion mentions)``."""
+    premise_vars: set[str] = set()
+    for pr in problem.premises:
+        _expr_vars(pr.expr, premise_vars)
+    concl_vars = _expr_vars(problem.conclusion.expr, set()) if problem.conclusion is not None else set()
+    return premise_vars, concl_vars
+
+
+def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig) -> Optional[Diagnostic]:
+    """``E111`` when a COUNTEREXAMPLE (over at least one premise) falsifies the conclusion only through symbols no premise
+    mentions: for every assignment that satisfies the premises, some value of those free symbols makes the conclusion
+    true (decided by Z3 over ``premises AND forall free. NOT conclusion``, unsat). The claim's own reason ("..., so
+    demand shifts right") was not encoded, so the counterexample is no verdict on the claim. Undecided probes leave the
+    counterexample as it is."""
+    if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None or not problem.premises or compiled.conclusion is None:
+        return None
+    premise_vars, concl_vars = _assertion_vars(problem)
+    sorts = {sym.name: sym.sort for sym in problem.symbols}
+    free = sorted(v for v in concl_vars - premise_vars if v in compiled.symbols)
+    # A Bool point no premise links to is the classic non sequitur: "the evidence holds and the point fails" is a verdict
+    # on the claim. A figure the conclusion compares that no premise states is not: any value refutes it.
+    if not free or not any(sorts.get(v) in _NUMERIC_SORTS for v in free):
+        return None
+    try:
+        solver = z3.Solver(ctx=compiled.ctx)
+        solver.set("timeout", int(config.timeout_ms))
+        if config.rlimit is not None:
+            solver.set("rlimit", int(config.rlimit))
+        for term in compiled.premises.values():
+            solver.add(term)
+        solver.add(z3.ForAll([compiled.symbols[v] for v in free], z3.Not(compiled.conclusion)))
+        answer = solver.check()
+    except z3.Z3Exception:
+        return None
+    if answer != z3.unsat:
+        return None
+    model = proc.model or {}
+    shown = ", ".join(f"{v}={model[v]}" for v in free if v in model) or ", ".join(free)
+    return Diagnostic(
+        code=DiagnosticCode.UNENCODED_REASON.value,
+        message=(f"unencoded reason: the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
+                 f"mentions ({shown}); for every assignment of the premises some value of them makes the conclusion true, so the claim's own "
+                 "reason or link was not encoded and this COUNTEREXAMPLE is no verdict on the claim"),
+        path="conclusion",
+    )
+
+
+def _conjuncts(expr) -> list:
+    """The "and" conjuncts of ``expr`` (nested conjunctions flattened); ``[expr]`` for anything else."""
+    out, stack = [], [expr]
+    while stack:
+        node = stack.pop()
+        if getattr(node, "op", None) == "and":
+            stack.extend(reversed(node.args))
+        else:
+            out.append(node)
+    return out
+
+
+def _canonical(expr) -> str:
+    import json
+    return json.dumps(expr.model_dump(mode="json", exclude_none=True), sort_keys=True, separators=(",", ":"))
+
+
+def circular_premises(problem: Problem, relied_on: Optional[list[str]] = None) -> list[str]:
+    """The premises (among ``relied_on`` when given) that restate the conclusion: the conclusion, or each of its "and"
+    conjuncts, is syntactically one of these premises or one of their conjuncts. Empty when the conclusion is derived
+    from something else. Purely syntactic, no solver."""
+    if problem.conclusion is None:
+        return []
+    pool = [pr for pr in problem.premises if relied_on is None or pr.id in relied_on]
+    if not pool:
+        return []
+    owner: dict[str, str] = {}
+    for pr in pool:
+        owner.setdefault(_canonical(pr.expr), pr.id)
+        for c in _conjuncts(pr.expr):
+            owner.setdefault(_canonical(c), pr.id)
+    needed = [_canonical(c) for c in _conjuncts(problem.conclusion.expr)]
+    if not needed or not all(n in owner for n in needed):
+        return []
+    return list(dict.fromkeys(owner[n] for n in needed))
+
+
+def assumed_grounding(grounding: Optional[Grounding]) -> bool:
+    """A premise the claim's writer (or the translator) supplies itself: an ungrounded kind (:func:`is_ungrounded`) or an
+    ``arithmetic_fact`` no check verified (a figure the report states, asserted as a fact). A premise grounded in the task
+    (``task_setting``, ``rubric_rule``) or a text (``supplied_text``, ``knowledge_document``, ``library_source``, a
+    verified quotation) is a transcription: restating it is a check of the claim against that source, not a circle."""
+    return is_ungrounded(grounding) or (grounding is not None and grounding.kind == "arithmetic_fact" and grounding.verified is not True)
+
+
+def _circular_diagnostic(problem: Problem, proc: ProcedureOutcome) -> Optional[Diagnostic]:
+    """``E112`` when an ENTAILED proof's relied-on premises restate the conclusion (:func:`circular_premises`) and every
+    restating premise is the writer's own (:func:`assumed_grounding`): the claim is assumed, not derived."""
+    if proc.status is not VerificationStatus.ENTAILED or problem.conclusion is None:
+        return None
+    restating = circular_premises(problem, list(proc.core) or None)
+    by_id = {pr.id: pr for pr in problem.premises}
+    if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
+        return None
+    labels = {pr.id: pr.label for pr in problem.premises}
+    shown = "; ".join(f"{pid}" + (f" ({labels[pid][:100]!r})" if labels.get(pid) else "") for pid in restating[:6])
+    return Diagnostic(
+        code=DiagnosticCode.CIRCULAR_PREMISES.value,
+        message=(f"circular: the premise(s) {shown} restate the conclusion (it, or each of its conjuncts, is asserted as a premise), so "
+                 "the claim is assumed, not derived; this ENTAILED is no verdict on the claim"),
+        path=f"premises.{restating[0]}",
+    )
 
 
 _COMPARE_OPS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
@@ -350,9 +480,12 @@ def verify(
 
         apply_global_memory_limit(config)
         figure_note: Optional[Diagnostic] = None
+        reason_note: Optional[Diagnostic] = None
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
             figure_note = _unasserted_figure_diagnostic(problem, proc, config)
+            if figure_note is None:
+                reason_note = _unencoded_reason_diagnostic(problem, proc, compiled, config)
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
             # verifications can work within so later calls are not left under the exhausted one.
@@ -372,6 +505,11 @@ def verify(
             diagnostics.append(vacuous)
         if figure_note is not None:
             diagnostics.append(figure_note)
+        if reason_note is not None and vacuous is None:
+            diagnostics.append(reason_note)
+        circular = _circular_diagnostic(problem, proc) if vacuous is None else None
+        if circular is not None:
+            diagnostics.append(circular)
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2),

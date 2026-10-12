@@ -146,7 +146,7 @@ class GroundingCheck(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     target_id: str = Field(description="symbol name or assertion id")
     kind: GroundingKind
-    method: Literal["verbatim_match", "normalized_match", "locator_exists", "numeric_in_task", "not_checkable"]
+    method: Literal["verbatim_match", "normalized_match", "locator_exists", "numeric_in_task", "figures_in_excerpt", "not_checkable"]
     verified: Optional[bool] = None
     document_id: Optional[str] = None
     detail: Optional[str] = Field(default=None, max_length=2000)

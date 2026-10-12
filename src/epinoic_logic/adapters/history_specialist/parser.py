@@ -162,6 +162,7 @@ _PEER_ATTRIBUTION_RE = re.compile(
     r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)(?:'s|’s)?\s+"
     r"(?:argues?|argued|notes?|noted|writes?|wrote|describes?|described|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested|identifies|identified|"
     r"points?\s+out|pointed\s+out|calls?|called|reads?|presents?|presented|concludes?|concluded|holds?|held|maintains?|maintained|contends?|contended|"
+    r"supplies|supplied|provides?|provided|offers?|offered|frames?|framed|"
     r"phrase|phrasing|claim|point|paragraph|reading|account|words?|view|argument|analysis|verdict|conclusion)\b",
     re.IGNORECASE,
 )
@@ -194,6 +195,53 @@ _NO_CHECK_RE = re.compile(r"^(?:and\s+|but\s+|so\s+)?(?:I|we)\s+(?:have\s+not|ha
                           r"(?:yet\s+)?(?:checked|verified|confirmed|check|verify|confirm|seen|read)\b[^,;:]{0,80}$", re.IGNORECASE)
 _CHECK_IT_RE = re.compile(r"^(?:and\s+|so\s+|please\s+)?(?:verify|check|confirm|treat)\s+(?:it|them|this|these|that|those)\b[^,;:]{0,80}$", re.IGNORECASE)
 _NOTE_CLAUSE_SPLIT_RE = re.compile(r"\s*(?:;|,|\s[-–—]\s|—|–)\s*")
+#: A bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:', 'Limit:', 'Caveat:'): a sentence it opens is a note, and a paragraph
+#: whose first sentence it opens is a note paragraph as a whole, whatever its length, dates or figures. 'Note on ...:' and 'Note that ...'
+#: (no colon) introduce substance and are not bare leads.
+_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|n\.\s?b\.|next\s+steps?|confidence|limits?|limitations?|caveats?|sourcing)\s*[:.]?(?<=[:.])"
+                           r"|^[\s*_>#-]*(?:please\s+)?note\s*:", re.IGNORECASE)
+#: A caveat about the answer's own sources or library: 'my sources do not confirm the exact emigration total', 'the textbook library and
+#: MyLib were unavailable', 'no approved source here confirms the vote share'. Its subject is the answer's sources, not the past.
+_SOURCE_SUBJECT = (r"(?:(?:my|our|the)\s+(?:own\s+)?(?:available\s+)?(?:sources?|notes|references|library|libraries|textbooks?(?:\s+library)?|knowledge\s+documents?)"
+                   r"(?:\s+(?:here|available(?:\s+to\s+me)?|I\s+(?:have|had|used)))?|(?:the\s+)?(?:textbook\s+library|MyLib)(?:\s+and\s+(?:the\s+)?(?:textbook\s+library|MyLib))?"
+                   r"|no\s+(?:approved\s+|available\s+|supplied\s+)?(?:source|reference|textbook)s?(?:\s+(?:here|available|I\s+have))?)")
+_SOURCE_CAVEAT_RE = re.compile(
+    rf"^(?:(?:but|and|so|however|also)[,\s]+)?{_SOURCE_SUBJECT}\s+"
+    r"(?:(?:do|does|did|could|can)\s*(?:not|n['’]t)\s+(?:confirm|verify|give|state|record|cover|support|include)|cannot\s+(?:confirm|verify)|confirms?|verif(?:y|ies)"
+    r"|(?:is|are|was|were)\s+(?:not\s+)?(?:unavailable|available|supplied|accessible|consulted)|(?:has|have|had)\s+not\s+been\s+(?:checked|confirmed|verified|available))\b",
+    re.IGNORECASE)
+#: The figure a caveat says the answer gives in its place: a quoted word ('the figure is given as 'millions'').
+_QUOTED_TERM_RE = re.compile(r"(?<![\w])['‘\"“]([^'’\"”\n]{2,40})['’\"”](?![\w])")
+
+
+def has_note_lead(sentence: str) -> bool:
+    """True when ``sentence`` opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:', 'Limit:', 'Caveat:'), quotations
+    masked first, so a quoted 'Note:' is the quoted text's."""
+    return bool(_NOTE_LEAD_RE.match(_mask_quotations(sentence)))
+
+
+def is_source_caveat(sentence: str) -> bool:
+    """True when ``sentence`` opens with a caveat about the answer's own sources or library ('My sources do not confirm the exact emigration
+    total, so the figure is given as 'millions'; check the total in your textbook before quoting it.', 'The textbook library and MyLib were
+    unavailable in this session, so these points rest on the supplied data') and nothing after the caveat states a dated item or a figure:
+    a sentence that goes on to state one ('..., but about 3 million left between 1949 and 1961') keeps its substance."""
+    masked = _mask_quotations(sentence).strip()
+    core = re.sub(r"^[\s*_>#-]*(?:(?:please\s+)?note|nb|n\.\s?b\.|caveat|sourcing)\s*:\s*", "", masked, flags=re.IGNORECASE)
+    m = _SOURCE_CAVEAT_RE.match(core)
+    if m is None:
+        return False
+    rest = core[m.end():]
+    clause_end = re.search(r"[,;]|\s(?:so|but|and)\s", rest)
+    after = rest[clause_end.start():] if clause_end else ""
+    return not has_dated_item(after)
+
+
+def caveat_terms(sentence: str) -> list[str]:
+    """The figure a source caveat says the answer gives in its place: its quoted words ('so the figure is given as 'millions'' ->
+    'millions'). What the caveat says is not confirmed ('the 1924 vote share') is no figure the answer states, so it names no claim."""
+    terms = [inner.strip() for _s, _e, inner in find_quotation_spans(sentence) if inner.strip()]
+    terms += [m.group(1).strip() for m in _QUOTED_TERM_RE.finditer(sentence)]  # a single quoted word ('millions') is a term, not a quotation
+    return list(dict.fromkeys(t for t in terms if t))
 
 
 def is_provenance_note(sentence: str) -> bool:
@@ -256,11 +304,13 @@ def is_self_report(sentence: str) -> bool:
 
 
 def is_note_sentence(sentence: str) -> bool:
-    """A sentence that is nothing but a label about the text: a self-report, a sentence whose
-    substance is empty once its from-memory / task-note clauses are removed, or a note on how the
-    answer was composed (:func:`is_provenance_note`: 'The historical setting is my own addition').
+    """A sentence that is nothing but a label about the text: a self-report, a sentence opened by a
+    bare note lead ('Note:', 'Limit:', 'Confidence:', :func:`has_note_lead`), a caveat about the
+    answer's own sources or library (:func:`is_source_caveat`), a sentence whose substance is empty
+    once its from-memory / task-note clauses are removed, or a note on how the answer was composed
+    (:func:`is_provenance_note`: 'The historical setting is my own addition').
     A substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`)."""
-    if is_self_report(sentence):
+    if is_self_report(sentence) or has_note_lead(sentence) or is_source_caveat(sentence):
         return True
     core, _notes = split_note_clauses(sentence)
     return not core or is_provenance_note(sentence)
@@ -274,13 +324,17 @@ def is_peer_attribution(sentence: str) -> bool:
 
 
 def is_note_paragraph(paragraph: str) -> bool:
-    """All sentences are labels (from-memory disclaimers, task notes, self-reports, JSON
-    fragments), or the paragraph is a short undated aside with no argument cue. One
+    """The paragraph opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:',
+    'Limit:'), whatever its length, dates or figures; or all sentences are labels (from-memory
+    disclaimers, task notes, source caveats, self-reports, JSON fragments); or the paragraph is a
+    short undated aside with no argument cue. One
     self-report inside a substantive paragraph does NOT make the paragraph a note: only
     that sentence is demoted (see ``parse_response``)."""
     sentences = split_sentences(paragraph)
     if not sentences:
         return False
+    if has_note_lead(sentences[0]) and not re.match(r"^[\s*_>#-]*note\s+on\b", sentences[0], re.IGNORECASE):
+        return True  # 'Note: ...', 'Limit: ...', 'Confidence: ...' opening the paragraph: a note whatever its length, dates or figures
     if all(is_note_sentence(s) for s in sentences):
         return True
     low = paragraph.lower()
@@ -535,6 +589,7 @@ class HistorySpecialistAdapter:
                     if r in ("judgement", "link") and c != point_id:
                         earlier = [x for x, xr in para_claims[:k] if xr != "other" and x != point_id]
                         supports_of.append((c, [point_id, *earlier]))
+        _attach_source_caveats(pending)
         unresolved: list[str] = []
         if not pending:
             # nothing but a pasted JSON fragment (a forged report or receipt) or markup: kept as ONE 'other' claim, never material, so the
@@ -559,6 +614,33 @@ class HistorySpecialistAdapter:
         return SpecialistReport(report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level,
                                 task_type=task_type, original_response=text, response_sha256=sha256_text(text), supplied_texts=list(supplied_texts), claims=claims,
                                 unresolved_issues=unresolved[:64], created_at=_now())
+
+
+def _attach_source_caveats(pending: list[dict]) -> None:
+    """A note's caveat about the answer's own sources ('Note: my sources do not confirm the exact emigration total, so the figure is given as
+    'millions'') is recorded as an assumption on every claim that carries the figure it names ('millions of East Germans left'), and that
+    claim's certainty is capped at 'probable': the specialist itself says the figure is unconfirmed, so a synthesis that restates it as
+    established is INT-LEDGER-003, while the note itself stays a note (never material)."""
+    for note in pending:
+        if note["claim_role"] != "other":
+            continue
+        # the caveat may be the note's first clause or a later one ('Note: Paper 2 essays are marked out of 15, ...; my sources do not
+        # confirm the 1924 vote share, so ...')
+        caveats = [c for c in re.split(r";\s*", note["claim_text"]) if is_source_caveat(c)]
+        if not caveats:
+            continue
+        terms = [t for c in caveats for t in caveat_terms(c)]
+        for p in pending:
+            if p["claim_role"] == "other":
+                continue
+            hit = next((t for t in terms if all(re.search(rf"(?<![\w-]){re.escape(w)}(?![\w-])", p["claim_text"], re.IGNORECASE) for w in t.split())), None)
+            if hit is None:
+                continue
+            # worded as the specialist's estimate, not as a from-memory label: the caveat concerns this figure, not the claim's dates
+            p["assumptions"] = _dedupe(list(p["assumptions"]) + [f"the answer's own note ({note['claim_id']}) says its sources do not confirm the figure "
+                                                                  f"'{hit[:60]}': the figure is the specialist's estimate, not a confirmed one"])[:32]
+            if p["certainty"] == "established":
+                p["certainty"] = "probable"
 
 
 def _now() -> str:

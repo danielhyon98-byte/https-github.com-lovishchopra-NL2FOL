@@ -37,7 +37,7 @@ from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import check_claim_sources
 from ..markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE
 from .chronology import chronology_relations
-from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, opens_with_fact, split_sentences
+from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, is_source_caveat, opens_with_fact, split_sentences
 
 # Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
 _NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
@@ -111,9 +111,14 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
         if _HISTORIAN_RE.search(c.claim_text) and not c.source_refs:
             f.append(StructuralFinding(code="HI-SRC-003", severity="warning", message="a named historian is attributed a position without knowledge-document or library grounding", claim_ids=[c.claim_id], rule_source=_RULE.format("application.md §8.2; master prompt resolved conflict 5")))
 
-    dated_claims = [c for c in report.claims if has_dated_item(c.claim_text)]
+    dated_claims = [c for c in report.claims if has_dated_item(c.claim_text) and c.claim_role != "other"]
     if dated_claims and not _MEMORY_LABEL_RE.search(text) and not any(c.source_refs for c in dated_claims):
-        f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label", claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
+        # a note's caveat about the answer's own sources ('my sources do not confirm the exact emigration total') is said, not ignored
+        caveats = [c.claim_text for c in report.claims if c.claim_role == "other" and any(is_source_caveat(x) for x in re.split(r";\s*", c.claim_text))]
+        said = (f"; the answer's own note says its sources do not confirm some of them ('{' '.join(caveats[0].split())[:160]}'), and the figure it names "
+                f"is recorded as unverified on the claims that state it") if caveats else ""
+        f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label" + said,
+                                   claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
 
     for pi, kind, para in prose:
         if kind != "body":

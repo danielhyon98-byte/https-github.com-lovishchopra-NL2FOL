@@ -55,7 +55,7 @@ from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, Special
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
-from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items
+from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
 
 VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
 #: Given a synthesized claim and the formalized problems of its cited sources, propose the
@@ -96,6 +96,8 @@ _ECHO_FUNCTION = frozenset(light_stem(w) for w in (" ".join(sorted(_STOP)) + " s
                                                      "them they he she him his her hers we us our you your i me my one ones been being has have had can could would should will "
                                                      "shall may might must just only").split())
 _SCOPE_TAIL = "Formal results concern only the encoded checks under their premises; coverage is heuristic."
+#: A from-memory label in a claim's sentence: a quotation it carries is unverifiable, never refuted.
+_MEMORY_LABEL_RE = re.compile(r"\bfrom memory\b|\bas I recall\b|\bI recall\b|\bif I remember\b", re.IGNORECASE)
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
 _MAX_NAMED = 8
 #: A UTF-16 surrogate code point. In a Python string every one is unpaired as far as Unicode is concerned (a truncated
@@ -137,6 +139,56 @@ def _terms(text: str) -> set[str]:
             continue
         out.add(light_stem(w))
     return out
+
+
+#: The label a request gives an item before its text ("Guiding question:", "Essay question:", "Question 2:"): not a term
+#: the answer must repeat.
+_ITEM_LABEL_RE = re.compile(r"^\s*(?:guiding|essay|research|prescribed|key|focus)?\s*(?:question|title|prompt|task)(?:\s+\d+)?\s*:\s*", re.IGNORECASE)
+#: Markup an answer may wrap its part labels in ("**Part (a) — find**", "$x$").
+_MARKUP_CHARS_RE = re.compile(r"[*_`$#]")
+
+
+def _answer_sections(text: str) -> list[tuple[int, frozenset[str]]]:
+    """``(offset, labels)`` for every line of the answer (markup removed) that opens with a part label: "(a)", "Part
+    (b) —", "1.", and a nested "3. a)" (labels 3 and a). Offsets are in the markup-free text."""
+    from .request_parser import part_label
+    plain = _MARKUP_CHARS_RE.sub("", text)
+    out: list[tuple[int, frozenset[str]]] = []
+    pos = 0
+    for line in plain.split("\n"):
+        lab = part_label(line)
+        if lab is not None:
+            labels = {lab}
+            rest = re.sub(r"^\W{0,4}(?:part\s+)?\(?[0-9a-z]{1,4}[.)]\)?\s*", "", line.strip(), flags=re.IGNORECASE)
+            inner = part_label(rest) if rest else None
+            if inner is not None and inner != lab:
+                labels.add(inner)
+            out.append((pos, frozenset(labels)))
+        pos += len(line) + 1
+    return out
+
+
+def _claim_sections(text: str, sections: list[tuple[int, frozenset[str]]], claims: list[ClaimRecord]) -> dict[str, frozenset[str]]:
+    """Per claim, the labels of the answer section its text stands in (located by its first words, markup ignored)."""
+    plain = _MARKUP_CHARS_RE.sub("", text)
+    out: dict[str, frozenset[str]] = {}
+    for c in claims:
+        words = re.findall(r"\S+", _MARKUP_CHARS_RE.sub("", c.claim_text))[:8]
+        if not words:
+            continue
+        m = re.search(r"\s+".join(re.escape(w) for w in words), plain)
+        if m is None:
+            continue
+        before = [labels for start, labels in sections if start <= m.start()]
+        if before:
+            out[c.claim_id] = before[-1]
+    return out
+
+
+def _paragraph_key(claim_id: str) -> str:
+    """The paragraph a claim id names ("g7.1" -> "g7", "p1-s03" -> "p1", "h1.4" -> "h1"); the id itself otherwise."""
+    m = re.match(r"^([A-Za-z]*\d+)[.\-]", claim_id)
+    return m.group(1) if m else claim_id
 
 
 def _tokens(text: str) -> list[str]:
@@ -716,20 +768,25 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {sorted(report_docs - req_docs)}", document_ids=sorted(report_docs - req_docs)))
         if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
-        findings += self._claim_id_collisions(report)
-        covered, form_covered, source_findings = self._source_findings(report, supplied)
+        # Every content check runs guarded: one that fails internally is INT-INTERNAL-001 naming it, the rest of the receipt is
+        # kept and the report is still delivered (nothing raises into the router).
+        rid = dict(report_ids=[report.report_id], agent_ids=[report.agent_id])
+        findings += self._guarded("claim-id collision", findings, lambda: self._claim_id_collisions(report), [], **rid)
+        covered, form_covered, source_findings = self._guarded("source integrity (quotations against the supplied texts)", findings, lambda: self._source_findings(report, supplied, request_text=req.user_input), (set(), set(), []), **rid)
         findings += source_findings
-        findings += self._peer_figures(report, supplied)
-        findings += self._fold_findings(report, supplied)
-        echo = self._request_echo(req, report, supplied)
+        uncredited = self._guarded("uncredited quotations (INT-REQ-003)", findings, lambda: self._uncredited_quotations(report, supplied, request_text=req.user_input), [], **rid)
+        findings += uncredited
+        findings += self._guarded("peer figures (INT-REQ-014)", findings, lambda: self._peer_figures(report, supplied), [], **rid)
+        findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(report, supplied), [], **rid)
+        echo = self._guarded("request echo (INT-REQ-011)", findings, lambda: self._request_echo(req, report, supplied), None, **rid)
         if echo is not None:
             findings.append(echo)
-        findings += self._no_answer(report)
-        coverage = self._coverage(req, report, echoed=echo is not None)
+        findings += self._guarded("answer presence (INT-REQ-012)", findings, lambda: self._no_answer(report), [], **rid)
+        coverage = self._guarded("request coverage (INT-REQ-004)", findings, lambda: self._coverage(req, report, echoed=echo is not None), [], **rid)
         for cov in coverage:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
-                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)", claim_ids=[]))
+                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)" + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
         # Command terms C6: evaluate / discuss / to what extent / assess / examine / justify / recommend / give a judgement
         # need a judgement or position on degree. A judgement-role claim counts; so does a point, thesis, link or analysis
         # claim that states a position (verdict cue); a bare claim does not. A claim roled 'other' (a note, a self-report) never counts.
@@ -737,10 +794,13 @@ class TranslatorChannel:
         for item in req.items:
             if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
-        constraint_results, formal_ids = self._constraints(req, report)
+        constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report), ([], []), **rid)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
+        refuted = {cid for f in uncredited for cid in f.claim_ids}
+        if refuted:  # the same quotation is not also "unverifiable": the hub found it in none of the supplied texts
+            structural = [sf for sf in structural if not (sf.code == "CORE-SRC-003" and sf.claim_ids and set(sf.claim_ids) <= refuted)]
         findings = self._name_branch_rules(findings, structural)
-        findings += self._foreign_credits(report, supplied, structural)
+        findings += self._guarded("credits to texts not supplied (INT-REQ-015)", findings, lambda: self._foreign_credits(report, supplied, structural), [], **rid)
         formal_ids = list(formal_ids) + branch_ids
         kinds = {c.constraint_id: c.kind for c in req.constraints}
         for cr in constraint_results:
@@ -751,10 +811,10 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-REQ-005", severity="warning" if layout else "error",
                                                  message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}" + (" (blank-line blocks; a paragraph set out in blocks counts as several)" if layout else ""),
                                                  formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
-        self._supersession(report, findings)
+        self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(report, findings), None, **rid)
         # An echo of the request answers nothing: its outcomes are delivered for the record but never pooled, so its
         # formalizations cannot displace the agent's genuine claims under the same ids.
-        outcomes = self._verify_claims(report, findings, pool=echo is None)
+        outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None), [], **rid)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
@@ -823,29 +883,31 @@ class TranslatorChannel:
             findings += self._report_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
-            findings += self._claim_id_collisions(payload_obj)
-            findings += self._fold_findings(payload_obj, payload_obj.supplied_texts)
+            rid = dict(report_ids=[payload_obj.report_id], agent_ids=[payload_obj.agent_id])
+            findings += self._guarded("claim-id collision", findings, lambda: self._claim_id_collisions(payload_obj), [], **rid)
+            findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(payload_obj, payload_obj.supplied_texts), [], **rid)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
-            findings += self._foreign_credits(payload_obj, payload_obj.supplied_texts, structural)
-            self._supersession(payload_obj, findings)
-            outcomes = self._verify_claims(payload_obj, findings)
+            findings += self._guarded("credits to texts not supplied (INT-REQ-015)", findings, lambda: self._foreign_credits(payload_obj, payload_obj.supplied_texts, structural), [], **rid)
+            self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(payload_obj, findings), None, **rid)
+            outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(payload_obj, findings), [], **rid)
             if not _is_blocking(findings):
                 self.transmitted_reports.setdefault(payload_obj.report_id, payload_obj)
         else:
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
-            scope = self._ledger_scope(payload_obj)
-            findings += self._cited_superseded(payload_obj)
-            findings += self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj, extra_texts=self._request_texts()))
-            conflict_findings, conflict_ids = self._synthesis_conflicts(payload_obj, scope)
+            sid = dict(claim_ids=[payload_obj.synthesis_id], agent_ids=[payload_obj.combinator_agent_id])
+            scope = self._guarded("ledger scope", findings, lambda: self._ledger_scope(payload_obj), [], **sid)
+            findings += self._guarded("superseded citations (INT-HANDOFF-014)", findings, lambda: self._cited_superseded(payload_obj), [], **sid)
+            findings += self._guarded("claim ledger (INT-LEDGER)", findings, lambda: self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj, extra_texts=self._request_texts())), [], **sid)
+            conflict_findings, conflict_ids = self._guarded("conflict disclosure (INT-CONFLICT-002)", findings, lambda: self._synthesis_conflicts(payload_obj, scope), ([], []), **sid)
             findings += conflict_findings
             branch_ids += conflict_ids
-            ent_findings, ent_ids, checked = self._synthesis_entailment(payload_obj)
+            ent_findings, ent_ids, checked = self._guarded("synthesis entailment (INT-SYNTH)", findings, lambda: self._synthesis_entailment(payload_obj), ([], [], {}), **sid)
             findings += ent_findings
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
-            findings += self._unchecked_paraphrases(payload_obj, scope, checked)
+            findings += self._guarded("unchecked paraphrases (INT-SYNTH-012)", findings, lambda: self._unchecked_paraphrases(payload_obj, scope, checked), [], **sid)
             if not _is_blocking(findings):
                 self.syntheses.setdefault(payload_obj.synthesis_id, payload_obj)
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
@@ -1027,6 +1089,19 @@ class TranslatorChannel:
 
     # ------------------------------------------------------------------ internals
     @staticmethod
+    def _guarded(name: str, findings: list[IntegrityFinding], fn: Callable[[], object], default, **ids):
+        """``fn()``, or ``default`` when it fails internally: the failure is INT-INTERNAL-001 naming the check (its findings
+        are missing from the receipt and must not be read as a pass), the other checks still reach the receipt and the
+        transmission is still delivered. Nothing raises into the router."""
+        try:
+            return fn()
+        except Exception as exc:  # a content check that fails never takes the transmission down
+            findings.append(IntegrityFinding(code="INT-INTERNAL-001", severity="error",
+                                             message=f"the channel's {name} check failed internally ({type(exc).__name__}: {_shape_reason(exc)[:200]}); its findings are missing from this receipt and must not be read as a pass",
+                                             **ids))
+            return default
+
+    @staticmethod
     def _recipient_key(msg: AgentMessage) -> str:
         """The party a transmission reaches: its role and agent; the router of a channel is one party whatever agent id a
         relay names it by (a response to the router carries none)."""
@@ -1051,14 +1126,19 @@ class TranslatorChannel:
         if isinstance(sid, str):
             self.synthesis_recipients.setdefault(sid, set()).add(self._recipient_key(msg))
 
-    def _source_findings(self, report: SpecialistReport, supplied: list[SuppliedText]) -> tuple[set[str], set[str], list[IntegrityFinding]]:
+    def _source_findings(self, report: SpecialistReport, supplied: list[SuppliedText], *, request_text: Optional[str] = None) -> tuple[set[str], set[str], list[IntegrityFinding]]:
         """Every source reference of every claim against the supplied texts. An excerpt the
         cited document does not contain is INT-REQ-003 (error): the message says it was not
         found in the supplied texts, naming them, or where else it occurs (misattribution),
         rather than calling one document the cited one. An excerpt whose words occur but whose
         form differs (initial capital, verse line-break mark, long elision) is INT-REQ-010
-        (warning): not an invented quotation. Returns the claims so covered, the subset covered
-        only by a form-difference warning, and the findings."""
+        (warning): not an invented quotation. An excerpt whose words are the request's own (a
+        true/false statement, a phrase of the question: "toda", "complete years") quotes the
+        request and is no invented quotation: no finding, and no branch ``-SRC-001`` error for it.
+        A not-found message names the supplied text that holds all of the excerpt's words but one
+        or two (an altered quotation). Returns the claims so covered, the subset covered only by a
+        form-difference warning (or a quotation of the request), and the findings."""
+        from ..adapters.sources import nearest_text
         doc_ids = sorted(t.document_id for t in supplied)
         by_id = {t.document_id: t for t in supplied}
         covered: set[str] = set()
@@ -1070,6 +1150,9 @@ class TranslatorChannel:
                 if g.verified is not False:
                     continue
                 detail = g.detail or ""
+                if request_text and (ref.excerpt or "").strip() and g.method != "locator_exists" and _located(ref.excerpt or "", request_text):
+                    covered.add(c.claim_id)  # the request's own words, quoted: located, not invented
+                    continue
                 ids = dict(claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=doc_ids)
                 if g.method == "locator_exists":
                     out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"citation of claim {c.claim_id} to document {ref.document_id!r} cannot be verified: {detail} (supplied texts: {doc_ids})", **ids))
@@ -1084,11 +1167,73 @@ class TranslatorChannel:
                     if elsewhere:
                         out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} to document {ref.document_id!r} does not occur there; its words occur in {elsewhere} (misattributed)", **ids))
                     else:
-                        out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} was not found in the supplied texts {doc_ids}", **ids))
+                        near, missing = nearest_text(ref.excerpt or "", by_id)
+                        hint = (f"; the supplied text {near} holds all of its words but {', '.join(missing)} (an altered quotation)"
+                                if near is not None and 0 < len(missing) <= 2 and len((ref.excerpt or "").split()) >= 3 else "")
+                        out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} was not found in the supplied texts {doc_ids}{hint}", **ids))
                 covered.add(c.claim_id)
                 if out[-1].code == "INT-REQ-003":
                     not_found.add(c.claim_id)
         return covered, covered - not_found, out
+
+    @staticmethod
+    def _uncredited_quotations(report: SpecialistReport, supplied: list[SuppliedText], *, request_text: Optional[str] = None) -> list[IntegrityFinding]:
+        """INT-REQ-003 (error) for a quotation the parser credited to no text (``sources.uncredited_assumption``, which the
+        core pack reports as unverifiable, CORE-SRC-003) when texts were supplied and the quotation is refutable against
+        them: its words occur in none of the supplied texts nor in the request, its sentence carries no from-memory label,
+        and either a supplied text holds all of its words but one or two (an altered quotation of that text: "could mean
+        that shely has been hurt"; a relayed colleague's report counts only when no other text was supplied) or its
+        sentence credits it by kind to the text under analysis ("The narrator also insists that '...'", "the poem says").
+        A quotation credited to another source ("One critic writes that ...") stays unverifiable."""
+        from ..adapters.markdown import find_quotation_spans
+        from ..adapters.sources import is_peer_text, nearest_text, quotation_credit, uncredited_excerpt
+        if not supplied:
+            return []
+        docs = {t.document_id: t for t in supplied}
+        own = {d: t for d, t in docs.items() if not is_peer_text(t)}
+        candidates = dict(own or docs)
+        if request_text:  # the request's own words may be the ones altered ("complete years" -> "complete yearsly")
+            candidates["the request"] = SuppliedText(document_id="the request", title=None, author="router", text=request_text)
+        doc_ids = sorted(docs)
+        out: list[IntegrityFinding] = []
+
+        def norm(q: str) -> str:
+            return q.strip().strip(".,;:!?").strip().casefold()
+
+        def near_form(word: str, text: str) -> bool:
+            w = word.strip("'").casefold()
+            return any(len(w) >= 4 and (v.startswith(w[:4]) and abs(len(v) - len(w)) <= 3) for v in (x.casefold() for x in re.findall(r"[^\W\d_]+", text)))
+
+        for c in report.claims:
+            for a in c.assumptions:
+                ex = uncredited_excerpt(a)
+                if not ex or _MEMORY_LABEL_RE.search(c.claim_text):
+                    continue
+                if any(_located(ex, t.text, t.document_id) for t in supplied) or (request_text and _located(ex, request_text)):
+                    continue
+                words = len(ex.split())
+                near, missing, altered = None, [], False
+                for d, t in candidates.items():  # the text this quotation alters: all its words but one or two (a short one: a near form)
+                    _n, miss = nearest_text(ex, {d: t})
+                    if 0 < len(miss) <= 2 and len(miss) < words and (words >= 3 or all(near_form(w, t.text) for w in miss)) and (not altered or len(miss) < len(missing)):
+                        near, missing, altered = d, miss, True
+                # The sentence that carries the quotation (a parser may deliver the quotation as its own evidence claim and
+                # the sentence that credits it as another claim): the longest claim text holding it, else the response.
+                holders = sorted((x.claim_text for x in report.claims if norm(ex) in x.claim_text.casefold()), key=len, reverse=True)
+                sentence = holders[0] if holders else c.claim_text
+                credit = None
+                spans = [sp for sp in find_quotation_spans(sentence) if norm(sp[2]) == norm(ex)]
+                if spans:
+                    credit = quotation_credit(sentence, spans[0][0], docs)
+                by_kind = credit is not None and credit.generic and bool(own)
+                if not (altered or by_kind):
+                    continue
+                why = (f"{'the request' if near == 'the request' else 'the supplied text ' + near} holds all of its words but {', '.join(missing)} (an altered quotation)" if altered
+                       else f"the sentence credits it to {credit.phrase!r}, the text under analysis named by kind (an invented quotation)")
+                out.append(IntegrityFinding(code="INT-REQ-003", severity="error",
+                                            message=f"quotation '{ex[:120]}' of claim {c.claim_id}, which the report credits to no text, was not found in the supplied texts {doc_ids}: {why}",
+                                            claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=doc_ids))
+        return out
 
     @staticmethod
     def _peer_figures(report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
@@ -1297,20 +1442,57 @@ class TranslatorChannel:
         return IntegrityFinding(code="INT-REQ-011", severity="error", message=f"the response restates the request instead of answering it ({how}); no request item counts as addressed", claim_ids=[c.claim_id for c in report.claims], report_ids=[report.report_id], agent_ids=[report.agent_id])
 
     def _coverage(self, req: TaskRequest, report: SpecialistReport, *, echoed: bool = False) -> list[CoverageRecord]:
+        """Which request items the report addresses (a note never addresses one). A lettered or numbered item ("(b) Describe
+        ...", "1. ¿Cómo era ...?") is compared per part when the answer labels its parts with the request's labels: the
+        claims under the same label address it, so a reply that answers part (a) alone leaves (b) to (d) unaddressed
+        whatever words they share, and "1. Basura y cristales rotos." addresses item 1 in any language. Otherwise the
+        lexical heuristic: enough shared content terms with one material claim, or with the material claims of one
+        paragraph together (a paragraph that answers a guiding question need not repeat its words in one sentence); a
+        guiding, essay or research question is answered by a point, thesis or judgement claim that takes up its terms."""
         out: list[CoverageRecord] = []
+        material = _material_claims(report)
+        sections = _answer_sections(report.original_response)
+        section_of = _claim_sections(report.original_response, sections, material) if sections else {}
+        answer_labels = {lab for _start, labels in sections for lab in labels}
+        item_labels = {part_label(i.text) for i in req.items} - {None}
+        by_part = bool(item_labels & answer_labels)  # the answer labels its parts as the request does
+        groups: dict[str, set[str]] = {}
+        for c in material:
+            groups.setdefault(_paragraph_key(c.claim_id), set()).update(_terms(c.claim_text))
         for item in req.items:
             if echoed:  # a restated request addresses nothing, whatever words it shares with the items
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
-            it = _terms(item.text)
-            hits = [c.claim_id for c in _material_claims(report) if it and len(it & _terms(c.claim_text)) >= max(1, min(2, len(it) // 3))]  # a note never addresses an item
+            lab = part_label(item.text)
+            if by_part and lab is not None:
+                hits = [c.claim_id for c in material if lab in section_of.get(c.claim_id, ())]
+                out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits), addressed_by_claim_ids=hits, method="part_label"))
+                continue
+            it = _terms(_ITEM_LABEL_RE.sub("", item.text))
+            need = max(1, min(2, len(it) // 3))
+            hits = [c.claim_id for c in material if it and len(it & _terms(c.claim_text)) >= need]
+            if it and not hits:  # a paragraph's claims together
+                hits = [c.claim_id for c in material if len(it & groups.get(_paragraph_key(c.claim_id), set())) >= need]
+            if it and not hits and _ITEM_LABEL_RE.match(item.text):
+                # A guiding (essay, research) question frames the whole answer: a point, thesis or judgement claim that
+                # takes up its terms answers it, even when no sentence repeats enough of its words.
+                hits = [c.claim_id for c in material if c.claim_role in ("point", "thesis", "judgement") and it & _terms(c.claim_text)]
             out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits) or not it, addressed_by_claim_ids=hits, method="lexical_heuristic"))
         return out
 
     def _constraints(self, req: TaskRequest, report: SpecialistReport) -> tuple[list[ConstraintResult], list[str]]:
         results: list[ConstraintResult] = []
         formal_ids: list[str] = []
-        words, meta_words = count_answer_words(report.original_response)
+        measures: dict[tuple[str, ...], tuple[int, int, int]] = {}
+
+        def word_measure(c: Constraint) -> tuple[int, int, int]:
+            """``(answer words, note words, exempt words)`` for a word bound: notes left out, and the working and the
+            diagram too when the request sets them outside the bound ("plus working and your diagram")."""
+            key = tuple(sorted(c.excludes))
+            if key not in measures:
+                measures[key] = measure_answer_words(report.original_response, excludes=key)
+            return measures[key]
+        words, meta_words, _none = word_measure(Constraint(constraint_id="all", kind="max_words", text="all"))
         paras = count_paragraphs(report.original_response)
         # A minimum and a maximum stated by one span ("about 250 words", "between 300 and 400 words", "exactly 3
         # paragraphs") are decided by ONE range problem when the measurement lies within both: each constraint cites that
@@ -1321,21 +1503,24 @@ class TranslatorChannel:
             for c in req.constraints:
                 if c.kind in (f"min_{unit}", f"max_{unit}") and c.value is not None:
                     spans.setdefault(c.text, {})[c.kind[:3]] = c
-            measured = words if unit == "words" else paras
             for pair in spans.values():
-                if "min" in pair and "max" in pair and pair["min"].value.isdigit() and pair["max"].value.isdigit() and int(pair["min"].value) <= measured <= int(pair["max"].value):
+                measured = word_measure(next(iter(pair.values())))[0] if unit == "words" else paras
+                if "min" in pair and "max" in pair and pair["min"].value.isdecimal() and pair["max"].value.isdecimal() and int(pair["min"].value) <= measured <= int(pair["max"].value):
                     res = self._formal_range(req, pair["min"], pair["max"], measured)  # the engine decides; the comparison only chooses the problem
                     if res.status is S.ENTAILED:
                         ranged[pair["min"].constraint_id] = ranged[pair["max"].constraint_id] = res
         for c in req.constraints:
             if c.kind in ("max_words", "min_words", "max_paragraphs", "min_paragraphs") and c.value is not None:
                 is_words = c.kind.endswith("words")
-                measured = words if is_words else paras
+                c_words, c_notes, c_exempt = word_measure(c) if is_words else (words, meta_words, 0)
+                measured = c_words if is_words else paras
                 res = ranged.get(c.constraint_id) or self._formal_bound(req, c, measured)
                 if res.result_id not in formal_ids:
                     formal_ids.append(res.result_id)
                 sat = True if res.status is S.ENTAILED else False if res.status is S.COUNTEREXAMPLE else None
-                excluded = f" ({meta_words} words of note or meta-text blocks excluded, as for paragraphs)" if is_words and meta_words else ""
+                excluded = f" ({c_notes} words of note or meta-text blocks excluded, as for paragraphs)" if is_words and c_notes else ""
+                if is_words and c.excludes:
+                    excluded += f" (prose only: {c_exempt} words of {' and '.join(c.excludes)} excluded, as the request sets them outside the bound)"
                 results.append(ConstraintResult(constraint_id=c.constraint_id, satisfied=sat, method="formal",
                                                 detail=f"measured {measured} {'words' if is_words else 'paragraphs'}{excluded}; bound {c.kind} {c.value}; solver {res.status.value}",
                                                 formal_result_id=res.result_id, formal_status=res.status.value))
@@ -1525,13 +1710,32 @@ class TranslatorChannel:
                     self.ambiguous_pooled.discard(c.claim_id)
                 contributed += 1
             if out.verification is not None and out.verification.status is S.INCONSISTENT_PREMISES:
-                findings.append(IntegrityFinding(code="INT-REQ-007", severity="error", message=f"claim {c.claim_id} rests on premises that contradict each other", claim_ids=[c.claim_id], formal_result_id=out.verification.result_id, deterministic=False))
+                findings.append(self._inconsistent_premises(c, out))
         if contributed and len(self.formalized) >= 2:  # only a report that formalized something can be party to a conflict
-            res, f = check_cross_report_consistency(list(self.formalized.values()), request_id=self.plan.request_id, config=self.config, signing_key=self.key, assumed_readings=frozenset(self.ambiguous_pooled))
+            try:
+                res, f = check_cross_report_consistency(list(self.formalized.values()), request_id=self.plan.request_id, config=self.config, signing_key=self.key, assumed_readings=frozenset(self.ambiguous_pooled))
+            except Exception as exc:  # the outcomes above are kept; the router is told the joint check is missing
+                findings.append(IntegrityFinding(code="INT-INTERNAL-001", severity="error", message=f"the channel's cross-agent consistency check failed internally ({type(exc).__name__}); contradictions with other agents' claims were not checked on this receipt",
+                                                 report_ids=[report.report_id], agent_ids=[report.agent_id]))
+                return outcomes
             f = self._with_report_ids(f)
             findings.extend(f)
             self.conflicts_seen.extend((frozenset(x.claim_ids), x.formal_result_id) for x in f if x.code == "INT-CONFLICT-001")
         return outcomes
+
+    @staticmethod
+    def _inconsistent_premises(claim: ClaimRecord, out: ClaimVerificationOutcome) -> IntegrityFinding:
+        """INT-REQ-007: the claim's premises contradict each other (engine). An error only for a TRANSLATED claim: when the
+        translation is AMBIGUOUS_TRANSLATION, the premises are the translator's assumed reading (a rounded figure encoded
+        as an exact equality, say), so the inconsistency belongs to that reading and the specialist is not charged: a
+        warning, worded as INT-CONFLICT-005 words a self-refutation under an assumed reading."""
+        ids = dict(claim_ids=[claim.claim_id], formal_result_id=out.verification.result_id, deterministic=False)
+        if out.translation.status is TranslationStatus.AMBIGUOUS_TRANSLATION:
+            interp = out.translation.interpretation
+            flags = [f"{a.code}: {a.message[:160]}" for a in (interp.ambiguity_flags if interp is not None else [])][:4]
+            why = f" (the translator's ambiguity flags: {flags})" if flags else ""
+            return IntegrityFinding(code="INT-REQ-007", severity="warning", message=f"claim {claim.claim_id} rests on premises that contradict each other only under the assumed reading of its AMBIGUOUS_TRANSLATION{why}: the inconsistency belongs to the reading the translator chose (for example a rounded figure encoded as an exact equality), not to the specialist's statement, so the specialist is not charged with an inconsistency", **ids)
+        return IntegrityFinding(code="INT-REQ-007", severity="error", message=f"claim {claim.claim_id} rests on premises that contradict each other", **ids)
 
     def _finish(self, msg: AgentMessage, direction: str, findings, coverage, constraint_results, outcomes, formal_ids=(), *, structural=(), branch_formal=(), branch_key: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         structural = list(structural)

@@ -13,10 +13,26 @@ nothing, so when the conclusion fails only on such a figure (the engine's `E110`
 COUNTEREXAMPLE turns ENTAILED once the defined atoms are asserted) the output is
 INVALID_FORMALIZATION with that diagnostic, fed back once, ambiguous or not; otherwise the
 unasserted definitions are recorded as a note, and an ambiguity flag that says the figure "is
-encoded" (a literal equality) is named as not matching the IR → status TRANSLATED,
-AMBIGUOUS_TRANSLATION, UNSUPPORTED, INVALID_FORMALIZATION, NOT_ELIGIBLE or TRANSLATION_FAILED.
-`outcome.display_status_for` displays a definitive result carrying `E108` (vacuous) or `E110`
-(unasserted figure) as INVALID_FORMALIZATION, never as a verdict.
+encoded" (a literal equality) is named as not matching the IR → circularity: an encoding whose
+premises restate its conclusion from the writer's own assertions (the engine's `E112`) is
+INVALID_FORMALIZATION, fed back once → stated precision: a figure written to n places states its
+value to half a unit of its last place (`widen_rounded_literals` reads each decimal literal as that
+interval, "-0.67" as [-0.675, -0.665)), so an encoding that is INCONSISTENT_PREMISES or a
+COUNTEREXAMPLE as written and ENTAILED or CONSISTENT once its rounded figures are so read is
+INVALID_FORMALIZATION ("stated precision: ..."), fed back once; a wrong rounded figure stays wrong → a
+conclusion label that states a figure its expression does not check (no literal of the conclusion, to
+its stated precision or as a percentage, and no gloss of its symbols states it) is recorded as a note
+(`label_beyond_expression`) and shown beside the label in the outcome summary; the verdict is unchanged →
+status TRANSLATED, AMBIGUOUS_TRANSLATION, UNSUPPORTED, INVALID_FORMALIZATION, NOT_ELIGIBLE or
+TRANSLATION_FAILED. `outcome.display_status_for` displays a definitive result carrying `E108`
+(vacuous), `E110` (unasserted figure), `E111` (unencoded reason) or `E112` (circular) as
+INVALID_FORMALIZATION, never as a verdict; an AMBIGUOUS_TRANSLATION's result is described as the
+translator's chosen encoding of one reading, run for inspection.
+
+Eligibility counts figures on `eligibility.figure_text`: mark annotations ("[2]", "[2 marks]"), part
+labels ("(a)", "(iii)", "Part (b)") and named items ("Paper 1") are not figures, so a heading is not
+a quantitative claim. Evidence is a QUANTITATIVE_CLAIM only with two related figures or a
+comparative; a single date or figure is not (its only encoding would restate it).
 
 `review.py` runs an independent, advisory semantic-fidelity review. `outcome.py`
 composes the Overseer-facing `ClaimVerificationOutcome` (display status derived
@@ -36,7 +52,9 @@ break, with ` / `, ` // ` or no break mark (every stanza of 'The Man He Killed' 
 speech mark at a line or stanza start or end"), diacritics folded with NFKD and combining marks dropped, a long
 elision). An elision mark written in the academic form, in brackets or
 parentheses (`[...]`, `[…]`, `[ . . . ]`, `(...)`), is read as the same ellipsis in every tier (`unbracket_elisions`), so
-a correct elided quotation is never reported as invented. A form difference never verifies a
+a correct elided quotation is never reported as invented. A located excerpt verifies a premise only when it states the premise's figures (the figures of its
+literals; 0, ±1, 10, 100, 1000 and fractions aside): a premise `it1 = 3` grounded in "scores = [12, 19, 23" is not verified
+(`GroundingCheck.method` `figures_in_excerpt`). A form difference never verifies a
 grounding but is reported as one ("differs in form", the channel's INT-REQ-010), never as an
 invented quotation; accents encoded differently (precomposed against combining) are the same
 letters and a normalised match. Each supplied text's normalised forms and offset maps are
