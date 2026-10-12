@@ -1,0 +1,58 @@
+{
+  "three_part_physics": {
+    "answers": 60,
+    "p50_ms": 129.29700500171748,
+    "p95_ms": 188.07971100250143,
+    "max_ms": 213.44351299921982,
+    "checks_per_answer": [
+      13,
+      13
+    ],
+    "error_findings": 0
+  },
+  "checks_128": {
+    "checks": 128,
+    "satisfied": 128,
+    "seconds": 1.2240133989980677,
+    "codes": [
+      "ST-LIM-002"
+    ]
+  },
+  "adversarial_400k": {
+    "mixed_runs_s": [
+      1.548,
+      1.085,
+      1.133,
+      1.152,
+      1.29
+    ],
+    "best_s": 1.085,
+    "single_pattern_400k_s": {
+      "nested_brackets": 0.573,
+      "unclosed_dollars": 1.808,
+      "1e_chain": 1.637,
+      "digits_30": 0.289
+    },
+    "findings": [
+      "ST-LIM-001",
+      "ST-LIM-002",
+      "ST-SCOPE-001"
+    ]
+  },
+  "corpus_through_hub": {
+    "items": 558,
+    "p50_ms": 37.424501999339554,
+    "p95_ms": 76.59046799744829,
+    "max_ms": 169.30699700242258,
+    "total_s": 21.31421676795071
+  },
+  "non_stem_unchanged": {
+    "subjects": [
+      "History",
+      "Economics",
+      "English A: Literature",
+      "Business Management"
+    ],
+    "stem_documents_built": 0
+  }
+}

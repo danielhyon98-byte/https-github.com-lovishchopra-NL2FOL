@@ -7,6 +7,14 @@ expressions only. It is deliberately conservative: anything it cannot classify i
 kept as one instruction item so nothing asked is lost. A model-backed structurer can
 be layered on top later through the same ``TaskRequest`` contract; its output would
 be data validated here, never trusted.
+
+A branch may widen two readings (``branches.base.BranchHooks``; the STEM branches only):
+``extract_items(text, extra_imperatives=...)`` takes more imperative verbs (at the start of a
+sentence or after a part label such as ``(a)``), and splits a request at a line that opens with
+a part label, so a multi-part question becomes one item per part; ``count_answer_words(text,
+view=...)`` and ``measure_answer_words(text, excludes=..., view=...)`` measure the words of the
+branch's view of the answer (STEM: a maths span or a code block is one word). The defaults
+reproduce the general reading exactly.
 """
 from __future__ import annotations
 
@@ -184,6 +192,29 @@ def extract_constraints(text: str) -> list[Constraint]:
     return out
 
 
+#: A line that opens with a part label ('(a)', 'b)', '(ii)', 'Part (c)'): a new item when a branch adds imperatives.
+_PART_LINE_RE = re.compile(r"\n[ \t]*(?=\(?(?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)\s|part\s+\(?[a-z0-9]{1,3}\)?\b)", re.IGNORECASE)
+#: A part label at the start of a sentence.
+_PART_LEAD_RE = re.compile(r"^(?:\(?(?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)\s*|part\s+\(?[a-z0-9]{1,3}\)?[:.]?\s*)+", re.IGNORECASE)
+
+
+#: The rubric's instruction on how to set out an answer ("Show your working with units.", "Show full working.", "Show all
+#: steps clearly."): a way of answering the parts, never a part of its own, whatever imperatives a branch adds.
+_SHOW_WORKING_RE = re.compile(
+    r"^show\s+(?:(?:all|your|full|the|clear|complete|any|of)\s+)*(?:working|workings|work|steps|method|calculations?)"
+    r"(?:\s+(?:clearly|in\s+full|with\s+(?:the\s+)?units))?\s*[.!]?\s*$")
+
+
+def _leads_with(low: str, words: tuple[str, ...]) -> bool:
+    """True when ``low`` (a lower-cased sentence) opens with one of ``words``, after any part label. A sentence that only
+    asks for working to be shown (:data:`_SHOW_WORKING_RE`) is no item: the default reading never takes it for one, and
+    the imperatives a branch adds do not either."""
+    lead = _PART_LEAD_RE.sub("", low, count=1)
+    if _SHOW_WORKING_RE.match(lead):
+        return False
+    return any(lead.startswith(w) and (len(lead) == len(w) or not lead[len(w)].isalpha()) for w in words)
+
+
 #: A part label of a multi-part question: "(a)", "a)", "(ii)", "ii)", "1.", "2)" standing at the start of the request, of a
 #: line, or after the end of a sentence, a mark annotation or a closing quotation mark ("... [3] (b) Find ...", "... exam.
 #: 1. Según ...", "... en 2020? 3. Indica ..."), never inside prose ("part (a)", "Paper 2", "1.5").
@@ -233,9 +264,10 @@ def request_parts(text: str) -> list[tuple[str | None, str]]:
     return out
 
 
-def _sentence_items(chunk: str) -> list[tuple[str, str, bool]]:
+def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = ()) -> list[tuple[str, str, bool]]:
     """``(item text, kind, is_item)`` per sentence of an unlabelled piece: questions, imperatives and requests ("Please
-    ..."), a constraint span removed; a sentence that is only a constraint is not an item."""
+    ..."), a constraint span removed; a sentence that is only a constraint is not an item. ``extra_imperatives`` (a
+    branch's hook) are further imperative verbs, read at the start of a sentence or after a part label."""
     out: list[tuple[str, str, bool]] = []
     for sent in (s.strip() for s in _ITEM_SENT_RE.split(chunk.strip()) if s.strip()):
         if is_constraint_only(sent) and not _PLEASE_RE.match(sent):
@@ -245,12 +277,13 @@ def _sentence_items(chunk: str) -> list[tuple[str, str, bool]]:
             continue
         low = item_text.lower()
         is_q = item_text.endswith("?") or "?" in item_text or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways", "¿"))
-        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) or bool(_PLEASE_RE.match(item_text))
+        is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) or bool(_PLEASE_RE.match(item_text)) \
+            or (bool(extra_imperatives) and _leads_with(low, extra_imperatives))
         out.append((item_text, "question" if is_q else "instruction", is_q or is_imp))
     return out
 
 
-def extract_items(text: str) -> list[RequestItem]:
+def extract_items(text: str, *, extra_imperatives: tuple[str, ...] = ()) -> list[RequestItem]:
     """Questions and instructions of the request, one item each. A lettered or numbered part ("(a)", "a)", "(ii)", "1.")
     is one item with its own text, whatever language it is in, so a reply that leaves a part out is seen as leaving it out
     (:func:`request_parts`); the request's own text around the parts yields an item per question, imperative or request
@@ -258,7 +291,9 @@ def extract_items(text: str) -> list[RequestItem]:
     ``extract_constraints``; a sentence that mixes a constraint with a content instruction ("Write no more than 200 words
     and give a judgement on which effect mattered most") yields the content instruction as an item, with the constraint
     span removed, so an answer that omits it is seen as not covering it. Conservative: a sentence that carries a question
-    mark is never dropped."""
+    mark is never dropped. ``extra_imperatives`` (a branch's hook; the STEM branches) are further imperative verbs, read at
+    the start of a sentence or after a part label; with them, a line that opens with a part label (``(a)``, ``b)``,
+    ``Part (c)``) also starts a new piece. With none (every other branch) the reading is the general one exactly."""
     items: list[RequestItem] = []
 
     def add(item_text: str, kind: str) -> None:
@@ -267,13 +302,15 @@ def extract_items(text: str) -> list[RequestItem]:
         term, level = detect_command_term(item_text)
         items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind=kind, command_term=term, level=level))
 
-    for label, chunk in request_parts(text):
+    pieces = [pc for pc in _PART_LINE_RE.split(text.strip()) if pc.strip()] if extra_imperatives else [text]
+    parts = [part for piece in pieces for part in request_parts(piece)]
+    for label, chunk in parts:
         if label is None:
-            for item_text, kind, is_item in _sentence_items(chunk):
+            for item_text, kind, is_item in _sentence_items(chunk, extra_imperatives):
                 if is_item:
                     add(item_text, kind)
             continue
-        kept = [it for it, _k, _i in _sentence_items(chunk)]
+        kept = [it for it, _k, _i in _sentence_items(chunk, extra_imperatives)]
         body = " ".join(kept).strip()
         if not body or not re.search(r"[^\W\d_]", body):
             continue
@@ -366,15 +403,19 @@ def _is_working_sentence(sentence: str) -> bool:
     return bool(_EQUATION_RE.search(bare))
 
 
-def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = ()) -> tuple[int, int, int]:
+def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (), view=None) -> tuple[int, int, int]:
     """``(answer words, note words, exempt words)`` for a word bound. Notes are left out as :func:`count_answer_words`
     leaves them out (note blocks, note clauses, JSON spans). With ``"working"`` in ``excludes`` (the request said "plus
     working"), lines and sentences of working (equations and calculations outside quotations, arrow chains of figures,
     table rows, part-and-mark label lines, a block the writer heads "Working ...") are exempt; with ``"diagram"``, a
     diagram described in words (a block opening "Diagram 1:", or one of "Axes:", "Curves:", "Labels:" lines) is exempt.
     A line that holds an equation outside its quotations is working as a whole ("Result: PED = −0.67. Demand is price
-    inelastic ..." states the result of the working on its line); a prose line that quotes an equation stays prose."""
+    inelastic ..." states the result of the working on its line); a prose line that quotes an equation stays prose.
+    ``view`` (a branch's hook; the STEM branches) maps the answer to the text its words are counted on (STEM: a maths span
+    or a code block is one word) before anything else is read."""
     from ..adapters.markdown import strip_markup
+    if view is not None:
+        text = view(text)
     answer = notes = exempt = 0
     working, diagram = "working" in excludes, "diagram" in excludes
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
@@ -422,7 +463,7 @@ def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (
     return answer, notes, exempt
 
 
-def count_answer_words(text: str) -> tuple[int, int]:
+def count_answer_words(text: str, *, view=None) -> tuple[int, int]:
     """``(answer words, note words)``: the words of the answer proper and the words of the
     note blocks and note clauses :func:`count_paragraphs` leaves out (from-memory labels,
     self-certification lines, task notes, pasted JSON spans, a block labelled "Note:" that is
@@ -431,8 +472,9 @@ def count_answer_words(text: str) -> tuple[int, int]:
     A sentence whose only note is an inline label counts its substance as answer and the label
     as notes. Sentences are cut as the parsers cut them (:func:`_segments`): a JSON fragment
     glued into a paragraph is meta-text on its own and the sentences around it stay answer, so
-    adding ``{"n": 1}`` to a paragraph never takes its prose out of a word bound."""
-    answer, notes, _exempt = measure_answer_words(text)
+    adding ``{"n": 1}`` to a paragraph never takes its prose out of a word bound. ``view`` (a branch's hook) maps the
+    answer to the text its words are counted on."""
+    answer, notes, _exempt = measure_answer_words(text, view=view)
     return answer, notes
 
 

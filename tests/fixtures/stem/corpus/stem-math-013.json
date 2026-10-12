@@ -1,0 +1,21 @@
+{
+  "id": "stem-math-013",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "Evaluate the definite integral of 3x² + 1 from x = 0 to x = 2, and interpret the result as an area.",
+  "supplied_texts": [],
+  "response_text": "$$\\int_0^2 (3x^2 + 1)\\,dx = \\left[x^3 + x\\right]_0^2 = (2^3 + 2) - (0^3 + 0) = 10 - 0 = 10$$\n\nThe area between the curve y = 3x² + 1 and the x-axis from x = 0 to x = 2 is therefore 10 square units.",
+  "notation": [
+    "latex_display",
+    "calculus",
+    "unicode"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "\\int_0^2 (3x^2 + 1)\\,dx = \\left[x^3 + x\\right]_0^2",
+      "(2^3 + 2) - (0^3 + 0) = 10 - 0 = 10",
+      "is therefore 10 square units"
+    ]
+  }
+}

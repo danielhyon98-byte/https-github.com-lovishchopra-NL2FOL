@@ -1,0 +1,25 @@
+{
+  "id": "stem-phys-018",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A cell of emf 6.0 V and internal resistance 0.50 Ω is connected to a 2.5 Ω resistor. Calculate the current and the terminal potential difference.",
+  "supplied_texts": [],
+  "response_text": "Use ε = I(R + r), so the current is I = ε/(R + r).\n\n```\nI = 6.0 / (2.5 + 0.50) = 6.0 / 3.0 = 2.0 A\nV = I*R = 2.0 * 2.5 = 5.0 V\n```\n\nSo the current is 2.0 A and the terminal pd is 5.0 V. The lost volts are I*r = 2.0*0.50 = 1.0 V, and 5.0 V + 1.0 V = 6.0 V, which equals the emf as it should.",
+  "notation": [
+    "code_block",
+    "ascii",
+    "unicode",
+    "greek_symbols",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "I = 6.0 / (2.5 + 0.50) = 6.0 / 3.0 = 2.0 A",
+      "V = I*R = 2.0 * 2.5 = 5.0 V",
+      "So the current is 2.0 A and the terminal pd is 5.0 V",
+      "I*r = 2.0*0.50 = 1.0 V",
+      "5.0 V + 1.0 V = 6.0 V"
+    ]
+  }
+}

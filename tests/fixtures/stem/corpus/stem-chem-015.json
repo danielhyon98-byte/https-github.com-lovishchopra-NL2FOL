@@ -1,0 +1,29 @@
+{
+  "id": "stem-chem-015",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Write a balanced equation for the complete combustion of propane and calculate its molar mass. Ar: C = 12.01, H = 1.01.",
+  "supplied_texts": [],
+  "response_text": "Propane burns completely in excess oxygen to give carbon dioxide and water:\n\nC₃H₈ + 4O₂ → 3CO₂ + 4H₂O\n\nEach propane molecule gives three molecules of carbon dioxide because it contains three carbon atoms. Its molar mass is M(C₃H₈) = 3 × 12.01 + 8 × 1.01 = 44.11 g mol⁻¹.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unbalanced_equation",
+        "step": "C₃H₈ + 4O₂ → 3CO₂ + 4H₂O",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-chem: carbon 3 = 3 and hydrogen 8 = 8, but oxygen is 8 on the left and 3 × 2 + 4 = 10 on the right. The balanced equation needs 5O₂. [computed: unbalanced: O: 8 vs 10]"
+      }
+    ],
+    "correct_steps": [
+      "Each propane molecule gives three molecules of carbon dioxide because it contains three carbon atoms",
+      "M(C₃H₈) = 3 × 12.01 + 8 × 1.01 = 44.11 g mol⁻¹"
+    ]
+  }
+}

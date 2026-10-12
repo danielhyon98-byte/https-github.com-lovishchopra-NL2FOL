@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-005",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A car of mass 1200 kg accelerates uniformly from rest to 18 m s⁻¹ in 6.0 s. The total resistive force on the car is 800 N. Calculate the driving force.",
+  "supplied_texts": [],
+  "response_text": "Given: m = 1200 kg, Δv = 18 m s⁻¹, Δt = 6.0 s, F_res = 800 N.\n\na = Δv/Δt = 18/6.0 = 3.0 m s⁻²\nF_net = ma = 1200 × 3.0 = 3600 N = 3.6 × 10³ N\nF_drive = F_net + F_res = 3600 + 800 = 4400 N = 4.4 kN\n\nThe driving force must be 4.4 kN: 3.6 kN accelerates the car and the remaining 800 N balances the resistive forces.",
+  "notation": [
+    "unicode",
+    "ascii",
+    "subscripted_symbols",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "units_prefix",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "m = 1200 kg, Δv = 18 m s⁻¹, Δt = 6.0 s, F_res = 800 N",
+      "a = Δv/Δt = 18/6.0 = 3.0 m s⁻²",
+      "F_net = ma = 1200 × 3.0 = 3600 N",
+      "3600 N = 3.6 × 10³ N",
+      "F_drive = F_net + F_res = 3600 + 800 = 4400 N",
+      "4400 N = 4.4 kN",
+      "The driving force must be 4.4 kN: 3.6 kN accelerates the car"
+    ]
+  }
+}

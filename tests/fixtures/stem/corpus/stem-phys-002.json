@@ -1,0 +1,26 @@
+{
+  "id": "stem-phys-002",
+  "subject": "Physics",
+  "task_type": "structured_answer",
+  "question": "A stone is dropped from rest from the top of a cliff and hits the sea 3.0 s later. Calculate (a) its speed just before impact and (b) the height of the cliff. Ignore air resistance.",
+  "supplied_texts": [],
+  "response_text": "Given $u = 0$, $t = 3.0\\ \\text{s}$, and taking $g = 9.8\\ \\text{m s}^{-2}$ downwards.\n\n(a) Using $v = u + at$: $v = 0 + 9.8 \\times 3.0 = 29.4\\ \\text{m s}^{-1} \\approx 29\\ \\text{m s}^{-1}$.\n\n(b) Using $s = ut + \\tfrac{1}{2}at^2$: $s = 0 + \\tfrac{1}{2}(9.8)(3.0)^2 = 44.1\\ \\text{m} \\approx 44\\ \\text{m}$.\n\nThe stone reaches about 29 m s⁻¹ after falling about 44 m. Because air resistance is ignored, both values are slight overestimates.",
+  "notation": [
+    "latex_inline",
+    "units_latex",
+    "units_unicode_exponent",
+    "part_labels",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "$t = 3.0\\ \\text{s}$",
+      "v = 0 + 9.8 \\times 3.0 = 29.4\\ \\text{m s}^{-1}",
+      "29.4\\ \\text{m s}^{-1} \\approx 29\\ \\text{m s}^{-1}",
+      "s = 0 + \\tfrac{1}{2}(9.8)(3.0)^2 = 44.1\\ \\text{m}",
+      "44.1\\ \\text{m} \\approx 44\\ \\text{m}",
+      "about 29 m s⁻¹ after falling about 44 m"
+    ]
+  }
+}

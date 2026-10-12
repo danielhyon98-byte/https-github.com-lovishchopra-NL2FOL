@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-001",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A trolley accelerates uniformly from rest to 20 m s⁻¹ in 4.0 s. Calculate its acceleration.",
+  "supplied_texts": [],
+  "response_text": "The trolley starts from rest, so u = 0. Using a = Δv/Δt, a = (20 - 0)/4.0 = 6.0 m s⁻². The acceleration is therefore 6.0 m s⁻².",
+  "notation": [
+    "unicode",
+    "ascii",
+    "units_unicode_exponent"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "(20 - 0)/4.0 = 6.0 m s⁻²",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq: the written expression (20 - 0)/4.0 is exactly 5.0, stated 6.0; |5 - 6| = 1 exceeds h + tau*|C| = 0.05 + 0.05. The observed case of the design (section 1). The restatement 6.0 carries the slip and is consistent with the chain. [computed: C=5 S=6.0 h=0.05 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "so u = 0",
+      "a = (20 - 0)/4.0"
+    ]
+  }
+}

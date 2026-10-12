@@ -1,0 +1,28 @@
+{
+  "id": "stem-chem-016",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Write the ionic equation for the oxidation of iron(II) ions by chlorine and identify the oxidising agent.",
+  "supplied_texts": [],
+  "response_text": "Chlorine oxidises iron(II) to iron(III) and is itself reduced to chloride ions:\n\nFe²⁺(aq) + Cl₂(aq) → Fe³⁺(aq) + 2Cl⁻(aq)\n\nChlorine gains electrons (Cl₂ + 2e⁻ → 2Cl⁻), so it is the oxidising agent.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "ionic_charges"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unbalanced_charge",
+        "step": "Fe²⁺(aq) + Cl₂(aq) → Fe³⁺(aq) + 2Cl⁻(aq)",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-chem: the atoms balance (Fe 1 = 1, Cl 2 = 2) but the charge is +2 on the left and +3 − 2 = +1 on the right. The balanced equation is 2Fe²⁺ + Cl₂ → 2Fe³⁺ + 2Cl⁻. [computed: unbalanced: charge: 2 vs 1]"
+      }
+    ],
+    "correct_steps": [
+      "Cl₂ + 2e⁻ → 2Cl⁻"
+    ]
+  }
+}

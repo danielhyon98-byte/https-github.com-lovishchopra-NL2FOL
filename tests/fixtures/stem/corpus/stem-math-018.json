@@ -1,0 +1,28 @@
+{
+  "id": "stem-math-018",
+  "subject": "Mathematics: Applications and Interpretation",
+  "task_type": "structured_answer",
+  "question": "Find the gradient of the line through A(4, 3) and B(4, 7), state its equation, and find the length AB.",
+  "supplied_texts": [],
+  "response_text": "Gradient: m = (y₂ − y₁)/(x₂ − x₁) = (7 − 3)/(4 − 4) = 0\nSo the line through A and B is horizontal, with equation y = 3.\nLength of AB: √((4 − 4)² + (7 − 3)²) = √16 = 4 units.",
+  "notation": [
+    "unicode",
+    "subscripted_symbols",
+    "coordinates"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "undefined_expression",
+        "step": "(7 − 3)/(4 − 4) = 0",
+        "expected_codes": [
+          "ST-UNDEF-001"
+        ],
+        "note": "The divisor 4 − 4 is exactly zero, so the gradient is undefined: the line is vertical, x = 4 (not horizontal, y = 3). The numeric precheck refuses the division and names it; no check is built. [computed: divisor = 0 -> division by an exact zero]"
+      }
+    ],
+    "correct_steps": [
+      "√((4 − 4)² + (7 − 3)²) = √16 = 4"
+    ]
+  }
+}

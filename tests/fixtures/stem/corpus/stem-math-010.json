@@ -1,0 +1,25 @@
+{
+  "id": "stem-math-010",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "Solve 3e^(2x) = 12, giving the exact answer and its value to 3 significant figures.",
+  "supplied_texts": [],
+  "response_text": "$3e^{2x} = 12$, so $e^{2x} = 4$.\nTaking natural logarithms: $2x = \\ln 4$, so $x = \\tfrac{1}{2}\\ln 4 = \\ln 2 \\approx 0.693$.\n\nCheck: $e^{2(0.693)} = e^{1.386} \\approx 4.00$, and $3 \\times 4.00 = 12.0$ ✓",
+  "notation": [
+    "latex_inline",
+    "logarithm",
+    "fractions_surds"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "$e^{2x} = 4$",
+      "$2x = \\ln 4$",
+      "x = \\tfrac{1}{2}\\ln 4 = \\ln 2",
+      "\\ln 2 \\approx 0.693",
+      "e^{2(0.693)} = e^{1.386}",
+      "e^{1.386} \\approx 4.00",
+      "3 \\times 4.00 = 12.0"
+    ]
+  }
+}

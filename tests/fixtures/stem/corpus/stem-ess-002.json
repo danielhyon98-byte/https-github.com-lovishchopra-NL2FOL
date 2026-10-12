@@ -1,0 +1,29 @@
+{
+  "id": "stem-ess-002",
+  "subject": "Environmental Systems and Societies",
+  "task_type": "short_answer",
+  "question": "A forest has a gross primary productivity of 3.6 × 10⁴ kJ m⁻² yr⁻¹, and the producers lose 2.1 × 10⁴ kJ m⁻² yr⁻¹ in respiration. Calculate the net primary productivity.",
+  "supplied_texts": [],
+  "response_text": "NPP = GPP − R\nNPP = 3.6 × 10⁴ − 2.1 × 10⁴ = 1.3 × 10⁴ kJ m⁻² yr⁻¹\n\nThis is the energy stored as new biomass that is available to the primary consumers.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "units_unicode_exponent"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "3.6 × 10⁴ − 2.1 × 10⁴ = 1.3 × 10⁴ kJ m⁻² yr⁻¹",
+        "expected_codes": [
+          "INT-SUBJ-001",
+          "INT-SUBJ-004"
+        ],
+        "note": "stem-eq: 3.6 × 10⁴ − 2.1 × 10⁴ = 1.5 × 10⁴ exactly; stated 1.3 × 10⁴; |2000| exceeds h + tau*|C| = 500 + 150. The arithmetic rests only on stated figures (error). If the front end does not recognise yr⁻¹ (the design's time units are min, h and d), ST-UNIT-001 applies and the design reports the same failure at warning severity (INT-SUBJ-004). [computed: C=15000 S=1.3e4 h=500 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "NPP = GPP − R"
+    ]
+  }
+}

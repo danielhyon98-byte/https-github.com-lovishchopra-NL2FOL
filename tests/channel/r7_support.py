@@ -8,7 +8,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from epinoic_logic.branches import RouterHub
+from epinoic_logic.branches import RouterHub, default_registry
+from epinoic_logic.branches.generic_parser import GenericTextParser
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
@@ -60,6 +61,34 @@ def base_id(claim_id: str) -> str:
     return claim_id.split("@", 1)[0]
 
 
+#: the branches whose parser numbers claims with its own letter (s, m, c) instead of the generic branch's agent-qualified ids
+STEM_BRANCHES = frozenset({"sciences", "mathematics", "computer_science"})
+_RECORDED: dict[tuple[str, str], dict[str, str]] = {}
+
+
+def recorded_ids(report: SpecialistReport) -> dict[str, str]:
+    """Delivered claim id -> the id the r7 recording gives the same claim. A generic-branch id keeps the recorded id before
+    the "@"; a STEM-branch report (Physics, Chemistry, Biology, ESS, Mathematics, Computer Science) delivers the generic
+    parser's round-7 claims, claim by claim, under the branch's own letter (tests/stem/test_merge_round7.py), so its
+    claim's recorded id is the generic parser's id of the claim at the same place (the texts are asserted equal)."""
+    key = (report.report_id, report.response_sha256)
+    if key in _RECORDED:
+        return _RECORDED[key]
+    ids = [c.claim_id for c in report.claims]
+    branch, _ = default_registry().for_subject(report.subject)
+    if branch.key not in STEM_BRANCHES:
+        out = {i: base_id(i) for i in ids}
+    else:
+        generic = GenericTextParser(report.agent_id).parse_response(report.original_response, request_id=report.request_id, task_id=report.task_id,
+                                                                    report_id=report.report_id, subject=report.subject, task_type=report.task_type,
+                                                                    supplied_texts=list(report.supplied_texts), agent_id=report.agent_id)
+        texts = [" ".join(c.claim_text.split()) for c in report.claims]
+        assert texts == [" ".join(c.claim_text.split()) for c in generic.claims], (report.report_id, "the STEM parser's claims are not the generic parser's")
+        out = {i: base_id(g.claim_id) for i, g in zip(ids, generic.claims)}
+    _RECORDED[key] = out
+    return out
+
+
 def verify_fn(task_id: str):
     """The translator agent's recorded output for ``task_id`` (only the claims kept in r7_translations.json), served by
     the fixture provider and decided through the real pipeline and engine. The fixture is bound to the delivered claim
@@ -69,7 +98,7 @@ def verify_fn(task_id: str):
         return None
 
     def fn(claim, report):
-        obj = tr["claims"].get(base_id(claim.claim_id))
+        obj = tr["claims"].get(recorded_ids(report).get(claim.claim_id, base_id(claim.claim_id)))
         if obj is None:
             return None
         obj = json.loads(json.dumps(obj))
@@ -135,7 +164,11 @@ class Run:
 
     def claim_id(self, task_id: str, recorded: str) -> str:
         """The delivered id of the claim the r7 recording calls ``recorded``."""
-        return next((c["claim_id"] for c in self.delivered[task_id].payload["claims"] if base_id(c["claim_id"]) == recorded), recorded)
+        return next((d for d, r in recorded_ids(self.report(task_id)).items() if r == recorded), recorded)
+
+    def recorded_id(self, task_id: str, delivered: str) -> str:
+        """The id the r7 recording gives the delivered claim ``delivered``."""
+        return recorded_ids(self.report(task_id)).get(delivered, base_id(delivered))
 
     def claim(self, task_id: str, recorded: str):
         cid = self.claim_id(task_id, recorded)
@@ -148,7 +181,7 @@ class Run:
         for it in items:
             tid = it["task_id"]
             syn = SYN[tid]
-            ids = {base_id(c["claim_id"]): c["claim_id"] for c in self.delivered[tid].payload["claims"]}
+            ids = {r: d for d, r in recorded_ids(self.report(tid)).items()}
             prefix = "" if len(items) == 1 else f"{tid}-"
             for i, c in enumerate((claims or {}).get(tid, syn["claims"])):
                 s_claims.append(SynthesizedClaim(claim_id=f"{prefix}s{i}", text=c["text"], certainty=c.get("certainty", "established"),

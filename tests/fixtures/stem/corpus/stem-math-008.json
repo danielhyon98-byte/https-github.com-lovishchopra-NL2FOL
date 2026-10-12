@@ -1,0 +1,25 @@
+{
+  "id": "stem-math-008",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "structured_answer",
+  "question": "Solve 2^x = 50, giving your answer to 3 significant figures. Also evaluate log₂ 32 + log₁₀ 1000 exactly.",
+  "supplied_texts": [],
+  "response_text": "Take natural logarithms of both sides:\n2^x = 50\nx ln 2 = ln 50\nx = ln 50 / ln 2 = 3.912 / 0.6931 = 5.64\n\nExact values: log_2(32) = 5 because 2^5 = 32, and log(1000) = 3 because 10^3 = 1000, so log_2(32) + log(1000) = 5 + 3 = 8.",
+  "notation": [
+    "ascii",
+    "logarithm",
+    "subscripted_symbols",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "x ln 2 = ln 50",
+      "ln 50 / ln 2 = 3.912 / 0.6931",
+      "3.912 / 0.6931 = 5.64",
+      "log_2(32) = 5 because 2^5 = 32",
+      "log(1000) = 3 because 10^3 = 1000",
+      "5 + 3 = 8"
+    ]
+  }
+}

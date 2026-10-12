@@ -31,16 +31,33 @@ carries (or can be given) a formal conclusion, for entailment by its formalized 
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
 surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router.
+
+Branch formal checks (``_branch_checks``) run under the check's named engine policy
+(``engine.policies``: ``linear`` is the caller's configuration unchanged; ``nonlinear`` opens
+the nonlinear-term gate under a deterministic ``rlimit``); an unknown policy is never run under
+another one (INT-SUBJ-002). A check is satisfied only when the engine returns the expected
+status with a non-vacuous proof (no E108); it failed when the status is definitive and another
+one (INCONSISTENT_PREMISES only when the check counts it as a failure); otherwise it is
+undecided. A failure is INT-SUBJ-001 (error) or, for a check that relied on a reading the
+report did not state, INT-SUBJ-004 (warning); undecided is INT-SUBJ-002. Each result and finding
+names the delivered claims that hold the checked statement (the pack's own claim ids first) and
+quotes its clause; every detail and message is cut to its contract length, and an exception while
+deciding one check makes that check alone undecided. A branch may lend the channel hub hooks
+(``branches.base.BranchHooks``, the STEM branches only): extra request imperatives, extra
+coverage words, an echo exemption for an answer that computes, and the word-count view.
 """
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Callable, Mapping, Optional, Union
 
 from pydantic import BaseModel, ValidationError
 
+from ..engine.errors import DiagnosticCode
+from ..engine.policies import UnknownPolicyError, policy_config, policy_limits
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S, is_definitive
@@ -51,6 +68,7 @@ from ..integrity.handoff import check_report_against_plan
 from ..integrity.ledger import check_synthesis_ledger, light_stem
 from ..ir.canonical import sha256_hex
 from ..ir.schema import Assertion, Problem
+from ..translate.common import truncate
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TranslationStatus, sha256_text
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
@@ -100,6 +118,12 @@ _SCOPE_TAIL = "Formal results concern only the encoded checks under their premis
 _MEMORY_LABEL_RE = re.compile(r"\bfrom memory\b|\bas I recall\b|\bI recall\b|\bif I remember\b", re.IGNORECASE)
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
 _MAX_NAMED = 8
+#: Contract lengths of a ConstraintResult detail and of a finding message.
+_DETAIL_MAX = 2000
+_VACUOUS = DiagnosticCode.VACUOUS_RESULT.value
+#: Wall-clock budget for the STEM checks of one report (kinds ``stem_*``): checks left when it is spent are undecided
+#: (INT-SUBJ-002, "check budget"), never success. Other packs' checks are not budgeted.
+STEM_CHECK_BUDGET_S = 8.0
 #: A UTF-16 surrogate code point. In a Python string every one is unpaired as far as Unicode is concerned (a truncated
 #: emoji arriving in an agent's JSON as "\\ud83d"): it has no UTF-8 form and no contract accepts it, so text carrying one
 #: is rejected at the channel boundary (INT-REQ-009) before it is parsed or hashed.
@@ -500,11 +524,12 @@ class TranslatorChannel:
         bad_input = surrogate_offsets(user_input)
         if bad_input:  # a request that is not valid Unicode is built on the scrubbed text for the record and REJECTED below
             user_input = _scrub(user_input)
+        hooks = self._branch_for(to_agent_id)[0].hub_hooks
         req = TaskRequest(
             request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id,
             from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self._subject_for(to_agent_id), course_level=self.plan.course_level,
             task_type=self._task_type_for(to_agent_id), user_input=user_input, user_input_sha256=sha256_hex(user_input),
-            items=list(items) if items is not None else extract_items(user_input),
+            items=list(items) if items is not None else (extract_items(user_input, extra_imperatives=hooks.request_imperatives) if hooks else extract_items(user_input)),
             constraints=list(constraints) if constraints is not None else extract_constraints(user_input),
             supplied_texts=list(supplied_texts), created_at=_now(),
         )
@@ -554,9 +579,11 @@ class TranslatorChannel:
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("response text", bad), report_ids=[report_id], agent_ids=[agent_id])])
         parser = branch.parser()
+        extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
         try:
             report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
-                                           task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id)
+                                           task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id,
+                                           **extra)
         except Exception as exc:  # adapter and contract errors become a rejection, never an exception out of the hub
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=f"response could not be parsed into a report by branch {branch.key}: {type(exc).__name__}: {_shape_reason(exc)}", report_ids=[report_id], agent_ids=[agent_id])])
@@ -692,20 +719,18 @@ class TranslatorChannel:
             structural = [sf for sf in structural if not (sf.code.endswith("-SRC-001") and sf.severity == "error" and sf.claim_ids and set(sf.claim_ids) <= form_covered)]
         results: list[ConstraintResult] = []
         ids: list[str] = []
+        started = time.perf_counter()
         for fc in formal:
-            res = verify(fc.problem, self.config, signing_key=self.key, key_id=self.key_id)
-            ids.append(res.result_id)
-            sat = True if res.status.value == fc.expected_if_sound else (False if res.status in (S.COUNTEREXAMPLE, S.INCONSISTENT_PREMISES, S.UNSATISFIABLE) else None)
-            cids, clause = _formal_check_claims(fc, report)
-            where = (f" in claim {', '.join(cids)}" if len(cids) == 1 else f" in claims {', '.join(cids)}") if cids else ""
-            quoted = f"'{clause}'; " if clause else ""
-            results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=sat, method="formal", detail=f"{fc.kind}{where}: {quoted}{fc.description}; solver {res.status.value}"[:2000],
-                                            formal_result_id=res.result_id, formal_status=res.status.value, claim_ids=cids))
-            ident = dict(claim_ids=cids, report_ids=[report.report_id], agent_ids=[report.agent_id]) if cids else {}
-            if sat is False:
-                findings.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement{where} does not hold: {quoted}{fc.description}", formal_result_id=res.result_id, deterministic=False, **ident))
-            elif sat is None:
-                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check{where} undecided ({res.status.value}): {quoted}{fc.description}", formal_result_id=res.result_id, deterministic=False, **ident))
+            if str(getattr(fc, "kind", "")).startswith("stem_") and time.perf_counter() - started > STEM_CHECK_BUDGET_S:
+                cids, where, quoted = self._check_claims_named(fc, report)
+                ident = dict(claim_ids=cids, report_ids=[report.report_id], agent_ids=[report.agent_id]) if cids else {}
+                results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=None, method="formal", claim_ids=cids,
+                                                detail=truncate(f"{fc.kind}{where}: {quoted}{fc.description}; not run: the report's STEM check budget ({STEM_CHECK_BUDGET_S:g} s) was spent", _DETAIL_MAX)))
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning",
+                                                 message=f"{fc.kind} check{where} undecided (check budget: the report's STEM checks ran past {STEM_CHECK_BUDGET_S:g} s; not run): {quoted}{fc.description}",
+                                                 **(ident or {"claim_ids": list(getattr(fc, "claim_ids", ()) or ())})))
+                continue
+            self._decide_branch_check(fc, results, ids, findings, report)
         seen: set[tuple[str, tuple[str, ...]]] = set()
         for sf in structural:
             if sf.severity != "error":
@@ -718,6 +743,81 @@ class TranslatorChannel:
                 continue  # the same excerpt is already an INT-REQ-003 / INT-REQ-010 finding naming the branch rule
             findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{branch.key}] {sf.code}: {sf.message}", claim_ids=list(sf.claim_ids)))
         return structural, results, ids
+
+    @staticmethod
+    def _check_claims_named(fc, report: Optional[SpecialistReport]) -> tuple[list[str], str, str]:
+        """``(claim ids, where, quoted)`` for a branch formal check's ConstraintResult and finding: the delivered claims that
+        hold the checked statement (:func:`_formal_check_claims`; the pack's own ``claim_ids`` first) as " in claim c1", and
+        that statement's clause quoted for the receipt. Never raises: the pack's own claim ids, unquoted, otherwise."""
+        own = [str(c) for c in (getattr(fc, "claim_ids", ()) or ())]
+        cids, clause = own, None
+        if report is not None:
+            try:
+                cids, clause = _formal_check_claims(fc, report)
+            except Exception:  # naming the claims only refines the receipt; the check is still decided
+                cids, clause = own, None
+        where = (f" in claim {', '.join(cids)}" if len(cids) == 1 else f" in claims {', '.join(cids)}") if cids else ""
+        quoted = f"'{clause}'; " if clause else ""
+        return cids, where, quoted
+
+    def _decide_branch_check(self, fc, results: list[ConstraintResult], ids: list[str], findings: list[IntegrityFinding],
+                             report: Optional[SpecialistReport] = None) -> None:
+        """Run one branch formal check under its named policy and map the engine status (module docstring).
+        Appends its ConstraintResult and finding, each naming the claims that hold the checked statement and quoting its
+        clause (:meth:`_check_claims_named`); never raises (an exception makes this check alone undecided)."""
+        claim_ids = list(getattr(fc, "claim_ids", ()) or ())
+        policy = getattr(fc, "policy", "linear")
+        severity = getattr(fc, "failure_severity", "error")
+        try:
+            cids, where, quoted = self._check_claims_named(fc, report)
+            ident = dict(claim_ids=cids, report_ids=[report.report_id], agent_ids=[report.agent_id]) if (cids and report is not None) else {"claim_ids": cids or claim_ids}
+            try:
+                limits, cfg = policy_limits(policy), policy_config(policy, self.config)
+            except UnknownPolicyError as exc:
+                results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=None, method="formal", claim_ids=cids,
+                                                detail=truncate(f"{fc.kind}{where}: {quoted}{fc.description}; not run: {exc}", _DETAIL_MAX)))
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check{where} undecided (not run: unknown policy; {exc}): {quoted}{fc.description}",
+                                                 deterministic=True, **ident))
+                return
+            res = verify(fc.problem, cfg, limits=limits, signing_key=self.key, key_id=self.key_id)
+            vacuous = any(d.code == _VACUOUS for d in res.diagnostics)
+            if res.status.value == fc.expected_if_sound and not vacuous:
+                sat: Optional[bool] = True
+            elif is_definitive(res.status) and res.status.value != fc.expected_if_sound and not (res.status is S.INCONSISTENT_PREMISES and not getattr(fc, "inconsistent_is_failure", True)):
+                sat = False
+            else:
+                sat = None
+            detail = f"{fc.kind}{where}: {quoted}{fc.description}; solver {res.status.value}" + (" (vacuous: E108)" if vacuous else "")
+            result = ConstraintResult(constraint_id=fc.check_id, satisfied=sat, method="formal", detail=truncate(detail, _DETAIL_MAX), formal_result_id=res.result_id,
+                                      formal_status=res.status.value, claim_ids=cids)
+            ids.append(res.result_id)
+            results.append(result)
+            if sat is False:
+                model = self._model_note(fc, res)
+                if severity == "warning":
+                    findings.append(IntegrityFinding(code="INT-SUBJ-004", severity="warning", message=f"the report's own {fc.kind} statement{where} does not hold under a reading the report did not state (a warning, not an error){model}: {quoted}{fc.description}",
+                                                     formal_result_id=res.result_id, deterministic=False, **ident))
+                else:
+                    findings.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement{where} does not hold{model}: {quoted}{fc.description}",
+                                                     formal_result_id=res.result_id, deterministic=False, **ident))
+            elif sat is None:
+                why = res.status.value + ("; vacuous: E108" if vacuous else "") + ("; inconsistent premises are undecided for this check" if res.status is S.INCONSISTENT_PREMISES else "")
+                findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check{where} undecided ({why}): {quoted}{fc.description}",
+                                                 formal_result_id=res.result_id, deterministic=False, **ident))
+        except Exception as exc:  # one check's failure never takes the receipt down, and never reads as success
+            results.append(ConstraintResult(constraint_id=str(getattr(fc, "check_id", "?"))[:200], satisfied=None, method="formal",
+                                            detail=truncate(f"{getattr(fc, 'kind', '?')}: not decided: internal error ({type(exc).__name__})", _DETAIL_MAX)))
+            findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning",
+                                             message=f"{getattr(fc, 'kind', '?')} check {getattr(fc, 'check_id', '?')} undecided (internal: {type(exc).__name__} while deciding it)",
+                                             claim_ids=claim_ids, deterministic=True))
+
+    @staticmethod
+    def _model_note(fc, res: VerificationResult) -> str:
+        """For a STEM check, the counterexample's computed and stated values (symbols ``c`` and ``r``) beside the statement."""
+        if not str(getattr(fc, "kind", "")).startswith("stem_") or res.counterexample is None:
+            return ""
+        shown = [f"{m.symbol} = {m.value}" for m in res.counterexample.assignments if m.symbol in ("c", "r")]
+        return f" (engine counterexample: {', '.join(shown)}; c is the value computed from the written expression, r the stated value)" if shown else ""
 
     @staticmethod
     def _name_branch_rules(findings: list[IntegrityFinding], structural: list[StructuralFinding]) -> list[IntegrityFinding]:
@@ -778,11 +878,15 @@ class TranslatorChannel:
         findings += uncredited
         findings += self._guarded("peer figures (INT-REQ-014)", findings, lambda: self._peer_figures(report, supplied), [], **rid)
         findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(report, supplied), [], **rid)
-        echo = self._guarded("request echo (INT-REQ-011)", findings, lambda: self._request_echo(req, report, supplied), None, **rid)
+        branch, profile = self._branch_for(report.agent_id)
+        hooks = branch.hub_hooks  # the branch's readings for the hub (the STEM branches only); each refines a heuristic and never raises
+        exempt = bool(hooks) and self._hook(lambda: hooks.echo_exempt(report.original_response, req.user_input, profile.key), False)
+        echo = None if exempt else self._guarded("request echo (INT-REQ-011)", findings, lambda: self._request_echo(req, report, supplied), None, **rid)
         if echo is not None:
             findings.append(echo)
-        findings += self._guarded("answer presence (INT-REQ-012)", findings, lambda: self._no_answer(report), [], **rid)
-        coverage = self._guarded("request coverage (INT-REQ-004)", findings, lambda: self._coverage(req, report, echoed=echo is not None), [], **rid)
+        view = (lambda t: self._hook(lambda: hooks.word_count_view(t, profile.key), t)) if hooks else None
+        findings += self._guarded("answer presence (INT-REQ-012)", findings, lambda: self._no_answer(report, view=view), [], **rid)
+        coverage = self._guarded("request coverage (INT-REQ-004)", findings, lambda: self._coverage(req, report, echoed=echo is not None, hooks=hooks, profile_key=profile.key), [], **rid)
         for cov in coverage:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
@@ -794,7 +898,7 @@ class TranslatorChannel:
         for item in req.items:
             if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
-        constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report), ([], []), **rid)
+        constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report, view=view), ([], []), **rid)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
         refuted = {cid for f in uncredited for cid in f.claim_ids}
         if refuted:  # the same quotation is not also "unverifiable": the hub found it in none of the supplied texts
@@ -1391,11 +1495,20 @@ class TranslatorChannel:
         return out
 
     @staticmethod
-    def _no_answer(report: SpecialistReport) -> list[IntegrityFinding]:
+    def _hook(call, fallback):
+        """A hub hook's answer, or ``fallback`` when the hook fails: a hook only ever refines a heuristic."""
+        try:
+            return call()
+        except Exception:
+            return fallback
+
+    @staticmethod
+    def _no_answer(report: SpecialistReport, view=None) -> list[IntegrityFinding]:
         """INT-REQ-012 (error): the response carries no material claim (every claim is a note, a label or a self-report)
-        or its answer proper has no words, so it addresses no request item whatever words its notes share with them."""
+        or its answer proper has no words, so it addresses no request item whatever words its notes share with them.
+        ``view``: the branch's word-count view (STEM: a maths span or code block is one word)."""
         material = _material_claims(report)
-        answer_words, note_words = count_answer_words(report.original_response)
+        answer_words, note_words = count_answer_words(report.original_response, view=view)
         if material and answer_words > 0:
             return []
         why = []
@@ -1441,14 +1554,16 @@ class TranslatorChannel:
             return None
         return IntegrityFinding(code="INT-REQ-011", severity="error", message=f"the response restates the request instead of answering it ({how}); no request item counts as addressed", claim_ids=[c.claim_id for c in report.claims], report_ids=[report.report_id], agent_ids=[report.agent_id])
 
-    def _coverage(self, req: TaskRequest, report: SpecialistReport, *, echoed: bool = False) -> list[CoverageRecord]:
+    def _coverage(self, req: TaskRequest, report: SpecialistReport, *, echoed: bool = False, hooks=None, profile_key: str = "") -> list[CoverageRecord]:
         """Which request items the report addresses (a note never addresses one). A lettered or numbered item ("(b) Describe
         ...", "1. ¿Cómo era ...?") is compared per part when the answer labels its parts with the request's labels: the
         claims under the same label address it, so a reply that answers part (a) alone leaves (b) to (d) unaddressed
         whatever words they share, and "1. Basura y cristales rotos." addresses item 1 in any language. Otherwise the
         lexical heuristic: enough shared content terms with one material claim, or with the material claims of one
         paragraph together (a paragraph that answers a guiding question need not repeat its words in one sentence); a
-        guiding, essay or research question is answered by a point, thesis or judgement claim that takes up its terms."""
+        guiding, essay or research question is answered by a point, thesis or judgement claim that takes up its terms.
+        ``hooks`` (a branch's hub hooks; the STEM branches) lend each claim extra words (STEM: the dimensions of its
+        quantities), read wherever the claim's own words are."""
         out: list[CoverageRecord] = []
         material = _material_claims(report)
         sections = _answer_sections(report.original_response)
@@ -1456,9 +1571,16 @@ class TranslatorChannel:
         answer_labels = {lab for _start, labels in sections for lab in labels}
         item_labels = {part_label(i.text) for i in req.items} - {None}
         by_part = bool(item_labels & answer_labels)  # the answer labels its parts as the request does
+        claim_terms: dict[str, set[str]] = {}
+        for c in material:
+            terms = _terms(c.claim_text)
+            if hooks is not None:  # the branch's extra words for this claim (STEM: the dimensions of its quantities)
+                extra = self._hook(lambda: hooks.coverage_terms(c.claim_text, report.original_response, req.user_input, profile_key), frozenset())
+                terms = terms | _terms(" ".join(sorted(extra)))
+            claim_terms[c.claim_id] = terms
         groups: dict[str, set[str]] = {}
         for c in material:
-            groups.setdefault(_paragraph_key(c.claim_id), set()).update(_terms(c.claim_text))
+            groups.setdefault(_paragraph_key(c.claim_id), set()).update(claim_terms[c.claim_id])
         for item in req.items:
             if echoed:  # a restated request addresses nothing, whatever words it shares with the items
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
@@ -1470,27 +1592,28 @@ class TranslatorChannel:
                 continue
             it = _terms(_ITEM_LABEL_RE.sub("", item.text))
             need = max(1, min(2, len(it) // 3))
-            hits = [c.claim_id for c in material if it and len(it & _terms(c.claim_text)) >= need]
+            hits = [c.claim_id for c in material if it and len(it & claim_terms[c.claim_id]) >= need]  # a note never addresses an item
             if it and not hits:  # a paragraph's claims together
                 hits = [c.claim_id for c in material if len(it & groups.get(_paragraph_key(c.claim_id), set())) >= need]
             if it and not hits and _ITEM_LABEL_RE.match(item.text):
                 # A guiding (essay, research) question frames the whole answer: a point, thesis or judgement claim that
                 # takes up its terms answers it, even when no sentence repeats enough of its words.
-                hits = [c.claim_id for c in material if c.claim_role in ("point", "thesis", "judgement") and it & _terms(c.claim_text)]
+                hits = [c.claim_id for c in material if c.claim_role in ("point", "thesis", "judgement") and it & claim_terms[c.claim_id]]
             out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits) or not it, addressed_by_claim_ids=hits, method="lexical_heuristic"))
         return out
 
-    def _constraints(self, req: TaskRequest, report: SpecialistReport) -> tuple[list[ConstraintResult], list[str]]:
+    def _constraints(self, req: TaskRequest, report: SpecialistReport, view=None) -> tuple[list[ConstraintResult], list[str]]:
         results: list[ConstraintResult] = []
         formal_ids: list[str] = []
         measures: dict[tuple[str, ...], tuple[int, int, int]] = {}
 
         def word_measure(c: Constraint) -> tuple[int, int, int]:
             """``(answer words, note words, exempt words)`` for a word bound: notes left out, and the working and the
-            diagram too when the request sets them outside the bound ("plus working and your diagram")."""
+            diagram too when the request sets them outside the bound ("plus working and your diagram"), measured on the
+            branch's word-count view when it lends one (STEM: a maths span or a code block is one word)."""
             key = tuple(sorted(c.excludes))
             if key not in measures:
-                measures[key] = measure_answer_words(report.original_response, excludes=key)
+                measures[key] = measure_answer_words(report.original_response, excludes=key, view=view)
             return measures[key]
         words, meta_words, _none = word_measure(Constraint(constraint_id="all", kind="max_words", text="all"))
         paras = count_paragraphs(report.original_response)

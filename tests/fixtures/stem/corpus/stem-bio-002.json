@@ -1,0 +1,23 @@
+{
+  "id": "stem-bio-002",
+  "subject": "Biology",
+  "task_type": "short_answer",
+  "question": "A potato cylinder had a mass of 2.50 g before and 2.35 g after 24 hours in a 0.4 mol dm⁻³ sucrose solution. Calculate the percentage change in mass and explain the result.",
+  "supplied_texts": [],
+  "response_text": "Percentage change = (final − initial)/initial × 100\n= (2.35 − 2.50)/2.50 × 100\n= −0.15/2.50 × 100\n= −6.0 %\n\nThe cylinder lost 6.0 % of its mass, so water left the potato cells by osmosis: the sucrose solution had a lower water potential than the cell sap.",
+  "notation": [
+    "unicode",
+    "percent",
+    "signed_values",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "(2.35 − 2.50)/2.50 × 100",
+      "−0.15/2.50 × 100",
+      "= −6.0 %",
+      "The cylinder lost 6.0 % of its mass"
+    ]
+  }
+}

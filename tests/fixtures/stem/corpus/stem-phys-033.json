@@ -1,0 +1,26 @@
+{
+  "id": "stem-phys-033",
+  "subject": "Physics",
+  "task_type": "structured_answer",
+  "question": "A 1500 kg car accelerates along a straight road. Calculate its kinetic energy (a) when its speed is 12 m s⁻¹ and (b) when its speed is 20 m s⁻¹, and (c) the work done by the resultant force between these two moments.",
+  "supplied_texts": [],
+  "response_text": "(a) $v = 12\\ \\text{m s}^{-1}$: $E_k = \\tfrac{1}{2}mv^2 = \\tfrac{1}{2} \\cdot 1500 \\cdot 12^2 = 1.08 \\times 10^{5}\\ \\text{J}$\n\n(b) $v = 20\\ \\text{m s}^{-1}$: $E_k = \\tfrac{1}{2} \\cdot 1500 \\cdot 20^2 = 3.0 \\times 10^{5}\\ \\text{J}$\n\n(c) By the work–energy principle, $W = \\Delta E_k = 3.0 \\times 10^{5} - 1.08 \\times 10^{5} = 1.92 \\times 10^{5}\\ \\text{J} \\approx 1.9 \\times 10^{5}\\ \\text{J}$.\n\nThe resultant force does about 190 kJ of work, which is the gain in the car's kinetic energy.",
+  "notation": [
+    "latex_inline",
+    "sci_latex",
+    "units_latex",
+    "part_labels",
+    "implicit_multiplication",
+    "subscripted_symbols"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "\\tfrac{1}{2} \\cdot 1500 \\cdot 12^2 = 1.08 \\times 10^{5}\\ \\text{J}",
+      "$E_k = \\tfrac{1}{2} \\cdot 1500 \\cdot 20^2 = 3.0 \\times 10^{5}\\ \\text{J}$",
+      "3.0 \\times 10^{5} - 1.08 \\times 10^{5} = 1.92 \\times 10^{5}\\ \\text{J}",
+      "1.92 \\times 10^{5}\\ \\text{J} \\approx 1.9 \\times 10^{5}\\ \\text{J}",
+      "about 190 kJ of work"
+    ]
+  }
+}

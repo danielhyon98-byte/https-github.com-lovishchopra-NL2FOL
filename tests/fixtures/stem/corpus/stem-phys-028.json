@@ -1,0 +1,24 @@
+{
+  "id": "stem-phys-028",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "The mass defect of a helium-4 nucleus is 0.0304 u. Calculate its binding energy in MeV and in joules, and its binding energy per nucleon. (1 u = 931.5 MeV c⁻²; 1 eV = 1.60 × 10⁻¹⁹ J)",
+  "supplied_texts": [],
+  "response_text": "Binding energy: E = 0.0304 u × 931.5 MeV u⁻¹ = 28.3 MeV\nBinding energy per nucleon: 28.3 MeV / 4 = 7.08 MeV ≈ 7.1 MeV\nIn joules, using 1 eV = 1.60 × 10⁻¹⁹ J: E = 28.3 × 10⁶ × 1.60 × 10⁻¹⁹ = 4.53 × 10⁻¹² J\n\nHelium-4 has an unusually high binding energy per nucleon for a light nucleus, which is why alpha particles are so stable.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "E = 0.0304 u × 931.5 MeV u⁻¹ = 28.3 MeV",
+      "28.3 MeV / 4 = 7.08 MeV",
+      "7.08 MeV ≈ 7.1 MeV",
+      "1 eV = 1.60 × 10⁻¹⁹ J",
+      "E = 28.3 × 10⁶ × 1.60 × 10⁻¹⁹ = 4.53 × 10⁻¹² J"
+    ]
+  }
+}

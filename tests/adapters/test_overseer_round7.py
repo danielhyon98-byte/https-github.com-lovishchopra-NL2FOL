@@ -2,9 +2,10 @@
 (adapters/markdown.py), the English parser and its structural checks (results-audit, communication-fidelity,
 adversarial-live and translation-fidelity reports):
 
-* claim ids of the generic branch are qualified by the agent (``g4.2@economics-specialist``), so two generic-branch
-  specialists of one peer group (Economics with Business, Physics with Mathematics) never hold the same id: no INT-REQ-016
-  at delivery, and the recorded p7a and p7b group syntheses carry no INT-LEDGER-014, no INT-LEDGER-002 and no
+* claim ids of the generic branch are qualified by the agent (``g4.2@economics-specialist``) and the STEM branches'
+  ids carry the branch's letter (``s1.2`` Physics, ``m1.2`` Mathematics, over the same claims), so two specialists of
+  one peer group (Economics with Business, Physics with Mathematics) never hold the same id: no INT-REQ-016 at
+  delivery, and the recorded p7a and p7b group syntheses carry no INT-LEDGER-014, no INT-LEDGER-002 and no
   collision-driven INT-LEDGER-023;
 * worked answers are segmented line by line: part labels ("(a) [2]", "(i) [2 marks]", "Part (a) — find — 3 marks") and
   mark annotations ("[1]", "[1 spare]", "M1", "(A1)") are no claims, each line of working and each result is a claim of
@@ -161,12 +162,37 @@ def deliver_synthesis(ch, replies: dict, order: tuple[str, ...]):
 # ------------------------------------------------------------ results-audit / communication-fidelity / adversarial-live: claim ids
 
 
-def test_generic_claim_ids_are_qualified_by_the_agent_and_two_generic_reports_share_none():
+def generic_parse(tid: str) -> SpecialistReport:
+    """``tid``'s answer read by the generic parser (the parser every subject had in round 7)."""
+    it = ITEMS[tid]
+    return GenericTextParser(it["agent_id"]).parse_response(it["response_text"], request_id=f"req-{tid}", task_id=tid, report_id=f"rep-{tid}-0",
+                                                            subject=it["subject"], task_type=it["task_type"], supplied_texts=docs(it), agent_id=it["agent_id"])
+
+
+def assert_same_claims(report: SpecialistReport, reference: SpecialistReport) -> None:
+    """``report`` holds ``reference``'s claims, claim by claim and in order, under its own ids: the same texts, roles,
+    proposed kinds, materiality and quotations (source references), and supports that name the same claims."""
+    assert len(report.claims) == len(reference.claims), (report.report_id, len(report.claims), len(reference.claims))
+    to_new = {r.claim_id: c.claim_id for c, r in zip(report.claims, reference.claims)}
+    for c, r in zip(report.claims, reference.claims):
+        assert (c.claim_text, c.claim_role, c.proposed_claim_kind, c.materiality) == (r.claim_text, r.claim_role, r.proposed_claim_kind, r.materiality), (c.claim_id, r.claim_id)
+        assert [(x.document_id, x.excerpt) for x in c.source_refs] == [(x.document_id, x.excerpt) for x in r.source_refs], c.claim_id
+        assert c.supporting_claim_ids == [to_new[x] for x in r.supporting_claim_ids], (c.claim_id, c.supporting_claim_ids, r.supporting_claim_ids)
+
+
+def test_claim_ids_are_qualified_by_the_agent_or_lettered_by_the_stem_branch_and_two_reports_share_none():
+    """Generic-branch ids are qualified by the agent; Physics and Mathematics answers go through the STEM branches, whose
+    ids carry the branch's letter (``s1.2`` sciences, ``m1.2`` mathematics), so the two reports of each peer group still
+    share no id, and the STEM reports hold exactly the claims the generic parser delivered for the same answers."""
     reports = {t: parse(t) for t in ("ec-p7a", "bm-p7a", "ph-p7b", "maa-p7b")}
-    for tid, rep in reports.items():
+    for tid in ("ec-p7a", "bm-p7a"):
         tag = agent_claim_tag(ITEMS[tid]["agent_id"])
         assert tag == ITEMS[tid]["agent_id"]
-        assert all(re.fullmatch(rf"g\d+\.\d+@{re.escape(tag)}", c.claim_id) for c in rep.claims), [c.claim_id for c in rep.claims]
+        assert all(re.fullmatch(rf"g\d+\.\d+@{re.escape(tag)}", c.claim_id) for c in reports[tid].claims), [c.claim_id for c in reports[tid].claims]
+    for tid, letter in (("ph-p7b", "s"), ("maa-p7b", "m")):
+        assert all(re.fullmatch(rf"{letter}\d+\.\d+", c.claim_id) for c in reports[tid].claims), [c.claim_id for c in reports[tid].claims]
+        assert_same_claims(reports[tid], generic_parse(tid))
+    for tid, rep in reports.items():
         assert [c.claim_id for c in parse(tid).claims] == [c.claim_id for c in rep.claims]  # stable: the ledger can cite them
     for x, y in (("ec-p7a", "bm-p7a"), ("ph-p7b", "maa-p7b")):
         assert not {c.claim_id for c in reports[x].claims} & {c.claim_id for c in reports[y].claims}

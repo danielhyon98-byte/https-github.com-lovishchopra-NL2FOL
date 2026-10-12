@@ -6,6 +6,13 @@ between reports and between the source and synthesis namespaces, ledger entries 
 point nowhere, and student-facing text that diverges from the claim ledger. Whether a
 synthesized claim FOLLOWS from its sources is a formal question answered in
 ``cross_check.py``.
+
+Figures for the synthesis-fidelity comparison (INT-LEDGER-0xx) include scientific notation
+(``3.0e8``, ``6.67 × 10⁻¹¹``, ``1.2*10**6``), read exactly by the STEM number scanner
+(``stem.numbers``): such a figure is one figure whose spellings are its exact decimal value
+and its normalised mantissa-exponent form, so ``3.0e8``, ``3.0 × 10⁸`` and ``300000000`` are
+the same figure and ``6.67 × 10⁻¹¹`` is never read as 6.67 and 10. Figures with no exponent
+are read as before.
 """
 from __future__ import annotations
 
@@ -29,6 +36,8 @@ _FIGURE_RE = re.compile(r"(?<![\w.])(?:(?:1\d{2}0|20\d0)['’]?s(?!\w)|-?\d+(?:\
 #: the pairing readers see it as "1500.0", a quantity, so it is dated and paired like one (shown again as "1,500").
 _YEARLIKE_QUANTITY_RE = re.compile(r"(?<![\w.,])(?:(1),(\d{3})|(2),(0\d{2}))(?![\d,]|\.\d)")
 _YEARLIKE_SHOWN_RE = re.compile(r"(?<![\w.])(1\d{3}|20\d{2})\.0(?![\w.])")
+#: A figure in scientific notation: a mantissa, then an e-exponent or a times sign and a power of ten.
+_SCI_FIGURE_RE = re.compile(r"(?<![\w.])[-−]?\d+(?:\.\d+)?(?:[eE][-+−]?\d{1,7}|\s?[×xX*·]\s?10(?:\^\{?[-−]?\d{1,7}\}?|\*\*[-−]?\d{1,7}|[⁻]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,7}))(?!\w)(?!\.\d)")
 _MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december")
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
 #: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
@@ -268,7 +277,7 @@ def _figure_kind(tokens: list[str], i: int) -> str:
         return "year"
     if re.fullmatch(r"1\d{2}0s|20\d0s", tok):
         return "decade"
-    if tok.isdecimal() and 1 <= int(tok) <= 31:
+    if tok.isdecimal() and 1 <= int(tok) <= 31:  # a superscript '¹⁹' is a digit to isdigit() but neither decimal nor a day
         for j in (i - 1, i + 1):
             if 0 <= j < len(tokens) and tokens[j].casefold() in _MONTHS:
                 return "day"
@@ -1249,13 +1258,59 @@ class _Figure:
         self.label = label
 
 
+def _exact_decimal(value) -> str:
+    """The exact decimal text of a terminating rational (``6.67e-11`` -> ``0.0000000000667``), else its ``a/b`` form."""
+    num, den = value.numerator, value.denominator
+    rest, twos, fives = den, 0, 0
+    while rest % 2 == 0:
+        rest, twos = rest // 2, twos + 1
+    while rest % 5 == 0:
+        rest, fives = rest // 5, fives + 1
+    if rest != 1:
+        return f"{num}/{den}"
+    places = max(twos, fives)
+    digits = str(abs(num) * 10 ** places // den).rjust(places + 1, "0")
+    sign = "-" if num < 0 else ""
+    return sign + (digits if not places else digits[:-places] + "." + digits[-places:])
+
+
+def _scientific_figures(text: str) -> list[tuple[int, int, Optional[str], frozenset[str], str]]:
+    """``(start, end, exact decimal, spellings, surface)`` of every figure in scientific notation, read exactly by the
+    STEM number scanner. A figure beyond the scanner's bounds (an exponent over 99, over 30 digits) is not read, and
+    its parts are not read as figures either (the caller masks every span returned; the exact decimal is None for it)."""
+    from ..stem.normalize import reading_view
+    from ..stem.numbers import scan_number
+    out: list[tuple[int, int, Optional[str], frozenset[str], str]] = []
+    for m in _SCI_FIGURE_RE.finditer(text):
+        surface = m.group(0)
+        body = reading_view(surface)
+        sign = -1 if body.startswith("-") else 1
+        body = body.lstrip("-")
+        scan = scan_number(body, 0, orig=body)
+        if scan is None or scan.number is None or scan.end != len(body) or not scan.number.scientific:
+            out.append((m.start(), m.end(), None, frozenset(), " ".join(surface.split())))  # unreadable: masked, not a figure
+            continue
+        value = sign * scan.number.value
+        exact = _exact_decimal(value)
+        mant = scan.number.value / (10 ** scan.number.exponent) if scan.number.exponent >= 0 else scan.number.value * (10 ** -scan.number.exponent)
+        normal = f"{'-' if sign < 0 else ''}{_exact_decimal(mant)}e{scan.number.exponent}"
+        out.append((m.start(), m.end(), exact, frozenset({exact, normal}), " ".join(surface.split())))
+    return out
+
+
 def _figures(text: str) -> list[_Figure]:
     """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
-    figures written in words (:func:`_word_figures`), and month-year dates."""
+    figures in scientific notation (one figure each, :func:`_scientific_figures`), figures written in words
+    (:func:`_word_figures`), and month-year dates."""
     plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
     out: list[_Figure] = []
     masked = plain
-    for start, end, mantissa, scale, surface in _word_figures(plain):
+    if "10" in plain or "e" in plain or "E" in plain:
+        for start, end, exact, spellings, surface in _scientific_figures(plain):
+            if exact is not None:
+                out.append(_Figure(exact, None, surface, tuple(spellings)))
+            masked = masked[:start] + " " * (end - start) + masked[end:]
+    for start, end, mantissa, scale, surface in _word_figures(masked):
         out.append(_Figure(mantissa, scale, " ".join(surface.split())))
         masked = masked[:start] + " " * (end - start) + masked[end:]
     for m in _FIGURE_RE.finditer(masked):

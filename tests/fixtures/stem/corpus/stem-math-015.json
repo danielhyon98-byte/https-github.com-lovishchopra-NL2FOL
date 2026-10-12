@@ -1,0 +1,31 @@
+{
+  "id": "stem-math-015",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "An arithmetic sequence has first term 3 and common difference 4. Find the 10th term and the sum of the first 10 terms.",
+  "supplied_texts": [],
+  "response_text": "Here $u_1 = 3$ and $d = 4$.\n\n$u_{10} = u_1 + 9d = 3 + 9 \\times 4 = 39$\n\n$S_{10} = \\frac{10}{2}\\left(2u_1 + 9d\\right) = 5(2 \\times 3 + 9 \\times 4) = 5 \\times 42 = 220$\n\nThe sum of the first ten terms is therefore 220.",
+  "notation": [
+    "latex_inline",
+    "subscripted_symbols",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "5 \\times 42 = 220",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq (exact mode): 5 × 42 = 210; stated 220. The formula and substitution are right; S₁₀ = 210. The closing restatement carries the slip. [computed: C=210 S=220 h=0 tau=0 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "$u_1 = 3$ and $d = 4$",
+      "u_{10} = u_1 + 9d = 3 + 9 \\times 4 = 39",
+      "\\frac{10}{2}\\left(2u_1 + 9d\\right) = 5(2 \\times 3 + 9 \\times 4)",
+      "5(2 \\times 3 + 9 \\times 4) = 5 \\times 42"
+    ]
+  }
+}

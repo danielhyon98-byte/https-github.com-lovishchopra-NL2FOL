@@ -1,0 +1,30 @@
+{
+  "id": "stem-math-005",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "Solve x² − 2x − 8 = 0.",
+  "supplied_texts": [],
+  "response_text": "Factorise the quadratic:\nx² − 2x − 8 = (x − 4)(x + 2) = 0\nSetting the first bracket to zero gives x − 4 = 0, so the only solution is x = 4.\n\nCheck: 4² − 2(4) − 8 = 16 − 8 − 8 = 0 ✓",
+  "notation": [
+    "unicode",
+    "implicit_multiplication",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "lost_root",
+        "step": "so the only solution is x = 4",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-sol completeness: the statement claims the full solution set, but (x − 4)(x + 2) = 0 also holds at x = −2 (counterexample to 'x = 4 only'). No domain restriction is stated in the question or the answer. [computed: real roots ['-2', '4'], stated ['4'] -> missing -2]"
+      }
+    ],
+    "correct_steps": [
+      "x² − 2x − 8 = (x − 4)(x + 2) = 0",
+      "x − 4 = 0",
+      "4² − 2(4) − 8 = 16 − 8 − 8 = 0"
+    ]
+  }
+}

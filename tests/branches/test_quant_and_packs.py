@@ -73,7 +73,9 @@ def test_registry_routes_every_known_subject_and_falls_back():
     assert r.for_subject("Psychology SL")[0].key == "psychology"
     assert r.for_subject("Economics")[0].key == "economics"
     assert r.for_subject("Business Management HL")[0].key == "business_management"
-    assert r.for_subject("Physics")[0].key == "generic" and r.for_subject(None)[0].key == "generic"
+    # Recorded behaviour change (docs/STEM_DESIGN.md, sections 10.2 and 18, item 1): Physics routes to the STEM
+    # 'sciences' branch instead of 'generic'; no subject and an unrecognised subject still fall back to 'generic'.
+    assert r.for_subject("Physics")[0].key == "sciences" and r.for_subject(None)[0].key == "generic" and r.for_subject("Underwater Basket Weaving")[0].key == "generic"
     for key in r.keys():
         b = r.get(key)
         assert b.packs and b.packs[0].name == "core"

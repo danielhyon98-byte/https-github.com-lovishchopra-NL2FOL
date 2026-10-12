@@ -1,0 +1,41 @@
+{
+  "id": "stem-chem-009",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Use the average bond enthalpies in the supplied table to estimate the enthalpy change for the combustion of methane: CH₄(g) + 2O₂(g) → CO₂(g) + 2H₂O(g).",
+  "supplied_texts": [
+    {
+      "document_id": "bond-enthalpies-extract",
+      "title": "Average bond enthalpies at 298 K (extract)",
+      "text": "Bond / average bond enthalpy (kJ mol⁻¹)\nC–H 414\nO=O 498\nC=O 804\nO–H 463",
+      "locator_scheme": "none",
+      "provenance": "data table supplied with the question"
+    }
+  ],
+  "response_text": "CH₄ + 2O₂ → CO₂ + 2H₂O\n\nBonds broken: four C–H bonds and two O=O bonds.\nEnergy absorbed = 4 × 414 + 2 × 498 = 2652 kJ mol⁻¹\nBonds formed: two C=O bonds and four O–H bonds.\nEnergy released = 2 × 804 + 4 × 463 = 3460 kJ mol⁻¹\n\nΔH = energy absorbed − energy released = 2652 − 3460 = +808 kJ mol⁻¹\n\nThe value is only an estimate, because average bond enthalpies are used.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent",
+    "signed_values",
+    "supplied_data",
+    "bond_notation"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "sign_error",
+        "step": "2652 − 3460 = +808 kJ mol⁻¹",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq (exact mode, all integers): 2652 − 3460 = −808; stated +808. The combustion is exothermic; the sign was dropped. [computed: C=-808 S=808 h=0 tau=0 -> does not hold; C=-808 S=808 h=0.5 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "CH₄ + 2O₂ → CO₂ + 2H₂O",
+      "4 × 414 + 2 × 498 = 2652 kJ mol⁻¹",
+      "2 × 804 + 4 × 463 = 3460 kJ mol⁻¹"
+    ]
+  }
+}

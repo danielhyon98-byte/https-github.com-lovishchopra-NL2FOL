@@ -1,0 +1,31 @@
+{
+  "id": "stem-chem-007",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "A 2.00 dm³ sample of nitrogen at −20 °C and 100 kPa is warmed to 30 °C at constant pressure. Calculate its new volume.",
+  "supplied_texts": [],
+  "response_text": "Temperatures must be in kelvin:\nT₁ = −20 °C = 293 K\nT₂ = 30 °C = 303 K\n\nAt constant pressure V₁/T₁ = V₂/T₂, so\nV₂ = V₁ × T₂/T₁ = 2.00 × 303/293 = 2.07 dm³",
+  "notation": [
+    "unicode",
+    "temperature_celsius_kelvin",
+    "subscripted_symbols",
+    "signed_values",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unit_conversion",
+        "step": "T₁ = −20 °C = 293 K",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-cnv (explicit °C to K conversion, affine offset applied): −20 °C = 253.15 K; stated 293 K (the sign of −20 was lost); tau = 0, h = 0.5. True V₂ = 2.00 × 303.15/253.15 = 2.40 dm³; the final arithmetic holds as written but carries the slip. [computed: exact=253.15 stated=293 (in SI) h=0.5 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "T₂ = 30 °C = 303 K",
+      "2.00 × 303/293 = 2.07 dm³"
+    ]
+  }
+}

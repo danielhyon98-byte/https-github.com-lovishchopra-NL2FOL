@@ -1,0 +1,27 @@
+{
+  "id": "stem-phys-024",
+  "subject": "Physics",
+  "task_type": "structured_answer",
+  "question": "A gas syringe contains 0.50 mol of an ideal gas at 300 K and 100 kPa. (a) Calculate the volume of the gas. (b) The gas is compressed at constant temperature until its pressure is 250 kPa. Calculate its new volume.",
+  "supplied_texts": [],
+  "response_text": "(a) Using pV = nRT with R = 8.31 J mol⁻¹ K⁻¹:\nV = nRT/p = (0.50 × 8.31 × 300)/(100 × 10³) = 0.0125 m³ = 12.5 dm³\n\n(b) At constant temperature p₁V₁ = p₂V₂, so\nV₂ = p₁V₁/p₂ = (100 × 12.5)/250 = 5.0 dm³\n\nRaising the pressure by a factor of 2.5 reduces the volume by the same factor, as Boyle's law predicts.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "units_prefix",
+    "part_labels",
+    "subscripted_symbols",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "V = nRT/p = (0.50 × 8.31 × 300)/(100 × 10³)",
+      "(0.50 × 8.31 × 300)/(100 × 10³) = 0.0125 m³",
+      "0.0125 m³ = 12.5 dm³",
+      "V₂ = p₁V₁/p₂ = (100 × 12.5)/250 = 5.0 dm³",
+      "Raising the pressure by a factor of 2.5 reduces the volume by the same factor"
+    ]
+  }
+}

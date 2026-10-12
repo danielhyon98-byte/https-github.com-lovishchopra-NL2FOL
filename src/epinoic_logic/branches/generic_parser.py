@@ -364,6 +364,79 @@ def _parallel_rows(units: list[_Unit], answer: int, candidates: list[int]) -> li
     return rows
 
 
+@dataclass
+class RoleAssignment:
+    """Roles of the units of an answer (:func:`assign_roles`): per unit (in document order) its role, whether it is
+    material, a consequence, a caveat or a part's answer; the supports (unit index -> the indices it rests on); and the
+    unresolved issues to report (verification-status language demoted)."""
+    roles: list[str]
+    material: list[bool]
+    supports: dict[int, list[int]]
+    consequence: list[bool]
+    caveat: list[bool]
+    answer: list[bool]
+    unresolved: list[str]
+
+
+def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssignment:
+    """The roles, materiality and supports of segmented units (see the module docstring), by paragraph: notes, then the
+    cue roles (a consequence or a judgement cue: judgement; a quotation, ``quoted[i]``: evidence; a figure:
+    quantitative; analysis otherwise), the paragraph's point, each part's answer and the conclusions that rest on the
+    claims before them. Shared by every parser that segments as this one does (the STEM branches' parser builds its
+    units from its own statements)."""
+    flat: list[_Unit] = [u for units in para_units for u in units]
+    n = len(flat)
+    roles: list[str] = ["other"] * n
+    material: list[bool] = [False] * n
+    supports: dict[int, list[int]] = {}
+    consequence: list[bool] = [False] * n
+    caveat: list[bool] = [False] * n
+    answer: list[bool] = [False] * n
+    unresolved: list[str] = []
+    index = 0
+    para_ranges: list[tuple[int, int]] = []
+    for pi, units in enumerate(para_units):
+        start = index
+        index += len(units)
+        para_ranges.append((start, index))
+        if not units:
+            continue
+        sents = [u.text for u in units]
+        cores = [split_note_clauses(s)[0] for s in sents]
+        reports = [k for k, s in enumerate(sents) if is_self_certification(s)]
+        notes_flags = [GenericTextParser._is_note(units[k], cores[k], k in reports) for k in range(len(units))]
+        note_paragraph = all(notes_flags) or units[0].lead == "bare_note"
+        demoted = [f"sentence {k + 1} ('{sents[k][:80]}')" for k in reports]
+        if demoted and not note_paragraph:
+            unresolved.append(f"paragraph {pi + 1}: {len(demoted)} sentence(s) carrying verification-status language were roled other and count as no material claim; "
+                              f"the other sentences of the paragraph keep their roles: {'; '.join(demoted)[:600]}")
+        elif demoted and len(sents) > 1:
+            unresolved.append(f"paragraph {pi + 1} is nothing but notes and verification-status language; the whole paragraph was treated as a note and none of its sentences counts as material")
+        for k, u in enumerate(units):
+            i = start + k
+            sent = u.text
+            core = cores[k]
+            if note_paragraph or notes_flags[k]:
+                roles[i] = "other"
+                continue
+            low = (core or sent).lower()
+            opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
+            consequence[i] = not opening_command and bool(_CONSEQUENCE_RE.match(mask_quotations(core or sent)))
+            caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
+            if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command):
+                roles[i] = "judgement"
+            elif quoted[i]:
+                roles[i] = "evidence"
+            elif _NUM_RE.search(core or sent):
+                roles[i] = "quantitative"
+            else:
+                roles[i] = "analysis"
+        GenericTextParser._paragraph_points(units, start, roles, material, supports, consequence, caveat)
+    GenericTextParser._part_answers(flat, roles, material, supports, answer, consequence, caveat)
+    GenericTextParser._backward_conclusions(flat, para_ranges, roles, supports, answer, consequence)
+    return RoleAssignment(roles, material, supports, consequence, caveat, answer, unresolved)
+
+
 class GenericTextParser:
     def __init__(self, agent_id: str = "specialist") -> None:
         self.agent_id = agent_id
@@ -385,69 +458,28 @@ class GenericTextParser:
             raise AdapterError("the specialist answer yields no sentences")
 
         n = len(flat)
-        roles: list[str] = ["other"] * n
-        material: list[bool] = [False] * n
-        supports: dict[int, list[int]] = {}
         refs_of: list[list[SourceRef]] = [[] for _ in range(n)]
         assumptions_of: list[list[str]] = [[] for _ in range(n)]
-        consequence: list[bool] = [False] * n
-        caveat: list[bool] = [False] * n
-        answer: list[bool] = [False] * n
-
-        index = 0
-        para_ranges: list[tuple[int, int]] = []
-        for pi, units in enumerate(para_units):
-            start = index
-            index += len(units)
-            para_ranges.append((start, index))
-            if not units:
-                continue
-            sents = [u.text for u in units]
-            cores = [split_note_clauses(s)[0] for s in sents]
-            reports = [k for k, s in enumerate(sents) if is_self_certification(s)]
-            notes_flags = [self._is_note(units[k], cores[k], k in reports) for k in range(len(units))]
-            note_paragraph = all(notes_flags) or units[0].lead == "bare_note"
-            demoted = [f"sentence {k + 1} ('{sents[k][:80]}')" for k in reports]
-            if demoted and not note_paragraph:
-                unresolved.append(f"paragraph {pi + 1}: {len(demoted)} sentence(s) carrying verification-status language were roled other and count as no material claim; "
-                                  f"the other sentences of the paragraph keep their roles: {'; '.join(demoted)[:600]}")
-            elif demoted and len(sents) > 1:
-                unresolved.append(f"paragraph {pi + 1} is nothing but notes and verification-status language; the whole paragraph was treated as a note and none of its sentences counts as material")
-            for k, u in enumerate(units):
-                i = start + k
-                sent = u.text
-                excerpts = quotations_in(sent) if not u.is_json else []
-                named = documents_named(_mask_quotations(sent), docs) if (docs and excerpts) else []
-                for ex in excerpts:
-                    doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
-                    if doc:
-                        refs_of[i].append(SourceRef(document_id=doc, excerpt=ex[:2000]))
-                    assumptions_of[i].extend(notes_for_excerpt)
-                if not u.is_json and dangling_quote_offset(sent) is not None:
-                    assumptions_of[i].append("the sentence has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
-                core, notes = split_note_clauses(sent)
-                if core:  # a substantive sentence keeps its role; the inline label travels as an assumption (each distinct label once)
-                    for note in notes:
-                        assumptions_of[i].append(f"inline label recorded, not part of the claim: {note[:200]}")
-                if note_paragraph or notes_flags[k]:
-                    roles[i] = "other"
-                    continue
-                low = (core or sent).lower()
-                opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
-                consequence[i] = not opening_command and bool(_CONSEQUENCE_RE.match(mask_quotations(core or sent)))
-                caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
-                if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command):
-                    roles[i] = "judgement"
-                elif refs_of[i] or excerpts:
-                    roles[i] = "evidence"
-                elif _NUM_RE.search(core or sent):
-                    roles[i] = "quantitative"
-                else:
-                    roles[i] = "analysis"
-            self._paragraph_points(units, start, roles, material, supports, consequence, caveat)
-
-        self._part_answers(flat, roles, material, supports, answer, consequence, caveat)
-        self._backward_conclusions(flat, para_ranges, roles, supports, answer, consequence)
+        quoted: list[bool] = [False] * n
+        for i, u in enumerate(flat):
+            sent = u.text
+            excerpts = quotations_in(sent) if not u.is_json else []
+            named = documents_named(_mask_quotations(sent), docs) if (docs and excerpts) else []
+            for ex in excerpts:
+                doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
+                if doc:
+                    refs_of[i].append(SourceRef(document_id=doc, excerpt=ex[:2000]))
+                assumptions_of[i].extend(notes_for_excerpt)
+            if not u.is_json and dangling_quote_offset(sent) is not None:
+                assumptions_of[i].append("the sentence has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
+            core, notes = split_note_clauses(sent)
+            if core:  # a substantive sentence keeps its role; the inline label travels as an assumption (each distinct label once)
+                for note in notes:
+                    assumptions_of[i].append(f"inline label recorded, not part of the claim: {note[:200]}")
+            quoted[i] = bool(refs_of[i] or excerpts)
+        assigned = assign_roles(para_units, quoted)
+        unresolved.extend(assigned.unresolved)
+        roles, material, supports = assigned.roles, assigned.material, assigned.supports
 
         pending: list[dict] = []
         counters: dict[int, int] = {}
@@ -489,7 +521,8 @@ class GenericTextParser:
             return bool(core) and is_note_sentence(core) and _LETTER_RE.search(core) is not None
         return not core or is_note_sentence(core)
 
-    def _paragraph_points(self, units: list[_Unit], start: int, roles: list[str], material: list[bool], supports: dict[int, list[int]],
+    @staticmethod
+    def _paragraph_points(units: list[_Unit], start: int, roles: list[str], material: list[bool], supports: dict[int, list[int]],
                           consequence: list[bool], caveat: list[bool]) -> None:
         """The point of a prose paragraph: its first claim that is not a note, an assumption or a judgement, supported by the
         plain claims after it. Two labelled answers opening the paragraph are coordinate points. A line-structured block
@@ -515,7 +548,8 @@ class GenericTextParser:
         roles[first], material[first] = "point", True
         supports[first] = [i for i in live[1:] if roles[i] not in ("judgement",) and not consequence[i] and not caveat[i] and leads[i] not in ("assumption",)]
 
-    def _part_answers(self, flat: list[_Unit], roles: list[str], material: list[bool], supports: dict[int, list[int]], answer: list[bool],
+    @staticmethod
+    def _part_answers(flat: list[_Unit], roles: list[str], material: list[bool], supports: dict[int, list[int]], answer: list[bool],
                       consequence: list[bool], caveat: list[bool]) -> None:
         """Each part's answer is material (see the module docstring): a result-led line, else the last line of the part's
         first run of working (with its parallel rows), else the part's opening claim; a bare value opening a part always."""
@@ -534,7 +568,7 @@ class GenericTextParser:
                 # the sentence that carries the lead is the answer; the sentences after it on its line keep their roles
                 closing = results
             else:
-                run = self._first_working_run(flat, live)
+                run = GenericTextParser._first_working_run(flat, live)
                 if run:
                     last = run[-1]
                     closing = [*reversed(_parallel_rows(flat, last, run)), last]

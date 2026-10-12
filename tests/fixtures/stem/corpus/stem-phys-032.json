@@ -1,0 +1,23 @@
+{
+  "id": "stem-phys-032",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A car travels at a steady 72 km h⁻¹. Express this speed in m s⁻¹ and calculate how far the car travels in 15 s.",
+  "supplied_texts": [],
+  "response_text": "Converting: 72 km h⁻¹ = 72 × 1000 m ÷ 3600 s = 20 ms⁻¹\nDistance travelled in 15 s: s = vt = 20 × 15 = 300 m\n\nAt a steady 20 ms⁻¹ the car covers 300 m in 15 s.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "units_prefix",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "72 km h⁻¹ = 72 × 1000 m ÷ 3600 s",
+      "72 × 1000 m ÷ 3600 s = 20 ms⁻¹",
+      "s = vt = 20 × 15 = 300 m",
+      "At a steady 20 ms⁻¹ the car covers 300 m in 15 s."
+    ]
+  }
+}

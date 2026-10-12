@@ -1,0 +1,20 @@
+{
+  "id": "stem-ess-003",
+  "subject": "Environmental Systems and Societies",
+  "task_type": "short_answer",
+  "question": "A country's population of 15 million is growing at 2.0% per year. Estimate its doubling time using the rule of 70, and its population after that time.",
+  "supplied_texts": [],
+  "response_text": "Doubling time ≈ 70 / growth rate (%) = 70 / 2.0 = 35 years\n\nAfter 35 years, one doubling time, the population would be about 2 × 15 million = 30 million.\n\nThis assumes the growth rate stays constant at 2.0% per year, which is unlikely over 35 years.",
+  "notation": [
+    "unicode",
+    "prose_relation",
+    "percent"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "70 / 2.0 = 35 years",
+      "2 × 15 million = 30 million"
+    ]
+  }
+}

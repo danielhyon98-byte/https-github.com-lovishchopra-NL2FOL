@@ -1,0 +1,29 @@
+{
+  "id": "stem-math-006",
+  "subject": "Mathematics: Applications and Interpretation",
+  "task_type": "short_answer",
+  "question": "Solve x² − 5x + 6 = 0 by factorising.",
+  "supplied_texts": [],
+  "response_text": "We need two numbers that multiply to 6 and add to −5: these are −2 and −3.\n$$x^2 - 5x + 6 = (x - 2)(x - 3) = 0$$\n$$\\therefore\\ x = 2 \\quad \\text{or} \\quad x = -3$$\nThe parabola therefore crosses the x-axis at two points.",
+  "notation": [
+    "latex_display",
+    "unicode",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "sign_error",
+        "step": "x = 2 \\quad \\text{or} \\quad x = -3",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-sol membership: x = −3 gives (−3)² − 5(−3) + 6 = 30, not 0. From (x − 2)(x − 3) = 0 the roots are 2 and 3; the sign of the second was flipped. [computed: p(-3) = 30 -> not a root]"
+      }
+    ],
+    "correct_steps": [
+      "multiply to 6 and add to −5: these are −2 and −3",
+      "x^2 - 5x + 6 = (x - 2)(x - 3) = 0"
+    ]
+  }
+}

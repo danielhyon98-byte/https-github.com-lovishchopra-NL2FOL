@@ -18,6 +18,17 @@ The subject list below is working configuration drawn from the general structure
 of the IB Diploma Programme. It must be confirmed against the official syllabus
 material (the IB agent training pack referenced by the context pack is not yet
 available). Profiles never assert official IB rules.
+
+STEM (docs/STEM_DESIGN.md, section 10.1). Aliases match on word boundaries of the
+normalised label (the longest match wins), so "Assessment" or "Stress and Wellness" no
+longer reads as ESS and "Free fall" no longer as the Extended Essay. STEM aliases (phys,
+chem, bio, cs, comp sci, software engineering, environmental science, statistics, "Maths:
+AA", "AA HL", further mathematics, ...) and a ``stem`` profile (general science,
+engineering, and any label that names two or more different sciences, such as
+"Physics/Chemistry") route to the STEM branches. The sciences, mathematics and Computer
+Science profiles state what the deterministic STEM checks decide and what nothing here
+establishes, and give the model translator STEM encoding guidance
+(:func:`prompt_profile_text`; the pinned prompt version is unchanged).
 """
 from __future__ import annotations
 
@@ -71,35 +82,52 @@ def _add(p: SubjectProfile) -> None:
     PROFILES[p.key] = p
 
 
+#: What the deterministic STEM checks decide (stem.checks, decided by the engine) and what the model translator adds.
+_STEM_CAN = (
+    "deterministic STEM checks decide, under the STEM tolerance rule, the written arithmetic, substitutions of stated values, unit "
+    "conversions, dimension consistency (warnings only), {extra}; the model translator's formalisations add propositional structure "
+    "and exact arithmetic on given values but do not check units"
+)
+_STEM_CANNOT = (
+    "physical validity of a model, whether a law applies, the truth of laws, data or constants, readings from diagrams or graphs, "
+    "calculus (derivatives, integrals, limits, series), significant-figure policy, the quality of a method or explanation, factual recall"
+)
+
 # Group 5 — Mathematics
+_MATHS_CAN = _STEM_CAN.format(extra="algebraic steps (rearrangements, inequality steps), stated roots and solution sets, sequences and series arithmetic, exact surds")
 _add(SubjectProfile(
     key="mathematics_aa", display_name="Mathematics: Analysis and Approaches", group="mathematics",
     eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
-    aliases=("mathematics: analysis", "math aa", "maths aa", "analysis and approaches", "mathematics aa"),
-    can_check="exact linear integer/real arithmetic, inequalities, divisibility via integer div/mod, propositional structure of a proof sketch",
-    cannot_check="symbolic calculus, nonlinear or transcendental identities beyond policy (reported UNSUPPORTED), the correctness of a student's method or presentation",
+    aliases=("mathematics: analysis", "math aa", "maths aa", "analysis and approaches", "mathematics aa", "maths: aa", "math: aa",
+             "mathematics: aa", "aa hl", "aa sl", "further mathematics", "further maths"),
+    can_check=_MATHS_CAN,
+    cannot_check=_STEM_CANNOT + "; transcendental identities beyond exact values and 10^-15 enclosures; the correctness of a student's method or presentation",
 ))
 _add(SubjectProfile(
     key="mathematics_ai", display_name="Mathematics: Applications and Interpretation", group="mathematics",
     eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
-    aliases=("mathematics: applications", "math ai", "maths ai", "applications and interpretation", "mathematics ai"),
-    can_check="exact arithmetic on given values (financial maths, rates, ratios), inequalities, counts",
-    cannot_check="statistical inference or modelling judgements, interpretation of real-world context, unit correctness",
+    aliases=("mathematics: applications", "math ai", "maths ai", "applications and interpretation", "mathematics ai", "maths: ai", "math: ai",
+             "mathematics: ai", "ai hl", "ai sl", "statistics", "stats"),
+    can_check=_MATHS_CAN + "; financial maths, rates and ratios on given values",
+    cannot_check=_STEM_CANNOT + "; statistical inference or modelling judgements, interpretation of real-world context",
 ))
 _add(SubjectProfile(
     key="mathematics", display_name="Mathematics (unspecified course)", group="mathematics",
     eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
     aliases=("mathematics", "maths", "math"),
-    can_check="exact linear arithmetic and propositional structure",
-    cannot_check="symbolic manipulation beyond policy; method quality",
+    can_check=_MATHS_CAN,
+    cannot_check=_STEM_CANNOT + "; method quality",
 ))
 
 # Group 4 — Sciences
+_SCIENCE_CAN = _STEM_CAN.format(extra="chemical element and charge balances, algebraic rearrangements, show-that targets (warnings), values against the request's givens (warnings)")
+#: The specific science subjects: a label naming two or more of them resolves to the ``stem`` profile.
+SCIENCE_SUBJECTS = ("physics", "chemistry", "biology", "ess", "sports_science", "design_technology")
 for _k, _n, _al in (
-    ("physics", "Physics", ("physics",)),
-    ("chemistry", "Chemistry", ("chemistry",)),
-    ("biology", "Biology", ("biology",)),
-    ("ess", "Environmental Systems and Societies", ("environmental systems", "ess")),
+    ("physics", "Physics", ("physics", "phys")),
+    ("chemistry", "Chemistry", ("chemistry", "chem")),
+    ("biology", "Biology", ("biology", "bio")),
+    ("ess", "Environmental Systems and Societies", ("environmental systems", "ess", "environmental science")),
     ("sports_science", "Sports, Exercise and Health Science", ("sports, exercise", "sehs", "sports science")),
     ("design_technology", "Design Technology", ("design technology",)),
 ):
@@ -107,15 +135,22 @@ for _k, _n, _al in (
         key=_k, display_name=_n, group="sciences",
         eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
         aliases=_al,
-        can_check="exact numeric claims from given values (rearranged linear relations, ratios, stoichiometric integer ratios), propositional structure of an explanation",
-        cannot_check="units and significant figures (v1), experimental validity, whether a model applies, factual recall",
+        can_check=_SCIENCE_CAN,
+        cannot_check=_STEM_CANNOT + "; experimental validity",
     ))
+_add(SubjectProfile(
+    key="stem", display_name="General Science (STEM)", group="sciences",
+    eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
+    aliases=("science", "sciences", "general science", "stem", "engineering"),
+    can_check=_SCIENCE_CAN,
+    cannot_check=_STEM_CANNOT + "; experimental validity",
+))
 _add(SubjectProfile(
     key="computer_science", display_name="Computer Science", group="sciences",
     eligible_classes=_QUANTITATIVE, numeric_sorts=frozenset({"Int", "Real"}), argument_only=False,
-    aliases=("computer science", "comp sci", "computing"),
-    can_check="Boolean logic and truth-table equivalence, propositional arguments, exact integer arithmetic and bounds",
-    cannot_check="program behaviour beyond the encoded propositions, algorithm quality, factual recall",
+    aliases=("computer science", "comp sci", "computing", "cs", "computer sci", "software engineering"),
+    can_check=_STEM_CAN.format(extra="Boolean identities, stated truth-table rows, based-numeral conversions, exact integer arithmetic and bounds"),
+    cannot_check="program behaviour (code is never run or checked), algorithm quality and complexity claims, " + _STEM_CANNOT,
 ))
 
 # Group 3 — Individuals and Societies
@@ -240,14 +275,29 @@ _OTHER_LANGUAGE_A_RE = re.compile(
 )
 
 
+def _alias_patterns() -> list[tuple[int, "re.Pattern[str]", SubjectProfile]]:
+    out = []
+    for p in PROFILES.values():
+        for raw in p.aliases:
+            a = _norm(raw)
+            if a:
+                out.append((len(a), re.compile(rf"(?<![a-z0-9]){re.escape(a)}(?![a-z0-9])"), p))
+    return out
+
+
+_ALIASES = _alias_patterns()
+
+
 def resolve_profile(subject: str | None) -> SubjectProfile:
     """Match a free-text subject label (e.g. 'English A: Language and Literature HL')
-    to a profile by longest alias contained in the label; fall back to UNKNOWN.
+    to a profile by the longest alias the label contains on word boundaries (an alias
+    is never matched inside a longer word: "Assessment" is not ESS); fall back to UNKNOWN.
 
     Aliases and the label are normalized the same way (lower case, punctuation other
     than ``:`` dropped, whitespace collapsed), so every profile's own display name
     resolves to it. A non-English Language A label resolves to ``language_a_other``
-    even though it also contains "literature".
+    even though it also contains "literature". A label that names two or more different
+    sciences ("Physics/Chemistry") resolves to the ``stem`` profile.
     """
     if not subject:
         return UNKNOWN
@@ -255,11 +305,15 @@ def resolve_profile(subject: str | None) -> SubjectProfile:
     if "english" not in label and _OTHER_LANGUAGE_A_RE.search(label):
         return PROFILES["language_a_other"]
     best: tuple[int, SubjectProfile] | None = None
-    for p in PROFILES.values():
-        for raw in p.aliases:
-            a = _norm(raw)
-            if a and a in label and (best is None or len(a) > best[0]):
-                best = (len(a), p)
+    sciences: set[str] = set()
+    for n, rx, p in _ALIASES:
+        if rx.search(label):
+            if p.key in SCIENCE_SUBJECTS:
+                sciences.add(p.key)
+            if best is None or n > best[0]:
+                best = (n, p)
+    if len(sciences) >= 2 and best is not None and best[1].key in SCIENCE_SUBJECTS:
+        return PROFILES["stem"]
     return best[1] if best else UNKNOWN
 
 
@@ -274,8 +328,21 @@ def route_for(cls: EligibilityClass) -> str:
     return "unresolved"
 
 
+#: Profiles whose answers mix equations and prose (the STEM branches).
+STEM_PROFILE_KEYS = frozenset({*SCIENCE_SUBJECTS, "stem", "mathematics_aa", "mathematics_ai", "mathematics", "computer_science"})
+#: Model-facing STEM encoding guidance (TRANSLATOR_VERSION 0.3.0); the pinned prompt version is unchanged.
+STEM_ENCODING_GUIDANCE = (
+    "STEM encoding: write every numeral as an exact integer or decimal string with no exponent (expand scientific notation exactly); "
+    "substitute the stated values for the symbols they bind instead of leaving the symbols free; use one symbol per quantity and "
+    "prefix it with the claim it comes from (s<claim>_v) so the symbols of different claims never unify by accident; record a unit "
+    "as an assumption, never inside an expression; encode a square root or a trigonometric value as a squared comparison, or report "
+    "UNSUPPORTED. "
+)
+
+
 def prompt_profile_text(profile: SubjectProfile) -> str:
-    """Short, model-facing description injected into translation prompts."""
+    """Short, model-facing description injected into translation prompts (STEM profiles add
+    :data:`STEM_ENCODING_GUIDANCE`)."""
     classes = ", ".join(sorted(c.value for c in profile.eligible_classes))
     return (
         f"Subject: {profile.display_name} (IB group: {profile.group}). "
@@ -285,4 +352,5 @@ def prompt_profile_text(profile: SubjectProfile) -> str:
         + ("Numeric claims are not expected in this subject; encode argument structure only. "
            if profile.argument_only else
            f"Numeric sorts in use: {', '.join(sorted(profile.numeric_sorts))}; keep Int and Real distinct and write numerals as exact strings. ")
+        + (STEM_ENCODING_GUIDANCE if profile.key in STEM_PROFILE_KEYS else "")
     )

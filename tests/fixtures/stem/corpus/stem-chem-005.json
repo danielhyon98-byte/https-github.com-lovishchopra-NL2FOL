@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-005",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "In a titration, 22.50 cm³ of 0.100 mol dm⁻³ sodium hydroxide neutralises 25.00 cm³ of ethanoic acid: CH₃COOH + NaOH → CH₃COONa + H₂O. Calculate the concentration of the acid.",
+  "supplied_texts": [],
+  "response_text": "The equation $\\mathrm{CH_3COOH + NaOH \\rightarrow CH_3COONa + H_2O}$ shows a 1 : 1 ratio.\n\n$n(\\mathrm{NaOH}) = cV = 0.100 \\times \\frac{22.50}{1000} = 2.250 \\times 10^{-3}\\ \\mathrm{mol}$\n\n$n(\\mathrm{CH_3COOH}) = 2.250 \\times 10^{-3}\\ \\mathrm{mol}$\n\n$c(\\mathrm{CH_3COOH}) = \\frac{n}{V} = \\frac{2.250 \\times 10^{-3}}{0.02500} = 0.0900\\ \\mathrm{mol\\,dm^{-3}}$\n\nThe ethanoic acid is 0.0900 mol dm⁻³, slightly less concentrated than the alkali.",
+  "notation": [
+    "latex_inline",
+    "chemical_equation",
+    "sci_latex",
+    "units_latex",
+    "units_unicode_exponent",
+    "ratio"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "\\mathrm{CH_3COOH + NaOH \\rightarrow CH_3COONa + H_2O}",
+      "0.100 \\times \\frac{22.50}{1000} = 2.250 \\times 10^{-3}\\ \\mathrm{mol}",
+      "$n(\\mathrm{CH_3COOH}) = 2.250 \\times 10^{-3}\\ \\mathrm{mol}$",
+      "\\frac{2.250 \\times 10^{-3}}{0.02500} = 0.0900\\ \\mathrm{mol\\,dm^{-3}}",
+      "The ethanoic acid is 0.0900 mol dm⁻³"
+    ]
+  }
+}

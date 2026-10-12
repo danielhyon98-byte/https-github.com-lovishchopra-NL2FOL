@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-031",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A cyclist moving at 5.0 m s⁻¹ accelerates uniformly at 2.0 m s⁻² for 3.0 s. Calculate the distance travelled in this time.",
+  "supplied_texts": [],
+  "response_text": "u = 5.0 m s⁻¹, a = 2.0 m s⁻², t = 3.0 s\n\ns = ut + ½at² = 5.0 m s⁻¹ + ½ × 2.0 m s⁻² × (3.0 s)² = 14 m\n\nThe cyclist covers 14 m while accelerating.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "dropped_factor",
+        "step": "s = ut + ½at² = 5.0 m s⁻¹ + ½ × 2.0 m s⁻² × (3.0 s)² = 14 m",
+        "expected_codes": [
+          "INT-SUBJ-001",
+          "ST-DIM-002"
+        ],
+        "note": "The term ut was substituted as 5.0 m s⁻¹ instead of 5.0 m s⁻¹ × 3.0 s. stem-sub: ut + ½at² under the bindings is 15 + 9 = 24, the substituted side 5.0 + 9.0 = 14. The sum adds m s⁻¹ to m (ST-DIM-002). The arithmetic 5.0 + 9.0 = 14 holds as written. True distance 24 m. [computed: under bindings 24 vs substituted side 14 -> does not hold; dimensions (1, 0, -1, 0, 0, 0, 0) vs (1, 0, 0, 0, 0, 0, 0) -> differ; C=14 S=14 h=0.5 tau=1/100 -> holds]"
+      }
+    ],
+    "correct_steps": [
+      "u = 5.0 m s⁻¹, a = 2.0 m s⁻², t = 3.0 s"
+    ]
+  }
+}

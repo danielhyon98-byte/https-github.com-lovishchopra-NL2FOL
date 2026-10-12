@@ -1,0 +1,29 @@
+{
+  "id": "stem-phys-008",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "An electric motor lifts a 40 kg load through a height of 12 m in 8.0 s. The electrical power input to the motor is 750 W. Calculate the useful power output and the efficiency of the motor. Take g = 9.81 m s⁻².",
+  "supplied_texts": [],
+  "response_text": "Useful work done: W = mgh = 40 × 9.8 × 12 = 4704 J ≈ 4.7 kJ\nUseful power output: P_out = W/t = 4704 / 8.0 = 588 W ≈ 0.59 kW\nEfficiency = P_out / P_in × 100% = 588 / 750 × 100% = 78.4% ≈ 78%\n\n(I used g ≈ 9.8 m s⁻² here; with 9.81 m s⁻² the output is 589 W and the efficiency still rounds to 78%.)",
+  "notation": [
+    "unicode",
+    "ascii",
+    "subscripted_symbols",
+    "units_unicode_exponent",
+    "units_prefix",
+    "percent",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "W = mgh = 40 × 9.8 × 12 = 4704 J",
+      "4704 J ≈ 4.7 kJ",
+      "P_out = W/t = 4704 / 8.0 = 588 W",
+      "588 W ≈ 0.59 kW",
+      "588 / 750 × 100% = 78.4%",
+      "78.4% ≈ 78%",
+      "with 9.81 m s⁻² the output is 589 W and the efficiency still rounds to 78%"
+    ]
+  }
+}

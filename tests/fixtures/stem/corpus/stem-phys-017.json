@@ -1,0 +1,33 @@
+{
+  "id": "stem-phys-017",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Two resistors of 4.0 Ω and 6.0 Ω are connected in parallel across a 12 V supply. Calculate the combined resistance and the current drawn from the supply.",
+  "supplied_texts": [],
+  "response_text": "For resistors in parallel:\n$$\\frac{1}{R_T} = \\frac{1}{R_1} + \\frac{1}{R_2} = \\frac{1}{4.0} + \\frac{1}{6.0} = \\frac{5}{12}\\ \\Omega^{-1}$$\nso $R_T = \\frac{12}{5} = 2.4\\ \\Omega$.\n\nCurrent from the supply: $I = \\frac{V}{R_T} = \\frac{12}{2.4} = 5.0\\ \\text{A}$.\n\nThe supply therefore delivers 0.50 A, and each resistor has the full 12 V across it.",
+  "notation": [
+    "latex_display",
+    "latex_inline",
+    "fractions_surds",
+    "units_latex",
+    "subscripted_symbols"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_restatement",
+        "step": "The supply therefore delivers 0.50 A",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-res: the chain's final value is I = 5.0 A; the prose restates 0.50 A (a factor of ten); |5.0 − 0.50| exceeds h + h' = 0.055. [computed: chain 5.0 vs prose 0.50: |diff|=4.5 band=0.055 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "\\frac{1}{4.0} + \\frac{1}{6.0} = \\frac{5}{12}",
+      "R_T = \\frac{12}{5} = 2.4\\ \\Omega",
+      "I = \\frac{V}{R_T} = \\frac{12}{2.4} = 5.0\\ \\text{A}",
+      "each resistor has the full 12 V across it"
+    ]
+  }
+}

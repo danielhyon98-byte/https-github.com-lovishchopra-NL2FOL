@@ -1,0 +1,30 @@
+{
+  "id": "stem-math-002",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "The lens equation is 1/f = 1/u + 1/v. Make f the subject, and hence find f when u = 12 cm and v = 6.0 cm.",
+  "supplied_texts": [],
+  "response_text": "Starting from $\\frac{1}{f} = \\frac{1}{u} + \\frac{1}{v}$, take reciprocals of each term:\n$$\\frac{1}{f} = \\frac{1}{u} + \\frac{1}{v} \\;\\Rightarrow\\; f = u + v$$\nWith $u = 12$ cm and $v = 6.0$ cm:\n$$f = 12 + 6.0 = 18\\ \\text{cm}$$\nSo the focal length is 18 cm.",
+  "notation": [
+    "latex_inline",
+    "latex_display",
+    "fractions_surds",
+    "units_latex"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_rearrangement",
+        "step": "\\frac{1}{f} = \\frac{1}{u} + \\frac{1}{v} \\;\\Rightarrow\\; f = u + v",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-alg: the reciprocal of a sum is not the sum of the reciprocals; 1/f = 1/u + 1/v gives f = uv/(u + v). A pure manipulation (f, u, v all in the premise), so error severity. Counterexample u = 12, v = 6: the premise gives f = 4, the conclusion 18. True f = 4.0 cm. [computed: premise f = 1/(1/12 + 1/6) = 4, conclusion f = 18]"
+      }
+    ],
+    "correct_steps": [
+      "$u = 12$ cm and $v = 6.0$ cm",
+      "12 + 6.0 = 18"
+    ]
+  }
+}

@@ -60,7 +60,7 @@ def test_a_synthesized_claim_with_superscripts_is_relayed(sentence):
     run = Run("ess-t13")
     base = run.synthesis()
     first = base.claims[0]
-    claims = [{"text": sentence, "source_claim_ids": [s.split("@")[0] for s in first.source_claim_ids], "transformation": "merged"}]
+    claims = [{"text": sentence, "source_claim_ids": [run.recorded_id("ess-t13", s) for s in first.source_claim_ids], "transformation": "merged"}]
     msg, rr = run.relay_synthesis(run.synthesis({"ess-t13": claims}))
     assert msg is not None and "INT-INTERNAL-001" not in codes(rr.findings)
 

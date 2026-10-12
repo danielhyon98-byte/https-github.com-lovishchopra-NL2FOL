@@ -1,0 +1,22 @@
+{
+  "id": "stem-phys-027",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A radioactive sample has a half-life of 8.0 days and an initial activity of 640 Bq. Calculate its activity after 24 days and the fraction of the original nuclei that remain.",
+  "supplied_texts": [],
+  "response_text": "Number of half-lives: n = t/T½ = 24/8.0 = 3\nActivity after 3 half-lives: A = 640 × (½)³ = 640/8 = 80 Bq\nFraction remaining: (½)³ = 1/8 = 0.125\n\nAfter three half-lives one-eighth of the nuclei remain undecayed, so the activity has fallen to 80 Bq.",
+  "notation": [
+    "unicode",
+    "fractions_surds",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "n = t/T½ = 24/8.0 = 3",
+      "A = 640 × (½)³ = 640/8 = 80 Bq",
+      "(½)³ = 1/8 = 0.125",
+      "one-eighth of the nuclei remain undecayed, so the activity has fallen to 80 Bq"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "stem-chem-013",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Calculate the pH of 0.050 mol dm⁻³ sodium hydroxide solution at 298 K (Kw = 1.0 × 10⁻¹⁴).",
+  "supplied_texts": [],
+  "response_text": "NaOH is a strong base, so [OH⁻] = 0.050 mol dm⁻³.\npOH = −log(0.050) = 1.30\npH = 14.00 − pOH = 14.00 − 1.30 = 11.70\n\nThe solution is strongly alkaline, as expected for a strong base.",
+  "notation": [
+    "unicode",
+    "concentration_brackets",
+    "logarithm",
+    "ionic_charges"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "14.00 − 1.30 = 11.70",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq: 14.00 − 1.30 = 12.70 exactly; stated 11.70; |12.70 − 11.70| = 1 exceeds h + tau*|C| = 0.005 + 0.127. [computed: C=12.7 S=11.70 h=0.005 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "[OH⁻] = 0.050 mol dm⁻³",
+      "pOH = −log(0.050) = 1.30",
+      "pH = 14.00 − pOH = 14.00 − 1.30"
+    ]
+  }
+}

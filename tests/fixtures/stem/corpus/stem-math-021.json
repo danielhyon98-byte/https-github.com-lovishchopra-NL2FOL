@@ -1,0 +1,28 @@
+{
+  "id": "stem-math-021",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "short_answer",
+  "question": "Solve (x − 1)² = 49.",
+  "supplied_texts": [],
+  "response_text": "Taking the square root of both sides:\n(x − 1)² = 49\nx − 1 = 7\nx = 8\n\nCheck: (8 − 1)² = 7² = 49, so x = 8 is the solution.",
+  "notation": [
+    "unicode",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "lost_root",
+        "step": "x − 1 = 7",
+        "expected_codes": [
+          "ST-ALG-001",
+          "INT-SUBJ-001"
+        ],
+        "note": "Only the non-negative square root was taken: x − 1 = ±7, so x = 8 or x = −6. Mathematics profile, no domain restriction stated: ST-ALG-001 names the step; the closing claim 'x = 8 is the solution' asserts the full set, which stem-sol completeness refutes (x = −6). [computed: real roots ['-6', '8'], stated ['8'] -> missing -6]"
+      }
+    ],
+    "correct_steps": [
+      "(8 − 1)² = 7² = 49"
+    ]
+  }
+}

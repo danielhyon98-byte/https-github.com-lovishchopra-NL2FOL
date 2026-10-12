@@ -1,0 +1,25 @@
+{
+  "id": "stem-chem-019",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Estimate the enthalpy change for 2H₂(g) + O₂(g) → 2H₂O(g) using the bond enthalpies H–H 436, O=O 498 and O–H 463 kJ mol⁻¹.",
+  "supplied_texts": [],
+  "response_text": "2H₂(g) + O₂(g) → 2H₂O(g)\n\nBonds broken: 2 × (H–H) + 1 × (O=O) = 2(436) + 498 = 1370 kJ mol⁻¹\nBonds formed: 4 × (O–H) = 4(463) = 1852 kJ mol⁻¹\nΔH = 1370 − 1852 = −482 kJ mol⁻¹\n\nThe reaction is exothermic because more energy is released when the O–H bonds form than is needed to break the H–H and O=O bonds.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "bond_notation",
+    "implicit_multiplication",
+    "signed_values"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "2H₂(g) + O₂(g) → 2H₂O(g)",
+      "2 × (H–H) + 1 × (O=O) = 2(436) + 498",
+      "2(436) + 498 = 1370 kJ mol⁻¹",
+      "4(463) = 1852 kJ mol⁻¹",
+      "1370 − 1852 = −482 kJ mol⁻¹"
+    ]
+  }
+}

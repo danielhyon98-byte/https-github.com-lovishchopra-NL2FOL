@@ -1,0 +1,33 @@
+{
+  "id": "stem-chem-004",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "25.0 cm³ of 2.00 mol dm⁻³ hydrochloric acid is diluted with water to a total volume of 500 cm³. Calculate the concentration of the diluted acid.",
+  "supplied_texts": [],
+  "response_text": "V₁ = 25.0 cm³ = 0.250 dm³, c₁ = 2.00 mol dm⁻³, V₂ = 500 cm³ = 0.500 dm³\n\nn(HCl) = c₁V₁ = 2.00 × 0.250 = 0.500 mol\nc₂ = n/V₂ = 0.500 / 0.500 = 1.00 mol dm⁻³\n\nThe amount of HCl is unchanged by dilution; only the volume of the solution increases.",
+  "notation": [
+    "unicode",
+    "subscripted_symbols",
+    "units_unicode_exponent",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unit_conversion",
+        "step": "V₁ = 25.0 cm³ = 0.250 dm³",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-cnv: 25.0 cm³ = 0.0250 dm³ exactly (1 dm³ = 1000 cm³); stated 0.250 dm³; tau = 0, h = 0.0005. True concentration 0.100 mol dm⁻³; the later arithmetic holds as written but carries the factor of ten. [computed: exact=0.025 stated=0.250 (in dm³; in SI exact=2.5e-05 stated=2.5e-04 m³, h=5e-07) h=0.0005 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "c₁ = 2.00 mol dm⁻³",
+      "V₂ = 500 cm³ = 0.500 dm³",
+      "2.00 × 0.250 = 0.500 mol",
+      "0.500 / 0.500 = 1.00 mol dm⁻³",
+      "The amount of HCl is unchanged by dilution"
+    ]
+  }
+}

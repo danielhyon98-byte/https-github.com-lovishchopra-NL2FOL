@@ -1,0 +1,24 @@
+{
+  "id": "stem-chem-006",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Calculate the volume of carbon dioxide, measured at STP, produced when 10.0 g of calcium carbonate decomposes completely. Molar volume at STP = 22.7 dm³ mol⁻¹; M(CaCO₃) = 100.09 g mol⁻¹.",
+  "supplied_texts": [],
+  "response_text": "CaCO₃ → CaO + CO₂, so 1 mol CaCO₃ gives 1 mol CO₂.\n\nn(CaCO₃) = 10.0 / 100.09 = 0.0999 mol\nV(CO₂) = n × V_m = 0.0999 × 22.7 = 2.27 dm³ = 2.27 × 10⁻³ m³\n\nAbout 2.27 dm³ of gas is collected, assuming it behaves ideally.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "sci_unicode",
+    "subscripted_symbols"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "CaCO₃ → CaO + CO₂",
+      "n(CaCO₃) = 10.0 / 100.09 = 0.0999 mol",
+      "V(CO₂) = n × V_m = 0.0999 × 22.7 = 2.27 dm³",
+      "2.27 dm³ = 2.27 × 10⁻³ m³",
+      "About 2.27 dm³ of gas is collected"
+    ]
+  }
+}

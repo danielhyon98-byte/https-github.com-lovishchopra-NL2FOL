@@ -1,8 +1,8 @@
 # branches — one hub, a branch per subject, an integrity pack in each
 
 The router talks to every specialist (English, History, Psychology, Economics,
-Business Management, and any subject added later) through the same hub. What differs
-by subject lives in a branch:
+Business Management, the STEM subjects, and any subject added later) through the same hub.
+What differs by subject lives in a branch:
 
 ```
                  ┌────────────────────────── hub integrity (shared) ───────────────────────────┐
@@ -14,15 +14,19 @@ router ──► RouterHub ──► TranslatorChannel: envelope · hand-off · 
                  ├── branch psychology ......... profile + generic parser + [core pack, Psychology pack]
                  ├── branch economics .......... profile + generic parser + [core pack, Economics pack]
                  ├── branch business_management  profile + generic parser + [core pack, Business pack]
+                 ├── branch sciences ........... STEM parser + [core pack (SI reading), StemPack("sciences")] + STEM hooks
+                 ├── branch mathematics ........ STEM parser + [core pack (SI reading), StemPack("mathematics")] + STEM hooks
+                 ├── branch computer_science ... STEM parser + [core pack (SI reading), StemPack("computer_science")] + STEM hooks
                  └── branch generic ............ profile + generic parser + [core pack, generic pack]
 ```
 
 | Module | Role |
 | --- | --- |
-| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs; `run_packs` runs each pack's checks and formal checks on their own, so a pack that fails internally adds `PACK-INTERNAL-001` (error) naming the pack and the call while every other pack's findings and formal checks still reach the receipt), `IntegrityPack` protocol, `FormalCheck` (with `claim_ids`: the delivered claims whose text holds the statement the check was built from, which the channel copies onto `INT-SUBJ-001` / `INT-SUBJ-002`), `BranchRegistry` (subject label → branch, generic fallback). |
-| `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction, fold change or multiple, absolute change or average rate; the direction a from/to pair is said to move; a comparison with a stated benchmark; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series, a decade superlative among them; shares; totals; the parts of a stated total, after it ('of which', 'alone') or opening the clause ('Of the $13 billion, ...'); a share of the total; a yearly average of a total dated by a decade or a span; a difference between two named parties' figures; a stated length of years against its span, in any wording and with day or month dates; a rate verb between a one-year count and a multi-year count; a signed change; a share written 'N of the M, about <fraction>'; figures written with a currency sign) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure, comparison or superlative no problem can be built for is returned as undecided (`undecided_quant_statements`), and so is every worked equation (`worked_equations`: written arithmetic in '=' form, which no reader on these branches decides), so no stated arithmetic crosses the hub silently. Each check carries the phrase it reads, so its finding names the claim that states it. No model is involved. |
-| `packs.py` | `CorePack` (every branch: quotation grounding, a structured claim's quotation against its own source reference, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification, support cycles in any delivered report, parsed or structured; each check runs on its own, a failing one being `CORE-INTERNAL-001`; at most `MAX_FORMAL_CHECKS` (500) formal checks per transmission, the rest named as undecided), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic: the term in full or as PED, YED, XED or PES, an ASCII or Unicode minus, stated in prose with its two percentage changes on its line or worked as a division, 'PED = −12.50 ÷ 18.75 = −0.67', whose sign is checked too), `BusinessPack` (margins: in prose, or worked as '(A ÷ B) × 100 = m%' under a margin label), `GenericPack`. A worked equation a subject pack decides (`pack_decided_equations`) is not also named undecided by the core pack. |
-| `registry.py` | The default registry and how subjects map to branches. |
+| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs, optional `hub_hooks`; `run_packs` runs each pack's checks and formal checks on their own, so a pack that fails internally adds `PACK-INTERNAL-001` (error) naming the pack and the call, with the branch infrastructure's `BR-INTERNAL-001` (warning) beside it, while every other pack's findings and formal checks still reach the receipt; it prefers a pack's `formal_checks_for(report, request_text)`), `IntegrityPack` protocol, `BranchHooks` protocol, `FormalCheck` (with `claim_ids`: the delivered claims whose text holds the statement the check was built from, which the channel copies onto `INT-SUBJ-001` / `INT-SUBJ-002` / `INT-SUBJ-004`; the named engine `policy`, `failure_severity`, `inconsistent_is_failure`), `BranchRegistry` (subject label → branch, generic fallback). |
+| `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction, fold change or multiple, absolute change or average rate; the direction a from/to pair is said to move; a comparison with a stated benchmark; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series, a decade superlative among them; shares; totals; the parts of a stated total, after it ('of which', 'alone') or opening the clause ('Of the $13 billion, ...'); a share of the total; a yearly average of a total dated by a decade or a span; a difference between two named parties' figures; a stated length of years against its span, in any wording and with day or month dates; a rate verb between a one-year count and a multi-year count; a signed change; a share written 'N of the M, about <fraction>'; figures written with a currency sign) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure, comparison or superlative no problem can be built for is returned as undecided (`undecided_quant_statements`), and so is every worked equation (`worked_equations`: written arithmetic in '=' form, which no reader on these branches decides), so no stated arithmetic crosses the hub silently. Each check carries the phrase it reads, so its finding names the claim that states it. No model is involved. Every statement is read in the general reading, or in the SI reading of the STEM branches (`reading`: SI units, scientific notation, signs, repeated folds, a sign-aware band, the SI quant view with the maths masked; the module docstring lists what each reading reads). |
+| `packs.py` | `CorePack(reading=...)` (every branch, in the general reading but on the STEM branches, which run `CORE_SI = CorePack(reading=SI_READING)`: quotation grounding, a structured claim's quotation against its own source reference, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification, support cycles in any delivered report, parsed or structured; each check runs on its own, a failing one being `CORE-INTERNAL-001`; at most `MAX_FORMAL_CHECKS` (500) formal checks per transmission, the rest named as undecided), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic: the term in full or as PED, YED, XED or PES, an ASCII or Unicode minus, stated in prose with its two percentage changes on its line or worked as a division, 'PED = −12.50 ÷ 18.75 = −0.67', whose sign is checked too), `BusinessPack` (margins: in prose, or worked as '(A ÷ B) × 100 = m%' under a margin label), `GenericPack`. A worked equation a subject pack decides (`pack_decided_equations`) is not also named undecided by the core pack. |
+| `stem_pack.py` | `StemPack(mode)`: the STEM pack of the `sciences`, `mathematics` and `computer_science` branches (ST findings and the STEM engine checks of `stem.checks`, see below). |
+| `registry.py` | The default registry and how subjects map to branches (`CORE` in the general reading; `CORE_SI = CorePack(reading=SI_READING)` first in every STEM branch). |
 | `generic_parser.py` | Fallback parser for subjects without a dedicated adapter. Claim ids are qualified by the agent, `g{paragraph}.{unit}@{agent_id}` (`g4.2@economics-specialist`), so two generic-branch reports of one task (Economics with Business, Physics with Mathematics) never share an id (no INT-REQ-016, no INT-LEDGER-014); the fold claim of an oversized answer keeps `g.tail`. A paragraph is read line by line: a line that opens with `=` continues the equation of the line before it (one claim per equation chain), a soft-wrapped prose line or a line ending on a comma or connective continues its line, and every other line break ends a claim, so each line of working, list item and result is a claim of its own; a sentence also ends after a closing quotation mark ('."', '.”'). Part labels ("(a) [2]", "(i) [2 marks]", "Part (a) — find — 3 marks") and mark annotations ("[1]", "[1 spare]", "M1", "(A1)") are no claims (`original_response` keeps them). Notes (`markdown.NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:", and "Limit:" on this branch; a paragraph opened by a bare note lead is a note as a whole), questions and headings ("Measure: ..." stating no working, "Working for (b):", "Diagram 1: ...", a short title such as "2024 (no tax)") are roled `other`; a line of working or a bare value is never a note for having no letters. Each part's answer is a material `point`: a line led by "Answer:", "Result(s):", "Total:" or credited with an accuracy mark ("A1"), else the last line of the part's first run of working with the rows before it that give the same quantity for another case, else the part's opening claim (every sentence of it when the part carries a "Why:" justification); a bare value opening a part ("(-1, 3)") always. Supports follow the stated direction and never cycle: a point opening its paragraph or part rests on the plain claims after it, a closing answer, judgement or consequence ("Therefore ...", "Consumers therefore pay ...") on the claims before it; caveats ("However ...") and "Assumption:" lines support nothing and an assumption is never a derived point; two labelled answers opening a paragraph ("Binary search: ... Linear search: ...") are coordinate. |
 | `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. Nothing raises into the router: a structured report received as a mapping takes its sender and report id from its own fields when the call states none, any other non-text payload goes to the channel's payload path (REJECTED, `INT-REQ-009`), raw text with no stated sender or report id is REJECTED unparsed (`INT-REQ-009`), and a task id no plan opened gets a REJECTED receipt from a quarantine channel (`INT-HANDOFF-001` for a dispatch, `INT-REQ-009` naming the task for a reply); `receipts()` of such a task lists those receipts. |
 
@@ -465,6 +469,7 @@ can never disagree.
 | `CORE-STR-001` | error | a claim supports itself, or claims form a cycle through `supporting_claim_ids`, in a delivered report on any branch, parsed or structured (the same cycle reading as the generic structured adapter's `GEN-STR-002`): none of them can be evidence for the others; the finding names the claims of each cycle |
 | `CORE-INTERNAL-001` | error | one check of the core pack failed internally; its findings (and the formal checks built from the same reading) are missing, the other checks ran |
 | `PACK-INTERNAL-001` | error | a pack's `checks` or `formal_checks` failed internally (`SubjectBranch.run_packs`); the other packs' findings and formal checks are on the receipt |
+| `BR-INTERNAL-001` | warning | raised beside `PACK-INTERNAL-001` for the same failing call: the pack, the exception type and the stage (`checks` or `formal checks`), never the exception's text; the router must not treat the pack as passed |
 
 The core pack sends at most `MAX_FORMAL_CHECKS` (500) formal checks to the engine per transmission
 (arithmetic first, then chronology), so an answer far beyond any request's length cannot hold the hub
@@ -616,6 +621,106 @@ what a verdict looks like.
   inline label the parser set aside, dated or not (`A regular private's pay of about a shilling a
   day (from memory) was a real draw ...`), so a synthesis that restates it as established is
   `INT-LEDGER-003`.
+
+## STEM branches (docs/STEM_DESIGN.md)
+
+Physics, Chemistry, Biology, ESS, SEHS, Design Technology and the `stem` profile (general
+science, engineering, a label naming two or more sciences) route to `sciences`; Mathematics AA,
+AI and an unspecified course to `mathematics`; Computer Science to `computer_science`.
+`generic` stays the default for an unrecognised subject. Each STEM branch runs:
+
+* `StemTextParser` (`adapters/stem_specialist`): claims are the shared `StemDocument`'s
+  statements, offset substrings of the answer with ids `s<paragraph>.<n>` (`m` in mathematics,
+  `c` in Computer Science, so two STEM branches never share a claim id on one task);
+* `CORE_SI`: the core pack in SI reading (`quant` module docstring, `stem/si_reading.py`): only
+  spelled-out scale words scale a figure (`300 K`, `500 mm to 2 m` read as written), units of
+  the STEM table convert exactly and pair only when their dimensions agree, scientific
+  notation and signs are read, `halved twice` is a factor of 1/4, the band is sign-aware, and
+  the prose extractor reads the SI quant view (maths masked) so it never checks the maths the
+  STEM pack checks; quotations are read on the quotation view (an inch mark `12"` is not a
+  quotation mark), chronology and self-certification on the prose view (`1500 K` is no year);
+  findings name the STEM claim ids. `CORE` (the general reading) is byte-identical to before
+  on every other branch (`tests/branches/test_quant_si_reading.py` pins it on a 570-text
+  reference corpus);
+* `StemPack(mode)`: the front end's and the checks stage's ST findings (codes and severities of
+  design section 8.2; never an error: every STEM error is an engine result) and one
+  `FormalCheck` per planned check (`stem-eq-N`, `stem-sub-N`, `stem-alg-N`, ...) with its claim
+  ids, its named policy (`linear` or `nonlinear`), its failure severity (`warning` for checks
+  that relied on a reading the report did not state) and `inconsistent_is_failure=False`. On
+  relay (no request) `stem-giv` and `stem-tgt` are not built. A failure inside the pack is
+  ST-INTERNAL-001, never an exception and never a silent pass;
+* the STEM hub hooks (`stem/hub_hooks.py`): coverage words from the dimensions of a claim's
+  quantities, the echo exemption for an answer that computes, the STEM imperatives, and the
+  word-count view (a maths span or a code block is one word).
+
+### What the STEM pack checks
+
+One shared `StemDocument` per (answer, request, profile) is read by the parser, the pack and
+`CORE_SI`, so claim ids, sentence numbers and check ids cannot diverge. The front end
+(`stem/`) reads LaTeX, Unicode, ASCII and verbal arithmetic with a hand-written lexer and a
+bounded Pratt parser; nothing evaluates agent text. Every relation it recognises ends as a
+planned check, a binding, a law (`formula`), a premise-free `context` line, or an undecided
+relation named with its ST code and reason. The checks stage (`stem/checks.py`,
+`stem/to_ir.py`; encodings in `stem/ENCODINGS.md`) turns each planned check into an IR 1.0
+problem:
+
+| Kind | Check | Decided | Failure |
+| --- | --- | --- | --- |
+| `stem_arithmetic` | `stem-eq-N` | written arithmetic `E = S` within the STEM tolerance band | INT-SUBJ-001 (INT-SUBJ-004 after a booklet value or an unknown unit) |
+| `stem_substitution` | `stem-sub-N` | substituted values against their symbols' bindings, or the symbolic side under its bindings | as above |
+| `stem_algebra` | `stem-alg-N` | the step follows from the preceding relation (with bindings, up to 8 stated formulas, guards) | INT-SUBJ-001; INT-SUBJ-004 when the step brings in symbols nothing connects |
+| `stem_solution` | `stem-sol-N` | stated roots satisfy the equation; the full set when it is claimed and the domain is not restricted | INT-SUBJ-001 |
+| `stem_conversion` | `stem-cnv-N` | an explicit unit conversion with exact factors | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |
+| `stem_comparison` | `stem-cmp-N` | a stated order or inequality, or an inequality step | INT-SUBJ-001 |
+| `stem_result` | `stem-res-N` | a prose restatement against the chain's final value | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |
+| `stem_given` | `stem-giv-N` | a Given value against the request | INT-SUBJ-004 (warning) |
+| `stem_target` | `stem-tgt-N` | the final value against a show-that target | INT-SUBJ-004 (warning) |
+| `stem_balance` | `stem-chem-N` | element and charge balance (tallies per element and side) | INT-SUBJ-001 |
+| `stem_boolean` | `stem-bool-N` | a Boolean identity (`¬(lhs ⇔ rhs)` must be unsatisfiable) | INT-SUBJ-001 |
+| `stem_truth_table` | `stem-tt-N` | every stated truth-table row | INT-SUBJ-001 |
+| `stem_base` | `stem-base-N` | a based-numeral conversion as exact integer arithmetic | INT-SUBJ-001 |
+
+Every STEM check has `inconsistent_is_failure=False` (inconsistent premises point to an earlier
+line, which its own check reports, or to a domain outside the encodings, so they are undecided:
+INT-SUBJ-002), a policy read from the built IR (`nonlinear` exactly when a product has two
+factors that hold variables), and a description that names the statement, the claims, the
+tolerance rule, the readings and any constant the pack supplied. Undecided outcomes are
+INT-SUBJ-002; the channel also runs a report's STEM checks under an 8 s wall-clock budget, and
+checks left when it is spent are INT-SUBJ-002, never success. Statement ids map to the report's
+claims by id (`s1.2`, or `m1.2`/`c1.2` in the other two branches), else by offset overlap, else
+by the shared two-way substring rule, and descriptions and messages are relabelled to the
+report's own claim ids. The pack keeps a 32-entry cache per report and request; the front end
+keeps a 64-entry document cache.
+
+Worked example (the case observed before STEM support): in `a = (20 - 0)/4.0 = 6.0 m s⁻²`
+(claim `s1.2`) the link `(20 - 0)/4.0 = 6.0` becomes `stem-eq-1`, the entailment
+`c = 20/4, r = 6 ⊢ |c − r| ≤ 0.05 + (1/100)·|c|` under the linear policy. Z3 returns
+COUNTEREXAMPLE with `c = 5`, `r = 6`; the receipt carries INT-SUBJ-001 (error) on `s1.2` with
+those values, and the report is delivered ACCEPTED_WITH_FINDINGS. The top-level `README.md`
+shows the full problem.
+
+Every STEM problem's `notes` opens with the scope statement (`stem.tolerance.STEM_SCOPE`): a
+STEM check proves a property of its encoding only, namely that the written arithmetic,
+substitution, conversion, algebraic step, balance or Boolean identity holds, or does not hold,
+under the stated premises, the documented readings and the STEM tolerance rule. It does not
+establish that a law applies, that data are true, that a model is physically valid, that a unit
+is the right one beyond the dimension and conversion checks, or that the answer is what the
+question wanted. The ST finding codes and severities are listed in the top-level `README.md`
+and in design section 8.2; none of them is an error. Measured results:
+`docs/STEM_RESULTS.md`.
+
+Recorded behaviour change (design section 18, item 1, for the overseer audit and sign-off):
+STEM subjects route to these branches instead of `generic`; the two routing assertions that
+encoded the old routing (`tests/branches/test_hub.py`, `tests/branches/test_quant_and_packs.py`)
+were replaced by assertions of equal strength for `sciences`, each with an unknown → `generic`
+assertion beside it.
+
+## Pack isolation (`PACK-INTERNAL-001`, `BR-INTERNAL-001`)
+
+`SubjectBranch.run_packs` calls every pack's `checks` and formal checks in a guard. A pack that
+raises is named by the hub's PACK-INTERNAL-001 error and by a BR-INTERNAL-001 warning (the pack,
+the exception type, the stage; never the exception's text), its findings are missing from the
+receipt and the router must not read them as a pass; the other packs still run.
 
 Adding a subject: write a pack (deterministic checks citing the pack's working rules,
 plus any formal check templates), optionally an adapter, and register a branch. The

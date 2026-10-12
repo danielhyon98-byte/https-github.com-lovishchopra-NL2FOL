@@ -1,0 +1,22 @@
+{
+  "id": "stem-math-019",
+  "subject": "Mathematics: Applications and Interpretation",
+  "task_type": "short_answer",
+  "question": "Sam invests $5000 at 3.5% per annum compound interest. Find the value of the investment after 10 years, to the nearest cent, and the total interest earned.",
+  "supplied_texts": [],
+  "response_text": "Using FV = PV × (1 + r/100)^n with PV = 5000, r = 3.5 and n = 10:\nFV = 5000 × (1 + 3.5/100)^10 = 5000 × 1.035^10 = 7052.99\n\nAfter 10 years the investment is worth $7052.99, so the interest earned is $7052.99 − $5000 = $2052.99.",
+  "notation": [
+    "ascii",
+    "unicode",
+    "currency_dollar"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "PV = 5000, r = 3.5 and n = 10",
+      "5000 × (1 + 3.5/100)^10 = 5000 × 1.035^10",
+      "5000 × 1.035^10 = 7052.99",
+      "$7052.99 − $5000 = $2052.99"
+    ]
+  }
+}
