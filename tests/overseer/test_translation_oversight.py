@@ -156,15 +156,18 @@ def test_a_faithful_model_proposed_translation_gives_no_trn_finding_and_is_recor
     assert a.state in ("AUDIT_PASSED", "AUDIT_PASSED_WITH_FINDINGS")
 
 
-def test_ineligible_claims_are_recorded_without_a_provider_and_without_the_model_checks(aud):
+def test_ineligible_claims_are_recorded_without_a_provider_and_their_eligibility_is_re_derived(aud):
+    """Contained round c1 (rewritten to assert the reversed rule more strictly): the eligibility policy is deterministic
+    and does not depend on who proposed the IR, so it is re-derived for every translation recorded under this code's
+    policy version, a provider-less NOT_ELIGIBLE one included; here it agrees. With no problem there is nothing to trace."""
     report = english_report(claims=point_claims())
     responses = {POINT: proposal(genuine_problem()), "en-an": proposal(genuine_problem())}
     aud, ch, _rc = run(responses, auditor=aud, report=report)
     a = aud.audit(ch.uid)
     r = record(a, "en-an")
     assert r.translation_status == "NOT_ELIGIBLE" and not r.eligible and not r.model_proposed and r.problem_json is None
-    assert r.revalidation == "no_problem" and "trace" not in r.checks_run and "eligibility" not in r.checks_run
-    assert trn(a) == []
+    assert r.revalidation == "no_problem" and "trace" not in r.checks_run and "eligibility" in r.checks_run and "status" in r.checks_run
+    assert trn(a) == []  # the pipeline records no provider for a claim it ruled ineligible: never a fault
 
 
 def test_the_translation_record_is_part_of_the_signed_audit(aud):
@@ -271,27 +274,34 @@ def test_trn002_a_claim_the_policy_rules_out_forced_into_ir(aud):
 
 def test_trn002_eligibility_is_not_rederived_under_another_policy_version(aud):
     """A model-proposed translation recorded under another policy version: the decision cannot be re-derived by this
-    code, so the eligibility check does not run (and the record says so); the structural status checks still do."""
+    code, so the eligibility check does not run (and the record says so); the structural status checks still do, and
+    (contained round c1, asserted in addition) a problem whose eligibility cannot be re-derived is itself TRN-002."""
     aud, ch, _rc = run(auditor=aud, policy_version="older-policy")
     a = aud.audit(ch.uid)
     r = record(a)
     assert r.model_proposed and r.policy_version == "older-policy" and "eligibility" not in r.checks_run and "status" in r.checks_run
+    assert [f for f in trn(a, "OVS-TRN-002") if "older-policy" in f.message and "cannot be re-derived" in f.message]
 
 
-@pytest.mark.parametrize("updates,words", [
-    (dict(status=TranslationStatus.NOT_ELIGIBLE), "carries a problem"),
+@pytest.mark.parametrize("updates,words,rederived", [
+    (dict(status=TranslationStatus.NOT_ELIGIBLE), "carries a problem", True),
+    # the eligibility record names another policy version: it cannot be re-derived, and TRN-002 says so as well
     (dict(eligibility=EligibilityDecision(eligibility_class=EligibilityClass.NOT_ELIGIBLE_OTHER, eligible=False, decided_by="deterministic",
-                                          policy_version="test")), "not eligible"),
+                                          policy_version="test")), "not eligible", False),
 ])
-def test_trn002_status_or_eligibility_not_the_image_of_the_validation(aud, updates, words):
+def test_trn002_status_or_eligibility_not_the_image_of_the_validation(aud, updates, words, rederived):
+    """The provider removed as well (contained round c1; rewritten to assert the reversed rule more strictly): the
+    eligibility re-derivation runs whoever proposed the IR, and a translation of the model pipeline that carries a problem
+    without a provider is itself reported."""
     def tamper(out, claim, rep):
-        return recompose(out, claim, provider=None, **updates)  # hand-built: only the structural status rules apply
+        return recompose(out, claim, provider=None, **updates)
 
     aud, ch, _rc = run(transform=tamper, auditor=aud)
     a = aud.audit(ch.uid)
     f = trn(a, "OVS-TRN-002")
-    assert len(f) == 1 and f[0].claim_ids == [POINT] and words in f[0].message
-    assert not record(a).model_proposed and "eligibility" not in record(a).checks_run
+    assert len(f) == 1 and f[0].claim_ids == [POINT] and words in f[0].message and "model-path translation without provider" in f[0].message
+    assert not record(a).model_proposed and ("eligibility" in record(a).checks_run) is rederived and "trace" in record(a).checks_run
+    assert rederived or "cannot be re-derived" in f[0].message
 
 
 # ============================================================================================ TRN-003 / TRN-004
@@ -381,13 +391,32 @@ def test_trn005_a_supplied_text_quotation_the_specialist_did_not_quote_is_traced
     assert record(a).outside_cited_claims == ["P_coal"]  # recorded: outside the claim and the claims it cites
 
 
-def test_trn005_does_not_run_on_a_translation_no_model_proposed(aud):
+def test_trn005_runs_on_a_translation_whatever_proposed_it(aud):
+    """Contained round c1 (rewritten to assert the reversed rule more strictly; it was "does not run on a translation no
+    model proposed"): tracing is a deterministic comparison of the IR with the report, so a provider removed from a
+    translation no longer hides an invented number, and the missing provider is reported too."""
     p = genuine_problem(symbols=[{"name": "hours", "sort": "Int"}],
                         premises=[{"id": "P_hours", "expr": {"op": "eq", "left": V("hours"), "right": {"op": "int", "value": "40"}}}],
                         conclusion={"id": "C", "expr": {"op": "gt", "left": V("hours"), "right": {"op": "int", "value": "0"}}})
     aud, ch, _rc = run({POINT: proposal(p)}, transform=lambda out, claim, rep: recompose(out, claim, provider=None), auditor=aud)
     a = aud.audit(ch.uid)
-    assert trn(a, "OVS-TRN-005") == [] and "trace" not in record(a).checks_run and not record(a).model_proposed
+    f = trn(a, "OVS-TRN-005")
+    assert len(f) == 1 and "40" in f[0].message and "trace" in record(a).checks_run and not record(a).model_proposed
+    assert [x for x in trn(a, "OVS-TRN-002") if "model-path translation without provider" in x.message]
+
+
+def test_a_declared_hand_built_translator_is_exempt_from_the_provider_rule_only(aud):
+    """A translator the operator declared hand-built (``hand_built_translators``, recorded in the audit's coverage) may
+    carry a problem with no provider; it is still traced and its eligibility re-derived when it is recorded under this
+    code's policy version."""
+    p = genuine_problem(symbols=[{"name": "hours", "sort": "Int"}],
+                        premises=[{"id": "P_hours", "expr": {"op": "eq", "left": V("hours"), "right": {"op": "int", "value": "40"}}}],
+                        conclusion={"id": "C", "expr": {"op": "gt", "left": V("hours"), "right": {"op": "int", "value": "0"}}})
+    aud, ch, _rc = run({POINT: proposal(p)}, transform=lambda out, claim, rep: recompose(out, claim, provider=None, translator_version="test"), auditor=aud)
+    a = aud.audit(ch.uid)
+    assert "test" in (a.coverage.hand_built_translators or [])
+    assert trn(a, "OVS-TRN-002") == [] and len(trn(a, "OVS-TRN-005")) == 1
+    assert {"eligibility", "trace"} <= set(record(a).checks_run)
 
 
 # ============================================================================================ TRN-006

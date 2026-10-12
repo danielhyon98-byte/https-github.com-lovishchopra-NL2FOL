@@ -26,7 +26,8 @@ agent ──relay()──► another agent (report or synthesis): envelope, send
             ledger, figure/date fidelity (claims and the student-facing text, which must be composed of the claims:
             INT-LEDGER-028), quotations of the synthesis located
             (INT-LEDGER-025), direction and polarity (INT-LEDGER-026; an inverted comparison or an added negation against
-            one source, INT-LEDGER-027), undisclosed contradictions (INT-CONFLICT-002), entailment checks, and every material
+            one source, INT-LEDGER-027), an act given to a person the cited sources do not name for it (INT-LEDGER-029),
+            undisclosed contradictions (INT-CONFLICT-002), entailment checks, and every material
             paraphrase, merge or generalization left unchecked stated (INT-SYNTH-012)
 router ──relay()──► peer specialist: a DELIVERED report forwarded unchanged (`specialist_report_forward/1.0`);
             the channel checks the forward against the delivery (INT-HANDOFF-013: never delivered / altered in transit)

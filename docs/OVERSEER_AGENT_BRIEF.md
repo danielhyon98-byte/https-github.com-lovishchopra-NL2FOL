@@ -3,7 +3,7 @@
 This file holds no instructions. The overseer agent's whole configuration is the knowledge-document
 pack shipped with the package:
 
-`src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.0/`
+`src/epinoic_logic/overseer/knowledge/overseer-knowledge-docs-1.1/` (the installed version; 1.0 stays beside it, pinned)
 
 - `master_prompt.txt` is read first; the numbered documents `01` to `09` follow it in order.
 - Every rule of brief 1.0 is carried by the pack; the mapping is in `docs/OVERSEER_DESIGN.md`,

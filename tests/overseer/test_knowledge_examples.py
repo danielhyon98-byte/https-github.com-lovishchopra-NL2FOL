@@ -24,7 +24,9 @@ from epinoic_logic.overseer.verdicts import ID_FIELDS, AgentVerdict
 
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack
 
-EXPECTED_EXAMPLES = 19
+#: 19 in pack 1.0; pack 1.1 (after the contained round c1) added Example 20 (a missing link the translator exposed) and
+#: Example 21 (a constraint written by the rule for "about").
+EXPECTED_EXAMPLES = 21
 #: The categories of the Find an example table (the pack-mismatch example is a sixth case, outside them).
 CATEGORIES = ("genuine", "faulty", "tampered", "instruction", "unsure")
 
@@ -183,13 +185,13 @@ def test_every_example_is_consistent_with_its_excerpt():
     assert problems_examples(SRC_PACK_DIR) == []
 
 
-def test_all_nineteen_examples_parse(examples):
+def test_all_twenty_one_examples_parse(examples):
     assert len(examples) == EXPECTED_EXAMPLES
     kinds = {e.number: sorted({a["kind"] for a in e.verdict["accusations"]}) for e in examples}
     assert kinds == {1: [], 2: [], 3: ["quotation_absent"], 4: ["self_certification_as_content"], 5: ["figure_changed"], 6: ["contradiction_unnamed"],
                      7: ["forward_altered"], 8: ["result_unsigned_or_forged"], 9: ["receipt_status_wrong"], 10: ["peer_document_altered"],
                      11: ["other"], 12: ["other"], 13: [], 14: [], 15: ["translation_circular"], 16: ["translation_ungrounded"],
-                     17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"]}
+                     17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"], 20: [], 21: []}
     assert sum(len(e.verdict["engine_statements"]) for e in examples) == 1 and examples[7].verdict["engine_statements"][0]["result_id"] == "res-c4"
 
 
@@ -200,6 +202,19 @@ def test_example_verdicts_pass_the_intake_header_and_schema_rules(examples):
         obj = parse_json_object(json.dumps(e.verdict, ensure_ascii=False))
         verdict = AgentVerdict.model_validate(obj)
         assert verdict.contract == "overseer_verdict/1.0" and len({a.accusation_id for a in verdict.accusations}) == len(verdict.accusations)
+
+
+def test_the_c1_examples_teach_that_a_missing_link_and_a_parser_constraint_are_not_faults(examples):
+    """Pack 1.1: Example 20 shows a conjunct left without a premise (COUNTEREXAMPLE, a missing link exposed) with no
+    accusation; Example 21 shows "about 250 words" written as max_words 275, with no accusation."""
+    e20 = next(e for e in examples if e.number == 20)
+    concl = e20.excerpt["/transfers/0/receipt/outcomes/0/translation/problem/conclusion"]["expr"]
+    premised = {p["expr"].get("name") for p in e20.excerpt["/transfers/0/receipt/outcomes/0/translation/problem/premises"]}
+    assert concl["op"] == "and" and any(a["name"] not in premised for a in concl["args"])
+    assert e20.excerpt["/results/res-h12/status"] == "COUNTEREXAMPLE" and e20.verdict["accusations"] == []
+    e21 = next(e for e in examples if e.number == 21)
+    assert e21.excerpt["/transfers/0/payload/constraints/0/text"] == "about 250 words" and e21.excerpt["/transfers/0/payload/constraints/0/value"] == "275"
+    assert e21.verdict["accusations"] == []
 
 
 def test_the_instruction_example_does_not_follow_the_instruction(examples):
@@ -230,7 +245,7 @@ MUTATIONS = {
     "header": ('"dossier_sha256": "07d0d0', '"dossier_sha256": "07d0d1'),
     "engine_statement": ('"asserted_status": "COUNTEREXAMPLE"', '"asserted_status": "ENTAILED"'),
     "table_kind": ("| 9 | tampered | response receipt | `receipt_status_wrong` |", "| 9 | tampered | response receipt | `receipt_altered` |"),
-    "u2_notes": ("this agent is configured with overseer-knowledge-docs 1.0. Not reviewed.", "this agent is configured with overseer-knowledge-docs 1.1. Not reviewed."),
+    "u2_notes": ("this agent is configured with overseer-knowledge-docs 1.1. Not reviewed.", "this agent is configured with overseer-knowledge-docs 1.2. Not reviewed."),
     "table_type": ("| 7 | tampered | router forward |", "| 7 | faulty | router forward |"),
     "schema": ('"claimed_severity": "warning",\n      "message_ids": ["m-0002"]', '"claimed_severity": "Warning",\n      "message_ids": ["m-0002"]'),
 }

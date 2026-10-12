@@ -101,10 +101,20 @@ def keyring_for(profile: str) -> KeyRing:
     raise ValueError(f"unknown keyring profile {profile!r}")
 
 
+#: The ``translator_version`` of the tampering suite's hand-built translations (``tamper.translation``): the harness
+#: declares them to its auditor, which records the declaration in every audit's coverage (TRN-002 otherwise reports a
+#: translation that carries a problem and no provider).
+HAND_BUILT_TRANSLATORS = ("harness",)
+
+
 def new_auditor(keyring: KeyRing, **over: Any) -> TransferAuditor:
-    """The contained harness's auditor: inline replay (no worker process to manage), every result replayed, and the
-    shadow channel on every task (design section 6.4: contained testing runs it always)."""
-    opts: dict[str, Any] = dict(replay_mode="inline", eager=True, shadow="always")
+    """The contained harness's auditor: inline replay (no worker process to manage), every result replayed, the shadow
+    channel on every task (design section 6.4: contained testing runs it always), the harness's hand-built translator
+    declared (:data:`HAND_BUILT_TRANSLATORS`), and inline release configured explicitly (a FINAL audit's replays then run
+    in-process, which its OVS-AUDIT-002 and its signed coverage say; ``run_contained.py --replay-mode process`` runs the
+    replays in a worker process instead)."""
+    opts: dict[str, Any] = dict(replay_mode="inline", eager=True, shadow="always", hand_built_translators=HAND_BUILT_TRANSLATORS)
+    opts["inline_final_release"] = over.get("replay_mode", "inline") != "process"
     opts.update(over)
     return TransferAuditor(keyring, **opts)
 

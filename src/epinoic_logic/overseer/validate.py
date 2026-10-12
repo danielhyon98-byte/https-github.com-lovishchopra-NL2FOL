@@ -72,9 +72,10 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage re
   supersede each other);
 * translator oversight (design section 18): an accusation of a translation kind must name a claim; it is refuted only
   when, for every named claim, the evidence records a checked translation of it (on the named transfers and reports)
-  on which every check the kind needs ran (:data:`TRANSLATION_CHECKS_NEEDED`: the eligibility re-derivation and the
-  tracing run only on model-proposed translations under this code's policy version, so an accusation about a
-  hand-built translation is unresolved, never refuted by a check that did not run); a ``receipt_altered`` accusation
+  on which every check the kind needs ran (:data:`TRANSLATION_CHECKS_NEEDED`: the eligibility re-derivation runs on
+  every translation recorded under this code's policy version and the tracing on every translation that carries a
+  problem, whoever proposed it (contained round c1); an accusation about a translation a check could not run on, a
+  declared hand-built one under another policy version say, is unresolved, never refuted by a check that did not run); a ``receipt_altered`` accusation
   naming a claim whose outcome summary was not re-checked (its result not retained) is unresolved too.
 """
 from __future__ import annotations
@@ -527,7 +528,8 @@ class _Ctx:
         replays = _replays_of(auditor, uid)
         fresh = OverseerView.from_journal(journal, self.store)
         result = run_overseer_checks(fresh, keyring=self.keyring, store=self.store, live=self.live, registry=self.registry, replays=replays,
-                                     batch=True, shadow=need_shadow, replay_mode=getattr(auditor, "replay_mode", "none"))
+                                     batch=True, shadow=need_shadow, replay_mode=getattr(auditor, "replay_mode", "none"),
+                                     hand_built_translators=getattr(auditor, "hand_built_translators", ()))
         self._rerun = _Base(source="rerun", audit_id=None, findings=[f for _s, f in result.findings], covered_messages=None,
                             shadow_ran=result.coverage.shadow_run == "run", live_checked=self.live is not None, degraded=result.coverage.degraded,
                             replay_agrees={rid for rid, r in replays.items() if classify(r) is None}, pooled_claims=_pooled(fresh), replays=replays,
@@ -610,8 +612,8 @@ def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ct
         for r in recs:
             missing = [x for x in need if x not in r.checks_run]
             if missing:
-                return (f"the {', '.join(missing)} check(s) did not run on the translation of claim {c} (not model-proposed, recorded under "
-                        "another policy version, no problem, or its result not retained), so the translation checks could not decide")
+                return (f"the {', '.join(missing)} check(s) did not run on the translation of claim {c} (recorded under another policy version, "
+                        "no problem, or its result not retained), so the translation checks could not decide")
     return None
 
 

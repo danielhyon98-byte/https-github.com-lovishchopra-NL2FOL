@@ -177,10 +177,15 @@ def test_verify_catches_a_pack_changed_in_memory(scratch):
 
 def test_accepted_identities_are_the_pinned_ones_plus_explicit_trust():
     pinned = installed_pack().identity
+    # pack 1.0 stays pinned beside the installed 1.1 (design section 17.12: an older version whose contracts the code
+    # still supports stays accepted, so its verdicts still validate)
+    older = PackIdentity(name=PACK_NAME, version="1.0", sha256=PACK_DIGESTS[(PACK_NAME, "1.0")])
     other = PackIdentity(name=PACK_NAME, version="9.9", sha256="cd" * 32)
     override = PackIdentity(name=PACK_NAME, version=PACK_VERSION, sha256="ef" * 32)
-    assert accepted_identities() == frozenset({pinned})
-    assert accepted_identities([other, override]) == frozenset({pinned, other})  # trust never overrides a pinned version
+    assert pinned.version == PACK_VERSION == "1.1"
+    assert accepted_identities() == frozenset({pinned, older}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
+    assert accepted_identities([other, override]) == frozenset({pinned, older, other})  # trust never overrides a pinned version
+    assert load_pack(installed_pack_dir("1.0")).identity == older  # the older pinned pack still loads, unchanged
 
 
 def test_pack_error_reasons_are_closed():
@@ -212,14 +217,14 @@ def test_t20c_a_file_added(scratch):
 
 
 def test_t20d_the_version_string_changed(scratch):
-    remanifest(scratch, version="1.1")
+    remanifest(scratch, version="1.2")
     refused(scratch, "unknown_pack")
-    edit(scratch, "master_prompt.txt", "PACK: overseer-knowledge-docs 1.0", "PACK: overseer-knowledge-docs 1.1")
-    remanifest(scratch, version="1.1")
+    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.2")
+    remanifest(scratch, version="1.2")
     refused(scratch, "unknown_pack")
     # an operator may trust it explicitly, by its exact identity only
-    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.1"
-    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.1", sha256="ab" * 32)])
+    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.2"
+    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.2", sha256="ab" * 32)])
 
 
 def test_a_refused_pack_yields_nothing_to_configure_an_agent_with(scratch):
@@ -432,9 +437,9 @@ def test_header_mismatch_is_checked_after_the_identity(scratch):
     remanifest(scratch, version="7.3")
     ident = identity_of(scratch)
     refused(scratch, "unknown_pack")
-    e = refused(scratch, "header_mismatch", trusted=[ident])  # the master prompt still says 1.0
+    e = refused(scratch, "header_mismatch", trusted=[ident])  # the master prompt still names the installed version
     assert e.path == "master_prompt.txt"
-    edit(scratch, "master_prompt.txt", "PACK: overseer-knowledge-docs 1.0", "PACK: overseer-knowledge-docs 7.3")
+    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 7.3")
     remanifest(scratch, version="7.3")
     assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "7.3"
 

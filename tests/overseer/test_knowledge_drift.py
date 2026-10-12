@@ -336,6 +336,8 @@ def _known_names() -> set[str]:
             names |= set(node.model_fields)
     values |= set(typing.get_args(ir_schema.GroundingKind)) | set(typing.get_args(ir_schema.QueryKind))
     values |= set(typing.get_args(consolidate_mod.GroupBasis)) | set(typing.get_args(consolidate_mod.Relation))
+    # the request's constraint kinds (Dossier guide D28, pack 1.1)
+    values |= set(typing.get_args(channel_contracts.ConstraintKind))
     for model, field in ((integrity_contracts.SynthesizedClaim, "transformation"), (integrity_contracts.SynthesizedClaim, "certainty"),
                          (integrity_contracts.SynthesizedClaim, "materiality"), (translate_contracts.ClaimRecord, "claim_role"),
                          (channel_contracts.TransmissionReceipt, "direction")):
@@ -423,12 +425,30 @@ def test_every_rule_code_is_defined_once():
     assert len(defs) == len(set(defs)) and {c[0] for c in defs} == set(RULE_PREFIX_DOC)
     nums = {p: sorted(int(c[1:]) for c in defs if c[0] == p) for p in RULE_PREFIX_DOC}
     # the ranges design section 17.3 declares; every family but Inspection is numbered without gaps. The consolidation
-    # stage (design section 19) added T13-T14, D24-D27, K7, N13, U11 and the consolidation checks I82-I89.
-    for prefix, last in {"T": 14, "D": 27, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
+    # stage (design section 19) added T13-T14, D24-D27, K7, N13, U11 and the consolidation checks I82-I89; pack 1.1
+    # (after the contained round c1) added D28, the request parser's constraint rules.
+    for prefix, last in {"T": 14, "D": 28, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
     assert nums["I"][0] == 1 and nums["I"][-1] == 89
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
     assert [n for n in nums["I"] if n >= 82] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
+
+
+def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
+    """Contained round c1: Dossier guide D14-D20 came after D21-D27, so a reader looking a rule up by its id met the
+    consolidation rules first. The generator (``export --refresh-source``) refuses such a pack."""
+    from epinoic_logic.overseer.export import ExportError, refresh_source
+    from epinoic_logic.overseer.pack import rule_order_faults
+    assert rule_order_faults({n: read(SRC_PACK_DIR, n) for n in AGENT_DOCS}) == []
+    d = copy_pack(tmp_path)
+    text = read(d, "02-dossier.md")
+    facts = text.split("## 10. Facts you can rely on", 1)[1].split("\n## ", 1)[0]
+    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 14. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 14. Common mistakes")
+    (d / "02-dossier.md").write_text(moved, encoding="utf-8")
+    assert any("D14 is defined after D28" in p for p in rule_order_faults({"02-dossier.md": moved}))
+    with pytest.raises(ExportError) as ei:
+        refresh_source(d)
+    assert ei.value.reason == "source_invalid" and "out of ascending order" in ei.value.detail
 
 
 def test_package_data_ships_every_pack_file():
@@ -464,7 +484,8 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    "titles_and_footers": ("08-never.md", "Pack version 1.0 · overseer-knowledge-docs", "Pack version 1.1 · overseer-knowledge-docs"),
+    # the footer names another version than the pack's own (the pack is 1.1 since the contained round c1)
+    "titles_and_footers": ("08-never.md", "Pack version 1.1 · overseer-knowledge-docs", "Pack version 1.2 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

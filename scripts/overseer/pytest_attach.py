@@ -66,7 +66,8 @@ def _attach(channel: Any) -> None:
         _state["skipped"] += 1
         return
     try:
-        auditor = TransferAuditor(_keyring_for(channel), replay_mode="inline", eager=False, shadow="off")
+        auditor = TransferAuditor(_keyring_for(channel), replay_mode="inline", eager=False, shadow="off",
+                                   hand_built_translators=("t", "s", "test", "harness"))  # the suite's hand-built translators
         channel.add_observer(auditor.observer_for(channel))
     except Exception as exc:  # never break a test: record and carry on (reported at the end)
         _state["errors"].append(f"{type(exc).__name__}: {str(exc)[:200]}")

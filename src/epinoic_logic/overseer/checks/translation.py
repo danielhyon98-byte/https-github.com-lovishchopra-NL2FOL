@@ -20,16 +20,16 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
 * **TRN-002** (error): the translation's status, eligibility or engine run is not the image of its validation: a problem
   under a status that forbids one (or none under TRANSLATED / AMBIGUOUS_TRANSLATION), an engine result for a translation
   that carries no translated problem, ambiguity flags under TRANSLATED (ambiguity silently resolved), an eligibility
-  decision that contradicts the status, and, for a MODEL-PROPOSED translation recorded under this code's policy version,
-  an eligibility decision the deterministic policy does not re-derive from the delivered claim (a claim the policy rules
-  out, forced into IR).
+  decision that contradicts the status, for a translation recorded under this code's policy version an eligibility
+  decision the deterministic policy does not re-derive from the delivered claim (a claim the policy rules out, forced
+  into IR), and a problem with no provider or under another policy version from a translator not declared hand-built.
 * **TRN-003** (error): the IR's grounding states more than the deterministic grounding check gives: a ``verified: true``
   on a symbol or assertion, or a grounding check marked verified, that the re-run of the translator's own check
   (``translate.grounding.check_problem_grounding``) against the delivered report's supplied texts does not reproduce.
 * **TRN-004** (warning): a quotation grounding's excerpt (any source reference carrying an excerpt) does not occur in the
   supplied text it names, or names a document that is not supplied. The translator's own check reports it unverified
   and the engine result relies on it only as an ungrounded dependency, so the receipt discloses it; the auditor names it.
-* **TRN-005** (warning): content of a MODEL-PROPOSED translation that the specialist's report never states: a quotation
+* **TRN-005** (warning): content of a translation (whoever proposed it) that the specialist's report never states: a quotation
   excerpt in the IR that occurs nowhere in the report (its response, its claims, their source excerpts) and in none of
   the texts supplied with it (rule ``supplied-text``: verbatim text of a supplied document is real text, not invented;
   whether using it is faithful to the claim is the overseer agents' question), or a number in the IR that none of the
@@ -55,16 +55,32 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
   tombstone digest); otherwise the check cannot run and the transfer cannot pass (AUDIT-005). The display status itself is
   RES-009, the receipt's copy of the result RES-006, its signature RES-003: one fault, one finding.
 
+* **TRN-008** (warning, contained round c1): a translation displayed with a definitive status (ENTAILED, CONSISTENT) whose
+  premises assert supporting claims of the same report (a premise whose id or label names a claim the claim cites)
+  while those claims' own outcomes in the same receipt are not successful (COUNTEREXAMPLE, AMBIGUOUS_TRANSLATION, ...;
+  a NOT_ELIGIBLE claim was never checked and is not counted): the definitive display rests on claims its own receipt
+  does not establish, and the outcome summary's premise labels do not say so (rule ``sibling-status``).
+* **TRN-009** (warning, contained round c1): the translations of one receipt encode the same fact inconsistently: one
+  asserts it as a premise (a Boolean premise atom), another leaves it an unsupported conjunct of its own claim's
+  conclusion (a Boolean conjunct no premise of that problem mentions), the two compared by the symbol meanings and
+  premise labels (four content words or more in common, covering three quarters of the shorter: rule
+  ``same-fact-premise``). The recorded History rounds asserted a from-memory fact as a premise of one claim and left it
+  unsupported in the claim that states it, so the evidence claim was displayed COUNTEREXAMPLE.
+
 What is NOT decided here, and is left to overseer agents (advisory, kind ``other``, human review): whether the IR says
 what the claim says (a dropped condition, a flipped comparison or direction, an invented inference, an ambiguity resolved
 in words, a claim that needs constructs the IR lacks). No check compares meanings.
 
-**Model-proposed.** The pipeline records the provider (``translation.provider``) for every proposal it took from a model;
-it records none only for a claim it ruled ineligible before any provider call. The checks that judge a model's proposal
-against the translator's contract (eligibility re-derivation, tracing) apply to translations that record a provider;
-translations without one (hand-built or produced by deterministic code) get every other check, and the audit's
-translation record says which checks ran (``checks_run``), so an accusation about a check that did not run is never
-refuted by it.
+**Who proposed it does not gate a check** (contained round c1). The pipeline records the provider
+(``translation.provider``) for every proposal it took from a model; it records none only for a claim it ruled
+ineligible before any provider call. The eligibility re-derivation runs on every translation recorded under this code's
+policy version and the tracing on every translation that carries a problem, whoever proposed it: a removed
+``ProviderInfo`` no longer hides a claim forced into IR or an invented number. A translation that carries a problem and
+no provider is itself TRN-002 ("model-path translation without provider"), unless its ``translator_version`` is one
+the auditor's operator declared hand-built (``TransferAuditor(hand_built_translators=...)``, recorded in every audit's
+coverage): a fixture declares itself through configuration, never through a missing field. A problem recorded under a
+policy version this code cannot re-derive is TRN-002 too, unless declared hand-built. The audit's translation record
+says which checks ran (``checks_run``), so an accusation about a check that did not run is never refuted by it.
 
 Number spelling rules for TRN-005 (fixed; any extension is a named rule with its own test): digits with optional
 thousands separators and decimals; ``a/b`` fractions; number words (zero to twenty, the tens, hundred, thousand, dozen,
@@ -111,6 +127,7 @@ from . import CheckContext
 
 __all__ = [
     "TranslationRecord", "translation_records", "check_translations", "circular_premises", "untraced_content", "grounding_faults", "status_faults",
+    "sibling_status_faults", "same_fact_inconsistencies",
     "revalidate", "summary_matches", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES", "is_transcription",
     "TRANSCRIPTION_KINDS",
 ]
@@ -217,9 +234,16 @@ def revalidate(problem_json: Optional[str], claim: ClaimRecord) -> tuple[str, li
 
 
 # ============================================================================================ TRN-002
-def status_faults(o: ClaimVerificationOutcome, claim: ClaimRecord, *, model_proposed: bool) -> tuple[list[str], bool]:
+def status_faults(o: ClaimVerificationOutcome, claim: ClaimRecord, *, model_proposed: Optional[bool] = None,
+                  hand_built: bool = False) -> tuple[list[str], bool]:
     """``(faults, eligibility re-derived)``: where the translation's status, eligibility or engine run is not the image of
-    its validation."""
+    its validation. The eligibility policy is deterministic and does not depend on who proposed the IR, so it is
+    re-derived for EVERY translation recorded under this code's policy version (``model_proposed`` is accepted for
+    callers of the earlier signature and no longer gates anything; contained round c1: a provider removed from a
+    translation skipped the re-derivation). A translation that carries a problem but records no provider is a fault
+    unless its translator was declared hand-built (``hand_built``): the pipeline records a provider for every proposal it
+    took from a model and none only for a claim it ruled ineligible before any provider call; so is one carrying a
+    problem under another policy version, whose eligibility this code cannot re-derive."""
     tr = o.translation
     why: list[str] = []
     translated = tr.status in TRANSLATED_STATUSES
@@ -238,8 +262,11 @@ def status_faults(o: ClaimVerificationOutcome, claim: ClaimRecord, *, model_prop
         why.append(f"the eligibility decision says not eligible ({e.eligibility_class.value}) but the status is {tr.status.value}")
     if e.eligible and tr.status is TranslationStatus.NOT_ELIGIBLE:
         why.append(f"the status is NOT_ELIGIBLE but the eligibility decision says eligible ({e.eligibility_class.value})")
+    if tr.problem is not None and tr.provider is None and not hand_built:
+        why.append(f"model-path translation without provider: it carries a problem but records no provider, and its translator "
+                   f"({tr.translator_version!r}) is not declared hand-built (the pipeline records a provider for every proposal it took from a model)")
     rederived = False
-    if model_proposed and tr.policy_version == POLICY_VERSION and e.policy_version == POLICY_VERSION:
+    if tr.policy_version == POLICY_VERSION and e.policy_version == POLICY_VERSION:
         rederived = True
         again = apply_subject_policy(decide_eligibility(claim, POLICY_VERSION), subjects.resolve_profile(claim.subject))
         if (again.eligibility_class, again.eligible) != (e.eligibility_class, e.eligible):
@@ -248,6 +275,9 @@ def status_faults(o: ClaimVerificationOutcome, claim: ClaimRecord, *, model_prop
             if not again.eligible and tr.problem is not None:
                 what += ": a claim the policy rules out was forced into IR"
             why.append(what)
+    elif tr.problem is not None and not hand_built:
+        why.append(f"the translation carries a problem under policy version {tr.policy_version!r} (eligibility {e.policy_version!r}), not this code's "
+                   f"{POLICY_VERSION!r}: its eligibility cannot be re-derived")
     return why, rederived
 
 
@@ -531,6 +561,136 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     return False
 
 
+# ============================================================================================ TRN-008 / TRN-009
+#: Display statuses that state a definitive success, and the one that means "never checked".
+_DEFINITIVE = frozenset({"ENTAILED", "CONSISTENT"})
+_UNCHECKED_DISPLAY = frozenset({"NOT_ELIGIBLE"})
+_ALNUM = "a-z0-9"
+
+
+def _id_forms(claim_id: str) -> list[str]:
+    """The spellings of a claim id a premise id or label may carry ("p2-point" -> "p2_point", "h1.6" -> "h1_6", "h16")."""
+    c = claim_id.casefold()
+    return list(dict.fromkeys([c, c.replace("-", "_"), c.replace(".", "_"), c.replace("-", "").replace(".", ""), c.replace(".", "")]))
+
+
+def _names_claim(text: str, claim_id: str) -> bool:
+    t = (text or "").casefold()
+    return any(re.search(rf"(?<![{_ALNUM}]){re.escape(f)}(?![{_ALNUM}])", t) for f in _id_forms(claim_id) if len(f) >= 2)
+
+
+def sibling_status_faults(outcomes: list[tuple[ClaimVerificationOutcome, ClaimRecord]]) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Rule ``sibling-status`` (TRN-008): ``(claim id, [(supporting claim id, its display status)])`` for each outcome
+    displayed ENTAILED or CONSISTENT whose problem has a premise naming (by id or label) a claim the claim cites, while that
+    claim's own outcome in the same receipt is neither a definitive success nor NOT_ELIGIBLE."""
+    status = {c.claim_id: o.display_status.value for o, c in outcomes}
+    out: list[tuple[str, list[tuple[str, str]]]] = []
+    for o, claim in outcomes:
+        p = o.translation.problem
+        if o.display_status.value not in _DEFINITIVE or p is None:
+            continue
+        bad = []
+        for sib in dict.fromkeys(claim.supporting_claim_ids):
+            if sib == claim.claim_id or sib not in status or status[sib] in _DEFINITIVE or status[sib] in _UNCHECKED_DISPLAY:
+                continue
+            if any(_names_claim(pr.id, sib) or _names_claim(getattr(pr, "label", None) or "", sib) for pr in p.premises):
+                bad.append((sib, status[sib]))
+        if bad:
+            out.append((claim.claim_id, bad))
+    return out
+
+
+_STOP = frozenset(("the a an and or of to in on for with by is are was were be been being this that these those as at from it its into their there "
+                   "which who whom not had has have having than then when while but so also such very more most less about over under after before "
+                   "his her they them he she we our your").split())
+
+
+def _content(text: str) -> frozenset[str]:
+    return frozenset(w for w in re.findall(r"[a-z0-9]+", (text or "").casefold()) if len(w) >= 3 and w not in _STOP)
+
+
+def _same_fact(a: frozenset[str], b: frozenset[str]) -> bool:
+    common = a & b
+    return len(common) >= 4 and len(common) >= 0.75 * min(len(a), len(b))
+
+
+def _var(expr: Any) -> Optional[str]:
+    return expr.get("name") if isinstance(expr, dict) and expr.get("op") == "var" and isinstance(expr.get("name"), str) else None
+
+
+def _vars_in(expr: Any) -> set[str]:
+    out: set[str] = set()
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("op") == "var" and isinstance(node.get("name"), str):
+                out.add(node["name"])
+            stack.extend(v for k, v in node.items() if k != "name")
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
+
+
+def same_fact_inconsistencies(problems: list[tuple[str, Optional[dict]]]) -> list[tuple[str, str, str, str]]:
+    """Rule ``same-fact-premise`` (TRN-009): ``(asserting claim id, premise id, leaving claim id, symbol)`` where one
+    translation of the receipt asserts a fact as a Boolean premise atom and another leaves the same fact (by meaning and
+    label) an unsupported Boolean conjunct of its own conclusion."""
+    asserted: list[tuple[str, str, frozenset[str]]] = []
+    unsupported: list[tuple[str, str, frozenset[str]]] = []
+    for cid, prob in problems:
+        if not isinstance(prob, dict):
+            continue
+        meaning = {s.get("name"): s.get("meaning") or "" for s in prob.get("symbols") or [] if isinstance(s, dict)}
+        premises = [p for p in prob.get("premises") or [] if isinstance(p, dict)]
+        in_premises: set[str] = set().union(*(_vars_in(p.get("expr")) for p in premises)) if premises else set()
+        for p in premises:
+            atoms = [_var(x) for x in (_conjuncts(p.get("expr")) if isinstance(p.get("expr"), dict) else [])]
+            for name in (a for a in atoms if a):
+                words = _content(meaning.get(name, "")) | _content(p.get("label") or "")
+                if words:
+                    asserted.append((cid, str(p.get("id")), words))
+        concl = prob.get("conclusion")
+        if isinstance(concl, dict):
+            for x in _conjuncts(concl.get("expr")):
+                name = _var(x)
+                if name and name not in in_premises:
+                    words = _content(meaning.get(name, ""))
+                    if words:
+                        unsupported.append((cid, name, words))
+    out: list[tuple[str, str, str, str]] = []
+    for a_cid, pid, a_words in asserted:
+        for u_cid, name, u_words in unsupported:
+            if a_cid != u_cid and _same_fact(a_words, u_words):
+                out.append((a_cid, pid, u_cid, name))
+    return list(dict.fromkeys(out))
+
+
+def _receipt_level(ctx: CheckContext, t: Transfer) -> None:
+    """TRN-008 and TRN-009 over the outcomes of one delivered report transfer."""
+    items = list(_outcomes(t))
+    if not items:
+        return
+    ids = t.ids()
+    pairs = [(o, claim) for _i, o, _d, claim in items]
+    for cid, bad in sibling_status_faults(pairs):
+        shown = ", ".join(f"{s} ({st})" for s, st in bad)
+        o = next(o for o, c in pairs if c.claim_id == cid)
+        ctx.ovs(t.seq, "OVS-TRN-008", f"the translation of claim {cid} is displayed {o.display_status.value}, and its premises assert supporting claims "
+                f"{shown} whose own outcomes in this receipt are not successful: the definitive display rests on claims its own receipt does not "
+                "establish (the summary labels them only 'checked in its own problem')", claim_ids=[cid] + [s for s, _st in bad],
+                formal_result_id=o.verification.result_id if o.verification is not None else None, **ids)
+    probs = [(claim.claim_id, json.loads(_problem_json(dump, o.translation)) if _problem_json(dump, o.translation) else None) for _i, o, dump, claim in items]
+    found = same_fact_inconsistencies(probs)
+    by_pair: dict[tuple[str, str], list[str]] = {}
+    for a_cid, pid, u_cid, name in found:
+        by_pair.setdefault((a_cid, u_cid), []).append(f"{a_cid}'s premise {pid} asserts what {u_cid} leaves unsupported ({name})")
+    for (a_cid, u_cid), what in by_pair.items():
+        ctx.ovs(t.seq, "OVS-TRN-009", f"the translations of this receipt encode the same fact inconsistently: {_listed(what)}; the fact is a premise in one "
+                f"problem and an unsupported conjunct in the check of the claim that states it (a from-memory fact needs one encoding)",
+                claim_ids=[a_cid, u_cid], **ids)
+
+
 # ============================================================================================ records and checks
 def _request_texts(view: OverseerView, t: Transfer) -> list[str]:
     req = view.by_seq.get(t.request_seq) if t.request_seq is not None else None
@@ -596,7 +756,7 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
         rid = o.verification.result_id if o.verification is not None else None
         cid = [claim.claim_id]
         path = f"outcomes[{i}]"
-        model = _model_proposed(tr)
+        hand_built = tr.provider is None and tr.translator_version in ctx.hand_built_translators
         ran = ["revalidate", "status", "grounding", "circular"]
         outside_cited: tuple[str, ...] = ()
         problem_json = _problem_json(dump, tr)
@@ -606,7 +766,7 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
             ctx.ovs(t.seq, "OVS-TRN-001", f"the IR proposed for claim {claim.claim_id} ({path}.translation.problem, translation {tr.translation_id}) fails "
                     f"re-validation as untrusted data: {_listed(reval[1])}", claim_ids=cid, formal_result_id=rid, **ids)
         # TRN-002
-        faults, rederived = status_faults(o, claim, model_proposed=model)
+        faults, rederived = status_faults(o, claim, hand_built=hand_built)
         if rederived:
             ran.append("eligibility")
         if faults:
@@ -623,18 +783,18 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                 ctx.ovs(t.seq, "OVS-TRN-004", f"the IR of claim {claim.claim_id} ({path}.translation) carries quotation groundings the supplied texts do not "
                         f"bear out: {_listed([f'{n} ({d}): {x}' for n, d, x in absent])}; the result relies on them only as ungrounded dependencies",
                         claim_ids=cid, document_ids=docs, formal_result_id=rid, **ids)
-            # TRN-005
-            if model:
-                ran.append("trace")
-                problem_obj = json.loads(problem_json) if problem_json else None
-                request_texts = _request_texts(ctx.view, t)
-                supplied = [d.text for d in report.supplied_texts]
-                invented = untraced_content(tr.problem, problem_obj, report_scope(report), request_texts, supplied)
-                outside = untraced_content(tr.problem, problem_obj, cited_scope(claim, _cited_claims(claim, report)), request_texts)
-                outside_cited = tuple(dict.fromkeys(name for name, _d in outside))
-                if invented:
-                    ctx.ovs(t.seq, "OVS-TRN-005", f"the IR proposed for claim {claim.claim_id} ({path}.translation) carries content the specialist's report never "
-                            f"states (in no claim and nowhere in its response): {_listed([d for _n, d in invented])}", claim_ids=cid, formal_result_id=rid, **ids)
+            # TRN-005 (a deterministic comparison of the IR with the report: run for every translation that carries a problem,
+            # whoever proposed it; contained round c1: a provider-less translation with an invented number was never traced)
+            ran.append("trace")
+            problem_obj = json.loads(problem_json) if problem_json else None
+            request_texts = _request_texts(ctx.view, t)
+            supplied = [d.text for d in report.supplied_texts]
+            invented = untraced_content(tr.problem, problem_obj, report_scope(report), request_texts, supplied)
+            outside = untraced_content(tr.problem, problem_obj, cited_scope(claim, _cited_claims(claim, report)), request_texts)
+            outside_cited = tuple(dict.fromkeys(name for name, _d in outside))
+            if invented:
+                ctx.ovs(t.seq, "OVS-TRN-005", f"the IR proposed for claim {claim.claim_id} ({path}.translation) carries content the specialist's report never "
+                        f"states (in no claim and nowhere in its response): {_listed([d for _n, d in invented])}", claim_ids=cid, formal_result_id=rid, **ids)
             # TRN-006 (a premise identical to the conclusion that is a verified, traced transcription of a grounded fact is
             # a transcription, not the claim assumed)
             problem_obj6 = json.loads(problem_json) if problem_json else None
@@ -663,6 +823,7 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                         + (f"and the signed result {rid}" if rid else "with no engine result") + ": it states something the translation and the signed result do not",
                         claim_ids=cid, formal_result_id=rid, **ids)
         records.append(_record(ctx.view, ctx.store, t, i, o, dump, claim, ran, reval, outside_cited if "trace" in ran else ()))
+    _receipt_level(ctx, t)
     return records
 
 

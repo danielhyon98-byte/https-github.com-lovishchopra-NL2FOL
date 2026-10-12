@@ -18,7 +18,8 @@ maintainers) regenerates the pack's generated files in a source checkout.
   back in place and prints its SHA-256.
 * ``--verify PATH`` loads a pack directory or zip and prints its identity, or the refusal reason with exit status 2.
 * ``--refresh-source`` regenerates ``verdict.schema.json`` and ``dossier.schema.json`` from the contracts and
-  ``manifest.json`` from the files, runs every loader check except the pin, and prints the new pack digest, which the
+  ``manifest.json`` from the files, refuses documents whose rule ids are out of ascending order
+  (``pack.rule_order_faults``), runs every loader check except the pin, and prints the new pack digest, which the
   maintainer pins in ``pack.PACK_DIGESTS``. Without ``--source`` it works on the package's own pack and refuses to run
   outside a source checkout (an installed copy is never rewritten); ``--source`` names another pack directory of a
   working copy (never one inside ``site-packages``).
@@ -51,7 +52,7 @@ from typing import Any, Optional, Sequence
 
 from .pack import (
     KNOWLEDGE_DIR, MANIFEST_FILE, PACK_DIGESTS, PACK_NAME, PACK_VERSION, KnowledgePack, PackError, _load_unpinned, build_manifest, installed_pack,
-    load_pack, pack_dir_name, render_manifest, render_schemas,
+    load_pack, pack_dir_name, render_manifest, render_schemas, rule_order_faults,
 )
 from .verdicts import PackIdentity
 
@@ -241,6 +242,9 @@ def refresh_source(pack_dir: Any = None, *, version: str = PACK_VERSION) -> Refr
         manifest = build_manifest(files, name=name, version=ver)
     except (ValueError, UnicodeDecodeError) as exc:
         raise ExportError("source_invalid", f"the pack's files cannot be listed in a manifest: {exc}") from None
+    disorder = rule_order_faults({p: data.decode("utf-8") for p, data in files.items() if p.endswith(".md")})
+    if disorder:  # the generator refuses rule ids out of order (a reader looks a rule up where the sequence predicts it)
+        raise ExportError("source_invalid", "rule ids out of ascending order: " + "; ".join(disorder[:6]))
     if _write_replace(pack_dir / MANIFEST_FILE, render_manifest(manifest).encode("utf-8")):
         changed.append(MANIFEST_FILE)
     pack = _load_unpinned(pack_dir)  # every check but the pin: a refreshed pack must load once its digest is pinned

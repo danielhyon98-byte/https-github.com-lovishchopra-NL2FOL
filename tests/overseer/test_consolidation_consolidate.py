@@ -27,11 +27,13 @@ from epinoic_logic.overseer.consolidate import (
 from epinoic_logic.ir.canonical import sha256_hex
 from epinoic_logic.overseer.repeats import content_form
 
-from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, int_problem, make_plan, outcome_for, problems_fn
+from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, int_problem, make_plan, outcome_for, point_problem, problems_fn
 from .test_hook_hub import audited_hub
 
 DUP = ("english-1", "english-2", "english-3")
-POINT = {"en-point": int_problem("en-point", "work_hours", 12, op="gt", bound=8)}
+#: The faithful encoding of en-point (contained round c1: ``work_hours = 12 |- work_hours > 8`` stated numbers the report
+#: never states, which the translation checks now name for every translation).
+POINT = {"en-point": point_problem()}
 #: A second wording of the answer: the same material claim, other prose and other supporting claims.
 TEXT_B = 'In the extract the writer presents work as endless, because the foreman says "We work until the bell".'
 CLAIMS_B = [
@@ -56,7 +58,7 @@ def hours_answer(n: int, claim_id: str = "en-hours") -> tuple[str, list[dict]]:
 
 
 def hours_fn(claim_ids_values: dict[str, int]):
-    """Outcomes for en-point (``work_hours`` 12 > 8) and for each hours claim: ``child_hours = n`` entails ``child_hours > 8``
+    """Outcomes for en-point (its faithful encoding) and for each hours claim: ``child_hours = n`` entails ``child_hours > 8``
     (another symbol, so the hours claims conflict only with each other)."""
     def fn(claim, report):
         if claim.claim_id == "en-point":

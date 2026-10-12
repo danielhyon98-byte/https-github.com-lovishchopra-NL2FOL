@@ -87,7 +87,8 @@ def test_a_joint_check_that_cannot_be_built_is_joint_002(auditor):
 
 # ------------------------------------------------------------------------------------------- B4, T18
 def _merged_synthesis(with_conclusion: bool = False, created_at=None):
-    concl = Assertion.model_validate({"id": "S", "expr": {"op": "gt", "left": {"op": "var", "name": "work_hours"}, "right": {"op": "int", "value": "8"}}}) if with_conclusion else None
+    # the merged claim's formal conclusion: en-point's (the default faithful encoding concludes ``endless``)
+    concl = Assertion.model_validate({"id": "S", "expr": {"op": "var", "name": "endless"}}) if with_conclusion else None
     claims = [SynthesizedClaim(claim_id="s1", text="The writer presents work as endless; the Factory Act of 1833 banned the employment of children under nine in textile mills.",
                                source_claim_ids=["en-point", "h1.1"], transformation="merged", formal_conclusion=concl),
               SynthesizedClaim(claim_id="s3", text="On balance, the Act mattered most because it established inspection.", source_claim_ids=["h1.3"], transformation="carried")]

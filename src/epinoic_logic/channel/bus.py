@@ -27,7 +27,8 @@ between the claims it accounts for (INT-CONFLICT-002), for figures and dates (in
 words, with their scale words) that occur in none of its sources or are re-paired between
 events, for quotations no supplied text or cited report holds (INT-LEDGER-025), for a
 reversed direction or a dropped negation (INT-LEDGER-026), for a comparison turned the other
-way or a negation added against a single source (INT-LEDGER-027), and, when a synthesized claim
+way or a negation added against a single source (INT-LEDGER-027), for an act given to a person its
+cited sources do not name for it (INT-LEDGER-029), and, when a synthesized claim
 carries (or can be given) a formal conclusion, for entailment by its formalized sources;
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16

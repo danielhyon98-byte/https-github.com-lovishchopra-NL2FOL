@@ -98,6 +98,21 @@ a comparison the other way or negates what its source states; a negation that re
 confirming finding covers; the rest is checked on its own; now enforced) and E12 (a contradiction is never hidden by a
 wrong pointer); Kinds and codes (``synthesis_ledger_fault`` and the ``INT-LEDGER-*`` family name INT-LEDGER-027). The
 dossier schema gained the optional ``issue_binding``; it and the manifest were regenerated with ``export --refresh-source``.
+
+**Pack 1.1** (after the contained round c1; 1.0 was used in a round, so its pinned digest and its files stay unchanged and
+1.1 is a new MINOR version: the contracts and every kind are unchanged). Dossier guide: the facts section (D14-D20) moved
+before Translations so rule ids read in ascending order; D6 tells an informed agent not to repeat the checks' exact
+comparisons and where to spend its review; D16 and D23 say COUNTEREXAMPLE never means a claim is false or refuted; D21
+says what a missing provider means; D27 says ``repeats`` lists error-level faults only; a new D28 states the request
+parser's constraint rules ("about 250 words" gives max_words 275). Inspection: I13 reads constraints by D28; I69 covers a
+person substituted in a paraphrase (INT-LEDGER-029); I78 items 3 and 5 are narrowed to the translator contract (a
+premise stated nowhere; a claim needing constructs outside the IR, or ruled out by the policy, which TRN-002 decides);
+I81 adds the missing link the translator exposes, the specialist's ``specialist_inference`` chain from cited claims, and
+the claim's own fact asked for as a premise; I88 and I89 say ``repeats`` holds errors only. Kinds and codes: K5, K6, the
+INT-LEDGER family (INT-LEDGER-029) and OVS-TRN-008/009. When unsure U10 excludes the I81 cases. Examples: every header
+names 1.1, Example 13 names 1.2, Example 14 explains the specialist's chain, new Examples 20 (a missing link exposed) and
+21 (a constraint written by the rule for "about"), five new wrong-verdict rows. README: the input budget. The generator
+(``export --refresh-source``) now refuses a document whose rule ids are out of ascending order (:func:`rule_order_faults`).
 """
 from __future__ import annotations
 
@@ -125,19 +140,20 @@ from .verdicts import DOSSIER_VERSION, PACK_NAME_PATTERN, PACK_VERSION_PATTERN, 
 __all__ = [
     "PACK_NAME", "PACK_VERSION", "PACK_DIGESTS", "PACK_ERROR_REASONS", "PackError", "KnowledgePack", "PackManifest", "ManifestFile", "load_pack",
     "installed_pack", "installed_pack_dir", "accepted_identities", "build_system_text", "render_schemas", "build_manifest", "render_manifest",
-    "manifest_pack_digest", "header_lines", "audience_of", "system_order_of", "pack_dir_name", "MANIFEST_FILE", "README_FILE", "MASTER_PROMPT_FILE",
+    "manifest_pack_digest", "header_lines", "audience_of", "system_order_of", "pack_dir_name", "rule_order_faults", "MANIFEST_FILE", "README_FILE", "MASTER_PROMPT_FILE",
     "VERDICT_SCHEMA_FILE", "DOSSIER_SCHEMA_FILE", "SCHEMA_FILES", "SCHEMA_IDS", "SYSTEM_SEPARATOR", "MANIFEST_VERSION", "MAX_FILE_BYTES", "MAX_PACK_BYTES",
     "MAX_PACK_FILES", "MAX_ZIP_ENTRIES", "ALLOWED_SUFFIXES", "KNOWLEDGE_DIR",
 ]
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.0"
+PACK_VERSION = "1.1"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
 PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
+    (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
 })
 
 MANIFEST_VERSION = "1.0"
@@ -303,6 +319,26 @@ def build_manifest(files: Mapping[str, bytes], *, name: str = PACK_NAME, version
     PackManifest.model_validate_json(json.dumps(dict(manifest, pack_sha256="0" * 64)))  # the builder never writes an invalid manifest
     manifest["pack_sha256"] = manifest_pack_digest(manifest)
     return manifest
+
+
+_RULE_DEF_RE = re.compile(r"^\s*- \*\*([A-Z])(\d{1,3}) ", re.M)
+
+
+def rule_order_faults(documents: Mapping[str, str]) -> list[str]:
+    """The numbered documents (``NN-name.md``) whose coded rules (lines ``- **D12 ...``) are not defined in ascending
+    order of their numbers, per rule prefix: a small model that looks a rule up by its id finds it where the sequence
+    predicts (contained round c1: D14-D20 came after D21-D27). Empty when every document is in order."""
+    out: list[str] = []
+    for path in sorted(documents):
+        if not _DOCUMENT_RE.fullmatch(path):
+            continue
+        last: dict[str, int] = {}
+        for m in _RULE_DEF_RE.finditer(documents[path]):
+            prefix, num = m.group(1), int(m.group(2))
+            if prefix in last and num <= last[prefix]:
+                out.append(f"{path}: rule {prefix}{num} is defined after {prefix}{last[prefix]}")
+            last[prefix] = max(num, last.get(prefix, num))
+    return out
 
 
 def render_manifest(manifest: Mapping[str, Any]) -> str:

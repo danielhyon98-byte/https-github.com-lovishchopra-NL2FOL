@@ -54,7 +54,10 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 7, listed as each stage requ
 * ``may_release`` refuses a synthesis receipt with any error-level finding, and re-checks custody at release through
   the probe the auditor attaches to the journal (``ChannelJournal.live_custody``), and the released message when given
   (review round 1);
-* the decisions carry a ``reason`` (:class:`PolicyDecision`); ``may_act`` and ``may_release`` return its ``allowed``.
+* the decisions carry a ``reason`` (:class:`PolicyDecision`); ``may_act`` and ``may_release`` return its ``allowed``;
+* ``may_release`` refuses a FINAL audit whose replays ran inline (its OVS-AUDIT-002: replay independence not
+  established, decision 20) unless the audit's signed coverage records that the operator configured inline release
+  (``TransferAuditor(inline_final_release=True)``; contained round c1: a warning alone let such an audit release).
 """
 from __future__ import annotations
 
@@ -64,7 +67,7 @@ from typing import Any, Callable, Optional, Sequence
 from ..channel.contracts import TransmissionStatus
 from ..channel.events import model_json
 from ..ir.canonical import sha256_hex
-from .audit import verify_audit
+from .audit import INLINE_FINAL_MESSAGE, verify_audit
 from .contracts import OverseerAudit, TransferClearance
 
 __all__ = [
@@ -232,6 +235,14 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
         return PolicyDecision(False, "the task audit was superseded", state)
     if state not in ACTABLE_STATES:
         return PolicyDecision(False, f"task audit state {state}: not passed", state)
+    try:
+        inline = any(f.code == "OVS-AUDIT-002" and f.message == INLINE_FINAL_MESSAGE for f in task_audit.report.findings)
+        inline_ok = task_audit.coverage.inline_final_release is True
+    except AttributeError:
+        return PolicyDecision(False, "the task audit cannot be read", state)
+    if inline and not inline_ok:
+        return PolicyDecision(False, "the FINAL audit's replays ran inline (OVS-AUDIT-002): replay independence is not established, and inline release "
+                                     "was not configured by the operator (decision 20: process mode is the only mode a FINAL audit accepts as independent)", state)
     mid = getattr(synthesis_receipt, "message_id", None)
     if not isinstance(mid, str) or _status_value(synthesis_receipt) is None:
         return PolicyDecision(False, "not a receipt", state)

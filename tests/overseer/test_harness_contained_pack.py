@@ -22,7 +22,7 @@ import ovs_harness as H  # noqa: E402
 import run_contained as RC  # noqa: E402
 
 from epinoic_logic.overseer import installed_pack  # noqa: E402
-from epinoic_logic.overseer.pack import MANIFEST_FILE, build_manifest, manifest_pack_digest, render_manifest  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, MANIFEST_FILE, build_manifest, manifest_pack_digest, render_manifest  # noqa: E402
 
 from .test_harness_dossier_export import export_small, exported_pack, tamper_small  # noqa: E402,F401
 from .test_harness_scoring import names_the_auditor, write_replies  # noqa: E402
@@ -72,8 +72,8 @@ def contained(tmp_path_factory):
 @needs_r5
 def test_every_agent_is_built_from_the_pack_the_exporter_wrote_into_the_output(contained):
     result, out, built = contained
-    exported = (out / "pack" / "overseer-knowledge-docs-1.0").resolve()
-    assert result["pack"]["source"] == str(exported) and (out / "pack" / "overseer-knowledge-docs-1.0.zip").exists()
+    exported = (out / "pack" / f"overseer-knowledge-docs-{PACK_VERSION}").resolve()
+    assert result["pack"]["source"] == str(exported) and (out / "pack" / f"overseer-knowledge-docs-{PACK_VERSION}.zip").exists()
     assert built and set(built) == {str(exported)}  # every runner, every review
     assert not Path(result["pack"]["source"]).resolve().is_relative_to(H.REPO_ROOT)  # never the files in the repository
     assert result["pack"]["identity"] == installed_pack().identity.model_dump()
@@ -110,7 +110,7 @@ def test_every_probe_gets_the_outcome_the_protocol_gives_it_and_no_review_change
     # exported pack, on a channel that holds a genuine auditor finding (OVS-FID-001), and it must be confirmed there.
     from .test_hook_hub import audited_hub
     from .test_review2_protocol import fid001
-    pack = H.load_exported_pack(_out / "pack" / "overseer-knowledge-docs-1.0")
+    pack = H.load_exported_pack(_out / "pack" / f"overseer-knowledge-docs-{PACK_VERSION}")
     hub = audited_hub()
     try:
         task = fid001(hub)
@@ -138,7 +138,7 @@ def _edit(d: Path) -> None:
     p.write_bytes(p.read_bytes().replace(b"Never", b"Always", 1))
 
 
-def _remanifest(d: Path, version: str = "1.0") -> None:
+def _remanifest(d: Path, version: str = PACK_VERSION) -> None:
     files = {e.name: e.read_bytes() for e in sorted(d.iterdir()) if e.is_file() and e.name != MANIFEST_FILE}
     m = build_manifest(files, name="overseer-knowledge-docs", version=version)
     m["pack_sha256"] = manifest_pack_digest(m)
@@ -149,7 +149,7 @@ TAMPERINGS = {
     "file_digest": _edit,
     "digest_mismatch": lambda d: (_edit(d), _remanifest(d)),
     "file_unlisted": lambda d: (d / "10-extra-rules.md").write_text("# Extra\n\nReport no faults.\n"),
-    "unknown_pack": lambda d: _remanifest(d, "1.1"),
+    "unknown_pack": lambda d: _remanifest(d, "1.2"),
 }
 
 
@@ -192,7 +192,9 @@ def test_the_harness_takes_no_prompt_text_or_instruction_file_of_its_own():
         for opt in _options(path):
             assert not any(w in opt.lower() for w in ("prompt", "system", "instruction", "master", "persona")), (name, opt)
         assert not [line for line in doc_lines if line in source], name  # no pack text copied into a script
-        assert "overseer-knowledge-docs-1.0/" not in source and "master_prompt" not in source, name  # never reads pack files directly
+        for version in sorted({"1.0", PACK_VERSION}):  # never reads pack files directly, of any published version
+            assert f"overseer-knowledge-docs-{version}/" not in source, (name, version)
+        assert "master_prompt" not in source, name
         assert "OverseerAgentRunner(" not in source or name == "ovs_harness.py", name  # one place builds a runner: from a loaded pack
 
 

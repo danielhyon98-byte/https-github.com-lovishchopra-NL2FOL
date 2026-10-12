@@ -18,11 +18,15 @@ import epinoic_logic
 import epinoic_logic.overseer.export as export_mod
 from epinoic_logic.overseer.export import EXPORT_REASONS, ZIP_DATE_TIME, ExportError, export_pack, main, refresh_source, source_checkout_root
 from epinoic_logic.overseer.intake import IntakeRefused, VerdictIntake
-from epinoic_logic.overseer.pack import MANIFEST_FILE, PackError, accepted_identities, installed_pack, load_pack, render_schemas
+from epinoic_logic.overseer.pack import MANIFEST_FILE, PACK_NAME, PACK_VERSION, PackError, accepted_identities, installed_pack, load_pack, pack_dir_name, render_schemas
 from epinoic_logic.overseer.verdicts import PackIdentity
 
 from .conftest import run_task
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack, edit, identity_of, refused, remanifest
+
+#: The installed pack's directory (and zip root) name and its master prompt's PACK line.
+PACK_DIR_NAME = pack_dir_name(PACK_NAME, PACK_VERSION)
+PACK_LINE = f"PACK: {PACK_NAME} {PACK_VERSION}"
 
 PYTHON = sys.executable
 SRC_ROOT = str(Path(epinoic_logic.__file__).resolve().parent.parent)
@@ -46,11 +50,11 @@ def test_export_writes_a_directory_and_a_zip_that_load_back_byte_for_byte(tmp_pa
     pack = installed_pack()
     assert code == 0 and summary["ok"] and summary["mode"] == "export"
     assert (summary["pack_name"], summary["pack_version"], summary["pack_sha256"]) == (pack.identity.name, pack.identity.version, pack.identity.sha256)
-    target = out / "overseer-knowledge-docs-1.0"
-    zp = out / "overseer-knowledge-docs-1.0.zip"
+    target = out / PACK_DIR_NAME
+    zp = out / (PACK_DIR_NAME + ".zip")
     assert summary["files"] == sorted(e.name for e in SRC_PACK_DIR.iterdir()) and summary["paths"] == {
         "directory": str(target), "zip": str(zp), "zip_sha256": hashlib.sha256(zp.read_bytes()).hexdigest()}
-    assert sorted(e.name for e in out.iterdir()) == ["overseer-knowledge-docs-1.0", "overseer-knowledge-docs-1.0.zip"]
+    assert sorted(e.name for e in out.iterdir()) == [PACK_DIR_NAME, PACK_DIR_NAME + ".zip"]
     for e in SRC_PACK_DIR.iterdir():
         assert (target / e.name).read_bytes() == e.read_bytes(), e.name
     assert {e.name for e in target.iterdir()} == {e.name for e in SRC_PACK_DIR.iterdir()}
@@ -65,7 +69,7 @@ def test_the_zip_is_deterministic(tmp_path):
     assert a.zip_sha256 == b.zip_sha256 and a.zip_path.read_bytes() == b.zip_path.read_bytes()
     with zipfile.ZipFile(a.zip_path) as zf:
         infos = zf.infolist()
-        assert [i.filename for i in infos] == sorted(f"overseer-knowledge-docs-1.0/{p}" for p in installed_pack().paths)
+        assert [i.filename for i in infos] == sorted(f"{PACK_DIR_NAME}/{p}" for p in installed_pack().paths)
         for i in infos:
             assert i.date_time == ZIP_DATE_TIME and i.compress_type == zipfile.ZIP_STORED and i.extra == b"" and i.comment == b""
             assert (i.external_attr >> 16) == 0o100644 and i.create_system == 3 and not i.flag_bits & 0x1
@@ -125,18 +129,18 @@ def test_force_never_removes_what_is_not_an_export(tmp_path):
     victim = tmp_path / "victim"
     victim.mkdir()
     (victim / "precious.txt").write_text("do not delete")
-    os.symlink(victim, out / "overseer-knowledge-docs-1.0")
+    os.symlink(victim, out / PACK_DIR_NAME)
     with pytest.raises(ExportError) as ei:
         export_pack(out, force=True)
     assert ei.value.reason == "target_unsafe" and (victim / "precious.txt").read_text() == "do not delete"
-    (out / "overseer-knowledge-docs-1.0").unlink()
-    (out / "overseer-knowledge-docs-1.0").mkdir()
-    (out / "overseer-knowledge-docs-1.0" / "sub").mkdir()
-    (out / "overseer-knowledge-docs-1.0" / "sub" / "x.txt").write_text("nested")
+    (out / PACK_DIR_NAME).unlink()
+    (out / PACK_DIR_NAME).mkdir()
+    (out / PACK_DIR_NAME / "sub").mkdir()
+    (out / PACK_DIR_NAME / "sub" / "x.txt").write_text("nested")
     with pytest.raises(ExportError) as ei:
         export_pack(out, force=True)
-    assert ei.value.reason == "target_unsafe" and (out / "overseer-knowledge-docs-1.0" / "sub" / "x.txt").exists()
-    os.symlink(victim / "precious.txt", out / "overseer-knowledge-docs-1.0.zip")
+    assert ei.value.reason == "target_unsafe" and (out / PACK_DIR_NAME / "sub" / "x.txt").exists()
+    os.symlink(victim / "precious.txt", out / (PACK_DIR_NAME + ".zip"))
     with pytest.raises(ExportError):
         export_pack(out, force=True, zip_archive=True)
     assert (victim / "precious.txt").read_text() == "do not delete"
@@ -197,7 +201,7 @@ def _t20(d: Path, variant: str) -> None:
     elif variant == "c_file_added":
         (d / "10-more.md").write_text("# More\n")
     elif variant == "d_version_changed":
-        edit(d, "master_prompt.txt", "PACK: overseer-knowledge-docs 1.0", "PACK: overseer-knowledge-docs 1.2")
+        edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.2")
         remanifest(d, version="1.2")
 
 
@@ -259,16 +263,16 @@ def test_refresh_regenerates_after_an_edit_and_the_new_digest_is_not_pinned(tmp_
 
 
 def test_refresh_of_a_new_version_loads_only_when_trusted(tmp_path):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.1")
-    edit(d, "master_prompt.txt", "PACK: overseer-knowledge-docs 1.0", "PACK: overseer-knowledge-docs 1.1")
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.2")
+    edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.2")
     res = refresh_source(d)
-    assert res.identity.version == "1.1" and not res.pinned
+    assert res.identity.version == "1.2" and not res.pinned
     refused(d, "unknown_pack")
     assert load_pack(d, trusted=[res.identity]).identity == res.identity
 
 
 def test_refresh_refuses_an_inconsistent_pack(tmp_path, capsys):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.1")  # the master prompt still says 1.0
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.2")  # the master prompt still names the installed version
     code, summary = run_main(capsys, "--refresh-source", "--source", str(d))
     assert code == 2 and summary["reason"] == "header_mismatch"
 
@@ -288,7 +292,7 @@ def test_refresh_refusals(tmp_path, variant):
     elif variant == "stray_file":
         (d / "notes.md").write_text("x\n")
     elif variant == "missing":
-        d = tmp_path / "nowhere" / "overseer-knowledge-docs-1.0"
+        d = tmp_path / "nowhere" / PACK_DIR_NAME
     elif variant == "crlf":
         (d / "04-evidence.md").write_bytes((d / "04-evidence.md").read_bytes().replace(b"\n", b"\r\n"))
     before = tree(tmp_path)

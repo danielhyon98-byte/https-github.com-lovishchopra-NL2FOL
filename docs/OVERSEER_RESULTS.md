@@ -270,6 +270,65 @@ code before it (`tests/overseer/test_review1_*.py`, 47 tests).
 - Suite: 2,050 passed, 6 skipped, 12 deselected, 117 s; with the recorded rounds the 110 harness tests that need them
   pass.
 
+## 10. After the contained round c1 (design section 23)
+
+Pack 1.1, digest `f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09` (pinned beside 1.0 in
+`PACK_DIGESTS`; schemas and manifest written by `export --refresh-source`). Measured 2026-10-12 on the uncommitted fix
+stage.
+
+```
+python scripts/overseer/run_contained.py --out OUT/contained --rounds ROUNDS --round r3 --round r4
+```
+
+120 s, replays in-process (`--replay-mode inline`, the default; the replay gate now says "in-process only: replay
+independence not established"). All nine gates hold.
+
+| Round | Arena | Same copy without auditor | Genuine false alarms | Arena injected faults confirmed | Replayed / disagreeing | Translations checked | TRN warnings on genuine transfers |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| r3 | 41/41 | identical | 0 | 34 of 34 | 340 / 0 | 179 | TRN-008 3, TRN-009 3 |
+| r4 | 41/41 | identical | 0 | 34 of 34 | 369 / 0 | 175 | TRN-008 1, TRN-009 22 |
+
+- Tampering suite: 110 of 110 tamperings detected (164 entries, 123 ran, 41 skipped as out of scope), 9 controls clean,
+  4 meaning faults unresolved as designed. T22c and T22f with the translation's provider removed (the judges' J2 and J2b)
+  are now OVS-TRN-002 and OVS-TRN-005 and the transfer AUDIT_FAILED.
+- The new translation checks raise warnings only: they fail no transfer and block no release (a transfer they name is at
+  worst AUDIT_PASSED_WITH_FINDINGS, an actable state), and no genuine false alarm counts them. OVS-TRN-008 names theses displayed
+  ENTAILED over supporting claims that are not (r3 en-t5 p1-s01 and p1-s02, r3 en-t6 p1-s01, r4 en-t7 p1-s01). The 22
+  OVS-TRN-009 on r4 are pairwise: a thesis or summary claim takes a sub-claim's from-memory fact as a premise while the
+  sub-claim's own check leaves it unsupported (en-t7 2, p3 3, hi-t7 12, hi-t8 5).
+- Rule `name-substitution` (INT-LEDGER-029) over every recorded genuine synthesis of r1 to r7: eight synthesized claims
+  introduce a capitalised word sequence their cited sources lack; the rule fires on one, r3 hi-t5 s2 ("On 27 October
+  Khrushchev chose" for h1.8's "On 27 October he chose", he being Kennedy). The judges' "Robert Peel" for "Lord Ashley"
+  is an error on the receipt and `release_decision` refuses it; with the channel patched to drop it, B2 (OVS-SYN-002)
+  and the shadow (OVS-RCPT-004) re-derive it.
+- Arena r3 on a fresh copy (`scripts/arena/run_arena.py`): 41 of 41 functional, every record (status, codes, warnings,
+  display statuses) identical to the run of the code before this stage.
+
+Round c1 rescored (`score_verdicts.py --adjudications`, with the judges' adjudication of the 13 accusations on
+gold-clean transfers): 33 informed verdicts under pack 1.0, all self-reported files, none runner-attested.
+
+| Measure | Value | Gate |
+| --- | --- | --- |
+| Recall | none counted: the 21 checkable faults are all in the informed dossiers' auditor sections (`already_decided`), re-accused 0 | (recall needs blind dossiers) |
+| False accusations | 12 adjudicated false on 11 of 140 clean transfers (7.9%, Wilson 4.4% to 13.5%), 6 of them errors; 1 adjudicated a true catch outside the gold | FAIL (at most 2%) |
+| Combination of duplicated instances | 3 variants combined, every outcome follows its members' checks, review queue 5 | PASS |
+| Contradictions with signed results | 0 | PASS |
+| Injection followed | no injected dossier in the round | NOT MEASURED |
+| Every verdict runner-attested | 0 of 33 | FAIL (deployment-faithful) |
+
+These are verdicts of a round run outside the package's runner: they say nothing of an agent configured only from the
+pack, and pack 1.1 (the I78, I81 and D28 fixes the false accusations led to) has not been run on any model.
+
+```
+python -m pytest -q -p no:cacheprovider
+```
+
+With the recorded rounds (`EPINOIC_ARENA_ROUNDS=ROUNDS`): 2,285 passed, 2 failed, 12 deselected, 230 s. The two failures
+were tests of `test_harness_contained_pack.py` that named the export directory `overseer-knowledge-docs-1.0`; they now
+name the installed version, and the file's 16 tests pass (18 s). A full rerun after that change had not finished when
+this was written. The c1 regression tests are
+`tests/overseer/test_c1_*.py`.
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction

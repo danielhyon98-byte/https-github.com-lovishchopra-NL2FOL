@@ -155,20 +155,37 @@ def test_translation_ungrounded_confirmed_on_an_invented_number_and_refuted_on_a
         aud2.close()
 
 
-def test_an_accusation_about_a_check_that_did_not_run_is_unresolved_never_refuted(aud):
-    """The tracing check runs only on model-proposed translations: on a hand-built one it did not run, so a
-    translation_ungrounded accusation cannot be refuted by it (even though the IR's number 40 is stated nowhere)."""
+def test_an_invented_number_in_a_provider_less_translation_is_confirmed(aud):
+    """Contained round c1 (rewritten to assert the reversed rule more strictly): tracing runs on every translation that
+    carries a problem, so a translation_ungrounded accusation of the invented 40 is confirmed by TRN-005 when the
+    provider was removed, as when it was not."""
     aud, ch, _rc = run({POINT: proposal(invented_number_problem())}, transform=lambda out, claim, rep: recompose(out, claim, provider=None), auditor=aud)
     r = review(aud, ch.uid)
     o = outcome_of(r.run([tr_acc(r.dossier, "translation_ungrounded")]))
-    assert o.outcome == "unresolved" and o.code == "OVS-AGENT-004" and "did not run" in o.reasons[0] and "trace" in o.reasons[0]
+    assert o.outcome == "confirmed" and "OVS-TRN-005" in [c.code for c in o.confirming]
 
 
-def test_translation_invalid_under_another_policy_version_is_unresolved(aud):
+def test_an_accusation_about_a_check_that_did_not_run_is_unresolved_never_refuted(aud):
+    """A translator declared hand-built, recorded under another policy version: its eligibility cannot be re-derived by
+    this code, so the eligibility check did not run and a translation_invalid accusation cannot be refuted by it."""
+    def hand_built(out, claim, rep):
+        e = out.translation.eligibility.model_copy(update={"policy_version": "older-policy"})
+        return recompose(out, claim, provider=None, translator_version="test", policy_version="older-policy", eligibility=e)
+
+    aud, ch, _rc = run(transform=hand_built, auditor=aud)
+    r = review(aud, ch.uid)
+    o = outcome_of(r.run([tr_acc(r.dossier, "translation_invalid")]))
+    assert o.outcome == "unresolved" and o.code == "OVS-AGENT-004" and "did not run" in o.reasons[0] and "eligibility" in o.reasons[0]
+
+
+def test_a_model_translation_under_another_policy_version_is_translation_invalid_confirmed(aud):
+    """Contained round c1 (rewritten to assert the reversed rule more strictly; it was "unresolved"): a translation of the
+    model pipeline that carries a problem under a policy version this code cannot re-derive is TRN-002, so a policy
+    version is never a way around the eligibility check."""
     aud, ch, _rc = run(auditor=aud, policy_version="older-policy")
     r = review(aud, ch.uid)
     o = outcome_of(r.run([tr_acc(r.dossier, "translation_invalid")]))
-    assert o.outcome == "unresolved" and "eligibility" in o.reasons[0]
+    assert o.outcome == "confirmed" and [c.code for c in o.confirming] == ["OVS-TRN-002"]
 
 
 def test_translation_invalid_confirmed_for_an_ambiguity_resolved_silently(aud):

@@ -167,6 +167,12 @@ class AuditCoverage(BaseModel):
     captured_uncited: list[str] = Field(default_factory=list)
     reused_results: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    #: The ``translator_version`` values the operator declared hand-built when configuring the auditor (absent when none
+    #: were): their provider-less translations are not TRN-002 (``checks/translation.py``).
+    hand_built_translators: Optional[list[str]] = None
+    #: True when the operator configured the auditor to let a FINAL audit whose replays ran inline release a synthesis
+    #: (absent otherwise: such an audit is never released; ``policy.release_decision``, decision 20).
+    inline_final_release: Optional[bool] = None
 
 
 class TranslationAudit(BaseModel):

@@ -103,7 +103,8 @@ def test_the_same_journal_and_store_give_the_same_report(auditor, monkeypatch):
     # the pure function over a fresh view of the same journal gives the same findings
     st = auditor._channels[task.uid]
     r = run_overseer_checks(OverseerView.from_journal(st.journal, auditor.store), keyring=auditor.keyring, store=auditor.store, live=st.live(), registry=st.registry,
-                            replays=auditor._replays(st), rederived=auditor._rederived(st), shadow=True)
+                            replays=auditor._replays(st), rederived=auditor._rederived(st), shadow=True,
+                            hand_built_translators=auditor.hand_built_translators)  # the auditor's configuration
     assert [(f.code, f.message) for f in r.report.findings] == [(f.code, f.message) for f in a1.report.findings]
 
 
@@ -152,14 +153,15 @@ def test_run_overseer_checks_never_raises_on_a_broken_view(auditor):
 
 # ------------------------------------------------------------------------------------------- the code table
 def test_the_code_table_has_every_code_once_with_one_severity():
-    # design section 16, with the seven translator-oversight codes of section 18, the five consolidation codes of
-    # section 19 (OVS-CONS-001..004, OVS-REP-001) and OVS-AUDIT-005 (review round 1: a check a transfer needs cannot run)
-    assert len(OVS_CODES) == 71
+    # design section 16, with the nine translator-oversight codes of section 18 (OVS-TRN-008 and 009 added after the
+    # contained round c1), the five consolidation codes of section 19 (OVS-CONS-001..004, OVS-REP-001) and OVS-AUDIT-005
+    # (review round 1: a check a transfer needs cannot run)
+    assert len(OVS_CODES) == 73
     families = {}
     for code, (sev, stage, meaning) in OVS_CODES.items():
         assert code.startswith("OVS-") and sev in ("error", "warning", "info") and stage and meaning
         families[code.split("-")[1]] = families.get(code.split("-")[1], 0) + 1
-    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 5, "AGENT": 5, "TRN": 7,
+    assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 4, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 5, "AGENT": 5, "TRN": 9,
                         "CONS": 4, "REP": 1}
     assert {OVS_CODES[c][0] for c in ("OVS-CONS-004", "OVS-REP-001", "OVS-AUDIT-005")} == {"error"} and OVS_CODES["OVS-CONS-003"][0] == "info"
     assert severity_of("OVS-RES-002") == "warning" and severity_of("OVS-PEER-003") == "info" and is_agent_code("OVS-AGENT-004")

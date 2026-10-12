@@ -36,7 +36,9 @@ RouterHub(auditor=TransferAuditor(KeyRing(engine_keys, overseer_secret)))
                                                        router may deliver: the latest response, its audit current, custody re-checked)
   hub.review_pool(tasks, OverseerPool(pack, provider_factory))  ──► plan_pool ──► hub.review per task by its instances
   policy.may_release(synthesis_receipt, final_audit, keyring, audits=..., journal=..., message=None) gates the student-facing
-                                                   synthesis: refused when its receipt carries an error, custody re-checked at release
+                                                   synthesis: refused when its receipt carries an error, custody re-checked at release,
+                                                   and refused on a FINAL audit whose replays ran inline unless the operator
+                                                   configured inline release (TransferAuditor(inline_final_release=True))
 ```
 
 Without an auditor the hub and the channel behave exactly as before: no observer, no capture, no journal.
@@ -83,6 +85,16 @@ Roman numerals, ordinals, units and multipliers; a returning invented quotation 
 confirmation covers only the reports, results and documents its findings name; and a contradiction with another task's
 signed result is `OVS-AGENT-001`.
 
+**After the contained round c1** (design section 23): a `carried`, `paraphrased` or `merged` synthesized claim that gives
+an act to a person its cited sources do not name for it (a name exchanged, or put where the source says "he") is
+INT-LEDGER-029 (rule `name-substitution`, an error, so `may_release` refuses it; B2 and the shadow re-derive it); the
+translation checks are no longer gated on who proposed the IR (the eligibility re-derivation and the tracing run on every
+translation, and a problem with no provider is TRN-002 unless the operator declared its translator hand-built:
+`TransferAuditor(hand_built_translators=...)`, recorded in the audit's coverage); two translation warnings, OVS-TRN-008
+(a definitive display resting on unsuccessful sibling claims) and OVS-TRN-009 (one fact a premise in one translation and
+unsupported in another); a FINAL audit whose replays ran inline is not released unless inline release was configured; and
+the knowledge pack is version 1.1 (1.0 stays pinned beside it).
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
@@ -94,12 +106,14 @@ translation of a delivered claim from the journal (design section 18):
 | Code | Severity | Decided by |
 | --- | --- | --- |
 | `OVS-TRN-001` | error | the IR re-validated as untrusted JSON: the engine's parser and validator (schema, identifiers, sorts, operator allowlist, limits), its claim and request ids, the subject profile's sorts |
-| `OVS-TRN-002` | error | status, eligibility and engine run re-derived from the validation: a problem under a status that forbids one, ambiguity flags under TRANSLATED (an ambiguity resolved silently), and, for a model-proposed translation, an eligibility the policy does not re-derive (a claim forced into IR) |
+| `OVS-TRN-002` | error | status, eligibility and engine run re-derived from the validation: a problem under a status that forbids one, ambiguity flags under TRANSLATED (an ambiguity resolved silently), an eligibility the policy does not re-derive (a claim forced into IR), whoever proposed the translation, and a problem with no provider or under another policy version from a translator not declared hand-built |
 | `OVS-TRN-003` | error | a `verified` grounding the re-run of the translator's grounding check does not reproduce |
 | `OVS-TRN-004` | warning | a quotation excerpt absent from the supplied text it names (disclosed as unverified) |
-| `OVS-TRN-005` | warning | a quotation or number of a model-proposed translation that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test) |
+| `OVS-TRN-005` | warning | a quotation or number of a translation (whoever proposed it) that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test) |
 | `OVS-TRN-006` | error | circular: the conclusion occurs verbatim among the premises (or as a conjunct of one); a verified, traced transcription of a grounded fact (task setting, quotation, supplied text, arithmetic fact) is not circular (rule `grounded-transcription`, a coverage note) |
 | `OVS-TRN-007` | error | the outcome's summary is not the deterministic statement of its translation and its signed result |
+| `OVS-TRN-008` | warning | a display ENTAILED or CONSISTENT whose premises assert supporting claims whose own outcomes in the same receipt are not successful (rule `sibling-status`) |
+| `OVS-TRN-009` | warning | one fact asserted as a premise in one translation of a receipt and left an unsupported conjunct in another's own check (rule `same-fact-premise`) |
 
 The task audit records every translation it checked (`TranslationAudit`: the claim text, the claims it cites, the
 proposed IR as journaled with its digest, status, eligibility, ambiguity flags, failed grounding checks, diagnostics,
@@ -135,7 +149,7 @@ and the signed results decide.
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-1.0/` | the agent's whole configuration (below) |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-1.1/` | the agent's whole configuration (below); 1.0 stays beside it, pinned |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
 | Agent runner | `runner.py` | `OverseerAgentRunner`: model input from a loaded pack and one dossier, one provider call, the reply handed to the intake as data |
@@ -152,10 +166,10 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 ## The knowledge pack
 
-`knowledge/overseer-knowledge-docs-1.0/` is the overseer agent's whole configuration, laid out like the specialists'
+`knowledge/overseer-knowledge-docs-1.1/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
-evidence rule, the verdict format, the kinds and codes, 19 worked examples, what never to do, what to do when unsure,
+evidence rule, the verdict format, the kinds and codes, 21 worked examples, what never to do, what to do when unsure,
 and, since the consolidation stage, how to review consolidations and repeated faults as one of several instances),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
@@ -167,7 +181,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-1.0/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-1.1/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text

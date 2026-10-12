@@ -48,8 +48,11 @@ raising.
 
 **Overseen like every other agent.** Every translation this package proposes reaches the router inside a receipt
 outcome, and the Overseer re-checks it from its journal as untrusted data (`epinoic_logic.overseer.checks.translation`,
-codes `OVS-TRN-001` to `OVS-TRN-007`): the IR re-validated with the engine's validator, the status and eligibility
+codes `OVS-TRN-001` to `OVS-TRN-009`): the IR re-validated with the engine's validator, the status and eligibility
 re-derived, the quotation groundings re-run against the supplied texts, every quotation and number traced to the
 specialist's report, a conclusion found among its own premises flagged as circular, the outcome summary regenerated from
-the signed result. The signed task audit records each translation (claim text, proposed IR, validation outcome, signed
+the signed result, and two receipt-level warnings (a definitive display resting on unsuccessful sibling claims; one fact
+a premise in one translation and unsupported in another). No check depends on who proposed the IR: a problem this
+pipeline produced always records its provider, and one that records none is reported unless the operator declared its
+translator hand-built. The signed task audit records each translation (claim text, proposed IR, validation outcome, signed
 result). Nothing in this package changed for it: the checks only read what the pipeline already records.

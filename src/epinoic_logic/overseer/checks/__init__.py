@@ -83,6 +83,10 @@ class CheckContext:
     cited_result_ids: set[str] = field(default_factory=set)
     notes: list[str] = field(default_factory=list)
     translations: list = field(default_factory=list)
+    #: ``translator_version`` values the auditor's operator declared hand-built (harness fixtures, deterministic test
+    #: translators): a translation carrying a problem and no provider is a fault unless its translator is listed here
+    #: (TRN-002). Configured on the auditor and recorded in every audit's coverage; empty in production.
+    hand_built_translators: frozenset = frozenset()
     _universe: Optional[dict] = None
 
     # ------------------------------------------------------------------ findings

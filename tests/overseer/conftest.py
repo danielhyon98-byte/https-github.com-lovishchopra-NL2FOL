@@ -56,8 +56,16 @@ def make_keyring(**extra) -> KeyRing:
     return KeyRing(keys, SECRET)
 
 
+#: The ``translator_version`` of this conftest's hand-built translations (and of the harness's): declared to the
+#: auditor as hand-built, as an operator configures it (TRN-002 reports a provider-less translation otherwise).
+HAND_BUILT_TRANSLATORS = ("test", "harness")
+
+
 def make_auditor(**kw) -> TransferAuditor:
-    opts = dict(replay_mode="inline", eager=True, shadow="always")
+    # contained testing replays inline and says so: inline release is configured explicitly (decision 20; the tests of the
+    # gate itself build an auditor without it)
+    opts = dict(replay_mode="inline", eager=True, shadow="always", hand_built_translators=HAND_BUILT_TRANSLATORS,
+                inline_final_release=kw.get("replay_mode", "inline") != "process")
     opts.update(kw)
     keyring = opts.pop("keyring", None) or make_keyring()
     return TransferAuditor(keyring, **opts)
@@ -128,6 +136,31 @@ def int_problem(claim_id: str, symbol: str, value: int, *, op: str = "gt", bound
     })
 
 
+def point_problem(claim_id: str = "en-point", *, request_id: str = "req-ovs", link: bool = True) -> Problem:
+    """The faithful encoding of en-point: the two quotations it cites and the specialist's reading linking them to the
+    point (ENTAILED; without ``link`` the missing step is exposed, COUNTEREXAMPLE). Contained round c1: the earlier
+    default encoded the point as ``work_hours = 12 |- work_hours > 8``, numbers the report never states, which the
+    translation checks now name (OVS-TRN-005) for every translation, hand-built or not."""
+    def V(n):
+        return {"op": "var", "name": n}
+
+    def q(x):
+        return {"kind": "quotation", "source_refs": [{"document_id": "doc-mill", "excerpt": x}]}
+    infer = {"kind": "specialist_inference"}
+    premises = [{"id": "P_bell", "expr": V("bell"), "label": "the bell line", "grounding": q("We work until the bell")},
+                {"id": "P_coal", "expr": V("coal"), "label": "the coal line", "grounding": q("counted every hour in coal")}]
+    if link:
+        premises.append({"id": "P_link", "expr": {"op": "implies", "left": {"op": "and", "args": [V("bell"), V("coal")]}, "right": V("endless")},
+                         "label": "together the lines make work endless", "grounding": infer})
+    return Problem.model_validate({
+        "problem_id": f"p-{claim_id}", "request_id": request_id, "claim_id": claim_id, "query": "entailment",
+        "symbols": [{"name": "bell", "sort": "Bool", "meaning": "the foreman says work lasts until the bell", "grounding": q("We work until the bell")},
+                    {"name": "coal", "sort": "Bool", "meaning": "the children count the hours in coal", "grounding": q("counted every hour in coal")},
+                    {"name": "endless", "sort": "Bool", "meaning": "the writer presents work as endless", "grounding": infer}],
+        "premises": premises, "conclusion": {"id": "C", "expr": V("endless"), "label": "the writer presents work as endless", "grounding": infer},
+    })
+
+
 def translation_for(claim: ClaimRecord, report: SpecialistReport, problem: Optional[Problem], *, status=TranslationStatus.TRANSLATED,
                     text_digest: Optional[str] = "auto") -> TranslationResult:
     return TranslationResult(
@@ -191,7 +224,7 @@ def run_task(auditor: TransferAuditor, *, en_problems: Optional[dict] = None, hi
     """The synthetic task: an English request and structured report, a forward of it to the History specialist, a
     History request carrying the forwarded report as ``peer:en``, the History raw text (parsed by the History branch),
     and a synthesis by the combinator. Every transfer crosses the observed channel."""
-    en_problems = {"en-point": int_problem("en-point", "work_hours", 12, op="gt", bound=8)} if en_problems is None else en_problems
+    en_problems = {"en-point": point_problem()} if en_problems is None else en_problems
     hi_problems = {"h1.1": int_problem("h1.1", "min_age", 9, op="ge", bound=9)} if hi_problems is None else hi_problems
     ch = new_channel(auditor, plan)
     task = Task(ch=ch, auditor=auditor)

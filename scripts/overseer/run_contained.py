@@ -72,7 +72,7 @@ RULE_CODES = ("OVS-DIV-001", "OVS-DIV-002")
 GENUINE_EXCLUDED: tuple[str, ...] = ()
 #: Codes by which the shadow re-derivation disagrees with a receipt.
 SHADOW_DISAGREE = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
-OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.1", sha256="cd" * 32)
+OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.2", sha256="cd" * 32)  # a version other than the installed one
 
 
 class Stopped(RuntimeError):
@@ -278,12 +278,12 @@ def recorded_self_reports(src: Path, recorded_results: Optional[dict]) -> list[d
     return out
 
 
-def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_scope: str) -> dict:
+def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_scope: str, replay_mode: str = "inline") -> dict:
     rdir = out / "rounds"
     plain_copy = H.copy_round(src, rdir / "without-auditor", name=name)
     plain = H.arena().run_round(plain_copy)
     copy = H.copy_round(src, rdir, name=name)
-    aud = H.new_auditor(H.keyring_for("arena"))
+    aud = H.new_auditor(H.keyring_for("arena"), replay_mode=replay_mode)
     try:
         rr = H.replay_round(copy, aud)
         rec: dict[str, Any] = {"round": name, "transmissions": rr.results["transmissions"], "functional": rr.results["functional"],
@@ -297,7 +297,7 @@ def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_sco
             records_by_channel[r.get("channel")].append(r)
         genuine = {"channels": 0, "transfers": 0, "false_alarms": [], "rule_findings": [], "states": Counter()}
         mutations: list[dict] = []
-        replay = {"results_replayed": 0, "disagreements": [], "inconclusive": 0}
+        replay = {"results_replayed": 0, "disagreements": [], "inconclusive": 0, "mode": replay_mode}
         translations = {"checked": 0, "trn_codes_on_genuine": Counter()}
         channels = []
         confirmable: set[str] = set()  # channels whose audit holds a finding an accusation kind maps to (the confirm probe's target)
@@ -400,7 +400,9 @@ def run_replies(out: Path, pack: Any, replies_dir: Path, transfers: Path) -> dic
 # ============================================================================================ the run
 def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iterable[str] = H.DEFAULT_ROUNDS, pack_path: Optional[Path] = None,
                   tamper: bool = True, probe_scope: str = "sample", replies_dir: Optional[Path] = None, transfers: Optional[Path] = None,
-                  after_export: Optional[Callable[[Path], None]] = None) -> dict:
+                  after_export: Optional[Callable[[Path], None]] = None, replay_mode: str = "inline") -> dict:
+    if replay_mode not in ("inline", "process"):
+        raise H.HarnessError("--replay-mode is inline or process")
     inputs = [p for _n, p in H.round_dirs(rounds_root, H.ROUND_NAMES)] if rounds_root else []
     out = H.check_output_dir(out, inputs=inputs + ([Path(replies_dir)] if replies_dir else []) + ([Path(transfers)] if transfers else []), must_be_empty=True)
     t0 = time.perf_counter()
@@ -419,7 +421,8 @@ def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iter
     result["rounds"] = {}
     for name in rounds:
         if name in found:
-            result["rounds"][name] = run_round_contained(name, found[name], out, pack, probe_scope=probe_scope)
+            result["rounds"][name] = run_round_contained(name, found[name], out, pack, probe_scope=probe_scope, replay_mode=replay_mode)
+    result["replay_mode"] = replay_mode
     if tamper:
         import tamper as T
         m = T.run_suite(out / "tamper", rounds_root=rounds_root, pack_dir=Path(pack_info.get("exported_dir") or pack_info.get("given")))
@@ -447,8 +450,12 @@ def gates(r: dict) -> dict:
         "arena_faults_named_by_receipts_and_confirmed": {"ok": all(m["receipt_named_it"] and m["overseer_agrees_with_receipt"] for rd in rounds for m in rd["mutations"]),
                                                          "value": sum(1 for rd in rounds for m in rd["mutations"] if m["receipt_named_it"] and m["overseer_agrees_with_receipt"]),
                                                          "of": sum(len(rd["mutations"]) for rd in rounds)},
+        # decision 20: only a worker-process replay is independent; an inline run says what it measured (contained round c1)
         "replay_agreement_on_definitive_results": {"ok": all(not rd["replay"]["disagreements"] for rd in rounds),
-                                                    "replayed": sum(rd["replay"]["results_replayed"] for rd in rounds)},
+                                                    "replayed": sum(rd["replay"]["results_replayed"] for rd in rounds),
+                                                    "replay_mode": r.get("replay_mode", "inline"),
+                                                    "scope": "worker process (independent)" if r.get("replay_mode") == "process"
+                                                    else "in-process only: replay independence not established"},
         "arena_unchanged_by_the_auditor": {"ok": all(rd["arena_unchanged_by_the_auditor"] for rd in rounds)},
         "every_task_audit_verifies": {"ok": all(c["verifies"] for rd in rounds for c in rd["channels"])},
         "probes_as_expected": {"ok": bool(reviews) and all(not rv.get("error") and all(p["ok"] for p in rv["probes"].values()) for rv in reviews),
@@ -481,7 +488,8 @@ def summary_md(r: dict) -> str:
               f"- arena injected faults: {len(rd['mutations'])}; named by the receipt and confirmed by the overseer: "
               f"{sum(1 for m in rd['mutations'] if m['receipt_named_it'] and m['overseer_agrees_with_receipt'])}",
               f"- auditor additions on mutated transfers: {dict(Counter(c for m in rd['mutations'] for c in m['auditor_additions']))}",
-              f"- replay: {rd['replay']['results_replayed']} results replayed, {len(rd['replay']['disagreements'])} disagreements, {rd['replay']['inconclusive']} inconclusive",
+              f"- replay ({rd['replay'].get('mode', 'inline')}{'' if rd['replay'].get('mode') == 'process' else ': in-process only'}): "
+              f"{rd['replay']['results_replayed']} results replayed, {len(rd['replay']['disagreements'])} disagreements, {rd['replay']['inconclusive']} inconclusive",
               f"- translations checked: {rd['translations']['checked']}; OVS-TRN on genuine: {rd['translations']['trn_codes_on_genuine']}",
               f"- reviews: {len(rd['reviews'])}; probes as expected: {sum(1 for rv in rd['reviews'] if not rv.get('error') and all(p['ok'] for p in rv['probes'].values()))}"]
         for s in rd["recorded_overseer_reports"]:
@@ -506,10 +514,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--no-tamper", action="store_true", help="skip the tampering suite")
     ap.add_argument("--replies", type=Path, default=None, help="recorded verdict texts keyed by dossier digest (<sha256>.json)")
     ap.add_argument("--transfers", type=Path, default=None, help="the export_dossier.py output the replies answer")
+    ap.add_argument("--replay-mode", choices=("inline", "process"), default="inline",
+                    help="replay the recorded rounds' results inline (default; reported as in-process only) or in a worker process (decision 20)")
     args = ap.parse_args(argv)
     try:
         r = run_contained(args.out, rounds_root=args.rounds, rounds=args.round or H.DEFAULT_ROUNDS, pack_path=args.pack, tamper=not args.no_tamper,
-                          probe_scope=args.probe_scope, replies_dir=args.replies, transfers=args.transfers)
+                          probe_scope=args.probe_scope, replies_dir=args.replies, transfers=args.transfers, replay_mode=args.replay_mode)
     except H.HarnessError as exc:
         print(json.dumps({"refused": str(exc)}))
         return 2

@@ -99,7 +99,7 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL
   audit; `policy.may_release` gates the student-facing synthesis on it.
 - **Overseer agents** are model-based reviewers built only from exportable parts: the package's code and a versioned
-  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.0/`: `master_prompt.txt` and
+  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.1/`, with 1.0 kept beside it: `master_prompt.txt` and
   numbered documents, generated schemas, a manifest of digests). `python -m epinoic_logic.overseer.export --out DIR`
   writes the pack out with a README for whoever deploys it with any model. `hub.review(task, runners)` issues each agent
   a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory

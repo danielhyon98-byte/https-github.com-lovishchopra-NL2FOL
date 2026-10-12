@@ -676,6 +676,180 @@ def _renamed_figures(synthesized_text: str, source_texts: list[str], context_tex
     return out
 
 
+# --- who is named (INT-LEDGER-029, rule ``name-substitution``) -------------------------------------------------------
+#: Transformations whose claim may name only the people, places and bodies its cited sources name: they carry, restate
+#: or combine the sources' content ('generalized' and 'narrowed' widen or cut it and are not held to the sources' names).
+_NAME_HELD_LABELS = frozenset({"carried", "paraphrased", "merged"})
+#: Capitalised words that name no actor: months, weekdays and the first-person pronoun.
+_NOT_NAME_WORDS = frozenset(light_stem(w) for w in (*_MONTHS, *"monday tuesday wednesday thursday friday saturday sunday i".split()))
+#: Titles and offices that a paraphrase may add to, or drop from, a name the sources state ("President Kennedy" for
+#: "Kennedy"): never the part of a name that identifies who is meant.
+_TITLE_WORDS = frozenset(light_stem(w) for w in ("mr mrs ms miss dr sir lady lord dame president vice king queen prince princess emperor empress tsar czar kaiser pope "
+                          "saint st general gen admiral captain colonel major lieutenant marshal chancellor premier prime minister secretary senator "
+                          "governor chairman chairwoman earl duke duchess baron baroness count countess viscount marquess archbishop bishop cardinal "
+                          "reverend rev professor prof judge justice mayor sheikh sultan shah chief commander").split())
+#: Personal pronouns a source may name an actor with ("On 27 October he chose ..."): a claim that puts a name the
+#: source never states in their place has decided who acted.
+_ACTOR_PRONOUNS = frozenset("he she they him her them his hers their theirs".split())
+
+
+def _name_word(tok: str) -> str:
+    """A name word as compared: possessive removed ("Kennedy's" -> "kennedy"), case folded, light-stemmed."""
+    w = re.sub(r"['’]s?$", "", tok)
+    return light_stem(w.casefold())
+
+
+def _quotations_masked(text: str) -> str:
+    """``text`` with its quoted spans replaced by a sentence break: a name inside a quotation is the quotation rule's
+    (INT-LEDGER-025), not the synthesis's own naming."""
+    from ..adapters.markdown import find_quotation_spans
+    spans = find_quotation_spans(text)
+    if not spans:
+        return text
+    out, last = [], 0
+    for s, e, _inner in spans:
+        out.append(text[last:s])
+        out.append(" ; ")
+        last = e
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _sentences_of(text: str, *, quotations: bool = False) -> list[list[str]]:
+    """The sentences of ``text`` as tokens; quoted spans masked unless ``quotations``."""
+    body = text if quotations else _quotations_masked(text)
+    toks = _PAIR_TOKEN_RE.findall(_LIST_MARKER_RE.sub(" ", _mask_math(body)))
+    sentences: list[list[str]] = [[]]
+    for t in toks:
+        if t in _SENTENCE_MARKS or t == ":":
+            sentences.append([])
+        else:
+            sentences[-1].append(t)
+    return [s for s in sentences if s]
+
+
+def _first_word(sent: list[str]) -> int:
+    return next((k for k, x in enumerate(sent) if x not in ",;:()"), 0)
+
+
+def _mid_capitalised(texts: list[str]) -> set[str]:
+    """Name words written capitalised away from the start of a sentence in ``texts`` (quotations included): what a
+    sentence-initial word is folded against."""
+    out: set[str] = set()
+    for t in texts:
+        for sent in _sentences_of(t, quotations=True):
+            first = _first_word(sent)
+            out.update(_name_word(x) for k, x in enumerate(sent) if k != first and _is_cap_word(x))
+    return out
+
+
+def _identifies(word: str) -> bool:
+    return bool(word) and word not in _NOT_NAME_WORDS and word not in _TITLE_WORDS
+
+
+def _actor_names(sent: list[str], mid_caps: set[str]) -> list[tuple[int, int, tuple[str, ...], str]]:
+    """``(start, end, identifying words, surface)`` for every name of one sentence: a run of capitalised words, its
+    leading determiner or preposition dropped, months, weekdays, titles and offices left out of the identifying words
+    (the surface spans the identifying words). A single capitalised word opening a sentence is a name only when some
+    text writes it capitalised mid-sentence (``mid_caps``): "Overall" or "Thus" opening a sentence is prose,
+    "Khrushchev" is not."""
+    first = _first_word(sent)
+    out: list[tuple[int, int, tuple[str, ...], str]] = []
+    i = 0
+    while i < len(sent):
+        if not _is_cap_word(sent[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(sent) and _is_cap_word(sent[j]):
+            j += 1
+        s = i
+        while s < j and sent[s].casefold() in _NAME_LEAD_STOP:
+            s += 1
+        if s < j and i == first and j - s == 1 and _name_word(sent[s]) not in mid_caps:
+            s = j  # a single sentence-initial word no text writes capitalised elsewhere: folded, ordinary prose
+        keep = [k for k in range(s, j) if _identifies(_name_word(sent[k]))]
+        if keep:
+            out.append((s, j, tuple(_name_word(sent[k]) for k in keep), " ".join(sent[keep[0]:keep[-1] + 1])))
+        i = j
+    return out
+
+
+def _slot(sent: list[str], k: int, side: str) -> Optional[tuple[str, str]]:
+    """The word next to an actor (``side`` "prev" before it, "next" after it), or None at a mark or a numeral."""
+    if 0 <= k < len(sent) and sent[k] not in ",;:()" and not _is_numeral(sent[k]):
+        return (side, _name_word(sent[k]))
+    return None
+
+
+def _actors(text: str, mid_caps: set[str]) -> list[tuple[tuple[str, ...], str, frozenset]]:
+    """``(identifying words, surface, slots)`` for every actor of ``text``: a name, or a personal pronoun (its words
+    the pronoun itself). ``slots`` are the words standing right before and right after it ("On 27 October he chose":
+    ``("prev", "october")`` and ``("next", "chos")``): what the act is, as ``name-substitution`` aligns a claim with its
+    source."""
+    out: list[tuple[tuple[str, ...], str, frozenset]] = []
+    for sent in _sentences_of(text):
+        for s, e, ident, surface in _actor_names(sent, mid_caps):
+            out.append((ident, surface, frozenset(x for x in (_slot(sent, s - 1, "prev"), _slot(sent, e, "next")) if x)))
+        for k, x in enumerate(sent):
+            if x.casefold() in _ACTOR_PRONOUNS:
+                out.append(((x.casefold(),), x, frozenset(y for y in (_slot(sent, k - 1, "prev"), _slot(sent, k + 1, "next")) if y)))
+    return out
+
+
+def _stated_words(texts: list[str]) -> set[str]:
+    """Every word ``texts`` state, folded as name words, quotations included (a name a source quotes, it states)."""
+    return {_name_word(x) for t in texts for sent in _sentences_of(t, quotations=True) for x in sent if not _is_numeral(x)}
+
+
+def substituted_names(synthesized_text: str, source_texts: list[str], transformation: str, *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """Rule ``name-substitution`` (INT-LEDGER-029): a 'carried', 'paraphrased' or 'merged' claim that names an actor (a
+    run of capitalised words: a person, a place, a body) none of whose identifying words its cited sources state, where
+    the sources give the act to another actor:
+
+    * aligned: a cited source puts another name, or a personal pronoun, next to the same word ("Robert Peel championed
+      the Ten Hours Act" for "Lord Ashley championed the Ten Hours Act"; "On 27 October Khrushchev chose to answer" for
+      "On 27 October he chose to answer", whoever "he" is: the combinator decided who acted, and the claim it cites does
+      not say);
+    * exchanged ('carried' and 'paraphrased' only, which promise the source's content unchanged): the claim leaves out a
+      name its source states and names one the source does not ("Robert Peel promoted ..." for "Lord Ashley championed
+      ..."). A merge may leave names of its sources out, so this shape is not applied to it.
+
+    Words are compared folded (case, possessive, light stem); titles and offices ("President", "Lord"), months and
+    weekdays never identify anyone; a single word opening a sentence is a name only when some text writes it capitalised
+    mid-sentence; names inside the claim's quotations are left to the quotation rule, and a name a source states inside
+    a quotation is stated. ``context_texts`` (the cited reports' other claims) only decide which sentence-initial words
+    are names: a name only they state is still one the CITED sources do not state. A name no source states with no other
+    actor for its act (a pronoun resolved where the source has none, a place named for "the city") is not reported.
+    Returns one description per substituted name."""
+    if transformation not in _NAME_HELD_LABELS or not source_texts:
+        return []
+    mid_caps = _mid_capitalised([synthesized_text, *source_texts, *context_texts])
+    syn = [a for a in _actors(synthesized_text, mid_caps) if a[0][0] not in _ACTOR_PRONOUNS]
+    if not syn:
+        return []
+    stated = _stated_words(source_texts)
+    src = [a for t in source_texts for a in _actors(t, mid_caps)]
+    syn_words = set().union(*(set(a[0]) for a in syn))
+    dropped = sorted({surface for ident, surface, _sl in src if ident[0] not in _ACTOR_PRONOUNS and not set(ident) & syn_words
+                      and not any(w in _stated_words([synthesized_text]) for w in ident)})
+    out: list[str] = []
+    seen: set[tuple[str, ...]] = set()
+    for ident, surface, slots in syn:
+        if ident in seen or all(w in stated for w in ident):
+            continue
+        seen.add(ident)
+        instead = sorted({(s_surface, slot[1]) for s_ident, s_surface, s_slots in src for slot in slots & s_slots if not set(s_ident) & set(ident)})
+        if instead:
+            acts = sorted({w for _x, w in instead})
+            out.append(f"it names '{surface}', which none of its cited sources states, where they give the same act (next to {', '.join(repr(w) for w in acts)}) "
+                       f"to {', '.join(sorted({repr(x) for x, _w in instead}))} (a substituted actor)")
+        elif dropped and transformation in _EQUIVALENCE_LABELS:
+            out.append(f"it names '{surface}', which none of its cited sources states, and leaves out {', '.join(repr(x) for x in dropped)}, which its "
+                       "source states (a substituted name)")
+    return out
+
+
 def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
     """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
     tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
@@ -1131,6 +1305,11 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         if inverted:
             f.append(IntegrityFinding(code="INT-LEDGER-027", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
                                       + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        substituted = substituted_names(sc.text, [c.claim_text for c in known], sc.transformation, context_texts=_report_context(reports, known))
+        if substituted:
+            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="error", message=f"synthesized claim ('{sc.transformation}') names an actor its cited sources {known_ids} do not "
+                                      "name (rule name-substitution): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
+                                      "cites does not state", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
         changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
                            if not (neg_error and d.startswith("it adds a negation"))]

@@ -71,6 +71,10 @@ __all__ = [
     "transfer_states", "ALWAYS_REPLAY_CODES", "AUDITOR_AGENT_ID", "AUDIT_CONTRACT", "auditor_for_channel",
 ]
 
+#: The message of the OVS-AUDIT-002 a FINAL audit carries when its replays ran inline (``policy.release_decision``
+#: refuses such an audit unless its coverage records the operator's ``inline_final_release``).
+INLINE_FINAL_MESSAGE = "this FINAL audit's replays ran inline, not in an isolated worker process: replay independence is not established"
+
 AUDITOR_AGENT_ID = "overseer-auditor"
 AUDIT_CONTRACT = "overseer_audit/1.0"
 #: Error findings whose results are never sampled out of live replay.
@@ -299,10 +303,15 @@ def replay_findings(ctx: CheckContext, replays: dict[str, Replay]) -> None:
 def run_overseer_checks(view: OverseerView, *, keyring: KeyRing, store: ResultStore, live: Any = None, registry: Any = None,
                         replays: Optional[dict[str, Replay]] = None, rederived: Optional[dict[int, Rederived]] = None, presented: Optional[dict[str, Any]] = None,
                         batch: bool = True, shadow: bool = True, replay_mode: str = "none", pending: Optional[dict[str, set[str]]] = None,
-                        extra_findings: Iterable[tuple[int, IntegrityFinding]] = (), sampled: tuple[int, int] = (0, 0)) -> AuditResult:
-    """Run every check over ``view``; never raises."""
-    ctx = CheckContext(view=view, keyring=keyring, store=store, live=live, registry=registry, presented=dict(presented or {}))
+                        extra_findings: Iterable[tuple[int, IntegrityFinding]] = (), sampled: tuple[int, int] = (0, 0),
+                        hand_built_translators: Iterable[str] = ()) -> AuditResult:
+    """Run every check over ``view``; never raises. ``hand_built_translators``: the ``translator_version`` values the
+    operator declared hand-built (TRN-002 exempts their provider-less translations; recorded in the coverage)."""
+    ctx = CheckContext(view=view, keyring=keyring, store=store, live=live, registry=registry, presented=dict(presented or {}),
+                       hand_built_translators=frozenset(hand_built_translators))
     ctx.coverage.replay_mode = replay_mode
+    if ctx.hand_built_translators:
+        ctx.coverage.hand_built_translators = sorted(ctx.hand_built_translators)
     ctx.coverage.degraded = view.degraded
     try:
         _run_all(ctx, replays or {}, rederived, batch=batch, shadow=shadow)
@@ -447,8 +456,17 @@ class TransferAuditor:
 
     def __init__(self, keyring: KeyRing, *, replay_mode: Literal["process", "inline"] = "process", store: Optional[ResultStore] = None,
                  journals: Optional[JournalSet] = None, queue_bound: int = 256, sample_rate: float = 0.25, eager: bool = False,
-                 shadow: Literal["always", "sampled", "off"] = "sampled", shadow_sample_rate: float = 0.10, registry: Any = None) -> None:
+                 shadow: Literal["always", "sampled", "off"] = "sampled", shadow_sample_rate: float = 0.10, registry: Any = None,
+                 hand_built_translators: Iterable[str] = (), inline_final_release: bool = False) -> None:
         self.keyring = keyring
+        #: Decision 20: process mode is the only replay mode a FINAL audit accepts as independent. A FINAL audit whose
+        #: replays ran inline carries OVS-AUDIT-002 and is never released, unless the operator configured inline release
+        #: here explicitly (contained testing); the audit's signed coverage then records ``inline_final_release``.
+        self.inline_final_release = bool(inline_final_release)
+        #: ``translator_version`` values declared hand-built (contained harness fixtures, test translators): a translation
+        #: that carries a problem and no provider is TRN-002 unless its translator is declared here. Empty in production;
+        #: every audit records the set in its coverage (``hand_built_translators``).
+        self.hand_built_translators = frozenset(str(x) for x in hand_built_translators)
         self.store = store or ResultStore(keyring)
         self.journals = journals or JournalSet(keyring)
         self.replayer = Replayer(keyring, mode=replay_mode, queue_bound=queue_bound, sample_rate=sample_rate, eager=eager)
@@ -555,7 +573,8 @@ class TransferAuditor:
                     return None
 
     def _ctx(self, st: _ChannelState) -> CheckContext:
-        return CheckContext(view=st.view, keyring=self.keyring, store=self.store, live=st.live(), registry=st.registry)
+        return CheckContext(view=st.view, keyring=self.keyring, store=self.store, live=st.live(), registry=st.registry,
+                            hand_built_translators=self.hand_built_translators)
 
     def _always_ids(self, st: _ChannelState, t: Transfer) -> set[str]:
         out: set[str] = set()
@@ -844,7 +863,8 @@ class TransferAuditor:
         (:class:`~epinoic_logic.overseer.checks.translation.TranslationRecord`). Read-only: nothing is journaled."""
         view = self.view(channel_uid)
         with self._lock:
-            ctx = CheckContext(view=view, keyring=self.keyring, store=self.store, registry=self._channels[channel_uid].registry)
+            ctx = CheckContext(view=view, keyring=self.keyring, store=self.store, registry=self._channels[channel_uid].registry,
+                               hand_built_translators=self.hand_built_translators)
         out: list = []
         for t in view.transfers:
             out.extend(translation.check_translations(ctx, t))
@@ -894,13 +914,16 @@ class TransferAuditor:
                 pending = {mid: ids & outstanding for mid, ids in self._pending(st).items() if ids & outstanding}
             result = run_overseer_checks(view, keyring=self.keyring, store=self.store, live=live, registry=st.registry, replays=replays, rederived=rederived,
                                          batch=True, shadow=do_shadow, replay_mode=self.replay_mode, pending=pending, extra_findings=carried_in,
-                                         sampled=(st.sampled_total - st.sampled_live, st.sampled_total) if st.sampled_live else (0, 0))
+                                         sampled=(st.sampled_total - st.sampled_live, st.sampled_total) if st.sampled_live else (0, 0),
+                                         hand_built_translators=self.hand_built_translators)
             cov = result.coverage
             cov.results_sampled_out = st.sampled_live
             cov.results_replay_pending = sum(len(v) for v in pending.values())
             findings = list(result.findings)
             if final and self.replay_mode != "process":
-                f = ovs_finding("OVS-AUDIT-002", "this FINAL audit's replays ran inline, not in an isolated worker process: replay independence is not established")
+                f = ovs_finding("OVS-AUDIT-002", INLINE_FINAL_MESSAGE)
+                if self.inline_final_release:  # the operator's explicit configuration, signed with the audit
+                    cov.inline_final_release = True
                 findings.append((0, f))
                 result.report.findings.append(f)
                 result.report.report_sha256 = report_digest(result.report)
