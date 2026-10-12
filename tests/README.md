@@ -333,3 +333,14 @@ Work in progress after it is labelled as such.
 - **Overseer build.** Its first adversarial review found 31 defects: 1 blocker, 22 majors and 8 minors. The fixes are
   in progress.
 - **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 08:27 UTC.**
+- **Arena round 7 fixes.** The English fixer fixed 10 findings and the channel fixer 18. Items that need another
+  owner's files, or the STEM or overseer builds, were written as handoffs: 10 from the English fixer and 9 from the
+  channel fixer. The history and harness fixers are working now. The round's verified commit follows the full suite
+  and the replay of every recorded round.
+- **STEM build.** Finished on its own branch: all 38 injected faults named, no false errors on correct work, suite
+  green. It joins the arena at round 8.
+- **Overseer build.** Its first review round fixed defects in tamper evasion, agent abuse and precision. Its second
+  review round is running.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
