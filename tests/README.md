@@ -370,3 +370,14 @@ Work in progress after it is labelled as such.
   limit was changed.
 - **Arena and STEM build.** Unchanged since 09:27 UTC: round 7 verified, STEM waiting to merge at round 8.
 - **Bruno's repository.** No new final fix since the 09:27 UTC update, so nothing new was sent.
+
+**2026-10-12 15:27 UTC.**
+- **Overseer build, review round 2 fixed.** The round's 26 findings (18 blocker or major) are fixed on the build's
+  own branch (`cda154c`). Afterwards the transfer audit detected all 110 tamperings, with no false alarm on any of
+  the 72 genuine transfers. The full suite has 2,145 tests passing (6 skipped recorded-round tests pass when pointed
+  at the recorded rounds). Arena round 3 replays at 41 of 41 transmissions.
+- **Overseer build, review round 3.** Two of the three reviews have finished. Tamper evasion found 14 issues (1
+  blocker, 11 major, 2 minor). Agent abuse found 6 (4 major, 2 minor). The precision review is running; the fixes
+  follow.
+- **Bruno's repository.** No new final fix on the development branch, so nothing new was sent. The overseer build
+  reaches it through phase 2's verified merge.
