@@ -361,3 +361,12 @@ Work in progress after it is labelled as such.
   carries `UPDATE_README.md` (what changed, the bugs found, the fixes, the before and after counts) and a note
   backfilled for the first update.
 - **Overseer build.** Its second review round is in its fix stage. The STEM build is complete and waiting to merge.
+
+**2026-10-12 14:11 UTC.**
+- **Overseer build stopped, then resumed.** At about 09:50 UTC the organisation's monthly spending limit stopped the
+  overseer build during its second review round's fix stage. The hourly checks from 10:27 to 13:29 UTC did not run
+  while the session restarted. A one-agent capacity test succeeded at 14:09 UTC, and the build resumed from its cache
+  at 14:10 UTC. Its unfinished edits were backed up first; the steps that failed at the limit run again. No spending
+  limit was changed.
+- **Arena and STEM build.** Unchanged since 09:27 UTC: round 7 verified, STEM waiting to merge at round 8.
+- **Bruno's repository.** No new final fix since the 09:27 UTC update, so nothing new was sent.
