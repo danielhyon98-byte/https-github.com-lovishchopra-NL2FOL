@@ -47,10 +47,47 @@ sha256sum -c SHA256SUMS
 8. Triggers: re-enable the hourly (:58) and quarter-hour (:13, :28, :43) routines if they were paused.
 9. Check: `bash $S/presim.sh` (simulates any unpublished candidate), `python3 -I $S/status.py`.
 
-## 2. State at the checkpoint
+## 2. State at the checkpoint (2026-10-13 ~00:20 UTC; Daniel: stop at a safe checkpoint, tokens limited)
 
-(filled in at checkpoint time, below)
+Uploaded and verified (durable):
+- Bruno's repo: verified-updates a91a4f9 = the STEM-merged translator (source 83e97e9; simulation OK: suite 4353 passed,
+  every recorded round at its record, r7 177/177); backup/verified-updates-previous 5573a06.
+  overseer-prototype stays 9547fc9 (candidates 6adbd64/87eaf86 fail the r7 contained gates: 235/254 named, 3 false alarms).
+- origin dev branch claude/z3-verification-engine-plan-nk3luq at 361cc4e.
 
-## 3. Resume order
+Committed locally, in branches.bundle (not uploaded):
+- overseer-build ef4ba9f: overseer fault corrections (TRN-006 by engine evidence, adjudicated genuine faults, STEM-ready
+  checks, pack 1.2; contained r2-r5,r7: 0 false alarms, 2/2 adjudicated raised, 250/254 named, tamper 110/110, 2385 passed).
+- review-engine f902edd, review-translate 6c3b802, review-metrics 2b1cad3: fixes for Bruno's nine Update-7 findings
+  (each with regression tests; not yet integrated).
+- review-stem-checks 50611e6, review-stem-channel eb66038: STEM review fixes S1-S7 (not yet integrated).
 
-Read STANDING_INSTRUCTIONS.md (scratchpad) first; it holds every standing instruction from Daniel.
+Work in progress, stopped on purpose and saved exactly (wip.tar.xz + refs/checkpoint/2026-10-12/* in the bundle):
+- wip/main: the review-fix integration into the dev checkout, partly staged (workflow wf_b526acb3-6c2, step "integrate";
+  fix:engine/translate/metrics finished). Not verified, not committed.
+- wip/overseer: the merge of 47b8c21 into overseer-build (workflow wf_92057cdf-3e2, step "rebuild:merge"). Its own task
+  list at the stop: conflicts resolved and staged, missing regression tests added, knowledge pack updated; still open:
+  making the overseer correct on the merged translator (STEM ids, receipts, word bounds, FIXED_SEVERITY INT-SUBJ-004,
+  RES-004 STEM policies, E112 vs OVS-TRN-006/010), then measurement (suite, harness on every round, contained run
+  r2-r5,r7) and docs. Not audited, not committed.
+
+Paused: the routines (hourly :58 trig_018DjeNCSCGD5yGC4WwaWxDz; quarter-hour trig_019NZ6zdBPyFosjgF144dBeL,
+trig_01TW8XXcXTUpeEynv9GZHjBv, trig_01R3937JHkQkWazdSZZtrhLH), the presim/event-push loop and the watchdog.
+Permission notes: release_prototype.sh was refused by the permission check ("production deploy"); it is needed only
+after round 8 and needs Daniel's approval then. Checkpoints go to the backup branch only (Daniel's choice).
+
+## 3. Resume order (Friday)
+
+Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing instruction from Daniel.
+1. Restore (section 1), including both work-in-progress states; re-enable the routines; restart the presim/event-push
+   loop and the watchdog.
+2. Review fixes: finish the integration from wip/main (workflow script wf-scripts/external-review-fixes.js; the integrate
+   prompt already carries a resume note; if the journal is gone, run integrate + verify as a fresh workflow over the three
+   review branches), independent verification, simulate.sh on the staged tree, write REVIEW_FIXES_README.md, commit
+   "Fix the external review findings", push origin; event_push.sh uploads it to verified-updates after its simulation.
+3. Overseer rebuild: finish rebuild:merge from wip/overseer (wf-scripts/overseer-rebuild.js; args in runs.json /
+   rebuild-notes.txt with the RESUMING note), then audit (bugs, faults, infected code), eval, commit; presim.sh, then
+   publish_overseer.sh uploads to overseer-prototype only if every gate passes. Refresh its internal translator after step 2.
+4. STEM review fixes: integrate review-stem-checks/channel, retest every finding of both reviews, README, commit, push.
+5. Overseer STEM accommodation stage with the specialist feedback function (feedback-design.json), then phase 2
+   (round 8 with the push check and immediate push, o1, prototype, rounds 9-10, scaling up to 32, final release).

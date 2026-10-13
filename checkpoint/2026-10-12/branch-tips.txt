@@ -1,3 +1,5 @@
+refs/checkpoint/2026-10-12/main-staged 8ffcfe11f98801564d3752d58cc1fb2928c5f8ad
+refs/checkpoint/2026-10-12/probe-staged 91797ff4f0913202c487d54220088cdf46e869f9
 refs/heads/claude/z3-verification-engine-plan-nk3luq 361cc4e6fa3e9a30d6a42345456ff1eba6f76557
 refs/heads/import/translator-baseline 650d1d36c63e19768d41ca509d86c41e55035373
 refs/heads/overseer-build ef4ba9fd82256b4b53effff1bf499f9420bec4a4
