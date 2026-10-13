@@ -1,0 +1,9 @@
+refs/heads/claude/z3-verification-engine-plan-nk3luq 361cc4e6fa3e9a30d6a42345456ff1eba6f76557
+refs/heads/import/translator-baseline 650d1d36c63e19768d41ca509d86c41e55035373
+refs/heads/overseer-build ef4ba9fd82256b4b53effff1bf499f9420bec4a4
+refs/heads/review-engine f902edd1a511a27d7f6ea8bcdf8912c672e81396
+refs/heads/review-metrics 2b1cad3dd48cbf2a5103bf12c3bcc538f5982dd7
+refs/heads/review-stem-channel eb660383ba7abb190b4c030b684a3ef33a9be71a
+refs/heads/review-stem-checks 50611e6cf368b3a766f35c3f91a06a7a607faf69
+refs/heads/review-translate 6c3b802cf07c0788450c8b877d8a2f312f69fd6e
+refs/heads/stem-build b5cf3124c21430e6694435bfb67192cff90fe9a1

@@ -18,7 +18,9 @@ sha256sum -c SHA256SUMS
 
 1. Branches: `git -C "$R" bundle verify $OUT/branches.bundle`, then
    `git -C "$R" fetch $OUT/branches.bundle 'refs/heads/*:refs/heads/*' 'refs/checkpoint/*:refs/checkpoint/*'`
-   (skip the checked-out dev branch if git refuses it; it equals origin).
+   (skip the checked-out dev branch if git refuses it; it equals origin). Branches already merged into the dev branch
+   (stem-build, import/translator-baseline) are not in the bundle; recreate every name from branch-tips.txt:
+   `while read -r ref sha; do git rev-parse -q --verify "$ref" >/dev/null || git update-ref "$ref" "$sha"; done < $OUT/branch-tips.txt`
 2. Bruno's remote: `git -C "$R" remote add epinoic https://github.com/Bruno-ios/Epinoic-Logic-Translator.git && git -C "$R" fetch epinoic`
    (if access is refused, attach the repository with add_repo, push access).
 3. Worktrees (see worktrees.txt): `git worktree add .worktrees/overseer overseer-build`, likewise review-engine,
