@@ -1,6 +1,14 @@
 * claude/z3-verification-engine-plan-nk3luq 361cc4e [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 22:58 UTC
 + import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
 + overseer-build                            ef4ba9f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer: circular-translation severity, adjudicated genuine faults and STEM-ready checks
+  preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
+  preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
+  preserve/2026-10-16/review-engine         118bc0d Preservation snapshot (UNVERIFIED, not a release): review-engine fix branch
+  preserve/2026-10-16/review-fixes-wip      e2dce37 Preservation snapshot (UNVERIFIED, work in progress): fixes for the nine external-review findings
+  preserve/2026-10-16/review-metrics        d3a148e Preservation snapshot (UNVERIFIED, not a release): review-metrics fix branch
+  preserve/2026-10-16/review-stem-channel   640abcc Preservation snapshot (UNVERIFIED, not a release): review-stem-channel (STEM review fixes)
+  preserve/2026-10-16/review-stem-checks    18d7202 Preservation snapshot (UNVERIFIED, not a release): review-stem-checks (STEM review fixes)
+  preserve/2026-10-16/review-translate      f24d8b1 Preservation snapshot (UNVERIFIED, not a release): review-translate fix branch
 + review-engine                             f902edd (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine) Review fixes (engine)
 + review-metrics                            2b1cad3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics) Review fixes (metrics)
 + review-stem-channel                       eb66038 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel) STEM review fixes (stem-channel)

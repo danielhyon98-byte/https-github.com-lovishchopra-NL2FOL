@@ -47,6 +47,56 @@ sha256sum -c SHA256SUMS
 8. Triggers: re-enable the hourly (:58) and quarter-hour (:13, :28, :43) routines if they were paused.
 9. Check: `bash $S/presim.sh` (simulates any unpublished candidate), `python3 -I $S/status.py`.
 
+## 0. 16 Oct 2026: move to a NEW SESSION on the canonical repository (read this first)
+
+The private destination is now **Epinoic-AI/Epinoic-Logic-Translator** (transferred from Bruno-ios; same repository).
+Its default branch is import/translator-baseline; **verified-updates = a91a4f977b39a155722d50fe2808434a35ae315e** (uploaded,
+the verified STEM-merged translator, source 83e97e9). overseer-prototype = 9547fc9.
+
+Why a new session: the old session (container checkout /home/user/epinoic-logic-translator) attached the repository under
+its old name. Measured 16 Oct 19:4x UTC, identity danielhyon98-byte:
+- `gh api repos/Epinoic-AI/Epinoic-Logic-Translator --jq '{full_name,default_branch,permissions}'` -> exit 1, HTTP 403:
+  "GitHub access to this repository is not enabled for this session. Use add_repo to request access. ..."
+- add_repo(Epinoic-AI/Epinoic-Logic-Translator, push) -> refused: "a different repository named "epinoic-logic-translator"
+  (bruno-ios/epinoic-logic-translator) is already attached to this session ... Same-named repositories from different
+  owners can't share a session; start a new session with epinoic-ai/epinoic-logic-translator as a source.
+  (This is a checkout-layout limit, not an access problem.)"
+- git over the old URL: HTTP 403 "Claude doesn't have GitHub access to Bruno-ios/Epinoic-Logic-Translator ...".
+
+New session, in order:
+1. Start it with BOTH sources: Epinoic-AI/Epinoic-Logic-Translator (choose branch **verified-updates** explicitly, not the
+   default) and danielhyon98-byte/https-github.com-lovishchopra-NL2FOL (holds this checkpoint). Do NOT attach
+   bruno-ios/epinoic-logic-translator.
+2. In the NL2FOL clone: fetch branch checkpoint/2026-10-12, extract checkpoint/2026-10-12/* (section 1), `sha256sum -c`,
+   `git bundle verify`, then `git fetch <bundle> 'refs/heads/*:refs/heads/*' 'refs/checkpoint/*:refs/checkpoint/*'`
+   (the bundle's prerequisites are this repository's dev branch, so fetch it HERE, not into the Epinoic clone).
+3. Read-only check: `gh api repos/Epinoic-AI/Epinoic-Logic-Translator --jq '{full_name,default_branch,permissions}'`;
+   `git ls-remote https://github.com/Epinoic-AI/Epinoic-Logic-Translator` -> verified-updates must still be a91a4f9 and no
+   preserve/2026-10-16/* may exist yet. Read the repository's CLAUDE.md / instructions.
+4. Re-run `bash prepare_preserve.sh scan` (tools.tar.xz) on the fetched refs (must stay all zeros), then ONE ordinary push
+   from the NL2FOL clone, no force: `git push https://github.com/Epinoic-AI/Epinoic-Logic-Translator
+   'refs/heads/preserve/2026-10-16/*:refs/heads/preserve/2026-10-16/*'`. Pushes only the preserve commits (parent a91a4f9)
+   and their trees; no development history.
+5. Read back: ls-remote SHAs equal the local refs below, and each remote ref's tree equals the local tree.
+   Never move verified-updates, overseer-prototype or import/translator-baseline for this.
+
+Preservation snapshot branches (one commit each, parent a91a4f9, scanned 16 Oct: 0 credentials, 0 generated files,
+0 files over 5 MB, 0 scratch paths, 0 session ids, 0 model names; positive control caught all four planted patterns):
+  - preserve/2026-10-16/overseer-ef4ba9f 405ddf70f7bc483d33c0797757210946c0f11d61
+  - preserve/2026-10-16/overseer-rebuild-wip d149738cc9812938651e1ca42a67eeb968b5b84a
+  - preserve/2026-10-16/review-engine 118bc0dbccd766666fc1d68ce3392b9e17a7842a
+  - preserve/2026-10-16/review-fixes-wip e2dce37ce26b8723cbbef56eb2e147b3892e90b9
+  - preserve/2026-10-16/review-metrics d3a148ec4a2b4cb975f525dda5270824be790d98
+  - preserve/2026-10-16/review-stem-channel 640abcc6d216d133ab56c4c89d8e105a95b4ec4a
+  - preserve/2026-10-16/review-stem-checks 18d7202f182e42c42210e3f2f14a16ae35d94458
+  - preserve/2026-10-16/review-translate f24d8b121dfcfd56ba1ae3cb1c76d1a5b5b45877
+  overseer-ef4ba9f = committed overseer fault corrections (not through the upload gate); overseer-rebuild-wip and
+  review-fixes-wip = uncommitted on-disk states (UNVERIFIED; their last independent checks were not clean);
+  review-engine/translate/metrics and review-stem-checks/channel = committed fix branches (not independently verified).
+
+Stopped for the recovery task (no paid calls authorised): review-fix second repair (run wf_b526acb3-6c2) and overseer
+second repair (run wf_92057cdf-3e2); all four routines paused. Resume development only when Daniel asks.
+
 ## 2. State at the checkpoint (2026-10-13 ~00:20 UTC; Daniel: stop at a safe checkpoint, tokens limited)
 
 Uploaded and verified (durable):
