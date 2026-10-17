@@ -158,6 +158,10 @@ Full detail is in `integration/DECISIONS.md`, "Owner actions, in M2 order". None
 - **Website History staging prototype:** branch `feature/history-staging-release`, from `a18ad80`, with two docs-only commits
   (`63ebca5`, `be4137a`). Its bundle and local-execution step was interrupted, with uncommitted files that are not part of any
   commit.
+  - **The branch is local only.** Its push to the website repository was refused (HTTP 403): the session that wrote this
+    file had no GitHub access to `Epinoic-AI/epinoic-ai-website`.
+  - **To publish it:** connect GitHub for that organization, or install the Claude GitHub App on the repository, then push
+    the branch. It is not on any remote yet.
 - **Deployment package:** the kit retarget of section 4 and a reviewed start prompt. Planned, not started.
 
 To restore the preserved work, fetch `checkpoint/2026-10-12` and read the README inside its checkpoint directory.
