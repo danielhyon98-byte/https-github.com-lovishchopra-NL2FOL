@@ -1,14 +1,14 @@
-+ argdiag-a                                 e24fa00 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a) Merge fixer c's Phase 0 (both STEM review branches) under the evidence-family work
++ argdiag-a                                 72173b9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a) Argument diagnosis, fixer a: the evidence family, its false alarms and the security fixes
 + argdiag-b                                 b3c66f3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b) Argument diagnosis, fixer b: R0, the engine pattern rules, the claim and report rules, B8/B21/B22/B16 and prompt v3 (rules argdiag-1)
 + argdiag-base                              be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
 + argdiag-c                                 48255f9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c) Phase 0: merge review-stem-channel and fix the coverage interaction at its cause
-+ argdiag-d                                 48255f9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Phase 0: merge review-stem-channel and fix the coverage interaction at its cause
-+ argdiag-e                                 be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
++ argdiag-d                                 1f4f0f1 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Argument diagnosis, fixer d: the channel and the response gate
++ argdiag-e                                 1e6103f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Re-run review findings: engine runner and provenance, CLI, translation records, hub, sentence reader
 * claude/z3-verification-engine-plan-nk3luq d5ca8ef [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 04:00 UTC
 + e2e-fix-channel                           0d28eba (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel) Fix the channel and service bugs of the end-to-end simulation
 + e2e-fix-detect                            dae3265 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect) Name the run1 STEM and quotation injections the arena missed
 + import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
-+ integ-prebuild                            067da31 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Integration: fix the protocol pre-build verification findings (round 1)
++ integ-prebuild                            af10b4a (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Integration: fix the protocol pre-build verification findings (round 2)
 + overseer-build                            ef4ba9f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer: circular-translation severity, adjudicated genuine faults and STEM-ready checks
   preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
   preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
