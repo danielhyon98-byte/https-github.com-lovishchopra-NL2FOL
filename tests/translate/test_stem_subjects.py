@@ -62,9 +62,19 @@ def test_non_stem_profile_text_is_unchanged(key):
 
 
 def test_versions_are_bumped_and_the_pinned_prompt_is_unchanged():
+    import hashlib
+
     from epinoic_logic.translate import prompts
-    assert TRANSLATOR_VERSION == "0.3.0" and POLICY_VERSION == "2026.10-v3"
-    assert prompts.TRANSLATE_PROMPT_VERSION == "translate_v1"
+    # The STEM bump (0.3.0, 2026.10-v3) was followed by the review-fix bump of 2026-10-12 (version.py history); the pin
+    # moves with each release and stays exact.
+    assert TRANSLATOR_VERSION == "0.4.0" and POLICY_VERSION == "2026.10-v4"
+    # rewritten (12 Oct 2026 review fixes), stricter: the prompt in use moved to translate_v2 (exactness, task authority,
+    # definitions), and the pinned translate_v1 the STEM work left unchanged is still packaged byte for byte, so every
+    # recorded prompt_version names the exact instructions it was produced with
+    assert prompts.TRANSLATE_PROMPT_VERSION == "translate_v2"
+    digest = hashlib.sha256(prompts.load_prompt("translate_v1").encode("utf-8")).hexdigest()
+    assert digest == "02c40eaf48709c838359763725fd2ac4c931e2e9b52272020565d198a9cc469b"
+    assert hashlib.sha256(prompts.load_prompt("review_v1").encode("utf-8")).hexdigest() == "224f42bf0bf6c1f6cde358b9f48c7050156447ef7af8af8827c2b15fdbed8f9b"
 
 
 def test_unknown_stays_the_most_conservative_profile():

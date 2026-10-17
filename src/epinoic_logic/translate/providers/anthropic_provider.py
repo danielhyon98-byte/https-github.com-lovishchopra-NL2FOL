@@ -188,7 +188,7 @@ class AnthropicTranslationProvider(_AnthropicBase):
     """Translation provider on the Anthropic Messages API. Untested live in this repository.
 
     System prompt: the packaged prompt named by ``request.prompt_version`` (the
-    pipeline default is ``translate_v1``). User prompt:
+    pipeline default is ``prompts.TRANSLATE_PROMPT_VERSION``). User prompt:
     :func:`~epinoic_logic.translate.providers.rendering.render_translation_user_prompt`.
     ``max_tokens`` 4000, temperature 0 unless configured otherwise.
     """
@@ -208,7 +208,7 @@ class AnthropicTranslationProvider(_AnthropicBase):
 class AnthropicReviewProvider(_AnthropicBase):
     """Semantic-fidelity review provider on the Anthropic Messages API. Untested live in this repository.
 
-    System prompt ``review_v1``; user prompt
+    System prompt ``prompts.REVIEW_PROMPT_VERSION``; user prompt
     :func:`~epinoic_logic.translate.providers.rendering.render_review_user_prompt`.
     """
 

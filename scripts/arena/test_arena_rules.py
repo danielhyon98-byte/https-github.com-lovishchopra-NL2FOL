@@ -26,6 +26,10 @@ it quoted the request, and had 'ly' appended after punctuation ('box.ly'); an in
 unverifiable CORE-SRC-003 although the task supplied a text. Every group now has one synthesis record whatever happened to
 its members, the references a synthesized claim reproduces are kept, the altered quotation is a supplied text's, changed
 at a word inside its own span, and a task with a supplied text of its own must refute a quotation mutation (INT-REQ-003).
+
+Review of 12 October 2026: the functional count is the transport measure only. Fixture coverage, translation fidelity
+(where adjudicated) and the claim counts are separate measures, and a run that loses recorded translations is qualified;
+their tests are in tests/e2e/test_arena_measures.py, in the default suite (scripts/arena/README.md lists every test).
 """
 from __future__ import annotations
 
@@ -612,6 +616,29 @@ def test_withheld_verdicts_are_counted_by_code_on_genuine_claims():
                            "or the encoding rejected at translation): 4;")
     assert "E112 circular encoding: 2 (hi-t13.json h1.4 (ENTAILED), hi-t13.json h1.7 (rejected at translation))" in line
     assert "E111 unencoded reason: 0" in line and "stated precision: 1 (bm-t13.json g9.1 (rejected at translation))" in line
+
+
+def test_exactness_rejections_are_withheld_verdicts_and_advisory_coverage_is_counted_apart():
+    """External review of 2026-10-12 (findings 1 and 6). The pipeline rejects an exact or task-given figure widened into
+    an interval ('exactness'): that encoding gets no verdict and is counted beside 'stated precision'. A COUNTEREXAMPLE
+    that carries the engine's advisory W110 or W111 (no source asserts the figure the encoding leaves open) is a verdict
+    that stands: it is never counted as withheld, and the advisory is counted apart, on genuine claims only."""
+    widened = _outcome("m1.2", "INVALID_FORMALIZATION", translation_diagnostics=["attempt 1: exactness: the source states each of these figures exactly"])
+    defined = _outcome("h1.2", "COUNTEREXAMPLE", "COUNTEREXAMPLE", engine_diagnostic_codes=["W110"])
+    free = _outcome("m1.3", "COUNTEREXAMPLE", "COUNTEREXAMPLE", engine_diagnostic_codes=["W111"])
+    sourced = _outcome("h1.4", "INVALID_FORMALIZATION", "COUNTEREXAMPLE", engine_diagnostic_codes=["E110"])
+    records = [{"file": "ma-t13.json", "variant": "genuine", "outcomes": [widened, free]},
+               {"file": "hi-t12.json", "variant": "genuine", "outcomes": [defined, sourced]},
+               {"file": "hi-t12.json", "variant": "chronology_error", "outcomes": [dict(defined)]}]
+    w = ra.withheld_verdicts(records)
+    assert w["exactness"]["claims"] == ["ma-t13.json m1.2 (rejected at translation)"]
+    assert w["E110"]["claims"] == ["hi-t12.json h1.4 (COUNTEREXAMPLE)"] and w["E111"]["count"] == 0
+    line = ra.withheld_verdict_line(w)
+    assert "): 2;" in line and "exactness: 1 (ma-t13.json m1.2 (rejected at translation))" in line
+    a = ra.advisory_coverage(records)
+    assert a["W110"]["claims"] == ["hi-t12.json h1.2 (COUNTEREXAMPLE)"] and a["W111"]["claims"] == ["ma-t13.json m1.3 (COUNTEREXAMPLE)"]
+    advisory = ra.advisory_coverage_line(a)
+    assert advisory.startswith("- advisory coverage warnings on genuine claims (the verdict on the encoding stands;") and "): 2;" in advisory
 
 
 def test_fixtures_under_ids_the_parse_does_not_deliver_are_reported(tmp_path):

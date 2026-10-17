@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..engine.provenance import compute_versions, config_digest, verify_signature, versions_digest
+from ..engine.provenance import binding_inconsistencies, bound_limits_digest, compute_versions, config_digest, describe_limits, limits_digest, verify_signature, versions_digest
 from ..engine.results import SolverConfig, VerificationResult, Versions
-from ..ir.canonical import problem_digest, sha256_hex
-from ..ir.schema import Problem
+from ..ir.canonical import problem_digest
+from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
 from ..translate.contracts import SpecialistReport
 from .contracts import IntegrityFinding, WorkPlan, parse_rfc3339
 
@@ -83,14 +83,18 @@ def check_report_set(plan: WorkPlan, reports: list[SpecialistReport]) -> list[In
     return f
 
 
-def check_result_binding(result: VerificationResult, current_problem: Problem, signing_key: Optional[bytes] = None, *, config: Optional[SolverConfig] = None, versions: Optional[Versions] = None) -> list[IntegrityFinding]:
-    """A result is only valid for the exact representation, solver configuration and
-    component versions it was produced for, and only when its signature verifies.
+def check_result_binding(result: VerificationResult, current_problem: Problem, signing_key: Optional[bytes] = None, *, config: Optional[SolverConfig] = None, versions: Optional[Versions] = None,
+                         limits: Optional[Limits] = None) -> list[IntegrityFinding]:
+    """A result is only valid for the exact representation, solver configuration,
+    component versions with the build, schema and policy identity, and validation limits
+    it was produced for, and only when its signature verifies.
 
     ``config`` is the current solver configuration (compared when given); ``versions``
-    defaults to the running engine's versions. With no ``signing_key`` the signature
-    CANNOT be verified and that is itself an error (INT-STALE-006): the Overseer
-    trusts only signed results."""
+    defaults to the running engine's versions and identity; ``limits`` is the receiver's
+    required validation policy (default: the engine's default limits), compared with the
+    limits the result binds, so a result decided under permissive limits never passes a
+    default-policy check. With no ``signing_key`` the signature CANNOT be verified and
+    that is itself an error (INT-STALE-006): the Overseer trusts only signed results."""
     f: list[IntegrityFinding] = []
     ids = dict(claim_ids=[current_problem.claim_id], formal_result_id=result.result_id)
     if result.binding.problem_digest != problem_digest(current_problem):
@@ -102,14 +106,7 @@ def check_result_binding(result: VerificationResult, current_problem: Problem, s
     elif not verify_signature(result, signing_key):
         f.append(IntegrityFinding(code="INT-STALE-002", severity="error", message="verification result is unsigned or its signature is invalid; the Overseer must not trust it", **ids))
     b = result.binding
-    expected_binding = sha256_hex("|".join((b.problem_digest, b.config_digest, b.versions_digest)))
-    inconsistent = []
-    if b.binding_digest != expected_binding:
-        inconsistent.append("binding_digest != sha256(problem_digest|config_digest|versions_digest)")
-    if config_digest(result.solver_config) != b.config_digest:
-        inconsistent.append("config_digest != digest(solver_config)")
-    if versions_digest(result.versions) != b.versions_digest:
-        inconsistent.append("versions_digest != digest(versions)")
+    inconsistent = binding_inconsistencies(result)
     if inconsistent:
         f.append(IntegrityFinding(code="INT-STALE-007", severity="error", message="verification result binding is internally inconsistent: " + "; ".join(inconsistent), **ids))
     current_versions = versions or compute_versions()
@@ -118,6 +115,9 @@ def check_result_binding(result: VerificationResult, current_problem: Problem, s
         stale.append(f"solver configuration differs from the current one (result: {result.solver_config.model_dump()})")
     if b.versions_digest != versions_digest(current_versions):
         stale.append(f"component versions differ from the current ones (result: {result.versions.model_dump()}, current: {current_versions.model_dump()})")
+    required = limits if limits is not None else DEFAULT_LIMITS
+    if bound_limits_digest(result) != limits_digest(required):
+        stale.append(f"validation policy differs from the required one (result decided under {describe_limits(result.limits)}, required: {describe_limits(required)})")
     if stale:
         f.append(IntegrityFinding(code="INT-STALE-005", severity="error", message="verification result was produced under a different " + " and ".join(stale), **ids))
     return f

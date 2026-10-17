@@ -9,21 +9,39 @@ Trust rules enforced here:
 * a payload that arrives as bytes, text or a plain object is untrusted; any
   ``grounding.verified=True`` it asserts is discarded (``E505`` diagnostic) because
   only deterministic checks run in this process may set it;
-* a quotation grounding that no check verified positively is an ungrounded
-  dependency; other asserted-but-unchecked groundings are listed separately as
-  ``unverified_dependencies`` so a summary can never call them established;
+* premise authority (:mod:`.authority`): only a grounding a check in this process
+  verified establishes a premise. A quotation no check verified is an ungrounded
+  dependency; every other grounding no check verified is an ``unverified_dependencies``
+  entry, whatever authority its kind claims (an unchecked ``arithmetic_fact``,
+  ``task_setting`` or ``rubric_rule`` included), so a model-chosen label can never hide
+  an unsupported premise and a summary can never call it established;
+* policy evidence is computed whatever the output options say: the unsat core is always
+  extracted, and the dependency lists, the vacuity check and the circularity check rest
+  on it. ``SolverConfig.produce_unsat_core`` only decides whether the raw ``unsat_core``
+  record is serialised; "not computed" never reads as "no dependencies";
 * a definitive status that used no premise at all carries ``E108`` (vacuous) so the
   outcome layer never displays a tautology as a verified claim;
 * a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
   (a premise ``b <-> (n = 17)`` whose numeric symbol no other premise mentions, and with
-  ``b`` asserted the conclusion is ENTAILED) carries ``E110`` (unasserted figure), so the
-  outcome layer never displays such a counterexample as a verdict on the claim;
+  ``b`` asserted the conclusion is ENTAILED) is a coverage question, not by itself a
+  mistranslation: a definition is not an assertion, and the question may leave the figure
+  open. It carries the advisory ``W110`` and the COUNTEREXAMPLE stands as the verdict on
+  the encoding. Only source-linked evidence that a source asserts the figure (a grounding
+  on the figure or the defined atom that a check in this process verified:
+  :func:`source_stated_symbols`) makes it ``E110`` (unasserted figure), which the outcome
+  layer never displays as a verdict;
 * a COUNTEREXAMPLE over zero premises carries ``E108`` (it says only that the conclusion
-  is not a tautology), and one whose falsification needs nothing but conclusion symbols
-  that no premise mentions, a figure among them (for every assignment of the premises some
-  value of those symbols makes the conclusion true: the figures the conclusion compares, or
-  the claim's own reason, were not encoded) carries ``E111`` (unencoded reason). A Bool
-  point that no premise links to stays a COUNTEREXAMPLE: that is the non sequitur verdict;
+  is not a tautology). One whose falsification needs nothing but conclusion symbols that
+  no premise mentions, a figure among them (for every assignment of the premises some
+  value of those symbols makes the conclusion true), carries the advisory ``W111``: the
+  question may leave them unconstrained, so the COUNTEREXAMPLE stands. Only source-linked
+  evidence that a source states one of them (a verified grounding on the symbol) makes it
+  ``E111`` (unencoded reason). A Bool point that no premise links to stays a
+  COUNTEREXAMPLE with no diagnostic: that is the non sequitur verdict. The translation
+  layer creates that evidence from the sources it holds (``translate.coverage``: a
+  clause of the claim, a supporting claim, a supplied text or the task record that
+  asserts the figure, read from its grammar by ``translate.assertion``), so its decision
+  and this one are the same decision;
 * an ENTAILED proof whose relied-on premises restate the conclusion (the conclusion, or
   each of its "and" conjuncts, is one of them or one of their conjuncts) carries ``E112``
   (circular) when those premises are the writer's own (an assumption, a specialist
@@ -35,8 +53,11 @@ Limits and policies:
 * ``limits`` must be a :class:`~epinoic_logic.ir.schema.Limits`. Anything else is an
   INTERNAL_ERROR result, never a run under guessed bounds;
 * every result path records ``limits`` on the result when they differ from
-  ``DEFAULT_LIMITS``, before signing. Default runs record nothing, so their results and
-  signatures are byte-identical to results from before the record existed;
+  ``DEFAULT_LIMITS``, before signing, and binds their digest
+  (``Binding.limits_digest``, part of the binding digest), so a result decided under
+  permissive limits never shares a binding with a default one. Default runs record
+  neither: the default values are part of the bound policy identity
+  (``Versions.policy_id``);
 * when nonlinear terms are allowed, an assertion whose polynomial degree exceeds
   :data:`~epinoic_logic.engine.policies.NONLINEAR_MAX_DEGREE` is UNSUPPORTED (``E201``)
   before compilation, because Z3 cannot be interrupted inside some high-degree polynomial
@@ -54,6 +75,17 @@ from typing import Optional, Union
 import z3
 
 from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol, Var
+from .authority import (  # noqa: F401 - re-exported: callers import the dependency rules from the runner
+    CHECKABLE_KINDS,
+    TASK_GIVEN_KINDS,
+    UNGROUNDED_KINDS,
+    assumed_grounding,
+    has_authority,
+    is_ungrounded,
+    is_unverified,
+    ungrounded_dependencies,
+    unverified_dependencies,
+)
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
 from .policies import NONLINEAR_MAX_DEGREE, max_degree
@@ -72,12 +104,6 @@ from .statuses import VerificationStatus
 from .validator import ValidationOutcome, parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
-#: Grounding kinds that never establish a premise: they are the specialist's own steps.
-UNGROUNDED_KINDS = frozenset({"assumption", "specialist_inference", "general_knowledge"})
-#: Kinds given with the task itself; when unchecked they are asserted facts of the task, not of a source.
-TASK_GIVEN_KINDS = frozenset({"arithmetic_fact", "task_setting", "rubric_rule"})
-#: Kinds a deterministic check can verify positively; unchecked, they count as ungrounded.
-CHECKABLE_KINDS = frozenset({"quotation"})
 
 
 def _now() -> str:
@@ -95,40 +121,6 @@ def _raw_digest(raw: Union[bytes, str, dict]) -> str:
 
 def _status_for_compile_error(code: str) -> VerificationStatus:
     return VerificationStatus.UNSUPPORTED if code.startswith("E2") else VerificationStatus.INVALID_FORMALIZATION
-
-
-def is_ungrounded(grounding: Optional[Grounding]) -> bool:
-    """True when a grounding does not establish its premise.
-
-    Missing grounding, the inferential kinds, a failed check (``verified is False``)
-    and a checkable kind (quotation) that no check verified positively are all
-    ungrounded. The engine never trusts an asserted ``verified=True`` on a quotation
-    unless a deterministic check set it; see :func:`verify` for the raw path.
-    """
-    if grounding is None or grounding.kind in UNGROUNDED_KINDS or grounding.verified is False:
-        return True
-    return grounding.kind in CHECKABLE_KINDS and grounding.verified is not True
-
-
-def is_unverified(grounding: Optional[Grounding]) -> bool:
-    """True for a grounding that is asserted but unchecked and is not a task-given fact."""
-    if grounding is None or is_ungrounded(grounding):
-        return False
-    return grounding.verified is None and grounding.kind not in TASK_GIVEN_KINDS
-
-
-def ungrounded_dependencies(problem: Problem, relied_on: list[str]) -> list[str]:
-    """Relied-on premises whose support is missing, inferential, assumed, failed a grounding
-    check, or (for checkable kinds) was never positively verified."""
-    by_id = {p.id: p for p in problem.premises}
-    return [pid for pid in relied_on if pid in by_id and is_ungrounded(by_id[pid].grounding)]
-
-
-def unverified_dependencies(problem: Problem, relied_on: list[str]) -> list[str]:
-    """Relied-on premises whose grounding is asserted (supplied_text, knowledge_document,
-    library_source ...) but was not checked by any deterministic procedure."""
-    by_id = {p.id: p for p in problem.premises}
-    return [pid for pid in relied_on if pid in by_id and is_unverified(by_id[pid].grounding)]
 
 
 def _demote_asserted_verification(problem: Problem) -> tuple[Problem, list[Diagnostic]]:
@@ -165,8 +157,10 @@ def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: Solver
     every assignment (a tautological or self-grounded conclusion); CONSISTENT or
     SATISFIABLE over zero premises asserts nothing. The status is still the solver's
     verdict about the encoding, but the outcome layer must not display it as a result.
+    The core is always computed (:mod:`.procedures`), so this check never depends on
+    ``SolverConfig.produce_unsat_core``.
     """
-    if proc.status is VerificationStatus.ENTAILED and config.produce_unsat_core and not proc.core:
+    if proc.status is VerificationStatus.ENTAILED and not proc.core:
         return Diagnostic(
             code=DiagnosticCode.VACUOUS_RESULT.value,
             message="vacuous: the conclusion holds under every assignment; no premise was used in the proof",
@@ -197,12 +191,40 @@ def _assertion_vars(problem: Problem) -> tuple[set[str], set[str]]:
     return premise_vars, concl_vars
 
 
+def source_stated_symbols(problem: Problem, names) -> list[Symbol]:
+    """The symbols among ``names`` whose own grounding a check in this process verified (``verified=True``): source-linked
+    evidence that a source states them. A label, a meaning or a grounding kind the translation chose is never such
+    evidence, and an untrusted payload cannot supply it (its ``verified=True`` is discarded, ``E505``).
+
+    The grounding's kind is not consulted. Coverage asks whether a source states what the encoding left open, not whether
+    that statement is established: a figure the specialist's answer states from memory (``general_knowledge``) is still
+    a figure the claim asserts, and a translation that only defines it omitted the assertion. Whether a premise is
+    established is the separate authority rule of the dependency lists (:func:`~.authority.has_authority`). On a symbol,
+    ``verified`` is coverage evidence and nothing else: no dependency list reads symbol groundings."""
+    wanted = set(names)
+    return [s for s in problem.symbols if s.name in wanted and s.grounding is not None and s.grounding.verified is True]
+
+
+def _evidence_text(symbols: list[Symbol]) -> str:
+    """'n (task_setting, verified against doc-1)' for each symbol a check located in a source."""
+    out = []
+    for sym in symbols[:6]:
+        g = sym.grounding
+        docs = sorted({r.document_id for r in g.source_refs}) if g is not None else []
+        out.append(f"{sym.name} ({g.kind if g is not None else 'no grounding'}, verified" + (f" against {', '.join(docs[:3])}" if docs else "") + ")")
+    return ", ".join(out)
+
+
 def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig) -> Optional[Diagnostic]:
-    """``E111`` when a COUNTEREXAMPLE (over at least one premise) falsifies the conclusion only through symbols no premise
+    """A COUNTEREXAMPLE (over at least one premise) that falsifies the conclusion only through symbols no premise
     mentions: for every assignment that satisfies the premises, some value of those free symbols makes the conclusion
-    true (decided by Z3 over ``premises AND forall free. NOT conclusion``, unsat). The claim's own reason ("..., so
-    demand shifts right") was not encoded, so the counterexample is no verdict on the claim. Undecided probes leave the
-    counterexample as it is."""
+    true (decided by Z3 over ``premises AND forall free. NOT conclusion``, unsat).
+
+    That is structural underdetermination, which can be the right answer to the question ("is x < y for an arbitrary
+    y?"), so by itself it is the advisory ``W111`` and the counterexample stands. It is ``E111`` (unencoded reason: no
+    verdict on the claim) only with source-linked evidence that a source states one of the free symbols
+    (:func:`source_stated_symbols`): then the translation omitted what its source states. Undecided probes leave the
+    counterexample as it is, with no diagnostic."""
     if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None or not problem.premises or compiled.conclusion is None:
         return None
     premise_vars, concl_vars = _assertion_vars(problem)
@@ -227,11 +249,23 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
         return None
     model = proc.model or {}
     shown = ", ".join(f"{v}={model[v]}" for v in free if v in model) or ", ".join(free)
+    stated = source_stated_symbols(problem, free)
+    if stated:
+        return Diagnostic(
+            code=DiagnosticCode.UNENCODED_REASON.value,
+            message=(f"unencoded reason: the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
+                     f"mentions ({shown}), and a source states {_evidence_text(stated)}: for every assignment of the premises some value of "
+                     "them makes the conclusion true, so the translation omitted what its source states and this COUNTEREXAMPLE is no "
+                     "verdict on the claim"),
+            path="conclusion",
+        )
     return Diagnostic(
-        code=DiagnosticCode.UNENCODED_REASON.value,
-        message=(f"unencoded reason: the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
-                 f"mentions ({shown}); for every assignment of the premises some value of them makes the conclusion true, so the claim's own "
-                 "reason or link was not encoded and this COUNTEREXAMPLE is no verdict on the claim"),
+        code=DiagnosticCode.UNENCODED_REASON_ADVISORY.value,
+        message=(f"coverage (advisory): the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
+                 f"mentions ({shown}); for every assignment of the premises some value of them makes the conclusion true. No source-linked "
+                 "evidence (a grounding on these symbols verified against the task or a supplied text) shows that a source states them, so "
+                 "the question may leave them unconstrained and the COUNTEREXAMPLE stands as the verdict on the encoding; if a source does "
+                 "state them, the translation omitted that premise"),
         path="conclusion",
     )
 
@@ -271,14 +305,6 @@ def circular_premises(problem: Problem, relied_on: Optional[list[str]] = None) -
     if not needed or not all(n in owner for n in needed):
         return []
     return list(dict.fromkeys(owner[n] for n in needed))
-
-
-def assumed_grounding(grounding: Optional[Grounding]) -> bool:
-    """A premise the claim's writer (or the translator) supplies itself: an ungrounded kind (:func:`is_ungrounded`) or an
-    ``arithmetic_fact`` no check verified (a figure the report states, asserted as a fact). A premise grounded in the task
-    (``task_setting``, ``rubric_rule``) or a text (``supplied_text``, ``knowledge_document``, ``library_source``, a
-    verified quotation) is a transcription: restating it is a check of the claim against that source, not a circle."""
-    return is_ungrounded(grounding) or (grounding is not None and grounding.kind == "arithmetic_fact" and grounding.verified is not True)
 
 
 def _circular_diagnostic(problem: Problem, proc: ProcedureOutcome) -> Optional[Diagnostic]:
@@ -375,10 +401,16 @@ def unasserted_figure_definitions(problem: Problem) -> list[FigureDefinition]:
 
 
 def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig) -> Optional[Diagnostic]:
-    """``E110`` when a COUNTEREXAMPLE only reassigns figures the problem defines but never asserts: the entailment is
-    re-run with each such defined atom asserted (as the premise's label states it) and is then ENTAILED. The
-    counterexample is still the solver's answer about the encoding, but it is no verdict on the claim, so the outcome
-    layer displays it as INVALID_FORMALIZATION. A re-run that is not ENTAILED leaves the counterexample as it is."""
+    """A COUNTEREXAMPLE that only reassigns figures the problem defines but never asserts: the entailment is re-run with
+    each such defined atom asserted and is then ENTAILED.
+
+    A definition is not an assertion, and the question may leave the figure open ("define b iff n = 17; does b
+    necessarily hold?"), so by itself this is the advisory ``W110`` and the counterexample stands as the verdict on the
+    encoding. It is ``E110`` (unasserted figure: no verdict on the claim, displayed as INVALID_FORMALIZATION) only with
+    source-linked evidence that a source asserts the figure: a grounding on one of the reassigned figures or defined
+    atoms that a check in this process verified (:func:`source_stated_symbols`). That the re-run is ENTAILED is never
+    by itself a reason to add the premise. A re-run that is not ENTAILED leaves the counterexample as it is, with no
+    diagnostic."""
     if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None:
         return None
     defs = unasserted_figure_definitions(problem)
@@ -410,19 +442,32 @@ def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, conf
         label = f" ({d.label[:120]!r})" if d.label else ""
         parts.append(f"premise {d.premise_id}{label} defines {d.atom} by a comparison of {', '.join(d.figures)}, which no premise asserts or constrains"
                      + (f" (the counterexample sets {values}, {d.atom}={model.get(d.atom, '?')})" if values else ""))
+    stated = source_stated_symbols(problem, [name for d in reassigned for name in (d.atom, *d.figures)])
+    if stated:
+        return Diagnostic(
+            code=DiagnosticCode.UNASSERTED_FIGURE.value,
+            message=("unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
+                     + f"; a source states {_evidence_text(stated)}, and with the defined atom(s) asserted the conclusion is ENTAILED, so the "
+                     "translation omitted an assertion its source makes and this COUNTEREXAMPLE is no verdict on the claim (encode the stated "
+                     "figure, the atom or the comparison itself, as a premise)"),
+            path=f"premises.{reassigned[0].premise_id}",
+        )
     return Diagnostic(
-        code=DiagnosticCode.UNASSERTED_FIGURE.value,
-        message=("unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
-                 + "; with the defined atom(s) asserted as the labels state them the conclusion is ENTAILED, so this COUNTEREXAMPLE is "
-                 "no verdict on the claim (the translation must assert the stated figure: the atom, or the comparison itself, as a premise)"),
+        code=DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value,
+        message=("coverage (advisory): the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
+                 + "; with the defined atom(s) asserted the conclusion would be ENTAILED, but a definition is not an assertion and no "
+                 "source-linked evidence (a grounding on these figures or atoms verified against the task or a supplied text) shows that a "
+                 "source asserts them, so the COUNTEREXAMPLE stands as the verdict on the encoding; if a source does assert the figure, "
+                 "the translation omitted it"),
         path=f"premises.{reassigned[0].premise_id}",
     )
 
 
 def _limits_record(limits: Limits) -> Optional[Limits]:
     """What a result records about the Limits it was decided under: ``None`` for the default
-    values (so default results stay byte-identical), else a plain ``Limits`` copy of the values
-    that were enforced. Raises ``TypeError`` for anything that is not a ``Limits``."""
+    values (they are part of the bound policy identity, ``Versions.policy_id``), else a plain
+    ``Limits`` copy of the values that were enforced, which the binding also covers
+    (``Binding.limits_digest``). Raises ``TypeError`` for anything that is not a ``Limits``."""
     if not isinstance(limits, Limits):
         raise TypeError("limits must be an epinoic_logic.ir.schema.Limits instance")
     values = {name: getattr(limits, name) for name in Limits.model_fields}
@@ -509,7 +554,7 @@ def verify(
             return finish(VerificationResult(
                 **base, request_id="unknown", claim_id="unknown", problem_id="unknown", query=None,
                 status=outcome.status or VerificationStatus.INVALID_FORMALIZATION,
-                binding=binding_for_unparsed(_raw_digest(problem_or_raw), config, versions),
+                binding=binding_for_unparsed(_raw_digest(problem_or_raw), config, versions, record),
                 diagnostics=outcome.diagnostics,
             ))
 
@@ -517,7 +562,7 @@ def verify(
         if not outcome.ok:
             return finish(VerificationResult(
                 **base, **ids, status=outcome.status or VerificationStatus.INVALID_FORMALIZATION,
-                binding=compute_binding(problem, config, versions, None), diagnostics=trust_notes + outcome.diagnostics,
+                binding=compute_binding(problem, config, versions, None, record), diagnostics=trust_notes + outcome.diagnostics,
             ))
 
         t1 = time.perf_counter()
@@ -527,7 +572,7 @@ def verify(
             timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
             return finish(VerificationResult(
                 **base, **ids, status=_status_for_compile_error(exc.diagnostic.code),
-                binding=compute_binding(problem, config, versions, None), diagnostics=trust_notes + [exc.diagnostic],
+                binding=compute_binding(problem, config, versions, None, record), diagnostics=trust_notes + [exc.diagnostic],
             ))
         timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
 
@@ -545,12 +590,14 @@ def verify(
             reset_global_memory_limit()
             return finish(VerificationResult(
                 **base, **ids, status=VerificationStatus.UNKNOWN,
-                binding=compute_binding(problem, config, versions, None),
+                binding=compute_binding(problem, config, versions, None, record),
                 diagnostics=trust_notes + [Diagnostic(code=DiagnosticCode.SOLVER_MEMOUT.value, message="solver aborted: memory budget exhausted")],
                 reason_unknown="memory budget exhausted",
             ))
         finally:
             release_global_memory_limit(config)
+        # The core is policy evidence, computed whatever produce_unsat_core says (see .procedures): the dependency lists,
+        # E108 and E112 rest on it. The flag decides only whether the raw unsat_core record is serialised below.
         relied = list(proc.core)
         diagnostics = trust_notes + _solver_diagnostics(proc)
         vacuous = _vacuous_diagnostic(problem, proc, config)
@@ -565,7 +612,7 @@ def verify(
             diagnostics.append(circular)
         result = VerificationResult(
             **base, **ids, status=proc.status,
-            binding=compute_binding(problem, config, versions, proc.smt2),
+            binding=compute_binding(problem, config, versions, proc.smt2, record),
             premises_relied_on=relied,
             ungrounded_dependencies=ungrounded_dependencies(problem, relied),
             unverified_dependencies=unverified_dependencies(problem, relied),
@@ -577,7 +624,7 @@ def verify(
             result.counterexample = Counterexample(assignments=_assignments(problem, proc.model))
         elif proc.status in (VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE) and proc.model is not None:
             result.witness_model = _assignments(problem, proc.model)
-        if proc.status in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.UNSATISFIABLE, VerificationStatus.ENTAILED) and relied:
+        if config.produce_unsat_core and proc.status in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.UNSATISFIABLE, VerificationStatus.ENTAILED) and relied:
             from .results import UnsatCore
             result.unsat_core = UnsatCore(premise_ids=relied, includes_negated_conclusion=proc.includes_negated_conclusion)
         return finish(result)
@@ -586,9 +633,10 @@ def verify(
         if isinstance(problem_or_raw, Problem):
             ids = dict(request_id=problem_or_raw.request_id, claim_id=problem_or_raw.claim_id, problem_id=problem_or_raw.problem_id, query=problem_or_raw.query)
         try:
-            binding = compute_binding(problem_or_raw, config, versions, None) if isinstance(problem_or_raw, Problem) else binding_for_unparsed(_raw_digest(problem_or_raw), config, versions)
+            binding = (compute_binding(problem_or_raw, config, versions, None, record) if isinstance(problem_or_raw, Problem)
+                       else binding_for_unparsed(_raw_digest(problem_or_raw), config, versions, record))
         except Exception:
-            binding = binding_for_unparsed("unavailable", config, versions)
+            binding = binding_for_unparsed("unavailable", config, versions, record)
         return finish(VerificationResult(
             **base, **ids, status=VerificationStatus.INTERNAL_ERROR, binding=binding,
             diagnostics=[Diagnostic(code=DiagnosticCode.INTERNAL.value, message=f"internal error of type {type(exc).__name__}")],

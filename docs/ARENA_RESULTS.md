@@ -49,6 +49,45 @@ named with its codes and claim ids) or warnings only, and that they are counted 
 than ENTAILED displayed on a genuine claim, with its claim id and what it rests on
 (`displayed_non_entailed_definitive_outcomes`).
 
+## Which measure each published number is
+
+The numbers in this file measure different things and are never combined into one rate. Since the review of
+12 October 2026 the harness reports them as separate measures (results.json `metrics`, summary.md 'Measures';
+definitions in `scripts/arena/README.md`).
+
+| Published number | Measure | What it does not say |
+| --- | --- | --- |
+| Harness counts: r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 162/162 (177/177 with the 15 STEM mutations added when STEM support merged); as run for the overseers, r1 20/22 and r1-adv 108/127, then 34/34, 41/41, 41/41, 41/41, 46/46 and 148/161 | Transport: the hub delivered and decided every transmission and named every injected fault | Whether a finding is true (r7: 18 of 44 genuine records carry an error-level finding and are counted functional), whether a translation is faithful, whether an answer is better. A replay of recorded material measures regression stability on that material, not generalisation |
+| Lens rates, e.g. round 7: 0.532 (results audit), 0.4246 (communication fidelity), 0.7477 (adversarial live), 0.6384 (translation fidelity); the 0.98 target | Each overseer lens's verdict on its own question: receipts against their input; what the router received against what the specialist said; hostile variants; translations judged claim by claim | They are not transport rates, although the lens files name the field `infrastructure_functional_rate` |
+| 143 of 224 translations faithful (round 7) | Translation fidelity, adjudicated by the round-7 translation-fidelity lens on the round-7 translations as they ran then, before the round-7 fix round | A figure for the current code: it has not been re-measured (no live translator was called) |
+| A re-run of r7 serves 24 of the recorded fixtures, 200 match no delivered claim id; the re-keyed copy's 159 outcomes | Fixture coverage: how many recorded translations a replay can still use | Fidelity. Of the 24, 22 are served and 2 belong to delivered claims that are not eligible under the current policy (outcome NOT_ELIGIBLE, the provider never asked), so coverage is 22 of 224. The re-keyed copy is a reconstruction, not the recorded round |
+| Translation outcomes on the genuine pass (for example r2: 21 AMBIGUOUS_TRANSLATION, 3 ENTAILED), genuine claims given no verdict (E108; E110 and E111 where a source states the figure; E112; stated precision; exactness), verdicts that stand with an advisory coverage warning (W110, W111), ENTAILED verdicts resting only on ungrounded premises, approvals resting on an unresolved dependency, claims whose release assessment permits release | Claim counts: what the recorded translations of attempted claims became in the current pipeline (completed when a definitive verdict is displayed; release permitted only by the release rule, apart from the formal status) | Fidelity, and anything about a live translator: the outcomes depend on the recorded fixtures |
+| Overseer agents: 52 of 123 agent-scorable faults named, 49 of 83 accusations confirmed, 0 of 42 clean transfers falsely accused (round 7) | Overseer-agent detection against gold labels | The translation-fidelity lens found the gold labels of two translation fault classes mis-measured, so these figures carry that error |
+| Suite totals (1855 passed after the round-7 fix round) | Test counts | Anything about the arena |
+| `docs/STEM_RESULTS.md`: 38 of 38 injected faults named and no error on 46 correct answers; 293 of 293 on the 558-item corpus | Detection on answers written for the tests | Live arena results |
+
+Replays with the separate measures (the code of this change, before the other fixes of the same review; copies of the
+recorded rounds):
+
+| Round | Transport | Fixture coverage | Translation fidelity | Claims: extracted / eligible / attempted / completed / approved |
+| --- | --- | --- | --- | --- |
+| r1 | 30 / 30 | 16 of 17 served (1 claim not eligible) | not adjudicated | 71 / 21 / 16 / 4 / 4 |
+| r1-adv | 150 / 151 | 1 of 2 served (1 claim not eligible) | not adjudicated | 911 / 644 / 1 / 0 / 0 |
+| r2 | 46 / 46 | 22 of 24 served (2 claims not eligible) | not adjudicated | 120 / 28 / 22 / 2 / 2 |
+| r3 | 46 / 46 | 24 of 27 served (3 claims not eligible) | not adjudicated | 87 / 27 / 24 / 7 / 7 (all 7 rest on at least one ungrounded premise) |
+| r4 | 46 / 46 | 25 of 27 served (2 claims not eligible) | not adjudicated | 100 / 27 / 25 / 8 / 2 |
+| r5 | 46 / 46 | 17 of 20 served (3 claims not eligible) | not adjudicated | 90 / 23 / 17 / 6 / 6 |
+| r6 | 46 / 46 | 27 of 28 served (1 claim not eligible) | not adjudicated | 93 / 28 / 27 / 15 / 15 |
+| r7 | 177 / 177 | 22 of 224 served (200 claim ids no longer delivered, 2 claims not eligible) | not adjudicated in the recorded round; on a copy with the lens's 224 judgments bound to the fixtures they judged, 13 of the 22 judgments that apply are faithful and 202 do not apply | 475 / 260 / 22 / 6 / 6 |
+
+Every run is qualified in its summary: each lost recorded translations (claims not eligible under the current policy,
+and in r7 the 200 claim ids that changed), and every served translation is bound by claim id only, since no round
+recorded `claim_text_sha256`. On every round the receipts, verdicts and per-record functional flags are identical to a
+replay with the harness before the change. The 13 of 22 is not comparable with the 143 of 224: it covers the 22
+translations the current parse still serves. On the tree that integrates every fix of the same review, the transport,
+coverage and claim counts above are unchanged on every round (section 'Replays after the fixes of the external review
+of 12 October 2026').
+
 ## Round 1 (four tasks: two English analytical paragraphs on a supplied extract, two History responses)
 
 | Measure | Before fixes | After fixes |
@@ -1042,6 +1081,219 @@ h1.9, hi-t8 h1.1 and h1.3) and withholds one (hi-t8 h1.4, E108); no other round 
 definitive verdict other than ENTAILED. Genuine claims given no verdict: r1 1, r2 3, r3 6, r5 3 and
 r7 6 (all E112, circular), r6 10 (8 E110, 2 E112).
 
+## Replays after the fixes of the external review of 12 October 2026
+
+The nine findings of the external review were fixed in three parts (engine; translation; measures and timing) and
+integrated into one tree on the development branch after the STEM merge: engine 0.4.0, policy 2026.10-v4, translator
+0.4.0, prompts `translate_v2` and `review_v2`. An independent verification then found finding 6 not closed (below),
+and it was repaired at its cause on the same tree; a second independent verification found findings 2 and 6 closed
+only for their literal cases, and both were repaired again at their cause (below); a third found finding 6 closed only
+for the claim and its supporting claims and a regression in the grounding of rounded givens (finding 1 with finding
+9), and both were repaired at their cause (below); a fourth found finding 1 open in a cue-less wording of the reviewer's
+probe, and it was repaired at its cause (below). On the four times repaired tree the default suite gives 5264 passed, 45
+deselected (the stress-marked tests), 4 xfailed, and the harness rule tests 28 passed. The harness, re-run once on fresh
+copies of every recorded round:
+
+| Round | Transport | Fixture coverage | Claims: extracted / eligible / attempted / completed / approved | Approved resting on an unresolved dependency | Release permitted | Given no verdict (by rule) | Advisory W110 / W111 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| r1 | 30 / 30 | 16 of 17 | 71 / 21 / 16 / 4 / 4 | 4 | 0 | 1 (E112) | 0 / 0 |
+| r1-adv | 150 / 151 (the empty answer stays REJECTED) | 1 of 2 | 911 / 644 / 1 / 0 / 0 | 0 | 0 | 0 | 0 / 0 |
+| r2 | 46 / 46 | 22 of 24 | 120 / 28 / 22 / 2 / 2 | 2 | 0 | 3 (E112) | 0 / 0 |
+| r3 | 46 / 46 | 24 of 27 | 87 / 27 / 24 / 7 / 7 | 7 | 0 | 6 (E112) | 0 / 0 |
+| r4 | 46 / 46 | 25 of 27 | 100 / 27 / 25 / 8 / 2 | 2 | 0 | 1 (E108) | 0 / 0 |
+| r5 | 46 / 46 | 17 of 20 | 90 / 23 / 17 / 6 / 6 | 6 | 0 | 3 (E112) | 0 / 0 |
+| r6 | 46 / 46 | 27 of 28 | 93 / 28 / 27 / 15 / 15 | 15 | 0 | 10 (8 E110, 2 E112) | 0 / 0 |
+| r7 | 177 / 177 | 22 of 224 (200 claim ids no longer delivered) | 475 / 260 / 22 / 6 / 6 | 6 | 0 | 6 (E112) | 0 / 0 |
+
+Compared record by record with a replay of the code before the fixes (the STEM merge, the same recorded rounds), every
+receipt status, functional flag, finding code, displayed status, engine status and engine diagnostic is the same on every
+round. The only differences are in the dependency lists: on r5 the hi-p4 h1.3 outcome (in each of its 7 records) and on r7
+the lit-t13 p1-point outcome (in each of its 6 records) now list one more unverified dependency, a premise of a
+task-authority kind that no check validated, which the engine no longer exempts. The r6 E110 verdicts are still withheld,
+now on source-linked evidence: the answers' own sentences assert the figures the encodings only define
+(`translate.coverage`), so the engine's E110 rests on a sentence, not on the formula's shape. No recorded encoding leaves
+open a figure that no source asserts, so no advisory W110 or W111 appears on these rounds. Compared record by record
+with the replay of the previous repaired tree (finding 6 repaired once), every receipt status, functional flag, finding
+code, displayed status, engine status, engine diagnostic, dependency list and translation status is the same on every
+round: no recorded translation rests on a relation that its figures alone had established, and no recorded source
+asserts a figure in a construction the positive reader no longer recognises. The replay of the thrice-repaired tree is
+identical, field by field (timings, identifiers and signatures aside), to the replay of the twice-repaired tree on every
+round, so none of the recorded material turns on what the third repair changed (the sources E111 reads, sentence ends
+before a lower-case symbol, questions opened by a given, frames that name the task, figures negated in their own
+predicate, the intervals rounded figures state). The replay of the four times repaired tree is in turn identical, field
+by field, to the replay of the thrice-repaired tree on every round: no recorded translation turns on what the fourth
+repair changed (when a figure is the result of a written calculation, and which figure an approximation cue governs).
+
+Every approval on these rounds rests on at least one unresolved dependency, and no claim's release assessment permits
+release: a replay calls no fidelity reviewer, and release also needs established premises and the engine's release
+check. The formal statuses are reported as before; permission to release is a separate record. The harness keeps its
+injected verifier at the two-argument signature, so a replay translates on the recorded path (task-authority premises
+are validated against the supplied texts, not against the router's question). Passing the task record is a methodology
+change for a new round.
+
+The reviewer's reproduction scripts, re-run on copies, now show: the exact claim keeps its COUNTEREXAMPLE (x = 1/3) with
+no retry, the contradictory exact facts stay INCONSISTENT_PREMISES, and the old widening repair no longer earns ENTAILED;
+the invented 160 km is a failed grounding check and an ungrounded dependency (the formal ENTAILED is kept apart from
+release, which is refused, and the relation `speed = d / 8`, which the supplied text does not state, is listed as an
+unverified dependency beside it); a model-chosen arithmetic_fact, task_setting or rubric_rule is an unverified dependency
+with cores on and off; the tautology with cores off carries E108; the reviewer request carries the task, the supporting claim,
+the supplied text, the identities and the premise-to-source mapping; the baseline signed result still verifies but is
+displayed INTERNAL_ERROR and fails the binding check (INT-STALE-005); the definition and the arbitrary variable keep
+their counterexamples with W110 and W111; the mixed reference list is not verified (one reference refuted); `x*x = 4`
+binds different digests under default and permissive limits; `20%` verifies as `0.2` and as `1/5`. The acceptance
+criteria of the review's section 3, with negative controls, pass 197 of 197: 22 for the fourth verification's cases (the
+cue-less conditional in the five listed wordings, the comma form and three more of the class, each with the faithful exact
+encoding and the widened one, under a review that calls both faithful; an operator after a variable; four controls: the
+exactness cue, a calculation written right before the '=', a genuinely rounded claim at its stated tolerance), and the
+175 of the third repair's measurement: 62 for the third verification's cases (40
+for finding 6: E111 and E110 in every source, with the non-asserting phrasings and a record figure about nothing the
+encoding names as negative controls; 22 for finding 1 with 9: the seven rounding phrasings transcribed exactly and at
+their stated tolerance, five intervals that are not the stated tolerance, the stated-precision retry and a rounded
+percentage), 6 for the negation found while measuring it, and the 107 of the second repair's measurement, made of the 55 of the first repair's measurement,
+with finding 2's "the authentic 120 must still support 15" now measured under the whole-content rule (formal ENTAILED,
+the distance established by the text, the unstated relation an unverified dependency that blocks release; with the
+relation stated by the text every premise is established and release follows the faithful, current review; with no
+review it is not released) and finding 4's staleness check measured where release is permitted before the change, plus
+50 for the second verification's cases (16 for finding 2, 34 for finding 6). No live provider was called; translation
+fidelity has not been re-measured.
+
+**Finding 6, repaired after independent verification.** The first fix kept the reviewer's two literal examples
+("Define b iff n=17", "y is an arbitrary integer") but decided whether a source asserts a figure by a list of
+definitional keywords over the whole sentence and, for E111, by the presence of any figure the encoding omits. Natural
+paraphrases of the same faithful questions were therefore withheld as mistranslations: "If n equals 17, b holds; so b
+necessarily holds", "When n equals 17, b holds", "Is n equal to 17?", "n could be 17, and b holds just when n is 17", "b
+holds exactly when n equals 17", and, for E111, "Given x = 5, x < y for any integer y; I checked 3 values" and "... for
+each of the 2 integers y we pick". Worse, the retry feedback then told the translator that the source asserts 17, and a
+retry that added `n = 17` was accepted and displayed ENTAILED for a non sequitur. The repair (`translate.assertion`)
+reads the source's grammar clause by clause: a figure is evidence only when its clause asserts it (no question,
+instruction, condition, conditional "when", supposition, example, definition, possibility, obligation, intention, hedge,
+attribution, negation, quantification or disjunction governs it, each with a stated scope), when what it states
+establishes the comparison the encoding defines ("more than 17" establishes no `n = 17`), and when it is about the
+encoding's symbols (a figure that counts something else is not). The retry an E110 asks for may add only what the
+source evidence states; any other added premise makes the translation AMBIGUOUS_TRANSLATION (`retry_added_premise`).
+On copies, the verifier's own probes now keep every one of those counterexamples with W110 or W111 and one provider
+call, and the source-asserted controls are still E110/E111; three paraphrase batteries (139 cases: 114 faithful
+questions, 25 sources that do assert the figure, in mathematical and History wording) give the expected outcome in
+every case. The recorded rounds replay identically, record by record, to the first integrated tree: the r6 answers'
+eight E110 verdicts stay withheld, since those answers assert their figures ("in 1960, when seventeen African states
+became independent" relates a fact), and no recorded encoding leaves open a figure a source does not assert. That
+reader was lexical in the unsafe direction: a construction it did not know read as asserting. The second verification
+found exactly that (below), and the reader now asserts only what it positively recognises.
+
+**Findings 2 and 6, repaired again after the second verification.** The second independent verification found both
+fixed only for their literal cases. Finding 2: the authority check (`numeric_in_task`) and the excerpt check
+(`figures_in_excerpt`) verified a premise once its numerals occurred in a record, never its relation, so an invented
+formula `speed = d * 8` beside "A car travels 120 km in 8 hours" counted as established under `arithmetic_fact`,
+`task_setting` or `rubric_rule` (hidden from both dependency lists, release permitted with a faithful review) and was
+listed only under `general_knowledge` or `assumption`: the model's label still decided. Finding 6: seven of the
+verifier's 32 non-asserting phrasings still read as asserting n = 17 ("Students often guess that n is 17, but this is
+not given.", "Claim to test: n is 17.", "In some cases n is 17.", "Hypothesis: n is 17.", "According to rumour, n is
+17.", "n = 17 ⇒ b.", "b ⟺ n = 17."), each withholding a valid counterexample (E110), because the reader read any
+construction it did not know as asserting.
+
+Both were repaired at the cause, for the whole class. A check confers task or source authority only on a premise's
+whole content (`translate.relations`): an assignment (each symbol compared with a literal) by records that state each
+figure so that it establishes the comparison ("more than 17" establishes no `n = 17`), and any other numeric content,
+a relation, only by a record that states the same formula as a given (`relation_in_source`; a closed formula reader,
+nothing evaluated; a formula in a question, a claim to prove or a condition is no given). Figures in a record never
+verify a relation, and a located excerpt holding them does not either: an unstated relation is an unverified
+dependency that blocks release whatever its label, and the outcome lists it under "Unverified relations". The
+assertion reader asserts a figure only where it positively recognises the clause as the writer's own statement;
+anything it does not recognise keeps the counterexample with the advisory W110/W111. On copies, the verifier's probes
+now give: the invented `speed = d * 8` is an unverified dependency under each trusted kind and an ungrounded one under
+`general_knowledge` and `assumption`, release refused in all five; of its finding-6 cases, all 38 non-asserting ones
+(the 32 phrasings in the task, 6 of them also as a supporting claim) keep the counterexample with W110 and one provider
+call, all 12 asserting ones are still withheld (E110), and its E111 pairs give W111 (4) and E111 (3). A battery of 280
+phrasings (hedges, hypotheses, reported speech, claims to test, quantified and symbolic conditionals and
+biconditionals, and asserting controls) reads every one as expected, and so do the first repair's three batteries. The
+measurement of this repair found two faults in it, fixed and tested before the final measurement: two references to one
+document kept only the last located span (a premise `d = 120` cited as "Distance 120 km" and "8 hours" was refuted in
+one order), and a statement through a raising verb ("n turned out to be 17") or a factive frame at a line break of the
+frame list ("We note that") read as unrecognised (the conservative error). The reader's remaining limits are stated in
+`translate/assertion.py`: a genuine statement in a construction it does not recognise is read as unasserted, and an
+unknown verb of report or opinion before a bare clause ("Pupils opine growth was 17") is the one shape it can still
+misread as asserted.
+
+**Findings 6 and 1/9, repaired after the third verification.** The third independent verification found finding 6
+closed only for the claim and its supporting claims, and a regression of the precision repair. Finding 6: the coverage
+step read the evidence for E111 (a figure asserted about a conclusion symbol no premise mentions) only from the claim and
+its supporting claims, although the pipeline's own account named the supplied texts and the task record too, so "Here x
+= 5 and y = 9." withheld the counterexample to an encoding that omits y = 9 as a supporting claim (E111) but displayed
+that counterexample as the verdict (W111) as a supplied text or as the task record, the most authoritative sources; and
+a sentence that opens with a lower-case variable was not split from the sentence before it, so the instruction of
+"Define b to hold iff n equals 17. n = 17." and "Define b. n = 17." governed the second 17 (W110 and the counterexample,
+where the source asserts n = 17). Finding 1/9: "0.33 to 2" in the supplied fact "x is 0.33 to 2 decimal places." was
+read as one end of a range, so its exact transcription x = 0.33 failed grounding (it had grounded before the precision
+repair), and the interval [0.325, 0.335) that the precision step demands when the rounding matters always failed the
+excerpt check, so no faithful encoding of a rounded given could ground.
+
+Both were repaired at the cause, for the whole class. The coverage step reads every source for both shapes
+(`translate.coverage.assess_unconstrained`); a figure of a supplied text or of the task is evidence about a free symbol
+only in a clause about it (it names the symbol, counts what describes it, or shares the words that describe it), while
+the answer's own figures link as before. A full stop before a lower-case symbol that opens a statement ends the sentence,
+as one before a capital does (`translate.quantities`), never after an abbreviation ("e.g.", "i.e.") or before a
+lower-case word that continues the sentence ("Suppose b holds. then n = 17."). In the same class, a question opened by a
+clause that presents a fact ("Given x = 5 and y = 9, is x < y?", "Given n = 17, does b hold?") no longer governs that
+clause, and a frame that names the task ("In this problem n is 17.") presents its given, while a hypothetical frame ("In
+this scenario") stays unrecognised. The numeral of a precision cue is no end of a range, and a figure stated as rounded
+establishes the ends of the interval it states (`translate.quantities.stated_intervals`, one recorded derivation; a
+symbol bounded on both sides takes both ends from one figure), never a wider, narrower or shifted interval, while an
+exact or given figure states no interval. Measuring the repair found one more fault, present before it: the excerpt
+check read a negation only where the figure stands ("≠ 0.33"), so a record saying "x is not 0.33." established x = 0.33;
+a negation in the figure's own predicate now establishes nothing, while a bound phrase ("not more than") keeps its
+reading.
+
+On copies, the third verification's probes now give: "Here x = 5 and y = 9." withholds the counterexample (E111) as a
+supporting claim, a supplied text and the task record alike; "Define b to hold iff n equals 17. n = 17." and "Define b.
+n = 17." withhold it (E110, fed back once with the asserting clause) in every source; the non-asserting phrasings ("Let
+x = 5 and y = 9. Show that x < y.", the reviewer's arbitrary y, a possibility, a hypothesis) keep W110/W111 and the
+counterexample; each of the verifier's seven rounding phrasings grounds both the exact transcription and the interval at
+the stated tolerance, with the claim ENTAILED and its release permitted under a faithful review; and the case where the
+rounding decides the claim is rejected exactly (stated precision), its retry at the stated interval grounds, and its
+counterexample is the verdict, with no failed grounding check. Reading every figure of a long record stays linear
+(100,000 characters under the suite's 2 s bound, for E111 and for the tolerance derivation), and the first repair's three
+paraphrase batteries and the second repair's 280-phrasing battery still give the expected outcome in every case.
+
+**Finding 1, repaired after the fourth verification.** The fourth independent verification found the reviewer's
+reproduction succeeding again with "exactly" left out. In the cue-less conditional "If x = 1/3 then x = 0.33." (and "x =
+1/3 implies x = 0.33.", "When x = 1/3 it follows that x = 0.33.", "Given x = 1/3 we get x = 0.33.", "Claim: if x = 1/3 then
+x = 0.33, which is false.") the figure 0.33 was read as the rounded result of the written calculation "1/3 then x =
+0.33": the reader took the left side of an '=' for a calculation whenever an operator stood anywhere in it, and dropped
+the words after a numeral ("then x") as its unit. The faithful exact encoding, whose counterexample x = 1/3 is valid,
+was rejected for its stated precision and the translator was told to widen 0.33; the widened retry was accepted as
+ENTAILED, recorded as an unchanged semantic repair and released under a review that called it faithful.
+
+Repaired at the cause, for the whole class (`translate.quantities`). A figure is the result of a written calculation
+only when the calculation ENDS at its '=' and the figure ends the expression: the words right before the sign belong to
+the calculation only as the unit of its last operand (one the STEM unit table, a currency or scale word or an everyday
+measure reads; a count noun only inside the calculation); the calculation starts with an operand (an operator after a
+variable, a sign glued to a variable, a numeral glued to an identifier and a bracket written against a symbol, "f(2)",
+continue an expression that holds a term that is no numeral); and a figure followed by an operator, or written against
+a bracket, a root, a letter or a power, is an operand of a further expression ("= 3 − 1", "= 5(2 × 3)", "= 2√3"). The sign
+in each listed phrasing therefore equates 0.33 with the variable x: the figure is unstated, and an undecorated decimal
+whose two readings disagree is AMBIGUOUS_TRANSLATION, after one provider call, never rejected for precision, never
+ENTAILED and never released. In the same class an approximation cue, a word or a sign, governs only the figure it is
+written against ("think about it", "almost certain", "about 2 people think that ..." and "x ≈ 1/3 so x = 0.33" state
+nothing about 0.33; "without approximation" states exactness), where before one cue governed every figure of its clause.
+The closed reader also reads calculations it used to miss or misread: LaTeX (`\frac`, `\times`, `\text{}` units),
+exponents, vulgar fractions, per cent words, units joined by "per", the unit of a bracketed operand; a function value
+inside a calculation is read by the convention, never computed with the function dropped (as "ln 2 / 8.0" was, as 2 / 8.0).
+
+On copies, the fourth verification's probes now give: each listed phrasing, and the comma form it was compared with,
+AMBIGUOUS_TRANSLATION after one provider call with the faithful exact encoding (its readings, COUNTEREXAMPLE as written and
+ENTAILED to half a unit of the last place, both recorded), release refused, no repair recorded; the widened encoding served
+first is AMBIGUOUS_TRANSLATION as well, never displayed ENTAILED; `written_calculation_value(' 1/3 then x ')` and `(' 1/3
+then b ')` are None, while `(' 1/3 ')` is still 1/3. Its other probes (findings 2 to 9) and the three earlier
+verifications' probes give the same output as on the thrice-repaired tree, identifiers aside, and so do the earlier
+repairs' batteries; a battery of 63 phrasings of the class (connectives, arrows, symbols, identifiers, an operator after a
+variable, a function symbol, approximation words and signs that govern another word or figure, "without approximation")
+with its controls gives the expected outcome in every case. Read over every equation-bearing string of the recorded rounds
+and of the test data (3,483 texts, 17,398 figures), the repair moves a reading only in two directions: from a misapplied
+rounding (a cue that governs another figure, or a "calculation" whose left side ends in a variable, a symbol, an equation,
+a unit conversion or a figure that starts the next expression) to unstated or to what the calculation gives, and from
+unstated to the reading of a genuine written calculation the old test missed (LaTeX, exponents, units, scale words). No
+reading becomes rounded by a cue it did not have.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |
@@ -1089,7 +1341,9 @@ fault, not that every finding is true.
   of the support-graph fix (keep the stated direction, never treat each support as sufficient on its
   own, flag rather than invent a link) is not written. The component versions in `version.py` were
   not bumped, although the round-7 fix round changed the prompt and pipeline, the eligibility rules
-  and the engine's diagnostics.
+  and the engine's diagnostics. (Since done: the review fixes bumped them to engine 0.4.0, policy 2026.10-v4 and
+  translator 0.4.0, and every result now binds the build, schema and policy identity, so a result of an earlier
+  release is never taken as current.)
 - **Recorded round data.** The recorded r7 fixtures and syntheses cite the earlier parse's ids (200
   fixtures unserved, 15 syntheses charged INT-LEDGER-001 and INT-LEDGER-002), and the recorded peer
   relays of r2 and of r4 to r7 differ from the current parse; none was re-recorded, so the harness
@@ -1130,8 +1384,11 @@ build joins. The optimisation checks run last, after every bug-testing round.
 Translation outcomes depend on the translation provider (here, fixtures written for the genuine
 outputs; no live provider was called) and are reported apart from the infrastructure rate. An
 ENTAILED verdict proves only that the encoded conclusion follows from the encoded premises under
-this configuration; the record says how many of those premises are ungrounded, and a vacuous,
-circular or unasserted encoding is displayed as INVALID_FORMALIZATION, never as a verdict. An
-AMBIGUOUS_TRANSLATION is never shown as verified. The harness rate does not judge whether a finding is
+this configuration; the record says how many of those premises are ungrounded or rest on authority no
+check validated, and a vacuous or circular encoding, or one that omits a figure a source asserts, is displayed as
+INVALID_FORMALIZATION, never as a verdict. Formal entailment is not permission to release: the release assessment
+is a separate record. An AMBIGUOUS_TRANSLATION is never shown as verified. The harness rate does not judge whether a finding is
 true. A specialist's or an overseer agent's own report is advisory: only a signed engine result or a
-deterministic re-check confirms anything.
+deterministic re-check confirms anything. Transport, fixture coverage, translation fidelity (only where
+adjudicated) and the claim counts are separate measures, never one rate; a replay that loses recorded translations,
+or serves them without a recorded claim-text digest, is qualified in its summary.

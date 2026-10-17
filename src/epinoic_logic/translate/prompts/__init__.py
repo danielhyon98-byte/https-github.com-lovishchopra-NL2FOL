@@ -9,8 +9,13 @@ from __future__ import annotations
 import re
 from importlib import resources
 
-TRANSLATE_PROMPT_VERSION = "translate_v1"
-REVIEW_PROMPT_VERSION = "review_v1"
+#: The prompts in use. A changed prompt is a new file and a new version; earlier files stay packaged unchanged so a
+#: recorded ``prompt_version`` always names the exact instructions it was produced with. ``translate_v2``: exactness and
+#: stated precision from the wording, task authority validated by code, definitions against assertions, units and
+#: percentages, retries that may not change the claim. ``review_v2``: the reviewer is shown the task, the supporting
+#: claims, the supplied texts and the premise-to-source mapping, and judges every premise against them.
+TRANSLATE_PROMPT_VERSION = "translate_v2"
+REVIEW_PROMPT_VERSION = "review_v2"
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 

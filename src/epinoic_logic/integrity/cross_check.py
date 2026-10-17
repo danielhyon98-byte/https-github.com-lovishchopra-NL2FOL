@@ -32,6 +32,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ..engine.errors import NO_VERDICT_CODES
+from ..engine.policies import JOINT_LIMITS
+from ..engine.provenance import binding_inconsistencies, stale_reasons, verify_signature
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import is_ungrounded, verify
 from ..engine.statuses import VerificationStatus as S
@@ -40,9 +43,9 @@ from ..ir.schema import ASSERTION_ID_RE, Assertion, Grounding, Limits, Problem, 
 from .contracts import IntegrityFinding, Synthesis
 
 SEP = "::"
-# Joint problems union many claims; the per-claim shape limits would make cross-agent
-# checks silently stop working at scale, so they get their own, larger bounds.
-JOINT_LIMITS = Limits(max_symbols=1024, max_premises=4096, max_nodes=200_000, max_depth=40, max_nary_args=64)
+# Joint problems union many claims; the per-claim shape limits would make cross-agent checks silently stop working at
+# scale, so they run under the engine's joint limits (engine.policies.JOINT_LIMITS, part of the bound policy). A joint
+# result records them and binds their digest: a receiver checking it must name JOINT_LIMITS as its required policy.
 _ALIAS_RE = re.compile(r"^c\d+:")
 _PREMISE_PATH_RE = re.compile(r"^premises\[(\d+)\]")
 _LIMIT_CODES = frozenset({"E300", "E301", "E302", "E303", "E304", "E305", "E306"})
@@ -599,14 +602,23 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
                              claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]
 
 
-def _proven_elsewhere(claim_id: str, source_problems: list[Problem], prior_results: Optional[dict[str, VerificationResult]]) -> bool:
+def _proven_elsewhere(claim_id: str, source_problems: list[Problem], prior_results: Optional[dict[str, VerificationResult]],
+                      signing_key: Optional[bytes] = None) -> bool:
+    """A stored ENTAILED result establishes a pooled source conclusion only as current-policy evidence: bound to that
+    exact source formalization, internally consistent, issued under this engine's versions, identity and default limits
+    (an earlier release's result must be verified again), with no diagnostic that withholds the verdict, and, when the
+    caller holds the key, carrying a signature that verifies."""
     if not prior_results:
         return False
     res = prior_results.get(claim_id)
     if res is None or res.status is not S.ENTAILED:
         return False
     src = next((p for p in source_problems if p.claim_id == claim_id), None)
-    return src is not None and res.binding.problem_digest == problem_digest(src) and res.claim_id == claim_id
+    if src is None or res.binding.problem_digest != problem_digest(src) or res.claim_id != claim_id:
+        return False
+    if binding_inconsistencies(res) or stale_reasons(res) or any(d.code in NO_VERDICT_CODES for d in res.diagnostics):
+        return False
+    return signing_key is None or verify_signature(res, signing_key)
 
 
 def check_synthesis_entailment(
@@ -705,7 +717,7 @@ def _reliance_findings(joint: Problem, result: VerificationResult, jmap: JointMa
         out.append(IntegrityFinding(code="INT-SYNTH-002", severity="info", message=f"synthesized claim follows only via unverified inferences or assumptions in source claims {claims} (premises {[jmap.assertions[i][1] for i in deps if i in jmap.assertions]}); from grounded premises alone it is not proven ({grounded_only.status.value})", claim_ids=[scid] + claims, formal_result_id=result.result_id, related_result_ids=related, deterministic=False))
         return out
     pooled_ids = jmap.pooled_conclusions(list(result.ungrounded_dependencies))
-    pooled_claims = [c for c in jmap.claim_ids_of(pooled_ids) if not _proven_elsewhere(c, source_problems, prior_results)]
+    pooled_claims = [c for c in jmap.claim_ids_of(pooled_ids) if not _proven_elsewhere(c, source_problems, prior_results, signing_key)]
     other_ids = [i for i in result.ungrounded_dependencies if i not in set(pooled_ids)]
     other_claims = jmap.claim_ids_of(other_ids)
     tail = "without them the claim is not proven" if no_pooled.status is S.COUNTEREXAMPLE else f"a proof without them was not found ({no_pooled.status.value})"

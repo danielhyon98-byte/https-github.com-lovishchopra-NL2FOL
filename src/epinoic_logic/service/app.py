@@ -26,6 +26,12 @@ Endpoints
 ``GET  /healthz``                       liveness; unauthenticated; component versions only
 ``POST /v1/verify``                     ``{problem, config?}`` -> signed ``VerificationResult``
 ``POST /v1/results/verify-signature``   ``{result}`` -> ``{valid: bool, reason?}``
+``POST /v1/results/release-check``      ``{result, problem?, policy?}`` -> ``{eligible: bool, reasons, current}``:
+                                        the engine's current-policy release check
+                                        (``engine.release.release_check``) under this
+                                        service's key; ``policy`` names the required
+                                        validation limits (``linear`` by default,
+                                        ``nonlinear`` or ``joint``)
 ``POST /v1/outcomes``                   ``{report, claim_id, fixture_responses, adapter_id?}``
                                         -> ``ClaimVerificationOutcome`` (fixture provider only;
                                         model providers are wired by configuration later)
@@ -34,6 +40,10 @@ An invalid or unsupported problem is NOT an HTTP error: it is a bound, signed re
 with status ``INVALID_FORMALIZATION`` or ``UNSUPPORTED`` (HTTP 200), so callers
 always receive an auditable record. HTTP errors are reserved for the envelope and
 for admission control.
+
+``config.produce_unsat_core`` is an output option only: the engine computes the unsat
+core either way, so the dependency lists, the vacuity and circularity checks and the
+release check of a result are the same whichever value a client sends.
 """
 from __future__ import annotations
 
@@ -48,6 +58,7 @@ import re
 import threading
 import time
 import uuid
+from types import MappingProxyType
 from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, Optional
 
 from fastapi import FastAPI, Request
@@ -55,11 +66,13 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ..engine.errors import DiagnosticCode
-from ..engine.provenance import verify_signature, z3_version
+from ..engine.policies import JOINT_LIMITS, PACK_POLICIES
+from ..engine.provenance import compute_versions, verify_signature, z3_version
+from ..engine.release import release_check
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..ir.canonical import strict_object_pairs
-from ..ir.schema import DEFAULT_LIMITS
+from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
 from ..version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 from .settings import ServiceSettings
 
@@ -87,6 +100,9 @@ SELF_CERTIFICATION_KEYS: frozenset[str] = frozenset({
 SERVER_CONTROLLED_CONFIG_KEYS: frozenset[str] = frozenset({"memory_max_mb"})
 _VERIFY_ENVELOPE_KEYS = frozenset({"problem", "config"})
 _SIGNATURE_ENVELOPE_KEYS = frozenset({"result"})
+_RELEASE_ENVELOPE_KEYS = frozenset({"result", "problem", "policy"})
+#: Validation policies a release check may require, by name: the pack policies and the integrity layer's joint limits.
+RELEASE_POLICIES: Mapping[str, Limits] = MappingProxyType({**PACK_POLICIES, "joint": JOINT_LIMITS})
 _OUTCOME_ENVELOPE_KEYS = frozenset({"report", "claim_id", "fixture_responses", "adapter_id"})
 
 Handler = Callable[[Request], Awaitable[JSONResponse]]
@@ -430,6 +446,33 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             return JSONResponse({"valid": True})
         return JSONResponse({"valid": False, "reason": "signature does not match the result content"})
 
+    async def post_release_check(request: Request) -> JSONResponse:
+        admit(request)
+        body = await _read_body(request, cfg.max_body_bytes)
+        envelope = _parse_envelope(body, _RELEASE_ENVELOPE_KEYS, frozenset({"result"}))
+        raw = envelope["result"]
+        if not isinstance(raw, dict):
+            raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'result' must be a JSON object")
+        policy = envelope.get("policy", "linear")
+        if type(policy) is not str or policy not in RELEASE_POLICIES:
+            raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'policy' must be one of: {', '.join(sorted(RELEASE_POLICIES))}")
+        current = compute_versions().model_dump(mode="json")
+        try:
+            result = VerificationResult.model_validate(raw)
+        except ValidationError:
+            return JSONResponse({"eligible": False, "reasons": ["result does not match the VerificationResult schema"], "current": current})
+        problem: Optional[Problem] = None
+        if envelope.get("problem") is not None:
+            if not isinstance(envelope["problem"], dict):
+                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'problem' must be a JSON object")
+            try:
+                problem = Problem.model_validate(envelope["problem"])
+            except ValidationError:
+                return JSONResponse({"eligible": False, "reasons": ["problem does not match the Problem schema"], "current": current})
+        check = release_check(result, problem, signing_key=cfg.signing_key, key_id=cfg.signing_key_id, required_limits=RELEASE_POLICIES[policy])
+        log.info("request_id=%s path=%s release_eligible=%s result_id=%s", _request_id(request), request.url.path, check.eligible, result.result_id)
+        return JSONResponse({**check.as_dict(), "current": current})
+
     async def post_outcomes(request: Request) -> JSONResponse:
         admit(request)
         body = await _read_body(request, cfg.max_body_bytes)
@@ -497,5 +540,6 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
 
     app.add_api_route("/v1/verify", _guarded(post_verify), methods=["POST"])
     app.add_api_route("/v1/results/verify-signature", _guarded(post_verify_signature), methods=["POST"])
+    app.add_api_route("/v1/results/release-check", _guarded(post_release_check), methods=["POST"])
     app.add_api_route("/v1/outcomes", _guarded(post_outcomes), methods=["POST"])
     return app

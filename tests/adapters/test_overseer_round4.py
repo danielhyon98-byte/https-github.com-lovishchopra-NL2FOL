@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import random
 import re
-import time
 from pathlib import Path
 
 import pytest
@@ -33,6 +32,8 @@ from epinoic_logic.channel.request_parser import count_answer_words, count_words
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+
+from ..timing import measure
 
 DATA = json.loads((Path(__file__).parent / "data" / "r4_specialists.json").read_text(encoding="utf-8"))
 EN_P3, HI_P3, HI_T7, HI_T8, EN_T7, EN_T8 = (DATA[k] for k in ("en-p3", "hi-p3", "hi-t7", "hi-t8", "en-t7", "en-t8"))
@@ -427,15 +428,17 @@ def test_bracket_match_ends_agrees_with_the_history_splitters_scan():
     ("a keyed object nested 3,000 deep", '{"a": ' * 3000 + "1" + "}" * 3000),
 ])
 def test_brace_like_text_is_scanned_in_linear_time(label, text):
-    started = time.perf_counter()
-    md.find_json_spans(text)
-    md.find_json_spans(text + " ")  # a second, uncached text
-    md.bracket_match_ends(text)
-    md.find_quotation_spans(text)
-    md.is_json_block(text)
-    rep = parse_response(text, request_id="r", task_id="t", report_id="rep", task_type="analytical_paragraph", supplied_texts=docs_of(EN_T7))
-    structural_checks(rep)
-    assert time.perf_counter() - started < 1.0, label
+    def scan():
+        md.find_json_spans(text)
+        md.find_json_spans(text + " ")  # a second, uncached text
+        md.bracket_match_ends(text)
+        md.find_quotation_spans(text)
+        md.is_json_block(text)
+        rep = parse_response(text, request_id="r", task_id="t", report_id="rep", task_type="analytical_paragraph", supplied_texts=docs_of(EN_T7))
+        structural_checks(rep)
+    # the 1 s bound, measured as in tests/timing.py (warm-up, median of five first runs, earlier heap frozen)
+    timing = measure(scan, bound=1.0, label=label)
+    assert timing.holds, timing
 
 
 # ------------------------------------------------------------ adversarial-live minor: CR-only paragraph breaks

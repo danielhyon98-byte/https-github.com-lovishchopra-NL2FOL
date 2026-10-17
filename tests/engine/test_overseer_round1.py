@@ -56,9 +56,21 @@ def test_asserted_but_unchecked_groundings_are_listed_as_unverified():
     ], ("C", V("p")))
     r = verify(Problem.model_validate(data), CFG)
     assert r.status is S.ENTAILED and r.ungrounded_dependencies == []
-    assert sorted(r.unverified_dependencies) == ["L1", "S1"]  # T1 is task-given; nothing is called established silently
-    assert is_unverified(Grounding(kind="library_source")) and not is_unverified(Grounding(kind="arithmetic_fact"))
+    assert sorted(r.unverified_dependencies) == ["L1", "S1"]  # T1 is not in the proof's core; nothing is called established silently
+    # Rewritten for the external review of 2026-10-12 (premise authority): the task-given kinds were exempt here, which
+    # let a model-chosen label hide an unsupported premise. No kind is exempt now; only a check in this process confers
+    # authority, so this asserts the stricter rule.
+    assert is_unverified(Grounding(kind="library_source")) and is_unverified(Grounding(kind="arithmetic_fact"))
+    assert all(is_unverified(Grounding(kind=k)) for k in ("task_setting", "rubric_rule"))
+    assert not is_unverified(Grounding(kind="arithmetic_fact", verified=True))  # an application check confers authority
     assert not is_unverified(Grounding(kind="specialist_inference"))  # already ungrounded
+    # a task-given premise the proof relies on is listed, never hidden
+    needs_t1 = make_problem("entailment", [("q", "Bool"), ("p", "Bool")], [
+        ("S1", {"op": "not", "arg": V("q")}, {"grounding": {"kind": "supplied_text"}}),
+        ("T1", {"op": "or", "args": [V("q"), V("p")]}, {"grounding": {"kind": "task_setting"}}),
+    ], ("C", V("p")))
+    r2 = verify(Problem.model_validate(needs_t1), CFG)
+    assert r2.status is S.ENTAILED and sorted(r2.unverified_dependencies) == ["S1", "T1"]
 
 
 def test_vacuous_entailment_and_empty_consistency_carry_e108():

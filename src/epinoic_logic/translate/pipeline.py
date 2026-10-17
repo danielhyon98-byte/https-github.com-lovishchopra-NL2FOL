@@ -15,25 +15,65 @@ Order of operations (each step is deterministic code except the provider call):
    policy allowlist, limits), and its ``request_id``/``claim_id`` must match the
    claim. Schema and validity failures are fed back once as ``prior_diagnostics``;
    policy (``UNSUPPORTED``) and identity failures are not retried.
-4. **Grounding** (``grounding``): quotation groundings are checked verbatim against
-   the supplied texts and ``verified`` is set by code only.
-4b. **Stated figures** (``engine.runner.unasserted_figure_definitions``): a premise that
-   only defines an atom by a comparison of a figure no other premise mentions
-   (``b <-> (n = 17)`` with ``n`` free) asserts nothing. When the conclusion fails only
-   because of such a figure (the engine's COUNTEREXAMPLE turns ENTAILED once the defined
-   atoms are asserted: ``E110``), the output is INVALID_FORMALIZATION with that diagnostic
-   (fed back once); otherwise the unasserted definitions are recorded as a note.
-4c. **Stated precision**: a figure written to n decimal places states its value to half a
-   unit of its last place. When the problem is INCONSISTENT_PREMISES or a COUNTEREXAMPLE
-   as encoded but ENTAILED (or CONSISTENT) once every equality with such a literal is
-   widened to that interval, the rounded figures were encoded as exact equalities: the
-   output is INVALID_FORMALIZATION with that diagnostic (fed back once), never a verdict
-   or an inconsistency charged to the specialist.
-4d. **Circularity** (``engine.runner.circular_premises``): a conclusion that is itself a
-   premise, or each of whose conjuncts is one, where those premises are the writer's own
-   (an assumption, a specialist inference, general knowledge, an unchecked
-   arithmetic_fact), is assumed, not derived: INVALID_FORMALIZATION with that diagnostic
-   (fed back once). A restated premise grounded in the task or a text is a transcription.
+4. **Grounding** (``grounding``): every source reference is checked (an excerpt located, a document and
+   locator checked) and keeps its own outcome; only complete support verifies a grounding. Figures are typed
+   quantities (``20%`` states ``0.2`` and ``1/5`` alike), and a figure stated as rounded ("x is 0.33 to 2 decimal
+   places") states the interval of its tolerance, so a premise that transcribes it exactly (``x = 0.33``) or at exactly
+   that interval (``0.325 <= x < 0.335``) is grounded by it, and a wider or narrower interval is not. A premise whose kind claims the task's authority
+   (``arithmetic_fact``, ``task_setting``, ``rubric_rule``) is validated against the supplied texts and the task
+   record: the model's label confers nothing. A check confers authority only on the premise's WHOLE numeric
+   content (``relations``): an assignment (each symbol compared with a literal) by records that state each figure
+   so that it establishes that comparison, and any other numeric content (a relation that combines symbols, such
+   as ``speed = d / 8``) only by a record that states that same formula as a given; figures occurring in a record
+   are never evidence for the relation that combines them. A validated premise is ``verified=True``
+   (established); a refuted one (the task record was given and states no such figure, or a record states a
+   conflicting figure: 120 km where the premise says 160 km) is ``verified=False``, an evidence failure the engine
+   lists as an ungrounded dependency; one no record validates or refutes (a model-invented relation among them,
+   whatever its kind) stays ``verified=None``, which the engine lists as an unverified dependency and the outcome
+   as unvalidated task authority or an unverified relation (release blocked). ``verified`` is set by code only.
+4b. **Coverage** (``coverage``): two encoding shapes leave a figure open: a premise that only defines an atom by a
+   comparison of a figure no other premise mentions (``b <-> (n = 17)`` with ``n`` free), and a conclusion that
+   compares symbols no premise mentions (``x < y`` with ``y`` free). Whether a source ASSERTS what the shape leaves
+   open (the claim, a supporting claim, a supplied text or the task states it in a sentence that does not define
+   or suppose; a figure of a supplied text or of the task in a clause about the symbol) is decided here from every
+   source and handed to the engine as an application record
+   (``coverage.apply_coverage_evidence``: a grounding verified in this process on exactly the symbols involved,
+   its references the asserting spans). The engine then reports ``E110``/``E111`` (no verdict) exactly when a
+   source asserts it, and the advisory ``W110``/``W111`` (the COUNTEREXAMPLE stands as the verdict on the
+   encoding) otherwise, so the signed result, this decision and the displayed status agree. Whether a source
+   asserts a figure is read clause by clause (``assertion``), and only a clause the reader POSITIVELY recognises
+   as the writer's own statement asserts it: a figure mentioned in a question, a condition ("if", "when n equals
+   17", "n = 17 ⇒ b"), a supposition or hypothesis, a definition ("exactly when", "b ⟺ n = 17"), a possibility or
+   hedge ("could", "probably"), reported speech ("according to rumour"), a claim to test, a negation, a
+   quantification ("for any", "in some cases") or a disjunction is not asserted, and neither is one in a
+   construction the reader does not recognise (the counterexample then stands with the advisory warning); an
+   asserted figure is evidence only when it states
+   what the definition compares ("more than 17" asserts no ``n = 17``) and is about the encoding's symbols (a figure
+   that counts something else, "I checked 3 values", is not). An ``E110`` output is INVALID_FORMALIZATION with the
+   source evidence (fed back once: assert what the source states). A translator is never told to add a premise
+   because adding it would produce entailment, only because a source asserts it, and the retry may add only that
+   (step 4e).
+4c. **Circularity** (``engine.runner.circular_premises``): a conclusion that is itself a premise, or each of whose
+   conjuncts is one, where those premises are the writer's own (an assumption, a specialist inference, general
+   knowledge, an ``arithmetic_fact`` no check validated, or a grounding a check refuted), is assumed, not derived:
+   INVALID_FORMALIZATION with that diagnostic (fed back once). A restated premise grounded in the task or a text
+   (and not refuted) is a transcription.
+4d. **Stated precision and exactness** (``precision``): every figure the encoding compares is tied to the source span
+   that states it and read from the WORDING: exact ("exactly", "without rounding": never widened; an interval in
+   its place is rejected as a weakening), given (a task figure: never widened), rounded (a rounding cue or a figure
+   stated as the result of a written calculation: an exact equality in its place is rejected only when its stated
+   tolerance changes the verdict, and the retry must give exactly that tolerance), or unstated (when the two
+   readings give different verdicts the translation is AMBIGUOUS_TRANSLATION). The solver never decides that a
+   figure was rounded. Every reading is recorded (``TranslationResult.figure_readings``).
+4e. **Retries**: an accepted attempt that follows a rejected one is recorded (``TranslationResult.repairs``): a
+   syntax repair, or a semantic change with every change listed. After a semantic rejection the new conclusion is
+   compared with the earlier conclusion read as its source states it; a conclusion that is weaker or incomparable
+   does not inherit the claim's approval: the translation is AMBIGUOUS_TRANSLATION, never a verdict. After a
+   rejection for an unasserted figure (the only rejection that asks for a premise), every premise the retry adds must
+   be what that rejection's source evidence asserts: it follows from the earlier premises with the source-asserted
+   atoms asserted (the stated figure, the atom, or a reformulation of the definition), or a check in this process
+   established it. A retry that adds anything else earned its verdict with a premise no source asserts: the
+   translation is AMBIGUOUS_TRANSLATION (flag ``retry_added_premise``), never a verdict.
 5. **Status**: ``TRANSLATED``, or ``AMBIGUOUS_TRANSLATION`` when the provider
    flagged ambiguity, ``UNSUPPORTED`` when it declined or the validator rejected a
    construct by policy, ``INVALID_FORMALIZATION`` when no valid encoding was
@@ -49,7 +89,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Optional
+from typing import Optional, Sequence
 
 from pydantic import ValidationError
 
@@ -63,24 +103,33 @@ from ..version import IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 from . import prompts, subjects
 from .common import new_id, truncate, utc_now_rfc3339
 from .contracts import (
+    AmbiguityFlag,
     ClaimRecord,
+    CoverageNote,
     EligibilityClass,
     EligibilityDecision,
+    FigureReading,
     GroundingCheck,
+    GroundingSupport,
     Interpretation,
     ProviderInfo,
+    RepairRecord,
     SpecialistReport,
+    TaskRecord,
     TranslationResult,
     TranslationStatus,
     sha256_text,
 )
+from .coverage import apply_coverage_evidence, assess_definitions, assess_unconstrained
 from .eligibility import decide_eligibility
-from .grounding import check_problem_grounding
+from .grounding import check_problem_grounding, grounding_support
 from .parsing import ProviderOutputError, parse_json_object
+from .precision import added_premise_support, compare_conclusions, decide_precision, premise_changes, read_sites, reference_reading
 from .providers.base import ProviderError, TranslationProvider, TranslationRequest
+from .quantities import SourceText
 from .subjects import SubjectProfile
 
-__all__ = ["Translator", "apply_subject_policy", "REQUIRED_OUTPUT_KEYS"]
+__all__ = ["Translator", "apply_subject_policy", "REQUIRED_OUTPUT_KEYS", "SEMANTIC_REASONS", "source_texts", "widen_rounded_literals"]
 
 logger = logging.getLogger(__name__)
 
@@ -114,14 +163,27 @@ def apply_subject_policy(eligibility: EligibilityDecision, profile: SubjectProfi
     )
 
 
-class _Rejected(Exception):
-    """Internal: an attempt produced output the pipeline cannot accept."""
+#: Rejections of a VALID problem for its meaning: the retry changes what is encoded (a semantic change, compared with
+#: the earlier conclusion). Every other rejection is of the output's form (a syntax repair).
+SEMANTIC_REASONS = frozenset({"stated_precision", "exactness", "circular", "unasserted_figure"})
 
-    def __init__(self, status: TranslationStatus, diagnostics: list[str], retryable: bool) -> None:
+
+class _Rejected(Exception):
+    """Internal: an attempt produced output the pipeline cannot accept. ``problem`` is the valid problem a semantic
+    rejection was about (``reason`` names the rule); a form rejection carries none."""
+
+    def __init__(self, status: TranslationStatus, diagnostics: list[str], retryable: bool, *, reason: str = "form",
+                 problem: Optional[Problem] = None, coverage: Optional[list[CoverageNote]] = None,
+                 readings: Optional[list[FigureReading]] = None, checks: Optional[list[GroundingCheck]] = None) -> None:
         super().__init__(diagnostics[0] if diagnostics else status.value)
         self.status = status
         self.diagnostics = diagnostics
         self.retryable = retryable
+        self.reason = reason
+        self.problem = problem
+        self.coverage = list(coverage or [])
+        self.readings = list(readings or [])
+        self.checks = list(checks or [])
 
 
 @dataclass
@@ -131,6 +193,9 @@ class _Accepted:
     interpretation: Interpretation
     grounding_checks: list[GroundingCheck]
     notes: list[str] = field(default_factory=list)
+    readings: list[FigureReading] = field(default_factory=list)
+    coverage: list[CoverageNote] = field(default_factory=list)
+    support: list[GroundingSupport] = field(default_factory=list)
 
 
 def _half_unit(value: str) -> Optional[tuple[str, str]]:
@@ -238,6 +303,17 @@ def widen_rounded_literals(problem: Problem) -> tuple[Optional[Problem], list[st
         return None, []
 
 
+def source_texts(claim: ClaimRecord, supporting: list[ClaimRecord], report: SpecialistReport, task: Optional[TaskRecord] = None) -> list[SourceText]:
+    """The texts a figure of ``claim``'s encoding may be stated by, in the order they are consulted: the claim, its
+    supporting claims, the supplied texts, the task record."""
+    out = [SourceText("claim", claim.claim_id, claim.claim_text)]
+    out += [SourceText("supporting_claim", c.claim_id, c.claim_text) for c in supporting]
+    out += [SourceText("supplied_text", t.document_id, t.text) for t in report.supplied_texts]
+    if task is not None:
+        out.append(SourceText("task", task.task_id, task.text))
+    return out
+
+
 def _format_validation_error(exc: ValidationError, what: str) -> str:
     lines = []
     for err in exc.errors()[:_MAX_SCHEMA_ERRORS]:
@@ -282,34 +358,44 @@ class Translator:
 
     # ------------------------------------------------------------------ public
 
-    def translate(self, claim: ClaimRecord, report: SpecialistReport) -> TranslationResult:
+    def translate(self, claim: ClaimRecord, report: SpecialistReport, task: Optional[TaskRecord] = None) -> TranslationResult:
         """Translate ``claim`` (which must belong to ``report``) into a bound result.
 
-        Never raises for provider or model-output problems; those become statuses.
+        ``task`` is the task record as the router issued it (it must belong to the claim's task and request): a source
+        of the task's authority beside the supplied texts. Never raises for provider or model-output problems; those
+        become statuses.
         """
         if claim.report_id != report.report_id or claim.request_id != report.request_id:
             raise ValueError("claim does not belong to the report")
+        if task is not None and (task.task_id != claim.task_id or task.request_id != claim.request_id):
+            raise ValueError("task record does not belong to the claim's task and request")
         profile = subjects.resolve_profile(claim.subject)
         eligibility = apply_subject_policy(decide_eligibility(claim, self.policy_version), profile)
         if not eligibility.eligible:
-            result = self._result(claim, TranslationStatus.NOT_ELIGIBLE, eligibility, diagnostics=list(eligibility.reasons))
+            result = self._result(claim, TranslationStatus.NOT_ELIGIBLE, eligibility, diagnostics=list(eligibility.reasons), task=task)
             self._log(result, attempts=0)
             return result
 
         supporting_ids = set(claim.supporting_claim_ids) - {claim.claim_id}  # a claim never supports itself
+        supporting = [c for c in report.claims if c.claim_id in supporting_ids]
         base = dict(
             claim=claim,
-            supporting_claims=[c for c in report.claims if c.claim_id in supporting_ids],
+            supporting_claims=supporting,
             supplied_texts=list(report.supplied_texts),
             eligibility=eligibility,
             prompt_version=self.prompt_version,
             ir_version=IR_VERSION,
             subject_profile_text=subjects.prompt_profile_text(profile),
+            task=task,
         )
+        sources = source_texts(claim, supporting, report, task)
 
         prior: list[str] = []
         collected: list[str] = []
         attempts = 0
+        last_rejection: Optional[tuple[int, _Rejected]] = None
+        semantic_prior: Optional[tuple[int, _Rejected]] = None
+        semantic_all: list[tuple[int, _Rejected]] = []
         while attempts < self.max_attempts:
             attempts += 1
             request = TranslationRequest(**base, prior_diagnostics=list(prior))
@@ -318,33 +404,116 @@ class Translator:
             except ProviderError as exc:
                 info = ProviderInfo(provider_name=self.provider.name, prompt_version=self.prompt_version, attempts=attempts)
                 collected.append(f"attempt {attempts}: provider error: {truncate(str(exc), _MAX_DIAGNOSTIC_CHARS)}")
-                result = self._result(claim, TranslationStatus.TRANSLATION_FAILED, eligibility, provider=info, diagnostics=collected)
+                result = self._result(claim, TranslationStatus.TRANSLATION_FAILED, eligibility, provider=info, diagnostics=collected, task=task)
                 self._log(result, attempts=attempts)
                 return result
             info = response.info.model_copy(update={"attempts": attempts})
             try:
-                accepted = self._process(response.raw_text, claim, report, profile, attempts)
+                accepted = self._process(response.raw_text, claim, report, profile, attempts, task, sources)
             except _Rejected as rejected:
                 collected.extend(rejected.diagnostics)
+                last_rejection = (attempts, rejected)
+                if rejected.problem is not None and rejected.reason in SEMANTIC_REASONS:
+                    semantic_prior = (attempts, rejected)
+                    semantic_all.append((attempts, rejected))
                 if rejected.retryable and attempts < self.max_attempts:
                     prior = list(rejected.diagnostics)
                     continue
-                result = self._result(claim, rejected.status, eligibility, provider=info, diagnostics=collected)
+                result = self._result(claim, rejected.status, eligibility, provider=info, diagnostics=collected, task=task,
+                                      grounding_checks=rejected.checks, figure_readings=rejected.readings, coverage=rejected.coverage,
+                                      grounding_support=grounding_support(rejected.checks))
                 self._log(result, attempts=attempts)
                 return result
+            repairs: list[RepairRecord] = []
+            status, interpretation, notes = accepted.status, accepted.interpretation, list(accepted.notes)
+            if last_rejection is not None:
+                repair, flag = self._repair(last_rejection, semantic_prior, attempts, accepted, sources, semantic_all)
+                repairs.append(repair)
+                if flag is not None:
+                    interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, flag]})
+                    status = TranslationStatus.AMBIGUOUS_TRANSLATION
+                    notes.append(truncate(f"retry changed the claim: {flag.message}", _MAX_DIAGNOSTIC_CHARS * 2))
             result = self._result(
                 claim,
-                accepted.status,
+                status,
                 eligibility,
                 problem=accepted.problem,
-                interpretation=accepted.interpretation,
+                interpretation=interpretation,
                 grounding_checks=accepted.grounding_checks,
                 provider=info,
-                diagnostics=collected + accepted.notes,
+                diagnostics=collected + notes,
+                task=task,
+                figure_readings=accepted.readings,
+                repairs=repairs,
+                coverage=accepted.coverage,
+                grounding_support=accepted.support,
             )
             self._log(result, attempts=attempts)
             return result
         raise AssertionError("unreachable: attempt loop exited without a result")  # pragma: no cover
+
+    def _repair(self, last: tuple[int, "_Rejected"], semantic: Optional[tuple[int, "_Rejected"]], attempt: int, accepted: "_Accepted",
+                sources: list[SourceText], semantic_all: Sequence[tuple[int, "_Rejected"]] = ()) -> tuple[RepairRecord, Optional[AmbiguityFlag]]:
+        """The record of an accepted retry, and the ambiguity flag when it changed the claim or added a premise no source
+        asserts (see step 4e). A retry after a rejection for meaning is compared with that problem even when a later
+        attempt failed only in form, and the premises it adds are checked against EVERY earlier rejection for an
+        unasserted figure, so a later rejection of another kind cannot hide what an E110 asked for."""
+        last_attempt, last_rejected = last
+        if semantic is None:
+            return RepairRecord(attempt=attempt, after_attempt=last_attempt, kind="syntax", rejected_for=[last_rejected.reason],
+                                changes=["the output's form was repaired: the earlier attempt was not a valid problem under the schema, the validator or the subject profile"]), None
+        # the latest attempt rejected for its meaning is the reference, even when a form failure came after it
+        last_attempt, rejected = semantic
+        before = rejected.problem
+        assert before is not None
+        reference = reference_reading(before, read_sites(before, sources))
+        relation = compare_conclusions(reference, accepted.problem, self.config)
+        changes = [f"conclusion {relation} compared with attempt {last_attempt}'s conclusion read as its source states it"]
+        changes += premise_changes(before, accepted.problem)
+        re_read = [r for r in accepted.readings if r.encoded_as == "interval" and r.exactness == "rounded"]
+        changes += [f"figure {r.written or r.literal} ({r.source_kind} {r.source_id}, characters {r.start}-{r.end}) read at its stated precision "
+                    f"[{r.lower}, {r.upper})" for r in re_read]
+        keeps = relation in ("unchanged", "equivalent", "stronger")
+        history = list(semantic_all) or [semantic]
+        reasons = list(dict.fromkeys(r.reason for _a, r in history))
+        unsupported: list[str] = []
+        figure_rejections = [(a, r) for a, r in history if r.reason == "unasserted_figure" and r.problem is not None]
+        for figure_attempt, figure_rejected in figure_rejections:
+            # The rejection asked for the premise its source evidence names, and for nothing else: every added premise must
+            # be that (or follow from it with the earlier premises), or be established by a check in this process.
+            asserted = [n for n in figure_rejected.coverage if n.kind == "unasserted_definition" and n.source_asserted]
+            atoms = [n.symbols[0] for n in asserted if n.symbols]
+            for premise, supported, why in added_premise_support(figure_rejected.problem, accepted.problem, atoms, self.config):  # type: ignore[arg-type]
+                changes.append(f"premise {premise.id} {why}" + (f" (after attempt {figure_attempt})" if len(figure_rejections) > 1 else ""))
+                if not supported:
+                    unsupported.append(premise.id)
+        unsupported = list(dict.fromkeys(unsupported))
+        supported_by_source = keeps and not unsupported and all(r in ("stated_precision", "exactness", "unasserted_figure") for r in reasons)
+        record = RepairRecord(attempt=attempt, after_attempt=last_attempt, kind="semantic", rejected_for=reasons, conclusion=relation,  # type: ignore[arg-type]
+                              changes=[truncate(c, 400) for c in changes][:24], supported_by_source=supported_by_source)
+        old_label = (before.conclusion.label if before.conclusion is not None and before.conclusion.label else "(no label)")
+        new_label = (accepted.problem.conclusion.label if accepted.problem.conclusion is not None and accepted.problem.conclusion.label else "(no label)")
+        if not keeps:
+            flag = AmbiguityFlag(
+                code="retry_changed_claim",
+                message=truncate(f"(deterministic) attempt {attempt}'s conclusion is {relation} relative to attempt {last_attempt}'s conclusion read as its "
+                                 f"source states it, after a rejection for {rejected.reason}: a retry that weakens or replaces the claim cannot inherit its "
+                                 "approval, so neither encoding is shown as a verdict", 2000),
+                alternatives=[truncate(f"attempt {last_attempt}: {old_label}", 200), truncate(f"attempt {attempt}: {new_label}", 200)],
+            )
+            return record, flag
+        if unsupported:
+            evidence = "; ".join(e for _a, r in figure_rejections for n in r.coverage if n.source_asserted for e in n.evidence[:2]) or "none"
+            after = ", ".join(str(a) for a, _r in figure_rejections)
+            flag = AmbiguityFlag(
+                code="retry_added_premise",
+                message=truncate(f"(deterministic) attempt {attempt} added premise(s) {', '.join(unsupported[:8])} that the rejection of attempt {after} for "
+                                 f"an unasserted figure does not support: the source evidence asserts only {evidence}. A retry may add only what the source "
+                                 "asserts; a verdict earned with any other premise is not the claim's, so neither encoding is shown as a verdict", 2000),
+                alternatives=[truncate(f"attempt {last_attempt}: {old_label}", 200), truncate(f"attempt {attempt}: {new_label}", 200)],
+            )
+            return record, flag
+        return record, None
 
     # ----------------------------------------------------------------- private
 
@@ -355,6 +524,8 @@ class Translator:
         report: SpecialistReport,
         profile: SubjectProfile,
         attempt: int,
+        task: Optional[TaskRecord] = None,
+        sources: Optional[list[SourceText]] = None,
     ) -> _Accepted:
         """Parse, validate, policy-check and ground one provider output."""
         tag = f"attempt {attempt}"
@@ -415,7 +586,9 @@ class Translator:
                 retryable=True,
             )
 
-        grounded, checks = check_problem_grounding(problem, report.supplied_texts)
+        grounded, checks = check_problem_grounding(problem, report.supplied_texts, task=task)
+        if sources is None:
+            sources = source_texts(claim, [c for c in report.claims if c.claim_id in set(claim.supporting_claim_ids) - {claim.claim_id}], report, task)
 
         try:
             interpretation = Interpretation.model_validate(obj["interpretation"])
@@ -434,34 +607,84 @@ class Translator:
             notes.append(
                 f"{len(failed)} grounding check(s) failed: " + ", ".join(sorted({c.target_id for c in failed}))
             )
-        notes += self._stated_figures(grounded, tag, interpretation)
+        # Coverage (step 4b): whether a source asserts what an under-determined shape leaves open, decided from the sources
+        # and handed to the engine as an application record on the symbols involved, so the engine's E110/E111 (no
+        # verdict) or W110/W111 (advisory) is this decision.
+        coverage = self._coverage(grounded, sources)
+        grounded, evidence_checks = apply_coverage_evidence(grounded, coverage)
+        checks = checks + evidence_checks
+        notes += self._stated_figures(grounded, tag, interpretation, coverage, checks)
         notes += label_beyond_expression(grounded)
-        self._circularity(grounded, tag)
-        self._stated_precision(grounded, tag)
+        self._circularity(grounded, tag, checks)
+        readings = read_sites(grounded, sources)
+        decision = decide_precision(grounded, readings, self.config, tag)
+        if decision.reject is not None:
+            reason, diagnostic = decision.reject
+            raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [diagnostic], retryable=True, reason=reason, problem=grounded,
+                            coverage=coverage, readings=decision.readings, checks=checks)
+        if decision.ambiguity is not None:
+            interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, decision.ambiguity]})
+            notes.append(truncate(f"stated precision unresolved: {decision.ambiguity.message}", _MAX_DIAGNOSTIC_CHARS * 2))
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")
-        return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes)
+        return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes,
+                         readings=decision.readings, coverage=coverage, support=grounding_support(checks))
 
-    def _stated_figures(self, problem: Problem, tag: str, interpretation: Optional[Interpretation] = None) -> list[str]:
-        """A premise that only defines an atom by a comparison of a figure no other premise mentions asserts nothing.
-        When the conclusion fails only on such a figure (the engine's ``E110``: COUNTEREXAMPLE as encoded, ENTAILED once
-        the defined atoms are asserted), the output is rejected as INVALID_FORMALIZATION with the diagnostic, which is
-        fed back once, so a counterexample that merely sets the stated figure to another value is never a verdict
-        (ambiguous or not). Otherwise each unasserted definition is recorded as a note: the verdict does not rest on it.
-        An ambiguity flag that says a figure "is encoded" (a literal equality) while the premise stating it only defines
-        it is named in the note too: the flag does not match the IR."""
+    @staticmethod
+    def _coverage(problem: Problem, sources: list[SourceText]) -> list[CoverageNote]:
+        """Coverage notes for the two under-determined shapes (see :mod:`.coverage`): every unasserted figure definition
+        and the free conclusion symbols, each against every source (the claim, its supporting claims, the supplied texts,
+        the task record)."""
+        defs = unasserted_figure_definitions(problem)
+        coverage = assess_definitions(problem, defs, sources) if defs else []
+        unconstrained = assess_unconstrained(problem, sources)
+        if unconstrained is not None:
+            coverage.append(unconstrained)
+        return coverage
+
+    def _stated_figures(self, problem: Problem, tag: str, interpretation: Optional[Interpretation] = None,
+                        coverage: Sequence[CoverageNote] = (), checks: Optional[list[GroundingCheck]] = None) -> list[str]:
+        """A premise that only defines an atom by a comparison of a figure no premise mentions asserts nothing. The coverage
+        notes say whether a source ASSERTS such a figure, and :func:`.coverage.apply_coverage_evidence` has handed that
+        decision to the engine. When the conclusion fails only on such a figure and a source asserts it, the engine reports
+        ``E110`` and the output is rejected as INVALID_FORMALIZATION with the source evidence, fed back once: the
+        translation omitted what the source states. Without such evidence the definition may be the question's own (a
+        definition, a supposition): the engine reports the advisory ``W110``, the counterexample stands, and the note is
+        an advisory coverage warning. A translator is never told to add a premise because adding it would produce
+        entailment. When neither code is reported the engine's verdict does not turn on the unasserted definitions, and
+        they are recorded as a note; an ambiguity flag that says a figure "is encoded" (a literal equality) while the
+        premise stating it only defines it is named too: the flag does not match the IR."""
         defs = unasserted_figure_definitions(problem)
         if not defs:
             return []
+        notes: list[str] = []
+        named_coverage = False
         if problem.query == "entailment" and problem.conclusion is not None:
             probe = engine_verify(problem, self.config)
-            diag = next((d for d in probe.diagnostics if d.code == DiagnosticCode.UNASSERTED_FIGURE.value), None)
+            by_code = {d.code: d for d in probe.diagnostics}
+            model = ", ".join(f"{a.symbol}={a.value}" for a in (probe.counterexample.assignments if probe.counterexample else [])[:8])
+            diag = by_code.get(DiagnosticCode.UNASSERTED_FIGURE.value)
             if diag is not None:
-                raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {diag.code}: {truncate(diag.message, _MAX_DIAGNOSTIC_CHARS * 3)}" + (f" at {diag.path}" if diag.path else "")], retryable=True)
-        named = ", ".join(f"{d.premise_id} ({d.atom} over {', '.join(d.figures)})" for d in defs[:8]) + (f" and {len(defs) - 8} more" if len(defs) > 8 else "")
-        notes = [truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
-                          "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2)]
+                asserted = [n for n in coverage if n.kind == "unasserted_definition" and n.source_asserted]
+                evidence = "; ".join(e for n in asserted for e in n.evidence[:2]) or truncate(diag.message, _MAX_DIAGNOSTIC_CHARS)
+                named = ", ".join(f"{n.assertion_ids[0]} ({', '.join(n.symbols)})" for n in asserted[:6]) or (diag.path or "the definition")
+                raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [truncate(
+                    f"{tag}: {DiagnosticCode.UNASSERTED_FIGURE.value}: unasserted figure: premise(s) {named} define an atom by a comparison of a figure "
+                    f"that no premise asserts, and the counterexample only reassigns it ({model}); the source asserts that figure: {evidence}. Encode "
+                    "what the source states (the stated figure, or the atom, asserted as a premise grounded in that source). Add nothing the source "
+                    "does not state", _MAX_DIAGNOSTIC_CHARS * 3)], retryable=True, reason="unasserted_figure", problem=problem, coverage=list(coverage),
+                    checks=checks)
+            if DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value in by_code:
+                named_coverage = True
+                notes.append(truncate(f"coverage (advisory, {DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value}): the counterexample ({model}) only reassigns "
+                                      "a figure that premise(s) " + ", ".join(n.assertion_ids[0] for n in coverage if n.kind == "unasserted_definition")
+                                      + " define but no premise asserts; no source sentence asserts it, so the counterexample stands as the verdict on the "
+                                      "encoding and rests on that open figure (a definition or supposition the question leaves open)", _MAX_DIAGNOSTIC_CHARS * 2))
+        if not named_coverage:
+            named = ", ".join(f"{d.premise_id} ({d.atom} over {', '.join(d.figures)})" for d in defs[:8]) + (f" and {len(defs) - 8} more" if len(defs) > 8 else "")
+            notes.append(truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
+                                  "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2))
         flags = [f for f in (interpretation.ambiguity_flags if interpretation is not None else ()) if _ENCODED_CLAIM_RE.search(f.message)]
         if flags:
             notes.append(truncate(f"ambiguity flag(s) {sorted({f.code for f in flags})} say a stated figure is encoded (a literal equality), but premise(s) "
@@ -469,7 +692,7 @@ class Translator:
         return notes
 
     @staticmethod
-    def _circularity(problem: Problem, tag: str) -> None:
+    def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None) -> None:
         """Reject a problem whose conclusion (or each of its conjuncts) is asserted by premises the writer supplies itself:
         the solver would prove the claim from the claim (the engine's ``E112``)."""
         if problem.query != "entailment" or problem.conclusion is None:
@@ -480,29 +703,10 @@ class Translator:
             return
         raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
             f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {', '.join(restating[:8])} restate the conclusion "
-            "(it, or each of its conjuncts) with no grounding of their own (assumption, specialist_inference, general_knowledge or an "
-            "unchecked arithmetic_fact), so the claim would be proved from itself; encode what the claim rests on (its evidence and its "
-            "stated links), or return problem null when it states a bare fact with no relation to check"], retryable=True)
-
-    def _stated_precision(self, problem: Problem, tag: str) -> None:
-        """Reject a problem that fails only because rounded figures were encoded as exact equalities: INCONSISTENT_PREMISES
-        or a COUNTEREXAMPLE as encoded, ENTAILED (or CONSISTENT) once every equality with a literal written to n decimal
-        places is widened to half a unit of its last place."""
-        widened, rounded = widen_rounded_literals(problem)
-        if widened is None or problem.query not in ("entailment", "consistency"):
-            return
-        probe = engine_verify(problem, self.config)
-        if probe.status not in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.COUNTEREXAMPLE):
-            return
-        again = engine_verify(widened, self.config)
-        good = VerificationStatus.ENTAILED if problem.query == "entailment" else VerificationStatus.CONSISTENT
-        if again.status is not good:
-            return
-        shown = ", ".join(rounded[:8]) + (f" and {len(rounded) - 8} more" if len(rounded) > 8 else "")
-        raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
-            f"{tag}: stated precision: the problem is {probe.status.value} as encoded, but {good.value} once each figure written to n "
-            f"decimal places ({shown}) is read to half a unit of its last place: the rounded figures were encoded as exact equalities; "
-            "encode each at its stated precision (a 'ge' and an 'lt' bound) and keep 'eq' for exact values"], retryable=True)
+            "(it, or each of its conjuncts) with no grounding of their own (assumption, specialist_inference, general_knowledge, an "
+            "arithmetic_fact no supplied text or task record validates, or a grounding a check refuted), so the claim would be proved from itself; "
+            "encode what the claim rests on (its evidence and its stated links), or return problem null when it states a bare fact with no "
+            "relation to check"], retryable=True, reason="circular", problem=problem, checks=checks)
 
     def _result(
         self,
@@ -515,6 +719,11 @@ class Translator:
         grounding_checks: Optional[list[GroundingCheck]] = None,
         provider: Optional[ProviderInfo] = None,
         diagnostics: Optional[list[str]] = None,
+        task: Optional[TaskRecord] = None,
+        figure_readings: Optional[list[FigureReading]] = None,
+        repairs: Optional[list[RepairRecord]] = None,
+        coverage: Optional[list[CoverageNote]] = None,
+        grounding_support: Optional[list[GroundingSupport]] = None,
     ) -> TranslationResult:
         return TranslationResult(
             translation_id=new_id("tr"),
@@ -532,6 +741,11 @@ class Translator:
             policy_version=self.policy_version,
             diagnostics=list(diagnostics or []),
             created_at=utc_now_rfc3339(),
+            grounding_support=list(grounding_support or []),
+            figure_readings=list(figure_readings or []),
+            repairs=list(repairs or []),
+            coverage=list(coverage or []),
+            task_sha256=task.text_sha256 if task is not None else None,
         )
 
     @staticmethod

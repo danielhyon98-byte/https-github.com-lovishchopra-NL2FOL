@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.translate import SemanticReviewer, Translator, TranslationStatus
+from epinoic_logic.translate import SemanticReviewer, Translator, TranslationStatus, prompts
 from epinoic_logic.translate.providers import FixtureReviewProvider, FixtureTranslationProvider
 from epinoic_logic.translate.providers.rendering import render_review_user_prompt
 from epinoic_logic.translate.review import parse_review_output
@@ -24,7 +24,8 @@ def test_faithful_review(translated):
     review = SemanticReviewer(provider).review(claim, translation)
     assert review.verdict == "faithful" and review.issues == [] and review.advisory_only is True
     assert review.translation_id == translation.translation_id and review.review_id.startswith("rv-")
-    assert review.reviewer.provider_name == "fixture" and review.reviewer.prompt_version == "review_v1"
+    # rewritten (12 Oct 2026 review fixes): the review prompt in use is review_v2; same rule
+    assert review.reviewer.provider_name == "fixture" and review.reviewer.prompt_version == prompts.REVIEW_PROMPT_VERSION == "review_v2"
     assert len(provider.calls) == 1 and provider.calls[0].problem == translation.problem
     assert "<<<DATA interpretation>>>" in render_review_user_prompt(provider.calls[0])
 

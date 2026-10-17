@@ -12,7 +12,12 @@ exactly the kind of silent error this engine exists to expose.
 
 Every premise is asserted under its own tracking literal so that unsat cores can
 be reported as premise ids: for ENTAILED these are the premises the proof relied
-on; for INCONSISTENT_PREMISES they are the conflicting set.
+on; for INCONSISTENT_PREMISES they are the conflicting set. The core is ALWAYS
+extracted (the tracking literals are passed as assumptions, so Z3 has it at no extra
+cost): the dependency lists, the vacuity check and the circularity check are policy
+evidence that rest on it, and ``SolverConfig.produce_unsat_core`` only decides whether
+the runner serialises the raw core record. "Not computed" can never read as "no
+dependencies".
 
 Resource bounds: ``SolverConfig.timeout_ms`` is applied to each solver call, so an
 entailment run may take up to twice the timeout. ``rlimit`` gives a deterministic
@@ -199,7 +204,7 @@ def _check_premises(compiled: Compiled, config: SolverConfig, stage: str, sat_st
     if result == z3.sat:
         return ProcedureOutcome(status=sat_status, model=extract_model(compiled, solver.model(), config.model_completion), timings=timings)
     if result == z3.unsat:
-        return ProcedureOutcome(status=unsat_status, core=_core_ids(solver, tracks) if config.produce_unsat_core else [], timings=timings)
+        return ProcedureOutcome(status=unsat_status, core=_core_ids(solver, tracks), timings=timings)
     status, reason, memout = _classify_unknown(solver)
     return ProcedureOutcome(status=status, reason_unknown=reason, timings=timings, memout=memout)
 
@@ -237,7 +242,7 @@ def run_entailment(compiled: Compiled, config: SolverConfig) -> ProcedureOutcome
     tracks = _tracked_assertions(solver, compiled, negate_conclusion=True)
     result = _timed_check(solver, tracks, "entailment", timings)
     if result == z3.unsat:
-        core = _core_ids(solver, tracks) if config.produce_unsat_core else []
+        core = _core_ids(solver, tracks)
         return ProcedureOutcome(
             status=VerificationStatus.ENTAILED,
             core=[pid for pid in core if pid != NEGATED_CONCLUSION_MARKER],

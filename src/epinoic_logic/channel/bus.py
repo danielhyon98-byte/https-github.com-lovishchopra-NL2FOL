@@ -48,6 +48,7 @@ coverage words, an echo exemption for an answer that computes, and the word-coun
 """
 from __future__ import annotations
 
+import inspect
 import re
 import time
 import uuid
@@ -69,13 +70,26 @@ from ..integrity.ledger import check_synthesis_ledger, light_stem
 from ..ir.canonical import sha256_hex
 from ..ir.schema import Assertion, Problem
 from ..translate.common import truncate
-from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TranslationStatus, sha256_text
+from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TaskRecord, TranslationStatus, sha256_text
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
 from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
 
-VerifyClaimFn = Callable[[ClaimRecord, SpecialistReport], Optional[ClaimVerificationOutcome]]
+#: The injected claim verifier: ``fn(claim, report)``. A verifier that also declares a ``task`` parameter (or ``**kwargs``)
+#: is called ``fn(claim, report, task=<TaskRecord>)`` with the task record of the request the report answers (the router's
+#: request text, an application-created record: ``translate.contracts.TaskRecord``), so a premise that claims the task's
+#: authority can be validated against the task's own wording and a fidelity reviewer is shown the original task.
+VerifyClaimFn = Callable[..., Optional[ClaimVerificationOutcome]]
+
+
+def _accepts_task(fn) -> bool:
+    """Whether the injected verifier declares a ``task`` parameter (or ``**kwargs``): only then is the task record passed."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == "task" and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) or p.kind is p.VAR_KEYWORD for p in params)
 #: Given a synthesized claim and the formalized problems of its cited sources, propose the
 #: formal conclusion to test (an Assertion over the sources' shared glossary), or None.
 FormalizeSynthesisFn = Callable[[SynthesizedClaim, list[Problem]], Optional[Assertion]]
@@ -918,7 +932,7 @@ class TranslatorChannel:
         self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(report, findings), None, **rid)
         # An echo of the request answers nothing: its outcomes are delivered for the record but never pooled, so its
         # formalizations cannot displace the agent's genuine claims under the same ids.
-        outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None), [], **rid)
+        outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None, task=self._task_record(req)), [], **rid)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
@@ -1804,16 +1818,33 @@ class TranslatorChannel:
             return None
         return IntegrityFinding(code="INT-STALE-011", severity="error", message=f"translation outcome for claim {claim.claim_id} does not bind to the claim as transmitted ({'; '.join(why)}); it is stale and is neither delivered nor pooled", claim_ids=[claim.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id])
 
-    def _verify_claims(self, report: SpecialistReport, findings: list[IntegrityFinding], *, pool: bool = True) -> list[ClaimVerificationOutcome]:
+    @staticmethod
+    def _task_record(req: Optional[TaskRequest]) -> Optional[TaskRecord]:
+        """The task record of the request a report answers (its request text as the router issued it), or None."""
+        if req is None or not req.user_input:
+            return None
+        try:
+            return TaskRecord.of(req.task_id, req.request_id, req.user_input)
+        except ValidationError:
+            return None
+
+    def _verify_claims(self, report: SpecialistReport, findings: list[IntegrityFinding], *, pool: bool = True,
+                       task: Optional[TaskRecord] = None) -> list[ClaimVerificationOutcome]:
         """Verify every claim through the injected translator; with ``pool`` the formalizations join the cross-agent
-        pool (an echo of the request is verified for the record but never pooled)."""
+        pool (an echo of the request is verified for the record but never pooled). A verifier that declares a ``task``
+        parameter receives ``task`` (the record of the request the report answers) for each claim of that task and
+        request; any other verifier is called as ``fn(claim, report)``."""
         outcomes: list[ClaimVerificationOutcome] = []
         if self.verify_claim_fn is None:
             return outcomes
+        with_task = task is not None and _accepts_task(self.verify_claim_fn)
         contributed = 0
         for c in report.claims:
             try:
-                out = self.verify_claim_fn(c, report)
+                if with_task and c.task_id == task.task_id and c.request_id == task.request_id:  # type: ignore[union-attr]
+                    out = self.verify_claim_fn(c, report, task=task)
+                else:
+                    out = self.verify_claim_fn(c, report)
             except Exception as exc:  # the channel never drops a message because verification crashed
                 findings.append(IntegrityFinding(code="INT-REQ-006", severity="warning", message=f"claim verification failed internally for {c.claim_id}: {type(exc).__name__}", claim_ids=[c.claim_id]))
                 continue

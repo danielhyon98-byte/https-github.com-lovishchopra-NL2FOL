@@ -1,3 +1,10 @@
+# Resume (updated 2026-10-17): read KNOWLEDGE/ first
+
+The compact knowledge files are in tools.tar.xz under KNOWLEDGE/ (00-READ-FIRST, 01-STATE, 02-PRIORITIES, 03-RULES,
+04-PROCEDURES). They say where every task stands, what to do next in order, Daniel's rules and how the machinery works.
+The checkpoint is refreshed every hour; work in progress captured mid-edit is a snapshot, so re-run a step whose agent was
+running at checkpoint time. The restore steps below are unchanged.
+
 # Resume from the 2026-10-12 checkpoint
 
 This folder is everything needed to continue in a fresh container. It is pushed to the backup branch
@@ -46,6 +53,10 @@ sha256sum -c SHA256SUMS
    without them it is re-validated by a fresh workflow run (audit + eval + commit agents) before upload.
 8. Triggers: re-enable the hourly (:58) and quarter-hour (:13, :28, :43) routines if they were paused.
 9. Check: `bash $S/presim.sh` (simulates any unpublished candidate), `python3 -I $S/status.py`.
+
+## 0a. UPDATE 16 Oct 20:0x UTC: the 8 preserve/2026-10-16/* branches ARE uploaded (pushed through the old address, which GitHub
+redirects to Epinoic-AI/Epinoic-Logic-Translator; read back 8/8 SHA and tree). verified-updates is now 90e3587 (hourly note;
+backup/verified-updates-previous = a91a4f9). A new session is only needed if that address stops working.
 
 ## 0. 16 Oct 2026: move to a NEW SESSION on the canonical repository (read this first)
 

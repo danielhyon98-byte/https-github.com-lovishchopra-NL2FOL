@@ -24,6 +24,7 @@ from epinoic_logic.engine import SolverConfig, verify
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
 
+from ..timing import measure
 from .r6_texts import HI_P5, HI_P5_Q, HI_T11, HI_T11_Q, HI_T12, HI_T12_INCLUDING, HI_T12_Q
 
 KEY = b"branches-r6-regression-key-012345"
@@ -318,9 +319,14 @@ def test_formal_checks_are_capped_and_the_rest_reported():
     assert len(CorePack().formal_checks(rep)) == MAX_FORMAL_CHECKS
     limit = [f for f in CorePack().checks(rep) if f.code == "CORE-CHR-001" and "limit" in f.message]
     assert len(limit) == 1 and "40 dated relation(s) were not checked" in limit[0].message and limit[0].claim_ids
-    started = time.perf_counter()
-    _reply, rc = through_hub(text, "Outline, with dated evidence, the pace of decolonisation.")
-    assert time.perf_counter() - started < 10 and len(rc.formal_checks) == MAX_FORMAL_CHECKS
+    # the 10 s bound, measured as in tests/timing.py: the median of five runs, each a first crossing (caches emptied, so
+    # the parse and checks above do not speed it up) with the earlier heap frozen. The parse and core-pack checks of the
+    # same text above are its warm-up; a full unmeasured crossing would add about 3 s, and a first run slowed by anything
+    # still cold is one of five, which the median absorbs.
+    timing = measure(lambda: through_hub(text, "Outline, with dated evidence, the pace of decolonisation."), bound=10, label="128 formal checks capped",
+                     warmup=False)
+    assert timing.holds, timing
+    assert all(len(rc.formal_checks) == MAX_FORMAL_CHECKS for _reply, rc in timing.results)
 
 
 # ------------------------------------------------------------------ support cycles on every branch; a failing pack never discards the rest

@@ -77,7 +77,7 @@ emits from `run_integrity_checks`.
 | INT-STALE-002 | error | result unsigned or signature invalid |
 | INT-STALE-003 | error | result ids do not match the claim being decided |
 | INT-STALE-004 | error | stored result has no current (valid) formalization: unverifiable evidence |
-| INT-STALE-005 | error | result produced under a different solver configuration or component versions |
+| INT-STALE-005 | error | result produced under a different solver configuration, component versions or build, schema and policy identity, or validation limits other than the policy the receiver requires (`check_result_binding(..., limits=...)`, default the engine's default limits; a joint result is checked against `JOINT_LIMITS`) |
 | INT-STALE-006 | error | signature not verified: no verification key configured |
 | INT-STALE-007 | error | result binding internally inconsistent (binding/config/versions digests) |
 | INT-STALE-008 | error | one result id shared by several stored results |
@@ -151,7 +151,10 @@ does the mapping; the old one-argument form is a deprecated fallback.
 specialist's asserted point is something others may contradict). It is given a forced
 grounding of kind `specialist_inference`, so it is never silent evidence: a synthesis that
 rests on it is INT-SYNTH-008 unless `prior_results` holds an ENTAILED result for that
-exact source formalization.
+exact source formalization that is current-policy evidence: internally consistent, issued
+under this engine's versions, build, schema and policy identity and default limits (a result
+of an earlier release must be verified again), with no diagnostic that withholds the verdict,
+and, when the check holds the key, carrying a signature that verifies.
 
 **Reliance.** When a proof uses ungrounded premises, the entailment is re-run without
 every ungrounded premise. If the claim still follows, no finding. Otherwise it is re-run

@@ -1,10 +1,19 @@
-* claude/z3-verification-engine-plan-nk3luq 361cc4e [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 22:58 UTC
++ argdiag-a                                 be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
++ argdiag-b                                 be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
++ argdiag-base                              be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
++ argdiag-c                                 48255f9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c) Phase 0: merge review-stem-channel and fix the coverage interaction at its cause
++ argdiag-d                                 be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
++ argdiag-e                                 be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
+* claude/z3-verification-engine-plan-nk3luq d5ca8ef [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 04:00 UTC
++ e2e-fix-channel                           0d28eba (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel) Fix the channel and service bugs of the end-to-end simulation
++ e2e-fix-detect                            dae3265 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect) Name the run1 STEM and quotation injections the arena missed
 + import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
++ integ-prebuild                            d5ca8ef (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Testing README: progress, 04:00 UTC
 + overseer-build                            ef4ba9f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer: circular-translation severity, adjudicated genuine faults and STEM-ready checks
   preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
   preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
   preserve/2026-10-16/review-engine         118bc0d Preservation snapshot (UNVERIFIED, not a release): review-engine fix branch
-  preserve/2026-10-16/review-fixes-wip      e2dce37 Preservation snapshot (UNVERIFIED, work in progress): fixes for the nine external-review findings
+  preserve/2026-10-16/review-fixes-wip      1150f4a Preservation snapshot (UNVERIFIED, work in progress): review fixes after the second repair
   preserve/2026-10-16/review-metrics        d3a148e Preservation snapshot (UNVERIFIED, not a release): review-metrics fix branch
   preserve/2026-10-16/review-stem-channel   640abcc Preservation snapshot (UNVERIFIED, not a release): review-stem-channel (STEM review fixes)
   preserve/2026-10-16/review-stem-checks    18d7202 Preservation snapshot (UNVERIFIED, not a release): review-stem-checks (STEM review fixes)
