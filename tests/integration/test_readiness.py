@@ -131,9 +131,11 @@ def _check_module():
     return mod
 
 
-def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_own_process():
+def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_own_process(monkeypatch):
     """check.py --start-service with EPINOIC_FLASH_ROUTER=epinoic_flash_router.port: the service's import path holds the
-    kit's src/ and then the sub-project's src/, so the router's own process (which receives that path) imports it."""
+    kit's src/ and then the sub-project's src/, so the router's own process (which receives that path) imports it.
+    No EPINOIC_ variable of the caller reaches the service (check.py _py drops them): a stray one is planted to show it."""
+    monkeypatch.setenv("EPINOIC_STRAY_CALLER_VARIABLE", "must-not-reach-the-service")
     env = _check_module().service_env(ROOT)
     assert env["PYTHONPATH"].split(os.pathsep) == [str(ROOT / "src"), str(ROOT / "flash-router" / "src")]
     code = ("from epinoic_logic.integration import router_port as R\n"
@@ -141,7 +143,12 @@ def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_
             "print(a.attached, a.refusal, a.hello.router.name if a.hello else None)")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, env=env, cwd=str(ROOT))
     assert out.stdout.split() == ["True", "None", "epinoic-flash-router"], out.stdout + out.stderr
-    assert not any(k.startswith("EPINOIC_") and k != "EPINOIC_FLASH_ROUTER" and k not in env for k in os.environ)
+    # The service sees exactly the kit's own EPINOIC_ variables: nothing of the caller's leaks in (whatever the caller has
+    # set, e.g. EPINOIC_ARENA_ROUNDS in a simulation run), and none of the kit's is missing.
+    assert "EPINOIC_STRAY_CALLER_VARIABLE" not in env
+    assert {k for k in env if k.startswith("EPINOIC_")} == {
+        "EPINOIC_PROFILE", "EPINOIC_SERVICE_ENV", "EPINOIC_SERVICE_TOKEN", "EPINOIC_SIGNING_KEY", "EPINOIC_VERDICT_KEY",
+        "EPINOIC_OVERSEER_SECRET", "EPINOIC_TRANSLATION_PROVIDER", "EPINOIC_FIXTURE_DIR", "EPINOIC_FLASH_ROUTER"}
 
 
 def test_the_router_check_runs_a_router_over_the_vectors_through_the_admission(tmp_path, monkeypatch):
