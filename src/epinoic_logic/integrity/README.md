@@ -191,6 +191,20 @@ message id is compared by `envelope_digest` (header and payload hash), so a chan
 is INT-ENV-002, not a replay. `bind_payload(msg, model)` compares the header with the
 parsed contract inside.
 
+**Transformation vocabulary.** `SynthesizedClaim.transformation` and `LedgerEntry.transformation` are a closed set,
+documented with what each value records and how the ledger reads it in `contracts.TRANSFORMATION_MEANINGS`: `carried`
+(one source, its text unchanged), `paraphrased`, `merged`, `narrowed`, `generalized`, `new` (content no source asserts,
+always INT-LEDGER-005) and `dropped` (ledger entries only). A combinator gives a synthesized claim one of the first five
+(`contracts.SYNTHESIZED_CLAIM_TRANSFORMATIONS`). The value selects the ledger's rules (INT-LEDGER-010 for `carried`,
+INT-LEDGER-024 for the equivalence and combining labels, INT-LEDGER-011 and INT-SYNTH-012 for the content-changing
+ones), so it is a category and never a description of the edit: the contract does not accept free text, aliases or
+other spellings, and the channel refuses such a synthesis with INT-REQ-009 and INT-SYNTH-014 naming the claims
+(`channel/README.md`). The evidence for keeping the set closed rather than widening it: in the recorded arena rounds r1
+to r7, whose combinator agents were told the values, all 202 synthesized claims carry one of them; in the end-to-end
+simulation of 16 October 2026, whose combinator instructions named the field without its values, all 62 carry free
+text. The values are taught by the instructions (`scripts/arena/list_claims.py --json` prints them from this contract
+as `synthesis_format`), not missing from the contract.
+
 **Plan per agent.** `WorkPlan.agent_subjects` and `WorkPlan.agent_task_types` name a selected agent's own
 subject and task type when they differ from the plan's; both must name selected agents, and a plan without
 them keeps the digest it always had (`plan_digest` omits empty mappings).

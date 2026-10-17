@@ -510,8 +510,10 @@ item("math-complex-1", MATH_AA, "complex numbers", "unicode", "Solve x² + 4 = 0
 item("cs-complexity-1", CS, "algorithms", "unicode", "How many comparisons does one pass of bubble sort make on 8 items, and what is its time complexity?",
      "For n = 8 items each pass makes n − 1 = 8 − 1 = 7 comparisons, and the running time is T(n) = O(n²).",
      [eq("e", "8 − 1 = 7", lambda v: F(7), "7", exact=True)], undecided=[("T(n) = O(n²)", ("ST-UNDEC-001",), "asymptotic")], auto=("slip",))
+# 16^{3/4} itself is one value since the e2e run1 detection fixes (a closed base, a closed fractional exponent: a RealPower the engine
+# decides); the link to the fourth root stays undecided, now for the root alone
 item("math-fracpow-1", MATH_AA, "indices", "latex", "Evaluate 16^(3/4) without a calculator.", "$16^{3/4} = (\\sqrt[4]{16})^3 = 2^3 = 8$",
-     [eq("e", "2^3 = 8", lambda v: F(8), "8", exact=True)], undecided=[("16^{3/4} = (\\sqrt[4]{16})^3", ("ST-UNDEC-001",), "fractional power")], auto=("slip",))
+     [eq("e", "2^3 = 8", lambda v: F(8), "8", exact=True)], undecided=[("16^{3/4} = (\\sqrt[4]{16})^3", ("ST-UNDEC-001",), "root of index 4")], auto=("slip",))
 
 # a function evaluated at a point, checked against the formula the answer states
 # a function name other than f, g or h is read as a product (C(12) is C × 12): the evaluation is not set against C(x) — a

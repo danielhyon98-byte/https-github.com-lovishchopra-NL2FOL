@@ -166,7 +166,7 @@ from ..markdown import (
     find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
     is_self_certification, mask_json_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
-from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuation, word_count
+from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
@@ -787,13 +787,13 @@ def is_peer_document(doc: SuppliedText) -> bool:
 def _document_names(doc: SuppliedText) -> list[str]:
     """The ways a sentence can name ``doc``: its author (full name and surname), its title
     (up to any parenthesis or comma) and, for a relayed peer report, the specialist's
-    name with the hyphen spelled as a space ("history-specialist" -> "history specialist")."""
+    names (:func:`~epinoic_logic.adapters.sources.specialist_names`: "history-specialist" ->
+    "history specialist", "mathematics-aa-specialist" -> also "mathematics specialist")."""
     names: list[str] = []
     if doc.author:
         author = doc.author.strip()
         names.append(author)
-        if author.endswith("-specialist"):
-            names.append(author.replace("-", " "))
+        names.extend(specialist_names(author))
         parts = author.split()
         if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
             names.append(parts[-1])

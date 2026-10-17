@@ -591,7 +591,10 @@ what a verdict looks like.
   unresolved issue naming the sentence. A paragraph that is nothing but notes or JSON is a
   note paragraph (no material point, no HI-STR findings on it).
 * A quotation is attributed to the supplied text its sentence names (author, surname,
-  title, or a peer specialist by name, through the English parser's `documents_named`)
+  title, or a peer specialist by name, through the English parser's `documents_named`; a
+  specialist is named by its agent id and, for an id with a course or qualifier, by its subject's
+  first word as well, "the Mathematics specialist" for `mathematics-aa-specialist`:
+  `sources.specialist_names`)
   when that text holds the words, else to a text that holds them (the credit is then
   recorded as an assumption and `CORE-SRC-005` names it); a quotation held by no text is
   attributed to the one text the sentence names (so `INT-REQ-003` reports the credit); when the
@@ -669,7 +672,8 @@ problem:
 | `stem_arithmetic` | `stem-eq-N` | written arithmetic `E = S` within the STEM tolerance band | INT-SUBJ-001 (INT-SUBJ-004 after a booklet value or an unknown unit) |
 | `stem_substitution` | `stem-sub-N` | substituted values against their symbols' bindings, or the symbolic side under its bindings | as above |
 | `stem_algebra` | `stem-alg-N` | the step follows from the preceding relation (with bindings, up to 8 stated formulas, guards) | INT-SUBJ-001; INT-SUBJ-004 when the step brings in symbols nothing connects |
-| `stem_solution` | `stem-sol-N` | stated roots satisfy the equation; the full set when it is claimed and the domain is not restricted | INT-SUBJ-001 |
+| `stem_solution` | `stem-sol-N` | stated roots satisfy the equation; the full set when it is claimed and the domain is not restricted; a root may be a decimal the answer states in prose for the quantity it named by the symbol (membership only, within the '=' band) | INT-SUBJ-001 |
+| `stem_model` | `stem-mod-N` | an exponential model of the answer or the request applied at an argument (`P(t + 4) = P₀e^(k(t + 1))` after `P = P₀e^(kt)`) has a solution: Form S over the variables, every power of an exponent in symbols read through positive variables (a letter defined as two models: either), so UNSATISFIABLE proves that no value satisfies it and SATISFIABLE never shows that it holds | INT-SUBJ-001 |
 | `stem_conversion` | `stem-cnv-N` | an explicit unit conversion with exact factors | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |
 | `stem_comparison` | `stem-cmp-N` | a stated order or inequality, or an inequality step | INT-SUBJ-001 |
 | `stem_result` | `stem-res-N` | a prose restatement against the chain's final value | INT-SUBJ-001 (INT-SUBJ-004 with an unknown unit) |

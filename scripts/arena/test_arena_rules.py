@@ -38,6 +38,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_arena as ra  # noqa: E402
 
@@ -653,3 +655,106 @@ def test_fixtures_under_ids_the_parse_does_not_deliver_are_reported(tmp_path):
     assert genuine["fixtures_matching_no_delivered_claim"] == ["g9.9"]
     assert out["translation_fixtures_matching_no_delivered_claim"] == {"count": 1, "by_file": {f"{TASK}.json": ["g9.9"]}}
     assert f"never served; those claims have no outcome): 1 ({TASK}.json: ['g9.9'])" in (tmp_path / "summary.md").read_text()
+
+
+# --- end-to-end simulation of 16 October 2026 (bug 7): the combinator's malformed output is a receipt, never a crash --
+
+#: Transformations the e2e combinator wrote instead of naming a documented value (run1/syntheses), verbatim.
+E2E_FREE_TEXT = ["Verdict (s1.1) and reason (s1.2) joined with the formula, the sum and the rounding (s3.1 to s3.3); figures verbatim.",
+                 "Ratio (s2.1) joined to its expected counts (s2.2); no figure changed."]
+
+
+def _round_with_synthesis(tmp_path, synthesis_text: str) -> dict:
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "syntheses").mkdir()
+    (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    (tmp_path / "syntheses" / f"{TASK}.json").write_text(synthesis_text)
+    out = ra.run_round(tmp_path)
+    syn = [r for r in out["records"] if r["variant"] == "synthesis"]
+    assert len(syn) == 1 and out["transmissions"] == 1 + len(ra.MUTATIONS) + 1, "the synthesis is one counted transmission"
+    assert "error" not in syn[0] and "trace" not in syn[0], f"the harness raised: {syn[0].get('error')}"
+    return {"out": out, "rec": syn[0], "summary": (tmp_path / "summary.md").read_text()}
+
+
+def test_free_text_transformations_are_a_rejected_synthesis_receipt_not_a_crash(tmp_path):
+    """e2e bug 7: every synthesis whose transformation was free text raised a pydantic ValidationError inside the harness
+    (it built SynthesizedClaim itself), so the hub never saw it and the record carried only the exception. The harness now
+    relays the synthesis as the JSON the router receives: the hub refuses it with a receipt naming the claims, and the
+    record (genuine traffic that was not delivered) is a failure that says why."""
+    bad = {**HISTORY_SYNTHESIS, "claims": [{**c, "transformation": t} for c, t in zip(HISTORY_SYNTHESIS["claims"], E2E_FREE_TEXT)]}
+    got = _round_with_synthesis(tmp_path, json.dumps(bad))
+    s = got["rec"]
+    assert s["status"] == "REJECTED" and s["delivered"] is False and s["functional"] is False
+    assert s["codes"] == ["INT-REQ-009", "INT-SYNTH-014"]
+    named = next(f for f in s["findings"] if f["code"] == "INT-SYNTH-014")
+    assert named["claim_ids"] == ["s0", "s1"] and all(f"transformation free text of {len(t)} characters" in named["message"] for t in E2E_FREE_TEXT)
+    assert s["failure_reasons"][0].startswith("synthesis receipt REJECTED (INT-REQ-009, INT-SYNTH-014): the combinator's synthesis of the delivered reports was not delivered")
+    assert "does not validate against the synthesis contract" in s["failure_reasons"][0]
+    assert s["synthesis_id"] == f"syn-{TASK}" and s["synthesized_claims"] == 2 and s["source_report_ids"] == [f"rep-{TASK}-0"]
+    assert any(x["variant"] == "synthesis" and "INT-SYNTH-014" in x["codes"] for x in got["out"]["genuine_with_errors"])
+    assert f"{TASK}.json [synthesis syn-{TASK}] REJECTED" in got["summary"] and "INT-SYNTH-014" in got["summary"]
+
+
+def test_the_same_synthesis_with_documented_transformations_is_delivered(tmp_path):
+    """Negative control for the test above: only the transformation values differ."""
+    s = _round_with_synthesis(tmp_path, json.dumps(HISTORY_SYNTHESIS))["rec"]
+    assert s["functional"] and s["delivered"] and s["status"] != "REJECTED" and "INT-SYNTH-014" not in s["codes"]
+
+
+@pytest.mark.parametrize("text, why", [
+    ('{"report_id": "rep-hi-x1-0", "claims": [', "a file that is not JSON"),
+    ('["not", "a", "synthesis"]', "a JSON value that is no synthesis object"),
+    (json.dumps({**HISTORY_SYNTHESIS, "claims": ["a sentence, not a claim object"]}), "a claim that is not an object"),
+    (json.dumps({**HISTORY_SYNTHESIS, "claims": [{"source_claim_ids": ["h1.1"], "transformation": "carried"}]}), "a claim with no text"),
+    (json.dumps({**HISTORY_SYNTHESIS, "dropped": [{"reason": "left out"}]}), "a dropped entry with no source claims"),
+    (json.dumps({**HISTORY_SYNTHESIS, "claims": [{**HISTORY_SYNTHESIS["claims"][0], "note": "joined"}]}), "a field the contract does not have"),
+], ids=["not-json", "not-an-object", "claim-not-an-object", "claim-without-text", "dropped-without-sources", "unknown-field"])
+def test_malformed_combinator_output_reaches_the_hub_and_is_refused_with_a_receipt(tmp_path, text, why):
+    s = _round_with_synthesis(tmp_path, text)["rec"]
+    assert s["status"] == "REJECTED" and s["functional"] is False and "INT-REQ-009" in s["codes"], (why, s.get("codes"))
+    assert s["failure_reasons"][0].startswith("synthesis receipt REJECTED (INT-REQ-009"), why
+
+
+def test_a_syntheses_file_that_is_not_json_is_named_on_the_record(tmp_path):
+    s = _round_with_synthesis(tmp_path, "{ this is not JSON")["rec"]
+    assert s["synthesis_unreadable"].startswith("a syntheses file of the group is not JSON") and s["codes"] == ["INT-REQ-009"]
+
+
+def test_group_synthesis_passes_the_combinators_fields_on_as_written():
+    """The harness builds the JSON the router receives and never the contract models: the transformation and certainty are
+    the combinator's (the defaults only when it wrote none), and the hub decides them."""
+    items = [{**HISTORY_ITEM, "_path": Path("specialists") / f"{TASK}.json"}]
+    plan = ra.group_plan(items, TASK)
+    reply = types.SimpleNamespace(payload={"report_id": f"rep-{TASK}-0", "claims": [{"claim_id": "h1.1", "source_refs": []}, {"claim_id": "h1.4", "source_refs": []}]})
+    syn = {"report_id": f"rep-{TASK}-0", "claims": [{"text": "London was large.", "source_claim_ids": ["h1.1"], "transformation": E2E_FREE_TEXT[0], "certainty": "high"},
+                                                     {"text": "Amiens ended the war.", "source_claim_ids": ["h1.4", "zz.9"]}],
+           "dropped": [{"source_claim_ids": ["h1.3"], "reason": "context"}]}
+    got = ra.group_synthesis(items, TASK, {TASK: syn}, {TASK: reply}, plan)
+    assert isinstance(got, dict) and got["synthesis_id"] == f"syn-{TASK}" and got["combinator_agent_id"] == "dummy-combinator"
+    assert got["claims"][0]["transformation"] == E2E_FREE_TEXT[0] and got["claims"][0]["certainty"] == "high"
+    assert got["claims"][1]["transformation"] == "paraphrased" and got["claims"][1]["certainty"] == "established"
+    assert got["claims"][1]["source_claim_ids"] == ["h1.4"], "only the cited ids a delivered report holds, as before"
+    assert got["ledger"] == [{"source_claim_ids": ["h1.3"], "reason": "context", "transformation": "dropped"}]
+    assert got["text_sha256"] == ra.sha256_text(got["text"]) and got["text"] == "London was large. Amiens ended the war."
+
+
+def test_list_claims_prints_the_synthesis_format_from_the_contract(tmp_path):
+    """The combinator's instructions in the arena tooling: list_claims.py, which the combinator runs for every report,
+    prints the transformation values (and what each records) from the synthesis contract, so they cannot drift from what
+    the hub accepts."""
+    import subprocess
+    import epinoic_logic
+    from epinoic_logic.integrity.contracts import SYNTHESIZED_CLAIM_TRANSFORMATIONS, TRANSFORMATION_MEANINGS
+    spec = tmp_path / "specialists" / f"{TASK}.json"
+    spec.parent.mkdir()
+    spec.write_text(json.dumps(HISTORY_ITEM))
+    env = {"PYTHONPATH": str(Path(epinoic_logic.__file__).resolve().parents[1]), "PATH": "/usr/bin:/bin"}
+    script = Path(__file__).resolve().parent / "list_claims.py"
+    out = subprocess.run([sys.executable, str(script), str(spec), "--json"], capture_output=True, text=True, env=env, timeout=120, check=True).stdout
+    fmt = json.loads(out)["synthesis_format"]
+    assert list(fmt["transformation"]) == list(SYNTHESIZED_CLAIM_TRANSFORMATIONS)
+    assert fmt["transformation"] == {v: TRANSFORMATION_MEANINGS[v] for v in SYNTHESIZED_CLAIM_TRANSFORMATIONS}
+    assert fmt["certainty"] == ["established", "probable", "possible"]
+    assert any("never a description of the edit" in r and "INT-SYNTH-014" in r for r in fmt["rules"])
+    text = subprocess.run([sys.executable, str(script), str(spec)], capture_output=True, text=True, env=env, timeout=120, check=True).stdout
+    assert text.rstrip().splitlines()[-1].startswith("synthesis transformation (exactly one of): carried, paraphrased, merged, narrowed, generalized")

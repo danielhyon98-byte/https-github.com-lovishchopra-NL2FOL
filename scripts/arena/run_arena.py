@@ -12,6 +12,13 @@ Inputs (one round directory):
                                (INT-STALE-011). Such a refusal is recorded per claim as STALE_FIXTURE_REFUSED: no verdict, and not an
                                infrastructure error.
   <round>/syntheses/*.json     optional: {report_id, claims:[{text, source_claim_ids, certainty, transformation, evidence_refs?}], dropped:[{source_claim_ids, reason}]}
+                               transformation is one of carried, paraphrased, merged, narrowed, generalized (integrity.contracts
+                               TRANSFORMATION_MEANINGS says what each records; list_claims.py --json prints them as synthesis_format):
+                               a category, never a description of the edit. The merged synthesis is relayed as the JSON the router
+                               receives, so the hub's contract validation decides it: a value outside the contract (free text in
+                               transformation, say), a malformed claim or a file that is not JSON is a REJECTED receipt (INT-REQ-009,
+                               with INT-SYNTH-014 naming each value outside a closed vocabulary), recorded and counted as a failed
+                               synthesis, never an exception that stops the round.
                                A claim's optional evidence_refs ([{document_id, locator?, excerpt?}]) are passed on as written. A claim
                                without them keeps the references of its cited material source claims whose excerpts its text
                                reproduces word for word (``evidence_refs_copied`` on the synthesis record), so a synthesis that quotes
@@ -77,7 +84,10 @@ sciences, mathematics or computer_science branch): stem_arithmetic_slip (one sta
 INT-SUBJ-001), stem_wrong_unit (a stated result's unit replaced by one of another dimension; ST-DIM-001 or ST-DIM-002),
 stem_substitution (a value the request gives, substituted into a calculation, written as another value; INT-SUBJ-001).
 Each is skipped when the answer has no site for it. The injection is named when a finding of its code names a claim
-that carries the mutated text. Every other subject's round is unchanged.
+that carries the mutated text. An injection no finding names is a miss, whatever the reason, and is never excused: when
+the receipt itself names the injected claim of a STEM mutation undecided (an ST-UNDEC finding: a relation outside the
+encodings, a symbol with no stated value), the failure reason quotes that finding, so a miss that comes from a limit of
+the encodings is shown as one, and it stays a failure of the transport measure. Every other subject's round is unchanged.
 
 Functional-rate definition (deterministic; this is the transport measure): a transmission counts as functional when the
 hub produced a receipt without raising, the receipt status is consistent with the input
@@ -170,7 +180,7 @@ from epinoic_logic.channel import TransmissionStatus
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
-from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
+from epinoic_logic.integrity import AgentRole, WorkPlan
 from epinoic_logic.translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.outcome import verify_claim
@@ -323,6 +333,14 @@ def stem_variant(text: str, question: str, kind: str) -> tuple[str, str]:
     """``(mutated_text, expected codes joined by '|')`` of a STEM mutation, or ``(text, 'SKIP')`` when the answer has no site."""
     inj = mutate_stem(text, question, kind)
     return (text, "SKIP") if inj is None else (inj.text, "|".join(inj.expected))
+
+
+def undecided_on(rc, claim_ids) -> list[str]:
+    """The receipt's own findings that name one of ``claim_ids`` undecided (ST-UNDEC-*: a relation outside the encodings,
+    a symbol with no stated value), each as ``code ('message')``. Quoted in the failure reason of an injection no finding
+    named, so a miss that comes from a limit of the encodings reads as one; it never changes whether the record counts."""
+    wanted = set(claim_ids)
+    return sorted({f"{sf.code} ('{sf.message[:160]}')" for sf in rc.structural_findings if sf.code.startswith("ST-UNDEC") and set(sf.claim_ids) & wanted})
 
 
 def injection(text: str, kind: str, texts=(), question: str = "") -> Injection:
@@ -571,9 +589,43 @@ def reproduced_evidence_refs(text: str, cited: list[str], source_claims: dict[st
     return out
 
 
+class UnreadableSynthesis(str):
+    """The text of a round's syntheses file that is not JSON: the combinator's output as the router would receive it.
+    The hub refuses it (INT-REQ-009: a payload that is neither a report nor a synthesis); the harness never raises on it."""
+
+
+def load_syntheses(syn_dir: Path) -> dict[str, object]:
+    """Every syntheses file of the round by file stem: its JSON value as written (a mapping, or whatever else the
+    combinator wrote), or an ``UnreadableSynthesis`` holding the text when it is not JSON, so one malformed file never
+    stops the round; the hub decides it when the group's synthesis is relayed (synthesis_record)."""
+    out: dict[str, object] = {}
+    if not syn_dir.exists():
+        return out
+    for p in sorted(syn_dir.glob("*.json")):
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        try:
+            out[p.stem] = json.loads(raw)
+        except ValueError:
+            out[p.stem] = UnreadableSynthesis(raw)
+    return out
+
+
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else [] if value is None else [value]
+
+
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None):
-    """The dummy combinator's synthesis for a hub task: the per-report syntheses of every delivered member of the
-    group, merged, citing each delivered report (a peer exchange is one task with two reports).
+    """The dummy combinator's synthesis for a hub task, as the JSON the router receives (a mapping of the synthesis/1.0
+    shape): the per-report syntheses of every delivered member of the group, merged, citing each delivered report (a
+    peer exchange is one task with two reports). The harness never builds the contract models from what the combinator
+    wrote: every field is passed on as written (the transformation, certainty and evidence references included) and
+    the hub's own contract validation decides it when the mapping is relayed, so a malformed synthesis (a transformation
+    written as free text, a claim that is not an object, a file that is not JSON) is a REJECTED receipt with its codes
+    (INT-REQ-009, and INT-SYNTH-014 for a value outside a closed vocabulary), never an exception. A member's syntheses
+    file that is not JSON (``UnreadableSynthesis``) is what the router would receive for the group: its text is
+    returned as the payload. Synthesized claim ids, the cited ids a delivered report holds and the merged student-facing
+    text are the harness's (the format leaves them to it); a missing certainty or transformation keeps the defaults it
+    always had ("established", "paraphrased").
 
     Evidence references: a synthesized claim of the syntheses format may carry ``evidence_refs`` ([{document_id,
     locator?, excerpt?}]), passed on as written. When it carries none, the claim keeps the references of its cited
@@ -583,31 +635,45 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     members = [it for it in items if group_of(it) == group and it["_path"].stem in delivered and it["_path"].stem in syntheses]
     if not members:
         return None
-    s_claims, ledger, source_ids = [], [], []
+    unreadable = next((syntheses[it["_path"].stem] for it in members if isinstance(syntheses[it["_path"].stem], UnreadableSynthesis)), None)
+    if unreadable is not None:
+        return str(unreadable)
+    s_claims: list = []
+    ledger: list = []
+    source_ids: list[str] = []
     copied: dict[str, list[dict]] = {}
     for it in members:
         tid, syn, reply = it["task_id"], syntheses[it["_path"].stem], delivered[it["_path"].stem]
         by_id = {c["claim_id"]: c for c in reply.payload["claims"]}
         prefix = "" if len(members) == 1 else f"{tid}-"
-        for i, c in enumerate(syn["claims"]):
+        if not isinstance(syn, dict):  # a JSON value that is no synthesis object: carried as one malformed claim, so the hub names it
+            s_claims.append(syn)
+            source_ids.append(reply.payload["report_id"])
+            continue
+        for i, c in enumerate(_as_list(syn.get("claims"))):
+            if not isinstance(c, dict):
+                s_claims.append(c)
+                continue
             sid = f"{prefix}s{i}"
-            cited = [x for x in c.get("source_claim_ids", []) if x in by_id] or c.get("source_claim_ids", [])
-            if "evidence_refs" in c:
-                refs = [dict(r) for r in c["evidence_refs"]]
-            else:
-                found = reproduced_evidence_refs(c["text"], cited, by_id)
-                refs = [{k: r[k] for k in ("document_id", "locator", "excerpt")} for r in found]
+            given = c.get("source_claim_ids", [])
+            cited = ([x for x in given if isinstance(x, str) and x in by_id] or given) if isinstance(given, list) else given
+            claim = {k: v for k, v in c.items() if k not in ("source_claim_ids",)}
+            claim.update(claim_id=sid, source_claim_ids=cited, certainty=c.get("certainty", "established"), transformation=c.get("transformation", "paraphrased"))
+            if "evidence_refs" not in c and isinstance(c.get("text"), str) and isinstance(cited, list):
+                found = reproduced_evidence_refs(c["text"], [x for x in cited if isinstance(x, str)], by_id)
+                claim["evidence_refs"] = [{k: r[k] for k in ("document_id", "locator", "excerpt")} for r in found]
                 if found:
                     copied[sid] = found
-            s_claims.append(SynthesizedClaim(claim_id=sid, text=c["text"], certainty=c.get("certainty", "established"),
-                                             source_claim_ids=cited, transformation=c.get("transformation", "paraphrased"), evidence_refs=refs))
-        ledger += [LedgerEntry(source_claim_ids=d["source_claim_ids"], transformation="dropped", reason=d.get("reason")) for d in syn.get("dropped", [])]
+            s_claims.append(claim)
+        for d in _as_list(syn.get("dropped")):  # the 'dropped' list's entries are ledger entries whose transformation is 'dropped'
+            ledger.append({**d, "transformation": "dropped"} if isinstance(d, dict) else d)
         source_ids.append(reply.payload["report_id"])
     if notes is not None:
         notes["evidence_refs_copied"] = copied
-    s_text = " ".join(c.text for c in s_claims) or "(empty)"
-    return Synthesis(synthesis_id=f"syn-{group}", request_id=plan.request_id, task_id=plan.task_id, combinator_agent_id="dummy-combinator", source_report_ids=source_ids,
-                     claims=s_claims, ledger=ledger, text=s_text, text_sha256=sha256_text(s_text), created_at="2026-10-11T15:00:00Z")
+    s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
+    return {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
+            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
+            "created_at": "2026-10-11T15:00:00Z"}
 
 
 def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:
@@ -665,7 +731,10 @@ def synthesis_failure_reasons(status: str | None, delivered: bool, findings: lis
     their task ids), so the synthesis the router received covers only part of the group's reports."""
     reasons = []
     if status == TransmissionStatus.REJECTED.value or not delivered:
-        reasons.append(f"synthesis receipt {status}: the combinator's synthesis of the delivered reports was not delivered")
+        refused = sorted({f["code"] for f in findings if f.get("severity") == "error"})
+        reasons.append(f"synthesis receipt {status}{' (' + ', '.join(refused) + ')' if refused else ''}: the combinator's synthesis of the delivered reports was not delivered"
+                       + ("; the synthesis does not validate against the synthesis contract (the combinator's output, refused by the hub with a receipt)"
+                          if "INT-REQ-009" in refused or "INT-SYNTH-014" in refused else ""))
     internal = [f["code"] for f in findings if f["code"] == "INT-SYNTH-013" or _INTERNAL_RE.search(f["message"])]
     if internal or internal_checks:
         reasons.append(f"{len(internal) + internal_checks} check(s) on the synthesis failed internally (INTERNAL_ERROR){': ' + str(sorted(set(internal))) if internal else ''}")
@@ -682,7 +751,10 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
     (``members_not_delivered``) and makes the record a failure; with no member delivered there is nothing to relay and the
     record fails saying so. The synthesis of the delivered members is still relayed and its receipt kept. Every finding
     is kept with its claim ids and full message; the references copied into synthesized claims are kept as
-    ``evidence_refs_copied`` (group_synthesis). Never raises: a crash is recorded as a non-functional record."""
+    ``evidence_refs_copied`` (group_synthesis). The synthesis is relayed as the JSON the router receives, so the hub's
+    contract validation decides it: a malformed synthesis is a REJECTED receipt (INT-REQ-009; INT-SYNTH-014 for a value
+    outside a closed vocabulary, such as a transformation written as free text) recorded with its findings, and, being
+    genuine traffic that was not delivered, a failure. Never raises: a crash is recorded as a non-functional record."""
     plan = ch.plan
     members = [it for it in items if group_of(it) == group]
     undelivered = [it["task_id"] for it in members if it["_path"].stem not in delivered]
@@ -709,7 +781,11 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
         subject = [finding_dict(sf) for sf in rr.structural_findings]
         internal_checks = sum(1 for fc in rr.formal_checks if fc.formal_status == "INTERNAL_ERROR") + sum(1 for o in rr.outcomes if o.display_status.value == "INTERNAL_ERROR")
         reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks, undelivered)
-        rec.update(functional=not reasons, synthesis_id=synthesis.synthesis_id, source_report_ids=list(synthesis.source_report_ids), synthesized_claims=len(synthesis.claims),
+        shape = synthesis if isinstance(synthesis, dict) else {}
+        if not isinstance(synthesis, dict):
+            rec["synthesis_unreadable"] = "a syntheses file of the group is not JSON: its text was relayed as the payload"
+        rec.update(functional=not reasons, synthesis_id=shape.get("synthesis_id", f"syn-{group}"), source_report_ids=list(shape.get("source_report_ids") or []),
+                   synthesized_claims=len(shape.get("claims") or []),
                    status=rr.status.value, branch=rr.branch, delivered=relayed is not None,
                    codes=sorted({f["code"] for f in findings} | {sf["code"] for sf in subject}), findings=findings, subject_findings=subject,
                    formal_result_ids=list(rr.formal_result_ids), latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rr.summary[:400])
@@ -1418,7 +1494,7 @@ def title_line(round_name: str, m: dict) -> str:
 def run_round(round_dir: Path) -> dict:
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
-    syntheses = {p.stem: json.loads(p.read_text()) for p in syn_dir.glob("*.json")} if syn_dir.exists() else {}
+    syntheses = load_syntheses(syn_dir)  # the combinator's output as written: a file that is not JSON is relayed as text, never raised on
     adjudications = load_adjudications(round_dir)
     hub = RouterHub(signing_key=KEY, config=CFG)
     records: list[dict] = []
@@ -1567,9 +1643,16 @@ def run_round(round_dir: Path) -> dict:
                     rec.update(injected_claim_ids=injected, named_by=[brief(f) for f in named], unexplained_findings=[brief(f) for f in unexplained],
                                baseline_findings_absent=[brief(f) for f in absent])
                     if expected_codes and not named:
+                        # a miss, whatever its cause; when the receipt itself names the injected claims undecided, the
+                        # reason quotes it (a limit of the encodings reads as one), and the record is still a failure
                         present = sorted(set(codes) & set(expected_codes))
+                        undecided = undecided_on(rc, injected) if kind in STEM_MUTATIONS else []
+                        if undecided:
+                            rec["undecided_on_injected_claims"] = undecided
                         reasons.append(f"no {'/'.join(expected_codes)} finding names the injected claims {injected} or the injected words"
-                                       + (f" ({present} present, but only for what the genuine text already carries or for other claims)" if present else ""))
+                                       + (f" ({present} present, but only for what the genuine text already carries or for other claims)" if present else "")
+                                       + (f" (the receipt names the injected claims undecided: {'; '.join(undecided)}; a miss that a limit of the encodings "
+                                          "leaves, counted as a miss)" if undecided else ""))
                 if kind == "self_certification":
                     # The self-report must be named on the receipt (core, hand-off or subject code; checked above), must
                     # not be parroted as an error, and must not reach the recipient as a material claim.

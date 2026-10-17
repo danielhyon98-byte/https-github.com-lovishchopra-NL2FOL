@@ -38,7 +38,8 @@ class StemLimits:
     max_ast_nodes: int = 256
     #: AST depth, checked before each descent; beyond: ST-LIM-001
     max_ast_depth: int = 24
-    #: integer power |n|; beyond: Unsupported (ST-UNDEC-001)
+    #: integer power |n|; beyond: Unsupported (ST-UNDEC-001), except over a closed base with no unit, where a power up to
+    #: 1000 is one value (a ``RealPower``, exact or enclosed by the checks stage)
     max_int_power: int = 12
     #: written scientific exponent |e|; beyond: ST-LIM-001
     max_sci_exponent: int = 99

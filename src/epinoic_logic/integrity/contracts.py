@@ -23,7 +23,8 @@ import math
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional
+from types import MappingProxyType
+from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -47,6 +48,28 @@ class AgentRole(str, Enum):
 CERTAINTY_RANK: dict[str, int] = {"possible": 1, "probable": 2, "established": 3}
 
 Transformation = Literal["carried", "paraphrased", "merged", "narrowed", "generalized", "new", "dropped"]
+
+#: The documented, closed vocabulary of :data:`Transformation`: what each value records about how a synthesized claim (or
+#: a ledger entry) came from its source claims, and how the claim ledger reads it (``ledger.check_synthesis_ledger``).
+#: The value selects the ledger's rules, so it is a category, never a description of the edit: free text ("verdict and
+#: reason joined; figures verbatim"), an alias ("joined") or another spelling ("Merged") is no transformation, and a
+#: synthesis carrying one does not validate. The channel refuses it with INT-REQ-009 and INT-SYNTH-014 naming the claims,
+#: so a value-specific rule is never skipped because the label was unreadable.
+TRANSFORMATION_MEANINGS: Mapping[str, str] = MappingProxyType({
+    "carried": "exactly one source claim, its text reproduced unchanged (INT-LEDGER-010 when it cites more or changes the text)",
+    "paraphrased": "one source claim reworded without adding or removing content (a figure or date it leaves out is INT-LEDGER-024)",
+    "merged": "two or more source claims combined into one (a figure or date left out is INT-LEDGER-024; material content needs a "
+              "formal entailment check, INT-LEDGER-011)",
+    "narrowed": "a source claim with part of its content left out on purpose (material content needs a coverage check, INT-LEDGER-011)",
+    "generalized": "source claims stated more generally (a figure or date left out is INT-LEDGER-024; material content needs a "
+                   "formal entailment check, INT-LEDGER-011)",
+    "new": "content no source claim asserts: always INT-LEDGER-005, an error",
+    "dropped": "a ledger entry only (source claims left out, with a meaningful reason); a present synthesized claim marked "
+               "'dropped' is INT-LEDGER-009",
+})
+#: The transformations a combinator gives a synthesized claim (the arena's synthesis format lists exactly these): every
+#: documented value except 'new' (content no source asserts) and 'dropped' (a ledger entry, never a present claim).
+SYNTHESIZED_CLAIM_TRANSFORMATIONS: tuple[str, ...] = ("carried", "paraphrased", "merged", "narrowed", "generalized")
 
 
 # --------------------------------------------------------------------------- #
