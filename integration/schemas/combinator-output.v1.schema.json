@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "Conflict": {
+      "additionalProperties": false,
+      "description": "A contradiction between source claims the combinator discloses instead of reconciling it: the hub requires every\nformal contradiction among the claims in scope to be disclosed (``INT-CONFLICT-002``). The service relays it as an\n``unresolved`` conflict record: a combinator never resolves a contradiction.",
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 2,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_ids",
+        "description"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
     "Dropped": {
       "additionalProperties": false,
       "properties": {
@@ -11,7 +39,7 @@
         },
         "source_claim_ids": {
           "items": {
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
             "type": "string"
           },
           "maxItems": 64,
@@ -120,7 +148,7 @@
         },
         "source_claim_ids": {
           "items": {
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
             "type": "string"
           },
           "maxItems": 64,
@@ -165,6 +193,14 @@
       "maxItems": 512,
       "minItems": 1,
       "title": "Claims",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "$ref": "#/$defs/Conflict"
+      },
+      "maxItems": 64,
+      "title": "Conflicts",
       "type": "array"
     },
     "dropped": {

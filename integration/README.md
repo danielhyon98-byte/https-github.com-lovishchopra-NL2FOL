@@ -20,7 +20,7 @@ in [DECISIONS.md](DECISIONS.md).
 | flash-router port: request, plan, hello, floor, admission; the router run in its own process | built and tested |
 | flash router (`flash-router/`, package `epinoic_flash_router` 0.1.0) | a separate, independent sub-project with its own `pyproject.toml`, rules, cost model and conformance suite; built and tested; attached only when `EPINOIC_FLASH_ROUTER` names it (decision D28) |
 | overseer port adapter (`epinoic_overseer.port`) | **connected in phase 2** (the overseer is not on this branch) |
-| combinator | **connected in phase 2**; until then `combined` is not offered |
+| combinator (`combinator/`, package `epinoic_combinator` 0.1.0) | a separate agent in a sub-project of its own (its own `pyproject.toml`, instructions pinned by digest with an exporter, a runner on the cheapest tier through a provider interface with deterministic fakes and no live provider, its output validated against the published contract before it leaves); built and tested, the hub catching what it lets out (`combinator-port/CONFORMANCE.md`); **connected to the service in phase 2** (decision D33); until then `combined` is not offered |
 | website adapter (`website/src/verify/`) and its `node:test` tests | built and tested in the kit; the website patch set is described in `website/PATCH-PLAN.md` |
 | agents patch plan (`agents/PATCH-PLAN.md`) | written; the agents-side code is written in that repository (D20) |
 | simulation (`sim/`) | gates, comparison, reference harness, fixture verifier, corpus and users built and tested; the website-path and agents drivers are connected in phase 2, so every gate is NOT RUN here |

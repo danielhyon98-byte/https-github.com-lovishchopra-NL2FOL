@@ -1,0 +1,10 @@
+{
+  "canonical": "{\"control\":\"a\\u0001b\\tc\\nd\\re\\\"f\\\\g\",\"del\":\"ab\",\"line-separator\":\"a b c\"}",
+  "name": "escapes",
+  "sha256": "34003f92fb131cfc7ec4a3473cbc6f4d1381d109adba68334a346af048b239b6",
+  "value": {
+    "control": "a\u0001b\tc\nd\re\"f\\g",
+    "del": "ab",
+    "line-separator": "a b c"
+  }
+}

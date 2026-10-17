@@ -6,7 +6,13 @@ Generated (never edited by hand; ``tests/integration/test_generated.py`` fails w
 
 * ``src/epinoic_logic/integration/compat.py``: the service's copy of both documents (standard library only);
 * ``integration/website/src/verify/compat.js`` and ``integration/website/src/verify/subject-map.js``: the Worker's copies;
-* ``integration/schemas/*.schema.json``: JSON Schemas of the protocol messages, from the pydantic models.
+* ``integration/schemas/*.schema.json``: JSON Schemas of the protocol messages, from the pydantic models;
+* ``integration/schemas/synthesis-vocabulary.v1.json``: the synthesis contract's closed vocabularies
+  (``combinator_port.vocabulary_document``, from ``integrity.contracts``), and ``combinator-port.v1.json``: the combinator
+  port's rules its schemas cannot state (``combinator_port.port_rules_document``);
+* ``combinator/src/epinoic_combinator/contract/``: the combinator sub-project's copy of the published contract it validates
+  every output against (the combinator-port schemas and the vocabulary, byte for byte; ``combinator_port.CONTRACT_FILES``),
+  written only while the sub-project is in this repository.
 
 The generator refuses to write when ``COMPATIBILITY.json`` pins a subject-map digest other than the subject map's own:
 the pin is changed on purpose, never as a side effect.
@@ -32,6 +38,9 @@ COMPAT_PY = ROOT / "src" / "epinoic_logic" / "integration" / "compat.py"
 COMPAT_JS = ROOT / "integration" / "website" / "src" / "verify" / "compat.js"
 SUBJECT_MAP_JS = ROOT / "integration" / "website" / "src" / "verify" / "subject-map.js"
 SCHEMAS_DIR = ROOT / "integration" / "schemas"
+COMBINATOR_CONTRACT = ROOT / "combinator" / "src" / "epinoic_combinator" / "contract"
+VOCABULARY_JSON = SCHEMAS_DIR / "synthesis-vocabulary.v1.json"
+PORT_RULES_JSON = SCHEMAS_DIR / "combinator-port.v1.json"
 
 #: (schema file name, "module:Model"): every protocol message with a schema of its own.
 SCHEMA_MODELS: tuple[tuple[str, str], ...] = (
@@ -46,6 +55,8 @@ SCHEMA_MODELS: tuple[tuple[str, str], ...] = (
     ("overseer-review-ticket.v1.schema.json", "epinoic_logic.integration.overseer_port:ReviewTicket"),
     ("combinator-input.v1.schema.json", "epinoic_logic.integration.combinator_port:CombinatorInput"),
     ("combinator-output.v1.schema.json", "epinoic_logic.integration.combinator_port:CombinatorOutput"),
+    ("combinator-hello.v1.schema.json", "epinoic_logic.integration.combinator_port:CombinatorHello"),
+    ("combinator-refusal.v1.schema.json", "epinoic_logic.integration.combinator_port:CombinatorRefusal"),
     ("router-hello.v1.schema.json", "epinoic_logic.integration.router_port:RouterHello"),
     ("routing-request.v1.schema.json", "epinoic_logic.integration.router_port:RoutingRequest"),
     ("routing-plan.v1.schema.json", "epinoic_logic.integration.router_port:RoutingPlan"),
@@ -138,6 +149,12 @@ def schema_texts() -> dict[Path, str]:
         model = getattr(importlib.import_module(module), attr)
         schema = model.model_json_schema(by_alias=True)
         out[SCHEMAS_DIR / name] = json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    combinator_port = importlib.import_module("epinoic_logic.integration.combinator_port")
+    out[VOCABULARY_JSON] = json.dumps(combinator_port.vocabulary_document(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    out[PORT_RULES_JSON] = json.dumps(combinator_port.port_rules_document(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    if COMBINATOR_CONTRACT.parent.is_dir():  # the sub-project's copy of the published contract (absent after a split)
+        for name in combinator_port.CONTRACT_FILES:
+            out[COMBINATOR_CONTRACT / name] = out[SCHEMAS_DIR / name]
     return out
 
 

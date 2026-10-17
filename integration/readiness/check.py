@@ -70,6 +70,11 @@ def g1(kit: Path, rows: list) -> None:
     row(rows, "flash router sub-project", REPORTED,
         f"flash-router/ present (epinoic-flash-router {version.group(1) if version else '?'}; attached only when EPINOIC_FLASH_ROUTER names it; never required)"
         if router.exists() else "absent: the floor plan runs (never required)")
+    combinator = kit / "combinator"
+    cversion = re.search(r'^version = "([^"]+)"', (combinator / "pyproject.toml").read_text(encoding="utf-8"), re.M) if (combinator / "pyproject.toml").exists() else None
+    row(rows, "combinator sub-project", REPORTED,
+        f"combinator/ present (epinoic-combinator {cversion.group(1) if cversion else '?'}; connected to the service in phase 2: "
+        "until then the mode combined is not offered)" if combinator.exists() else "absent: the mode combined is not offered")
 
 
 def _py(kit: Path) -> dict:

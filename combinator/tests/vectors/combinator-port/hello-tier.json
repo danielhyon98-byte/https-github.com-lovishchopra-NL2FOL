@@ -1,0 +1,31 @@
+{
+  "expect": {
+    "code": "KIT-CB-002",
+    "ok": false
+  },
+  "kind": "hello",
+  "message": {
+    "combinator": {
+      "name": "test-combinator",
+      "version": "0.1.0"
+    },
+    "contract_sha256": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+    "instruction_pack": {
+      "name": "combinator-instructions",
+      "sha256": "9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a",
+      "version": "1.0"
+    },
+    "port_version": "1.0",
+    "protocol": "epinoic.integration.v1",
+    "schema": "epinoic.integration.combinator-hello.v1",
+    "tier": "strongest",
+    "vocabulary": [
+      "carried",
+      "paraphrased",
+      "merged",
+      "narrowed",
+      "generalized"
+    ]
+  },
+  "name": "hello-tier"
+}

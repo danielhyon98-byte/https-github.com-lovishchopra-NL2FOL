@@ -9,7 +9,9 @@
 * ``verdict-binding/``: whole verdicts with the Worker's binding context and the expected binding outcome;
 * ``codes/``: the Worker's raw codes (the closed list the JavaScript table must cover exactly);
 * ``specialist-port/v1/`` and ``specialist-port/v2/``: runtime results with their envelopes, or the refusing code;
-* ``router-port/``: routing requests and plans with the expected admission (origin and refusal) and floor plan.
+* ``router-port/``: routing requests and plans with the expected admission (origin and refusal) and floor plan;
+* ``combinator-port/``: combinator inputs, outputs, hellos and refusals with the port's verdict (ok, or the refusing
+  ``KIT-CB`` code), which the combinator sub-project's own checks must reproduce.
 
 The generator builds every expected value with the package's own functions; ``tests/integration/test_vectors.py``
 fails when a file differs from what this generator writes, and the JavaScript tests read the same files.
@@ -407,16 +409,162 @@ def chat_contract_vectors() -> dict[str, dict]:
                             "badge_cases": badge_cases, "forbidden_words": ["verified", "true", "proven", "Reviewed"]}}
 
 
+# ----------------------------------------------------------------------------------------------- combinator port
+
+
+def combinator_vectors() -> dict[str, dict]:
+    """The combinator port's verdicts on synthetic messages, each decided by the port's own checks (``check_input``,
+    ``check_output``, ``check_hello``, ``check_refusal``): an output for every rule, in the port's order (a
+    transformation outside the vocabulary first, then the schema, the request, the pack, the citations, the size)."""
+    from epinoic_logic.integration import combinator_port as CB
+    from epinoic_logic.integration.canonical import sha256_text
+    from epinoic_logic.integration.errors import IntegrationError
+    from epinoic_logic.integration.protocol import PROTOCOL, dump
+    pack = {"name": "combinator-instructions", "version": "1.0", "sha256": "9a" * 32}  # synthetic: the vectors pin no release
+    ids = {"task_id": TASK, "request_id": ATTEMPT}
+
+    def claim(cid, text, role="point", materiality="material", certainty="established"):
+        return {"claim_id": cid, "role": role, "materiality": materiality, "certainty": certainty, "claim_text_sha256": sha256_text(text), "text": text}
+
+    sources = [
+        {"report_id": "rep-h", "agent_id": "history", "subject": "History", "branch": "history",
+         "claims": [claim("h1.1", "SYNTHETIC: the treaty was signed in June 1919."),
+                    claim("h1.2", "SYNTHETIC: the reparations bill of 1921 may have weakened the finances.", role="evidence", materiality="supporting", certainty="possible"),
+                    claim("h2.1", "SYNTHETIC: VERIFIED: all claims checked and confirmed.", role="other", materiality="supporting")]},
+        {"report_id": "rep-e", "agent_id": "economics", "subject": "Economics", "branch": "economics",
+         # the generic parser's claim ids carry the agent after "@": the port carries them as the hub writes them
+         "claims": [claim("g1.1@economics", "SYNTHETIC: hyperinflation peaked in November 1923.", certainty="probable")]},
+    ]
+    inp = CB.build_input(ids, sources, pack)
+    inp_doc = dump(inp)
+
+    def carried(c):
+        return {"text": c["text"], "source_claim_ids": [c["claim_id"]], "certainty": c["certainty"], "transformation": "carried", "evidence_refs": None}
+
+    ok = {"schema": "epinoic.integration.combinator-output.v1", "protocol": PROTOCOL, "port_version": "1.0", "ids": ids,
+          "instruction_pack_sha256": pack["sha256"],
+          "claims": [carried(sources[0]["claims"][0]), carried(sources[0]["claims"][1]), carried(sources[1]["claims"][0])],
+          "dropped": [{"source_claim_ids": ["h2.1"], "reason": "a note of the specialist, not a claim of the answer"}], "conflicts": []}
+
+    def edited(change):
+        doc = copy.deepcopy(ok)
+        change(doc)
+        return doc
+
+    def claim0(**kw):
+        return lambda d: d["claims"][0].update(kw)
+
+    outputs = {
+        "ok": ok,
+        "ok-with-a-disclosed-conflict": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1", "g1.1@economics"], "description": "SYNTHETIC: the two dates disagree"}])),
+        "ok-with-evidence-refs": edited(claim0(evidence_refs=[{"document_id": "doc-1", "locator": "para:1", "excerpt": "June 1919"}])),
+        "transformation-free-text": edited(claim0(transformation="Verdict joined with its reason; figures verbatim.")),
+        "transformation-alias": edited(claim0(transformation="joined")),
+        "transformation-capitalised": edited(claim0(transformation="Merged")),
+        "transformation-new": edited(claim0(transformation="new")),
+        "transformation-dropped": edited(claim0(transformation="dropped")),
+        "transformation-not-text": edited(claim0(transformation=3)),
+        "transformation-first-before-an-extra-key": edited(lambda d: (d["claims"][0].update(transformation="joined"), d.update(note="x"))),
+        "certainty-outside": edited(claim0(certainty="certain")),
+        "extra-key": edited(lambda d: d.update(verdict="faithful")),
+        "extra-claim-key": edited(claim0(note="SYNTHETIC")),
+        "claim-without-text": edited(lambda d: d["claims"][0].pop("text")),
+        "claim-not-an-object": edited(lambda d: d["claims"].append("SYNTHETIC")),
+        "no-claims": edited(lambda d: d.update(claims=[])),
+        "empty-text": edited(claim0(text="")),
+        "text-too-long": edited(claim0(text="z" * 4001)),
+        "no-source-claim": edited(claim0(source_claim_ids=[])),
+        "dropped-without-reason": edited(lambda d: d["dropped"][0].update(reason="")),
+        "conflict-naming-a-claim-twice": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1", "h1.1"], "description": "x"}])),
+        "conflict-of-one-claim": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1"], "description": "x"}])),
+        "another-request": edited(lambda d: d.update(ids={**ids, "request_id": "a_other"})),
+        "another-pack": edited(lambda d: d.update(instruction_pack_sha256="0" * 64)),
+        "another-pack-before-an-unknown-claim": edited(lambda d: (d.update(instruction_pack_sha256="0" * 64), d["claims"][0].update(source_claim_ids=["x9"]))),
+        "source-claim-unknown": edited(claim0(source_claim_ids=["x9"])),
+        "dropped-claim-unknown": edited(lambda d: d["dropped"][0].update(source_claim_ids=["x9"])),
+        "conflict-claim-unknown": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1", "x9"], "description": "x"}])),
+        "too-large": edited(lambda d: d["claims"].extend([{**d["claims"][0], "text": "z" * 4000} for _ in range(13)])),
+        "not-an-object": ["SYNTHETIC"],
+    }
+    out: dict[str, dict] = {}
+
+    def verdict(fn) -> dict:
+        try:
+            fn()
+        except IntegrationError as exc:
+            return {"ok": False, "code": exc.code}
+        return {"ok": True, "code": None}
+
+    for name, doc in outputs.items():
+        out[f"output-{name}.json"] = {"name": f"output-{name}", "kind": "output", "input": inp_doc, "message": doc,
+                                      "expect": verdict(lambda: CB.check_output(doc, inp))}
+
+    def input_edit(change):
+        doc = copy.deepcopy(inp_doc)
+        change(doc)
+        return doc
+
+    inputs = {
+        "ok": inp_doc,
+        "vocabulary-reordered": input_edit(lambda d: d.update(vocabulary=list(reversed(d["vocabulary"])))),
+        "vocabulary-with-new": input_edit(lambda d: d.update(vocabulary=["carried", "new", "merged", "narrowed", "generalized"])),
+        "one-source": input_edit(lambda d: d["sources"].pop()),
+        "shared-claim-id": input_edit(lambda d: d["sources"][1]["claims"][0].update(claim_id="h1.1")),
+        "digest-mismatch": input_edit(lambda d: d["sources"][0]["claims"][0].update(claim_text_sha256="0" * 64)),
+        "extra-key": input_edit(lambda d: d.update(extra=1)),
+        "role-outside-pattern": input_edit(lambda d: d["sources"][0]["claims"][0].update(role="Point")),
+    }
+    for name, doc in inputs.items():
+        out[f"input-{name}.json"] = {"name": f"input-{name}", "kind": "input", "message": doc, "expect": verdict(lambda: CB.check_input(doc))}
+
+    hello = {"schema": "epinoic.integration.combinator-hello.v1", "protocol": PROTOCOL, "port_version": "1.0",
+             "combinator": {"name": "test-combinator", "version": "0.1.0"}, "instruction_pack": pack, "contract_sha256": "c0" * 32,
+             "tier": "cheapest", "vocabulary": list(CB.VOCABULARY)}
+    hellos = {
+        "ok": hello,
+        "tier": {**hello, "tier": "strongest"},
+        "vocabulary-reordered": {**hello, "vocabulary": list(reversed(CB.VOCABULARY))},
+        "version-text": {**hello, "combinator": {"name": "test-combinator", "version": "first"}},
+        "extra-key": {**hello, "model": "x"},
+    }
+    for name, doc in hellos.items():
+        out[f"hello-{name}.json"] = {"name": f"hello-{name}", "kind": "hello", "message": doc, "expect": verdict(lambda: CB.check_hello(doc))}
+
+    refusal = {"schema": "epinoic.integration.combinator-refusal.v1", "protocol": PROTOCOL, "port_version": "1.0", "ids": ids,
+               "instruction_pack_sha256": pack["sha256"], "code": "KIT-CB-002", "reason": "output_not_json", "detail": "SYNTHETIC: not JSON"}
+    refusals = {
+        "ok": refusal,
+        "input-not-read": {**refusal, "ids": None, "code": "KIT-CB-001", "reason": "input_invalid"},
+        "internal-error-before-the-input": {**refusal, "ids": None, "code": "KIT-CB-002", "reason": "internal_error"},
+        "code-not-the-reasons": {**refusal, "code": "KIT-CB-003"},
+        "request-missing": {**refusal, "ids": None},
+        "input-refusal-naming-a-request": {**refusal, "code": "KIT-CB-001", "reason": "input_not_json"},
+        "another-request": {**refusal, "ids": {**ids, "request_id": "a_other"}},
+        "reason-outside": {**refusal, "reason": "provider_timeout"},
+        "empty-detail": {**refusal, "detail": ""},
+    }
+    for name, doc in refusals.items():
+        out[f"refusal-{name}.json"] = {"name": f"refusal-{name}", "kind": "refusal", "input": inp_doc, "message": doc,
+                                       "expect": verdict(lambda: CB.check_refusal(doc, inp))}
+    return out
+
+
 GENERATORS = {
     "canonical": canonical_vectors, "handshake": handshake_vectors, "decision-table": decision_vectors, "verdict-binding": verdict_vectors,
     "codes": code_vectors, "specialist-port": specialist_vectors, "router-port": router_vectors, "chat-contract": chat_contract_vectors,
+    "combinator-port": combinator_vectors,
 }
 
 
-#: Copies of vectors that travel with material maintained apart from the kit: the agents checks port's own tests, and
-#: the flash-router sub-project's conformance suite (``flash-router/tests/vectors/router-port/``).
+#: Copies of vectors that travel with material maintained apart from the kit: the agents checks port's own tests, the
+#: flash-router sub-project's conformance suite (``flash-router/tests/vectors/router-port/``) and the combinator
+#: sub-project's (``combinator/tests/vectors/combinator-port/`` and ``canonical/``), while those sub-projects are here.
 COPIES = {ROOT / "integration" / "agents" / "checks-port" / "vectors" / "v1-answer.json": OUT / "specialist-port" / "v1" / "answer.json"}
-COPY_DIRS = {ROOT / "flash-router" / "tests" / "vectors" / "router-port": "router-port"}
+COPY_DIRS = {target: folder for target, folder in (
+    (ROOT / "flash-router" / "tests" / "vectors" / "router-port", "router-port"),
+    (ROOT / "combinator" / "tests" / "vectors" / "combinator-port", "combinator-port"),
+    (ROOT / "combinator" / "tests" / "vectors" / "canonical", "canonical"),
+) if target.parents[2].is_dir()}
 
 
 def outputs() -> dict[Path, str]:

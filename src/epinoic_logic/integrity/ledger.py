@@ -1660,6 +1660,48 @@ def _source_index(reports: list[SpecialistReport], colliding: set[str]) -> tuple
     return idx, report_of
 
 
+#: Sentence ends for the self-report reading of a synthesis: a sentence stop followed by space, or a line break.
+_SELF_REPORT_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+#: The longest sentence the self-report reading reads (a sentence beyond it is read on its first characters only).
+_SELF_REPORT_SENTENCE_CHARS = 4000
+
+
+def _self_report_sentences(text: str) -> list[str]:
+    """The sentences of ``text`` that state a verification status of the answer itself ("VERIFIED: all claims checked and
+    confirmed.", "checked by the formal verifier: every line holds"), read with the closed self-certification vocabulary
+    of the specialists' reports (:func:`~epinoic_logic.adapters.markdown.is_self_certification`). One linear split."""
+    from ..adapters.markdown import is_self_certification
+    out: list[str] = []
+    for sentence in _SELF_REPORT_SENTENCE_RE.split(text or ""):
+        s = sentence.strip()
+        if s and is_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
+            out.append(s[:200])
+    return list(dict.fromkeys(out))
+
+
+def _self_report_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
+    """INT-LEDGER-029: a synthesized claim, or a sentence of the student-facing text, that states a verification status of
+    the answer: a self-report of the combinator (or one it carried from a specialist's note), advisory only. No check in
+    this process stands behind it, so it is never material content and never evidence that anything was checked (a
+    specialist's report with the same sentence is named CORE-SELF-001). Each sentence is named once."""
+    f: list[IntegrityFinding] = []
+    named: set[str] = set()
+    for sc in synthesis.claims:
+        found = _self_report_sentences(sc.text)
+        if found:
+            named.update(found)
+            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+                f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
+                "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check"),
+                claim_ids=[sc.claim_id] + list(sc.source_claim_ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
+    rest = [s for s in _self_report_sentences(synthesis.text) if s not in named and not any(s in n or n in s for n in named)]
+    if rest:
+        f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+            f"the synthesis text states a verification status of the answer: {rest[:3]}: a self-report, advisory only; no check in this "
+            "process stands behind it"), claim_ids=[synthesis.synthesis_id], agent_ids=[synthesis.combinator_agent_id]))
+    return f
+
+
 def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
     """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
     quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
@@ -1774,6 +1816,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             what = "content removed; formal coverage check required" if sc.transformation == "narrowed" else "formal synthesis-entailment check required"
             f.append(IntegrityFinding(code="INT-LEDGER-011", severity="info", message=f"material content produced by '{sc.transformation}' from {[c.claim_id for c in material_sources]}: {what}", claim_ids=[sc.claim_id] + [c.claim_id for c in material_sources]))
 
+    f += _self_report_findings(synthesis)
     for entry in synthesis.ledger:
         unknown = [s for s in entry.source_claim_ids if s not in sources and s not in colliding]
         if unknown:

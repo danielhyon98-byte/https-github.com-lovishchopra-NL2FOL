@@ -97,6 +97,7 @@ def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router
         assert "BLOCKER" in rows["G1 named policies (contract 0.3)"]
     assert "PASS" in rows["G1 STEM branches"] and "PASS" in rows["G1 protocol"]
     assert "REPORTED" in rows["flash router sub-project"] and "never required" in rows["flash router sub-project"]
+    assert "REPORTED" in rows["combinator sub-project"] and "epinoic-combinator" in rows["combinator sub-project"] and "combined" in rows["combinator sub-project"]
 
 
 def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_its_phase_2_connection():

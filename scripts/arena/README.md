@@ -7,7 +7,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
 | `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`) |
-| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`, built from the synthesis contract) |
+| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
@@ -19,31 +19,45 @@ with `claim_text_sha256` binding each to the claim text it was produced for), `s
 
 ## Synthesis format (the combinator's instructions)
 
-The combinator writes `<round>/syntheses/<task_id>.json` for each report it synthesizes:
+The combinator agent's instructions are the combinator sub-project's (`combinator/`, package `epinoic_combinator`, a
+separate agent with its own release): export them once per round and brief the combinator agent with them.
 
 ```
-{"report_id": "<the report_id list_claims.py prints>",
- "claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
-             "transformation": "carried" | "paraphrased" | "merged" | "narrowed" | "generalized"}],   (2 to 4)
- "dropped": [{"source_claim_ids": ["..."], "reason": "..."}]}
+PYTHONPATH=combinator/src python -m epinoic_combinator.export --out <round>/combinator   # INSTRUCTIONS.md, output-format.json, MANIFEST.json
+python scripts/arena/list_claims.py <round>/specialists/<task>.json --json --instructions <round>/combinator
 ```
+
+Give the agent `INSTRUCTIONS.md` and, for each report, the `--json` output of `list_claims.py`: its claims (ids, roles,
+materiality, certainty, texts) and `synthesis_format`, the exported `output-format.json` under the pack's identity. The
+agent writes the output object to `<round>/syntheses/<task_id>.json`:
+
+```
+{"claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
+             "transformation": "carried" | "paraphrased" | "merged" | "narrowed" | "generalized"}],
+ "dropped": [{"source_claim_ids": ["..."], "reason": "..."}],
+ "conflicts": [{"claim_ids": ["...", "..."], "description": "..."}]}          (conflicts only when sources contradict)
+```
+
+(recorded rounds also carry `report_id`, which the harness does not read).
 
 - `transformation` is exactly one of those five words, a category of what was done to the cited sources, never a
-  description of the edit: `carried` (one source, its text unchanged), `paraphrased` (one source reworded),
-  `merged` (several sources combined), `narrowed` (part of a source left out on purpose), `generalized` (sources stated
-  more generally). What each records and how the ledger reads it is `TRANSFORMATION_MEANINGS` in
-  `src/epinoic_logic/integrity/contracts.py`; `list_claims.py --json` prints the same text as `synthesis_format`, and its
-  plain output ends with the list, so the instructions come from the contract and cannot drift from it.
-- `certainty` is never stronger than the weakest cited source (INT-LEDGER-003); figures, units, dates and quotations
-  are kept exactly as the source states them; a material claim left out goes in `dropped` with a meaningful reason.
+  description of the edit. What each records is `TRANSFORMATION_MEANINGS` in `src/epinoic_logic/integrity/contracts.py`,
+  word for word in the exported format: `list_claims.py` refuses (exit status 2) an export whose values or meanings are
+  not the contract's, or whose files are not its manifest's, so the instructions cannot drift from what the hub accepts.
+  Without `--instructions` it exports the sub-project of this repository in the sub-project's own isolated process (it
+  never imports it).
+- `certainty` is never stronger than the weakest cited source (INT-LEDGER-003); figures, units, marks, dates and
+  quotations are kept exactly as the source states them; a note, a self-certification, a decline or a question is never
+  carried back as a claim (INT-LEDGER-029); every source claim left out goes in `dropped` with a meaningful reason; a
+  contradiction is disclosed in `conflicts`, never merged (INT-CONFLICT-002).
 - Any other value (free text, an alias such as "joined", another spelling) is refused by the hub: the synthesis is
   REJECTED with INT-REQ-009 and INT-SYNTH-014 naming each claim, and it is not delivered. So is a file that is not JSON,
   a claim that is not an object, a missing field or a field the synthesis contract does not have.
 
-A workflow that briefs a combinator agent should give it these instructions, or tell it to read `synthesis_format` from
-`list_claims.py --json`. The end-to-end simulation of 16 October 2026 named the field without its values, and its
-combinator wrote free text in all 62 synthesized claims; the recorded rounds r1 to r7, whose combinator was told the
-values, carry one of them in all 202.
+The end-to-end simulation of 16 October 2026 named the field without its values, and its combinator wrote free text in
+all 62 synthesized claims; the recorded rounds r1 to r7, whose combinator was told the values, carry one of them in all
+202. The same instructions run in the sub-project's own runner (a provider on the cheapest tier), which refuses any
+output out of contract with a named `KIT-CB` code before it leaves (`combinator/README.md`).
 
 `run_arena.py` relays each group's synthesis to the hub as the JSON the router receives (`group_synthesis` passes the
 combinator's fields on as written; it never builds the contract models itself), so the hub's contract validation decides

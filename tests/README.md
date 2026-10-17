@@ -69,6 +69,13 @@ harness rates of the second layer have not dropped.
    `scripts/arena/test_arena_rules.py`, which the default suite does not collect
    (`python -m pytest -q scripts/arena/test_arena_rules.py`).
 
+   The two sub-projects have suites of their own, which the default suite runs and requires to pass:
+   `flash-router/tests/` (`tests/integration/test_flash_router_subproject.py`) and `combinator/tests/`
+   (`tests/integration/test_combinator_subproject.py`, which also shows that a faithful synthesis of the combinator passes
+   the hub and that the hub names each misrepresentation it lets out: a dropped qualifier, a stronger certainty, a merged
+   contradiction, an invented figure, a wrong attribution, a carried self-certification). Run one alone from its directory
+   (`cd combinator && python -m pytest -q`), or install it into a separate environment (`pip install -e "combinator[dev]"`).
+
    The external review of 12 October 2026 is covered by `tests/engine/test_review_engine_fixes.py`,
    `tests/service/test_review_service_fixes.py`, `tests/translate/test_review_2026_10_12_translate.py`
    and `tests/channel/test_task_record_through_the_channel.py`: each of its nine findings has

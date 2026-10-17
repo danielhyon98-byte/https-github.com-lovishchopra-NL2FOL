@@ -290,7 +290,11 @@ playbook a fresh session follows. Start with [`integration/README.md`](integrati
 with a named `KIT-HS` code. The service side lives in `src/epinoic_logic/integration/`; the default `engine` profile is
 unchanged. The flash router, which plans how the overseer reviews each answer, is a separate sub-project,
 [`flash-router/`](flash-router/README.md), edited and released apart from the Z3 infrastructure and run by the service
-in its own process.
+in its own process. The combinator, which combines the specialists' answers to one request into one synthesis, is a
+separate agent in a sub-project of its own, [`combinator/`](combinator/README.md): its instructions (exported with
+`python -m epinoic_combinator.export --out <dir>`), a runner on the cheapest tier that lets out only what is in the
+published synthesis contract, and its own tests; the translator never imports it, and its hub checks every synthesis
+on its own.
 
 ## Repository layout
 
@@ -305,6 +309,7 @@ in its own process.
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `src/epinoic_logic/integration/` and `integration/` — the integration protocol's service side and the integration kit
 - `flash-router/` — the flash router, a sub-project of its own (`pyproject.toml`, package `epinoic_flash_router`, tests)
+- `combinator/` — the combinator agent, a sub-project of its own (`pyproject.toml`, package `epinoic_combinator`, instructions, tests)
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 
@@ -312,7 +317,7 @@ in its own process.
 
 ```
 python -m venv .venv && .venv/bin/pip install -e ".[dev,service,providers]"
-.venv/bin/pytest                      # unit, e2e and service tests
+.venv/bin/pytest                      # unit, e2e and service tests; the flash-router/ and combinator/ suites run inside it
 .venv/bin/pytest -m stress tests/stress   # load, concurrency, adversarial volume, soak
 epinoic-logic verify problem.json     # one verification from the command line
 ```

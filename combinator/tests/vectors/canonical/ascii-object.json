@@ -1,0 +1,14 @@
+{
+  "canonical": "{\"a\":[true,false,null],\"b\":1,\"c\":\"text\"}",
+  "name": "ascii-object",
+  "sha256": "d273873ada8199549041ee83d5c63f0023d74b78b592d85aa6bf9a7ec3e1e741",
+  "value": {
+    "a": [
+      true,
+      false,
+      null
+    ],
+    "b": 1,
+    "c": "text"
+  }
+}

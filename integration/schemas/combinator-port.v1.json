@@ -1,0 +1,38 @@
+{
+  "ids_optional_reasons": [
+    "internal_error"
+  ],
+  "max_output_text_bytes": 49152,
+  "max_refusal_detail_chars": 300,
+  "output_check_order": [
+    "not a JSON object: KIT-CB-002",
+    "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
+    "the schema, and a conflict naming a claim twice: KIT-CB-002",
+    "another request: KIT-CB-002",
+    "another instruction pack: KIT-CB-005",
+    "a citation the input does not hold: KIT-CB-004",
+    "a synthesis text over 49152 UTF-8 bytes: KIT-CB-006"
+  ],
+  "port_version": "1.0",
+  "protocol": "epinoic.integration.v1",
+  "refusal_reasons": {
+    "input_invalid": "KIT-CB-001",
+    "input_not_json": "KIT-CB-001",
+    "internal_error": "KIT-CB-002",
+    "output_invalid": "KIT-CB-002",
+    "output_not_json": "KIT-CB-002",
+    "output_not_object": "KIT-CB-002",
+    "output_too_large": "KIT-CB-006",
+    "pack_mismatch": "KIT-CB-005",
+    "provider_failed": "KIT-CB-002",
+    "provider_no_text": "KIT-CB-002",
+    "provider_unavailable": "KIT-CB-002",
+    "source_claim_unknown": "KIT-CB-004",
+    "transformation_unknown": "KIT-CB-003"
+  },
+  "schema": "epinoic.integration.combinator-port-rules.v1",
+  "unread_input_reasons": [
+    "input_invalid",
+    "input_not_json"
+  ]
+}

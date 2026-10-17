@@ -122,7 +122,7 @@
 
 - **Do,** in `<kit>`: `python3 integration/readiness/check.py --g1 .`
   (contract version line of `docs/integration-contract.md`, the overseer package, the STEM branches, the named policies,
-  the protocol in `COMPATIBILITY.json`, and the flash router, reported but not required).
+  the protocol in `COMPATIBILITY.json`, and the flash router and the combinator sub-projects, reported but not required).
 - **Expect:** contract 0.4, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
 - **Stop if:** any required part is missing: the service would refuse with `KIT-HS-006`, `KIT-HS-007` or `KIT-HS-005`.
   Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.4, which follows the contract 0.3 merge, the

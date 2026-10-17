@@ -20,7 +20,7 @@ Results prove properties of the logic encoding only, and every verdict carries t
 | the required checks port | `checks_port.py`, `turn.py` (`POST /v1/turns/check`, behind the service's existing gates) |
 | the specialist port (runtime results v1 and v2) | `specialist_port.py` |
 | the overseer port (the overseer as a separate sub-project) | `overseer_port.py`; the embedded adapter `epinoic_overseer.port` is connected in phase 2 |
-| the combinator port | `combinator_port.py`; `combined` is not offered until a combinator is connected |
+| the combinator port (the combinator as a separate agent) | `combinator_port.py` (input, output, refusal, hello, the published contract and its digest, the `synthesis/1.0` payload the hub receives); the combinator itself is the sub-project `combinator/` (package `epinoic_combinator`), never imported by the translator; `combined` is not offered until it is connected (phase 2) |
 | the flash-router port (the oversight planner as a separate, independent sub-agent) | `router_port.py` (the router run in its own process: `router_child.py`), `routing_features.py`; the router itself is the sub-project `flash-router/` (package `epinoic_flash_router`), attached only when `EPINOIC_FLASH_ROUTER` names it; without it the minimum-oversight floor runs |
 | the decision table, verdict signing, the Worker's binding checks | `delivery.py` |
 | the fixture provider of the simulation (the arena's serving rule) | `verifier.py` (`FixtureCorpus`) |
@@ -36,8 +36,9 @@ The decisions still open, with the fail-closed default the kit implements for ea
 
 The overseer package and the argument diagnostics are built by other work streams and connected in phase 2. The
 named-policy allowlist of contract 0.3 and the closed transformation values came with the end-to-end fixes, merged
-into this branch on 17 October 2026 (the contract line now says 0.4). The flash-router sub-project is in this kit
-(`flash-router/`), edited and released apart from the Z3 infrastructure. On this branch the service therefore refuses
+into this branch on 17 October 2026 (the contract line now says 0.4). The flash-router sub-project (`flash-router/`)
+and the combinator sub-project (`combinator/`) are in this kit, each edited and released apart from the Z3
+infrastructure; the combinator is connected to the service in phase 2. On this branch the service therefore refuses
 to start with `KIT-HS-007 overseer_unavailable` (no overseer port adapter); before that merge it stopped earlier, at
 `KIT-HS-006 named_policies_unavailable`. Every part that does not depend on the overseer is built and tested, against
 fixtures where a port's other side is missing (`RecordingPort` is a test double of the overseer port in

@@ -16,7 +16,7 @@ Five ports, each with its own version and closed messages:
 | specialist port `epinoic.integration.specialist-answer.v1` | the runtime's frozen result, wrapped | yes | 4 |
 | checks port `POST /v1/turns/check` | `turn-check.v1` in, `turn-verdict.v1` out | **yes** | 5 |
 | overseer port `epinoic.integration.overseer-port.v1` | hello, clearance, FINAL audit, delivery decision, review ticket | **yes** | 6 |
-| combinator port `epinoic.integration.combinator-port.v1` | synthesis input and output | combined mode only | 7 |
+| combinator port `epinoic.integration.combinator-port.v1` | synthesis input; output or named refusal; combinator hello (the combinator a separate agent) | combined mode only | 7 |
 | flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process) | never required (advisory) | 7a |
 
 Machine-readable forms: the pydantic models in `src/epinoic_logic/integration/` (`protocol.py`, `overseer_port.py`,
@@ -280,14 +280,48 @@ simulation's language-model adjudicator that could clear a formal error is not p
 **Sidecar mode** (later) replaces the embedded adapter only after passing `integration/overseer-port/CONFORMANCE.md`.
 Until then the handshake reports `overseer.mode = embedded`.
 
-## 7. Combinator port (combined mode only; `epinoic.integration.combinator-port.v1`)
+## 7. Combinator port (combined mode only; `epinoic.integration.combinator-port.v1`; `integration/combinator_port.py`)
 
-Input: the synthesis format built from the delivered claims (claim ids, texts, digests and the closed transformation
-vocabulary). Output: one synthesis JSON, validated by the hub as untrusted data. Refusals (`KIT-CB`): 001 input
-malformed, 002 output malformed, 003 a transformation outside the closed vocabulary, 004 a source claim the input does
-not hold, 005 an instruction pack other than the pinned one, 006 too large. v1: a cheapest-tier provider call with a
-versioned instruction pack pinned by digest. **Until a combinator is connected, the capabilities omit `combined` and
-the checks port refuses it (`KIT-REQ-002`).**
+The combinator turns the delivered claims of a combined answer's specialists into one synthesis. It is a **separate
+agent in its own sub-project** (`combinator/`, package `epinoic_combinator`, its own `pyproject.toml`, version,
+instructions and tests; standard library only at run time), edited and released without touching the Z3
+infrastructure. The translator never imports it: the service reaches it only through this port and treats everything
+it returns as untrusted data. **The hub stays the independent checker of every synthesis**: a port check is a contract
+check, never a faithfulness check (`integration/combinator-port/CONFORMANCE.md`).
+
+| Message | From | Content |
+|---|---|---|
+| `combinator-input.v1` | service | the request's ids; per delivered report its id, agent, subject, branch and every claim (id, role, materiality, certainty, text and the SHA-256 of the text; `combinator_port.build_input`, `source_report`); the closed vocabulary; the instruction pack the service pins (`PackRef`) |
+| `combinator-output.v1` | combinator | the synthesized claims (text, cited source claim ids, certainty, one transformation of the vocabulary, optional evidence references), the dropped ledger (source claim ids and a reason) and the disclosed `conflicts` (two distinct source claim ids at least and a neutral description), the request's ids and the pack's digest |
+| `combinator-refusal.v1` | combinator | no output in contract: a closed `reason` with its one `KIT-CB` code (`combinator_port.REFUSAL_REASONS`), the request it refuses (null only when the input could not be read, or for an internal error before it was), the pack's digest and a detail that never echoes the agent's prose |
+| `combinator-hello.v1` | combinator | its release (name, version), the instruction pack it runs, the digest of the published contract it validates against (`contract_sha256`), `tier: cheapest` and the vocabulary; no name naming a model (D23) |
+
+**The published contract** is those four JSON Schemas, the synthesis contract's closed vocabularies
+(`schemas/synthesis-vocabulary.v1.json`, built from `integrity/contracts.py`: the transformations a synthesized claim may
+carry, `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, with what each records; the certainty order) and the
+port's rules (`schemas/combinator-port.v1.json`: the refusal reasons and codes, the limits, the order of the checks).
+`integration/tools/generate.py` writes them from the models and copies them into the sub-project
+(`combinator/src/epinoic_combinator/contract/`, drift-tested); `combinator_port.contract_digest()` is their digest. Claim
+ids use the hub's claim id alphabet (`[A-Za-z0-9._:@-]`, so the generic parser's `g4.2@economics-specialist` is carried).
+
+**Checks** (`check_input`, `check_output`, `check_hello`, `check_refusal`), in this order for an output: not a JSON
+object (002); a synthesized claim's transformation outside the vocabulary (003), before anything else; the schema and a
+conflict naming a claim twice (002); another request (002); another instruction pack (005); a citation of a claim the
+input does not hold, by a synthesized claim, a dropped entry or a conflict (004); a synthesis text over 49,152 UTF-8
+bytes (006). Refusals (`KIT-CB`): 001 input malformed, 002 output malformed (and every case without an output in
+contract: no provider, a provider that failed or gave no text, an internal error; the refusal's reason tells them apart;
+a hello or a refusal out of contract), 003 a transformation outside the closed vocabulary, 004 a source claim the input
+does not hold, 005 an instruction pack other than the pinned one, 006 too large.
+
+**The relay.** The service turns a checked output into the `synthesis/1.0` mapping (`combinator_port.synthesis_payload`:
+claims `s0`, `s1`, ... never reusing a source claim id; dropped entries as ledger entries `dropped`; disclosed conflicts
+as `unresolved` conflict records; the student-facing text the claims' texts joined) and relays it through the hub, whose
+contract validation (`INT-REQ-009`, `INT-SYNTH-014`), ledger (`INT-LEDGER-*`, the carried self-report `INT-LEDGER-029`
+included), conflict disclosure (`INT-CONFLICT-002`) and entailment checks decide it as untrusted data.
+
+v1: a cheapest-tier provider call with the versioned instruction pack pinned by digest, run by the sub-project's runner.
+**Until the combinator is connected (phase 2: `EPINOIC_COMBINATOR` names `epinoic_combinator.port`, its process and
+provider credential decided under D33), the capabilities omit `combined` and the checks port refuses it (`KIT-REQ-002`).**
 
 ## 7a. Flash-router port (`epinoic.integration.router-port.v1`; `integration/router_port.py`)
 

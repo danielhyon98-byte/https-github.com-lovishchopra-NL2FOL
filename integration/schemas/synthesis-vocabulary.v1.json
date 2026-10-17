@@ -1,0 +1,40 @@
+{
+  "certainty": [
+    "established",
+    "probable",
+    "possible"
+  ],
+  "certainty_rank": {
+    "established": 3,
+    "possible": 1,
+    "probable": 2
+  },
+  "conflict_status": [
+    "unresolved",
+    "resolved_with_basis"
+  ],
+  "materiality": [
+    "material",
+    "supporting"
+  ],
+  "protocol": "epinoic.integration.v1",
+  "schema": "epinoic.integration.synthesis-vocabulary.v1",
+  "source": "src/epinoic_logic/integrity/contracts.py",
+  "synthesis_contract": "synthesis/1.0",
+  "synthesized_claim_transformations": [
+    "carried",
+    "paraphrased",
+    "merged",
+    "narrowed",
+    "generalized"
+  ],
+  "transformations": {
+    "carried": "exactly one source claim, its text reproduced unchanged (INT-LEDGER-010 when it cites more or changes the text)",
+    "dropped": "a ledger entry only (source claims left out, with a meaningful reason); a present synthesized claim marked 'dropped' is INT-LEDGER-009",
+    "generalized": "source claims stated more generally (a figure or date left out is INT-LEDGER-024; material content needs a formal entailment check, INT-LEDGER-011)",
+    "merged": "two or more source claims combined into one (a figure or date left out is INT-LEDGER-024; material content needs a formal entailment check, INT-LEDGER-011)",
+    "narrowed": "a source claim with part of its content left out on purpose (material content needs a coverage check, INT-LEDGER-011)",
+    "new": "content no source claim asserts: always INT-LEDGER-005, an error",
+    "paraphrased": "one source claim reworded without adding or removing content (a figure or date it leaves out is INT-LEDGER-024)"
+  }
+}
