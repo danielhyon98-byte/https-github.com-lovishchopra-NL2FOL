@@ -124,7 +124,7 @@ evaluated to build them.
 | unreadable equation | 1 | ST-CHEM-001 |
 | wrong derivative | 1 | ST-UNDEC-001 (calculus is outside the encodings) |
 | undefined expression | 1 | ST-UNDEF-001 |
-| fractional power misuse | 1 | ST-PARSE-001 or ST-UNDEC-001 |
+| fractional power misuse | 1 | ST-PARSE-001 or ST-UNDEC-001 when measured; INT-SUBJ-001 since the e2e run1 detection fixes, which decide a closed fractional power (docs/STEM_DESIGN.md, section 21) |
 
 ### Before and after
 
@@ -224,6 +224,8 @@ against the gold. **All 564 tests pass**, so every item meets every criterion be
   (in 8 correct items, and in 3 mutants built from them) is named on a covering claim with
   ST-UNDEC-001 and its reason. These are a derivative, a definite integral, a factorial, a
   limit, a complex number, asymptotic notation, a fractional power and a stated derivative.
+  (Since the e2e run1 detection fixes the fractional power `16^{3/4}` is read, and the relation that
+  holds it is named for its fourth root: docs/STEM_DESIGN.md, section 21.)
 - **The 13 silent passes seen before STEM support** are all caught or named: P1, P3, P5, P7,
   P8, P10, C1, C2, M2, M3, M4, B1 and CS1.
 

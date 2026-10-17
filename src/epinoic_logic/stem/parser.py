@@ -9,6 +9,7 @@
     unary     := ( - | + | ± | ¬ ) unary | power
     power     := postfix [ ( ^ | ** | superscript ) exponent ]       right-associative
     exponent  := signed integer literal (|n| ≤ 12) | ½ | 1/2          (½ is a square root)
+               | a closed exponent that is no integer, over a closed base (``10^(−8.2)``, ``2^{1/3}``: a RealPower)
     postfix   := primary [ % | ° | ! | × (magnification) | base subscript ]
     primary   := number [unit] | symbol | func_app | ( expr ) [unit] | { expr } | [ expr ]
                | \\frac{expr}{expr} | \\sqrt{expr} | √primary | | expr | | number : number
@@ -28,7 +29,12 @@ common multi-letter unit that does not also split into names in scope, so ``2as`
 ``2·a·s``. After a known unit atom, an unknown atom with an exponent (``yr⁻¹``) is kept as
 an unknown unit (ST-UNIT-001).
 
-Unsupported constructs are nodes, not failures: a fractional or symbolic power, ``!``,
+A power whose exponent is no integer is one value (``RealPower``) when both its base and its exponent are closed and carry
+no unit (``10^(−8.2)``, ``10^(8.2 − 7.8)``, ``(3465/250)^(1/6)``): written figures, signs, brackets and ``\\frac`` in the
+exponent, no symbol, unit, angle or per cent in either; the encoder writes its exact value when that is rational
+(``16^(3/4)`` is 8) and decides any other through an enclosure.
+
+Unsupported constructs are nodes, not failures: a symbolic power or a non-integer power of anything else, ``!``,
 ``Σ``, ``∫``, ``lim``, ``d/dx`` and ``dy/dx``, ``f′(x)``, vectors, matrices, a tuple
 ``(x, y)``, ``i`` beside a number (complex), ``O(…)`` in Computer Science, an evaluation
 bracket ``[F(x)]₀²``, infinity, an integer power beyond 12, a cube root. The relation that
@@ -51,8 +57,8 @@ from .chem import ELEMENTS, canonical_formula, latex_to_chem, parse_species
 from .lexer import Token
 from .limits import DEFAULT_LIMITS, PROFILES, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root,
-    Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower,
+    Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
 from .units import UnitExpr, is_unit_atom, parse_unit, unit_group
@@ -74,6 +80,11 @@ _END_OF_OPERAND = frozenset({"REL", "OP", "RPAR", "RGROUP", "COMMA", "SEMI", "PU
 _COMMON_GLUED_UNITS = frozenset({"kg", "km", "cm", "mm", "mol", "kJ", "kN", "kPa", "MPa", "MJ", "MW", "kW", "Hz", "kHz", "MHz", "eV", "keV", "MeV",
                                  "GeV", "mA", "mV", "kV", "µm", "μm", "nm", "Pa", "ms", "µs", "ns", "dm", "mL", "cm³", "min"})
 _FUNCTION_LETTERS = frozenset({"f", "g", "h"})
+#: the reasons ``_read_exponent`` gives for an exponent that is no integer and names no symbol: over a closed base the power
+#: is one value (``RealPower``)
+_NON_INTEGER_EXPONENTS = frozenset({"a fractional or decimal power", "a fractional power"})
+#: the tokens a closed non-integer exponent may hold: figures, signs and operators, brackets and groups, ``\\frac``
+_CLOSED_EXPONENT_TOKENS = frozenset({"NUM", "OP", "LPAR", "RPAR", "LGROUP", "RGROUP", "LATEX"})
 _MAX_AMBIGUITY_REPARSES = 16
 _MAX_SCAN = 4000
 
@@ -458,8 +469,12 @@ class _Parser:
             if euler is not None:
                 return euler
             self.i += 1
+            first = self.i
             exp = self._exponent(d)
             if isinstance(exp, Unsupported):
+                real = self._real_power(base, first, exp, d)
+                if real is not None:
+                    return self._nested_power_check(real)
                 return self._count(Unsupported(exp.reason, exp.text, _start(base), exp.end))
             value, end = exp
             node = self._make_pow(base, value, end)
@@ -510,6 +525,43 @@ class _Parser:
             # relations in which an unknown appears only in such powers can be read in one variable (relations._exp_reading)
             return self._count(Unsupported("a symbolic power", "e^…", _start(base), end, name="exp", arg=arg))
         return self._count(Func("exp", arg, None, _start(base), end))
+
+    def _real_power(self, base: Node, first: int, exp: Unsupported, d: int) -> Optional[Node]:
+        """``10^(−8.2)``, ``10^0.4``, ``2^{1/3}``: a closed base with no unit raised to a closed exponent that is no integer
+        (the tokens ``self.t[first:self.i]`` that ``_exponent`` read), as one ``RealPower`` value. None (the power stays
+        unsupported, with the exponent reader's reason) when the exponent names a symbol or a function, holds anything but
+        figures, signs, brackets and ``\\frac``, or when either side is not a closed value with no unit."""
+        if exp.reason not in _NON_INTEGER_EXPONENTS or not _closed_value(base):
+            return None
+        toks = self.t[first:self.i]
+        if not toks or any(t.kind not in _CLOSED_EXPONENT_TOKENS for t in toks):
+            return None
+        if toks[0].kind in ("LPAR", "LGROUP") and self._close_index(first) == self.i - 1:
+            toks = toks[1:-1]
+        node = self._sub_expression(toks, d)
+        if node is None or not _closed_value(node):
+            return None
+        return self._count(RealPower(base, node, _start(base), exp.end))
+
+    def _sub_expression(self, toks: tuple[Token, ...], d: int) -> Optional[Node]:
+        """``toks`` (a slice of this span's tokens) read as exactly one expression, or None. The parser's position and token
+        list are restored whatever happens, and nothing it records is kept unless the slice reads as one expression."""
+        if not toks:
+            return None
+        saved_t, saved_i, saved_amb, saved_issues = self.t, self.i, len(self.amb), len(self.issues)
+        self.t, self.i = tuple(toks), 0
+        try:
+            node: Optional[Node] = self.expr(d)
+            ok = self.i == len(self.t)
+        except _OperandError:
+            node, ok = None, False
+        finally:
+            self.t, self.i = saved_t, saved_i
+        if not ok:
+            del self.amb[saved_amb:]
+            del self.issues[saved_issues:]
+            return None
+        return node
 
     def _nested_power_check(self, node: Node) -> Node:
         tok = self.peek()
@@ -1201,6 +1253,17 @@ def _ends_in_number(node: Node) -> bool:
 
 def _is_value_node(node: Node) -> bool:
     return isinstance(node, (Num, Quantity))
+
+
+def _closed_value(node: Node) -> bool:
+    """A closed value with no unit: figures, arithmetic, closed functions and π (``10``, ``3465/250``, ``(8.04 × 10⁸)``), never
+    a symbol, a unit, an angle, a per cent, a ``±`` or anything unsupported (the base and exponent of a ``RealPower``)."""
+    for n in walk(node):
+        if isinstance(n, Sym) and n.kind == "constant":
+            continue
+        if isinstance(n, (Sym, Apply, Unsupported, Quantity, WithUnit, Degrees, Percent, PlusMinus, Ratio, BoolOp, Magnification)):
+            return False
+    return True
 
 
 #: the most terms a Σ over written integer bounds is expanded into (section 4.9 keeps the node bound too)

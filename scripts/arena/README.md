@@ -34,7 +34,7 @@ under the headline, one line each, each with its own denominator.
 
 | Measure | What it counts | What it does not say |
 | --- | --- | --- |
-| Transport (`metrics.transport`; the headline functional count) | Transmissions the hub delivered and decided: genuine traffic (genuine replies, peer relays, syntheses) delivered, injected faults named by a finding of the expected code on the injected claim, no INTERNAL_ERROR | Whether a finding is true, whether a translation is faithful, whether an answer is better |
+| Transport (`metrics.transport`; the headline functional count) | Transmissions the hub delivered and decided: genuine traffic (genuine replies, peer relays, syntheses) delivered, injected faults named by a finding of the expected code on the injected claim, no INTERNAL_ERROR. Injections reported not applicable (below) are outside it, counted apart (`injected_faults.not_applicable`) | Whether a finding is true, whether a translation is faithful, whether an answer is better |
 | Fixture coverage (`metrics.fixture_coverage`) | Recorded translations this run served (the pipeline translated their claims with them) against those it lost, by reason: report not delivered, claim id no longer delivered, refused as stale, claim not eligible, dropped by the channel, verification failed; served translations bound to a recorded claim-text digest against those bound by claim id only | Whether the served translations are faithful |
 | Translation fidelity (`metrics.translation_fidelity`) | Of the translations this run served that an adjudicator judged, how many were judged faithful; only judgments whose recorded digests match the translation and claim text served apply | Anything when the round has no adjudications: then it reads "not adjudicated" and no figure is given. The engine never decides fidelity |
 | Claims (`metrics.claims`, per record `claim_measures`) | On the genuine pass, each delivered claim once: extracted; eligible for translation; attempted (a recorded translation offered); completed (a definitive verdict displayed); faithful (where adjudicated); approved (displayed ENTAILED with no error-level finding on the claim), with how many approved claims rest on an ungrounded premise, how many rest on any unresolved dependency (ungrounded, or a premise whose task or source authority no check validated) and how many adjudicated approved claims were judged unfaithful; release permitted (the outcome's release assessment, `ClaimVerificationOutcome.release`, permits releasing the answer on the claim's checks, with no error-level finding on the claim) | "Approved" is what the receipt presents as verified, not an application's release decision. "Release permitted" is that decision's rule (established premises, a current faithful review made with the evidence): a replay calls no fidelity reviewer, so it permits none |
@@ -54,6 +54,30 @@ unvalidated (listed as unverified dependencies). Passing the task record (`fn(cl
 channel supports) validates them against the router's question too; it changes what a replay measures (round 7's
 recorded fixtures carry 338 grounding records of a task-authority kind, 174 of them on premises), so it is a methodology
 change for a new round, not for a replay.
+
+## Injections that are not applicable
+
+A STEM injection no finding names is a miss unless two things hold, and only then is the record NOT APPLICABLE
+(`not_applicable`, `not_applicable_reason`):
+
+1. The harness's own reading of the answer (`stem_mutations.not_applicable`, independent of the front end under test)
+   finds the changed figure in an expression that holds a symbol no statement of the answer or the request gives a
+   value: for a slip, the computed side of the changed relation; for a substitution, the stretch that holds the figure.
+   An identity such as `P(t + 4) = P₀e^(k(t + 1))` (the function P) or an equation in an unknown such as
+   `18 000 = M × …` qualifies. A written calculation never does, whether of figures or of symbols with a stated value
+   (`low = mid + 4` with `mid = 1` stated, `800 = 1600 e^(−5k)` with k stated), and whether or not a value is stated
+   beside it.
+2. The change moved none of the receipt's formal checks: each holds, fails or stays undecided as on the genuine
+   receipt of the same answer (`run_arena.moved_checks`). A change that moved one is a miss when unnamed.
+
+A not-applicable record is neither functional nor a failure. It is outside the transmissions of the transport measure
+and is listed with its reason in results.json (`not_applicable_injections`) and in summary.md; the reason also quotes
+the receipt's own ST-UNDEC finding on the injected claim. A named injection is a detection whatever this reading says,
+and a record whose hub transport failed is a failure whatever its applicability.
+
+A figure written as the exponent of a power of ten (or of e-notation, `6.31e-9`) changes in its first decimal digit
+(`10^(−8.2)` → `10^(−8.5)`), never by a whole number. A whole-number change would alter the power by an exact power of ten, the factor of a unit
+prefix, which the SI reading of a stated unit absorbs. The marker leaves a part label out ("(b) "), as every claim does.
 
 ## Qualified runs
 
@@ -90,4 +114,5 @@ judgment applies only to a translation this run served whose digests match; anyt
 python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)
+python -m pytest -q tests/stem/test_e2e_run1_detection.py   # the e2e run1 injections: named, or not applicable with the reason
 ```

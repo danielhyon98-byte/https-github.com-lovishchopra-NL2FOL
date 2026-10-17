@@ -29,6 +29,10 @@ quantity                   literal × exact SI factor (SI reading) or the litera
 ``±``                      the sign choice of the reading (the caller combines both choices)
 exact-table function       its exact value: rational, or ``q·sq`` with ``sq·sq = 2`` or ``3``
 other function, π, e       enclosure symbol ``enc`` with ``ENC_LO ≤ enc ≤ ENC_HI`` (forces Form S)
+``b^x``, x no integer      (a ``RealPower``: closed ``b`` and ``x``, no unit) its exact value when it is rational
+                           (``16^(3/4) = 8``: the exact-value table), else the enclosure of ``exp(x·ln b)`` for
+                           ``b > 0``; ``0^x = 0`` for ``x > 0``; a base that is zero under a non-positive exponent is
+                           ST-UNDEF-001, one that is or may be negative ST-UNDEC-001 (no real power is chosen)
 function of an unknown     ST-UNDEC-001
 =========================  ==================================================================
 
@@ -51,10 +55,10 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Iterator, Optional
 
-from .enclosures import EnclosureError, Interval, cross_check, enclose, exact_log, exact_trig, isqrt_interval, pi_interval
+from .enclosures import EnclosureError, Interval, cross_check, enclose, exact_log, exact_real_power, exact_trig, isqrt_interval, pi_interval
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Degrees, Func, Magnification, Neg, Node, Num, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym, Unsupported,
-    WithUnit, render, shape_key, walk,
+    Abs, Apply, BinOp, BoolOp, Degrees, Func, Magnification, Neg, Node, Num, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym,
+    Unsupported, WithUnit, render, shape_key, walk,
 )
 from .numbers import ExactNumber
 from .scaling import (
@@ -66,7 +70,7 @@ from .units import UnitExpr
 
 __all__ = [
     "EncodeError", "Encoder", "IR_LIMITS", "IntervalLeaf", "ProblemBuilder", "Reading", "SymbolDomain", "grounding", "inspect_ir", "ir_name",
-    "PI_DEGREE",
+    "PI_DEGREE", "real_power_value",
 ]
 
 #: IR bounds the builder enforces before a problem leaves the pack (the engine's ``Limits`` defaults, and the
@@ -449,7 +453,21 @@ def _exact_rational(node: Node) -> Optional[Fraction]:
         if a is None or (a == 0 and node.exp <= 0):
             return None
         return a ** node.exp
+    if isinstance(node, RealPower):
+        return real_power_value(node)
     return None
+
+
+def real_power_value(node: RealPower) -> Optional[Fraction]:
+    """The exact value of a ``RealPower`` when it is rational: its base and exponent written as exact rationals and
+    :func:`~.enclosures.exact_real_power` of them (``16^(3/4)`` is 8, ``4^1.5`` is 8). None for an irrational value
+    (``10^0.4``, ``2^(−3.5)``), which the encoder encloses, and for anything not written as figures."""
+    b, x = _exact_rational(node.base), _exact_rational(node.exponent)
+    if b is None or x is None:
+        return None
+    if b == 0:
+        return Fraction(0) if x > 0 else None
+    return exact_real_power(b, x)
 
 
 def pi_multiple(node: Node) -> Optional[Fraction]:
@@ -631,6 +649,8 @@ class Encoder:
             return add_terms([left, right]) if sign > 0 else sub_terms(left, right)
         if isinstance(node, Pow):
             return self._power(node, depth)
+        if isinstance(node, RealPower):
+            return self._real_power(node)
         if isinstance(node, Root):
             if node.index != 2:
                 raise EncodeError("ST-UNDEC-001", f"a root of index {node.index}")
@@ -872,15 +892,47 @@ class Encoder:
             return self._enclosure_symbol(name, x, enclose(name, x), f"exp({render(node.arg)[:60]})")
         raise EncodeError("ST-UNDEC-001", f"the function {name}")
 
+    def _real_power_interval(self, node: RealPower) -> tuple[Interval, Interval, Optional[Interval]]:
+        """``(base, exponent, value)`` intervals of a ``RealPower``: the value is its exact point when it is rational
+        (:func:`~.enclosures.exact_real_power`), else the enclosure of ``exp(x·ln b)`` for a positive base, None for
+        ``0^x`` with ``x > 0`` (exactly zero). Raises :class:`EncodeError` for a base that is zero
+        under a non-positive exponent (ST-UNDEF-001) or that is or may be negative (ST-UNDEC-001: which real power the
+        writer means is not chosen here), and for a power of an unknown."""
+        if self.free(node.base) or self.free(node.exponent):
+            raise EncodeError("ST-UNDEC-001", f"a non-integer power of an unknown ('{render(node)[:80]}')")
+        b, x = self.interval(node.base), self.interval(node.exponent)
+        if b.is_point and b.lo == 0:
+            if x.lo > 0:
+                return b, x, None
+            raise EncodeError("ST-UNDEF-001", f"zero raised to a power that is not positive in '{render(node)[:80]}'")
+        if b.lo <= 0:
+            raise EncodeError("ST-UNDEC-001", f"a non-integer power of a base that is or may be negative or zero in '{render(node)[:80]}'")
+        if not any(isinstance(n, (Num, Quantity)) and (n.start, n.end) in self.intervals for n in walk(node)):
+            # figures as written (no carried intermediate ranging over its rounding here): a rational power is exact
+            # (16^(3/4) = 8, 8^(1/3) = 2), as the table gives sin 30° = 1/2
+            exact = real_power_value(node)
+            if exact is not None:
+                return b, x, Interval.point(exact)
+        return b, x, enclose("exp", enclose("ln", b) * x)
+
+    def _real_power(self, node: RealPower) -> Term:
+        b, x, iv = self._real_power_interval(node)
+        if iv is None:
+            return lit(Fraction(0))
+        if iv.is_point:
+            self.exact_used.append(f"{render(node)[:60]} = {literal_text(iv.lo)} (exact)")
+            return lit(iv.lo)
+        return self._enclosure_symbol("pow", b, iv, render(node)[:60], exponent=x)
+
     def _enclosure_symbol(self, name: str, x: Optional[Interval], iv: Interval, label: str, *, base: Optional[int] = None,
-                          check_name: Optional[str] = None, check_iv: Optional[Interval] = None) -> Term:
-        key = ("enc", name, base, None if x is None else (x.lo, x.hi))
+                          check_name: Optional[str] = None, check_iv: Optional[Interval] = None, exponent: Optional[Interval] = None) -> Term:
+        key = ("enc", name, base, None if x is None else (x.lo, x.hi), None if exponent is None else (exponent.lo, exponent.hi))
         if key in self.cache:
             self.uses_intervals = True
             return self.cache[key]
         cname = check_name or name
-        if cname in ("pi", "e", "sin", "cos", "tan", "arcsin", "arccos", "arctan", "ln", "log", "log10", "exp"):
-            if not cross_check(cname, x, check_iv or iv, base=base):
+        if cname in ("pi", "e", "sin", "cos", "tan", "arcsin", "arccos", "arctan", "ln", "log", "log10", "exp", "pow"):
+            if not cross_check(cname, x, check_iv or iv, base=base, exponent=exponent):
                 raise EncodeError("ST-INTERNAL-001", f"the enclosure of {label} failed its cross-check against the math library")
         lo, hi = _round_out(iv.lo, "down"), _round_out(iv.hi, "up")
         k = self._frame_of(lo, hi)
@@ -952,6 +1004,9 @@ class Encoder:
             return left + right if sign > 0 else left - right
         if isinstance(node, Pow):
             return rec(node.base).power(node.exp)
+        if isinstance(node, RealPower):
+            b, _x, iv = self._real_power_interval(node)
+            return Interval.point(Fraction(0)) if iv is None else iv
         if isinstance(node, Root):
             x = rec(node.arg)
             if x.hi < 0:

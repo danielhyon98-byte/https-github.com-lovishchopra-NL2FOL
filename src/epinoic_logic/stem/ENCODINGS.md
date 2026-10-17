@@ -55,6 +55,7 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | `±`, `∓` | the sign of the reading. `eq` and `sub` require both choices (AND); a step's relations take either (OR); roots expand to two. | as the operands |
 | exact-table function | sin/cos/tan of multiples of 30° and 45° (and the same angles as rational multiples of π): `q` or `q·sq` with `sq·sq = 2` or `3`. Also log₁₀ and log_b of exact powers, ln 1, exp 0, and the inverse functions at table values in degrees. | as the surd |
 | other function, π, e | `enc` with `ENC_LO ≤ enc ≤ ENC_HI` (forces Form S) | linear |
+| `b^x` with b and x closed and no unit, x no integer (`RealPower`: `10^(−8.2)`, `2^{1/3}`) | its exact value when rational (`16^{3/4} = 8`, `enclosures.exact_real_power`); otherwise `enc` of `exp(x·ln b)` for b > 0, cross-checked against `math.pow` (forces Form S; an algebra step holding one is ST-UNDEC-001, since a step is compared exactly); `0^x = 0` for x > 0; a zero base under a non-positive exponent is ST-UNDEF-001, a base that is or may be negative ST-UNDEC-001 | linear |
 | function of an unknown, `f(x)`, `Unsupported(reason)` | ST-UNDEC-001 with the reason | — |
 | Boolean `∧ ∨ ¬ ⊕` | `and`, `or`, `not`, `not(iff)` | linear |
 | based numeral | its exact value (Int in `stem-base`) | linear |

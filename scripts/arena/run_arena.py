@@ -77,7 +77,16 @@ sciences, mathematics or computer_science branch): stem_arithmetic_slip (one sta
 INT-SUBJ-001), stem_wrong_unit (a stated result's unit replaced by one of another dimension; ST-DIM-001 or ST-DIM-002),
 stem_substitution (a value the request gives, substituted into a calculation, written as another value; INT-SUBJ-001).
 Each is skipped when the answer has no site for it. The injection is named when a finding of its code names a claim
-that carries the mutated text. Every other subject's round is unchanged.
+that carries the mutated text. A STEM injection no finding names is a miss unless two things hold: the harness's own
+reading (stem_mutations.not_applicable) finds the changed figure in an expression holding a symbol no statement of the
+answer or the request gives a value (an identity such as P(t + 4) = P₀e^(k(t + 1)), an equation in an unknown such as
+18 000 = M × …), not in a written calculation; and the change moved none of the receipt's formal checks against the
+genuine receipt (moved_checks: each holds, fails or stays undecided as before). Then nothing checkable changed, and the
+record is NOT APPLICABLE (``not_applicable``, with ``not_applicable_reason``): counted neither functional nor as a failure,
+outside the transmissions of the transport measure, and listed with its reason in results.json
+(``not_applicable_injections``) and summary.md. A change that moved a check stays a miss when unnamed (the reading is
+only a candidate), and a record whose hub transport failed (REJECTED, a crash, an INTERNAL_ERROR) is a failure whatever
+its applicability. Every other subject's round is unchanged.
 
 Functional-rate definition (deterministic; this is the transport measure): a transmission counts as functional when the
 hub produced a receipt without raising, the receipt status is consistent with the input
@@ -154,6 +163,7 @@ import argparse
 import json
 import math
 import re
+from collections import Counter
 import statistics
 import sys
 import time
@@ -163,7 +173,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
+from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem, not_applicable  # noqa: E402
 
 from epinoic_logic.branches import RouterHub
 from epinoic_logic.channel import TransmissionStatus
@@ -323,6 +333,49 @@ def stem_variant(text: str, question: str, kind: str) -> tuple[str, str]:
     """``(mutated_text, expected codes joined by '|')`` of a STEM mutation, or ``(text, 'SKIP')`` when the answer has no site."""
     inj = mutate_stem(text, question, kind)
     return (text, "SKIP") if inj is None else (inj.text, "|".join(inj.expected))
+
+
+def stem_not_applicable(text: str, question: str, kind: str) -> str:
+    """Why the STEM mutation ``kind`` of ``text`` (an answer to ``question``) changed a figure in an expression in symbols
+    with no stated value rather than in a written calculation ('' when it did not, and for every other mutation): asked
+    only of an injection no finding named (stem_mutations.not_applicable). The record is NOT APPLICABLE only when, in
+    addition, the change moved none of the receipt's formal checks (:func:`moved_checks`)."""
+    if kind not in STEM_MUTATIONS:
+        return ""
+    inj = mutate_stem(text, question, kind)
+    return not_applicable(inj, question) if inj is not None else ""
+
+
+def formal_check_states(rc) -> list[tuple]:
+    """The receipt's formal checks as (constraint id, formal status, satisfied): what a change in the answer can move."""
+    return [(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks]
+
+
+def moved_checks(genuine: list | None, mutated: list) -> list[str] | None:
+    """The formal checks a change moved, against the genuine receipt of the same answer: each check whose status or
+    outcome differs, or that only one of the two receipts has (``id: genuine status -> mutated status``). None when there
+    is no genuine receipt to compare with (nothing can be said, so nothing is excused)."""
+    if genuine is None:
+        return None
+    g, m = Counter(map(tuple, genuine)), Counter(map(tuple, mutated))
+    if g == m:
+        return []
+    ids = sorted({c[0] for c in (g - m) + (m - g)})
+
+    def states(c: Counter, cid: str) -> str:
+        return "/".join(sorted(str(k[1]) for k in c.elements() if k[0] == cid)) or "absent"
+    return [f"{cid}: {states(g, cid)} -> {states(m, cid)}" for cid in ids]
+
+
+def counted(r: dict) -> bool:
+    """A record the transport measure counts: every record but an injection reported not applicable."""
+    return not r.get("not_applicable")
+
+
+def not_applicable_injections(records: list[dict]) -> list[dict]:
+    """The injections reported not applicable: neither a detection nor a miss, each with the harness's reason."""
+    return [{"file": r["file"], "task_id": r.get("task_id"), "variant": r["variant"], "status": r.get("status"), "injected_claim_ids": r.get("injected_claim_ids", []),
+             "reason": r.get("not_applicable_reason")} for r in records if r.get("not_applicable")]
 
 
 def injection(text: str, kind: str, texts=(), question: str = "") -> Injection:
@@ -1304,7 +1357,11 @@ def latency_measures(records: list[dict]) -> dict:
 
 def transport_measure(records: list[dict]) -> dict:
     """The functional count, labelled for what it is: transport. Genuine traffic (genuine replies, peer relays,
-    syntheses) delivered and decided, and injected faults named, each with its own count beside the total."""
+    syntheses) delivered and decided, and injected faults named, each with its own count beside the total; injections
+    reported not applicable (a figure changed in an expression in symbols, moving no formal check) are counted apart, in
+    neither."""
+    na = [r for r in records if not counted(r)]
+    records = [r for r in records if counted(r)]
     total = len(records)
     functional = sum(1 for r in records if r.get("functional"))
     gen = [r for r in records if r["variant"] in GENUINE_VARIANTS]
@@ -1316,7 +1373,7 @@ def transport_measure(records: list[dict]) -> dict:
             "functional": functional, "transmissions": total, "rate": (functional / total) if total else 0.0,
             "genuine_traffic": {"functional": sum(1 for r in gen if r.get("functional")), "total": len(gen),
                                 "by_variant": {v: sum(1 for r in gen if r["variant"] == v) for v in GENUINE_VARIANTS}},
-            "injected_faults": {"functional": sum(1 for r in inj if r.get("functional")), "total": len(inj)}}
+            "injected_faults": {"functional": sum(1 for r in inj if r.get("functional")), "total": len(inj), "not_applicable": len(na)}}
 
 
 def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
@@ -1361,7 +1418,9 @@ def measure_lines(m: dict) -> list[str]:
     lines.append(f"- Transport (functional transmissions): {t['functional']} of {t['transmissions']} ({_pct(t['functional'], t['transmissions'])}). "
                  f"Genuine traffic delivered and decided: {t['genuine_traffic']['functional']} of {t['genuine_traffic']['total']} "
                  f"(genuine replies {gv['genuine']}, peer relays {gv['peer_relay']}, syntheses {gv['synthesis']}); injected faults named: "
-                 f"{t['injected_faults']['functional']} of {t['injected_faults']['total']} mutation records. Transport says the hub delivered and decided "
+                 f"{t['injected_faults']['functional']} of {t['injected_faults']['total']} mutation records"
+                 + (f" ({t['injected_faults'].get('not_applicable', 0)} more not applicable, in neither count: listed below)" if t["injected_faults"].get("not_applicable") else "")
+                 + ". Transport says the hub delivered and decided "
                  "every transmission; it does not judge whether a finding is true, whether a translation is faithful or whether an answer is better.")
     if cov["recorded"]:
         lost = "; ".join(f"{n} {LOST_LABELS[k]}" for k, n in cov["lost_by_reason"].items())
@@ -1433,6 +1492,7 @@ def run_round(round_dir: Path) -> dict:
     delivered: dict[str, object] = {}  # file stem -> AgentMessage delivered to the router for the genuine reply
     baseline: dict[str, list[dict]] = {}  # file stem -> every finding of the genuine receipt (full messages)
     baseline_constraints: dict[str, dict[str, str]] = {}  # file stem -> {constraint_id: detail} of the genuine receipt
+    baseline_checks: dict[str, list[tuple]] = {}  # file stem -> the formal checks of the genuine receipt (formal_check_states)
     peer_docs: dict[str, SuppliedText] = {}
     last_in_group: dict[str, str] = {}
     # file stem -> {claim_id: sha256 of the claim text each fixture was produced for}: carried by the translations file
@@ -1556,6 +1616,7 @@ def run_round(round_dir: Path) -> dict:
                 if kind == "genuine":
                     baseline[sp.stem] = found
                     baseline_constraints[sp.stem] = {c.constraint_id: c.detail for c in rc.constraint_results}
+                    baseline_checks[sp.stem] = formal_check_states(rc)
                 else:
                     # A fault counts as named only by a finding of the expected code that names an injected claim or
                     # quotes the injected words, and that the genuine record does not already carry.
@@ -1567,9 +1628,25 @@ def run_round(round_dir: Path) -> dict:
                     rec.update(injected_claim_ids=injected, named_by=[brief(f) for f in named], unexplained_findings=[brief(f) for f in unexplained],
                                baseline_findings_absent=[brief(f) for f in absent])
                     if expected_codes and not named:
-                        present = sorted(set(codes) & set(expected_codes))
-                        reasons.append(f"no {'/'.join(expected_codes)} finding names the injected claims {injected} or the injected words"
-                                       + (f" ({present} present, but only for what the genuine text already carries or for other claims)" if present else ""))
+                        why_not = stem_not_applicable(item["response_text"], item.get("question", ""), kind)
+                        moved = moved_checks(baseline_checks.get(sp.stem), formal_check_states(rc)) if why_not else None
+                        if why_not and moved == []:
+                            # the changed figure lies in an expression in symbols with no stated value, and the change moved no
+                            # formal check: nothing checkable changed, so the record is neither a detection nor a miss (it still
+                            # fails below if the hub's transport failed)
+                            undecided = sorted({f"{sf.code} ('{sf.message[:160]}')" for sf in rc.structural_findings
+                                                if sf.code.startswith("ST-UNDEC") and set(sf.claim_ids) & set(injected)})
+                            rec["not_applicable_reason"] = (f"{why_not}; the change moved none of the receipt's {len(rc.formal_checks)} formal checks "
+                                                            "(each holds, fails or stays undecided as on the genuine answer)"
+                                                            + (f"; the receipt leaves the injected claims undecided: {'; '.join(undecided)}" if undecided else ""))
+                        else:
+                            present = sorted(set(codes) & set(expected_codes))
+                            reasons.append(f"no {'/'.join(expected_codes)} finding names the injected claims {injected} or the injected words"
+                                           + (f" ({present} present, but only for what the genuine text already carries or for other claims)" if present else "")
+                                           + (f" (the changed figure lies in an expression in symbols, but the change moved formal checks {moved}: a check "
+                                              "computed it, so this is a miss)" if why_not and moved else "")
+                                           + (" (the changed figure lies in an expression in symbols, but there is no genuine receipt to compare the "
+                                              "formal checks with, so this is a miss)" if why_not and moved is None else ""))
                 if kind == "self_certification":
                     # The self-report must be named on the receipt (core, hand-off or subject code; checked above), must
                     # not be parroted as an error, and must not reach the recipient as a material claim.
@@ -1580,7 +1657,9 @@ def run_round(round_dir: Path) -> dict:
                 ok = not reasons
                 if reasons:
                     rec["failure_reasons"] = reasons
-                rec.update(functional=ok, status=rc.status.value, branch=rc.branch, codes=codes, outcomes=outcomes, stale_fixtures_refused=stale,
+                if rec.get("not_applicable_reason") and ok:
+                    rec["not_applicable"] = True  # neither functional nor a failure: outside the transport count
+                rec.update(functional=None if rec.get("not_applicable") else ok, status=rc.status.value, branch=rc.branch, codes=codes, outcomes=outcomes, stale_fixtures_refused=stale,
                            formal_checks=[(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks],
                            constraints=[(c.constraint_id, c.satisfied) for c in rc.constraint_results], constraint_details={c.constraint_id: c.detail[:300] for c in rc.constraint_results}, coverage=[(c.item_id, c.addressed) for c in rc.coverage], claims=len(reply.payload["claims"]) if reply else None,
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
@@ -1608,8 +1687,8 @@ def run_round(round_dir: Path) -> dict:
                 # changed since is read together with the recorded relay check
                 srec["recorded_relays_differing"] = list(stale_relays_by_group[group])
             records.append(srec)
-    total = len(records)
-    functional = sum(1 for r in records if r.get("functional"))
+    total = sum(1 for r in records if counted(r))
+    functional = sum(1 for r in records if counted(r) and r.get("functional"))
     # Translation outcomes: the genuine pass verifies every eligible claim with a fixture exactly once, so its counts are
     # the distinct-claim counts (checked below over (file, claim_id)); the mutation variants repeat the same claims and
     # are totalled separately.
@@ -1638,6 +1717,8 @@ def run_round(round_dir: Path) -> dict:
             all_variants[k] = all_variants.get(k, 0) + n
     by_variant: dict[str, list[int]] = {}
     for r in records:
+        if not counted(r):
+            continue
         by_variant.setdefault(r["variant"], [0, 0])
         by_variant[r["variant"]][1] += 1
         by_variant[r["variant"]][0] += 1 if r.get("functional") else 0
@@ -1655,7 +1736,8 @@ def run_round(round_dir: Path) -> dict:
            "genuine_with_errors": genuine_findings_summary(records),
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
-           "failures": [r for r in records if not r.get("functional")], "records": records}
+           "not_applicable_injections": not_applicable_injections(records),
+           "failures": [r for r in records if counted(r) and not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
     out["metrics"] = round_measures(records, translations, adjudications)
     out["qualifications"] = out["metrics"]["qualifications"]
@@ -1663,7 +1745,9 @@ def run_round(round_dir: Path) -> dict:
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
     lines = [title_line(round_dir.name, out["metrics"]), "",
              f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%}). This is the transport measure only: fixture coverage, "
-             "translation fidelity and the claim counts are separate measures (below), never combined with it into one rate.", "",
+             "translation fidelity and the claim counts are separate measures (below), never combined with it into one rate."
+             + (f" Injected faults not applicable (a figure changed in an expression in symbols with no stated value, moving no formal check; counted "
+                f"neither as a detection nor as a miss, and not among the transmissions): {len(out['not_applicable_injections'])}." if out["not_applicable_injections"] else ""), "",
              error_receipt_line(out["genuine_receipts_with_errors"]), ""]
     lines += measure_lines(out["metrics"])
     lines += ["", "| variant | functional | total |", "| --- | --- | --- |"]
@@ -1701,6 +1785,8 @@ def run_round(round_dir: Path) -> dict:
             lines.append(f"  - info-level: {u['unexplained_info']}")
     if not out["mutations_with_unexplained_findings"]:
         lines.append("(none)")
+    lines += ["", "## Injected faults not applicable (a figure changed in an expression in symbols with no stated value, and no formal check moved: neither a detection nor a miss)", ""]
+    lines += [f"- {n['file']} [{n['variant']}] {n['status']}: injected claims {n['injected_claim_ids']}: {n['reason']}" for n in out["not_applicable_injections"]] or ["(none)"]
     lines += ["", "## Failures", ""] + ([f"- {r['file']} [{r['variant']}]: {'; '.join(([r['error']] if r.get('error') else []) + (r.get('failure_reasons') or [])) or ('status ' + str(r.get('status')) + ' codes ' + str(r.get('codes')))}" for r in out["failures"]] or ["(none)"])
     (round_dir / "summary.md").write_text("\n".join(lines))
     return out
@@ -1718,7 +1804,7 @@ def main(argv: list[str] | None = None) -> int:
     rd = args.round_dir.resolve()
     res = run_round(rd)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
-    print("failures:", len(res["failures"]))
+    print("failures:", len(res["failures"]), "| injected faults not applicable (neither a detection nor a miss):", len(res["not_applicable_injections"]))
     ge = res["genuine_receipts_with_errors"]
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",

@@ -46,8 +46,8 @@ from .calculus import derivative, polynomial, polynomial_node
 from .chem import ChemEquation
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym,
-    Unsupported, WithUnit, align, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root,
+    Sym, Unsupported, WithUnit, align, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
 )
 from .numbers import ExactNumber
 from .parser import ParseIssue
@@ -881,7 +881,7 @@ class _Planner:
         x = next(iter(names))
         for side in (lnode, rnode):
             for n in walk(side):
-                if isinstance(n, (Func, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit)):
+                if isinstance(n, (Func, RealPower, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit)):
                     return False
                 if isinstance(n, BinOp) and n.op == "/" and x in _syms(n.right):
                     return False

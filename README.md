@@ -130,7 +130,8 @@ What the STEM branches do:
   A stated value passes when it lies within `h + τ·|C|` of the value `C` computed from the
   written expression: `h` is half a unit in the stated value's last digit; `τ` is 1 % for `=`,
   5 % for `≈` or "about", and 0 for conversions, comparisons and exact work; rounded
-  intermediates, data-booklet constants and function values range over their rounding or
+  intermediates, data-booklet constants, function values and irrational powers of written figures
+  (`10^(−8.2)`; a rational one such as `16^(3/4) = 8` is exact) range over their rounding or
   enclosure intervals. The band is computed inside the IR, so the engine, not Python, decides
   whether a value lies in it.
 - **Name every fault it can see, and never flag correct work as an error.** An error comes only
@@ -318,7 +319,10 @@ and overseer builds merge, and the optimisation checks run last, after every bug
 Stress figures for the engine, channel and hub are in `docs/STRESS_RESULTS.md`; no stress iteration
 was run after the bug-fix rounds. The harness's functional rate checks that the hub delivered and
 decided every transmission and named every injected fault; it does not judge whether a
-finding is true. Its summary therefore states, under the headline, how many genuine receipts
+finding is true. An unnamed STEM injection whose changed figure lies in an expression in symbols with
+no stated value (an identity, an equation in an unknown), and which moved none of the receipt's formal
+checks, is reported not applicable with its reason, counted neither as a detection nor as a miss. Its
+summary therefore states, under the headline, how many genuine receipts
 carry error-level findings and are still counted functional, and names every definitive
 verdict other than ENTAILED shown on a genuine claim with what it rests on, beside the
 number of genuine claims whose encoding got no verdict (vacuous, circular, an unasserted

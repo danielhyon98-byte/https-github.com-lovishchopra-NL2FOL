@@ -325,7 +325,8 @@ lines and mark annotations are furniture, and a table is one statement per row.
   - Digits with an optional decimal point.
   - A decimal comma only when 1 or 2 digits follow and no space follows outside a coordinate
     pair.
-  - Thousands groups with `,` or a thin space, in groups of exactly three.
+  - Thousands groups with `,`, a thin space or the LaTeX thin space `\,` (`21\,131.40`), in groups
+    of exactly three, one kind of separator throughout (section 21).
   - Scientific notation: `1.2 × 10⁶`, `1.2 x 10^6`, `1.2×10^{6}`, `1.2*10**6`, `1.2e6`,
     `6.0E-3`, with a Unicode minus allowed in mantissa and exponent.
   - Base-marked integers: `FF₁₆`, `0xFF`, `0b1010`, `1010₂`, `(255)₁₀`.
@@ -384,9 +385,15 @@ operand makes that operand an error (ST-LIM-001 or ST-PARSE-001) and the parser 
 at the next relation sign; an unknown LaTeX command or a confusable letter makes the whole span
 Unparsed (ST-PARSE-001, the command named). Nothing raises out of `parse_math`.
 
+A power whose exponent is no integer is one value, a `RealPower`, when its base and its exponent
+are both closed and carry no unit (`10^(−8.2)`, `10^(8.2 − 7.8)`, `(3465/250)^(1/6)`): figures,
+signs, brackets and `\frac` in the exponent, no symbol, unit, angle or per cent in either
+(section 21).
+
 Unsupported, each as a named `Unsupported(reason)` node (the relation that holds one is
 ST-UNDEC-001 with the reason):
-- a fractional or symbolic power, an integer power beyond 12, a cube root;
+- a symbolic power, a non-integer power of anything but a closed value with no unit, an integer
+  power beyond 12, a cube root;
 - `!`;
 - `Σ` (except over integer bounds with at most 24 terms, which is read as its terms), `∫` and
   `lim`;
@@ -769,6 +776,7 @@ factoring.
 | `x¹`, `x⁰` | x; `1` with `GUARD x ≠ 0` (0⁰ gives ST-UNDEF-001) | — |
 | `xⁿ`, n < 0 | `q·x^|n| = 1`, `GUARD x ≠ 0` | linear if x is closed |
 | `√x`, `x^½` | `sq ≥ 0`, `sq·sq = x`. Precheck: a closed negative x gives ST-UNDEF-001 | nonlinear |
+| `b^x`, b and x closed with no unit, x no integer (`RealPower`) | its exact value when it is rational (`16^(3/4) = 8`: b's numerator and denominator are exact q-th powers for x = p/q); otherwise an enclosure symbol `enc` of `exp(x·ln b)` for b > 0 (grounded `arithmetic_fact`, cross-checked against `math.pow`), which forces Form S, and an algebra step that holds one is ST-UNDEC-001. `0^x` with x > 0 is 0; a base that is zero under an exponent that is not positive gives ST-UNDEF-001, one that is or may be negative ST-UNDEC-001 (no real power is chosen) | linear |
 | `\|x\|` | `ite(x ≥ 0, x, −x)` | linear |
 | `n %` | n/100 (SI reading); n (as written) | linear |
 | `±`, `∓` inside a formula | the sign of the reading: `eq` and `sub` require both choices (AND); a step's relations take either (OR); roots expand to two | as the operands |
@@ -839,7 +847,8 @@ engine status of its own encoding, under the tolerance rule.
 - Σ with symbolic bounds.
 - Vectors, matrices and complex numbers.
 - Factorials and combinatorics with `!`.
-- Fractional or symbolic powers.
+- Symbolic powers, and non-integer powers of anything but a closed value with no unit (a closed
+  one is decided exactly when its value is rational, else through an enclosure, section 21).
 - A function of an unknown.
 - Probability distributions.
 - Asymptotic notation.
@@ -913,7 +922,7 @@ from an engine result.
 | INT-SUBJ-003 | error | deterministic | an error-severity pack finding, escalated (existing; STEM never produces one) |
 | INT-SUBJ-004 | warning | engine | NEW: a check that relied on a reading the report did not state does not hold: a booklet value for an unstated symbol, symbol identity across request and answer, a show-that target, a step bringing in unrelated symbols, or an unknown unit |
 | BR-INTERNAL-001 | warning | deterministic | NEW (`SubjectBranch.run_packs`): pack `<name>` failed internally (`<type>`) during `<checks or formal checks>`; its findings are missing from this receipt, and the router must not treat the pack as passed |
-| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, fractional or symbolic power); its relations are not checked |
+| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, a symbolic power); its relations are not checked |
 | ST-PARSE-002 | warning | deterministic | an expression has more than 2 readings (or a check more than 4): implicit multiplication or unit/symbol ambiguity; not checked |
 | ST-UNDEC-001 | warning | deterministic | a recognised relation outside the encodings (calculus, limits, Σ, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown, an approximation step such as sin θ ≈ θ, an angle range); the reason is named |
 | ST-UNDEC-002 | warning | deterministic | a numeric relation depends on a symbol with no stated value and no admissible booklet reading |
@@ -1850,3 +1859,102 @@ consequence rests on earlier claims), `tests/stem/test_segment.py` and
 `tests/stem/test_relations.py` (an equation continued over lines is one statement; one statement
 per table row), and `tests/branches/data/quant_general_reference.json` (the GENERAL reading's
 reference regenerated on the development branch; byte identity still required).
+
+---
+
+## 21. Detection fixes from the end-to-end simulation (run1)
+
+The end-to-end simulation of the website-to-backend flow (sixteen specialists, the arena harness on
+their genuine answers) left six injected faults unnamed. Each was traced to its cause; the answers
+are kept as test data (`tests/channel/data/e2e_run1_material.json`) and every fix is pinned by
+`tests/stem/test_e2e_run1_detection.py`.
+
+### 21.1 Gaps in the checks
+
+1. **Decimal and fractional powers of a closed value** (ch-e1b: `[H⁺] = 10^(−8.2) = 9.31 × 10⁻⁹`,
+   and the same line with the pH substituted wrongly). The exponent reader named every non-integer
+   exponent 'a fractional or decimal power', so no pH line was checked. A closed base with no unit
+   raised to a closed exponent that is no integer is now a `RealPower` node (`nodes.py`,
+   `parser._real_power`): the exponent's tokens may be figures, signs, operators, brackets and
+   `\frac` only, and the base and the exponent must hold no symbol, unit, angle, per cent or `±`.
+   A rational value is exact, as the exact-value table gives `sin 30° = 1/2`: a positive rational
+   base whose numerator and denominator are exact q-th powers for the exponent p/q
+   (`16^(3/4) = 8`, `4^1.5 = 8`, `(8/27)^(2/3) = 4/9`; `enclosures.exact_real_power`, exact integer
+   roots, at most 30 digits), so `x² = 16^(3/4) ⇒ x = ±2√2` is proved exactly. Any other value
+   (`10^(−8.2)`, `2^(−3.5)`) is the enclosure of `exp(x·ln b)` for a positive base (`to_ir._real_power`),
+   cross-checked against `math.pow` within 10⁻⁹ of the value; `0^x` with x > 0 is 0; a zero base
+   under an exponent that is not positive is ST-UNDEF-001 and a base that is or may be negative
+   ST-UNDEC-001 (which real power the writer means is not chosen). A check that uses the enclosure
+   is Form S, so correct work within the tolerance band passes (`10^(−8.2) = 6.31 × 10⁻⁹` holds) and
+   the slip does not. An algebra or inequality step that holds such an irrational power stays
+   undecided (ST-UNDEC-001, the power named), as every step did before the power was read: a step is
+   compared exactly (only a side that is one written value gets a band, section 8.1), so
+   `I = I₀ × 2^(−3.5) = 0.088 I₀`, correct to 2 s.f., could only become a false error. A symbolic
+   exponent (`10^(−pH)`, `e^(kt)`) and a symbolic or dimensioned base stay undecided as before.
+2. **The LaTeX thin space between digit groups** (mai-e1: `21\,131.40 - 18\,000 = 6131.40`). The
+   number reader knew the Unicode thin spaces but not `\,`, so every operand written with it was cut
+   ("unexpected '131.40' after an operand") and the answer had no check at all. `scan_number` now
+   reads `\,` between an integer part of one to three digits and groups of exactly three as a
+   thousands separator, one kind of separator throughout; anything else stays LaTeX spacing.
+3. **A relayed specialist named by its subject** (hi-e1a: `The Mathematics specialist states that
+   "the model is not aly good fit for 1923"`). A relayed report authored by
+   `mathematics-aa-specialist` was named only "mathematics aa specialist", so the router's own name
+   for the colleague in its hand-off ("attribute them to the Mathematics specialist") named no text:
+   the misquotation was credited to none and only reported unverifiable (CORE-SRC-003, a warning).
+   `adapters.sources.specialist_names` adds the subject's first word ("mathematics specialist") when
+   the agent id names a course or qualifier after it, and for Mathematics the spellings "maths
+   specialist" and "math specialist"; the History, English and STEM parsers and the
+   crediting rules share it, so the quotation is credited to the colleague's report and refuted
+   there (INT-REQ-003, naming the altered word). A sentence that names no text keeps the earlier
+   rule (unverifiable unless an own supplied text holds the words).
+
+### 21.2 Harness defects (`scripts/arena`)
+
+4. **A change a documented reading absorbs** (ch-e1b substitution). The harness moved the leading
+   digit of the exponent 8.2 to 5.2: a change of exactly 10³ in the power, the factor between
+   mol m⁻³ and mol dm⁻³, so under the SI reading of a unitless calculation stated in a unit
+   (section 6.4) the changed line holds. A figure written as the exponent of a power of ten (or of
+   e-notation, `6.31e-9`) now changes in its first decimal digit (8.2 → 8.5: a factor 10^0.3), and an
+   exponent of ten with no decimal digit is no site (`stem_mutations.figure_change`).
+5. **An identity in symbols** (maa-e1a substitution: `(b) P(t + 1) = P₀e^(k(t + 1))` → `P(t + 4)`).
+   The changed figure lies in a function of an unknown and symbolic powers, outside the encodings by
+   design: no written calculation holds it, and P has no stated value. The receipt leaves the link
+   undecided on the genuine and the mutated answer alike (ST-UNDEC-001, a symbolic power), and none
+   of its eight formal checks moves. The marker also kept the part label "(b) ", which no claim
+   carries; it now leaves a part label out as it leaves a mark annotation out.
+6. **An equation in an unknown** (mai-e1 substitution: `18\,000 = M \times \frac{1-…}` →
+   `\frac{4-…}`). The '1' is no value the request gives (the question number and a mark), and the
+   figure lies in an equation in the unknown M, which no statement gives a value (the payment is
+   stated only in prose and as the solver's PMT). The receipt leaves the relation undecided on both
+   answers (ST-UNDEC-001, an integer power beyond 12), and neither of its two formal checks moves.
+
+For 5 and 6 the harness now reports an injection no finding names as NOT APPLICABLE only when two
+things hold. The record carries `not_applicable` and `not_applicable_reason`, results.json lists it
+under `not_applicable_injections`, and `summary.md` has a section for it:
+
+- The harness's own reading, independent of the front end (`stem_mutations.not_applicable`), finds
+  the changed figure in an expression that holds a symbol no statement of the answer or the request
+  gives a value. For a slip this is the computed side of the changed relation; for a substitution, the
+  stretch that holds the figure. Symbols with no stated value, prose words and clause marks separate
+  stretches.
+- The change moved none of the receipt's formal checks against the genuine receipt
+  (`run_arena.moved_checks`).
+
+A written calculation always counts, whether of figures or of symbols with a stated value, and
+whether or not a value is stated beside it. That includes the round-7 identities the stem-sub,
+stem-alg and stem-sol checks name (`low = mid + 4` with `mid = 1` stated). A change in symbols that
+moved a check is a miss when unnamed. A not-applicable record is counted neither as a detection nor
+as a miss and is outside the transport count. A hub failure on the same record is still a failure,
+and an injection a finding names is a detection whatever this reading says.
+
+### 21.3 Tests changed
+
+- `tests/fixtures/stem/corpus/stem-math-020.json` (and its copy in `tests/stem/data/stem_corpus.json`):
+  the fractional-power fault `16^(3/4) = 16 × 3/4` was expected as undecided (ST-PARSE-001 or
+  ST-UNDEC-001); the engine now refutes it (16^(3/4) is exactly 8), so it is expected as
+  INT-SUBJ-001 alone from the arithmetic check (`FIXTURE_LABELS` in `tests/stem/data/corpus_items.py`
+  pins the check kind `eq`), a stronger label. The fixture README records the change.
+- `tests/stem/data/corpus_items_more.py` (`math-fracpow-1`): the relation
+  `16^{3/4} = (\sqrt[4]{16})^3` is still named undecided with ST-UNDEC-001, now for the fourth root
+  alone ('root of index 4'), since `16^{3/4}` is read; the corpus was rebuilt (two labels changed,
+  558 items as before).

@@ -110,7 +110,11 @@ the 400,000-character response bound under `-m stress` (each under two seconds w
 ## What the front end does not decide
 
 Whether a relation holds: every verdict on a stated relation is an engine result in the later
-stages. The front end reads structure, records bindings with provenance and plans checks. It never
+stages. A power with a non-integer exponent is read as one value (`RealPower`) only when its base
+and its exponent are closed and carry no unit (`10^(−8.2)`); the later stages decide it exactly when
+its value is rational (`16^{3/4} = 8`) and otherwise through an enclosure, and an algebra step that
+holds an enclosed power stays undecided. A symbolic power (`10^(−pH)`, `e^(kt)`) stays undecided. Digit groups may be separated
+by `,`, a thin space or the LaTeX thin space `\,` (`21\,131.40`), in groups of exactly three. The front end reads structure, records bindings with provenance and plans checks. It never
 supplies a constant's value (data-booklet readings are the `checks` stage's, at warning severity),
 never runs code (ST-CODE-001), and never reads a molar mass from a formula.
 

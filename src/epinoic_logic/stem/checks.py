@@ -56,14 +56,14 @@ from .constants import BookletReading, booklet_reading, constants_for_symbol, ma
 from .document import StemDocument
 from .enclosures import EnclosureError, Interval, e_interval
 from .nodes import (
-    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym, WithUnit, is_closed, is_value,
-    render, symbols, value_of, walk,
+    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym, WithUnit, is_closed,
+    is_value, render, symbols, value_of, walk,
 )
 from .relations import ST_SEVERITY, Relation
 from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, nary, real, to_frame, var_term
 from .scope import Binding, si_value
 from .tolerance import APPROX_WORDS, SHORT_RULE, TAU_APPROX, TAU_EQUAL, band_expr, half_width, is_measured
-from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir
+from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
 from .units import DIMENSIONLESS, Dimension, UnitExpr
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
@@ -1468,6 +1468,13 @@ def _step(ctx: _Ctx) -> None:
     combos = _operand_combos(rel.premise_left, rel.premise_right, rel.left, rel.right)
     if len(combos) > ctx.doc.limits.max_readings_per_check:
         raise EncodeError("ST-PARSE-002", f"the step has {len(combos)} readings; the bound per check is {ctx.doc.limits.max_readings_per_check}")
+    irrational = next((n for c in combos for side in c for n in walk(side) if _irrational_power(n)), None)
+    if irrational is not None:
+        # A step is decided exactly (only a side that is one written value gets a band), so an enclosed power next to a
+        # rounded coefficient ('I₀ × 2^(−3.5) = 0.088 I₀') could only fail correct work: undecided, as before such a
+        # power was read at all. Its arithmetic is still decided wherever it is written with figures (stem-eq).
+        raise EncodeError("ST-UNDEC-001", f"an algebra step that holds a non-integer power with an irrational value ('{render(irrational)[:60]}'): "
+                                          "a step is compared exactly, and such a value only within a tolerance band")
     b = ctx.builder
     pl0, pr0, cl0, cr0 = combos[0]
     prem_syms = set(symbols(pl0)) | set(symbols(pr0))
@@ -1647,7 +1654,13 @@ def _choose_sign(node: Node, sign: int) -> Node:
 def _root_is_exact(node: Node) -> bool:
     if not _all_exact(node):
         return False
-    return not any(isinstance(n, Func) or (isinstance(n, Sym) and n.kind == "constant") for n in walk(node))
+    return not any(isinstance(n, Func) or _irrational_power(n) or (isinstance(n, Sym) and n.kind == "constant") for n in walk(node))
+
+
+def _irrational_power(node: Node) -> bool:
+    """A ``RealPower`` with no rational value (``10^0.4``, ``2^(−3.5)``): it is encoded as an enclosure, which only a
+    tolerance band can compare with a written figure (``16^(3/4)`` is exactly 8 and is no such power)."""
+    return isinstance(node, RealPower) and real_power_value(node) is None
 
 
 def _sol(ctx: _Ctx) -> None:
