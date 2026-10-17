@@ -61,10 +61,12 @@ Topics covered:
   - Two codes are listed only where the design itself allows both:
     - `stem-phys-031`: a failed substitution (INT-SUBJ-001) and a sum of different dimensions
       (ST-DIM-002).
-    - `stem-math-020`: a fractional power. The code table lists it under ST-PARSE-001, and the
-      grammar's Unsupported list under ST-UNDEC-001.
     - `stem-math-021`: a lost negative root. ST-ALG-001 names the step, and the stem-sol
       completeness check refutes the claim "x = 8 is the solution".
+    - `stem-math-020` listed two (a fractional power: ST-PARSE-001 in the code table, ST-UNDEC-001
+      in the grammar's Unsupported list) until the end-to-end run1 detection fixes. A closed base
+      raised to a closed fractional exponent is now one value the engine decides, so the fault is
+      relabelled with the stronger INT-SUBJ-001 alone (the engine refutes `16^(3/4) = 16 × 3/4`).
     - `stem-ess-002`: an arithmetic slip in kJ m⁻² yr⁻¹. If `yr` is not in the unit table,
       ST-UNIT-001 lowers the failure to INT-SUBJ-004. The design's table (section 6.1) does not
       list `yr` today, so as written the design reports INT-SUBJ-004 here. INT-SUBJ-001 stays

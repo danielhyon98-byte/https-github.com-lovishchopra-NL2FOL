@@ -772,6 +772,10 @@ class _RunFinder:
                 elif kind in ("PERCENT", "DEGREE") or (kind in ("PRIME", "BANG") and not t.space):
                     if kind == "DEGREE" and t.text in ("°C", "°F"):
                         in_unit = True
+                elif kind == "NUM" and not t.space and len(t.text) == 1 and "2" <= t.text <= "9" and toks[k - 1].kind == "IDENT" \
+                        and len(toks[k - 1].text) >= 2 and not toks[k - 1].sub and self.unit_here(k - 1) \
+                        and (in_unit or (k >= 2 and toks[k - 2].kind == "OP" and toks[k - 2].text == "/")):
+                    in_unit = True  # an ASCII power glued to a unit atom: '25 cm3', 'mol/dm3' (the parser reads it as the atom's power)
                 elif kind in ("RPAR", "RGROUP"):
                     if not stack:
                         break

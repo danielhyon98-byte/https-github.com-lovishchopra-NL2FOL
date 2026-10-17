@@ -17,6 +17,7 @@ from .contracts import (  # noqa: F401
     AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, IntegrityReport, LedgerEntry, Synthesis,
     SynthesizedClaim, WorkPlan, payload_hash, parse_rfc3339, plan_digest, report_digest, seal_plan, sign_message,
     verify_message, verify_report_digest, envelope_digest, CERTAINTY_RANK, MESSAGE_MAX_CHARS,
+    SYNTHESIZED_CLAIM_TRANSFORMATIONS, TRANSFORMATION_MEANINGS,
 )
 from .cross_check import (  # noqa: F401
     JointMap, check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment,

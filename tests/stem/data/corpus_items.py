@@ -23,6 +23,8 @@ PROBES: list[dict] = []
 FIXTURE_LABELS: dict[str, dict] = {
     # the stem-sol completeness check names the closing claim 'x = 8 is the solution', which carries the lost root forward
     "stem-math-021": {"affected_steps": ["x = 8 is the solution"]},
+    # since the e2e run1 detection fixes 16^(3/4) is exactly 8, so the misused fractional power is refuted by the arithmetic check
+    "stem-math-020": {"check_kinds": ["eq"]},
 }
 
 

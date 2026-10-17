@@ -1,8 +1,11 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.2 (2026-10-12). Version 0.1 described commit
+- **Contract version:** 0.4 (2026-10-17). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
-  the external review of 12 October 2026 (see section 11 for what changed).
+  the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
+  HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
+  integration protocol on top of 0.3 (section 9a; see section 11 for what changed). The component
+  versions are unchanged by 0.3 and 0.4.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
@@ -61,6 +64,17 @@ functions and implicit coercion. Conversion to Real must be explicit, with `to_r
 - products of two non-constant terms are rejected (`allow_nonlinear = false`);
 - `div`, `idiv` and `mod` need a non-zero constant divisor.
 
+**Named policies** (`engine.policies.NAMED_POLICIES`): a caller that is not an in-process pack may
+ask for a problem to be decided under one of three named policies, and never under limits of its
+own. `linear` is the default limits above. `nonlinear` is the default limits with
+`allow_nonlinear = true` and the solver's `rlimit` capped at `NONLINEAR_RLIMIT` (2,000,000; a lower
+`rlimit` is kept), as the channel's STEM checks run; assertions above polynomial degree 24 are
+UNSUPPORTED (E201). `joint` is the integrity layer's joint bounds (at most 1,024 symbols, 4,096
+premises, 200,000 nodes, depth 40, 64 arguments; no nonlinear terms), as the cross-agent joint
+checks run. `engine.policies.named_policy(name, config)` gives the limits and configuration for a
+name, exactly as the in-process caller of that policy uses them; an unknown name raises
+`UnknownPolicyError` and nothing is run.
+
 **Grounding metadata** (`kind`, `source_refs`, `certainty`, `verified`) is never compiled. The
 engine only reports which relied-on premises were ungrounded or unverified.
 - A payload that arrives as JSON text, bytes or a dict cannot certify itself: any
@@ -73,8 +87,8 @@ engine only reports which relied-on premises were ungrounded or unverified.
 | Entry point | How | Notes |
 | --- | --- | --- |
 | Python | `epinoic_logic.engine.verify(problem_or_raw, config=SolverConfig(), limits=DEFAULT_LIMITS, signing_key=None, key_id=None)` | Never raises. Every failure becomes a result. |
-| CLI | `epinoic-logic verify FILE [--timeout-ms N] [--rlimit N] [--signing-key-hex HEX --key-id ID]` | Prints the result JSON. **Exits 0 for every status**, including failures; read `status`. |
-| HTTP | `POST /v1/verify`, `POST /v1/results/verify-signature`, `POST /v1/results/release-check`, `POST /v1/outcomes`, `GET /healthz` (`epinoic-logic serve`) | Needs `EPINOIC_SERVICE_TOKEN` and `EPINOIC_SIGNING_KEY` in the environment. Optional limits: `EPINOIC_MAX_BODY_BYTES`, `EPINOIC_MAX_CONCURRENCY`, `EPINOIC_RATE_PER_MINUTE`. The service refuses a client-supplied `memory_max_mb`. Tested in-process only; never deployed. |
+| CLI | `epinoic-logic verify FILE [--timeout-ms N] [--rlimit N] [--policy NAME] [--signing-key-hex HEX --key-id ID]` | Prints the result JSON. **Exits 0 for every status**, including failures; read `status`. `--policy` is `linear` (default), `nonlinear` or `joint`; an unknown name exits 2 with a JSON error. |
+| HTTP | `POST /v1/verify`, `POST /v1/results/verify-signature`, `POST /v1/results/release-check`, `POST /v1/outcomes`, `GET /healthz` (`epinoic-logic serve`) | Needs `EPINOIC_SERVICE_TOKEN` and `EPINOIC_SIGNING_KEY` in the environment. Optional limits: `EPINOIC_MAX_BODY_BYTES`, `EPINOIC_MAX_CONCURRENCY`, `EPINOIC_RATE_PER_MINUTE`. The service refuses a client-supplied `memory_max_mb`. `POST /v1/verify` takes `{problem, config?, policy?}`: `policy` names a named policy (above; `linear` by default), anything else is HTTP 400 `E100` before anything runs, and authentication, the rate limit, the body-size limit (which bounds the problem size under every policy) and the concurrency limit apply unchanged; the release check takes the same names as its required policy. Tested in-process and over a local socket in the test suite; never deployed. |
 
 ## 3. Validation and solving are separate stages
 
@@ -213,7 +227,14 @@ Each result is bound to exactly what produced it:
 - **`limits`:** the non-default validation limits the problem was validated under.
 
 Changing the problem, the configuration, any version, the engine source or policy, or the
-validation limits changes the binding.
+validation limits changes the binding. A named policy is therefore bound into the result: its
+non-default limits are recorded and their digest is part of the binding digest, the nonlinear
+`rlimit` cap is part of the configuration digest, and `engine.policies.named_policy_of(result.limits)`
+names the policy back (`None` is `linear`). The same problem decided under the same named policy and
+configuration binds identically in process and over HTTP. A caller replaying a problem the pipeline
+decided names the policy its pipeline result's `limits` record stands for, and resets any
+`verified: true` the pipeline set (the service refuses it, E505), so the HTTP result has the same
+decision and lists those premises as unverified dependencies.
 
 **Staleness.** A result is current-policy evidence only for the build that produced it and for a
 receiver that requires the limits it was decided under (`engine.provenance.stale_reasons`;
@@ -393,10 +414,11 @@ the integration profiles only, `GET /v1/capabilities` and `POST /v1/turns/check`
 (E502, E503, E306, E100, E505, E504), and the five ports (specialist, checks, overseer, combinator, flash router) with
 their closed codes `KIT-HS`, `KIT-REQ`, `KIT-DL`, `KIT-OP`, `KIT-CB` and `KIT-RT`. The default profile `engine` and
 every existing route are unchanged, and the component versions above do not change: the protocol adds no engine,
-policy or IR semantics. **0.4 takes effect when phase 2 merges contract 0.3** (the named policies `linear`,
-`nonlinear` and `joint`) into the integrated tree: until then the contract version line above stays 0.2 and the service
-refuses to start in an integration profile (`KIT-HS-006`). Phase 2 then sets the version line to 0.4 (playbook step 5
-reads it).
+policy or IR semantics. **0.4 takes effect together with contract 0.3** (the named policies `linear`,
+`nonlinear` and `joint`): a tree without them keeps an older version line and the service refuses to start in an
+integration profile (`KIT-HS-006`). The pre-build branch merged contract 0.3 with the end-to-end fixes on 17 October
+2026, so its version line says 0.4 (playbook step 5 reads it); its service now stops at the overseer instead
+(`KIT-HS-007`) until phase 2 connects the overseer port adapter.
 
 ## 10. PROPOSED (not implemented)
 
@@ -420,6 +442,20 @@ reads it).
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.3 to 0.4** (component versions unchanged; no engine, policy or IR semantics):
+- the integration protocol `epinoic.integration.v1` (section 9a; `integration/PROTOCOL.md`): the routes
+  `GET /v1/capabilities` and `POST /v1/turns/check` of the integration profiles only, the five ports and their closed
+  codes; the default profile `engine` and every route above are unchanged.
+
+**0.2 to 0.3** (component versions unchanged; the build and policy identities change with the source):
+- `POST /v1/verify` and `epinoic-logic verify` take a named engine policy (`linear`, `nonlinear`,
+  `joint`; `engine.policies.NAMED_POLICIES`, `named_policy`), applied exactly as the in-process caller
+  of that policy applies it, so the eight problems of the end-to-end simulation of 16 October 2026
+  that decided differently over HTTP (seven STEM checks under `nonlinear`, one joint check) now decide
+  as in the pipeline; an unknown name is refused (HTTP 400 `E100`, CLI exit 2); the release check
+  shares the allowlist; `named_policy_of` names the policy of a result's limits record; the policy
+  manifest lists the named policies (`named_policies`).
 
 **0.1 to 0.2** (engine 0.4.0, policy 2026.10-v4, translator 0.4.0):
 - the unsat core is always computed; `produce_unsat_core` only controls the serialised record;

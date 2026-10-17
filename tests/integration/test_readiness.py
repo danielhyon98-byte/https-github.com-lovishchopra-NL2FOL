@@ -79,11 +79,22 @@ def test_the_website_base_is_m_without_the_pilot_and_p_with_it(tmp_path):
     assert run() == "P"
 
 
+def _named_policies_merged() -> bool:
+    """Contract 0.3's named policies are on this tree. The pre-build branch merged them with the end-to-end fixes on
+    17 October 2026; a pre-build commit before that merge has none (and its contract line is older than 0.4)."""
+    from epinoic_logic.engine import policies
+    return getattr(policies, "NAMED_POLICIES", None) is not None and callable(getattr(policies, "named_policy", None))
+
+
 def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router():
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
     rows = {line.split("  ")[0].strip(): line for line in out.stdout.splitlines()}
     assert out.returncode == 1
-    assert "BLOCKER" in rows["G1 named policies (contract 0.3)"] and "BLOCKER" in rows["G1 overseer package"]
+    assert "BLOCKER" in rows["G1 overseer package"]
+    if _named_policies_merged():  # contract 0.3 merged: its row passes, and the contract line moved to 0.4 with it
+        assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.4"], out.stdout
+    else:
+        assert "BLOCKER" in rows["G1 named policies (contract 0.3)"]
     assert "PASS" in rows["G1 STEM branches"] and "PASS" in rows["G1 protocol"]
     assert "REPORTED" in rows["flash router sub-project"] and "never required" in rows["flash router sub-project"]
 
@@ -91,15 +102,23 @@ def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router
 def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_its_phase_2_connection():
     """A fresh session tells an expected pre-build stop from a defect by the row itself: on this pre-build tree every
     BLOCKER row of G1 (the contract line included) and the preflight row of the translator section say "(connected in
-    phase 2: ...)", and the preflight row names KIT-HS-006."""
+    phase 2: ...)". Before the contract 0.3 merge there are three (contract line, overseer package, named policies) and
+    the preflight row names KIT-HS-006; after it (this branch since 17 October 2026) the overseer package is the only
+    one, and the preflight row names KIT-HS-007 (the overseer port adapter)."""
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
     blockers = [line for line in out.stdout.splitlines() if "  BLOCKER  " in line]
-    assert len(blockers) == 3 and all("(connected in phase 2: " in line for line in blockers), out.stdout
-    assert any(line.startswith("G1 contract 0.4") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
+    assert blockers and all("(connected in phase 2: " in line for line in blockers), out.stdout
+    merged = _named_policies_merged()
+    if merged:
+        assert [line.split("  ")[0] for line in blockers] == ["G1 overseer package"], out.stdout
+    else:
+        assert len(blockers) == 3, out.stdout
+        assert any(line.startswith("G1 contract 0.4") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--translator", str(ROOT)], capture_output=True, text=True, timeout=600, env=env)
     [preflight] = [line for line in out.stdout.splitlines() if line.startswith("service preflight")]
-    assert "BLOCKER" in preflight and "KIT-HS-006" in preflight and "(connected in phase 2: " in preflight, out.stdout
+    stop = "KIT-HS-007 overseer_unavailable" if merged else "KIT-HS-006"
+    assert "BLOCKER" in preflight and stop in preflight and "(connected in phase 2: " in preflight, out.stdout
     assert not [line for line in out.stdout.splitlines() if "  BLOCKER  " in line and "connected in phase 2" not in line], out.stdout
 
 

@@ -12,7 +12,9 @@ solver. It enforces, in this order for every ``/v1`` request:
    nested as ``grounding.verified: true`` inside the problem    -> 400 ``E505``
 6. rejection of client-supplied ``config.memory_max_mb`` (the
    Z3 memory budget is process-global and server-controlled)    -> 400 ``E100``
-7. bounded solver concurrency (non-blocking admission)          -> 503 ``E504``
+7. rejection of any ``policy`` that is not exactly the name of an
+   allowlisted engine policy (never raw limits)                 -> 400 ``E100``
+8. bounded solver concurrency (non-blocking admission)          -> 503 ``E504``
 
 Solver runs happen in a worker thread so the event loop stays responsive. Every
 response carries ``X-Request-Id`` (echoed from the request when well formed,
@@ -24,14 +26,21 @@ elapsed time) and never any payload content.
 Endpoints
 ---------
 ``GET  /healthz``                       liveness; unauthenticated; component versions only
-``POST /v1/verify``                     ``{problem, config?}`` -> signed ``VerificationResult``
+``POST /v1/verify``                     ``{problem, config?, policy?}`` -> signed ``VerificationResult``;
+                                        ``policy`` names the engine policy the problem is
+                                        decided under (``linear`` by default, ``nonlinear``
+                                        or ``joint``: ``engine.policies.NAMED_POLICIES``),
+                                        applied exactly as the in-process caller of that
+                                        policy applies it (``engine.policies.named_policy``)
+                                        and bound into the result (limits record and digest,
+                                        configuration digest)
 ``POST /v1/results/verify-signature``   ``{result}`` -> ``{valid: bool, reason?}``
 ``POST /v1/results/release-check``      ``{result, problem?, policy?}`` -> ``{eligible: bool, reasons, current}``:
                                         the engine's current-policy release check
                                         (``engine.release.release_check``) under this
                                         service's key; ``policy`` names the required
                                         validation limits (``linear`` by default,
-                                        ``nonlinear`` or ``joint``)
+                                        ``nonlinear`` or ``joint``; the same allowlist)
 ``POST /v1/outcomes``                   ``{report, claim_id, fixture_responses, adapter_id?}``
                                         -> ``ClaimVerificationOutcome`` (fixture provider only;
                                         model providers are wired by configuration later)
@@ -44,6 +53,14 @@ for admission control.
 ``config.produce_unsat_core`` is an output option only: the engine computes the unsat
 core either way, so the dependency lists, the vacuity and circularity checks and the
 release check of a result are the same whichever value a client sends.
+
+A caller requests an engine policy by NAME only. ``nonlinear`` opens the nonlinear-term gate and
+caps ``config.rlimit`` at ``NONLINEAR_RLIMIT`` (a lower ``rlimit`` is kept), as the channel's STEM
+checks run; ``joint`` raises the shape bounds to the integrity layer's ``JOINT_LIMITS`` (no
+nonlinear terms), as the cross-agent joint checks run. The same problem therefore gets the same
+decision over HTTP as in the pipeline. Authentication, the rate limit, the body-size limit (which,
+not the policy, bounds how large a problem can be sent), the per-call timeout and the concurrency
+limit apply under every policy, and an unknown name is refused before anything is run.
 """
 from __future__ import annotations
 
@@ -58,7 +75,6 @@ import re
 import threading
 import time
 import uuid
-from types import MappingProxyType
 from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, Optional
 
 from fastapi import FastAPI, Request
@@ -66,13 +82,13 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ..engine.errors import DiagnosticCode
-from ..engine.policies import JOINT_LIMITS, PACK_POLICIES
+from ..engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
 from ..engine.provenance import compute_versions, verify_signature, z3_version
 from ..engine.release import release_check
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..ir.canonical import strict_object_pairs
-from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
+from ..ir.schema import Limits, Problem
 from ..version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 from .settings import ServiceSettings
 
@@ -98,11 +114,13 @@ SELF_CERTIFICATION_KEYS: frozenset[str] = frozenset({
 })
 #: Solver options a client may not set: process-global, so one request could affect every other.
 SERVER_CONTROLLED_CONFIG_KEYS: frozenset[str] = frozenset({"memory_max_mb"})
-_VERIFY_ENVELOPE_KEYS = frozenset({"problem", "config"})
+_VERIFY_ENVELOPE_KEYS = frozenset({"problem", "config", "policy"})
 _SIGNATURE_ENVELOPE_KEYS = frozenset({"result"})
 _RELEASE_ENVELOPE_KEYS = frozenset({"result", "problem", "policy"})
-#: Validation policies a release check may require, by name: the pack policies and the integrity layer's joint limits.
-RELEASE_POLICIES: Mapping[str, Limits] = MappingProxyType({**PACK_POLICIES, "joint": JOINT_LIMITS})
+#: Engine policies a request may name (``POST /v1/verify``: decide under it; ``POST /v1/results/release-check``: require
+#: it): the pack policies and the integrity layer's joint limits, ``engine.policies.NAMED_POLICIES``. One allowlist for
+#: both routes, so a result decided under a policy over HTTP is current for a receiver that names the same policy.
+RELEASE_POLICIES: Mapping[str, Limits] = NAMED_POLICIES
 _OUTCOME_ENVELOPE_KEYS = frozenset({"report", "claim_id", "fixture_responses", "adapter_id"})
 
 Handler = Callable[[Request], Awaitable[JSONResponse]]
@@ -327,6 +345,16 @@ def _parse_config(raw: Any) -> SolverConfig:
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'config' is invalid at: {fields}") from None
 
 
+def _parse_policy(envelope: Mapping[str, Any]) -> str:
+    """The engine policy a request names (``linear`` when absent): exactly one of ``NAMED_POLICIES``, by exact type and
+    spelling. Anything else (another name, a case or whitespace variant, null, a number, an object of limits) is 400
+    E100 naming the known policies, and nothing is run; the refused value is never echoed."""
+    policy = envelope.get("policy", LINEAR)
+    if type(policy) is not str or policy not in NAMED_POLICIES:
+        raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'policy' must be one of: {', '.join(sorted(NAMED_POLICIES))}")
+    return policy
+
+
 @contextlib.asynccontextmanager
 async def _solver_slot(semaphore: asyncio.Semaphore) -> AsyncIterator[None]:
     """Admit a solver run only when a slot is free right now; never queue."""
@@ -419,13 +447,18 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         _reject_self_certification(problem, "problem")
         _reject_nested_self_certification(problem)
         config = _parse_config(envelope.get("config"))
+        policy = _parse_policy(envelope)
+        try:
+            limits, config = named_policy(policy, config)
+        except UnknownPolicyError:  # unreachable after _parse_policy; a problem is never run under another policy
+            raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'policy' must be one of: {', '.join(sorted(NAMED_POLICIES))}") from None
         async with _solver_slot(app.state.semaphore):
             result: VerificationResult = await asyncio.to_thread(
-                verify, problem, config, DEFAULT_LIMITS, cfg.signing_key, cfg.signing_key_id,
+                verify, problem, config, limits, cfg.signing_key, cfg.signing_key_id,
             )
         log.info(
-            "request_id=%s path=%s result_status=%s claim_id=%s result_id=%s",
-            _request_id(request), request.url.path, result.status.value, result.claim_id, result.result_id,
+            "request_id=%s path=%s policy=%s result_status=%s claim_id=%s result_id=%s",
+            _request_id(request), request.url.path, policy, result.status.value, result.claim_id, result.result_id,
         )
         return JSONResponse(result.model_dump(mode="json"))
 
@@ -457,9 +490,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         raw = envelope["result"]
         if not isinstance(raw, dict):
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'result' must be a JSON object")
-        policy = envelope.get("policy", "linear")
-        if type(policy) is not str or policy not in RELEASE_POLICIES:
-            raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'policy' must be one of: {', '.join(sorted(RELEASE_POLICIES))}")
+        policy = _parse_policy(envelope)
         current = compute_versions().model_dump(mode="json")
         try:
             result = VerificationResult.model_validate(raw)

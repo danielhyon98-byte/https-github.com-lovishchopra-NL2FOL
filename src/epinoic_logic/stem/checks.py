@@ -47,35 +47,40 @@ validates them with ``Problem.model_validate`` and the engine validates them aga
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import Optional
 
 from .boolean import TruthTable
 from .constants import BookletReading, booklet_reading, constants_for_symbol, match_written
 from .document import StemDocument
-from .enclosures import EnclosureError, Interval, e_interval
+from .enclosures import EnclosureError, Interval, cross_check, e_interval, enclose
+from .models import MAX_MONOMIALS, all_symbols as model_symbols, denominators as model_denominators, exact_value, exponent_polynomial, exponential, monomial_node
+from .models import render_model
+from .models import _walk as model_nodes
+from .numbers import ExactNumber
 from .nodes import (
-    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym, WithUnit, is_closed, is_value,
-    render, symbols, value_of, walk,
+    Abs, BinOp, BoolOp, Degrees, Func, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym, WithUnit, is_closed,
+    is_value, render, symbols, value_of, walk,
 )
 from .relations import ST_SEVERITY, Relation
-from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, nary, real, to_frame, var_term
+from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, literal_text, nary, real, to_frame, var_term
 from .scope import Binding, si_value
 from .tolerance import APPROX_WORDS, SHORT_RULE, TAU_APPROX, TAU_EQUAL, band_expr, half_width, is_measured
-from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir
-from .units import DIMENSIONLESS, Dimension, UnitExpr
+from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
+from .units import DIMENSIONLESS, Dimension, UnitExpr, parse_unit
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
 
 #: planned kind -> the FormalCheck kind (section 8.1)
 CHECK_KIND_NAMES = {
-    "eq": "stem_arithmetic", "sub": "stem_substitution", "alg": "stem_algebra", "sol": "stem_solution", "cnv": "stem_conversion",
+    "eq": "stem_arithmetic", "sub": "stem_substitution", "alg": "stem_algebra", "sol": "stem_solution", "mod": "stem_model", "cnv": "stem_conversion",
     "cmp": "stem_comparison", "res": "stem_result", "giv": "stem_given", "tgt": "stem_target", "chem": "stem_balance", "bool": "stem_boolean",
     "tt": "stem_truth_table", "base": "stem_base",
 }
 _TITLES = {
-    "eq": "the written arithmetic", "sub": "the substitution", "alg": "the algebraic step", "sol": "the stated roots", "cnv": "the unit conversion",
+    "eq": "the written arithmetic", "sub": "the substitution", "alg": "the algebraic step", "sol": "the stated roots", "mod": "the model evaluation",
+    "cnv": "the unit conversion",
     "cmp": "the stated comparison", "res": "the restated result", "giv": "the Given value against the request", "tgt": "the final value against the show-that target",
     "chem": "the element and charge balance", "bool": "the Boolean identity", "tt": "the stated truth-table rows", "base": "the based-numeral conversion",
 }
@@ -351,6 +356,9 @@ class _Ctx:
         rel = self.rel
         form = {"E": "Form E (entailment, expected ENTAILED)", "S": "Form S (satisfiability, expected SATISFIABLE: some admissible reading gives the "
                 "stated value; it does not mean the value is true)", "B": "satisfiability, expected UNSATISFIABLE (a witness distinguishes the sides)"}[self.form]
+        if rel.kind == "mod":
+            form = ("Form S (satisfiability, expected SATISFIABLE: some value of the variables, and of the stated symbols within their stated "
+                    "values, satisfies the relation; it does not mean the relation holds for every value)")
         head = f"{_TITLES[rel.kind]}: '{self.excerpt()}' [claims {', '.join(rel.statement_ids)}] [{SHORT_RULE}]"
         parts = [form, f"policy {policy}"]
         if self.readings:
@@ -976,6 +984,10 @@ def _eq(ctx: _Ctx) -> None:
         # a:b = c:d is a·d = b·c over closed terms (design section 7.4): the cross products are compared
         combos = [(BinOp("*", c.left, sn.right, c.start, c.end), BinOp("*", c.right, sn.left, sn.start, sn.end)) for c, sn in combos]
         ctx.detail("a ratio equality a:b = c:d, compared as a·d = b·c")
+    scaled = [_antilog_as_concentration(c, sn) for c, sn in combos]
+    scale_unit = bool(combos) and all(x is not None for x in scaled)
+    if scale_unit:
+        combos = [x for x in scaled if x is not None]  # [H⁺] = 10^(−8.2) = 6.31 × 10⁻⁹ mol dm⁻³: the power is read in mol dm⁻³
     approx = _approx(ctx)
     pairs: list[tuple[Node, Node]] = []
     hs: list[Fraction] = []
@@ -998,15 +1010,66 @@ def _eq(ctx: _Ctx) -> None:
     exact_mode = all(exact_modes)
     tau = Fraction(0) if exact_mode else (TAU_APPROX if approx else TAU_EQUAL)
     nodes = [n for p in pairs for n in p]
-    readings, unknown = _readings(nodes)
+    readings, unknown = _readings(nodes, force="si" if scale_unit else None)
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
+    elif scale_unit:
+        readings = [replace(r, label=r.label + ", the power of ten read in mol dm⁻³") for r in readings]
+        ctx.detail("an antilogarithm stated as a concentration (a lone power of ten whose exponent is no integer, 10^(−pH)) is the concentration "
+                   "in mol dm⁻³, the unit the pH, pOH, pKa and pKb scales are defined in, and is compared with the stated value in SI; it is never "
+                   "read as a bare number in SI, which would take a unit prefix (an integer power of ten) for a change of the exponent")
     if exact_mode:
         ctx.detail("exact mode: every operand and the stated value are exact (τ = 0, h = 0)")
     else:
         ctx.detail(f"τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
     _compare(ctx, pairs, kind="eq", tau=tau, h_written=hs, readings=readings, intervals=intervals, signs=signs, h_scale_nodes=extra)
+
+
+def _antilog(node: Node) -> bool:
+    """``10^(−8.2)``, ``10^{-5.8}``, ``10**-3.3``, ``10^(8.2 − 7.8)``, ``10^(−7)``: a lone power of ten with no unit, the
+    antilogarithm of a logarithmic scale (pH, pOH, pKa, ...). An integer exponent is read too (``10^(−7)`` is a bare power
+    of ten as the number scanner reads it): pH 7 is as common as pH 8.2. Only where the other side is a concentration is it
+    read as one (:func:`_antilog_as_concentration`)."""
+    if isinstance(node, Num):
+        return node.number.power_of_ten
+    return isinstance(node, RealPower) and isinstance(node.base, Num) and node.base.number.value == 10
+
+
+#: the dimension of a concentration (amount per volume)
+_CONCENTRATION = Dimension((-3, 0, 0, 0, 0, 1, 0))
+#: the unit the antilogarithm of a concentration scale is in: pH, pOH, pKa and pKb are defined for concentrations in mol dm⁻³
+_SCALE_UNIT = parse_unit("mol dm⁻³")
+
+
+def _concentration_value(node: Node) -> bool:
+    """A written value whose unit is a concentration in every reading (``6.31 × 10⁻⁹ mol dm⁻³``, ``0.501 mmol dm⁻³``, ``5.01e-4 M`` in
+    chemistry), with no per cent; an unknown or ambiguous unit (``M`` as molar or mega in physics) is not one."""
+    unit: Optional[UnitExpr] = None
+    if is_value(node):
+        v = value_of(node)
+        if v is None or v[3]:
+            return False
+        unit = v[2]
+    elif isinstance(node, WithUnit) and is_closed(node.arg):
+        unit = node.unit
+    if unit is None or unit.unknown or not unit.readings:
+        return False
+    return all(r.dim is not None and r.dim.same_physical(_CONCENTRATION) and r.factor is not None for r in unit.readings)
+
+
+def _antilog_as_concentration(cnode: Node, snode: Node) -> Optional[tuple[Node, Node]]:
+    """``[H⁺] = 10^(−8.2) = 6.31 × 10⁻⁹ mol dm⁻³``: one side an antilogarithm with no unit, the other a value in a concentration unit.
+    The pair with the antilogarithm read in mol dm⁻³ (section 6.4), or None. Read as a bare number in SI it would match the stated
+    value in mol m⁻³, a factor of 10³ that an exponent 3 too small reproduces exactly (``10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³``,
+    ``10^(−4) = 1.0 × 10⁻⁷ mol dm⁻³``)."""
+    if _SCALE_UNIT is None:
+        return None
+    if _antilog(cnode) and _concentration_value(snode):
+        return WithUnit(cnode, _SCALE_UNIT, getattr(cnode, "start", 0), getattr(cnode, "end", 0)), snode
+    if _antilog(snode) and _concentration_value(cnode):
+        return cnode, WithUnit(snode, _SCALE_UNIT, getattr(snode, "start", 0), getattr(snode, "end", 0))
+    return None
 
 
 def _ratio(t: Fraction) -> str:
@@ -1468,6 +1531,14 @@ def _step(ctx: _Ctx) -> None:
     combos = _operand_combos(rel.premise_left, rel.premise_right, rel.left, rel.right)
     if len(combos) > ctx.doc.limits.max_readings_per_check:
         raise EncodeError("ST-PARSE-002", f"the step has {len(combos)} readings; the bound per check is {ctx.doc.limits.max_readings_per_check}")
+    irrational = next((n for c in combos for side in c for n in walk(side) if _irrational_power(n)), None)
+    if irrational is not None:
+        # A step is decided exactly (only a side that is one written value gets a band), so an enclosed power next to a
+        # rounded coefficient ('I₀ × 2^(−3.5) = 0.088 I₀') could only fail correct work: undecided, as before such a
+        # power was read at all. Its arithmetic is still decided wherever it is written with figures (stem-eq).
+        raise EncodeError("ST-UNDEC-001", f"an algebra step that holds a power with an irrational value or one too long to write exactly "
+                                          f"('{render(irrational)[:60]}', encoded through an enclosure): a step is compared exactly, and such a value "
+                                          "only within a tolerance band")
     b = ctx.builder
     pl0, pr0, cl0, cr0 = combos[0]
     prem_syms = set(symbols(pl0)) | set(symbols(pr0))
@@ -1647,7 +1718,15 @@ def _choose_sign(node: Node, sign: int) -> Node:
 def _root_is_exact(node: Node) -> bool:
     if not _all_exact(node):
         return False
-    return not any(isinstance(n, Func) or (isinstance(n, Sym) and n.kind == "constant") for n in walk(node))
+    return not any(isinstance(n, Func) or _irrational_power(n) or (isinstance(n, Sym) and n.kind == "constant") for n in walk(node))
+
+
+def _irrational_power(node: Node) -> bool:
+    """A ``RealPower`` the encoder writes as an enclosure: an irrational value (``10^0.4``, ``2^(−3.5)``), or an integer
+    power beyond the integer-power bound whose exact value is too long for a literal (``(1 + 0.065/12)^(−60)``). Only a
+    tolerance band can compare such a value with a written figure (``16^(3/4)`` is exactly 8 and ``2^20`` exactly 1048576:
+    neither is such a power)."""
+    return isinstance(node, RealPower) and real_power_value(node) is None
 
 
 def _sol(ctx: _Ctx) -> None:
@@ -1669,7 +1748,7 @@ def _sol(ctx: _Ctx) -> None:
             raise EncodeError("ST-UNDEC-002", f"'{name}' in the equation has no stated value")
         domains[name] = _domain_from_bindings(name, blist)
     params_exact = all(not d.is_interval and len(d.values_aw) == 1 for d in domains.values())
-    exact_roots = [_root_is_exact(r) for r in roots]
+    exact_roots = [_root_is_exact(r) and not rel.described for r in roots]
     b = ctx.builder
     reading = Reading(si=False, label="as written")
     env, hulls, needs = _install_domains(ctx, domains, reading, "") if domains else ({}, {}, frozenset())
@@ -1733,8 +1812,11 @@ def _sol(ctx: _Ctx) -> None:
         return
     # Form S membership: each stated root's interval holds a root of the equation (R10), parameters over their intervals
     ctx.form, ctx.query, ctx.expected = "S", "satisfiability", "SATISFIABLE"
+    if rel.described:
+        ctx.detail(f"the root is the value the answer states in prose for the quantity it names {x}: compared within the '=' band "
+                   f"(its half-width plus τ = 1/100 of it), as a prose value is approximate by nature")
     for i, root in enumerate(roots, 1):
-        lo, hi = _root_interval(ctx, root, reading, hulls)
+        lo, hi = _root_interval(ctx, root, reading, hulls, prose=rel.described)
         rv = b.fresh("root", meaning=f"a root of the equation near the stated {render(root)[:120]}", role="interval")
         b.premise(f"X_LO_{rv}", {"op": "ge", "left": {"op": "var", "name": rv}, "right": real(lo)}, f"the stated root {render(root)[:200]} (rounding interval)",
                   grounding("figure"))
@@ -1751,13 +1833,16 @@ def _sol(ctx: _Ctx) -> None:
         ctx.detail("completeness not checked: " + ("a domain restriction is stated" if rel.restricted else "decimal roots or measured parameters"))
 
 
-def _root_interval(ctx: _Ctx, root: Node, reading: Reading, hulls: dict[str, Interval]) -> tuple[Fraction, Fraction]:
+def _root_interval(ctx: _Ctx, root: Node, reading: Reading, hulls: dict[str, Interval], *, prose: bool = False) -> tuple[Fraction, Fraction]:
     """R10: a decimal root ranges over ``[r − h(r), r + h(r)]``; a root written as an expression with
-    decimals over its value's enclosure widened by τ = 1/100."""
+    decimals over its value's enclosure widened by τ = 1/100. A root stated in prose for a named quantity (``prose``)
+    also gets τ = 1/100 of its value beyond its half-width (the '=' band of R2)."""
     enc = Encoder(ctx.builder, reading, symbol_hulls=hulls, cache={})
     iv = enc.interval(root)
     if is_value(root):
         h = _value_half_width(root)
+        if prose:
+            h += TAU_EQUAL * max(abs(iv.lo), abs(iv.hi))
         lo, hi = iv.lo - h, iv.hi + h
     else:
         slack = TAU_EQUAL * max(abs(iv.lo), abs(iv.hi))
@@ -1929,7 +2014,199 @@ def _base(ctx: _Ctx) -> None:
     _compare(ctx, [(lnode, rnode)], kind="base", tau=Fraction(0), h_written=[Fraction(0)], readings=[reading], intervals={})
 
 
+# --------------------------------------------------------------------------- mod
+
+
+def _fraction_node(v: Fraction) -> Node:
+    """An exact rational as a numeral node (a sign as ``Neg``), for the closed factors a model check builds."""
+    a = abs(v)
+    text = str(a.numerator) if a.denominator == 1 else f"{a.numerator}/{a.denominator}"
+    num = Num(ExactNumber(text=text, value=a, sig_figs=max(1, len(str(a.numerator))), last_place=0, exact=True, vulgar=a.denominator != 1))
+    return Neg(num) if v < 0 else num
+
+
+def _monomial_hull(m: tuple, hulls: dict[str, Interval]) -> Optional[Interval]:
+    """The interval of a monomial over the hulls of its symbols, or None when a symbol has none (a variable)."""
+    out = Interval.point(Fraction(1))
+    for name, power in m:
+        h = hulls.get(name)
+        if h is None:
+            return None
+        out = out * h.power(power)
+    return out
+
+
+def _power_bounds(base: Optional[Fraction], x: Interval) -> tuple[Fraction, Fraction]:
+    """``[B^x.lo, B^x.hi]`` (``base`` None for e) as outward enclosures, each endpoint cross-checked against the math library."""
+    lnb = None if base is None else enclose("ln", Interval.point(base))
+    ends = []
+    for xe in (x.lo, x.hi):
+        y = Interval.point(xe) if lnb is None else lnb.scale(xe)
+        iv = enclose("exp", y)
+        if not cross_check("exp", y, iv):
+            raise EncodeError("ST-INTERNAL-001", "the enclosure of a power bound failed its cross-check against the math library")
+        ends.append(iv)
+    lo, hi = min(ends[0].lo, ends[1].lo), max(ends[0].hi, ends[1].hi)
+    return _round_out(lo, "down"), _round_out(hi, "up")
+
+
+def _mod(ctx: _Ctx) -> None:
+    """A model evaluation (``models.py``): some value of the variables (the model's variable and every symbol with no
+    stated value), and of the stated symbols within their stated values, must satisfy the link, the model applied at the
+    written argument. Every power of an exponent in symbols is read through positive variables: ``B^X`` with
+    ``X = c + Σ qᵢ·mᵢ`` is ``B^c · Π uᵢ^(qᵢ/sᵢ)``, ``uᵢ = B^(sᵢ·mᵢ) > 0`` (``sᵢ`` the step of mᵢ's coefficients; bounded by the
+    enclosure of ``B^(sᵢ·range)`` when the symbols of ``mᵢ`` all have stated values). Every real solution gives such ``uᵢ``,
+    so UNSATISFIABLE proves that no value satisfies the link; SATISFIABLE never proves that it holds for every value. Form S.
+    A letter defined as more than one model gives one pair of sides per definition (``rel.left.readings[i]`` with
+    ``rel.right.readings[i]``), and the link must hold in some pair."""
+    rel = ctx.rel
+    if rel.left is None or rel.right is None or not rel.left.readings or len(rel.left.readings) != len(rel.right.readings):
+        raise EncodeError("ST-PARSE-001", "an operand of the relation could not be read")
+    pairs = list(zip(rel.left.readings, rel.right.readings))
+    variables = set(rel.unbound)
+    names = sorted(set().union(*(model_symbols(left) | model_symbols(right) for left, right in pairs)))
+    domains: dict[str, SymbolDomain] = {}
+    for n in names:
+        if n in variables:
+            continue
+        blist = ctx.doc.bindings.get(n, ())
+        dom = _domain_from_bindings(n, blist) if blist else _substitution_domain(ctx, n)
+        if dom is None:
+            variables.add(n)
+        else:
+            domains[n] = dom
+    # the powers of an exponent in symbols, by base; one positive variable per (base, monomial)
+    powers: list[tuple[Node, Optional[Fraction], dict]] = []
+    for side in (n for pair in pairs for n in pair):
+        for n in model_nodes(side):
+            e = exponential(n)
+            if e is None:
+                continue
+            poly = exponent_polynomial(e.exponent)
+            base = None if e.base is None else exact_value(e.base)
+            if poly is None or (e.base is not None and (base is None or base <= 0)):
+                raise EncodeError("ST-UNDEC-001", f"a power outside the readings of a model check ('{render(n)[:80]}')")
+            powers.append((n, base, poly))
+    by_base: dict[Optional[Fraction], list[dict]] = {}
+    for _n, base, poly in powers:
+        by_base.setdefault(base, []).append(poly)
+    dens = {base: model_denominators(polys) for base, polys in by_base.items()}
+    if any(len(d) > MAX_MONOMIALS for d in dens.values()):
+        raise EncodeError("ST-LIM-001", f"a model relation with more than {MAX_MONOMIALS} monomials in the exponents of one base")
+    keys: dict[tuple, str] = {}
+    for base, d in dens.items():
+        for m in sorted(d):
+            if base == 1:
+                continue
+            keys[(base, m)] = f"\u0000u{len(keys) + 1}"
+
+    def relaxed(node: Node) -> Node:
+        e = exponential(node)
+        if e is not None:
+            poly = exponent_polynomial(e.exponent)
+            base = None if e.base is None else exact_value(e.base)
+            assert poly is not None
+            factors: list[Node] = []
+            c = poly.get((), Fraction(0))
+            if base == 1:
+                return _fraction_node(Fraction(1))
+            if c != 0:
+                factors.append(Func("exp", _fraction_node(c)) if base is None else RealPower(_fraction_node(base), _fraction_node(c)))
+            for m, q in sorted(poly.items()):
+                if not m:
+                    continue
+                n_exp = q / dens[base][m]
+                assert n_exp.denominator == 1
+                k = int(n_exp)
+                if abs(k) > IR_LIMITS["degree"]:
+                    raise EncodeError("ST-LIM-001", f"a power of {k} of one variable in a model relation; the nonlinear policy allows degree {IR_LIMITS['degree']}")
+                u = Sym(keys[(base, m)])
+                factors.append(u if k == 1 else Pow(u, k))
+            out: Node = factors[0] if factors else _fraction_node(Fraction(1))
+            for f in factors[1:]:
+                out = BinOp("*", out, f)
+            return out
+        if isinstance(node, (Num, Sym)):
+            return node
+        if isinstance(node, BinOp):
+            return BinOp(node.op, relaxed(node.left), relaxed(node.right), node.start, node.end, node.written, node.implicit)
+        if isinstance(node, Neg):
+            return Neg(relaxed(node.arg), node.start, node.end)
+        if isinstance(node, Pow):
+            return Pow(relaxed(node.base), node.exp, node.start, node.end)
+        if isinstance(node, Root):
+            return Root(relaxed(node.arg), node.index, node.start, node.end)
+        return node  # closed functions and powers: encoded as they stand
+
+    relaxed_pairs = [(relaxed(left), relaxed(right)) for left, right in pairs]
+    used = {n.name for pair in relaxed_pairs for side in pair for n in walk(side) if isinstance(n, Sym) and n.kind == "symbol" and not n.name.startswith("\u0000")}
+    si_differs = any(dom.ranges(True) != dom.ranges(False) for dom in domains.values())
+    readings = [Reading(si=False, label="as written")] + ([Reading(si=True, label="SI")] if si_differs else [])
+    b = ctx.builder
+    disjuncts: list[dict] = []
+    labels: list[str] = []
+    errors: list[EncodeError] = []
+    for ri, reading in enumerate(readings):
+        tag = "" if ri == 0 else f"r{ri + 1}"
+        try:
+            env, hulls, needs_s = _install_domains(ctx, {n: d for n, d in domains.items() if n in used}, reading, tag)
+            hulls = dict(hulls)
+            for n, dom in domains.items():
+                hulls.setdefault(n, dom.hull(reading.si))
+            env = dict(env)
+            for v in sorted(variables & used):
+                name = b.user_symbol(v, role="variable", tag=tag, meaning=f"'{v}': a variable of the relation (any real value)" + (f" [{reading.label}]" if tag else ""))
+                env[v] = var_term(name, 0)
+            interval_syms = set(needs_s)
+            for (base, m), key in keys.items():
+                step = dens[base][m]
+                shown = f"{'e' if base is None else literal_text(base)}^(" + ("" if step == 1 else f"{literal_text(step)}·") + f"{render_model(monomial_node(m))})"
+                hull = _monomial_hull(m, hulls) if not (set(s for s, _p in m) & variables) else None
+                uname = b.fresh("u", meaning=f"{shown}, a positive variable" + (f" [{reading.label}]" if tag else ""), role="interval")
+                if hull is None:
+                    b.premise(f"U_POS_{uname}", {"op": "gt", "left": {"op": "var", "name": uname}, "right": {"op": "real", "value": "0"}},
+                              f"{shown} is positive", grounding("device"))
+                    env[key] = var_term(uname, 0)
+                    continue
+                lo, hi = _power_bounds(base, hull.scale(step))
+                k = Encoder._frame_of(lo, hi)
+                scale = Fraction(10) ** k
+                note = f"{shown} for the stated values of {', '.join(s for s, _p in m)}: [{literal_text(lo / scale)}, {literal_text(hi / scale)}]" + (f" × 10^{k}" if k else "")
+                b.premise(f"U_LO_{uname}", {"op": "ge", "left": {"op": "var", "name": uname}, "right": real(lo / scale)}, note, grounding("enclosure"))
+                b.premise(f"U_HI_{uname}", {"op": "le", "left": {"op": "var", "name": uname}, "right": real(hi / scale)}, note, grounding("enclosure"))
+                env[key] = var_term(uname, k)
+                interval_syms.add(key)
+            enc = Encoder(b, reading, env=env, symbol_hulls=hulls, interval_symbols=frozenset(interval_syms), cache=ctx.cache)
+            terms = [(enc.term(lrel), enc.term(rrel)) for lrel, rrel in relaxed_pairs]  # every pair, or the reading is dropped
+            if enc.enclosures:
+                ctx.detail("function values and powers of figures as numeric enclosures computed by the STEM pack: " + ", ".join(dict.fromkeys(enc.enclosures)))
+            for pi, (lt, rt) in enumerate(terms):
+                frame = _common_frame(lt, rt)
+                disjuncts.append({"op": "eq", "left": to_frame(lt, frame), "right": to_frame(rt, frame)})
+                labels.append(reading.label + (f", definition {pi + 1} of {len(terms)}" if len(terms) > 1 else ""))
+        except EncodeError as exc:
+            errors.append(exc)
+    if not disjuncts:
+        raise errors[0] if errors else EncodeError("ST-UNDEC-001", "no reading of the model relation could be encoded")
+    shown = "; ".join(f"{render_model(left)[:300]} = {render_model(right)[:300]}" for left, right in pairs)
+    b.premise("REL", nary("or", disjuncts) if len(disjuncts) > 1 else disjuncts[0],
+              f"the relation {shown[:700]} holds" + (" under some reading" if len(disjuncts) > 1 else ""), grounding("figure"))
+    ctx.readings = labels
+    ctx.form = "S"
+    ctx.query = "satisfiability"
+    ctx.expected = "SATISFIABLE"
+    ctx.detail(rel.reason)
+    ctx.detail("as read: " + "; or ".join(f"{render_model(left)[:200]} = {render_model(right)[:200]}" for left, right in pairs))
+    if variables & used or any(set(s for s, _p in m) & variables for (_b, m) in keys):
+        ctx.detail("variables (any real value): " + ", ".join(sorted(variables & (used | {s for (_b, m) in keys for s, _p in m}))))
+    if keys:
+        ctx.detail("each power of an exponent in symbols is read through positive variables, one per base and monomial of the exponents (a "
+                   "relaxation that only widens the solutions: UNSATISFIABLE proves that no value satisfies the relation; SATISFIABLE does not "
+                   "show that it holds for every value)")
+    b.note("STEM model evaluation: SATISFIABLE means some value of the variables satisfies the relation under the relaxation, never that it holds")
+
+
 _BUILDERS = {
     "eq": _eq, "cnv": _cnv, "res": _res, "tgt": _tgt, "giv": _giv, "cmp": _cmp, "sub": _sub, "alg": _step, "sol": _sol, "chem": _chem, "bool": _bool,
-    "tt": _tt, "base": _base,
+    "tt": _tt, "base": _base, "mod": _mod,
 }

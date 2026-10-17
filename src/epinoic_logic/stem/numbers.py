@@ -22,9 +22,9 @@ rule needs from a written numeral:
 
 :func:`scan_number` is the one number reader of the STEM front end. The lexer calls it,
 and other readers (the ledger's figure extraction) may call it. It reads, from an offset,
-plain integers and decimals, thousands groups (``,`` or a thin space, groups of exactly
-three digits), a decimal comma (1 or 2 digits after it, when the caller allows it), and
-every scientific form of section 4.4: ``1.2 × 10⁶``, ``1.2 x 10^6``, ``1.2×10^{6}``,
+plain integers and decimals, thousands groups (``,``, a thin space or the LaTeX thin space
+``\\,``, groups of exactly three digits: ``21\\,131.40`` is 21131.40), a decimal comma (1 or 2
+digits after it, when the caller allows it), and every scientific form of section 4.4: ``1.2 × 10⁶``, ``1.2 x 10^6``, ``1.2×10^{6}``,
 ``1.2*10**6``, ``1.2e6``, ``6.0E-3``, ``2.250 \\times 10^{-3}``, a bare power of ten
 (``10^(−3)``, ``10⁻³``), with a Unicode or ASCII minus in mantissa and exponent.
 :func:`scan_based` reads base-marked integers (``0xFF``, ``0b1010``, ``0o17``, ``FF₁₆``,
@@ -310,7 +310,8 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
     Returns None when no numeral starts at ``i``.
 
     ``orig`` (same length as ``s``) is consulted for thin-space thousands separators, which the
-    reading view maps to a plain space. ``decimal_comma`` allows ``1,5`` (one or two digits after
+    reading view maps to a plain space; the LaTeX thin space ``\\,`` between digit groups (``18\\,000``) is read in ``s``
+    itself (two characters, kept in the numeral's extent). ``decimal_comma`` allows ``1,5`` (one or two digits after
     the comma, no digit after them, no space after the comma); the lexer allows it only outside
     brackets so coordinate pairs and lists stay separate numbers; for the same reason it turns
     ``thousands_comma`` off inside brackets (``[100,200]`` is two numbers). ``scientific`` reads
@@ -326,7 +327,8 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
     elif "0" <= s[i] <= "9":
         j = _run(s, i, n)
         int_digits = s[i:j]
-        # thousands groups: an integer part of 1 to 3 digits (no leading zero), then ',ddd' or thin-space 'ddd' groups of exactly three
+        # thousands groups: an integer part of 1 to 3 digits (no leading zero), then ',ddd', thin-space 'ddd' or LaTeX
+        # thin-space '\\,ddd' groups of exactly three, one kind of separator throughout
         if len(int_digits) <= 3 and int_digits[0] != "0":
             parts = [int_digits]
             k = j
@@ -334,13 +336,15 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
             while k < n:
                 sep = s[k]
                 thin = orig is not None and k < len(orig) and orig[k] in _THIN_SPACES
-                kind = "," if (sep == "," and thousands_comma) else ("thin" if thin else "")
+                latex_thin = sep == "\\" and k + 1 < n and s[k + 1] == ","
+                kind = "," if (sep == "," and thousands_comma) else ("thin" if thin else ("latex" if latex_thin else ""))
                 if not kind or (sep_kind and kind != sep_kind):
                     break
-                e = _run(s, k + 1, n)
-                if e - (k + 1) != 3:
+                first = k + (2 if kind == "latex" else 1)
+                e = _run(s, first, n)
+                if e - first != 3:
                     break
-                parts.append(s[k + 1:e])
+                parts.append(s[first:e])
                 sep_kind = kind
                 k = e
             if len(parts) > 1:

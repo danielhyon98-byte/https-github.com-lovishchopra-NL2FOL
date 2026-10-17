@@ -85,6 +85,7 @@ Integrity properties the channel holds on every transmission and relay:
 - A response that merely echoes the request is named as such and counts for no request item (INT-REQ-011).
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
+- A synthesis carrying a value outside the synthesis contract's closed vocabularies, such as a transformation written as a description of the edit instead of one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming the claims, whether it arrives as JSON or as an object built around validation; it is never delivered with the ledger rules those values select skipped, and never an exception (`integrity.contracts.TRANSFORMATION_MEANINGS`).
 
 ## STEM subjects: equations and prose (`src/epinoic_logic/stem/`)
 
@@ -116,7 +117,8 @@ What the STEM branches do:
   | `stem-eq` | written arithmetic, `E = S` |
   | `stem-sub` | substituted values against the bindings of their symbols |
   | `stem-alg` | an algebra step follows from the line before it |
-  | `stem-sol` | stated roots satisfy the equation, and the full set when it is claimed |
+  | `stem-sol` | stated roots satisfy the equation, and the full set when it is claimed; a root may be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19") |
+  | `stem-mod` | an exponential model evaluated at an argument (`P(t + 4) = P₀e^(k(t + 1))` after the request's `P = P₀e^(kt)`): some value of the variables, and of the stated symbols within their values, must satisfy it; every power of an exponent in symbols is read through positive variables, so only "no value satisfies it" decides; no algebra step is read over an application of a letter the text defines as a function (`N(10) = 200`, then `N(15) = 100`) |
   | `stem-cnv` | an explicit unit conversion |
   | `stem-cmp` | a stated order or inequality, or an inequality step |
   | `stem-res` | a result restated in prose against the chain's final value |
@@ -130,9 +132,16 @@ What the STEM branches do:
   A stated value passes when it lies within `h + τ·|C|` of the value `C` computed from the
   written expression: `h` is half a unit in the stated value's last digit; `τ` is 1 % for `=`,
   5 % for `≈` or "about", and 0 for conversions, comparisons and exact work; rounded
-  intermediates, data-booklet constants and function values range over their rounding or
-  enclosure intervals. The band is computed inside the IR, so the engine, not Python, decides
-  whether a value lies in it.
+  intermediates, data-booklet constants, function values and irrational powers of written figures
+  (`10^(−8.2)`; a rational one such as `16^(3/4) = 8` is exact, and so is an integer power beyond 12
+  whose value fits one literal, such as `2^{20}`, while `(1 + 0.065/12)^{-60}` is enclosed) range
+  over their rounding or enclosure intervals. The band is computed inside the IR, so the engine, not
+  Python, decides whether a value lies in it. A calculation with no unit stated in a unit is read
+  as written and in SI (`20 × 25 = 0.5 km` holds), except a lone power of ten stated as a
+  concentration (`[H⁺] = 10^(−8.2) = 6.31 × 10⁻⁹ mol dm⁻³`), which is the concentration in mol dm⁻³
+  the pH scale is defined in: read as a bare number in SI it would accept an exponent 3 too small.
+  Units may be written with Unicode or caret exponents or in ASCII glued to the atom (`m s-1`,
+  `mol dm-3`, `cm3`, `m/s2`).
 - **Name every fault it can see, and never flag correct work as an error.** An error comes only
   from an engine result about a relation that rests on what the answer and the request state.
   Anything that depends on a reading the answer did not state (a booklet value for an unstated
@@ -314,7 +323,8 @@ It does not decide literary, historical or rubric judgements; it does not check
 quantifiers or symbolic calculus (these are reported as UNSUPPORTED or, for STEM answers,
 named undecided); units are checked only by the STEM branches' dimension warnings and explicit
 conversion checks, and nonlinear algebra only under the named `nonlinear` engine policy the STEM
-checks use; it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
+checks use (a caller of `POST /v1/verify` or `epinoic-logic verify` names the same policy, never
+limits of its own, so a problem decides over HTTP as it did in the pipeline); it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
 the runtime evidence); and it does not call any model provider in its tests.
 
 ## Arena: real agents, contained environment
@@ -331,7 +341,9 @@ and overseer builds merge, and the optimisation checks run last, after every bug
 Stress figures for the engine, channel and hub are in `docs/STRESS_RESULTS.md`; no stress iteration
 was run after the bug-fix rounds. The harness's functional rate checks that the hub delivered and
 decided every transmission and named every injected fault; it does not judge whether a
-finding is true. Its summary therefore states, under the headline, how many genuine receipts
+finding is true. Every injected fault no finding names is a miss, counted as a failure whatever its
+cause (when the receipt itself names the injected claim undecided, the failure reason quotes it). Its
+summary therefore states, under the headline, how many genuine receipts
 carry error-level findings and are still counted functional, and names every definitive
 verdict other than ENTAILED shown on a genuine claim with what it rests on, beside the
 number of genuine claims whose encoding got no verdict (vacuous, circular, an unasserted

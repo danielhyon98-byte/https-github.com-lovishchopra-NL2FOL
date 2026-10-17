@@ -34,10 +34,12 @@ The decisions still open, with the fail-closed default the kit implements for ea
 
 ## State on the pre-build branch
 
-The overseer package, the named-policy allowlist of contract 0.3, the argument diagnostics, the closed transformation
-values and the combinator are built by other work streams and connected in phase 2; the flash-router sub-project is
-in this kit (`flash-router/`), edited and released apart from the Z3 infrastructure. On
-this branch the service therefore refuses to start with `KIT-HS-006 named_policies_unavailable`; every part that does
-not depend on them is built and tested, against fixtures where a port's other side is missing (`RecordingPort` is a
-test double of the overseer port in `tests/integration/helpers.py`, never importable by the package). Nothing is
-deployed and no live provider has been called.
+The overseer package and the argument diagnostics are built by other work streams and connected in phase 2. The
+named-policy allowlist of contract 0.3 and the closed transformation values came with the end-to-end fixes, merged
+into this branch on 17 October 2026 (the contract line now says 0.4). The flash-router sub-project is in this kit
+(`flash-router/`), edited and released apart from the Z3 infrastructure. On this branch the service therefore refuses
+to start with `KIT-HS-007 overseer_unavailable` (no overseer port adapter); before that merge it stopped earlier, at
+`KIT-HS-006 named_policies_unavailable`. Every part that does not depend on the overseer is built and tested, against
+fixtures where a port's other side is missing (`RecordingPort` is a test double of the overseer port in
+`tests/integration/helpers.py`, never importable by the package). Nothing is deployed and no live provider has been
+called.

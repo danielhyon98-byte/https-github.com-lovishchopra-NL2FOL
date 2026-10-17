@@ -126,9 +126,11 @@
 - **Expect:** contract 0.4, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
 - **Stop if:** any required part is missing: the service would refuse with `KIT-HS-006`, `KIT-HS-007` or `KIT-HS-005`.
   Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.4, which follows the contract 0.3 merge, the
-  overseer package and the named policies of contract 0.3 are connected in phase 2: on a pre-build commit these three
-  rows are BLOCKERs whose detail says "(connected in phase 2: ...)". A published kit stops here; a rehearsal of a
-  pre-build commit records them as "blocked by G1" and continues. A BLOCKER row without that mark stops both.)**
+  overseer package and the named policies of contract 0.3 are connected in phase 2: on a pre-build commit from before
+  the contract 0.3 merge these three rows are BLOCKERs whose detail says "(connected in phase 2: ...)"; on one after it
+  (the pre-build branch since 17 October 2026) only the overseer package row is. A published kit stops here; a
+  rehearsal of a pre-build commit records them as "blocked by G1" and continues.
+  A BLOCKER row without that mark stops both.)**
 
 ## Step 6. Translator environment and suite
 
@@ -284,8 +286,9 @@ values `check.py --start-service` generates in memory. The names, for the report
 
 - **Expect:** the report lists these names and who sets each. **(connected in phase 2)** The service's preflight names
   the first missing part by its `KIT-HS` code (`KIT-HS-008` for a key or the token) without printing a value; on a
-  pre-build commit it stops earlier, at `KIT-HS-006 named_policies_unavailable`, so `KIT-HS-008` cannot be seen there
-  (the kit's tests show each `KIT-HS-008` case with fixture probes: `tests/integration/test_preflight_handshake.py`).
+  pre-build commit from before the contract 0.3 merge it stops earlier, at `KIT-HS-006 named_policies_unavailable`, so
+  `KIT-HS-008` cannot be seen there (the kit's tests show each `KIT-HS-008` case with fixture probes:
+  `tests/integration/test_preflight_handshake.py`); after that merge `KIT-HS-008` is the line for a missing key.
 - **Stop if:** a step would need you to set or read a value: stop and report it as an owner action.
 
 ## Step 12. Run the simulation **(website-path and agents drivers connected in phase 2)**

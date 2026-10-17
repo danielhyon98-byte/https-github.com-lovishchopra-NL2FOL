@@ -17,10 +17,9 @@
         "kind": "fractional_power_misuse",
         "step": "16^(3/4) = 16 × 3/4",
         "expected_codes": [
-          "ST-PARSE-001",
-          "ST-UNDEC-001"
+          "INT-SUBJ-001"
         ],
-        "note": "16^(3/4) = (⁴√16)³ = 2³ = 8 (8⁴ = 4096 = 16³); the exponent was used as a multiplier. A fractional power is outside the grammar, so the relation is named, not decided (the code table lists it under ST-PARSE-001, the grammar's Unsupported list under ST-UNDEC-001). The arithmetic 16 × 3/4 = 12 holds as written. [computed: (16 × 3/4)⁴ = 20736, 16³ = 4096: 12 is not 16^(3/4); 8⁴ = 4096 = 16³, so 16^(3/4) = 8]"
+        "note": "16^(3/4) = (⁴√16)³ = 2³ = 8 (8⁴ = 4096 = 16³); the exponent was used as a multiplier. A closed base raised to a closed fractional exponent is one value the engine decides (16^(3/4) is exactly 8, 16 being an exact fourth power), so the link 16^(3/4) = 16 × 3/4 is refuted: INT-SUBJ-001 on the claim (until the e2e run1 detection fixes a fractional power was outside the grammar and the relation was only named undecided, ST-PARSE-001 or ST-UNDEC-001). The arithmetic 16 × 3/4 = 12 holds as written. [computed: (16 × 3/4)⁴ = 20736, 16³ = 4096: 12 is not 16^(3/4); 8⁴ = 4096 = 16³, so 16^(3/4) = 8, and |12 − 8| = 4 > 0 = h + τ·8 (exact operands, τ = 0)]"
       }
     ],
     "correct_steps": [

@@ -33,10 +33,11 @@ all eight gates PASS.
 
 ## What runs on the pre-build tree, and what is connected in phase 2
 
-On the pre-build branch the overseer package, the named-policy allowlist of contract 0.3 and the combinator are not
-on the tree, so the checks service refuses to start (`KIT-HS-006 named_policies_unavailable`, then
-`KIT-HS-007 overseer_unavailable` once 0.3 is merged). `run_sim.py` reports that as the reason, and every gate is
-NOT RUN, never PASS: the exit status is 1. What does run here:
+On the pre-build branch the overseer package is not on the tree and the combinator is not connected to the service,
+so the checks service refuses to start (`KIT-HS-007 overseer_unavailable`; a pre-build commit from before the contract
+0.3 merge of 17 October 2026, which brought the named-policy allowlist, stops earlier at
+`KIT-HS-006 named_policies_unavailable`). `run_sim.py` reports that as the reason, and every gate is NOT RUN, never
+PASS: the exit status is 1. What does run here:
 
 - the reference harness on a copy of the synthetic corpus (sub-check `arena:s1`: every genuine and mutation record
   functional, the round not qualified);

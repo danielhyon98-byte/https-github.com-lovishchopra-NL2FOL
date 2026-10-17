@@ -19,7 +19,8 @@ outcome:
 ==============  ===========================================================================
 
 Check kinds: ``eq`` (numeric = value), ``sub`` (substitution fidelity), ``alg`` (an algebra
-step), ``sol`` (stated roots), ``cnv`` (a unit conversion), ``cmp`` (a stated order, or an
+step), ``sol`` (stated roots; also a decimal the answer states in prose for a quantity it named by the
+symbol, ``_described_roots``), ``cnv`` (a unit conversion), ``cmp`` (a stated order, or an
 inequality step), ``res`` (a prose restatement of a result), ``giv`` (a Given value against
 the request), ``tgt`` (a show-that target), ``chem`` (a balance), ``bool`` (a Boolean
 identity), ``tt`` (a truth table), ``base`` (a based numeral).
@@ -46,21 +47,27 @@ from .calculus import derivative, polynomial, polynomial_node
 from .chem import ChemEquation
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root, Sym,
-    Unsupported, WithUnit, align, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root,
+    Sym, Unsupported, WithUnit, align, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
 )
 from .numbers import ExactNumber
 from .parser import ParseIssue
-from .scope import Binding, Formula, Scope
+from .models import (
+    all_symbols, application_of, applications, has_exponential, is_model_expression, model_link_sides, relaxation_fits, render_model, resolve_model,
+    substitute,
+)
+from .scope import Binding, Formula, Model, Scope
 from .units import DIMENSIONLESS, Dimension, UnitExpr
 
 __all__ = [
     "CHECK_KINDS", "FrontEndFinding", "MathItem", "ProseValue", "Relation", "RequestReading", "ST_SEVERITY", "ShowThatTarget", "dimension_of",
-    "plan_relations",
+    "named_quantities", "plan_relations",
 ]
 
+#: the most readings of one model link: one per combination of the definitions of the letters it applies
+MAX_MODEL_READINGS = 4
 #: check kinds in the order of section 8.1
-CHECK_KINDS = ("eq", "sub", "alg", "sol", "cnv", "cmp", "res", "giv", "tgt", "chem", "bool", "tt", "base")
+CHECK_KINDS = ("eq", "sub", "alg", "sol", "mod", "cnv", "cmp", "res", "giv", "tgt", "chem", "bool", "tt", "base")
 #: severity of every front-end code (section 8.2); none is an error
 ST_SEVERITY = {
     "ST-PARSE-001": "warning", "ST-PARSE-002": "warning", "ST-UNDEC-001": "warning", "ST-UNDEC-002": "warning", "ST-UNDEF-001": "warning",
@@ -91,6 +98,40 @@ _RESULT_PARTICIPLES = frozenset({"estimated", "calculated", "computed", "determi
 _QUALIFIERS = frozenset({"about", "approximately", "roughly", "around", "nearly", "almost", "≈", "~", "only", "exactly", "just"})
 _PREPOSITIONS = frozenset({"at", "in", "for", "with", "by", "from", "after", "before", "per", "to", "on", "into", "over", "under", "within", "than", "below",
                            "above"})
+#: a symbol the answer names by a description, in a statement of its own text: 'Let $M$ be the monthly payment in euros',
+#: 'let x be the width of the garden', 'where $Q$ is the useful energy', 'with $k$ the spring constant', '$n$ is the number
+#: of years' (one letter, in inline maths or not; the verb its lead word allows; a determiner; then words only: the
+#: description stops at the first figure, sign or bracket)
+_SYMBOL_PART = r"(?:\$|\\\()?[ \t]*(?P<sym>[A-Za-z])[ \t]*(?:\$|\\\))?"
+_DESCRIPTION_PART = r"(?P<det>(?i:the|a|an))\s+(?P<desc>[^\W\d_](?:[^\W\d_]|['\- ]){0,79})"
+_DEFINITION_RES = (
+    re.compile(r"(?:^|(?<=[\s(]))(?i:let|letting)\s+" + _SYMBOL_PART + r"\s+(?i:be|denote|represent|stand\s+for)\s+" + _DESCRIPTION_PART),
+    re.compile(r"(?:^|(?<=[\s(,]))(?i:where|with)\s+" + _SYMBOL_PART + r"\s+(?:(?:(?i:is|denotes|represents|stands\s+for)|=)\s+)?" + _DESCRIPTION_PART),
+    re.compile(r"^[ \t]*" + _SYMBOL_PART + r"\s+(?i:is|denotes|represents|stands\s+for)\s+" + _DESCRIPTION_PART),
+)
+#: the characters of a statement a definition is looked for in (bounded work per statement)
+_DEFINITION_WINDOW = 2000
+#: where a description stops: a relative clause or a conjunction ('the useful energy that vaporises the water')
+_DESCRIPTION_STOP_RE = re.compile(r"\s+(?:which|that|who|whose|where|when|whenever|while|and|or|but|so|because|if|as|then|thus|hence|therefore)\b.*$",
+                                  re.IGNORECASE | re.DOTALL)
+#: a trailing unit of a description ('the monthly payment in euros' also names 'the monthly payment')
+_DESCRIPTION_UNIT_RE = re.compile(r"\s+in\s+[^\W\d_]{1,16}$")
+#: the clause before a value that states it for a described quantity: an optional connective, a determiner or possessive,
+#: the description, a verb of identity, an optional currency sign; nothing else (no qualifier, negation or condition)
+_DESCRIBED_VALUE_RE = re.compile(r"^\s*(?:(?:so|thus|hence|therefore|and|then)\s*,?\s+)?(?:(?:the|her|his|their|its|our|your|my|this|that|each|a|an)\s+)?"
+                                 r"(?P<desc>[^\W\d_](?:[^\W\d_]|['\- ]){0,79}?)\s+(?:is|was|=|equals|will\s+be|would\s+be|comes\s+to)\s*(?:[€$£¥])?\s*$",
+                                 re.IGNORECASE)
+#: the words that may name what a described value counts, right after it ('is 352.19 euros', 'is 7 years'): currencies, units
+#: of time and count nouns; any other word after the value ('more', 'times', 'when') leaves it unread
+_COUNT_WORDS = ("euros|euro|eur|dollars|dollar|usd|pounds|pound|gbp|yen|cents|cent|pence|seconds|second|minutes|minute|hours|hour|days|day|weeks|week|"
+                "months|month|years|year|people|persons|students|items|units|tickets|marks|points|cells|individuals")
+#: what may follow such a value up to the end of its sentence: one of those words, a rounding note, a mark annotation
+_DESCRIBED_TAIL_RE = re.compile(r"^\s*(?:(?:" + _COUNT_WORDS + r")(?![^\W\d_]))?\s*"
+                                r"(?:\(?(?:to\s+)?(?:\d{1,2}\s*(?:d\.?\s*p\.?|s\.?\s*f\.?|decimal\s+places?|significant\s+figures?)"
+                                r"|the\s+nearest\s+[^\W\d_]{1,12})\)?)?\s*(?:\(?[MARN]\d{1,2}\)?\s*)?(?:[.!;]|$)", re.IGNORECASE)
+#: the end of the sentence after a value: a full stop before a capital or at the end (not the stops of 'd.p.' or 's.f.'),
+#: or another clause or sentence mark
+_SENTENCE_STOP_RE = re.compile(r"\.(?=\s+[A-Z(]|\s*$)|[;!?\n]")
 
 
 @dataclass(frozen=True)
@@ -159,7 +200,7 @@ class MathItem:
 @dataclass(frozen=True)
 class ProseValue:
     """A value written in prose (outside any math span): a quantity, a per cent or a number,
-    with the statement prose before it (for the result cue)."""
+    with the statement prose before it (for the result cue) and after it (what qualifies it)."""
 
     statement_id: str
     statement_index: int
@@ -168,6 +209,7 @@ class ProseValue:
     start: int
     end: int
     before: str
+    after: str = ""
 
 
 @dataclass(frozen=True)
@@ -246,6 +288,9 @@ class Relation:
     principal_root: bool = False
     #: symbols that stand for a power of e (``e^(−k)`` for ``e^(−8k)``): positive, a side condition the checks stage adds
     positive: tuple[str, ...] = ()
+    #: ``sol``: the root is a value the answer states in prose for the quantity it named by the symbol (a prose value,
+    #: approximate by nature: the checks stage compares it within the '=' band, τ = 1/100 beyond its half-width)
+    described: bool = False
 
     @property
     def is_check(self) -> bool:
@@ -417,7 +462,8 @@ class _ChainState:
 
 class _Planner:
     def __init__(self, items: list[MathItem], prose_values: list[ProseValue], scope: Scope, request: RequestReading, profile: StemProfile,
-                 limits: StemLimits, statement_order: dict[str, int], code_items: list[tuple[str, int, int, str]], request_mode: bool) -> None:
+                 limits: StemLimits, statement_order: dict[str, int], code_items: list[tuple[str, int, int, str]], request_mode: bool,
+                 definitions: Optional[list[tuple[int, str, str, frozenset[str], str]]] = None, reading: str = "") -> None:
         self.items = items
         self.prose_values = prose_values
         self.scope = scope
@@ -444,6 +490,20 @@ class _Planner:
         self._request_lower = request.text[:4000].lower()
         #: the part each statement with maths stands in
         self.part_of: dict[str, str] = {it.statement_id: it.part for it in items}
+        #: symbols the answer names by a description (:func:`named_quantities`): (statement order, part, symbol, description
+        #: variants, statement id)
+        self.named: list[tuple[int, str, str, frozenset[str], str]] = list(definitions or ())
+        #: the reading view the items come from (offsets are absolute in it): a model's application is a letter glued to its bracket
+        self.reading = reading
+        #: the arguments of every glued application of a one-letter symbol in this text, by letter (a model's variable is read from them)
+        self.app_args: dict[str, list[Node]] = {}
+        #: the head nodes that define a model (``C(t) = …``): the definition itself is no check
+        self.model_heads: set[int] = set()
+        #: the models a link being read applies, with their variables (filled by ``_expand_model``)
+        self._applied: list[tuple[Model, str]] = []
+        #: the readable definitions of each letter the link being read applies, and the one each reading takes
+        self._candidates: dict[str, list[tuple[Model, str, Node]]] = {}
+        self._choice: dict[str, int] = {}
 
     # -------------------------------------------------------------- output helpers
     def add(self, **kw: object) -> Relation:
@@ -462,6 +522,16 @@ class _Planner:
 
     # -------------------------------------------------------------- main loop
     def run(self) -> None:
+        if self.reading:
+            for item in self.items:
+                for ch in item.chains:
+                    for op in ch.operands:
+                        if op.readings:
+                            for letter, arg in applications(op.readings[0], self.reading):
+                                self.app_args.setdefault(letter, []).append(arg)
+                    letter = self._function_definition(ch)
+                    if letter:
+                        self.scope.functions.add(letter)
         for item in self.items:
             if item.error:
                 self.finding(item.code or "ST-LIM-001", item.error, (item.statement_id,), item.start, item.end)
@@ -490,6 +560,7 @@ class _Planner:
         if not self.request_mode:
             self._defined_columns()
             self._results()
+            self._described_roots()
             self._assignments()
             self._givens()
             self._targets()
@@ -531,6 +602,7 @@ class _Planner:
         bound_before = frozenset(n for n in chain_syms if self.scope.bindings.get(n))
         # bindings first: a later link's substitution may rely on this chain's own values
         self._chain_bindings(item, full_operands, full_ops, lone, lone_head)
+        self._record_model(full_operands, full_ops)
         approx_ctx = _approx_context(item.gap_before)
         first_rel, first_finding = len(self.relations), len(self.findings)
         for k in range(len(ops)):
@@ -693,6 +765,8 @@ class _Planner:
                 return
         if op in _EQUALITY and self._antiderivative(base, lnode, rnode):
             return
+        if op == "=" and self._model_link(base, lnode, rnode, pos):
+            return
         reasons = tuple(dict.fromkeys(unsupported_reasons(lnode) + unsupported_reasons(rnode)))
         if reasons and lone_first and head is not None and not unsupported_reasons(lnode) and not is_closed(rnode) and op in _EQUALITY \
                 and _syms(rnode) - {getattr(head, "name", "")}:
@@ -802,6 +876,148 @@ class _Planner:
             return
         self.add(kind="stated", outcome="context", reason="a relation stated without a preceding relation to derive it from", **base)
 
+    def _record_model(self, operands: list[tuple[Operand, str]], ops: list[str]) -> None:
+        """``P = P₀e^(kt)`` (no variable named: the answer's applications name it) or ``C(t) = C0 e^(−kt)`` (the letter glued
+        to a bracket holding one symbol): a model of one variable, kept for the ``mod`` checks of its applications. The right
+        side must hold a power whose exponent holds symbols and nothing a ``mod`` check cannot read; a definition in which
+        the model's own letter appears on the right is no model."""
+        if len(operands) < 2 or not ops or ops[0] != "=" or not operands[0][0].readings or not operands[1][0].readings:
+            return
+        head, rhs = operands[0][0].readings[0], operands[1][0].readings[0]
+        name, var = "", ""
+        if isinstance(head, Sym) and head.kind == "symbol":
+            name = head.name
+        elif isinstance(head, BinOp) and head.op == "*" and isinstance(head.left, Sym) and isinstance(head.right, Sym) and head.right.kind == "symbol" \
+                and application_of(head.left, head.right, self.reading):
+            name, var = head.left.name, head.right.name
+        if not name or not is_model_expression(rhs):
+            return
+        names = all_symbols(rhs)
+        if name in names or (var and var not in names):
+            return
+        self.scope.add_model(Model(name, var, rhs, operands[1][1], "request" if self.request_mode else "answer", getattr(rhs, "start", 0),
+                                   getattr(rhs, "end", 0)))
+        if var:
+            self.model_heads.add(id(head))
+
+    def _function_definition(self, chain: Chain) -> str:
+        """The letter a chain defines as a function of one variable, or ''. ``C(t) = 5t + 3`` and ``N(t) = 800 × (1/2)^(t/5)``:
+        the letter glued to a bracket that holds one symbol, which the right side uses and the letter does not. ``P = P₀e^(kt)``
+        and ``V = 20000 × 0.8^t``: a one-letter symbol set equal to an expression with a power whose exponent holds symbols
+        (a model, exact or not). Only the letters matter, so the definition is read from the written text alone."""
+        if not self.reading or len(chain.operands) < 2 or not chain.ops or chain.ops[0] != "=":
+            return ""
+        a, b = chain.operands[0], chain.operands[1]
+        if not a.readings or not b.readings:
+            return ""
+        head, rhs = a.readings[0], b.readings[0]
+        names = all_symbols(rhs)
+        if isinstance(head, BinOp) and head.op == "*" and isinstance(head.left, Sym) and isinstance(head.right, Sym) and head.right.kind == "symbol" \
+                and application_of(head.left, head.right, self.reading) and head.right.name in names and head.left.name not in names:
+            return head.left.name
+        if isinstance(head, Sym) and head.kind == "symbol" and len(head.name) == 1 and head.name not in names and has_exponential(rhs):
+            return head.name
+        return ""
+
+    def _function_letters(self) -> set[str]:
+        return self.scope.functions | set(self.scope.models)
+
+    def _function_application(self, node: Optional[Node]) -> Optional[Node]:
+        """The argument when ``node`` is an application of a function the text defines (``N(15)`` after ``N(t) = …``,
+        ``P(6)`` after the request's ``P = P₀e^(kt)``: the letter glued to its bracket), else None."""
+        if node is None or not self.reading or not isinstance(node, BinOp) or node.op != "*" or not isinstance(node.left, Sym):
+            return None
+        if node.left.name in self._function_letters() and application_of(node.left, node.right, self.reading):
+            return node.right
+        return None
+
+    def _applies_function(self, *nodes: Optional[Node]) -> bool:
+        """Some node holds an application of a function the text defines (``2N(t)``, ``P(t + 1)/P(t)``)."""
+        letters = self._function_letters()
+        return bool(self.reading and letters) and any(letter in letters for n in nodes if n is not None for letter, _a in applications(n, self.reading))
+
+    def _model_candidates(self, name: str) -> list[tuple[Model, str, Node]]:
+        """Every distinct definition of the model ``name`` in scope whose variable is named (:func:`resolve_model`), as
+        ``(model, variable, expression)``. A letter the request or the answer defines as two models (``Model A: N =
+        100e^(t/5)``, ``Model B: N = 100 × 2^(t/3)``) has two, and an application of it may mean either; a definition whose
+        variable nothing names (``P = 250e^(6k)``, an evaluation written as a definition) is none."""
+        letters = {n for n in self.scope.names if len(n) == 1 and n.isalpha()}
+        out: list[tuple[Model, str, Node]] = []
+        seen: set[tuple[str, str]] = set()
+        for m in self.scope.models.get(name, ()):
+            resolved = resolve_model(m, self.app_args.get(name, []), letters)
+            if resolved is None:
+                continue
+            var, expr = resolved
+            key = (var, render_model(expr))
+            if key not in seen:
+                seen.add(key)
+                out.append((m, var, expr))
+        return out
+
+    def _expand_model(self, name: str, arg: Node) -> Optional[Node]:
+        cands = self._candidates.get(name)
+        if not cands:
+            return None
+        m, var, expr = cands[self._choice.get(name, 0)]
+        out = substitute(expr, var, arg)
+        if out is not None:
+            self._applied.append((replace(m, expr=expr, var=var), var))
+        return out
+
+    def _model_link(self, base: dict, lnode: Node, rnode: Node, pos: int) -> bool:
+        """``P(t + 4) = P₀e^(k(t + 1))``, ``P(6) = 250e^(6k)``, ``C(40) = 1600 × 2^(−5)``: an equality with an application of a
+        model, read as the model's expression at the written argument (``models.py``), becomes a ``mod`` check: some value
+        of the model's variable, of every symbol with no stated value and of the stated symbols within their values must
+        satisfy it. False (the link keeps its old reading) when no model is applied or the link is not one a ``mod`` check
+        reads, and for the model's own definition (``C(t) = C0 e^(−kt)``)."""
+        if not self.scope.models or not self.reading or self.request_mode or (pos == 0 and id(lnode) in self.model_heads):
+            return False
+        self._candidates = {}
+        for letter in sorted({letter for n in (lnode, rnode) for letter, _a in applications(n, self.reading)}):
+            cands = self._model_candidates(letter)
+            if cands:
+                self._candidates[letter] = cands
+        if not self._candidates:
+            return False
+        letters = sorted(self._candidates)
+        combos: list[tuple[int, ...]] = [()]
+        for n in letters:  # every combination of the letters' definitions, one index per letter
+            combos = [c + (i,) for c in combos for i in range(len(self._candidates[n]))]
+            if len(combos) > MAX_MODEL_READINGS:
+                return False
+        # one reading of the link per combination of definitions: the link must hold in some reading, so no definition is
+        # chosen for the answer, and every reading must be one the check reads (else the link keeps its old reading)
+        pairs: list[tuple[Node, Node]] = []
+        applied: list[tuple[Model, str]] = []
+        for combo in combos:
+            self._choice = dict(zip(letters, combo))
+            self._applied = []
+            sides = model_link_sides(lnode, rnode, self.reading, self._expand_model)
+            if sides is None or not self._applied:
+                return False
+            pairs.append((sides[0], sides[1]))
+            applied += self._applied
+        if len(pairs) > 1 and not relaxation_fits(*(n for pair in pairs for n in pair)):
+            return False
+        names = set().union(*(all_symbols(lr) | all_symbols(rr) for lr, rr in pairs))
+        variables = {v for _m, v in applied if v in names}
+        variables |= {n for n in names if not self.scope.has_reading(n)}
+        m, var = applied[0]
+        formula = Formula(m.name, m.expr, m.statement_id if m.source == "answer" else "request", m.source, params=(var,), start=m.start, end=m.end)
+        b = dict(base)
+        b["left"] = Operand(tuple(lr for lr, _rr in pairs), base["left"].start, base["left"].end)
+        b["right"] = Operand(tuple(rr for _lr, rr in pairs), base["right"].start, base["right"].end)
+        used = list(dict.fromkeys((mm.name, vv, render_model(mm.expr)[:80], "the request" if mm.source == "request" else mm.statement_id) for mm, vv in applied))
+        if len(used) == 1:
+            reason = f"an evaluation of the model {used[0][0]}({used[0][1]}) = {used[0][2]} (stated in {used[0][3]}) at the written argument, against the other side"
+        else:
+            reason = ("an evaluation of the models " + "; ".join(f"{a}({v}) = {e} (stated in {w})" for a, v, e, w in used)
+                      + " at the written argument, against the other side"
+                      + ("; each definition of a letter is one reading of the link, which must hold in some reading" if len(pairs) > 1 else ""))
+        self.add(kind="mod", outcome="check", unbound=tuple(sorted(variables)), formula=formula, reason=reason, **b)
+        return True
+
     def _antiderivative(self, base: dict, lnode: Node, rnode: Node) -> bool:
         """``∫6t dt = 3t²`` (an integral with no limits and the antiderivative the answer states, both polynomials in the
         integration variable, a constant of integration allowed): the derivative of the stated antiderivative, formed by
@@ -881,7 +1097,7 @@ class _Planner:
         x = next(iter(names))
         for side in (lnode, rnode):
             for n in walk(side):
-                if isinstance(n, (Func, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit)):
+                if isinstance(n, (Func, RealPower, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit)):
                     return False
                 if isinstance(n, BinOp) and n.op == "/" and x in _syms(n.right):
                     return False
@@ -1059,11 +1275,19 @@ class _Planner:
             shares = bool(info["unknown"] & prev["syms"])
             evaluation = (lone and isinstance(head, Sym) and prev["lone"] and getattr(prev["head"], "name", None) == head.name
                           and len(operands) > 1 and is_closed(_first(operands[1][0]) or Sym("?"))) \
-                or (lone and isinstance(head, Apply) and is_closed(head.arg))  # f(2) = … evaluates a function: no step
+                or (lone and isinstance(head, Apply) and is_closed(head.arg)) \
+                or is_closed(self._function_application(head) or Sym("?"))  # f(2) = …, N(15) = … evaluate a function: no step
             if shares and not evaluation and not or_joined and not new_formula and ((explicit and (same_span or info["order"] - prev["order"] <= 1)) or (adjacent and pure)):
                 if _has_func_of(_first(prev["left"]) or Sym("?"), prev["unknown"]) or _has_func_of(_first(prev["right"]) or Sym("?"), prev["unknown"]) \
                         or _has_func_of(first, info["unknown"]) or _has_func_of(last, info["unknown"]):
                     self._undecided("ST-UNDEC-001", "a step involving a function of an unknown",
+                                    dict(statement_ids=tuple(dict.fromkeys(prev["sids"] + info["sids"])), start=operands[0][0].start, end=operands[-1][0].end,
+                                         op=rel_op, left=operands[0][0], right=operands[-1][0], part=item.part, position=0, approx=False), item)
+                elif self._applies_function(_first(prev["left"]), _first(prev["right"]), *(_first(op) for op, _s in operands)):
+                    # N(t + 1) = 2N(t), then N(t + 2) = 4N(t): the parser reads each application as a product (N·(t + 2)), which
+                    # no step may be decided on; an equality that applies a model is checked by itself (stem-mod)
+                    self._undecided("ST-UNDEC-001", "a step involving an application of a function the text defines (its letter glued to a "
+                                    "bracket, read as the function only in a model evaluation)",
                                     dict(statement_ids=tuple(dict.fromkeys(prev["sids"] + info["sids"])), start=operands[0][0].start, end=operands[-1][0].end,
                                          op=rel_op, left=operands[0][0], right=operands[-1][0], part=item.part, position=0, approx=False), item)
                 else:
@@ -1335,6 +1559,71 @@ class _Planner:
                      left=best["operand"], right=Operand((pv.node,), pv.start, pv.end), part=pv.part,
                      reason=f"a prose restatement against the final value of the chain in {best['sid']}")
 
+    def _described_roots(self) -> None:
+        """A value the answer states in prose for a quantity it named by a symbol ('Let $M$ be the monthly payment in
+        euros.', then 'Her monthly payment is €352.19.') is the root it states for an equation in that symbol: the latest
+        equation before it, in the same part, whose one unknown is the symbol (``18 000 = M × (1 − 1.0054…^−60)/0.0054…``).
+        Checked like any stated root (``stem-sol``, membership; R10: a root of the equation lies in the value's rounding
+        interval). Read only when every condition holds, so a misreading never decides anything:
+
+        * the clause that states the value is the description itself, with at most a connective and a determiner or
+          possessive before it, a verb of identity and a currency sign after it ('Her monthly payment is €', '…, so the
+          monthly payment is'), its sentence opens with no condition ('If …', 'When …'), and nothing follows the value but
+          a currency, time or count word, a rounding note or a mark annotation up to the end of its sentence (no
+          qualifier, no negation, no comparison);
+        * the description is the one the answer gave the symbol earlier in the same part (or with no part), word for word;
+        * the value is a decimal (a whole number in prose may be a count the context rounds up or down) with no unit,
+          the symbol has no value stated in maths anywhere in the answer, and the equation, written before the value,
+          holds no unit, no sign choice, no construct outside the encodings and no function of the unknown."""
+        if not self.named:
+            return
+        for pv in self.prose_values:
+            num = pv.node.arg if isinstance(pv.node, Neg) else pv.node
+            if not isinstance(num, Num) or num.number.based or not num.number.has_point:
+                continue  # a plain decimal (or one with a minus sign): no unit, no per cent; a whole number in prose may be a count
+                # the context rounds up or down ('16 tickets' for 15.3), so it is never read as a root
+            cut = max(pv.before.rfind("."), pv.before.rfind(";"), pv.before.rfind(":"), pv.before.rfind("\n"), pv.before.rfind("?"), pv.before.rfind("!"))
+            sentence = pv.before[cut + 1:]
+            if _CONDITIONAL_RE.match(sentence):
+                continue  # 'If the rate is 5%, the monthly payment is €400.50': a value under a condition
+            clause = sentence[sentence.rfind(",") + 1:]  # '…, so the monthly payment is €': the clause that states the value
+            m = _DESCRIBED_VALUE_RE.match(clause)
+            if m is None:
+                continue
+            stop = _SENTENCE_STOP_RE.search(pv.after)
+            if not _DESCRIBED_TAIL_RE.match(pv.after[:stop.end()] if stop is not None else pv.after):
+                continue
+            desc = " ".join(m.group("desc").lower().split())
+            named = next((n for n in reversed(self.named) if n[0] < pv.statement_index and desc in n[3] and (n[1] == pv.part or not n[1])), None)
+            if named is None:
+                continue
+            _order, _part, x, _variants, def_sid = named
+            if self.scope.bindings.get(x) or self.scope.substitutions.get(x):
+                continue  # a value stated in maths: the answer's own relations already read it
+            eq = None
+            for cand in reversed(self.equations):
+                before_value = cand["order"] < pv.statement_index or (cand["order"] == pv.statement_index and cand["item"].end <= pv.start)
+                if not before_value or cand["item"].part != pv.part or cand["unknown"] != {x}:
+                    continue
+                l, r = _first(cand["left"]), _first(cand["right"])
+                if l is None or r is None or max(_degree(l, x), _degree(r, x)) < 1:
+                    continue
+                if any(isinstance(n, (Quantity, WithUnit, Percent, Degrees, PlusMinus)) for side in (l, r) for n in walk(side)):
+                    break  # the latest equation in the symbol holds a unit or a sign choice: nothing is read
+                if unsupported_reasons(l) or unsupported_reasons(r) or _has_func_of(l, {x}) or _has_func_of(r, {x}):
+                    break
+                eq = cand
+                break
+            if eq is None:
+                continue
+            a = pv.start - len(clause) + (len(clause) - len(clause.lstrip()))
+            self.add(kind="sol", outcome="check", statement_ids=tuple(dict.fromkeys(eq["sids"] + (pv.statement_id,))), start=a, end=pv.end, op="=",
+                     left=Operand((Sym(x, start=pv.start, end=pv.start),), pv.start, pv.start), right=Operand((pv.node,), pv.start, pv.end), part=pv.part,
+                     premise_left=eq["left"], premise_op="=", premise_right=eq["right"], premise_ids=eq["sids"], root_symbol=x, roots=(pv.node,),
+                     described=True,
+                     reason=f"the value the answer states in {pv.statement_id} for '{desc}', the quantity it names {x} in {def_sid}: a stated root of the "
+                            f"equation in {x} in {', '.join(eq['sids'])}")
+
     def _assignments(self) -> None:
         """Computer Science: a trace step that gives a variable a value in prose ("mid = 1 gives 3 < 9, so low moves to 2")
         applies the update rule the answer states for that variable earlier in the part ("low = mid + 1"): when the step's
@@ -1543,14 +1832,43 @@ def _result_cue(before: str) -> bool:
     return last in _RESULT_VERBS or last in ("therefore", "hence", "thus", "so") or last.endswith("s") and last not in _PREPOSITIONS
 
 
+def named_quantities(statement_text: str) -> list[tuple[str, frozenset[str]]]:
+    """The symbols one statement names by a description, each with its description's variants: 'Let $M$ be the monthly
+    payment in euros.' gives ``("M", {"monthly payment in euros", "monthly payment"})``. A symbol is one letter, in inline
+    maths or not, after 'let' or 'letting' (with be, denote, represent or stand for), after 'where' or 'with' (with is, =,
+    denotes, represents, stands for, or no verb), or opening the statement (with is, denotes, represents or stands for); a
+    determiner follows, then words only. The description stops at the first figure, sign or bracket and before a relative
+    clause or a conjunction ('the useful energy that vaporises the water'), and a trailing 'in <unit>' also gives the
+    shorter name. Bounded: the first 2,000 characters of the statement, a fixed number of patterns."""
+    text = statement_text[:_DEFINITION_WINDOW]
+    out: list[tuple[str, frozenset[str]]] = []
+    for pattern in _DEFINITION_RES:
+        for m in pattern.finditer(text):
+            desc = _DESCRIPTION_STOP_RE.sub("", " ".join(m.group("desc").lower().split())).strip(" -'")
+            if not desc or len(desc.split()) > 8:
+                continue
+            variants = {desc}
+            short = _DESCRIPTION_UNIT_RE.sub("", desc)
+            if short and short != desc:
+                variants.add(short)
+            out.append((m.group("sym"), frozenset(variants)))
+    return out
+
+
 def plan_relations(items: list[MathItem], prose_values: list[ProseValue], scope: Scope, request: RequestReading, profile: StemProfile, *,
                    limits: StemLimits = DEFAULT_LIMITS, statement_order: Optional[dict[str, int]] = None,
-                   code_items: Optional[list[tuple[str, int, int, str]]] = None, request_mode: bool = False) -> tuple[list[Relation], list[FrontEndFinding], list]:
+                   code_items: Optional[list[tuple[str, int, int, str]]] = None, request_mode: bool = False,
+                   definitions: Optional[list[tuple[int, str, str, frozenset[str], str]]] = None,
+                   reading: str = "") -> tuple[list[Relation], list[FrontEndFinding], list]:
     """Classify every link of ``items`` (in document order), record bindings and formulas in
     ``scope``, plan the checks and assign stable ids. Returns ``(relations, findings,
-    request relations)``; the request mode records bindings, formulas and relations only."""
+    request relations)``; the request mode records bindings, formulas and relations only. ``definitions`` are the
+    symbols the answer names by a description (:func:`named_quantities`, with each statement's order, part and id): a
+    decimal it states in prose for one of them is a stated root of the equation in it (``_described_roots``). ``reading``
+    is the reading view the items were read from: a model's application is told apart from a product by it (the letter
+    glued to its bracket, ``models.application_of``); without it no application is read."""
     order = statement_order or {}
-    planner = _Planner(items, prose_values, scope, request, profile, limits, order, code_items or [], request_mode)
+    planner = _Planner(items, prose_values, scope, request, profile, limits, order, code_items or [], request_mode, definitions, reading)
     planner.run()
     rels = planner.relations
     findings = list(planner.findings)

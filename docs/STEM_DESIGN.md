@@ -325,7 +325,8 @@ lines and mark annotations are furniture, and a table is one statement per row.
   - Digits with an optional decimal point.
   - A decimal comma only when 1 or 2 digits follow and no space follows outside a coordinate
     pair.
-  - Thousands groups with `,` or a thin space, in groups of exactly three.
+  - Thousands groups with `,`, a thin space or the LaTeX thin space `\,` (`21\,131.40`), in groups
+    of exactly three, one kind of separator throughout (section 21).
   - Scientific notation: `1.2 × 10⁶`, `1.2 x 10^6`, `1.2×10^{6}`, `1.2*10**6`, `1.2e6`,
     `6.0E-3`, with a Unicode minus allowed in mantissa and exponent.
   - Base-marked integers: `FF₁₆`, `0xFF`, `0b1010`, `1010₂`, `(255)₁₀`.
@@ -367,7 +368,7 @@ expr      := term ( ( + | - | ± | ∓ ) term )*
 term      := unary ( ( × | · | * | / | ÷ | \cdot | \times | \div | juxtaposition ) unary )*
 unary     := ( - | + | ± | ¬ ) unary | power
 power     := postfix [ ( ^ | ** | superscript ) exponent ]           right-associative
-exponent  := signed integer literal (|n| ≤ 12) | ½ | 1/2              (½ is read as a square root)
+exponent  := signed integer literal (|n| ≤ 12; up to 1000 over a closed base) | ½ | 1/2   (½ is read as a square root)
 postfix   := primary [ % | ° | ! | × (magnification) | base subscript ]
 primary   := number [unit] | symbol | func_app | ( expr ) [unit] | { expr } | [ expr ] (concentration in chemistry)
            | \frac{expr}{expr} | \sqrt{expr} | √primary | √(expr) | | expr | | ratio
@@ -384,9 +385,16 @@ operand makes that operand an error (ST-LIM-001 or ST-PARSE-001) and the parser 
 at the next relation sign; an unknown LaTeX command or a confusable letter makes the whole span
 Unparsed (ST-PARSE-001, the command named). Nothing raises out of `parse_math`.
 
+A power whose exponent is no integer is one value, a `RealPower`, when its base and its exponent
+are both closed and carry no unit (`10^(−8.2)`, `10^(8.2 − 7.8)`, `(3465/250)^(1/6)`): figures,
+signs, brackets and `\frac` in the exponent, no symbol, unit, angle or per cent in either
+(section 21). So is an integer power beyond 12, up to 1000, of a closed base with no unit
+(`(1 + 0.065/12)^{-60}`, `1.003^{144}`, `2^{20}`).
+
 Unsupported, each as a named `Unsupported(reason)` node (the relation that holds one is
 ST-UNDEC-001 with the reason):
-- a fractional or symbolic power, an integer power beyond 12, a cube root;
+- a symbolic power, a non-integer power of anything but a closed value with no unit, an integer
+  power beyond 12 of anything but a closed value with no unit (and any beyond 1000), a cube root;
 - `!`;
 - `Σ` (except over integer bounds with at most 24 terms, which is read as its terms), `∫` and
   `lim`;
@@ -460,6 +468,7 @@ in one outcome: `check`, `binding`, `formula`, `context` or `undecided` (section
 | `<`, `>`, `≤`, `≥`, `≠` between values or bound symbols | `T₁ = 300 K > T₂ = 250 K` | `stem-cmp` |
 | prose value after `therefore`, `so`, `hence` or "the answer is", against the chain's final value | "The acceleration is therefore 6.0 m s⁻²." | `stem-res` |
 | equation, then a stated root set | `x² − 5x + 6 = 0 ⇒ x = 2 or x = 3` | `stem-sol` |
+| an equality with an application of an exponential model (the model's letter glued to its bracket) | `P(t + 1) = P₀e^(k(t + 1))` after `P = P₀e^(kt)` | `stem-mod` (section 21, item 5) |
 | answer `Given:` binding against a request binding of the same symbol, or a request quantity of the same dimension | `Given: v = 20 m s⁻¹` | `stem-giv` |
 | final value against a show-that target in the request | "Show that n ≈ 2.0 mol" | `stem-tgt` |
 | chemical equation | `2H₂ + O₂ → 2H₂O` | `stem-chem` |
@@ -474,7 +483,9 @@ binding, not a check. That keeps the existing Physics fixtures free of new findi
 chain is read (`T₁ = 300 K > T₂ = 250 K`), a factorisation inside a chain is checked as an
 identity, a ratio equality `a:b = c:d` is compared by cross products, and a function or
 derivative evaluated at a point is checked against the stated formula when one is recorded.
-Complex values are named undecided.
+An evaluation of a function at a value (`f(2) = …`, and `N(15) = …` for a letter the text defines
+as a function, `N(t) = …` or a model; section 21, item 5) is no step from the preceding line, and a
+step over a function of an unknown is ST-UNDEC-001. Complex values are named undecided.
 
 Check ids are planned here, deterministically, in document order: `stem-eq-1`, `stem-eq-2`,
 … per kind. Parser and pack therefore agree on them. A planned check that `to_ir` cannot
@@ -516,7 +527,7 @@ encode keeps its id: the undecided finding names the id instead of a check being
 | chain links | 12 | links after the 12th: ST-LIM-001 |
 | AST nodes per expression | 256 | ST-LIM-001 |
 | AST depth | 24 (checked before each descent; IR depth after encoding stays under 40) | ST-LIM-001 |
-| integer power | \|n\| ≤ 12 | ST-UNDEC-001 |
+| integer power | \|n\| ≤ 12; over a closed base with no unit, \|n\| ≤ 1000 (one value; beyond about 10^±300 it is not computed) | ST-UNDEC-001 |
 | scientific exponent | \|e\| ≤ 99 | ST-LIM-001 |
 | written digits per number | 30 | ST-LIM-001 |
 | readings per expression / per check | 2 / 4 | ST-PARSE-002 |
@@ -669,7 +680,12 @@ functions range over their intervals." The full rule is `tolerance.STEM_TOLERANC
   match, and only to units that take a prefix. SI binding applies: `ms` is a millisecond, `m s`
   is metre second, and `Nm` and `N m` are newton metre.
 - **Unit expressions.** Space, `·`, `*`, `/`, and exponents `⁻²`, `^-2`, `^{-2}`, `**-2`. For
-  example `m s⁻²`, `m/s/s`, `J mol⁻¹ K⁻¹`, `mol dm⁻³`, `kg·m/s`, `kJ mol⁻¹`.
+  example `m s⁻²`, `m/s/s`, `J mol⁻¹ K⁻¹`, `mol dm⁻³`, `kg·m/s`, `kJ mol⁻¹`. After a number, an
+  exponent written in ASCII and glued to its atom is read too: a hyphen-minus or plus and one digit
+  (`m s-1`, `mol dm-3`, `J kg-1 K-1`), one digit 2 to 9 after an atom of two or more letters (`cm3`,
+  `mol2 dm-6`) or after a slash (`m/s2`, `kg/m3`); never more digits (`300 K-273`), a spaced sign, a
+  sign followed by an atom of the same dimension (`5 m-3 m`), or a one-letter atom's digit right after
+  the number (`2 m2`, `H2`), which keep their reading (section 21, item 6).
 - **Factors.** SI conversion factors are exact `Fraction`s. Where no exact rational factor
   exists (the degree, which is π/180 rad, and the parsec) the factor is `None` and the unit still
   has a dimension. The affine offset (273.15 for °C, 459.67 for °F) is applied only in explicit
@@ -705,6 +721,11 @@ A unit is read only after a number, after a closing group that contains a number
   `v = 72 km h⁻¹ ÷ 3.6 = 20 m s⁻¹` (3.6 is a bare factor) and `4.5/6.0 × 100 = 75 %` both pass.
 - No operand carries a unit: compare as written, and S is read both as its number and in SI
   (`20 × 25 = 0.5 km` passes in SI).
+- One exception: a lone power of ten with no unit (`10^(−8.2)`, `10^(−7)`) set against a value in a
+  unit of concentration is the antilogarithm of a concentration scale, the concentration in mol dm⁻³
+  (the unit pH, pOH, pKa and pKb are defined in), compared in SI only. Read as a bare number in SI it
+  would match a stated value 10³ times too small, the factor an exponent 3 too small reproduces
+  (section 21, item 1).
 - An unknown unit word: ST-UNIT-001 warning. The relation is checked as written only, with
   `failure_severity="warning"`.
 
@@ -769,6 +790,9 @@ factoring.
 | `x¹`, `x⁰` | x; `1` with `GUARD x ≠ 0` (0⁰ gives ST-UNDEF-001) | — |
 | `xⁿ`, n < 0 | `q·x^|n| = 1`, `GUARD x ≠ 0` | linear if x is closed |
 | `√x`, `x^½` | `sq ≥ 0`, `sq·sq = x`. Precheck: a closed negative x gives ST-UNDEF-001 | nonlinear |
+| `bⁿ`, b closed with no unit, n an integer beyond 12 and up to 1000 (`RealPower`) | its exact value when it fits one literal (`2^{20} = 1048576`; a negative base takes the sign of n's parity); otherwise the outward-rounded interval power of b (`Interval.power`, cross-checked against `math.pow`), which forces Form S; a value beyond about 10^±300 is ST-UNDEC-001 and a zero base under a power that is not positive ST-UNDEF-001; an algebra step that holds the enclosed form is ST-UNDEC-001 | linear |
+| `b^x`, b and x closed with no unit, x no integer (`RealPower`) | its exact value when it is rational (`16^(3/4) = 8`: b's numerator and denominator are exact q-th powers for x = p/q); otherwise an enclosure symbol `enc` of `exp(x·ln b)` for b > 0 (grounded `arithmetic_fact`, cross-checked against `math.pow`), which forces Form S, and an algebra step that holds one is ST-UNDEC-001. `0^x` with x > 0 is 0; a base that is zero under an exponent that is not positive gives ST-UNDEF-001, one that is or may be negative ST-UNDEC-001 (no real power is chosen) | linear |
+| `B^X`, B e (mathematics and Computer Science readings) or a positive rational, X a polynomial in symbols with rational coefficients, in a model evaluation only (`stem-mod`) | with X = c + Σ qᵢ·mᵢ: the closed factor B^c (exact or enclosed) times Π uᵢ^(qᵢ/sᵢ), one positive variable uᵢ = B^(sᵢ·mᵢ) per base and monomial (`U_POS uᵢ > 0`, or `U_LO`/`U_HI` the enclosure of B^(sᵢ·range) when every symbol of mᵢ has stated values; grounded `arithmetic_fact`). A relaxation: every real solution gives such uᵢ, so only UNSATISFIABLE decides; Form S | nonlinear |
 | `\|x\|` | `ite(x ≥ 0, x, −x)` | linear |
 | `n %` | n/100 (SI reading); n (as written) | linear |
 | `±`, `∓` inside a formula | the sign of the reading: `eq` and `sub` require both choices (AND); a step's relations take either (OR); roots expand to two | as the operands |
@@ -839,8 +863,14 @@ engine status of its own encoding, under the tolerance rule.
 - Σ with symbolic bounds.
 - Vectors, matrices and complex numbers.
 - Factorials and combinatorics with `!`.
-- Fractional or symbolic powers.
-- A function of an unknown.
+- Symbolic powers, non-integer powers of anything but a closed value with no unit (a closed one is
+  decided exactly when its value is rational, else through an enclosure, section 21), and integer
+  powers beyond 12 of anything but a closed value with no unit. A power of e or of a positive rational
+  with an exponent in symbols is read only inside a model evaluation (`stem-mod`, section 21, item 5),
+  through positive variables that can refute a link but never prove it for every value.
+- A function of an unknown (an exponential model applied to an argument is the one reading, `stem-mod`;
+  no algebra step is read over an application of a letter the text defines as a function, section 21,
+  item 5).
 - Probability distributions.
 - Asymptotic notation.
 - Code behaviour.
@@ -868,7 +898,8 @@ Every STEM check sets `inconsistent_is_failure=False` (D13).
 | `stem-eq-N` (`stem_arithmetic`) | a numeric link `E = S` (and `≈`) | E: ENTAILED; S: SATISFIABLE | linear unless surds or two interval operands are multiplied | error; warning when a D3b booklet value was used or a unit was unknown |
 | `stem-sub-N` (`stem_substitution`) | substituted numerals against the symbols' bindings (R7). When the symbolic and numeric sides have the same tree shape, each aligned symbol is checked (a value written in another order of the same product or sum also matches, by bounded injective matching); otherwise, if every symbol is bound, the symbolic side under its bindings is checked against the numeric side (Form S over the binding intervals). A symbol with no binding takes a D3b booklet reading admitted by a dimension check, or the relation is ST-UNDEC-002 | E (pairs); E or S (evaluation) | as needed | error; warning when a D3b booklet value was used or a unit was unknown |
 | `stem-alg-N` (`stem_algebra`) | the next relation follows from the preceding one, plus scope bindings of the symbols involved, plus at most 8 recorded formulas mentioning them, plus side conditions: divisors ≠ 0; a principal (non-negative) root in sciences profiles | E: ENTAILED | nonlinear when needed | error when the step is a pure manipulation (its symbols are a subset of the premise's symbols, bound symbols and included formulas); warning when it brings in unrelated symbols (an unstated law may be at work) |
-| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set, the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...) | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
+| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set, the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...). A root may also be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19"; section 21, item 4): membership only, over its rounding interval widened by τ = 1/100 | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
+| `stem-mod-N` (`stem_model`) | an equality with an application of an exponential model, the model's expression at the written argument against the other side: some value of the variables (the model's variable, every symbol with no stated value) and of the stated symbols within their stated values satisfies it, every power of an exponent in symbols read through positive variables (section 21, item 5) | S: SATISFIABLE (UNSATISFIABLE: no value satisfies the link) | nonlinear | error |
 | `stem-cnv-N` (`stem_conversion`) | an explicit unit conversion (R5) | E | linear | error; warning when a unit was unknown |
 | `stem-cmp-N` (`stem_comparison`) | a stated order or inequality between values (R6); bound symbols with several values pass when some admissible values satisfy it; also inequality-solving steps, checked as `alg` | E (or S) | as needed | error |
 | `stem-res-N` (`stem_result`) | a prose restatement against the chain's final value (R8) | E | linear | error; warning when a unit was unknown |
@@ -913,7 +944,7 @@ from an engine result.
 | INT-SUBJ-003 | error | deterministic | an error-severity pack finding, escalated (existing; STEM never produces one) |
 | INT-SUBJ-004 | warning | engine | NEW: a check that relied on a reading the report did not state does not hold: a booklet value for an unstated symbol, symbol identity across request and answer, a show-that target, a step bringing in unrelated symbols, or an unknown unit |
 | BR-INTERNAL-001 | warning | deterministic | NEW (`SubjectBranch.run_packs`): pack `<name>` failed internally (`<type>`) during `<checks or formal checks>`; its findings are missing from this receipt, and the router must not treat the pack as passed |
-| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, fractional or symbolic power); its relations are not checked |
+| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, a symbolic power); its relations are not checked |
 | ST-PARSE-002 | warning | deterministic | an expression has more than 2 readings (or a check more than 4): implicit multiplication or unit/symbol ambiguity; not checked |
 | ST-UNDEC-001 | warning | deterministic | a recognised relation outside the encodings (calculus, limits, Σ, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown, an approximation step such as sin θ ≈ θ, an angle range); the reason is named |
 | ST-UNDEC-002 | warning | deterministic | a numeric relation depends on a symbol with no stated value and no admissible booklet reading |
@@ -1581,6 +1612,14 @@ ASTs, scope and planned check ids. The safety scan passes.
 Exit: every encoding shape of sections 5 and 7 is decided as expected under its named policy,
 within time; default results are unchanged.
 
+Since the end-to-end simulation of 16 October 2026 a caller outside the process names the same
+policy: `POST /v1/verify` and `epinoic-logic verify` take `policy` (`linear`, `nonlinear` or the
+integrity layer's `joint`; `engine.policies.NAMED_POLICIES`, `named_policy`), applied exactly as
+the channel applies it (the `rlimit` cap included), so a STEM check decides over HTTP as it did on
+the channel. In that simulation seven STEM checks the channel decided under `nonlinear` came back
+UNSUPPORTED (E201) over HTTP, because the request could not name the policy
+(`tests/service/test_named_policy_over_http.py`). A pack still names only `linear` or `nonlinear`.
+
 ### Stage `checks`: AST to IR, the checks, and the data-booklet and constants tables
 
 - `src/epinoic_logic/stem/constants.py`
@@ -1850,3 +1889,251 @@ consequence rests on earlier claims), `tests/stem/test_segment.py` and
 `tests/stem/test_relations.py` (an equation continued over lines is one statement; one statement
 per table row), and `tests/branches/data/quant_general_reference.json` (the GENERAL reading's
 reference regenerated on the development branch; byte identity still required).
+
+---
+
+## 21. Detection fixes from the end-to-end simulation (run1)
+
+The end-to-end simulation of the website-to-backend flow (sixteen specialists, the arena harness on
+their genuine answers) left six injected faults unnamed. Each was traced to its cause; the answers
+are kept as test data (`tests/channel/data/e2e_run1_material.json`) and every fix is pinned by
+`tests/stem/test_e2e_run1_detection.py`. All six are now named, each as the harness injects it (the
+injection is the base one; 21.3), and none is excused: an injection no finding names is a miss.
+
+### 21.1 Gaps in the checks
+
+1. **Decimal and fractional powers of a closed value** (ch-e1b: `[H⁺] = 10^(−8.2) = 9.31 × 10⁻⁹`,
+   and the same line with the pH substituted wrongly). The exponent reader named every non-integer
+   exponent 'a fractional or decimal power', so no pH line was checked. A closed base with no unit
+   raised to a closed exponent that is no integer is now a `RealPower` node (`nodes.py`,
+   `parser._real_power`): the exponent's tokens may be figures, signs, operators, brackets and
+   `\frac` only, and the base and the exponent must hold no symbol, unit, angle, per cent or `±`.
+   A rational value is exact, as the exact-value table gives `sin 30° = 1/2`: a positive rational
+   base whose numerator and denominator are exact q-th powers for the exponent p/q
+   (`16^(3/4) = 8`, `4^1.5 = 8`, `(8/27)^(2/3) = 4/9`; `enclosures.exact_real_power`, exact integer
+   roots, at most 30 digits), so `x² = 16^(3/4) ⇒ x = ±2√2` is proved exactly. Any other value
+   (`10^(−8.2)`, `2^(−3.5)`) is the enclosure of `exp(x·ln b)` for a positive base (`to_ir._real_power`),
+   cross-checked against `math.pow` within 10⁻⁹ of the value; `0^x` with x > 0 is 0; a zero base
+   under an exponent that is not positive is ST-UNDEF-001 and a base that is or may be negative
+   ST-UNDEC-001 (which real power the writer means is not chosen). A check that uses the enclosure
+   is Form S, so correct work within the tolerance band passes (`10^(−8.2) = 6.31 × 10⁻⁹` holds) and
+   the slip does not. An algebra or inequality step that holds such an irrational power stays
+   undecided (ST-UNDEC-001, the power named), as every step did before the power was read: a step is
+   compared exactly (only a side that is one written value gets a band, section 8.1), so
+   `I = I₀ × 2^(−3.5) = 0.088 I₀`, correct to 2 s.f., could only become a false error. A symbolic
+   exponent (`10^(−pH)`) and a symbolic or dimensioned base stay undecided as before (a power of e of
+   an expression in symbols is read in a model evaluation only, item 5).
+
+   **The antilogarithm of a concentration scale** (the ch-e1b substitution as injected:
+   `[H⁺] = 10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³`, the pH 8.2 substituted as 5.2). A calculation with no unit
+   stated in a unit is read as written and in SI (section 6.4). For a lone power of ten that reading
+   is blind to a class of faults: every unit prefix is an integer power of ten, so the power read as a
+   bare number in SI (10^(−5.2) mol m⁻³) matched the stated 6.31 × 10⁻⁹ mol dm⁻³ exactly, and an
+   exponent 3 too small, the injected substitution, passed. A lone power of ten with no unit
+   (`10^(−8.2)`, `10^{-5.8}`, and the integer `10^(−7)` too) set against a value in a unit of
+   concentration is now the concentration in mol dm⁻³, the unit the pH, pOH, pKa and pKb scales are
+   defined in, and is compared with the stated value in SI only (`checks._antilog_as_concentration`;
+   the reading is named "the power of ten read in mol dm⁻³"). The recorded injection is UNSATISFIABLE
+   (INT-SUBJ-001 on s1.2), and so are the same fault 10³ the other way (`= 6.31 × 10⁻¹² mol dm⁻³`) and
+   an integer pH substituted (`10^(−4) = 1.0 × 10⁻⁷ mol dm⁻³`); the genuine lines hold, and so does the
+   same concentration stated in any unit of concentration (`10^(−3.3) = 0.501 mmol dm⁻³`,
+   `10^(−8.2) = 6.31 × 10⁻⁶ mol m⁻³`, `5.01 × 10⁻⁴ M` in chemistry). Every other calculation keeps both
+   readings of section 6.4: a power of ten stated in a unit of another dimension (`E = 10^(13.8) =
+   63 TJ`, the Richter energy in joules; `V = 10^(−3) = 1 dm³`), a per cent, `M` where it may be mega,
+   and a product or quotient (`[OH⁻] = 10^(−14)/10^(−8.2)`). So a unitless product stated in a prefixed
+   unit still absorbs an error of exactly the unit's factor (`c = 0.25 × 4 = 0.001 mol dm⁻³` passes in
+   SI): the documented reading, which no injection of the harness produces.
+2. **The LaTeX thin space between digit groups** (mai-e1: `21\,131.40 - 18\,000 = 6131.40`). The
+   number reader knew the Unicode thin spaces but not `\,`, so every operand written with it was cut
+   ("unexpected '131.40' after an operand") and the answer had no check at all. `scan_number` now
+   reads `\,` between an integer part of one to three digits and groups of exactly three as a
+   thousands separator, one kind of separator throughout; anything else stays LaTeX spacing.
+3. **A relayed specialist named by its subject** (hi-e1a: `The Mathematics specialist states that
+   "the model is not aly good fit for 1923"`). A relayed report authored by
+   `mathematics-aa-specialist` was named only "mathematics aa specialist", so the router's own name
+   for the colleague in its hand-off ("attribute them to the Mathematics specialist") named no text:
+   the misquotation was credited to none and only reported unverifiable (CORE-SRC-003, a warning).
+   `adapters.sources.specialist_names` adds the subject's first word ("mathematics specialist") when
+   the agent id names a course or qualifier after it, and for Mathematics the spellings "maths
+   specialist" and "math specialist"; the History, English and STEM parsers and the
+   crediting rules share it, so the quotation is credited to the colleague's report and refuted
+   there (INT-REQ-003, naming the altered word). A sentence that names no text keeps the earlier
+   rule (unverifiable unless an own supplied text holds the words).
+4. **An integer power beyond 12 of a closed value, and a value stated in prose for a named
+   quantity** (mai-e1 substitution: `18\,000 = M \times \frac{1-(1+\frac{0.065}{12})^{-60}}{\frac{0.065}{12}}`
+   → `\frac{4-…}`). Two gaps kept the changed equation from any check. First, the integer-power
+   bound (12, section 4.9) made `(1 + 0.065/12)^{-60}` unsupported although its base is a closed
+   value. A closed base with no unit raised to an integer beyond 12, up to 1000, is now one value: a
+   `RealPower` whose exponent is the written integer (`parser._make_pow`). The encoder writes its
+   exact value when it fits one literal (`2^{20} = 1048576`, `(−1.5)^{13} = −1594323/8192`: an
+   integer power of a negative base takes the sign of its parity), and otherwise the outward-rounded
+   interval power of the base (`Interval.power`, decided in Form S: `1.003^{144}`), refusing a value
+   beyond about 10^±300 (ST-UNDEC-001) and a zero base under a power that is not positive
+   (ST-UNDEF-001). A power of an expression in symbols keeps the bound (it is a polynomial of that
+   degree), so the nonlinear policy's degree bound is unchanged; a step that holds an enclosed power
+   stays undecided, as one holding an irrational power does (item 1). Second, the answer states M's
+   value only in prose, under the name it gave the symbol: "Let $M$ be the monthly payment in
+   euros." … "Her monthly payment is €352.19." Such a value is now a stated root of the equation in
+   that symbol (`relations.named_quantities`, `_described_roots`): checked by `stem-sol`
+   (membership), so the changed equation, whose root is 29.75, is refuted with INT-SUBJ-001 on m3.1
+   and m5.1, and the genuine one (root 352.1907) holds. The reading is narrow, so a misreading never
+   decides anything:
+   - the definition is one letter, in inline maths or not, after "let" or "letting" (with be,
+     denote, represent or stand for), after "where" or "with" (with is, =, denotes, represents,
+     stands for, or no verb), or opening its statement (with is, denotes, represents or stands for),
+     then a determiner and words only; the description stops at a figure, sign or bracket and
+     before a relative clause or a conjunction, and a trailing "in <unit>" also gives the shorter
+     name ("monthly payment in euros", "monthly payment");
+   - the clause that states the value is that description word for word, with at most a connective
+     and a determiner or possessive before it and a verb of identity (and a currency sign) after it;
+     its sentence opens with no condition ("If the rate is 5%, the monthly payment is …" is not
+     read); and nothing follows the value to the end of the sentence but a currency, time or count
+     word, a rounding note or a mark annotation: no qualifier, negation, comparison or question;
+   - the value is a decimal with no unit (a whole number in prose may be a count the context
+     rounds up or down, as 16 buses for 15.3); the symbol has no value stated in maths anywhere in
+     the answer; the definition is in the value's part (or in none), and the equation is the latest
+     one written before the value in that part whose one unknown is the symbol, with no unit, sign
+     choice, construct outside the encodings or function of the unknown;
+   - a prose value is approximate by nature, so the root ranges over its rounding interval widened
+     by the '=' slack of R2 (τ = 1/100 of the value): a payment rounded up a cent holds, the changed
+     annuity factor (twelve times the payment) does not. The failure severity is error: both
+     statements are the report's own, read word for word.
+5. **An exponential model evaluated at an argument** (the maa-e1a substitution:
+   `(b) P(t + 1) = P₀e^(k(t + 1))` → `P(t + 4)`). Three readings kept the changed link from any
+   check: `P(t + 4)` was the product P·(t + 4) (a function name other than f, g and h is no function
+   to the parser), a power of e of an expression in symbols was outside the encodings, and the request's
+   model `P = P₀e^(kt)` names no variable. A **model** is now a function of one variable defined with
+   a power of e, or of a positive closed base, whose exponent holds symbols: `P = P₀e^(kt)` in the
+   request, `C(t) = C0 e^(−kt)` or `A(t) = 500 × 2^(t/3)` in the answer (`models.py`; kept apart
+   from the formulas, which are premises of steps and substitutions). Its variable is the one it names,
+   else the one symbol of its expression that the answer's applications put an argument in for
+   (`P(t + 1)` and `P(t)` name t; a run the answer declared as one name, `kt` after `kt = ln 2`, is read
+   as the product of its letters when only that names the variable). An **application** is the model's
+   letter glued to a bracket that holds exactly the argument (`P(t + 4)`, `P(6)`; not `P (t + 4)`), told
+   apart from a product by the written text alone. An equality with an application becomes a
+   `stem-mod` check, the model's expression at the written argument against the other side: some value
+   of the variables (the model's variable and every symbol with no stated value), and of the stated
+   symbols within their stated values, must satisfy it (Form S). The encoder reads every power B^X of
+   an exponent in symbols through positive variables: with X = c + Σ qᵢ·mᵢ (c rational, qᵢ rational,
+   mᵢ distinct monomials) and sᵢ the largest step of which every coefficient of mᵢ in the link is an
+   integer multiple, B^X = B^c · Π uᵢ^(qᵢ/sᵢ), uᵢ = B^(sᵢ·mᵢ) > 0, bounded by the enclosure of
+   B^(sᵢ·range) when every symbol of mᵢ has stated values. Every real solution gives such uᵢ, so the
+   reading only widens the solutions: UNSATISFIABLE proves that no value satisfies the link, and
+   SATISFIABLE never claims that it holds for every value. The changed link asks
+   `P₀e^(k(t + 4)) = P₀e^(k(t + 1))`, that is 250·u₁·u₂⁴ = 250·u₁·u₂ with u₂ = e^k in [e^2.045, e^2.055]
+   (k = 2.05 to 3 s.f.) and u₁ = e^(kt) > 0: UNSATISFIABLE, INT-SUBJ-001 on m3.1. The genuine
+   `P(t + 1) = P₀e^(k(t + 1))` and `P(6) = 250e^(6k)` hold, and round 7's maa-p7b gains three such
+   checks (`C(8) = 800`, `C(T) = ½C0`, `C(40) = 1600 × 2^(−5)`), each satisfiable. The reading is
+   narrow, so a misreading never decides anything: only `=`; no written decimal on either side or in
+   the model (a rounded figure would need its rounding interval: `N(t + 5) = 0.5 N(t)` holds only
+   within it), no unit and no other construct outside the encodings; exponents are polynomials with
+   rational coefficients (degree at most 4, at most 8 monomials per base, no power beyond 12 of one
+   variable); a base is e (mathematics and Computer Science readings only: in the sciences e may be
+   the elementary charge) or a positive rational; the model's own definition is no check; and a model
+   whose variable no application names (`P(6)` alone could stand for t or for k) gives none. A
+   description ("Let t be the number of months") is not read for the variable: it can name a
+   parameter as readily. The superscript letter of `eᵏ` is still outside the grammar (the span ends
+   there), so the rest of that chain keeps its reading.
+
+   A letter defined as two models (`Model A: N = 100e^(t/5)`, `Model B: N = 100 × 2^(t/3)`) is read in
+   each definition: one pair of sides per combination of the definitions of the letters a link applies
+   (at most 4), and the link must hold in one of them, so no definition is chosen for the answer
+   (`Model B: N(t + 3) = 2N(t)` holds whichever is stated last; `N(t + 3) = 3N(t)` holds under neither).
+   A definition whose variable nothing names (`P = 250e^(6k)`, an evaluation written as a definition)
+   is none.
+
+   **Steps over applications** (found while measuring this item; at 22d6a5b too). Every application of
+   a letter other than f, g and h is a product to the parser, so consecutive evaluations of a function
+   were an algebra step under that reading and refuted: `N(10) = 200`, then `N(15) = 100`, was
+   `10N = 200 ⊢ 15N = 100`, an error on correct work, and so were `C(2) = 13`, `C(3) = 18` after
+   `C(t) = 5t + 3` and `N(t + 1) = 2N(t)`, `N(t + 2) = 4N(t)` after `N(t) = 100 × 2^t`. A letter the
+   request or the answer defines as a function of one variable (`C(t) = …`, the letter glued to a
+   bracket holding one symbol that the right side uses; or `P = P₀e^(kt)`, `V = 20000 × 0.8^t`, a power
+   whose exponent holds symbols) is now read as f is (section 4.7): an evaluation at a value
+   (`N(15) = …`) is no step, and a step whose relations hold an application at an unknown is
+   ST-UNDEC-001 ("a step involving an application of a function the text defines"). Each evaluation is
+   still checked by itself where the model reading covers it (`stem-mod`), and a bracket after a letter
+   the text does not define as a function keeps its product reading and its steps (`ε = I(R + r)`, then
+   `I = ε/(R + r)`).
+6. **Unit exponents written in ASCII** (the independent verification of this repair). `3 m s-1` was
+   `3 m s − 1`, a subtraction of a bare number from a quantity, so correct work in ASCII units was an
+   error before any of these fixes (`v = 6 ÷ 2 = 3 m s-1` refuted with c = 3, r = 2;
+   `c = 0.5 × 2 = 1 mol dm-3` with r = −2), and the decimal powers of item 1 stated that way
+   (`[H+] = 10^(-3.3) = 5.01e-4 mol dm-3`) became errors as soon as the power was read. An exponent
+   glued to its atom is now the atom's power (`parser._ascii_unit_exponent`, `units.parse_unit(...,
+   ascii_exponents=True)`): a hyphen-minus or plus and one digit (`s-1`, `dm-3`, `J kg-1 K-1`,
+   `mol2 dm-6`), one digit 2 to 9 after an atom of two or more letters (`cm3`, `dm3`), and one such digit
+   after a slash (`m/s2`, `kg/m3`). Never read so: more digits or a decimal (`300 K-273`), a space on
+   either side of the sign, a sign followed by an atom of the same dimension (`5 m-3 m = 2 m` stays a
+   subtraction of lengths), and a one-letter atom's glued digit right after a number (`2 m2` may be
+   2·m₂, and `H2` is a formula). The span finder reads such a digit as part of the unit, and only the
+   parser asks for the reading: the translator's typed quantities, the SI reading and the segmenter
+   read a digit inside a unit as before.
+
+### 21.2 A harness defect (`scripts/arena`)
+
+7. **The part label in the marker** (maa-e1a substitution: `(b) P(t + 1) = P₀e^(k(t + 1))` →
+   `P(t + 4)`). The marker kept the part label "(b) ", which no claim carries, so no injected claim
+   was found; it now leaves a part label out as it leaves a mark annotation out, and m3.1 carries it.
+   With the model evaluation (item 5) the injection is named on m3.1.
+
+### 21.3 A rule withdrawn: no injection is excused
+
+An earlier fix for items 4 and 6 reported a STEM injection no finding names as NOT APPLICABLE
+(outside the transport count) when the harness's own regular-expression reading found a symbol with no
+"x = value" binding in the changed expression and no formal check moved. An independent
+verification showed that it excused real misses: values stated in prose ("a ball of mass 0.50 kg",
+"a spring of constant 200 N m⁻¹") were never read, so a substitution of the request's g in
+`E = m × 6.81 × 20 = 98.1 J` and a slip in `E = 0.5 × k × 0.15² = 5.25 J` were reported not
+applicable (27 of 27) where 22d6a5b counts both as misses (27 of 29). In maa-e1a, k and P₀ are
+stated, and in mai-e1 the answer states M's value in prose: both misses came from limits of the
+encodings (items 4 and 6), not from injections that cannot apply. The rule is withdrawn: every injection no finding names is a failure, and when the receipt names the injected
+claim undecided the reason quotes it (`run_arena.undecided_on`, `undecided_on_injected_claims`).
+Those two probe misses remain gaps of the encodings (a value stated in the request's prose for a
+symbol the answer uses without naming it), counted as misses.
+
+A second change of the harness is withdrawn as well. An earlier version of item 1 changed the
+injection instead of the reading: a figure written as the exponent of a power of ten moved its first
+decimal digit (`10^(−8.2)` → `10^(−8.5)`) and an exponent with no decimal digit was no site, because a
+change of the leading digit (8.2 → 5.2) is a factor of 10³ that the SI reading absorbed. That made
+the run1 count rise while the recorded fault, `10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³`, still passed as a
+satisfied check, and a test asserted that it passed. The injection is again the base one (the leading
+digit of every figure moved by 3, an exponent of ten included; `stem_mutations.py`), the fault is named
+at its cause (item 1), and the test asserts the error.
+
+### 21.4 Tests changed
+
+- `tests/fixtures/stem/corpus/stem-math-020.json` (and its copy in `tests/stem/data/stem_corpus.json`):
+  the fractional-power fault `16^(3/4) = 16 × 3/4` was expected as undecided (ST-PARSE-001 or
+  ST-UNDEC-001); the engine now refutes it (16^(3/4) is exactly 8), so it is expected as
+  INT-SUBJ-001 alone from the arithmetic check (`FIXTURE_LABELS` in `tests/stem/data/corpus_items.py`
+  pins the check kind `eq`), a stronger label. The fixture README records the change.
+- `tests/stem/data/corpus_items_more.py` (`math-fracpow-1`): the relation
+  `16^{3/4} = (\sqrt[4]{16})^3` is still named undecided with ST-UNDEC-001, now for the fourth root
+  alone ('root of index 4'), since `16^{3/4}` is read; the corpus was rebuilt (two labels changed,
+  558 items as before).
+- `tests/stem/test_e2e_run1_detection.py`: the tests of the withdrawn rule (21.3), which asserted that
+  the maa-e1a and mai-e1 substitutions were not applicable, are replaced by stricter ones: the mai-e1
+  substitution is named INT-SUBJ-001 on m3.1, the verification's two probe misses are counted (27 of
+  29), and with no finding allowed to name anything every injection of the round is a failure.
+- The same file, after the second verification: the tests of the withdrawn injection change (21.3)
+  are replaced by stricter ones. The test that asserted that `10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³` is no
+  error now asserts that it is one, with six more faults of that kind; the ten cases of the withdrawn
+  `figure_change` are replaced by four injections the base harness makes into exponents of ten, each
+  named; the ch-e1b substitution is asserted as recorded (`10^(−5.2)`, UNSATISFIABLE on s1.2); and the
+  tests that asserted the maa-e1a substitution as a miss now assert it named (INT-SUBJ-001 on m3.1 by
+  `stem-mod`), with the genuine answer's model evaluations holding and the contained round naming all
+  six faults (stem_substitution 3 of 3). Controls pin the concentration reading's limits (a volume,
+  an energy, a per cent and an ambiguous `M` keep both readings of section 6.4). The test that a
+  contained round with no finding allowed to name anything fails every injection now also asserts
+  the failure reason of every injection the receipt names undecided (it quotes the receipt's
+  ST-UNDEC findings and still counts the miss), which the replaced maa-e1a miss test asserted for
+  that record.
+- New: `tests/stem/test_ascii_unit_exponents.py` (item 6: correct work in ASCII units holds, faults in
+  them are errors, the subtractions and the one-letter forms that keep their reading, and the unit
+  table read with the exponents only when the parser asks) and `tests/stem/test_model_evaluations.py`
+  (item 5: model evaluations with no solution are errors, correct ones hold, a letter defined as two
+  models is read in either, round 7's maa-p7b gains three checks that hold, the links the reading
+  does not cover keep their old reading, consecutive evaluations of a function the text defines are
+  no algebra step while a fault in one of them is still named, and a bracket after a letter that is
+  no function keeps its product reading and its step).

@@ -9,6 +9,8 @@
     unary     := ( - | + | ± | ¬ ) unary | power
     power     := postfix [ ( ^ | ** | superscript ) exponent ]       right-associative
     exponent  := signed integer literal (|n| ≤ 12) | ½ | 1/2          (½ is a square root)
+               | a closed exponent that is no integer, over a closed base (``10^(−8.2)``, ``2^{1/3}``: a RealPower)
+               | an integer beyond 12 and up to 1000, over a closed base (``1.003^{144}``: a RealPower)
     postfix   := primary [ % | ° | ! | × (magnification) | base subscript ]
     primary   := number [unit] | symbol | func_app | ( expr ) [unit] | { expr } | [ expr ]
                | \\frac{expr}{expr} | \\sqrt{expr} | √primary | | expr | | number : number
@@ -28,10 +30,16 @@ common multi-letter unit that does not also split into names in scope, so ``2as`
 ``2·a·s``. After a known unit atom, an unknown atom with an exponent (``yr⁻¹``) is kept as
 an unknown unit (ST-UNIT-001).
 
-Unsupported constructs are nodes, not failures: a fractional or symbolic power, ``!``,
+A power whose exponent is no integer is one value (``RealPower``) when both its base and its exponent are closed and carry
+no unit (``10^(−8.2)``, ``10^(8.2 − 7.8)``, ``(3465/250)^(1/6)``): written figures, signs, brackets and ``\\frac`` in the
+exponent, no symbol, unit, angle or per cent in either; the encoder writes its exact value when that is rational
+(``16^(3/4)`` is 8) and decides any other through an enclosure. An integer power beyond 12 (up to 1000) of such a base
+is one value too (``(1 + 0.065/12)^{-60}``).
+
+Unsupported constructs are nodes, not failures: a symbolic power or a non-integer power of anything else, ``!``,
 ``Σ``, ``∫``, ``lim``, ``d/dx`` and ``dy/dx``, ``f′(x)``, vectors, matrices, a tuple
 ``(x, y)``, ``i`` beside a number (complex), ``O(…)`` in Computer Science, an evaluation
-bracket ``[F(x)]₀²``, infinity, an integer power beyond 12, a cube root. The relation that
+bracket ``[F(x)]₀²``, infinity, an integer power beyond 12 of anything but a closed value, a cube root. The relation that
 holds one is named undecided (ST-UNDEC-001) with the reason.
 
 Bounds. Token count (``max_tokens_per_span``), links per chain (``max_chain_links``),
@@ -51,11 +59,11 @@ from .chem import ELEMENTS, canonical_formula, latex_to_chem, parse_species
 from .lexer import Token
 from .limits import DEFAULT_LIMITS, PROFILES, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, Root,
-    Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower,
+    Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
-from .units import UnitExpr, is_unit_atom, parse_unit, unit_group
+from .units import UnitExpr, is_unit_atom, lookup_atom, parse_unit, unit_group
 
 __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM_NAMES", "parse_math", "segment", "symbol_name"]
 
@@ -74,7 +82,17 @@ _END_OF_OPERAND = frozenset({"REL", "OP", "RPAR", "RGROUP", "COMMA", "SEMI", "PU
 _COMMON_GLUED_UNITS = frozenset({"kg", "km", "cm", "mm", "mol", "kJ", "kN", "kPa", "MPa", "MJ", "MW", "kW", "Hz", "kHz", "MHz", "eV", "keV", "MeV",
                                  "GeV", "mA", "mV", "kV", "µm", "μm", "nm", "Pa", "ms", "µs", "ns", "dm", "mL", "cm³", "min"})
 _FUNCTION_LETTERS = frozenset({"f", "g", "h"})
+#: the reasons ``_read_exponent`` gives for an exponent that is no integer and names no symbol: over a closed base the power
+#: is one value (``RealPower``)
+_NON_INTEGER_EXPONENTS = frozenset({"a fractional or decimal power", "a fractional power"})
+#: the tokens a closed non-integer exponent may hold: figures, signs and operators, brackets and groups, ``\\frac``
+_CLOSED_EXPONENT_TOKENS = frozenset({"NUM", "OP", "LPAR", "RPAR", "LGROUP", "RGROUP", "LATEX"})
+#: the tokens an exponent in symbols over a closed base may hold for the power to keep its parts (``1.05^(t+1)``)
+_SYMBOLIC_EXPONENT_TOKENS = _CLOSED_EXPONENT_TOKENS | {"IDENT"}
 _MAX_AMBIGUITY_REPARSES = 16
+#: the largest integer exponent beyond ``max_int_power`` read as one value over a closed base (``1.003^{144}``, a mortgage's
+#: ``(1 + r)^{-360}``); a larger one (``10^10^10``) stays unsupported, with the integer-power reason
+_MAX_CLOSED_INT_POWER = 1000
 _MAX_SCAN = 4000
 
 
@@ -451,18 +469,25 @@ class _Parser:
             self.i += 1
             if self.ctx.profile.mode != "sciences" and isinstance(base, Sym) and base.name == "e" and base.kind == "symbol" and isinstance(tok.value, int):
                 return self._count(Func("exp", Num(exact_integer(tok.value), tok.start, tok.end), None, _start(base), tok.end))  # e² is exp(2)
-            node = self._make_pow(base, tok.value, tok.end)
+            node = self._make_pow(base, tok.value, tok.end, exp_span=(tok.start, tok.end))
             return self._nested_power_check(node)
         if tok.kind in ("CARET", "DSTAR"):
             euler = self._euler_power(base, d)
             if euler is not None:
                 return euler
             self.i += 1
+            first = self.i
             exp = self._exponent(d)
             if isinstance(exp, Unsupported):
+                real = self._real_power(base, first, exp, d)
+                if real is not None:
+                    return self._nested_power_check(real)
+                kept = self._symbolic_power(base, first, exp, d)
+                if kept is not None:
+                    return self._nested_power_check(kept)
                 return self._count(Unsupported(exp.reason, exp.text, _start(base), exp.end))
             value, end = exp
-            node = self._make_pow(base, value, end)
+            node = self._make_pow(base, value, end, exp_span=(self.t[first].start if first < len(self.t) else end, end))
             return self._nested_power_check(node)
         return base
 
@@ -511,6 +536,63 @@ class _Parser:
             return self._count(Unsupported("a symbolic power", "e^…", _start(base), end, name="exp", arg=arg))
         return self._count(Func("exp", arg, None, _start(base), end))
 
+    def _real_power(self, base: Node, first: int, exp: Unsupported, d: int) -> Optional[Node]:
+        """``10^(−8.2)``, ``10^0.4``, ``2^{1/3}``: a closed base with no unit raised to a closed exponent that is no integer
+        (the tokens ``self.t[first:self.i]`` that ``_exponent`` read), as one ``RealPower`` value. None (the power stays
+        unsupported, with the exponent reader's reason) when the exponent names a symbol or a function, holds anything but
+        figures, signs, brackets and ``\\frac``, or when either side is not a closed value with no unit."""
+        if exp.reason not in _NON_INTEGER_EXPONENTS or not _closed_value(base):
+            return None
+        toks = self.t[first:self.i]
+        if not toks or any(t.kind not in _CLOSED_EXPONENT_TOKENS for t in toks):
+            return None
+        if toks[0].kind in ("LPAR", "LGROUP") and self._close_index(first) == self.i - 1:
+            toks = toks[1:-1]
+        node = self._sub_expression(toks, d)
+        if node is None or not _closed_value(node):
+            return None
+        return self._count(RealPower(base, node, _start(base), exp.end))
+
+    def _symbolic_power(self, base: Node, first: int, exp: Unsupported, d: int) -> Optional[Node]:
+        """``1.05^t``, ``2^(t/3)``, ``0.5^{n-1}``: a closed base with no unit raised to an exponent that holds symbols. The
+        power stays outside the encodings as a value (``Unsupported``, 'a symbolic power', as before), but the node keeps its
+        base and exponent (``name`` "pow") so a model evaluation can read it (``models.py``). None (the plain node) when the
+        exponent holds anything but figures, symbols, signs, operators, brackets and ``\\frac``, or the base is not closed."""
+        if exp.reason != "a symbolic power" or not _closed_value(base):
+            return None
+        toks = self.t[first:self.i]
+        if not toks or any(t.kind not in _SYMBOLIC_EXPONENT_TOKENS for t in toks):
+            return None
+        if toks[0].kind in ("LPAR", "LGROUP") and self._close_index(first) == self.i - 1:
+            toks = toks[1:-1]
+        node = self._sub_expression(toks, d)
+        if node is None or any(isinstance(n, (Unsupported, Quantity, WithUnit, Percent, Degrees, PlusMinus, Apply, Magnification, Ratio, BoolOp))
+                               for n in walk(node)):
+            return None
+        if not any(isinstance(n, Sym) and n.kind == "symbol" for n in walk(node)):
+            return None
+        return self._count(Unsupported("a symbolic power", exp.text, _start(base), exp.end, name="pow", arg=node, base=base))
+
+    def _sub_expression(self, toks: tuple[Token, ...], d: int) -> Optional[Node]:
+        """``toks`` (a slice of this span's tokens) read as exactly one expression, or None. The parser's position and token
+        list are restored whatever happens, and nothing it records is kept unless the slice reads as one expression."""
+        if not toks:
+            return None
+        saved_t, saved_i, saved_amb, saved_issues = self.t, self.i, len(self.amb), len(self.issues)
+        self.t, self.i = tuple(toks), 0
+        try:
+            node: Optional[Node] = self.expr(d)
+            ok = self.i == len(self.t)
+        except _OperandError:
+            node, ok = None, False
+        finally:
+            self.t, self.i = saved_t, saved_i
+        if not ok:
+            del self.amb[saved_amb:]
+            del self.issues[saved_issues:]
+            return None
+        return node
+
     def _nested_power_check(self, node: Node) -> Node:
         tok = self.peek()
         if tok is not None and (tok.kind in ("CARET", "DSTAR") or (tok.kind == "SUP" and not tok.space)):
@@ -518,12 +600,23 @@ class _Parser:
             return self._count(Unsupported("a nested power (a power of a power without brackets)", "", _start(node), end))
         return node
 
-    def _make_pow(self, base: Node, value: "int | str", end: int) -> Node:
+    def _make_pow(self, base: Node, value: "int | str", end: int, exp_span: Optional[tuple[int, int]] = None) -> Node:
+        """``base ^ value`` for an exponent the exponent reader read as an integer (or ``"half"``, a square root). An integer
+        power beyond ``max_int_power`` of a closed value with no unit (``(1 + 0.065/12)^{-60}``, ``1.003^{144}``, ``2^{20}``) is
+        one value, a ``RealPower`` whose exponent is the written integer (``exp_span``: where the exponent is written), up to
+        an exponent of 1000: the encoder writes it exactly when its value fits a literal and otherwise encloses it, as it
+        does a non-integer power. The bound still holds for every other base (a power of an expression in symbols or with a
+        unit is a polynomial of that degree) and for a larger exponent: beyond it the power is unsupported."""
         if value == "half":
             return self._count(Root(base, 2, _start(base), end))
         if not isinstance(value, int):
             return self._count(Unsupported("a symbolic power", "", _start(base), end))
         if abs(value) > self.lim.max_int_power:
+            if exp_span is not None and abs(value) <= _MAX_CLOSED_INT_POWER and _closed_value(base):
+                a, b = exp_span
+                magnitude: Node = Num(exact_integer(abs(value)), a, b)
+                exponent = Neg(magnitude, a, b) if value < 0 else magnitude
+                return self._count(RealPower(base, exponent, _start(base), end))
             return self._count(Unsupported(f"an integer power beyond {self.lim.max_int_power} ({value})", "", _start(base), end))
         return self._count(Pow(base, value, _start(base), end))
 
@@ -802,6 +895,10 @@ class _Parser:
             if tk.kind == "SUP" and not tk.space and tk.value is not None:
                 k += 1
                 continue
+            e = self._ascii_unit_exponent(k)
+            if e is not None:
+                k = e
+                continue
             if tk.kind in ("CARET", "DSTAR") and not tk.space:
                 e = self._unit_exponent_end(k + 1)
                 if e is None:
@@ -826,6 +923,10 @@ class _Parser:
                 if nx.kind == "IDENT" and not nx.sub and not nx.delta and is_unit_atom(nx.text, bare_m=prof.bare_m, tonne=prof.tonne) and not (tk.text == "*" and nx.space):
                     k += 2
                     continue
+                if tk.text == "/" and nx.kind == "IDENT" and not nx.space and not nx.delta and not nx.primes and self._glued_digit_power(nx) \
+                        and is_unit_atom(nx.text, bare_m=prof.bare_m, tonne=prof.tonne, glued=False) and self._ascii_unit_end(k + 2):
+                    k += 2  # 'm/s2', 'kg/m3': a digit glued to a one-letter unit after a slash is its power (the lexer reads it as a subscript)
+                    continue
                 if nx.kind == "TEXT" or (nx.kind == "DEGREE" and nx.text in ("°C", "°F")):
                     k += 2
                     continue
@@ -842,12 +943,64 @@ class _Parser:
         if not self._ends_operand(k):
             return None
         text = self.ctx.s[toks[j].start:toks[k - 1].end]
-        expr = parse_unit(text, bare_m=prof.bare_m, tonne=prof.tonne)
+        expr = parse_unit(text, bare_m=prof.bare_m, tonne=prof.tonne, ascii_exponents=True)  # only the forms read above carry a glued digit
         if expr is None:
             return None
         if expr.readings and expr.readings[0].atoms and expr.readings[0].atoms[0].unit is None:
             return None
         return expr, k
+
+    def _ascii_unit_exponent(self, k: int) -> Optional[int]:
+        """The index after an ASCII exponent glued to the unit atom at ``k - 1`` (``3 m s-1``, ``1 mol dm-3``, ``J kg-1 K-1``: a
+        hyphen-minus or plus and one digit; ``25 cm3``, ``mol2 dm-6``: one digit 2 to 9 after an atom of two or more letters), or
+        None. Before this reading ``3 m s-1`` was ``3 m s − 1``, a subtraction of a bare number from a quantity. Never read: more
+        digits or a decimal (``300 K-273``, ``5 m-1.5``), a digit with a space on either side of the sign (``5 m - 3``), a sign
+        followed by an atom of the same dimension (``5 m-3 m`` is a subtraction of lengths), and a one-letter atom's glued digit
+        outside a denominator (``2 m2`` may be 2·m₂, and ``H2`` a formula: the lexer reads it as a subscript)."""
+        toks = self.t
+        n = len(toks)
+        if k <= 0 or k >= n:
+            return None
+        prev, tk = toks[k - 1], toks[k]
+        if prev.kind != "IDENT" or prev.sub or prev.primes or prev.delta or not (prev.text.isalpha() or prev.text in ("Ω", "μ", "µ")):
+            return None
+        if tk.kind == "OP" and tk.text in ("-", "+") and not tk.space and k + 1 < n and toks[k + 1].kind == "NUM" and not toks[k + 1].space \
+                and _one_digit(toks[k + 1], low=1):
+            end = k + 2
+        elif tk.kind == "NUM" and not tk.space and len(prev.text) >= 2 and _one_digit(tk, low=2):
+            end = k + 1
+        else:
+            return None
+        if not self._ascii_unit_end(end):
+            return None
+        after = toks[end] if end < n else None
+        if tk.kind == "OP" and after is not None and after.kind == "IDENT" and after.space and not after.sub:
+            prof = self.ctx.profile
+            here = lookup_atom(prev.text, bare_m=prof.bare_m, tonne=prof.tonne)
+            there = lookup_atom(after.text, bare_m=prof.bare_m, tonne=prof.tonne)
+            if here and there and here[0].dim is not None and there[0].dim is not None and here[0].dim.same_physical(there[0].dim):
+                return None  # '5 m-3 m': a subtraction of two lengths, not m⁻³ m
+        return end
+
+    def _ascii_unit_end(self, k: int) -> bool:
+        """An ASCII exponent ends here: the operand ends, or a spaced unit atom (or a slash, a product sign) continues the unit."""
+        toks = self.t
+        if k >= len(toks):
+            return True
+        tk = toks[k]
+        if tk.kind == "IDENT" and tk.space:
+            return True
+        if tk.kind == "OP" and tk.text in ("/", "·", "*") and not tk.space:
+            return True
+        return self._ends_operand(k)
+
+    def _glued_digit_power(self, tok: Token) -> bool:
+        """A one-letter identifier whose 'subscript' is one digit 2 to 9 written right after the letter (``s2``, not ``s_2``)."""
+        sub = tok.sub
+        if len(sub) != 1 or not "2" <= sub <= "9" or len(tok.text) != 1:
+            return False
+        at = tok.start + len(tok.text)
+        return at < len(self.ctx.s) and self.ctx.s[at] == sub
 
     def _unit_exponent_end(self, k: int) -> Optional[int]:
         toks = self.t
@@ -1203,6 +1356,17 @@ def _is_value_node(node: Node) -> bool:
     return isinstance(node, (Num, Quantity))
 
 
+def _closed_value(node: Node) -> bool:
+    """A closed value with no unit: figures, arithmetic, closed functions and π (``10``, ``3465/250``, ``(8.04 × 10⁸)``), never
+    a symbol, a unit, an angle, a per cent, a ``±`` or anything unsupported (the base and exponent of a ``RealPower``)."""
+    for n in walk(node):
+        if isinstance(n, Sym) and n.kind == "constant":
+            continue
+        if isinstance(n, (Sym, Apply, Unsupported, Quantity, WithUnit, Degrees, Percent, PlusMinus, Ratio, BoolOp, Magnification)):
+            return False
+    return True
+
+
 #: the most terms a Σ over written integer bounds is expanded into (section 4.9 keeps the node bound too)
 _MAX_SUM_TERMS = 24
 
@@ -1220,6 +1384,13 @@ def _substitute_index(node: Node, name: str, value: int) -> Optional[Node]:
 
 def _is_digit_tokens(toks: tuple[Token, ...], digit: str) -> bool:
     return len(toks) == 1 and toks[0].kind == "NUM" and toks[0].text == digit
+
+
+def _one_digit(tok: Token, *, low: int) -> bool:
+    """A numeral of exactly one ASCII digit from ``low`` to 9 (an ASCII unit exponent: ``s-1``, ``cm3``)."""
+    num = tok.value
+    return len(tok.text) == 1 and "0" <= tok.text <= "9" and int(tok.text) >= low and num is not None and not num.has_point \
+        and not num.scientific and num.base == 10
 
 
 def _single_argument(toks: tuple[Token, ...]) -> bool:
