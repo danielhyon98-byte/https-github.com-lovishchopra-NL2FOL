@@ -1,0 +1,17 @@
+{
+ "schema": "epinoic.integration.website-w0-tested.v1",
+ "website_commit": "2cd318208980e5b236d16b4281dfc0560a7b9610",
+ "tested_on": "a disposable export of the website's main at the commit above, marked with UNREVIEWED-SIMULATION-COPY.txt; no website branch, commit or deployment; the patch was checked against the website checkout with git apply --check only (nothing applied)",
+ "node": "v22.22.0",
+ "date": "2026-10-17",
+ "commands": [
+  "node integration/readiness/check-website.mjs --g0-export <export>   -> in force (deferrals [1,1,1,1], positive 0)",
+  "node integration/website/W0/draft-w0.mjs --target <export> --patch <scratch>/report/W0-docs.patch   -> 8 replacements in 5 files",
+  "node integration/readiness/check-website.mjs --g0-export <export>   -> lifted (deferrals [0,0,0,0], positive 3)",
+  "node integration/readiness/check-website.mjs --g0 <website checkout>   -> in force (origin/main unchanged)",
+  "git -C <website checkout> apply --check <scratch>/report/W0-docs.patch   -> applies (check only)",
+  "node integration/website/W0/draft-w0.mjs --target <export>   (a second run)   -> anchor not found, exit 1, nothing written"
+ ],
+ "patch_lines": 76,
+ "files": ["docs/current-state.md", "docs/architecture.md", "docs/handoff/05-integration-planning-brief.md", "docs/handoff/04-logic-translator.md", "docs/drafts/chat-architecture-design.md"]
+}

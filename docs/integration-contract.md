@@ -1,10 +1,11 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.3 (2026-10-17). Version 0.1 described commit
+- **Contract version:** 0.4 (2026-10-17). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
-  HTTP and on the command line, after the end-to-end simulation of 16 October 2026 (see section 11
-  for what changed). The component versions are unchanged by 0.3.
+  HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
+  integration protocol on top of 0.3 (section 9a; see section 11 for what changed). The component
+  versions are unchanged by 0.3 and 0.4.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
@@ -406,6 +407,37 @@ record carries none of them and must be translated and verified again, not trust
   structural error, and a `faithful` review that is current and was made with the evidence. Every
   unresolved item is listed; nothing in the channel or hub releases an answer by itself.
 
+## 9a. Integration protocol `epinoic.integration.v1` (contract 0.4)
+
+Contract 0.4 adds the integration protocol (`integration/PROTOCOL.md`; `docs/INTEGRATION_PROTOCOL.md`): two routes of
+the integration profiles only, `GET /v1/capabilities` and `POST /v1/turns/check`, behind the service's existing gates
+(E502, E503, E306, E100, E505, E504), and the five ports (specialist, checks, overseer, combinator, flash router) with
+their closed codes `KIT-HS`, `KIT-REQ`, `KIT-DL`, `KIT-OP`, `KIT-CB` and `KIT-RT`. The default profile `engine` and
+every existing route are unchanged, and the component versions above do not change: the protocol adds no engine,
+policy or IR semantics. **0.4 takes effect together with contract 0.3** (the named policies `linear`,
+`nonlinear` and `joint`): a tree without them keeps an older version line and the service refuses to start in an
+integration profile (`KIT-HS-006`). The pre-build branch merged contract 0.3 with the end-to-end fixes on 17 October
+2026, so its version line says 0.4 (playbook step 5 reads it); its service now stops at the overseer instead
+(`KIT-HS-007`) until phase 2 connects the overseer port adapter.
+
+What the protocol states about this contract's own surfaces (all within 0.4; no engine, policy or IR change):
+
+- **Profiles.** `EPINOIC_PROFILE` is `engine` (the default), `integration` or `integration-sim`; any other value is
+  refused (`KIT-HS-012`, exit 2) by `epinoic-logic serve` and `python -m epinoic_logic.integration`, so a misspelled
+  profile never starts the plain service in its place.
+- **`POST /v1/outcomes`** takes `adapter_id` from a closed allowlist only (`generic-structured`, `english-specialist`,
+  `history-specialist`: `service.app.OUTCOME_ADAPTER_IDS`, the adapters the package registers); anything else is HTTP
+  400 `E100` before any lookup, and no module name is built from request text.
+- **Verdict counts.** `counts.budget_skipped` (material eligible claims the budget or the STEM budget left
+  `NOT_ATTEMPTED`) is counted over every claim; the service names `KIT-DL-013` from it and the Worker re-derives the
+  same reasons from it (PROTOCOL.md section 5.4).
+- **Hub agent ids.** The checks port names each specialist `<slug>-specialist` inside the hub (`turn.hub_agent_id`),
+  the arena's names, so the hub's credit rules read an answer's "the History specialist" as that agent; verdicts keep
+  the protocol ids (`history`, `history@a`).
+- **Failures.** Whatever an overseer-port adapter raises, `SystemExit` included (only `KeyboardInterrupt` goes through),
+  the call answers a signed `refuse_incomplete` `KIT-DL-900` verdict; the checker's configuration never shows a key in
+  its `repr`.
+
 ## 10. PROPOSED (not implemented)
 
 - Non-zero CLI exit codes for non-definitive statuses. Today the exit code is always 0.
@@ -428,6 +460,13 @@ record carries none of them and must be translated and verified again, not trust
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.3 to 0.4** (component versions unchanged; no engine, policy or IR semantics):
+- the integration protocol `epinoic.integration.v1` (section 9a; `integration/PROTOCOL.md`): the routes
+  `GET /v1/capabilities` and `POST /v1/turns/check` of the integration profiles only, the five ports and their closed
+  codes; the default profile `engine` and every route above are unchanged;
+- a profile other than the three named is refused (`KIT-HS-012`); `POST /v1/outcomes` reads `adapter_id` from a closed
+  allowlist (section 9a).
 
 **0.2 to 0.3** (component versions unchanged; the build and policy identities change with the source):
 - `POST /v1/verify` and `epinoic-logic verify` take a named engine policy (`linear`, `nonlinear`,

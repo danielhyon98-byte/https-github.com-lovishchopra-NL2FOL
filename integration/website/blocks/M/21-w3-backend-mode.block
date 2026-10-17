@@ -1,0 +1,13 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: export function chatBackendMode(url, env, access = null) {
+mode: after-line
+---
+  // Kit W3: the verified backend runs only with owned state, on loopback development or the protected staging host
+  // with verified access; the stateless path can never run it (Z3 and STEM checks are required for every answer).
+  if (env.CHAT_BACKEND === "verified") {
+    if (chatStateMode(url, env) !== "d1") return "none";
+    if (isLocalDevelopment(url, env)) return "verified";
+    if (isProtectedStaging(url, env) && access?.verified === true) return "verified";
+    return "none";
+  }

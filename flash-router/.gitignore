@@ -1,0 +1,9 @@
+# What a test run or a build leaves in this sub-project's own repository (git subtree split --prefix flash-router).
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+.venv/

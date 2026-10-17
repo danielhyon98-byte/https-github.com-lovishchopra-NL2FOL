@@ -104,3 +104,27 @@ def test_check_report_cli_prints_outcomes_json(tmp_path, capsys):
     assert isinstance(outcomes, list) and len(outcomes) == 1
     assert outcomes[0]["display_status"] == "ENTAILED" and outcomes[0]["claim_id"] == "k1"
     assert verify_signature(VerificationResult.model_validate(outcomes[0]["verification"]), KEY)
+
+
+@pytest.mark.parametrize("adapter_id", ["english_specialist.parser", "stem_specialist", "base", "markdown", "../x", "history_specialist",
+                                        "generic_structured", "HISTORY-SPECIALIST", ""])
+def test_outcomes_endpoint_refuses_an_adapter_outside_the_closed_list_before_any_import(client, adapter_id):
+    """V3-L7: an ``adapter_id`` outside the closed list (the adapters the package registers on import) is 400 "unknown
+    adapter_id", and no module is imported for it: the id is looked up, never turned into a module name."""
+    import sys
+    before = set(sys.modules)
+    report = maths_report().model_dump(mode="json")
+    r = client.post("/v1/outcomes", json={"report": report, "claim_id": "k1", "fixture_responses": maths_fixture(), "adapter_id": adapter_id},
+                    headers=AUTH)
+    assert r.status_code == 400 and "unknown adapter_id" in r.text
+    assert not {m for m in set(sys.modules) - before if m.startswith("epinoic_logic.adapters")}
+
+
+def test_outcomes_endpoint_accepts_each_registered_adapter(client):
+    from epinoic_logic.service.app import OUTCOME_ADAPTER_IDS
+    from epinoic_logic.adapters.base import registered_ids
+    assert OUTCOME_ADAPTER_IDS == set(registered_ids()) == set(cli.ADAPTER_IDS)
+    report = maths_report().model_dump(mode="json")
+    r = client.post("/v1/outcomes", json={"report": report, "claim_id": "k1", "fixture_responses": maths_fixture(), "adapter_id": "generic-structured"},
+                    headers=AUTH)
+    assert r.status_code == 200, r.text

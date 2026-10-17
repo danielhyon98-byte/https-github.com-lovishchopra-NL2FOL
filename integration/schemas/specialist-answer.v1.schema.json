@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "RuntimeRef": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "pattern": "^epinoic\\.[a-z0-9.-]{1,120}$",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "schema": {
+          "pattern": "^epinoic\\.[a-z0-9.-]{1,120}$",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "contract_version"
+      ],
+      "title": "RuntimeRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``epinoic.integration.specialist-answer.v1``: the runtime's output wrapped, never changed (PROTOCOL.md section 4).\n\n``log`` is the runtime's own ``redactForLog(result)`` without its ``turn`` and ``usage`` members; its shape is checked\nper result schema by :func:`epinoic_logic.integration.specialist_port.check_answer`. ``result_sha256`` is the digest\nof the whole frozen result, computed in the Worker; the service echoes it and never recomputes it.",
+  "properties": {
+    "agent_id": {
+      "maxLength": 72,
+      "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "answer": {
+      "maxLength": 49152,
+      "minLength": 1,
+      "title": "Answer",
+      "type": "string"
+    },
+    "answer_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Answer Sha256",
+      "type": "string"
+    },
+    "log": {
+      "additionalProperties": true,
+      "title": "Log",
+      "type": "object"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "result_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Result Sha256",
+      "type": "string"
+    },
+    "runtime": {
+      "$ref": "#/$defs/RuntimeRef"
+    },
+    "schema": {
+      "const": "epinoic.integration.specialist-answer.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "agent_id",
+    "runtime",
+    "log",
+    "answer",
+    "answer_sha256",
+    "result_sha256"
+  ],
+  "title": "SpecialistAnswer",
+  "type": "object"
+}

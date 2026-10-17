@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat-logic.js
+anchor:     review: result.review,
+mode: after-line
+---
+    ...(Object.hasOwn(result, "checks") ? { checks: result.checks, checksSummary: result.checksSummary } : {}),

@@ -1,0 +1,7 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: import { createChatStore } from "../state/store.js";
+mode: after-line
+---
+import { createVerification } from "../verify/verification.js";
+import { withVerification } from "../verify/with-verification.js";

@@ -1,0 +1,11 @@
+kit-block: W1
+file: public/chat-contract.js
+anchor:     : { kind: "answer", requestId: "history", conversationId, turnVersion, specialist: reply.specialist, text: reply.text, references: reply.references, review: reply.review };
+mode: replace
+---
+    : {
+      kind: "answer", requestId: "history", conversationId, turnVersion, specialist: reply.specialist, text: reply.text, references: reply.references, review: reply.review,
+      // Kit W1: a stored verified answer's checks are validated, never dropped.
+      ...(Object.hasOwn(reply, "checks") ? { checks: reply.checks } : {}),
+      ...(Object.hasOwn(reply, "checksSummary") ? { checksSummary: reply.checksSummary } : {}),
+    };

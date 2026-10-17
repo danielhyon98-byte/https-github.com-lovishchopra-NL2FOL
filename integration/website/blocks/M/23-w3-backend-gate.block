@@ -1,0 +1,6 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: if (backend !== "mock") return fail("chat_unavailable");
+mode: replace
+---
+if (backend !== "mock" && backend !== "verified") return fail("chat_unavailable");

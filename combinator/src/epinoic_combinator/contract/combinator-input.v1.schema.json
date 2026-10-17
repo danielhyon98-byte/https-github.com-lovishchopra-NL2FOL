@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "InputIds": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "InputIds",
+      "type": "object"
+    },
+    "PackRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "sha256"
+      ],
+      "title": "PackRef",
+      "type": "object"
+    },
+    "SourceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "certainty": {
+          "enum": [
+            "possible",
+            "probable",
+            "established"
+          ],
+          "title": "Certainty",
+          "type": "string"
+        },
+        "claim_id": {
+          "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "claim_text_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Claim Text Sha256",
+          "type": "string"
+        },
+        "materiality": {
+          "enum": [
+            "material",
+            "supporting"
+          ],
+          "title": "Materiality",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z_]{0,63}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "role",
+        "materiality",
+        "certainty",
+        "claim_text_sha256",
+        "text"
+      ],
+      "title": "SourceClaim",
+      "type": "object"
+    },
+    "SourceReport": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "branch": {
+          "pattern": "^[a-z][a-z_]{0,63}$",
+          "title": "Branch",
+          "type": "string"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/SourceClaim"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Claims",
+          "type": "array"
+        },
+        "report_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "report_id",
+        "agent_id",
+        "subject",
+        "branch",
+        "claims"
+      ],
+      "title": "SourceReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ids": {
+      "$ref": "#/$defs/InputIds"
+    },
+    "instruction_pack": {
+      "$ref": "#/$defs/PackRef"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.combinator-input.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceReport"
+      },
+      "maxItems": 16,
+      "minItems": 2,
+      "title": "Sources",
+      "type": "array"
+    },
+    "vocabulary": {
+      "items": {
+        "enum": [
+          "carried",
+          "paraphrased",
+          "merged",
+          "narrowed",
+          "generalized"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 5,
+      "title": "Vocabulary",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "ids",
+    "sources",
+    "vocabulary",
+    "instruction_pack"
+  ],
+  "title": "CombinatorInput",
+  "type": "object"
+}

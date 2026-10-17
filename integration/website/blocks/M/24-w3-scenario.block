@@ -1,0 +1,8 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: const scenario = request.headers.get("X-Mock-Scenario") ?? "auto";
+mode: replace
+---
+// Kit W3: no mock scenario has a meaning under the verified backend; a request that names one is refused.
+  if (backend === "verified" && request.headers.has("X-Mock-Scenario")) return fail("invalid_mock_scenario");
+  const scenario = backend === "verified" ? "auto" : request.headers.get("X-Mock-Scenario") ?? "auto";

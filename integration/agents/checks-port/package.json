@@ -1,0 +1,12 @@
+{
+  "name": "@epinoic/checks-port",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The specialist port of protocol epinoic.integration.v1: wraps a frozen specialist runtime result for the translator's checks service, never changing it",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check:portable": "node test/check-portable.mjs"
+  }
+}

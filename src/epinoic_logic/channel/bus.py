@@ -64,7 +64,7 @@ from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S, is_definitive
 from ..integrity.contracts import (AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, LedgerEntry, SYNTHESIZED_CLAIM_TRANSFORMATIONS, Synthesis,
                                    SynthesizedClaim, WorkPlan, payload_hash)
-from ..integrity.cross_check import check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment
+from ..integrity.cross_check import check_conflict_disclosure, check_conflict_records, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment
 from ..integrity.envelope import MessageLog, bind_payload
 from ..integrity.handoff import check_report_against_plan
 from ..integrity.ledger import check_synthesis_ledger, light_stem
@@ -137,8 +137,23 @@ _MAX_NAMED = 8
 _DETAIL_MAX = 2000
 _VACUOUS = DiagnosticCode.VACUOUS_RESULT.value
 #: Wall-clock budget for the STEM checks of one report (kinds ``stem_*``): checks left when it is spent are undecided
-#: (INT-SUBJ-002, "check budget"), never success. Other packs' checks are not budgeted.
+#: (INT-SUBJ-002, "check budget"), never success. Other packs' checks are not budgeted. It is also the upper bound of a
+#: channel's own ``stem_budget_s`` (the integration checks port sets it from what is left of a call's budget).
 STEM_CHECK_BUDGET_S = 8.0
+
+
+def stem_budget_s(requested: Optional[float]) -> float:
+    """The STEM check budget a channel uses: :data:`STEM_CHECK_BUDGET_S`, or a smaller per-channel budget (never a larger
+    one, never below zero). ``None`` is the module budget itself, so a channel nobody configured behaves exactly as before."""
+    if requested is None:
+        return STEM_CHECK_BUDGET_S
+    try:
+        value = float(requested)
+    except (TypeError, ValueError):
+        return STEM_CHECK_BUDGET_S
+    if value != value:  # NaN never widens the budget
+        return 0.0
+    return min(STEM_CHECK_BUDGET_S, max(0.0, value))
 #: A UTF-16 surrogate code point. In a Python string every one is unpaired as far as Unicode is concerned (a truncated
 #: emoji arriving in an agent's JSON as "\\ud83d"): it has no UTF-8 form and no contract accepts it, so text carrying one
 #: is rejected at the channel boundary (INT-REQ-009) before it is parsed or hashed.
@@ -577,6 +592,10 @@ class TranslatorChannel:
     """One channel per router task. Keeps the message log, the requests, and every
     formalized claim transmitted so far (for cross-agent consistency)."""
 
+    #: Per-channel STEM check budget in seconds, bounded by :data:`STEM_CHECK_BUDGET_S` (:func:`stem_budget_s`); ``None``
+    #: (the default) is the module budget, so every existing caller is unchanged.
+    stem_budget_s: Optional[float] = None
+
     def __init__(self, plan: WorkPlan, *, signing_key: bytes, key_id: str = "channel",
                  verify_claim_fn: Optional[VerifyClaimFn] = None, config: SolverConfig = SolverConfig(), registry=None,
                  formalize_synthesis_fn: Optional[FormalizeSynthesisFn] = None) -> None:
@@ -828,14 +847,15 @@ class TranslatorChannel:
         results: list[ConstraintResult] = []
         ids: list[str] = []
         started = time.perf_counter()
+        budget = stem_budget_s(self.stem_budget_s)
         for fc in formal:
-            if str(getattr(fc, "kind", "")).startswith("stem_") and time.perf_counter() - started > STEM_CHECK_BUDGET_S:
+            if str(getattr(fc, "kind", "")).startswith("stem_") and time.perf_counter() - started > budget:
                 cids, where, quoted = self._check_claims_named(fc, report)
                 ident = dict(claim_ids=cids, report_ids=[report.report_id], agent_ids=[report.agent_id]) if cids else {}
                 results.append(ConstraintResult(constraint_id=fc.check_id, satisfied=None, method="formal", claim_ids=cids,
-                                                detail=truncate(f"{fc.kind}{where}: {quoted}{fc.description}; not run: the report's STEM check budget ({STEM_CHECK_BUDGET_S:g} s) was spent", _DETAIL_MAX)))
+                                                detail=truncate(f"{fc.kind}{where}: {quoted}{fc.description}; not run: the report's STEM check budget ({budget:g} s) was spent", _DETAIL_MAX)))
                 findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning",
-                                                 message=f"{fc.kind} check{where} undecided (check budget: the report's STEM checks ran past {STEM_CHECK_BUDGET_S:g} s; not run): {quoted}{fc.description}",
+                                                 message=f"{fc.kind} check{where} undecided (check budget: the report's STEM checks ran past {budget:g} s; not run): {quoted}{fc.description}",
                                                  **(ident or {"claim_ids": list(getattr(fc, "claim_ids", ()) or ())})))
                 continue
             self._decide_branch_check(fc, results, ids, findings, report)
@@ -1250,6 +1270,7 @@ class TranslatorChannel:
         # contradictions named earlier on this channel among the claims in scope (their formalizations may since have left the pool)
         sets += [(claims, rid) for claims, rid in self.conflicts_seen if claims <= scope_ids]
         out += self._with_report_ids(check_conflict_disclosure(synthesis, sets))
+        out += self._with_report_ids(check_conflict_records(synthesis, sets))  # INT-CONFLICT-006: a record over claims the hub found no contradiction between
         return out, ids
 
     def _synthesis_entailment(self, synthesis: Synthesis) -> tuple[list[IntegrityFinding], list[str], dict[str, Optional[str]]]:

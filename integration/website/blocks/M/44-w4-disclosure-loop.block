@@ -1,0 +1,6 @@
+kit-block: W4
+file: src/disclosure.js
+anchor:   for (const [from, to] of ANCHORS) {
+mode: replace
+---
+  for (const [from, to] of anchors) {

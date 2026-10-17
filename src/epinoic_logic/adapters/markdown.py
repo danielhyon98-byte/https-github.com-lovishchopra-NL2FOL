@@ -36,6 +36,18 @@ helpers so that
   word limit.", "The answer meets every constraint in the request.", "Word count: 258."; the router or
   the Overseer passing the answer) is recognised by every branch the same way
   (:func:`is_self_certification`);
+* a verification label an agent writes on its own text ("Verified: ...", "[verified] ...", "... (verified).", "...,
+  as formally verified.", "Checked.", a check mark "... ✓" or "✔ ...", "... (source-checked).", "... (checked against
+  the sources).", "... (accuracy confirmed).", "Formally proven correct.", "Accuracy: confirmed."), wherever it stands, is
+  read the same way on every branch and in a synthesis (:func:`verification_label`): a sentence that is nothing but the
+  label is a self-certification, and a label attached to content leaves the content a claim while the hub names the
+  label (CORE-SELF-001, INT-LEDGER-029);
+* where the combinator is the writer, its own product is the answer itself ("The synthesis has been verified.", "This
+  synthesis is correct.", "Every synthesized claim was checked against the sources."): the hub reads a synthesis with
+  :func:`is_synthesis_self_certification`, which adds those subjects to the specialists' rules; a specialist's
+  "synthesis" is content ("the synthesis of ammonia") and is not read so;
+* the writer's own hedges ("probably", "may have", "possibly", "most likely", "suggests"), read outside quotations, give
+  the agent-stated certainty the History and generic parsers record (:func:`hedged_certainty`);
 * a note on how the answer was composed ("The historical setting is my own addition, not
   part of that paragraph.", "The English specialist's paragraph is from the hub"), on what a
   received report says of its own items ("That account marks its figures as "from memory", so
@@ -73,7 +85,7 @@ import functools
 import itertools
 import json
 import re
-from typing import Optional
+from typing import NamedTuple, Optional
 
 __all__ = [
     "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
@@ -84,7 +96,7 @@ __all__ = [
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
-    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE",
+    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
 ]
 
 BOM = "\ufeff"
@@ -463,6 +475,101 @@ def _sourced_kind(subject: str) -> str:
     if _SOURCED_ANCHOR_RE.search(subject):
         return "anchored"
     return "quoted" if _SOURCED_QUOTING_RE.search(subject) else "weak"
+
+
+# ---- the verification-label rule (:func:`verification_label`): a bare verification-status label an agent writes on its
+# own text, standing for the whole sentence ("Verified.", "(checked)"), in front of its content ("Verified: ...",
+# "[verified] ...", "Fact-checked — ..."), after it ("... (verified).", "..., as formally verified.", "...; checked.") or
+# bracketed inside it. Decided by the label's shape, not by listed sentences.
+#: The label's checking participle, a compound one included ("source-checked", "spot-checked", "Z3-verified",
+#: "formally-verified"). "proved" (a proof's closing word), accuracy adjectives ("correct") and a participle under negation
+#: or a modal ("unverified", "not checked", "to be verified") are never a label here on their own.
+_LABEL_WORD = (r"(?:verified|checked|confirmed|validated|certified|corroborated|audited|proof-?read|fact[- ]?checked|double[- ]checked"
+               r"|triple[- ]checked|cross[- ]checked|re-?checked|re-?verified|(?:source|spot|self|machine|hand)[- ]?(?:checked|verified)"
+               r"|(?:z3|engine|solver|hub|formally)[- ](?:checked|verified|proven|proved|confirmed))")
+_LABEL_ADVERB = (r"(?:(?:all|fully|formally|independently|now|already|thoroughly|carefully|individually|externally|manually|automatically"
+                 r"|rigorously|duly|personally|each|both|also)\s+)*")
+#: Who checked, when the label names it: the infrastructure or the writer ("verified by Z3", "checked by me"); a label
+#: credited to anyone else ("confirmed by Engels", "verified by the History specialist") cites a source and is not a
+#: self-report.
+_LABEL_BY = (rf"(?:\s+by\s+(?:{_INFRASTRUCTURE}|(?:me|myself|us|ourselves|the\s+(?:writer|author|specialist)|this\s+specialist)\b))")
+#: What the label says it was checked against: the supplied or source texts, the sources, the specialists' reports, the
+#: originals ("checked against the sources", "verified with the specialists' reports", "against the original"). A record
+#: the writer names ("checked against the Registrar General's returns") is a citation of the writer's evidence, not one.
+_LABEL_AGAINST = (r"(?:\s+(?:against|with)\s+(?:the|all\s+the|each\s+of\s+the|every|its|their|my|our|both)\s+"
+                  r"(?:(?:supplied|original|source|given|provided|cited|underlying|relevant)\s+)?(?:specialists?['’]?s?\s+)?"
+                  r"(?:texts?|extracts?|documents?|sources?|passages?|poems?|data|figures|reports?|answers?|claims?|originals?|evidence"
+                  r"|source\s+claims?)\b)")
+_LABEL_PHRASE = (rf"{_LABEL_ADVERB}{_LABEL_WORD}(?:\s*(?:,|&|/|\band\b)\s*{_LABEL_ADVERB}{_LABEL_WORD})*"
+                 rf"(?:{_LABEL_BY}{_LABEL_AGAINST}?|{_LABEL_AGAINST}{_LABEL_BY}?)?")
+#: A verdict written as a label: a checking or proving participle with an accuracy adjective ("Formally proven correct.",
+#: "(verified correct)", "shown to be accurate", "Checked and correct."). "Proved." alone closes a proof and is no label.
+_LABEL_VERDICT_WORD = r"(?:correct|accurate|error[- ]free|exact)"
+_LABEL_VERDICT = (rf"(?:{_LABEL_ADVERB}(?:proven|proved|shown|demonstrated|found|{_LABEL_WORD})\s+(?:to\s+be\s+)?"
+                  rf"(?:(?:fully|entirely|completely|wholly|all)\s+)?{_LABEL_VERDICT_WORD}{_LABEL_BY}?"
+                  rf"|{_LABEL_ADVERB}{_LABEL_WORD}\s+(?:and|&)\s+(?:(?:fully|entirely|completely|wholly|all)\s+)?{_LABEL_VERDICT_WORD}"
+                  rf"|{_LABEL_VERDICT_WORD}\s+(?:and|&)\s+{_LABEL_ADVERB}{_LABEL_WORD})")
+#: A status noun with a checking participle, written as a label: "(accuracy confirmed)", "(facts checked)", "Figures
+#: verified.", "(working checked)".
+_LABEL_NOUN = (rf"(?:accuracy|correctness|facts?|figures?|dates?|quotations?|quotes?|sources?|citations?|references?|data|numbers?|statistics?"
+               rf"|calculations?|arithmetic|working|spellings?)\s+(?:(?:all|fully|now|independently|formally)\s+)?{_LABEL_WORD}{_LABEL_BY}?")
+#: A status written as a key and its value: "Verification: passed", "Check status: OK", "Fact-check: complete", "Accuracy:
+#: confirmed".
+_LABEL_STATUS = (r"(?:verification|checks?|fact[- ]?check(?:ing)?|accuracy(?:\s+check)?|correctness|source[- ]check(?:ing)?)(?:\s+status)?\s*:\s*"
+                 r"(?:passed|complete|completed|done|ok|okay|successful|clean|verified|confirmed|checked)\b")
+#: The engine, a solver or a checker credited with a verdict, written as a status: "Z3: proved", "(Z3: sat)", "SMT: unsat",
+#: "Solver: verified", "Formal check: passed", "Engine verdict: entailed". No agent runs the engine: the verdict it writes is
+#: its own claim about a check (the engine's results reach the router signed, never in an agent's text).
+_LABEL_ENGINE_STATUS = (r"(?:z3|smt(?:\s+solver)?|(?:the\s+)?(?:solver|verifier|formal\s+(?:check|checker|verification|verifier)|logic\s+engine|engine))"
+                        r"(?:\s+(?:result|status|verdict|output))?\s*(?::|=|[—–]|\s-\s)\s*"
+                        r"(?:proved|proven|verified|valid|sat|unsat|satisfiable|unsatisfiable|entailed|passed|ok|okay|holds|confirmed|checked)\b")
+#: A bracketed status mark ("[OK]", "(OK)", "[PASS]", "[passed]"): a check mark written in letters. Only bracketed: a bare
+#: "OK." may open a sentence of an answer.
+_LABEL_MARK_BRACKETED = r"(?:\[\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\]|\(\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\))"
+#: A check mark written on the text ("✓", "✔", "☑", "✅"): never prose, so wherever it stands outside a quotation it is the
+#: writer's mark that something was checked. A cross ("✗") is not one. A run of marks is read as one possessive unit that
+#: starts only where a run starts (:data:`_CHECK_RUN`), and the marks are no part of the punctuation around a label
+#: (:data:`_LABEL_NON_WORD`), so a long run of marks is read in linear time.
+_CHECK_MARK_CHARS = "✓✔☑✅\U0001F5F8️"
+_CHECK_MARK = "[✓✔☑✅\U0001F5F8]️?"
+_CHECK_RUN = rf"(?<![{_CHECK_MARK_CHARS}])(?:{_CHECK_MARK})++"
+_LABEL_TEXT = rf"(?:{_LABEL_STATUS}|{_LABEL_ENGINE_STATUS}|{_LABEL_VERDICT}|{_LABEL_NOUN}|{_LABEL_PHRASE})"
+_LABEL = rf"(?:{_CHECK_RUN}(?:\s*{_LABEL_TEXT})?(?:\s*{_CHECK_RUN})?|{_LABEL_TEXT}(?:\s*{_CHECK_RUN})?)"
+#: The labels that stand after a bare comma at the end of a sentence (", checked against the sources.", ", verified by
+#: Z3.", ", proven correct.", ", accuracy confirmed."): a participle with what it was checked against or by whom, a verdict
+#: or a status noun. A bare ", checked." or ", verified." may close a sentence about history ("Inflation was, by 1924,
+#: checked."), so it needs "as" (", as verified.").
+_LABEL_STRONG = (rf"(?:{_LABEL_VERDICT}|{_LABEL_NOUN}|{_LABEL_ADVERB}{_LABEL_WORD}(?:{_LABEL_BY}{_LABEL_AGAINST}?|{_LABEL_AGAINST}{_LABEL_BY}?)"
+                 rf"|{_LABEL_ADVERB}(?:source|spot|machine)[- ]?(?:checked|verified))")
+_LABEL_PLACE = r"(?:\s+(?:above|here|below|earlier|throughout|in\s+full))?"
+#: Punctuation, brackets, quotation marks and emphasis around a label (never a question mark: "Verified?" asks; never a
+#: check mark, which is a label of its own).
+_LABEL_NON_WORD = rf"(?:[^\w?{_CHECK_MARK_CHARS}]|_)"
+_LABEL_BRACKETED = rf"(?:\[\s*{_LABEL}\s*[.!]?\s*\]|\(\s*{_LABEL}\s*[.!]?\s*\)|{_LABEL_MARK_BRACKETED})"
+_LABEL_WHOLE_RE = re.compile(rf"^{_LABEL_NON_WORD}*(?:{_LABEL}{_LABEL_PLACE}|{_LABEL_MARK_BRACKETED}){_LABEL_NON_WORD}*$", re.IGNORECASE)
+#: A label in front of the content: bracketed, a check mark ("✔ The constitution ..."), or a capitalised label ("Verified:",
+#: "CHECKED —"; a lower-case "checked:" is more likely a name in code) closed by a colon or a dash.
+_LABEL_BEFORE_RE = re.compile(
+    rf"^{_LABEL_NON_WORD}*?(?:{_LABEL_BRACKETED}|{_CHECK_RUN}(?:\s*{_LABEL_TEXT})?[*_`]*\s*(?::|[—–]|\s-\s)?"
+    rf"|(?=(?-i:[A-Z])){_LABEL}[*_`]*\s*(?::|[—–]|\s-\s))[\s*_`]*(?=\S)", re.IGNORECASE)
+_LABEL_AFTER_RE = re.compile(
+    rf"(?:{_LABEL_BRACKETED}|,\s*as\s+{_LABEL}{_LABEL_PLACE}|,\s*{_LABEL_STRONG}{_LABEL_PLACE}|(?:;|:|[—–]|\s-)\s*(?:as\s+)?{_LABEL}{_LABEL_PLACE}"
+    rf"|{_CHECK_RUN}(?:\s*{_LABEL_TEXT})?{_LABEL_PLACE}){_LABEL_NON_WORD}*$",
+    re.IGNORECASE)
+_LABEL_INSIDE_RE = re.compile(rf"{_LABEL_BRACKETED}|{_CHECK_MARK}", re.IGNORECASE)
+#: Cheap pre-filter for the label rule: a sentence with none of these stems (or a check mark) carries no label.
+_LABEL_CUE_RE = re.compile(r"verif|check|confirm|validat|certif|corroborat|audit|proof|correct|accura|exact|error|[✓✔☑✅\U0001F5F8]"
+                           r"|z3|smt|solver|engine|[\[(]\s*(?:ok|pass)", re.IGNORECASE)
+_LABEL_CONTENT_RE = re.compile(r"[^\W_]")
+
+
+class VerificationLabel(NamedTuple):
+    """A verification-status label a sentence carries (:func:`verification_label`): where it stands (``whole``: the
+    sentence is nothing but the label; ``before``, ``after`` or ``inside`` its content) and the label as written."""
+    position: str
+    label: str
+
+
 #: Cheap pre-filter for the structural rule: a sentence with none of these stems certifies nothing.
 _SELF_CUE_RE = re.compile(
     r"check|verif|confirm|validat|corroborat|audit|proof|compar|match|accura|correct|exact|reliab|sound|right|error|faithful|verbatim|trust"
@@ -626,12 +733,25 @@ def _structural_self_report(sentence: str) -> bool:
     return False
 
 
+#: A whole-sentence self-assessment of every item of the answer, the words a status mark stands for: "All claims hold.",
+#: "Every claim above holds.", "All of the above holds.", "Everything here holds.", "All points stand.", "Each step checks
+#: out." Only the sentence as a whole: "All claims hold that ..." and "Hence the above holds for n = 2" argue.
+_ALL_HOLD_RE = re.compile(
+    r"^\W*(?:(?:all|every|each)\s+(?:of\s+)?(?:(?:the|these|my|our)\s+)?(?:claims?|statements?|points?|figures?|dates?|facts?|steps?|lines?|answers?"
+    r"|items?|parts?|calculations?|quotations?)|all\s+of\s+(?:the\s+above|this|it)|everything|the\s+above)"
+    r"(?:\s+(?:above|here|below|in\s+(?:this|the|my)\s+(?:answer|paragraph|response)))?"
+    r"\s+(?:hold|holds|stand|stands|check\s+out|checks\s+out|(?:is|are)\s+(?:sound|valid|right|fine))\W*$",
+    re.IGNORECASE)
+
+
 @functools.lru_cache(maxsize=8192)
 def _self_certification(sentence: str) -> bool:
-    if SELF_CERT_RE.search(sentence) or is_json_shaped(sentence):
+    if SELF_CERT_RE.search(sentence) or is_json_shaped(sentence) or _ALL_HOLD_RE.match(sentence):
         return True
     if _FIRST_PERSON_CHECK_RE.search(sentence) or _SELF_LEAD_RE.match(sentence):
         return True
+    if _LABEL_CUE_RE.search(sentence) and _LABEL_WHOLE_RE.match(sentence):
+        return True  # nothing but a verification label ("Verified.", "(checked)", "Verification: passed.")
     cue = _SELF_CUE_RE.search(sentence) is not None
     if cue and (_positive(_NOTHING_NEEDS_CHECK_RE, sentence)
                 or (_SELF_SUBJECT_KINDS_RE.search(sentence) is not None and _positive(_NO_FURTHER_CHECK_RE, sentence))):
@@ -698,12 +818,260 @@ def is_self_certification(sentence: str) -> bool:
       against the supplied extract");
     * the infrastructure (Z3, the engine, solver, verifier, checker, hub, channel, router, translator, Overseer,
       combinator) as the agent of a certifying verb with the answer or its items as what it passed ("The router has
-      confirmed that every item is addressed", "The Overseer signed off on this answer").
+      confirmed that every item is addressed", "The Overseer signed off on this answer");
+    * a sentence that is nothing but a verification label ("Verified.", "(checked)", "Fact-checked and confirmed.",
+      "Verification: passed."; :func:`verification_label`, position ``whole``). A label attached to content ("Verified:
+      The constitution was adopted in August 1919.") is not a self-certification of the sentence: the content stays a
+      claim, and the hub names the label on its own (CORE-SELF-001, INT-LEDGER-029).
 
     Only a POSITIVE predicate counts: a check under negation or a deontic modal ("The dates in this paragraph have not
     been checked", "... are from memory and should be checked before they are cited", "must be verified") is a
     disclaimer, never a self-certification. Answers are cached per sentence (pure function of the text)."""
     return _self_certification(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _self_certification.__wrapped__(sentence)
+
+
+@functools.lru_cache(maxsize=8192)
+def _verification_label(sentence: str) -> Optional[VerificationLabel]:
+    if not _LABEL_CUE_RE.search(sentence):
+        return None
+    masked = mask_quotations(sentence.strip())  # a quoted label is the quoted text's, not the writer's
+    if not _LABEL_CUE_RE.search(masked):
+        return None
+    if _LABEL_WHOLE_RE.match(masked):
+        return VerificationLabel("whole", masked.strip()[:200])
+    m = _LABEL_BEFORE_RE.match(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked, m.end()):
+        return VerificationLabel("before", masked[:m.end()].strip()[:200])
+    m = _LABEL_AFTER_RE.search(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked[:m.start()]):
+        return VerificationLabel("after", masked[m.start():].strip()[:200])
+    m = _LABEL_INSIDE_RE.search(masked)
+    if m is not None:
+        return VerificationLabel("inside", m.group(0).strip()[:200])
+    return None
+
+
+# ---- the combinator's own product as the answer itself (:func:`is_synthesis_self_certification`): where the combinator
+# is the writer, "the synthesis", "this synthesis", "the combined answer" and "the synthesized claims" are what "this
+# answer" and "the figures here" are in a specialist's text. On a specialist's branch the same words are content ("the
+# synthesis of ammonia", "This synthesis was confirmed by NMR"), so only the hub's reading of a synthesis reads them.
+_SYNTH_PRODUCT = (r"(?:synthesis|syntheses|combination|(?:combined|synthesi[sz]ed|merged)\s+(?:answer|account|response|text|paragraph|summary|version"
+                  r"|report|reply))")
+#: The combinator's product or its claims as a subject: "the synthesis", "this synthesis", "the combined answer", "the whole
+#: synthesis above", "the synthesized claims", "every synthesized claim", "all claims in this synthesis". A product followed
+#: by "of", "between" or "from" ("the synthesis of ammonia") names something else.
+_SYNTH_SUBJECT_RE = re.compile(
+    rf"\b(?:(?:this|that|my|our|its|the)(?:\s+(?:whole|entire|final|present|above|full|resulting))?\s+{_SYNTH_PRODUCT}(?:\s+(?:above|here|below))?"
+    rf"(?!\s+(?:of|between|from)\b)"
+    rf"|(?:{_SELF_UNIVERSAL_DET}\s+|(?:the|these|those|its|our|my)\s+)?(?:synthesi[sz]ed|combined|merged)\s+{_SELF_ITEM_LIST}"
+    rf"|(?:{_SELF_UNIVERSAL_DET}\s+|(?:the|these|those)\s+)?{_SELF_ITEM_LIST}\s+(?:in|of|from)\s+(?:this|the|my|our)\s+(?:(?:whole|entire|final)\s+)?"
+    rf"{_SYNTH_PRODUCT})\b",
+    re.IGNORECASE,
+)
+#: Cheap pre-filter for the synthesis reading: a sentence that names no combined product is read by the specialists' rules only.
+_SYNTH_CUE_RE = re.compile(r"synthes|combin|merged", re.IGNORECASE)
+#: What a check credited to someone other than the writer (the combinator) or the infrastructure looks like in the rest of
+#: the clause: "The synthesis was checked by the History specialist" credits another agent and is no self-report.
+_SYNTH_BY_OTHER_RE = re.compile(rf"\bby\s+(?!(?:me|myself|us|ourselves|the\s+(?:writer|author)|this\s+combinator|{_INFRASTRUCTURE})\b)", re.IGNORECASE)
+_SYNTH_CLAUSE_END_RE = re.compile(r"[.;!?]|,\s+(?:but|while|whereas|although|though|yet)\b")
+#: An accuracy adjective's complement before the clause closes: "faithful to the sources", "accurate to every source claim",
+#: "correct in every detail".
+_SYNTH_COMPLEMENT_RE = re.compile(
+    r"\s+(?:(?:to|with|against)\s+(?:(?:the|its|all(?:\s+(?:the|its))?|every|each(?:\s+of\s+the)?|both)\s+)?(?:[\w'’-]+\s+){0,2}?"
+    r"(?:sources?|source\s+claims?|reports?|specialists?['’]?\s*(?:answers?|reports?|claims?)?|originals?|answers?|claims?|texts?|evidence)"
+    r"|in\s+(?:every|each|all(?:\s+its)?)\s+(?:details?|respects?|particulars?|points?|claims?))\b",
+    re.IGNORECASE,
+)
+#: A combined product said to reproduce its sources faithfully, to match them, or to have passed a check: "accurately
+#: reflects the sources", "faithfully restates every source claim", "matches the specialists' reports", "is consistent with
+#: the sources", "passed every check", "has passed the hub's verification".
+_SYNTH_FIDELITY_VERB_RE = re.compile(
+    r"\s+(?:(?:has|have)\s+(?:(?:now|already|also)\s+)?)?(?:"
+    r"(?:accurately|faithfully|correctly|exactly|precisely|fully|truly)\s+(?:reflect|represent|reproduce|restate|capture|preserve|convey|report|summari[sz]e"
+    r"|combine|render|state|record)(?:s|d|ed)?\b"
+    r"|(?:match(?:es|ed)?|agree[sd]?\s+with|(?:is|are|was|were)\s+(?:fully\s+|entirely\s+|wholly\s+)?(?:consistent\s+with|faithful\s+to|true\s+to)"
+    r"|correspond(?:s|ed)?\s+to|conform(?:s|ed)?\s+to)\s+(?:(?:the|its|all(?:\s+(?:the|its))?|every|each(?:\s+of\s+the)?|both)\s+)?(?:[\w'’-]+\s+){0,2}?"
+    r"(?:sources?|source\s+claims?|reports?|specialists?['’]?\s*(?:answers?|reports?|claims?)?|originals?)\b"
+    r"|pass(?:es|ed)\s+(?:(?:all|every|each|the)\s+)?(?:(?:of\s+)?(?:the\s+)?)?(?:[\w'’-]+['’]s\s+)?(?:(?:formal|verification|integrity|hub|engine|z3"
+    r"|ledger|automatic|automated)\s+)?(?:checks?|verification|validation|review|audit|tests?)\b"
+    r")",
+    re.IGNORECASE,
+)
+#: Nothing in the combined product to check: "Nothing in this synthesis needs checking", "No claim of the synthesis requires
+#: further verification".
+_SYNTH_NOTHING_RE = re.compile(
+    rf"\b(?:nothing|no\s+(?:claim|figure|date|statement|part)|none\s+of\s+the\s+(?:claims|figures|dates|statements))\s+(?:in|of)\s+(?:this|the)\s+"
+    rf"{_SYNTH_PRODUCT}\s+(?:needs?|requires?|calls?\s+for|merits?|warrants?)\s+(?:any\s+|further\s+|more\s+)?"
+    r"(?:check(?:ing)?|verification|correction|to\s+be\s+(?:re-?)?(?:checked|verified))\b",
+    re.IGNORECASE,
+)
+
+
+#: No error found in the combined product: "No errors were found in this synthesis.", "No mistakes have been detected in the
+#: combined answer.", "This synthesis contains no errors." (the specialists' reading names the same words about "this answer").
+_SYNTH_NO_ERRORS_RE = re.compile(
+    rf"\bno\s+(?:errors?|mistakes?|inaccuracies|problems?|issues?|faults?|discrepancies)\s+(?:(?:were|was|have\s+been|has\s+been|could\s+be|can\s+be)\s+)?"
+    rf"(?:found|detected|identified|spotted)\s+(?:in|within|across)\s+(?:(?:this|the|my|our)\s+)?(?:(?:whole|entire|final|present)\s+)?{_SYNTH_PRODUCT}\b"
+    rf"|\b(?:this|the|my|our)\s+(?:(?:whole|entire|final|present)\s+)?{_SYNTH_PRODUCT}\s+(?:contains|has|holds|shows)\s+no\s+(?:errors?|mistakes?|inaccuracies|faults?)\b",
+    re.IGNORECASE,
+)
+#: A proof verdict a combinator writes on a claim, bracketed: "(proven)", "(proved)", "[proven]", "(formally proven)", "(proof
+#: complete)". A specialist's "proved" closes a proof and is content, so only the hub's reading of a synthesis reads it
+#: (:func:`synthesis_label`).
+_SYNTH_PROOF_LABEL_RE = re.compile(r"[\[(]\s*(?:formally\s+|fully\s+)?(?:proven|proved|proof\s+(?:complete|completed|checked|verified))\s*[.!]?\s*[\])]",
+                                   re.IGNORECASE)
+
+
+@functools.lru_cache(maxsize=8192)
+def _synthesis_self_report(sentence: str) -> bool:
+    if not _SYNTH_CUE_RE.search(sentence):
+        return False
+    masked = mask_quotations(sentence)  # a quoted certification is the quoted text's
+    m = _SYNTH_NO_ERRORS_RE.search(masked)
+    if m is not None and not _NEGATED_OR_DEONTIC_RE.search(masked[max(0, m.start() - 60):m.start()]):
+        return True  # "It is not true that no errors were found in this synthesis" is no self-report
+    subjects = list(_SYNTH_SUBJECT_RE.finditer(masked))
+    if not subjects:
+        return False
+    for m in subjects:
+        tail = _SELF_PREDICATE_TAIL_RE.match(masked, m.end())
+        if tail is not None:
+            after = tail.end()
+            end = _SYNTH_CLAUSE_END_RE.search(masked, after)
+            if _SYNTH_BY_OTHER_RE.search(masked[after:end.start() if end else len(masked)]):
+                continue  # a check credited to another agent ("... by the History specialist") is that agent's, not the writer's
+            if tail.group("fidelity"):
+                if _FIDELITY_END_RE.match(masked, after):
+                    return True
+                continue
+            if tail.group("check"):
+                if tail.group("check").lower().endswith(("with", "against", "to")) or _CHECK_END_RE.match(masked, after):
+                    return True
+                continue
+            complement = _SYNTH_COMPLEMENT_RE.match(masked, after)
+            if _SELF_CLOSING_RE.match(masked, complement.end() if complement else after):
+                return True
+            continue
+        if _SYNTH_FIDELITY_VERB_RE.match(masked, m.end()):
+            return True
+    if _positive(_INFRA_AGENT_RE, masked) or _positive(_NO_FURTHER_CHECK_RE, masked):
+        return True  # "Z3 has verified this synthesis", "The hub accepted the combined answer", "The synthesis needs no further checking"
+    return _SYNTH_NOTHING_RE.search(masked) is not None
+
+
+def is_synthesis_self_certification(sentence: str) -> bool:
+    """True when a sentence the COMBINATOR wrote (a synthesized claim, a sentence of a synthesis's text) certifies the
+    combined answer's own checking: every form :func:`is_self_certification` reads in a specialist's answer, and the
+    combinator's own product named as the answer itself, with the same structural limits:
+
+    * the synthesis, the combined answer or its claims as the subject ("The synthesis has been verified.", "This synthesis
+      is correct.", "The combined answer is accurate.", "Every synthesized claim was checked against the sources.", "All
+      claims in this synthesis were verified.") followed directly by a copula and a checking participle, an accuracy
+      adjective (closing the clause, or with "to the sources", "in every detail") or a reproduction-fidelity predicate;
+    * the combined product said to reproduce or match its sources ("accurately reflects the sources", "is consistent with
+      the specialists' reports") or to have passed a check ("passed every check", "has passed the hub's verification");
+    * the infrastructure as the agent that passed it ("Z3 has verified this synthesis", "The hub accepted the synthesis"),
+      or nothing in it left to check ("Nothing in this synthesis needs checking", "The synthesis needs no further
+      checking").
+
+    Never a check under negation or a modal ("The synthesis has not been verified", "should be checked against the
+    sources"), one credited to another agent ("The synthesis was checked by the History specialist"), one quoted, or a
+    synthesis of something else ("the synthesis of ammonia"). On a specialist's branch these words are content, so
+    :func:`is_self_certification` (the specialists' reading) does not read them. Cached per sentence."""
+    if is_self_certification(sentence):
+        return True
+    return _synthesis_self_report(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _synthesis_self_report.__wrapped__(sentence)
+
+
+def verification_label(sentence: str) -> Optional[VerificationLabel]:
+    """The verification-status label ``sentence`` carries, or ``None``: an agent's own checking participle written as a
+    label on its text, the same way on every branch and in a synthesis, read with the sentence's quotations masked:
+
+    * ``whole``: the sentence is nothing but the label ("Verified.", "(checked)", "[verified]", "Fact-checked and
+      confirmed.", "Verification: passed."), which :func:`is_self_certification` also reads as a self-certification;
+    * ``before`` its content: bracketed ("[verified] ...", "(Checked) ...") or a capitalised label closed by a colon or a
+      dash ("Verified: ...", "Checked: ...", "Formally verified — ...", "VERIFIED by the Z3 engine: ...");
+    * ``after`` its content: bracketed at the end ("... in August 1919 (verified).", "... [checked]"), after "as" and a
+      comma ("..., as formally verified.", "..., as checked above.", "..., as verified by the engine.") or after a
+      semicolon, a colon or a dash ("...; verified.", "... — checked.");
+    * ``inside`` it: a bracketed label within the sentence ("The figure (verified) is 6 million."), or a check mark
+      anywhere ("The treaty ✓ was signed in 1919.").
+
+    The label's words are a checking participle ("verified", "checked", "confirmed", "validated", "certified",
+    "fact-checked", "cross-checked", "source-checked", "Z3-verified", ...), with adverbs ("formally", "independently"),
+    joined ("checked and verified"), credited to the infrastructure or the writer ("by Z3", "by the hub", "by me") or made
+    "against the supplied text", "against the sources", "with the specialists' reports"; a status noun with one ("(accuracy
+    confirmed)", "(facts checked)", "Figures verified."); a verdict ("Formally proven correct.", "(verified correct)",
+    "shown to be accurate", "Checked and correct."); a status key ("Verification: passed", "Accuracy: confirmed"); or a check
+    mark ("✓", "✔", "☑", "✅"), alone or with any of them. After a bare comma at the end only a label with what it was
+    checked against or by whom, a verdict or a status noun counts (", checked against the sources.", ", verified by Z3.");
+    a bare ", checked." may close a sentence about history. A participle under negation or a modal ("unverified", "(not
+    checked)", "(accuracy not confirmed)", "(to be verified)"), credited to another agent ("..., as confirmed by Engels.",
+    "(checked by the Registrar General)", "(verified by the History specialist)"), checked against a record the writer
+    names ("(checked against the Registrar General's returns)"), followed by more content ("..., as later confirmed in
+    1921.", "Checked at the Marne, the advance stalled.", "The census figures were, in 1925, verified.") or asked
+    ("Verified?") is no label; "proved" alone and an accuracy adjective alone ("correct") are not labels here, nor is a
+    cross ("✗"). A label is an agent self-report: advisory, never evidence that anything was checked (CORE-SELF-001 on a
+    specialist's sentence, INT-LEDGER-029 on a synthesized claim). Cached per sentence (pure function of the text)."""
+    if not sentence:
+        return None
+    return _verification_label(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _verification_label.__wrapped__(sentence)
+
+
+def synthesis_label(sentence: str) -> Optional[VerificationLabel]:
+    """The verification-status label a sentence the COMBINATOR wrote carries: every label :func:`verification_label` reads
+    (an engine credited with a verdict, "(Z3: proved)", and a bracketed status mark, "[OK]", included), and a bracketed
+    proof verdict ("(proven)", "(proved)", "[proven]", "(formally proven)", "(proof complete)"), which a specialist's
+    answer may write as the close of its own proof, read with the sentence's quotations masked. ``whole`` when the
+    sentence is nothing but the label, else ``after`` (closing it), ``before`` (opening it) or ``inside``."""
+    found = verification_label(sentence)
+    if found is not None or not sentence or not _SYNTH_PROOF_LABEL_RE.search(sentence):
+        return found
+    masked = mask_quotations(sentence.strip())
+    m = _SYNTH_PROOF_LABEL_RE.search(masked)
+    if m is None:
+        return None
+    before, after = masked[:m.start()], masked[m.end():]
+    if not _LABEL_CONTENT_RE.search(before) and not _LABEL_CONTENT_RE.search(after):
+        position = "whole"
+    elif not _LABEL_CONTENT_RE.search(after):
+        position = "after"
+    elif not _LABEL_CONTENT_RE.search(before):
+        position = "before"
+    else:
+        position = "inside"
+    return VerificationLabel(position, m.group(0).strip()[:200])
+
+
+#: The writer's own hedges, by what they leave the statement: possible ("may have", "might have", "could have", "may be",
+#: "possibly", "perhaps", "conceivably", "it is possible that") or probable ("probably", "most likely", "in all likelihood",
+#: "it is likely that", "likely to have", "presumably", "arguably", "apparently", "plausibly", "appears to", "seems to",
+#: "suggests"). A bare adjective ("made withdrawal likely", "a likely allocation", "an unlikely alliance", "a provisional
+#: government") is the statement's content, not a hedge; "could be" may name an option ("prices could be raised").
+_POSSIBLE_HEDGE_RE = re.compile(
+    r"\b(?:may|might|could)\s+(?:well\s+|possibly\s+)?have\b|\b(?:may|might)\s+(?:well\s+)?be\b|\bpossibly\b|\bperhaps\b|\bconceivably\b"
+    r"|\bit\s+is\s+(?:just\s+|also\s+)?possible\s+that\b",
+    re.IGNORECASE)
+_PROBABLE_HEDGE_RE = re.compile(
+    r"\bprobably\b|\b(?:most|very|highly|quite)\s+likely\b|\bin\s+all\s+likelihood\b|\bit\s+is\s+(?:most\s+|very\s+|highly\s+)?(?:likely|probable)\s+that\b"
+    r"|\blikely\s+to\s+have\b|\bpresumably\b|\barguably\b|\bapparently\b|\bplausibly\b|\b(?:appears?|seems?)\s+to\b|\bsuggest(?:s|ed)?\b",
+    re.IGNORECASE)
+
+
+def hedged_certainty(sentence: str) -> Optional[str]:
+    """``"possible"`` or ``"probable"`` when the writer hedges ``sentence`` (:data:`_POSSIBLE_HEDGE_RE`,
+    :data:`_PROBABLE_HEDGE_RE`), read with its quotations masked (a hedge inside a quotation is the quoted text's: "we all
+    could have been to blame"), else ``None``. The parsers record it as the claim's agent-stated certainty, so a synthesis
+    that states a hedged claim as established is named by the hub (INT-LEDGER-003). Never raises a certainty: a parser
+    keeps the weaker of its own reading and this one."""
+    if not sentence:
+        return None
+    masked = mask_quotations(sentence)
+    if _POSSIBLE_HEDGE_RE.search(masked):
+        return "possible"
+    if _PROBABLE_HEDGE_RE.search(masked):
+        return "probable"
+    return None
 
 
 def is_task_note(sentence: str) -> bool:

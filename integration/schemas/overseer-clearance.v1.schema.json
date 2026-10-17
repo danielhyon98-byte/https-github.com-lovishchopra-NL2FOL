@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "error_codes": {
+      "items": {
+        "pattern": "^OVS-[A-Z]{2,12}-[0-9]{3}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Error Codes",
+      "type": "array"
+    },
+    "may_act": {
+      "title": "May Act",
+      "type": "boolean"
+    },
+    "message_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Message Id",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "receipt_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Receipt Sha256",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.overseer-clearance.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "AUDIT_FAILED",
+        "AUDIT_PENDING",
+        "AUDIT_PASSED_WITH_FINDINGS",
+        "AUDIT_PASSED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "task_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "waited_ms": {
+      "maximum": 250,
+      "minimum": 0,
+      "title": "Waited Ms",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "task_id",
+    "message_id",
+    "receipt_sha256",
+    "state",
+    "may_act",
+    "waited_ms"
+  ],
+  "title": "ClearanceDecision",
+  "type": "object"
+}

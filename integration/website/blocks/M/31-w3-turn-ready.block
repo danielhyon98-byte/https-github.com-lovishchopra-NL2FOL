@@ -1,0 +1,12 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: // 1. Route.
+mode: before-line
+---
+    // Kit W3, readiness check 4 (after admission, before routing; replays never reach it): no classifier, specialist
+    // or checks call is made unless the checks service is current and compatible.
+    const deadlineAt = Date.now() + deadlineMs;
+    if (verification !== null) {
+      const ready = await verification.ready({ signal });
+      if (!ready.ok) return failWith(ready.rawCode, failure(requestId, "service_unavailable"));
+    }

@@ -1,0 +1,19 @@
+kit-block: W4
+file: src/disclosure.js
+anchor: export const CHAT_PAGE_PATHS = Object.freeze(["/dev/chat", "/dev/chat/", "/dev/chat/index.html"]);
+mode: before-line
+---
+// Kit W4: under the verified backend the page says that answers pass automatic checks before they are shown (copy
+// proposed under decision D13), with the same fail-closed rewrite as live routing.
+const VERIFIED_ANCHORS = Object.freeze([
+  ["Prototype — simulated responses; no live AI.", "Prototype — simulated specialist; answers pass automatic checks, including formal checks of their logic encoding, before they are shown."],
+  ["Replies come from a mock backend: no AI model, router or reviewer is called.",
+    "Specialist replies are simulated; each answer passes automatic checks, including formal checks of its logic encoding, before it is shown. No specialist model is called."],
+]);
+const VERIFIED_LIVE_ANCHORS = Object.freeze([
+  ["Prototype — simulated responses; no live AI.", "Live routing; simulated specialist; answers pass automatic checks, including formal checks of their logic encoding, before they are shown."],
+  ['data-routing="mock"', 'data-routing="live"'],
+  ["Replies come from a mock backend: no AI model, router or reviewer is called.",
+    "Specialist replies are simulated; each answer passes automatic checks, including formal checks of its logic encoding, before it is shown. Subject routing calls a live classifier; no specialist model is called."],
+  ["Auto (keyword routing)", "Auto (live routing)"],
+]);

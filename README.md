@@ -281,6 +281,25 @@ release: `engine.release.release_check` (HTTP `POST /v1/results/release-check`) 
 an authentic, current result resting on established premises only, and a result of an
 earlier release stays inspectable but is never current.
 
+## Integration kit: required Z3 and STEM checks for the website and the specialist APIs
+
+`integration/` holds the integration protocol `epinoic.integration.v1` and the kit that applies it: the website's
+adapter and patch material (with the W0 docs drafter for the website's owner), the agents material (the checks port A2
+and the changes A3 and A5, tested on an archive copy), the golden vectors, the simulation (its website and agents
+drivers, run against a test double of the overseer port until the rebuilt overseer is connected, with every gate NOT
+RUN), the readiness checks and the playbook a fresh session follows. Every decision of the kit is decided and recorded
+in [`integration/DECISIONS.md`](integration/DECISIONS.md), with the kit changes those decisions require (not made yet;
+the fail-closed defaults stay until they are). Start with [`integration/README.md`](integration/README.md) and
+[`docs/INTEGRATION_PROTOCOL.md`](docs/INTEGRATION_PROTOCOL.md). Z3 and STEM checks are required: a missing part fails
+with a named `KIT-HS` code. The service side lives in `src/epinoic_logic/integration/`; the default `engine` profile is
+unchanged. The flash router, which plans how the overseer reviews each answer, is a separate sub-project,
+[`flash-router/`](flash-router/README.md), edited and released apart from the Z3 infrastructure and run by the service
+in its own process. The combinator, which combines the specialists' answers to one request into one synthesis, is a
+separate agent in a sub-project of its own, [`combinator/`](combinator/README.md): its instructions (exported with
+`python -m epinoic_combinator.export --out <dir>`), a runner on the cheapest tier that lets out only what is in the
+published synthesis contract, and its own tests; the translator never imports it, and its hub checks every synthesis
+on its own.
+
 ## Repository layout
 
 - `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
@@ -292,6 +311,9 @@ earlier release stays inspectable but is never current.
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
+- `src/epinoic_logic/integration/` and `integration/` — the integration protocol's service side and the integration kit
+- `flash-router/` — the flash router, a sub-project of its own (`pyproject.toml`, package `epinoic_flash_router`, tests)
+- `combinator/` — the combinator agent, a sub-project of its own (`pyproject.toml`, package `epinoic_combinator`, instructions, tests)
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 
@@ -299,7 +321,7 @@ earlier release stays inspectable but is never current.
 
 ```
 python -m venv .venv && .venv/bin/pip install -e ".[dev,service,providers]"
-.venv/bin/pytest                      # unit, e2e and service tests
+.venv/bin/pytest                      # unit, e2e and service tests; the flash-router/ and combinator/ suites run inside it
 .venv/bin/pytest -m stress tests/stress   # load, concurrency, adversarial volume, soak
 epinoic-logic verify problem.json     # one verification from the command line
 ```

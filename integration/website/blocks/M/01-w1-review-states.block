@@ -1,0 +1,77 @@
+kit-block: W1
+file: public/chat-contract.js
+anchor: export const REVIEW_STATES = Object.freeze(["passed", "not_required"]);
+mode: replace
+---
+export const REVIEW_STATES = Object.freeze(["passed", "not_required", "checks:integration.v1"]);
+
+// Kit W1 (protocol epinoic.integration.v1): a verified answer names what ran ("checks:integration.v1": the specialist's
+// own gate passed and the delivery rule released this exact text after the required Z3 and STEM checks) and carries
+// the checks of its material claims. The page writes their labels from these closed values, never from a service's
+// prose. A verified answer never says "passed" or "not_required", and no label says verified, true, proven or Reviewed.
+export const VERIFIED_REVIEW = "checks:integration.v1";
+export const CHECK_STATUSES = Object.freeze([
+  "ENTAILED", "COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "CONSISTENT", "SATISFIABLE", "UNSATISFIABLE", "UNKNOWN", "TIMEOUT",
+  "UNSUPPORTED", "INVALID_FORMALIZATION", "AMBIGUOUS_TRANSLATION", "NOT_ELIGIBLE", "INTERNAL_ERROR", "NOT_ATTEMPTED",
+]);
+export const FIDELITY_STATES = Object.freeze(["faithful", "unfaithful", "uncertain", "missing", "stale", "unbound", "without_evidence"]);
+export const CHECK_SUMMARIES = Object.freeze(["formally_checked", "partly_checked", "formal_only", "not_formally_checkable", "incomplete"]);
+export const CHECK_LIMITS = Object.freeze({ maxChecks: 12, maxClaimChars: 200 });
+// The engine's scope statement, verbatim: shown once with every verified answer.
+export const SCOPE_STATEMENT = "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.";
+const POSITIVE_STATUSES = Object.freeze(["ENTAILED", "CONSISTENT", "SATISFIABLE"]);
+// A delivered answer never carries a negative result on a material claim (it would have been refused).
+const NEGATIVE_STATUSES = Object.freeze(["COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "UNSATISFIABLE"]);
+const UNAVAILABLE_STATUSES = Object.freeze(["UNKNOWN", "TIMEOUT", "INTERNAL_ERROR", "NOT_ATTEMPTED"]);
+const CHECK_FIELDS = Object.freeze(["claim", "formal", "fidelity"]);
+
+// The badge of a verified answer, from its checks summary (decision D27, conservative default; the closed copy of the
+// kit's chat-contract vectors): "Automatic checks passed" only for formally_checked, where every material eligible
+// claim has a positive result whose release is permitted. partly_checked and formal_only (a positive result of the
+// encoding only, or material claims not formally checked) read "Partly checked" with no success tone; an answer with no
+// positive result, or one whose material checks did not all complete, never says "passed", whatever the policy; an
+// unknown summary reads as not formally checked. Returns [text, tone] for the page's badges.
+export const CHECK_BADGES = Object.freeze({
+  formally_checked: Object.freeze(["Automatic checks passed", "is-ok"]),
+  partly_checked: Object.freeze(["Partly checked", null]),
+  formal_only: Object.freeze(["Partly checked (encoding only)", null]),
+  not_formally_checkable: Object.freeze(["Not formally checked", null]),
+  incomplete: Object.freeze(["Some checks unavailable", null]),
+});
+export function checksBadge(summary, suffix = "") {
+  const [text, tone] = Object.hasOwn(CHECK_BADGES, summary) ? CHECK_BADGES[summary] : ["Not formally checked", null];
+  return [`${text}${suffix}`, tone];
+}
+
+// The label of one check entry (the closed copy of the kit's chat-contract vectors).
+export function checkLabel(entry) {
+  if (POSITIVE_STATUSES.includes(entry.formal)) {
+    return entry.fidelity === "faithful"
+      ? "Formally checked: in its logic encoding, this claim follows from its stated premises."
+      : "The logic encoding passed a formal check; the encoding and its premises were not independently established.";
+  }
+  if (entry.formal === "NOT_ELIGIBLE") return "Not eligible for a formal check.";
+  if (entry.formal === "AMBIGUOUS_TRANSLATION") return "Not formally checked: more than one reading.";
+  if (UNAVAILABLE_STATUSES.includes(entry.formal)) return "Check unavailable.";
+  return "Not formally checked.";
+}
+
+// null when an answer's checks are well formed: both fields or neither; present exactly with the verified review;
+// at most 12 entries of {claim, formal, fidelity} with closed values; never a negative status.
+function verifiedChecksProblem(answer) {
+  const hasChecks = Object.hasOwn(answer, "checks");
+  if (hasChecks !== Object.hasOwn(answer, "checksSummary")) return "checks";
+  if (answer.review === VERIFIED_REVIEW) {
+    if (!hasChecks) return "checks";
+  } else {
+    return hasChecks ? "checks" : null;
+  }
+  if (!Array.isArray(answer.checks) || answer.checks.length > CHECK_LIMITS.maxChecks) return "checks";
+  for (const entry of answer.checks) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return "checks";
+    if (Object.keys(entry).length !== CHECK_FIELDS.length || !CHECK_FIELDS.every((key) => Object.hasOwn(entry, key))) return "checks";
+    if (typeof entry.claim !== "string" || entry.claim.trim() === "" || countCharacters(entry.claim) > CHECK_LIMITS.maxClaimChars) return "checks";
+    if (!CHECK_STATUSES.includes(entry.formal) || NEGATIVE_STATUSES.includes(entry.formal) || !FIDELITY_STATES.includes(entry.fidelity)) return "checks";
+  }
+  return CHECK_SUMMARIES.includes(answer.checksSummary) ? null : "checks";
+}

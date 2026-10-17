@@ -1,0 +1,358 @@
+{
+  "$defs": {
+    "Cost": {
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "tokens": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens",
+        "seconds"
+      ],
+      "title": "Cost",
+      "type": "object"
+    },
+    "PlanTotals": {
+      "additionalProperties": false,
+      "properties": {
+        "estimated_cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "instances": {
+          "maximum": 1088,
+          "minimum": 1,
+          "title": "Instances",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instances"
+      ],
+      "title": "PlanTotals",
+      "type": "object"
+    },
+    "RequestIds": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "RequestIds",
+      "type": "object"
+    },
+    "RouterIdentity": {
+      "additionalProperties": false,
+      "description": "The flash router's identity as it reports it in its hello: name, version and the digests of its rules and of its\nrecorded cost data. A plan must carry exactly this identity (``KIT-RT-003``).",
+      "properties": {
+        "cost_data_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cost Data Sha256",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rules_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Rules Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "rules_sha256",
+        "cost_data_sha256"
+      ],
+      "title": "RouterIdentity",
+      "type": "object"
+    },
+    "TemporaryContext": {
+      "additionalProperties": false,
+      "properties": {
+        "contents": {
+          "const": "validated_outcomes",
+          "title": "Contents",
+          "type": "string"
+        },
+        "discard": {
+          "const": "after_request",
+          "title": "Discard",
+          "type": "string"
+        },
+        "max_bytes": {
+          "maximum": 65536,
+          "minimum": 1,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "scope": {
+          "const": "request",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "contents",
+        "max_bytes",
+        "discard"
+      ],
+      "title": "TemporaryContext",
+      "type": "object"
+    },
+    "TransferPlan": {
+      "additionalProperties": false,
+      "description": "How one transfer is reviewed. ``instances`` is the number of distinct overseer instances its review needs at once\n(its reviews times its parts): the overseer pool assigns them within its maximum, and an instance may review several\ntransfers in turn under the pool's quota, so a plan's total is a count of review units, not of concurrent instances.",
+      "properties": {
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporaryContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "estimated_cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "features_used": {
+          "items": {
+            "enum": [
+              "subjects",
+              "stem",
+              "task_type",
+              "course_level",
+              "items",
+              "constraints",
+              "supplied_texts",
+              "size",
+              "claims",
+              "engine_statuses",
+              "receipt",
+              "diagnostics",
+              "unverified_dependencies",
+              "peer_relays",
+              "repeated_faults",
+              "topology"
+            ],
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Features Used",
+          "type": "array"
+        },
+        "instances": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Instances",
+          "type": "integer"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "SPLIT",
+            "DUPLICATE",
+            "N_FOLD"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "parts": {
+          "maximum": 16,
+          "minimum": 1,
+          "title": "Parts",
+          "type": "integer"
+        },
+        "profile": {
+          "enum": [
+            "standard",
+            "fast"
+          ],
+          "title": "Profile",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "enum": [
+              "baseline_single_review",
+              "risk_receipt_rejected",
+              "risk_error_findings",
+              "risk_repeated_faults",
+              "risk_negative_results",
+              "risk_stem_undecided",
+              "volume_split",
+              "topology_combined",
+              "topology_source",
+              "cost_cheapest",
+              "profile_fast",
+              "profile_standard",
+              "cap_merged",
+              "risk_diagnostics",
+              "risk_unverified_dependencies"
+            ],
+            "type": "string"
+          },
+          "maxItems": 15,
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "reviews": {
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Reviews",
+          "type": "integer"
+        },
+        "sources": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Sources",
+          "type": "array"
+        },
+        "tier": {
+          "const": "cheapest",
+          "title": "Tier",
+          "type": "string"
+        },
+        "transfer_key": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Transfer Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transfer_key",
+        "method",
+        "reviews",
+        "parts",
+        "instances",
+        "profile",
+        "tier",
+        "reasons"
+      ],
+      "title": "TransferPlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ids": {
+      "$ref": "#/$defs/RequestIds"
+    },
+    "origin": {
+      "enum": [
+        "router",
+        "floor"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+    },
+    "router": {
+      "$ref": "#/$defs/RouterIdentity"
+    },
+    "schema": {
+      "const": "epinoic.integration.routing-plan.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "totals": {
+      "$ref": "#/$defs/PlanTotals"
+    },
+    "transfers": {
+      "items": {
+        "$ref": "#/$defs/TransferPlan"
+      },
+      "maxItems": 17,
+      "minItems": 1,
+      "title": "Transfers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "origin",
+    "plan_id",
+    "ids",
+    "request_sha256",
+    "router",
+    "transfers",
+    "totals"
+  ],
+  "title": "RoutingPlan",
+  "type": "object"
+}

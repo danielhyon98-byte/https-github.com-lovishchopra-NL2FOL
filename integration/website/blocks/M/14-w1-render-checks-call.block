@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat.js
+anchor:   item.append(page);
+mode: before-line
+---
+  if (Array.isArray(outcome.checks)) page.append(renderChecks(outcome));

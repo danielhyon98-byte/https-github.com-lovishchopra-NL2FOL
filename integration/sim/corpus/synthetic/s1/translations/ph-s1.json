@@ -1,0 +1,185 @@
+{
+  "report_id": "rep-ph-s1-0",
+  "claims": {
+    "s1.2": {
+      "problem": {
+        "ir_version": "1.0",
+        "problem_id": "ph-s1-s1.2",
+        "request_id": "req-ph-s1",
+        "claim_id": "s1.2",
+        "query": "entailment",
+        "symbols": [
+          {
+            "name": "d",
+            "sort": "Real",
+            "meaning": "the distance in km"
+          },
+          {
+            "name": "speed",
+            "sort": "Real",
+            "meaning": "the average speed in km/h"
+          }
+        ],
+        "premises": [
+          {
+            "id": "D",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "d"
+              },
+              "right": {
+                "op": "real",
+                "value": "120"
+              }
+            },
+            "label": "distance 120 km",
+            "grounding": {
+              "kind": "arithmetic_fact"
+            }
+          },
+          {
+            "id": "SPEED",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "speed"
+              },
+              "right": {
+                "op": "div",
+                "left": {
+                  "op": "var",
+                  "name": "d"
+                },
+                "right": {
+                  "op": "real",
+                  "value": "2"
+                }
+              }
+            },
+            "label": "speed is the distance over the 2 h",
+            "grounding": {
+              "kind": "arithmetic_fact"
+            }
+          }
+        ],
+        "conclusion": {
+          "id": "C",
+          "expr": {
+            "op": "eq",
+            "left": {
+              "op": "var",
+              "name": "speed"
+            },
+            "right": {
+              "op": "real",
+              "value": "60"
+            }
+          },
+          "label": "the speed is 60 km/h"
+        }
+      },
+      "interpretation": {
+        "reading": "SYNTHETIC: average speed as distance over time.",
+        "glossary": [],
+        "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+    },
+    "s1.3": {
+      "problem": {
+        "ir_version": "1.0",
+        "problem_id": "ph-s1-s1.3",
+        "request_id": "req-ph-s1",
+        "claim_id": "s1.3",
+        "query": "entailment",
+        "symbols": [
+          {
+            "name": "d",
+            "sort": "Real",
+            "meaning": "the distance in km"
+          },
+          {
+            "name": "speed",
+            "sort": "Real",
+            "meaning": "the average speed in km/h"
+          }
+        ],
+        "premises": [
+          {
+            "id": "D",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "d"
+              },
+              "right": {
+                "op": "real",
+                "value": "120"
+              }
+            },
+            "label": "distance 120 km",
+            "grounding": {
+              "kind": "arithmetic_fact"
+            }
+          },
+          {
+            "id": "SPEED",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "speed"
+              },
+              "right": {
+                "op": "div",
+                "left": {
+                  "op": "var",
+                  "name": "d"
+                },
+                "right": {
+                  "op": "real",
+                  "value": "2"
+                }
+              }
+            },
+            "label": "speed is the distance over the 2 h",
+            "grounding": {
+              "kind": "arithmetic_fact"
+            }
+          }
+        ],
+        "conclusion": {
+          "id": "C",
+          "expr": {
+            "op": "eq",
+            "left": {
+              "op": "var",
+              "name": "speed"
+            },
+            "right": {
+              "op": "real",
+              "value": "60"
+            }
+          },
+          "label": "the speed is 60 km/h"
+        }
+      },
+      "interpretation": {
+        "reading": "SYNTHETIC: average speed as distance over time.",
+        "glossary": [],
+        "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+    }
+  },
+  "claim_text_sha256": {
+    "s1.2": "c26df783e2547d0738545013907a420c0ae306c8bc47a5dcbf18adab2505729d",
+    "s1.3": "3ee68ce14639d398d349f333bbff8faee92dd54e38048ebe84856d9707e2bcf3"
+  }
+}

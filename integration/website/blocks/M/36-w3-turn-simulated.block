@@ -1,0 +1,6 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: simulated: true
+mode: replace
+---
+simulated: verification !== null ? outcome?.kit?.simulated !== false : true

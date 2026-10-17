@@ -1,0 +1,252 @@
+{
+  "$defs": {
+    "Conflict": {
+      "additionalProperties": false,
+      "description": "A contradiction between source claims the combinator discloses instead of reconciling it: the hub requires every\nformal contradiction among the claims in scope to be disclosed (``INT-CONFLICT-002``). The service relays it as an\n``unresolved`` conflict record: a combinator never resolves a contradiction.",
+      "properties": {
+        "claim_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 2,
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "pattern": "^[\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff]*[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff][^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069]*$",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_ids",
+        "description"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "Dropped": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "pattern": "^[\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff]*[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff][^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069]*$",
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_claim_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Source Claim Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_claim_ids",
+        "reason"
+      ],
+      "title": "Dropped",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Document Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "InputIds": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "InputIds",
+      "type": "object"
+    },
+    "SynthClaim": {
+      "additionalProperties": false,
+      "description": "A synthesized claim: its text, the source claims it was made from (each cited once: a claim citing one source twice\nwould pass for a 'merged' claim with one source), its certainty and its one transformation word.",
+      "properties": {
+        "certainty": {
+          "enum": [
+            "possible",
+            "probable",
+            "established"
+          ],
+          "title": "Certainty",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Refs"
+        },
+        "source_claim_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:@-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Source Claim Ids",
+          "type": "array"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "pattern": "^[\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff]*[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069\\t\\n\\r \\u00a0\\u1680\\u2000-\\u200d\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff][^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\u202a-\\u202e\\u2066-\\u2069]*$",
+          "title": "Text",
+          "type": "string"
+        },
+        "transformation": {
+          "enum": [
+            "carried",
+            "paraphrased",
+            "merged",
+            "narrowed",
+            "generalized"
+          ],
+          "title": "Transformation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "source_claim_ids",
+        "certainty",
+        "transformation"
+      ],
+      "title": "SynthClaim",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/SynthClaim"
+      },
+      "maxItems": 512,
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "$ref": "#/$defs/Conflict"
+      },
+      "maxItems": 64,
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "dropped": {
+      "items": {
+        "$ref": "#/$defs/Dropped"
+      },
+      "maxItems": 512,
+      "title": "Dropped",
+      "type": "array"
+    },
+    "ids": {
+      "$ref": "#/$defs/InputIds"
+    },
+    "instruction_pack_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Instruction Pack Sha256",
+      "type": "string"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.combinator-output.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "ids",
+    "instruction_pack_sha256",
+    "claims"
+  ],
+  "title": "CombinatorOutput",
+  "type": "object"
+}

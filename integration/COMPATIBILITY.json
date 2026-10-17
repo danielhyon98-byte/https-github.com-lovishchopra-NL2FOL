@@ -1,0 +1,69 @@
+{
+  "schema": "epinoic.integration.compatibility.v1",
+  "protocol": "epinoic.integration.v1",
+  "protocol_version": {"major": 1, "minor": 0},
+  "header": "integration.v1",
+  "components": {
+    "ir": ["1.0"],
+    "engine": ["0.4.0"],
+    "policy": ["2026.10-v4"],
+    "translator": ["0.4.0"],
+    "contract": ["0.4"],
+    "z3_solver": {"min": "4.13", "below": "6"}
+  },
+  "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
+  "named_policies": ["joint", "linear", "nonlinear"],
+  "verdict_policies": ["verified-v1", "verified-v1-qualify"],
+  "stem_branches": ["computer_science", "mathematics", "sciences"],
+  "specialist_pairs": [
+    {"result": "epinoic.specialist-turn-result.v1", "runtime": "epinoic.specialist-runtime.v0.1.0", "log": "epinoic.specialist-turn-log.v1"},
+    {"result": "epinoic.specialist-turn-result.v2", "runtime": "epinoic.specialist-runtime.v0.2.0", "log": "epinoic.specialist-turn-log.v2"}
+  ],
+  "routing_contract": "epinoic.specialist-routing.v0.1.0",
+  "ports": {
+    "specialist": "1.0",
+    "checks": "1.0",
+    "overseer": "1.0",
+    "combinator": "1.0",
+    "router": "1.0"
+  },
+  "overseer": {"replay_mode": "process", "inline_final_release": false, "max_pending_wait_ms": 250, "modes": ["embedded"]},
+  "router": {"required": false, "floor": "minimum-oversight-floor/1", "methods": ["DUPLICATE", "IN_DEPTH", "N_FOLD", "SPLIT"], "tier": "cheapest"},
+  "subject_map": {"version": "2026-10-17.2", "sha256": "b5ea5000d6dfa9028aba6a72c975ae5046cf8179f1feed64410065b95877c521"},
+  "limits": {
+    "service_max_body_bytes": 1000000,
+    "worker_max_request_bytes": 262144,
+    "worker_max_response_bytes": 131072,
+    "max_answer_bytes": 49152,
+    "max_user_text_bytes": 49152,
+    "max_answers": 2,
+    "max_translated_claims": 8,
+    "max_translations_in_flight": 4,
+    "max_claim_entries": 32,
+    "max_excerpt_chars": 200,
+    "max_check_entries": 12,
+    "checks_min_ms": 3000,
+    "checks_max_ms": 65000,
+    "turn_slots": 4
+  },
+  "timing": {
+    "completion_reserve_ms": 2000,
+    "handshake_cache_ms": 60000,
+    "handshake_timeout_ms": 3000,
+    "bases": {
+      "M": {"deadline_ms": 180000, "specialist_ceiling_ms": 60000, "checks_tail_ms": 15000},
+      "P": {"deadline_ms": 25000, "specialist_ceiling_ms": 20000, "checks_tail_ms": 5000}
+    }
+  },
+  "website_bases": {
+    "M": {"commit": "2cd318208980e5b236d16b4281dfc0560a7b9610", "patch_set": "integration/website/patches/M", "status": "tested"},
+    "P": {"commit": null, "patch_set": null, "status": "not built: no tested patch set for base P in this kit"}
+  },
+  "repositories": {
+    "translator": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
+    "translator_mirror": "https://github.com/Bruno-ios/Epinoic-Logic-Translator",
+    "website": "https://github.com/Epinoic-AI/epinoic-ai-website",
+    "agents": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector"
+  },
+  "kit_tag": "integration-kit-v1"
+}

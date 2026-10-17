@@ -20,7 +20,7 @@ from .contracts import (  # noqa: F401
     SYNTHESIZED_CLAIM_TRANSFORMATIONS, TRANSFORMATION_MEANINGS,
 )
 from .cross_check import (  # noqa: F401
-    JointMap, check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment,
+    JointMap, check_conflict_disclosure, check_conflict_records, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment,
     claim_ids_from_core, gloss_content, joint_problem, split_by_gloss,
 )
 from .envelope import MessageLog, bind_payload, ROLE_CONTRACTS  # noqa: F401
@@ -223,6 +223,7 @@ def run_integrity_checks(
         guarded("required_formal_checks", required_checks)
 
         guarded("conflict_disclosure", lambda: findings.extend(check_conflict_disclosure(synthesis, conflicting_sets)))
+        guarded("conflict_records", lambda: findings.extend(check_conflict_records(synthesis, conflicting_sets)))
 
     report = IntegrityReport(report_id=uuid.uuid4().hex, request_id=plan.request_id, task_id=plan.task_id, checks_run=checks, findings=findings, formal_result_ids=formal_ids, created_at=_now())
     report.report_sha256 = report_digest(report)

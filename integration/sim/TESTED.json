@@ -1,0 +1,96 @@
+{
+ "agents_commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+ "computed": [
+  {
+   "denominator": 6,
+   "gate": "G-EQ-ARENA",
+   "reason": "0 differences",
+   "status": "PASS"
+  },
+  {
+   "denominator": 0,
+   "gate": "G-EQ-CONTAINED",
+   "reason": "the contained run (the overseer's run_contained.py) is not available on this tree",
+   "status": "NOT RUN"
+  },
+  {
+   "denominator": 34,
+   "gate": "G-FAULT",
+   "reason": "12 mutation(s) behave differently",
+   "status": "FAIL"
+  },
+  {
+   "denominator": 9,
+   "gate": "G-INV",
+   "reason": "every invariant held",
+   "status": "PASS"
+  },
+  {
+   "denominator": 29,
+   "gate": "G-HON",
+   "reason": "every displayed label is allowed for its status",
+   "status": "PASS"
+  },
+  {
+   "denominator": 77,
+   "gate": "G-DEL",
+   "reason": "every delivery had a passed FINAL audit and an allowed decision (re-derivation: kit-derived)",
+   "status": "PASS"
+  },
+  {
+   "denominator": 8,
+   "gate": "G-TAMPER",
+   "reason": "W-T1 to W-T8 each refused with the expected code",
+   "status": "PASS"
+  },
+  {
+   "denominator": 0,
+   "gate": "G-OVS",
+   "reason": "the overseer's asynchronous review and its probe providers are not available on this tree",
+   "status": "NOT RUN"
+  }
+ ],
+ "computed_fail_cases": {
+  "G-FAULT": [
+   "en-s1:invented_quotation",
+   "en-s1:invented_quotation_single",
+   "en-s1:self_certification",
+   "hi-s1:invented_quotation",
+   "hi-s1:invented_quotation_single",
+   "hi-s1:self_certification",
+   "hi-s3:invented_quotation",
+   "hi-s3:invented_quotation_single",
+   "hi-s3:self_certification",
+   "ph-s1:invented_quotation",
+   "ph-s1:invented_quotation_single",
+   "ph-s1:self_certification"
+  ]
+ },
+ "drivers": {
+  "agents_driver": "agents driver: 26 turn(s), 18 fault case(s), 0 not run; refused hosts: 0",
+  "website_driver": "website driver: 63 turn(s), 8 tampering case(s), 24 fault case(s), 0 not run; refused hosts: 0"
+ },
+ "fault_cases": {
+  "built": 42,
+  "indexed": 42,
+  "skipped": []
+ },
+ "files": {
+  "integration/sim/agents-driver.mjs": "cba1b439ff8326a5df28a242467fbdfc942bbf72915f1f38d0d85c9c02b496c2",
+  "integration/sim/compare.py": "e005ce1b1ae0518edf3221d76023c2c9a2064eb5f132063c18cf3c0a33ff5147",
+  "integration/sim/corpus/MANIFEST.sha256": "18fe07ce28e42152007bfbfaa6a040550d62757385137497feecb45a6ac1d091",
+  "integration/sim/faults.py": "930741fc011efde3a3be7322dd97064ca951674c178cecfbaba1cb7e441234aa",
+  "integration/sim/gates.py": "a97cd4577909e2cb0978712d54f254f2b9ec72f4a7cb1ea092a3c412a4628b01",
+  "integration/sim/reference.py": "0bba0657b28e166e769fd73aec7b0f918477584afde1705bf9acb5b56ef9db1a",
+  "integration/sim/run_sim.py": "d917bde03eb07390deaf6180078d1c421383e2b581cf50bbf211dc847b002ec8",
+  "integration/sim/users.json": "de1d04606000f5b5d2289f248c5db4c98d2723ee3ed545d975d6fc938eb5c247",
+  "integration/sim/website-driver.mjs": "425cfac9092150994f17780e5c22b880bb62944df0e7f40e01b49d0af1876696",
+  "tests/integration/sim_double/kit_overseer_test_double.py": "e600c93f2c5b7652f25fbffed7622f68fd56652029a8c8b57b8940a22c8e465f"
+ },
+ "not_run": {
+  "contained": "scripts/overseer/run_contained.py is not on this tree"
+ },
+ "note": "A wiring run of integration/sim/run_sim.py with the TEST DOUBLE of the overseer port (tests/integration/sim_double/): every gate is reported NOT RUN; 'computed' is what each gate computed, information only.",
+ "schema": "epinoic.integration.sim-wiring-record.v1",
+ "website_export": "UNREVIEWED SIMULATION COPY of origin/main 2cd318208980e5b236d16b4281dfc0560a7b9610."
+}

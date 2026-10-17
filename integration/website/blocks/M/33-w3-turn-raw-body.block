@@ -1,0 +1,7 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: if (typeof outcome?.rawBody === "string") {
+mode: before-line
+---
+    // Kit W3: a raw body stays mock-only; under the verified backend it is refused.
+    if (verification !== null && typeof outcome?.rawBody === "string") return failWith("kit_gate_raw_body", failure(requestId, "upstream_invalid"));

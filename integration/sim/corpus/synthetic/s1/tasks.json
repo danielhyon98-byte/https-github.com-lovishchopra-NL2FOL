@@ -1,0 +1,50 @@
+[
+  {
+    "task_id": "hi-s1",
+    "subject": "History",
+    "agent_id": "history-specialist",
+    "task_type": "short_answer",
+    "question": "SYNTHETIC: How far did the Treaty of Versailles destabilise the Weimar Republic? Answer briefly, with dates.",
+    "supplied_texts": []
+  },
+  {
+    "task_id": "hi-s2",
+    "subject": "History",
+    "agent_id": "history-specialist",
+    "task_type": "short_answer",
+    "question": "SYNTHETIC: How far did the Treaty of Versailles destabilise the Weimar Republic? Answer briefly, with dates.",
+    "supplied_texts": []
+  },
+  {
+    "task_id": "hi-s3",
+    "subject": "History",
+    "agent_id": "history-specialist",
+    "task_type": "short_answer",
+    "question": "SYNTHETIC: How far did the Treaty of Versailles destabilise the Weimar Republic? Answer briefly, with dates.",
+    "supplied_texts": []
+  },
+  {
+    "task_id": "en-s1",
+    "subject": "English A: Literature",
+    "agent_id": "english-a-literature-specialist",
+    "task_type": "analytical_paragraph",
+    "question": "SYNTHETIC: In one short paragraph, how does the poem's final image comment on power?",
+    "supplied_texts": []
+  },
+  {
+    "task_id": "ph-s1",
+    "subject": "Physics",
+    "agent_id": "physics-specialist",
+    "task_type": "calculation",
+    "question": "SYNTHETIC: A car travels 120 km in 2 hours. Find its average speed in km/h.",
+    "supplied_texts": []
+  },
+  {
+    "task_id": "ph-s2",
+    "subject": "Physics",
+    "agent_id": "physics-specialist",
+    "task_type": "calculation",
+    "question": "SYNTHETIC: A car travels 120 km in 2 hours. Find its average speed in km/h.",
+    "supplied_texts": []
+  }
+]

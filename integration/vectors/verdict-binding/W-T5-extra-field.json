@@ -1,0 +1,159 @@
+{
+  "context": {
+    "answers": [
+      [
+        "history",
+        "SYNTHETIC answer. The treaty was signed in 1919. The hyperinflation peaked in 1923. Historians still debate how far the treaty explains later instability.\nSources: none consulted (synthetic)",
+        "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+      ]
+    ],
+    "mode": "single",
+    "policy": "verified-v1",
+    "release_text": "SYNTHETIC answer. The treaty was signed in 1919. The hyperinflation peaked in 1923. Historians still debate how far the treaty explains later instability.\nSources: none consulted (synthetic)",
+    "request_id": "a_00000000000000000000000000000007",
+    "revision_of": null,
+    "task_id": "t_00000000000000000000000000000007",
+    "user_text": "SYNTHETIC: How far did the treaty of 1919 destabilise the republic?"
+  },
+  "expect": {
+    "ok": false,
+    "raw_code": "verifier_malformed"
+  },
+  "name": "W-T5-extra-field",
+  "verdict": {
+    "audit_scope_statement": "This audit covers only the transfers journaled since the auditor was attached to the channel. It shows whether the recorded transfers, receipts and signed results agree with each other and with this repository's rules. It does not show that any claim is true or any reading correct.",
+    "bound": {
+      "answers": [
+        {
+          "agent_id": "history",
+          "answer_sha256": "65bd29b54132ae7ed55be1a6274a534f7f7ec7b2d27fa2f9f37155dbd48ca0fa",
+          "message_id": "m-answer",
+          "report_id": "rep_t_00000000000000000000000000000007_history_v1",
+          "result_sha256": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+        }
+      ],
+      "mode": "single",
+      "policy": "verified-v1",
+      "user_text_sha256": "33bd7564eeee9713915afc95932d5c6a9ae7018d8a3f5a1b9f661280a8011858"
+    },
+    "claims": [
+      {
+        "attempt": "attempted",
+        "binding_digest": null,
+        "claim_id": "c1",
+        "evidence_resolved": false,
+        "excerpt": "The treaty was signed in 1919.",
+        "fidelity": "missing",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": false,
+        "result_id": null,
+        "role": "point",
+        "source": "translation"
+      },
+      {
+        "attempt": "attempted",
+        "binding_digest": null,
+        "claim_id": "c2",
+        "evidence_resolved": false,
+        "excerpt": "The hyperinflation peaked in 1923.",
+        "fidelity": "missing",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": false,
+        "result_id": null,
+        "role": "point",
+        "source": "translation"
+      }
+    ],
+    "counts": {
+      "attempted": 2,
+      "blocking": 0,
+      "budget_skipped": 0,
+      "claims_total": 2,
+      "definitive": 2,
+      "eligible": 2,
+      "material": 2,
+      "not_eligible": 0,
+      "permitted": 0,
+      "positive": 2,
+      "unavailable": 0
+    },
+    "delivery": {
+      "consolidation": {
+        "basis": "single",
+        "id": "cons-synthetic",
+        "status": "CONSOLIDATED"
+      },
+      "decision": "deliver",
+      "deliverable": {
+        "agent_id": "history",
+        "answer_sha256": "65bd29b54132ae7ed55be1a6274a534f7f7ec7b2d27fa2f9f37155dbd48ca0fa",
+        "message_id": "m-answer"
+      },
+      "reasons": [],
+      "synthesis": null
+    },
+    "ids": {
+      "channel_uid": "ch-synthetic",
+      "plan_id": "plan-a_00000000000000000000000000000007",
+      "request_id": "a_00000000000000000000000000000007",
+      "task_id": "t_00000000000000000000000000000007"
+    },
+    "issued_at": "2026-10-17T00:00:00.000Z",
+    "overseer": {
+      "delivery_allowed": true,
+      "error_codes": [],
+      "final_audit_id": "audit-synthetic",
+      "mode": "embedded",
+      "refusal": null,
+      "review": {
+        "plan_origin": null,
+        "plan_refusal": null,
+        "queued": false,
+        "router": null
+      },
+      "state": "AUDIT_PASSED"
+    },
+    "protocol": "epinoic.integration.v1",
+    "receipt": {
+      "branch": "history",
+      "error_codes": [],
+      "status": "ACCEPTED",
+      "warning_count": 0
+    },
+    "schema": "epinoic.integration.turn-verdict.v1",
+    "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+    "service": {
+      "build": {
+        "build_id": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+        "policy_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "schema_id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+      },
+      "service_env": "sim",
+      "subject_map_sha256": "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5",
+      "versions": {
+        "contract": "0.4",
+        "engine": "0.4.0",
+        "ir": "1.0",
+        "policy": "2026.10-v4",
+        "translator": "0.4.0",
+        "z3": "5.1.0"
+      }
+    },
+    "signature": {
+      "alg": "hmac-sha256",
+      "key_id": "verdict-vectors",
+      "value": "6c2280291447d99ef803001e431f15a9f140a94b2998b603763c66afec38d8b4"
+    },
+    "summary": "formal_only",
+    "timings": {
+      "overseer_ms": 5,
+      "solver_ms": 20,
+      "total_ms": 120,
+      "translation_ms": 10
+    },
+    "verdict_id": "vd_a_00000000000000000000000000000007",
+    "verified": true
+  }
+}

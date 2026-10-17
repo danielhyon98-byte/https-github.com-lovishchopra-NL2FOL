@@ -1,0 +1,8 @@
+kit-block: W1
+file: src/chat/history.js
+anchor: function publicTurnCode(code) {
+mode: after-line
+---
+  // Kit W1: a stored verified-backend raw code shows the same public code POST answered (src/verify/codes.js).
+  const kit = publicCodeFor(code);
+  if (kit !== undefined) return kit;

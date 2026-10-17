@@ -1,0 +1,18 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: const orchestrator = options.orchestrator ?? createMockOrchestrator();
+mode: replace
+---
+// Kit W3: under the verified backend the orchestrator is withVerification(inner); options.orchestrator is ignored, and
+  // the inner orchestrator comes only from options.verified.inner (the simulation) or the pilot (base P).
+  const verification = backend === "verified"
+    ? createVerification({ env, binding: env.TRANSLATOR ?? null, inner: options.verified?.inner ?? null, fetchImpl: options.fetchImpl ?? fetch, now: options.now ?? Date.now })
+    : null;
+  const orchestrator = verification === null
+    ? options.orchestrator ?? createMockOrchestrator()
+    : options.verified?.inner
+      ? withVerification(options.verified.inner, {
+        verification, environment: verification.workerEnv, now: options.now ?? Date.now,
+        failure: (rid, code) => ({ status: statusForError(code), result: errorResult(rid, code) }),
+      })
+      : null;

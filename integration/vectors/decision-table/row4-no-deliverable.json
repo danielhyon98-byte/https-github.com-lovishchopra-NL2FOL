@@ -1,0 +1,45 @@
+{
+  "expect": {
+    "decision": "refuse_unresolved",
+    "reasons": [
+      "KIT-DL-008"
+    ],
+    "summary": null
+  },
+  "fields": {
+    "claims": [
+      {
+        "attempt": "attempted",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": false
+      }
+    ],
+    "consolidation_status": "NO_DELIVERABLE_OUTPUT",
+    "counts": {
+      "attempted": 1,
+      "blocking": 0,
+      "budget_skipped": 0,
+      "claims_total": 1,
+      "definitive": 1,
+      "eligible": 1,
+      "material": 1,
+      "not_eligible": 0,
+      "permitted": 0,
+      "positive": 1,
+      "unavailable": 0
+    },
+    "overseer": {
+      "delivery_allowed": false,
+      "refusal": "no_deliverable_output",
+      "state": "AUDIT_PASSED"
+    },
+    "policy": "verified-v1",
+    "receipt": {
+      "error_codes": [],
+      "status": "ACCEPTED"
+    },
+    "revision_of": null
+  },
+  "name": "row4-no-deliverable"
+}

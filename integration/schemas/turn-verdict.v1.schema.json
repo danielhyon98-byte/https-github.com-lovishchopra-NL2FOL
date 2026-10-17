@@ -1,0 +1,956 @@
+{
+  "$defs": {
+    "Bound": {
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/BoundAnswer"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Answers",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "single",
+            "duplicate",
+            "combined"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "policy": {
+          "enum": [
+            "verified-v1",
+            "verified-v1-qualify"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "user_text_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "User Text Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_text_sha256",
+        "policy",
+        "mode",
+        "answers"
+      ],
+      "title": "Bound",
+      "type": "object"
+    },
+    "BoundAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "maxLength": 72,
+          "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "answer_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Answer Sha256",
+          "type": "string"
+        },
+        "message_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "report_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "result_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Result Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "answer_sha256",
+        "result_sha256",
+        "report_id",
+        "message_id"
+      ],
+      "title": "BoundAnswer",
+      "type": "object"
+    },
+    "BuildIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "build_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Build Id",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "schema_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Schema Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "build_id",
+        "schema_id",
+        "policy_id"
+      ],
+      "title": "BuildIdentity",
+      "type": "object"
+    },
+    "ClaimEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "enum": [
+            "attempted",
+            "not_eligible",
+            "skipped_cap",
+            "skipped_budget",
+            "provider_unavailable",
+            "stem_budget"
+          ],
+          "title": "Attempt",
+          "type": "string"
+        },
+        "binding_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binding Digest"
+        },
+        "claim_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_resolved": {
+          "title": "Evidence Resolved",
+          "type": "boolean"
+        },
+        "excerpt": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "fidelity": {
+          "enum": [
+            "faithful",
+            "unfaithful",
+            "uncertain",
+            "missing",
+            "stale",
+            "unbound",
+            "without_evidence"
+          ],
+          "title": "Fidelity",
+          "type": "string"
+        },
+        "formal": {
+          "enum": [
+            "ENTAILED",
+            "COUNTEREXAMPLE",
+            "INCONSISTENT_PREMISES",
+            "CONSISTENT",
+            "SATISFIABLE",
+            "UNSATISFIABLE",
+            "UNKNOWN",
+            "TIMEOUT",
+            "UNSUPPORTED",
+            "INVALID_FORMALIZATION",
+            "AMBIGUOUS_TRANSLATION",
+            "NOT_ELIGIBLE",
+            "INTERNAL_ERROR",
+            "NOT_ATTEMPTED"
+          ],
+          "title": "Formal",
+          "type": "string"
+        },
+        "materiality": {
+          "enum": [
+            "material",
+            "supporting"
+          ],
+          "title": "Materiality",
+          "type": "string"
+        },
+        "release_permitted": {
+          "title": "Release Permitted",
+          "type": "boolean"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Id"
+        },
+        "role": {
+          "pattern": "^[a-z][a-z_]{0,63}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "translation",
+            "branch_check",
+            "stem"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "materiality",
+        "role",
+        "excerpt",
+        "source",
+        "formal",
+        "attempt",
+        "fidelity",
+        "evidence_resolved",
+        "release_permitted"
+      ],
+      "title": "ClaimEntry",
+      "type": "object"
+    },
+    "ComponentVersions": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Contract",
+          "type": "string"
+        },
+        "engine": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Engine",
+          "type": "string"
+        },
+        "ir": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Ir",
+          "type": "string"
+        },
+        "policy": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Policy",
+          "type": "string"
+        },
+        "translator": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Translator",
+          "type": "string"
+        },
+        "z3": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Z3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ir",
+        "engine",
+        "policy",
+        "translator",
+        "z3",
+        "contract"
+      ],
+      "title": "ComponentVersions",
+      "type": "object"
+    },
+    "ConsolidationRef": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Basis",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "CONSOLIDATED",
+            "CONSOLIDATED_WITH_FINDINGS",
+            "CONFLICTING",
+            "NO_DELIVERABLE_OUTPUT"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "basis"
+      ],
+      "title": "ConsolidationRef",
+      "type": "object"
+    },
+    "Counts": {
+      "additionalProperties": false,
+      "description": "Counts over ALL claims of the deliverable (the list ``claims`` is capped at 32, material first, and leaves out a\nclaim without a verbatim excerpt), so the Worker re-derives the decision and the summary exactly from them, never\nfrom the list. Every count but ``claims_total`` concerns material claims; ``eligible`` excludes NOT_ELIGIBLE;\n``permitted`` counts the positive results whose release assessment permits release; ``budget_skipped`` the\nincomplete ones the budget or the STEM budget left NOT_ATTEMPTED (decision-table row 5's KIT-DL-013).",
+      "properties": {
+        "attempted": {
+          "minimum": 0,
+          "title": "Attempted",
+          "type": "integer"
+        },
+        "blocking": {
+          "minimum": 0,
+          "title": "Blocking",
+          "type": "integer"
+        },
+        "budget_skipped": {
+          "minimum": 0,
+          "title": "Budget Skipped",
+          "type": "integer"
+        },
+        "claims_total": {
+          "minimum": 0,
+          "title": "Claims Total",
+          "type": "integer"
+        },
+        "definitive": {
+          "minimum": 0,
+          "title": "Definitive",
+          "type": "integer"
+        },
+        "eligible": {
+          "minimum": 0,
+          "title": "Eligible",
+          "type": "integer"
+        },
+        "material": {
+          "minimum": 0,
+          "title": "Material",
+          "type": "integer"
+        },
+        "not_eligible": {
+          "minimum": 0,
+          "title": "Not Eligible",
+          "type": "integer"
+        },
+        "permitted": {
+          "minimum": 0,
+          "title": "Permitted",
+          "type": "integer"
+        },
+        "positive": {
+          "minimum": 0,
+          "title": "Positive",
+          "type": "integer"
+        },
+        "unavailable": {
+          "minimum": 0,
+          "title": "Unavailable",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "claims_total",
+        "material",
+        "eligible",
+        "attempted",
+        "definitive",
+        "positive",
+        "permitted",
+        "blocking",
+        "unavailable",
+        "budget_skipped",
+        "not_eligible"
+      ],
+      "title": "Counts",
+      "type": "object"
+    },
+    "Deliverable": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "maxLength": 72,
+          "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "answer_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Answer Sha256",
+          "type": "string"
+        },
+        "message_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "answer_sha256",
+        "message_id"
+      ],
+      "title": "Deliverable",
+      "type": "object"
+    },
+    "Delivery": {
+      "additionalProperties": false,
+      "properties": {
+        "consolidation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsolidationRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "decision": {
+          "enum": [
+            "deliver",
+            "revise",
+            "refuse_unresolved",
+            "refuse_incomplete",
+            "refuse_integrity"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "deliverable": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Deliverable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reasons": {
+          "items": {
+            "pattern": "^KIT-DL-[0-9]{3}$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "synthesis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SynthesisRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "title": "Delivery",
+      "type": "object"
+    },
+    "OverseerSection": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_allowed": {
+          "title": "Delivery Allowed",
+          "type": "boolean"
+        },
+        "error_codes": {
+          "items": {
+            "pattern": "^OVS-[A-Z]{2,12}-[0-9]{3}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Error Codes",
+          "type": "array"
+        },
+        "final_audit_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Final Audit Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "embedded",
+            "sidecar"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "refusal": {
+          "anyOf": [
+            {
+              "enum": [
+                "clearance_failed",
+                "clearance_pending",
+                "final_audit_not_passed",
+                "signature_invalid",
+                "custody_failed",
+                "stale",
+                "consolidation_conflicting",
+                "no_deliverable_output",
+                "receipt_error_findings",
+                "not_deliverable",
+                "internal_error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal"
+        },
+        "review": {
+          "$ref": "#/$defs/ReviewRef"
+        },
+        "state": {
+          "enum": [
+            "AUDIT_PASSED",
+            "AUDIT_PASSED_WITH_FINDINGS",
+            "AUDIT_PENDING",
+            "AUDIT_FAILED"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "final_audit_id",
+        "state",
+        "delivery_allowed",
+        "review"
+      ],
+      "title": "OverseerSection",
+      "type": "object"
+    },
+    "ReceiptSection": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "pattern": "^[a-z][a-z_]{0,63}$",
+          "title": "Branch",
+          "type": "string"
+        },
+        "error_codes": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4}(?:/[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4})?$",
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Error Codes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "ACCEPTED",
+            "ACCEPTED_WITH_FINDINGS",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "warning_count": {
+          "minimum": 0,
+          "title": "Warning Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "warning_count",
+        "branch"
+      ],
+      "title": "ReceiptSection",
+      "type": "object"
+    },
+    "ReviewRef": {
+      "additionalProperties": false,
+      "description": "The asynchronous overseer-agent review of this turn: never on the critical path, never a release condition.",
+      "properties": {
+        "plan_origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "router",
+                "floor"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Origin"
+        },
+        "plan_refusal": {
+          "anyOf": [
+            {
+              "pattern": "^KIT-RT-[0-9]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Refusal"
+        },
+        "queued": {
+          "title": "Queued",
+          "type": "boolean"
+        },
+        "router": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RouterIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "queued"
+      ],
+      "title": "ReviewRef",
+      "type": "object"
+    },
+    "RouterIdentity": {
+      "additionalProperties": false,
+      "description": "The flash router's identity as it reports it in its hello: name, version and the digests of its rules and of its\nrecorded cost data. A plan must carry exactly this identity (``KIT-RT-003``).",
+      "properties": {
+        "cost_data_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cost Data Sha256",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rules_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Rules Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "rules_sha256",
+        "cost_data_sha256"
+      ],
+      "title": "RouterIdentity",
+      "type": "object"
+    },
+    "ServiceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "$ref": "#/$defs/BuildIdentity"
+        },
+        "service_env": {
+          "enum": [
+            "development",
+            "staging",
+            "production",
+            "sim"
+          ],
+          "title": "Service Env",
+          "type": "string"
+        },
+        "subject_map_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Subject Map Sha256",
+          "type": "string"
+        },
+        "versions": {
+          "$ref": "#/$defs/ComponentVersions"
+        }
+      },
+      "required": [
+        "service_env",
+        "versions",
+        "build",
+        "subject_map_sha256"
+      ],
+      "title": "ServiceRef",
+      "type": "object"
+    },
+    "Signature": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "const": "hmac-sha256",
+          "title": "Alg",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alg",
+        "key_id",
+        "value"
+      ],
+      "title": "Signature",
+      "type": "object"
+    },
+    "SynthesisRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "receipt_status": {
+          "enum": [
+            "ACCEPTED",
+            "ACCEPTED_WITH_FINDINGS",
+            "REJECTED"
+          ],
+          "title": "Receipt Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "receipt_status"
+      ],
+      "title": "SynthesisRef",
+      "type": "object"
+    },
+    "Timings": {
+      "additionalProperties": false,
+      "properties": {
+        "overseer_ms": {
+          "minimum": 0,
+          "title": "Overseer Ms",
+          "type": "integer"
+        },
+        "solver_ms": {
+          "minimum": 0,
+          "title": "Solver Ms",
+          "type": "integer"
+        },
+        "total_ms": {
+          "minimum": 0,
+          "title": "Total Ms",
+          "type": "integer"
+        },
+        "translation_ms": {
+          "minimum": 0,
+          "title": "Translation Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_ms",
+        "translation_ms",
+        "solver_ms",
+        "overseer_ms"
+      ],
+      "title": "Timings",
+      "type": "object"
+    },
+    "VerdictIds": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_uid": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Channel Uid",
+          "type": "string"
+        },
+        "plan_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id",
+        "plan_id",
+        "channel_uid"
+      ],
+      "title": "VerdictIds",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``epinoic.integration.turn-verdict.v1`` (PROTOCOL.md section 5.4). ``receipt`` and ``claims`` describe the\ndeliverable. No verdict carries the evidence bundle. ``summary`` is set only when the decision is ``deliver``.",
+  "properties": {
+    "audit_scope_statement": {
+      "const": "This audit covers only the transfers journaled since the auditor was attached to the channel. It shows whether the recorded transfers, receipts and signed results agree with each other and with this repository's rules. It does not show that any claim is true or any reading correct.",
+      "title": "Audit Scope Statement",
+      "type": "string"
+    },
+    "bound": {
+      "$ref": "#/$defs/Bound"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ClaimEntry"
+      },
+      "maxItems": 32,
+      "title": "Claims",
+      "type": "array"
+    },
+    "counts": {
+      "$ref": "#/$defs/Counts"
+    },
+    "delivery": {
+      "$ref": "#/$defs/Delivery"
+    },
+    "ids": {
+      "$ref": "#/$defs/VerdictIds"
+    },
+    "issued_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "overseer": {
+      "$ref": "#/$defs/OverseerSection"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "receipt": {
+      "$ref": "#/$defs/ReceiptSection"
+    },
+    "schema": {
+      "const": "epinoic.integration.turn-verdict.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "scope_statement": {
+      "const": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+      "title": "Scope Statement",
+      "type": "string"
+    },
+    "service": {
+      "$ref": "#/$defs/ServiceRef"
+    },
+    "signature": {
+      "$ref": "#/$defs/Signature"
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "enum": [
+            "formally_checked",
+            "partly_checked",
+            "formal_only",
+            "not_formally_checkable",
+            "incomplete"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Summary"
+    },
+    "timings": {
+      "$ref": "#/$defs/Timings"
+    },
+    "verdict_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Verdict Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "verdict_id",
+    "issued_at",
+    "ids",
+    "bound",
+    "service",
+    "delivery",
+    "overseer",
+    "receipt",
+    "counts",
+    "scope_statement",
+    "audit_scope_statement",
+    "timings",
+    "signature"
+  ],
+  "title": "TurnVerdict",
+  "type": "object"
+}

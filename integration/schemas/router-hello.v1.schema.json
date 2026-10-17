@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "RouterIdentity": {
+      "additionalProperties": false,
+      "description": "The flash router's identity as it reports it in its hello: name, version and the digests of its rules and of its\nrecorded cost data. A plan must carry exactly this identity (``KIT-RT-003``).",
+      "properties": {
+        "cost_data_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cost Data Sha256",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rules_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Rules Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "rules_sha256",
+        "cost_data_sha256"
+      ],
+      "title": "RouterIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a flash router says about itself when it is attached. Validated once; every plan must carry its identity.",
+  "properties": {
+    "deterministic": {
+      "const": true,
+      "title": "Deterministic",
+      "type": "boolean"
+    },
+    "methods": {
+      "items": {
+        "enum": [
+          "IN_DEPTH",
+          "SPLIT",
+          "DUPLICATE",
+          "N_FOLD"
+        ],
+        "type": "string"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Methods",
+      "type": "array"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "profiles": {
+      "items": {
+        "enum": [
+          "standard",
+          "fast"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "router": {
+      "$ref": "#/$defs/RouterIdentity"
+    },
+    "schema": {
+      "const": "epinoic.integration.router-hello.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "tier": {
+      "const": "cheapest",
+      "title": "Tier",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "router",
+    "methods",
+    "profiles",
+    "tier",
+    "deterministic"
+  ],
+  "title": "RouterHello",
+  "type": "object"
+}

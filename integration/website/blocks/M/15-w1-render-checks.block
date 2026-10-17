@@ -1,0 +1,20 @@
+kit-block: W1
+file: public/chat.js
+anchor: function addAnswer(outcome, into = ui.messages) {
+mode: before-line
+---
+// Kit W1: the checks of a verified answer, written with textContent from the closed statuses (chat-contract.js
+// checkLabel), with the engine's scope statement shown once. No HTML is rendered from any answer or service text.
+function renderChecks(outcome) {
+  const box = element("div", "checks");
+  box.append(element("p", "checks-title", "Automatic checks of the logic encoding"));
+  const list = element("ul");
+  for (const entry of outcome.checks) {
+    const row = element("li", null, entry.claim);
+    row.append(element("span", "check-label", ` — ${checkLabel(entry)}`));
+    list.append(row);
+  }
+  box.append(list, element("p", "checks-scope", SCOPE_STATEMENT));
+  return box;
+}
+

@@ -1,0 +1,20 @@
+{
+ "schema": "epinoic.integration.agents-tested.v1",
+ "agents_commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+ "tested_on": "an archive copy of the agents repository at agents_commit (git archive; .kit-archive-commit), 17 October 2026; Node.js v22.22.0",
+ "files": {
+  "integration/agents/patches/agents-A3-A5.json": "20b1ae47638fbc9d40ec070c9f10ab92018d9a7dba2f82b8322c5f97f209696c",
+  "integration/agents/apply-agents.mjs": "3ef78e8aafc647a65c5f35138f9d4951e878102cecdc3b86f632326c59f2fb2d"
+ },
+ "results": {
+  "apply_check": "16 anchors found exactly once in 3 files; nothing written",
+  "apply": "16 replacements in 3 files; the written diff (164 lines) passes git apply --check on a fresh copy of agents_commit; a second apply is refused (anchor not found)",
+  "syntax": "node --check of simulation/workflows/real-agent-training-cycle.js and simulation/tools/report.mjs; python -m py_compile of integration/z3/check_answer.py",
+  "A3_check_answer": "four probes (physics wrong step, physics right step, a History answer, an unknown slug): the same status, findings, counts and formal_errors as the unchanged script (1, 0, 0, ERROR unknown_slug), plus reply {message_id, payload_sha256, signature_key_id, signed} and simulation true; --simulation exit 0; --live refused (exit 2, error simulation_only); --mode dispatch unchanged",
+  "A5_report": "a synthetic round whose only blocker is a Z3 error ruled checker_artefact: default (advisory) 1 blocking round, 0 accepted; --adjudicator authoritative 0 blocking, 1 accepted (the unchanged report's result); an unknown mode throws",
+  "A5_workflow": "not run (it needs the training harness's agent calls): syntax checked; the blocking rule is the same expression as the report's",
+  "runtime_suite": "specialist-runtime: 120 tests, 120 pass, 0 fail (unchanged files)",
+  "routing_suite": "specialist-routing: 175 tests, 175 pass, 0 fail (unchanged files)",
+  "readiness": "tools/readiness-check.mjs --json with the translator installed: 20 blockers before and after; the Z3 rows (wrong step caught, right step passes) unchanged"
+ }
+}

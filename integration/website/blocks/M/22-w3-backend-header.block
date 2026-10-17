@@ -1,0 +1,9 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: if (backend === "mock") headers["X-Chat-Backend"] = "mock";
+mode: after-line
+---
+  if (backend === "verified") {
+    headers["X-Chat-Backend"] = "verified";
+    headers["X-Chat-Simulated"] = "1"; // base M: the specialist is the simulation's; both parts are never live here
+  }

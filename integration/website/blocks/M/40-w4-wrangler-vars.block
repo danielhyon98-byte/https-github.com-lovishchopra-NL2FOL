@@ -1,0 +1,9 @@
+kit-block: W4
+file: wrangler.jsonc
+anchor: "ROUTER_MODE": "mock"
+mode: replace
+---
+"ROUTER_MODE": "mock",
+{{indent}}// Kit W4: the checks service is off ("none") in every block; the token is a secret, never a var.
+{{indent}}"TRANSLATOR_MODE": "none",
+{{indent}}"TRANSLATOR_BASE_URL": ""

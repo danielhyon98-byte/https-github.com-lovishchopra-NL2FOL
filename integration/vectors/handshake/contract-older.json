@@ -1,0 +1,132 @@
+{
+  "base": "M",
+  "capabilities": {
+    "build": {
+      "build_id": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+      "policy_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "schema_id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+    },
+    "issued_at": "2026-10-17T00:00:00.000Z",
+    "limits": {
+      "checks_max_ms": 65000,
+      "checks_min_ms": 3000,
+      "max_answer_bytes": 49152,
+      "max_answers": 2,
+      "max_body_bytes": 1000000,
+      "max_translated_claims": 8,
+      "turn_slots": 4
+    },
+    "policies": [
+      "verified-v1",
+      "verified-v1-qualify"
+    ],
+    "ports": {
+      "checks": {
+        "modes": [
+          "single",
+          "duplicate"
+        ],
+        "named_policies": [
+          "joint",
+          "linear",
+          "nonlinear"
+        ],
+        "stem": {
+          "branches": [
+            "computer_science",
+            "mathematics",
+            "sciences"
+          ],
+          "report_budget_max_s": 8
+        },
+        "version": "1.0"
+      },
+      "combinator": {
+        "available": false,
+        "instruction_pack": null,
+        "version": "1.0"
+      },
+      "overseer": {
+        "agents": "off",
+        "auditor_version": "1.3.0",
+        "inline_final_release": false,
+        "mode": "embedded",
+        "pack_digests": [
+          "abababababababababababababababababababababababababababababababab"
+        ],
+        "profiles": [
+          "standard"
+        ],
+        "replay_mode": "process",
+        "version": "1.0"
+      },
+      "router": {
+        "attached": false,
+        "floor": {
+          "name": "minimum-oversight-floor/1",
+          "rules_sha256": "78d4ce57d86e8f343eadfe00bda19e0383e18c4db9340425ac6b1aca4c454045"
+        },
+        "identity": null,
+        "refusal": null,
+        "required": false,
+        "version": "1.0"
+      },
+      "specialist": {
+        "accepted": [
+          {
+            "log": "epinoic.specialist-turn-log.v1",
+            "result": "epinoic.specialist-turn-result.v1",
+            "runtime": "epinoic.specialist-runtime.v0.1.0"
+          },
+          {
+            "log": "epinoic.specialist-turn-log.v2",
+            "result": "epinoic.specialist-turn-result.v2",
+            "runtime": "epinoic.specialist-runtime.v0.2.0"
+          }
+        ],
+        "version": "1.0"
+      },
+      "translation": {
+        "live": false,
+        "provider": "fixture",
+        "reviewer": "none",
+        "tier": "cheapest"
+      }
+    },
+    "protocol": "epinoic.integration.v1",
+    "schema": "epinoic.integration.capabilities.v1",
+    "selftest": {
+      "digests": [
+        "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+        "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+        "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
+      ],
+      "passed": true
+    },
+    "service_env": "sim",
+    "signing": {
+      "engine_key_id": "default",
+      "verdict_alg": "hmac-sha256",
+      "verdict_key_id": "verdict"
+    },
+    "subject_map": {
+      "sha256": "b5ea5000d6dfa9028aba6a72c975ae5046cf8179f1feed64410065b95877c521",
+      "version": "2026-10-17.2"
+    },
+    "versions": {
+      "contract": "0.3",
+      "engine": "0.4.0",
+      "ir": "1.0",
+      "policy": "2026.10-v4",
+      "translator": "0.4.0",
+      "z3": "4.15.0"
+    }
+  },
+  "expect": {
+    "code": "KIT-HS-002",
+    "ok": false,
+    "raw_code": "kit_hs_mismatch"
+  },
+  "name": "contract-older",
+  "worker_env": "sim"
+}

@@ -1,0 +1,8 @@
+kit-block: W4
+file: src/disclosure.js
+anchor: if (env.ROUTER_MODE !== "live" || (request.method !== "GET" && request.method !== "HEAD")) return env.ASSETS.fetch(request);
+mode: replace
+---
+const verified = env.CHAT_BACKEND === "verified";
+  if ((env.ROUTER_MODE !== "live" && !verified) || (request.method !== "GET" && request.method !== "HEAD")) return env.ASSETS.fetch(request);
+  const anchors = verified ? (env.ROUTER_MODE === "live" ? VERIFIED_LIVE_ANCHORS : VERIFIED_ANCHORS) : ANCHORS;
