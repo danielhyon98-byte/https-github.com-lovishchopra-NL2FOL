@@ -627,3 +627,9 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the first STEM repair closed the earlier audit's gaps; the second independent STEM audit, with its own new planted faults, found eight more (two high: integer division and modulo written as the words mod and div are read wrongly and graded as errors; a given that contradicts the request is not named). The second of at most three STEM repairs is in progress; the rebuild is committed only after a clean audit.
 - Argument diagnostics: the five fixer branches are being merged onto the current development branch (with the end-to-end fixes) before independent verification on the development and hold-out corpora.
 - Integration kit: the protocol and kit passed their fresh-session playbook check on the third verification (two medium contract items remain open for the next step); the combinator sub-project is being built.
+
+### Progress, 13:00 UTC
+
+- Argument diagnostics: the five fixer branches are merged and staged on the development branch with the end-to-end fixes (suite green; every recorded round replays unchanged; development corpus 44 of 44 defects named with 0 false alarms on 57 controls). The independent detection-accuracy check measured the hold-out corpus at 48 of 66 defects named (9 more caught but not named, 9 missed) and 13 of 68 controls flagged, short of the acceptance bar (95% named, at most one control flagged), and found two new false alarms caused by the changes. The repair loop (at most five rounds) addresses them; a second, sealed hold-out corpus written without sight of the fixes is being prepared as the final generalisation check before commit.
+- Overseer rebuild: the second STEM repair is in progress; the rebuild is committed only after a clean audit.
+- Combinator sub-project: built; its first verification found one medium item, now being repaired.
