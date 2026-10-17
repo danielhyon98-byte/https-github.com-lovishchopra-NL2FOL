@@ -1294,6 +1294,45 @@ a unit conversion or a figure that starts the next expression) to unstated or to
 unstated to the reading of a genuine written calculation the old test missed (LaTeX, exponents, units, scale words). No
 reading becomes rounded by a cue it did not have.
 
+## Fixes after the end-to-end simulation of 16 October 2026: the channel and the service
+
+The end-to-end simulation of the website-to-backend flow (all sixteen specialists on the cheapest tier, a frozen copy
+of the integrated tree) found two faults on the channel and service side; both reproduced on 22d6a5b and are fixed at
+the cause (regression tests: `tests/README.md`).
+
+- **The combinator's synthesis (bug 7).** All 14 group syntheses of the simulation's round crashed in the harness with
+  a pydantic ValidationError: the combinator had written a description of each edit in `transformation` ("Verdict (s1.1)
+  and reason (s1.2) joined ...; figures verbatim.") instead of one of the documented values, and `run_arena.py` built
+  the contract models itself, so the hub never saw the syntheses. The harness now relays each synthesis as the JSON the
+  router receives, and the hub's contract validation decides it: such a synthesis is REJECTED with INT-REQ-009 and the
+  new INT-SYNTH-014, which names every claim whose transformation (or certainty, materiality, ledger transformation,
+  conflict status) is outside the closed vocabulary. The same fault had a second path: a synthesis object built around
+  validation (`model_copy`) with a free-text transformation was delivered, its value-specific ledger rules skipped; the
+  channel now re-validates synthesis objects as it does reports. The contract keeps its closed set
+  (`integrity.contracts.TRANSFORMATION_MEANINGS`), on the evidence of the recorded rounds: the combinator agents of r1
+  to r7, told the values, used one of them in all 202 synthesized claims, and the simulation's combinator, whose
+  instructions named the field without its values, wrote free text in all 62. `list_claims.py --json`, which the
+  combinator runs for every report, now prints the synthesis format with the values and their meanings from the
+  contract (`scripts/arena/README.md`, "Synthesis format").
+- **The engine policy over HTTP (bug 8).** `POST /v1/verify` always decided under the default limits, so 8 of the
+  simulation's 301 genuine-pass engine problems decided differently over HTTP than in the pipeline: seven STEM checks the
+  channel ran under `nonlinear` (UNSUPPORTED, E201) and one cross-agent joint check (INVALID_FORMALIZATION, E300 to
+  E302). A request (and `epinoic-logic verify --policy`) now names `linear`, `nonlinear` or `joint`, never limits of its
+  own; the service applies the name as the in-process caller does, and all eight decide as in the pipeline, each with
+  the binding the same payload has in process. Unknown names are refused before anything runs; authentication and the
+  rate, size and concurrency limits are unchanged.
+
+Replays on copies, record by record against the harness and code of 22d6a5b (findings and messages compared with ids
+masked): r1 30/30, r1-adv 150/151, r2 to r6 46/46 and r7 177/177, every record identical. On a copy of the simulation's
+round, the 120 records other than the syntheses are identical, and the 14 synthesis records, which held only the
+exception, are REJECTED receipts naming INT-REQ-009 and INT-SYNTH-014 with every claim; they stay failures (genuine
+traffic that was not delivered), so transport is 114 of 134 before and after (the six other failures are injected
+faults not named, the simulation's bugs 1 to 6, which this fix does not address). With the transformations relabelled
+by a fixed rule (one source:
+`paraphrased`, several: `merged`; a reconstruction, not what the combinator wrote), the same 14 syntheses are
+delivered and decided, transport 128 of 134, so nothing else on the synthesis path was hidden behind the
+ValidationError. No live agent or provider was called for these replays.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |

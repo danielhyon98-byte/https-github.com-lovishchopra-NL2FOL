@@ -7,7 +7,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
 | `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`) |
-| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest |
+| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`, built from the synthesis contract) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
@@ -16,6 +16,40 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 A round directory holds `specialists/*.json` (the answers), and optionally `translations/*.json` (recorded translations,
 with `claim_text_sha256` binding each to the claim text it was produced for), `syntheses/*.json`, `relayed/*.json`,
 `tasks.json` and `adjudications/translation_fidelity.json`.
+
+## Synthesis format (the combinator's instructions)
+
+The combinator writes `<round>/syntheses/<task_id>.json` for each report it synthesizes:
+
+```
+{"report_id": "<the report_id list_claims.py prints>",
+ "claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
+             "transformation": "carried" | "paraphrased" | "merged" | "narrowed" | "generalized"}],   (2 to 4)
+ "dropped": [{"source_claim_ids": ["..."], "reason": "..."}]}
+```
+
+- `transformation` is exactly one of those five words, a category of what was done to the cited sources, never a
+  description of the edit: `carried` (one source, its text unchanged), `paraphrased` (one source reworded),
+  `merged` (several sources combined), `narrowed` (part of a source left out on purpose), `generalized` (sources stated
+  more generally). What each records and how the ledger reads it is `TRANSFORMATION_MEANINGS` in
+  `src/epinoic_logic/integrity/contracts.py`; `list_claims.py --json` prints the same text as `synthesis_format`, and its
+  plain output ends with the list, so the instructions come from the contract and cannot drift from it.
+- `certainty` is never stronger than the weakest cited source (INT-LEDGER-003); figures, units, dates and quotations
+  are kept exactly as the source states them; a material claim left out goes in `dropped` with a meaningful reason.
+- Any other value (free text, an alias such as "joined", another spelling) is refused by the hub: the synthesis is
+  REJECTED with INT-REQ-009 and INT-SYNTH-014 naming each claim, and it is not delivered. So is a file that is not JSON,
+  a claim that is not an object, a missing field or a field the synthesis contract does not have.
+
+A workflow that briefs a combinator agent should give it these instructions, or tell it to read `synthesis_format` from
+`list_claims.py --json`. The end-to-end simulation of 16 October 2026 named the field without its values, and its
+combinator wrote free text in all 62 synthesized claims; the recorded rounds r1 to r7, whose combinator was told the
+values, carry one of them in all 202.
+
+`run_arena.py` relays each group's synthesis to the hub as the JSON the router receives (`group_synthesis` passes the
+combinator's fields on as written; it never builds the contract models itself), so the hub's contract validation decides
+it. A malformed synthesis is a REJECTED receipt recorded with its findings, and, being genuine traffic that was not
+delivered, a failed synthesis record whose `failure_reasons` name the codes; it is never an exception that stops the
+round or leaves the record without a receipt.
 
 ```
 python scripts/arena/run_arena.py <round>                           # results.json, summary.md; exit 0

@@ -25,6 +25,18 @@ Two engine bounds go with the nonlinear policy:
   exceeds this bound (UNSUPPORTED, ``E201``) before it compiles. Under the linear policy
   every degree is at most 1, so the bound never applies there.
 
+Named engine policies a caller may request (:data:`NAMED_POLICIES`): the pack policies and
+``joint``, the integrity layer's joint bounds (:data:`JOINT_LIMITS`). A caller outside this
+process (``POST /v1/verify``, ``epinoic-logic verify --policy``) names one of them; it can
+never send limits of its own. :func:`named_policy` returns the ``Limits`` and the solver
+configuration a problem is decided under for that name, exactly as the in-process caller of
+that policy decides it (the channel's branch checks for ``linear`` and ``nonlinear``, the
+cross-agent joint checks for ``joint``), so the same problem gets the same decision in
+process and over HTTP. The result binds the policy: its non-default limits are recorded and
+their digest is part of the binding digest (``Binding.limits_digest``), the nonlinear
+``rlimit`` cap is part of the configuration digest, and :func:`named_policy_of` names the
+policy a result's limits record stands for. A pack still cannot choose ``joint``.
+
 Everything here inspects the IR as data. Nothing is evaluated or executed.
 """
 from __future__ import annotations
@@ -40,15 +52,19 @@ from .validator import validate_problem, walk_postorder
 __all__ = [
     "LINEAR",
     "NONLINEAR",
+    "JOINT",
     "LINEAR_LIMITS",
     "NONLINEAR_LIMITS",
     "JOINT_LIMITS",
     "PACK_POLICIES",
+    "NAMED_POLICIES",
     "NONLINEAR_RLIMIT",
     "NONLINEAR_MAX_DEGREE",
     "UnknownPolicyError",
     "policy_limits",
     "policy_config",
+    "named_policy",
+    "named_policy_of",
     "required_policy",
     "polynomial_degree",
     "max_degree",
@@ -56,6 +72,7 @@ __all__ = [
 
 LINEAR = "linear"
 NONLINEAR = "nonlinear"
+JOINT = "joint"
 
 #: The linear policy is the engine default itself (the same object), so nothing changes for it.
 LINEAR_LIMITS: Limits = DEFAULT_LIMITS
@@ -68,6 +85,9 @@ PACK_POLICIES: Mapping[str, Limits] = MappingProxyType({LINEAR: LINEAR_LIMITS, N
 #: union of many claims would exceed the per-claim shape limits, so joint checks run under these larger bounds. Never a
 #: pack policy. A joint result records them and binds their digest, so a receiver must name them as its required policy.
 JOINT_LIMITS: Limits = Limits(max_symbols=1024, max_premises=4096, max_nodes=200_000, max_depth=40, max_nary_args=64)
+#: Read-only name -> Limits table of the policies a caller outside the packs may request by name (the service, the CLI):
+#: the pack policies and the joint bounds. Never raw limits; every other name is refused (:class:`UnknownPolicyError`).
+NAMED_POLICIES: Mapping[str, Limits] = MappingProxyType({LINEAR: LINEAR_LIMITS, NONLINEAR: NONLINEAR_LIMITS, JOINT: JOINT_LIMITS})
 
 #: Deterministic Z3 resource limit for nonlinear checks (per solver call). Calibrated in
 #: ``engine/README.md``: the costliest STEM shape still decides at a tenth of this value,
@@ -98,12 +118,12 @@ def _describe(name: Any) -> str:
     return f"an object of type {type(name).__name__}"
 
 
-def _known(name: Any) -> str:
+def _known(name: Any, table: Mapping[str, Limits] = PACK_POLICIES, what: str = "pack policy") -> str:
     # Exact type and exact spelling: no case folding, no stripping, no str subclasses (whose
     # __eq__ or __hash__ could pretend to be a known name).
-    if type(name) is not str or name not in PACK_POLICIES:
+    if type(name) is not str or name not in table:
         raise UnknownPolicyError(
-            f"unknown pack policy {_describe(name)}; known policies: {', '.join(sorted(PACK_POLICIES))}"
+            f"unknown {what} {_describe(name)}; known policies: {', '.join(sorted(table))}"
         )
     return name
 
@@ -127,6 +147,34 @@ def policy_config(name: str, config: SolverConfig) -> SolverConfig:
     if config.rlimit == rlimit:
         return config
     return config.model_copy(update={"rlimit": rlimit})
+
+
+def named_policy(name: str, config: SolverConfig) -> tuple[Limits, SolverConfig]:
+    """``(limits, config)`` to decide a problem under the named policy ``name`` exactly as the in-process caller of that
+    policy decides it: a pack policy as the channel runs a branch check (:func:`policy_limits` and
+    :func:`policy_config`: ``linear`` is the configuration unchanged, ``nonlinear`` caps its ``rlimit`` at
+    :data:`NONLINEAR_RLIMIT` and keeps a lower one), ``joint`` as the cross-agent joint checks run (:data:`JOINT_LIMITS`,
+    the configuration unchanged). Raises :class:`UnknownPolicyError` for any other name (exact type and spelling, as for
+    the pack policies), so nothing is ever run under a guessed or caller-built policy."""
+    known = _known(name, NAMED_POLICIES, "engine policy")
+    if known == JOINT:
+        return JOINT_LIMITS, config
+    return policy_limits(known), policy_config(known, config)
+
+
+def named_policy_of(limits: Optional[Limits]) -> Optional[str]:
+    """The named policy whose limits are exactly ``limits`` (a result's ``limits`` record; ``None``, the record of the
+    default limits, is ``linear``), or ``None`` when no named policy has those values (limits an in-process caller
+    chose itself). Every limit value is compared, so a result names its policy without trusting any label."""
+    if limits is None:
+        return LINEAR
+    if not isinstance(limits, Limits):
+        return None
+    values = {field: getattr(limits, field) for field in Limits.model_fields}
+    for name in sorted(NAMED_POLICIES):
+        if NAMED_POLICIES[name].model_dump() == values:
+            return name
+    return None
 
 
 def required_policy(problem: Problem) -> str:

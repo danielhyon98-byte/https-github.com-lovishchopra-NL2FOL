@@ -1581,6 +1581,14 @@ ASTs, scope and planned check ids. The safety scan passes.
 Exit: every encoding shape of sections 5 and 7 is decided as expected under its named policy,
 within time; default results are unchanged.
 
+Since the end-to-end simulation of 16 October 2026 a caller outside the process names the same
+policy: `POST /v1/verify` and `epinoic-logic verify` take `policy` (`linear`, `nonlinear` or the
+integrity layer's `joint`; `engine.policies.NAMED_POLICIES`, `named_policy`), applied exactly as
+the channel applies it (the `rlimit` cap included), so a STEM check decides over HTTP as it did on
+the channel. In that simulation seven STEM checks the channel decided under `nonlinear` came back
+UNSUPPORTED (E201) over HTTP, because the request could not name the policy
+(`tests/service/test_named_policy_over_http.py`). A pack still names only `linear` or `nonlinear`.
+
 ### Stage `checks`: AST to IR, the checks, and the data-booklet and constants tables
 
 - `src/epinoic_logic/stem/constants.py`

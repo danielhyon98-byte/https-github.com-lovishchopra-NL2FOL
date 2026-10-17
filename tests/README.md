@@ -147,6 +147,26 @@ harness rates of the second layer have not dropped.
    exponents, count nouns, per cent words and function values inside a calculation included), the
    exactness cue keeps the counterexample, and a genuinely rounded claim uses its stated tolerance.
 
+   The end-to-end simulation of 16 October 2026 found two channel and service bugs, tested at the
+   cause. The combinator's synthesis (bug 7): `tests/channel/test_synthesis_vocabulary.py` pins that a
+   synthesis carrying a value outside the synthesis contract's closed vocabularies (the simulation's
+   free-text transformations verbatim, an alias, another spelling, a certainty, a materiality, a
+   ledger entry, a conflict status) is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming every
+   claim without echoing the agent's text, also when the synthesis is an object built around
+   validation (which was delivered before), while every documented transformation is still delivered
+   and a valid synthesis gets the same receipt as a mapping and as an object; the harness side is in
+   `scripts/arena/test_arena_rules.py` (a round whose syntheses carry free text, are not JSON, hold a
+   claim that is not an object, lack a field or add one completes with a REJECTED synthesis record
+   and its codes, never an exception; `list_claims.py --json` prints the contract's transformation
+   values). The engine policy over HTTP (bug 8): `tests/service/test_named_policy_over_http.py` posts
+   the simulation's eight recorded problems (`tests/service/data/`) with the policy their pipeline
+   limits name and gets the pipeline's decision and the in-process binding (without a policy, the
+   old answer), shows the policy bound into the result's identity and the release check's currency,
+   refuses every name that is not exactly an allowlisted one before anything runs, keeps
+   authentication, the rate and size limits and the self-certification refusal under every policy,
+   and repeats one problem over a real local socket; `tests/engine/test_named_policies.py` pins the
+   named-policy table and `tests/service/test_cli.py` the CLI's `--policy`.
+
 2. **Contained arena (bug testing with real agents).** Isolated specialist agents answer
    router tasks: the English and History specialists, configured only from their
    knowledge documents. Every output crosses the hub exactly as in production. The harness

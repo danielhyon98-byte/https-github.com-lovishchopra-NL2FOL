@@ -100,3 +100,33 @@ def test_check_report_exits_3_when_the_pipeline_is_unavailable(tmp_path, capsys,
 
 def test_console_script_target_exists():
     assert callable(cli.main)
+
+
+# --- named engine policy (end-to-end simulation of 16 October 2026, bug 8): the CLI takes a name, as POST /v1/verify does --
+
+def _square_problem() -> dict:
+    v = {"op": "var", "name": "x"}
+    return {"problem_id": "sq", "request_id": "req1", "claim_id": "c-sq", "query": "satisfiability", "symbols": [{"name": "x", "sort": "Int"}],
+            "premises": [{"id": "P", "expr": {"op": "eq", "left": {"op": "mul", "args": [v, v]}, "right": {"op": "int", "value": "4"}}}]}
+
+
+def test_verify_takes_a_named_policy_and_binds_it(tmp_path, capsys):
+    from epinoic_logic.engine.policies import NONLINEAR_LIMITS, NONLINEAR_RLIMIT, named_policy_of
+    path = tmp_path / "square.json"
+    path.write_text(json.dumps(_square_problem()), encoding="utf-8")
+    rc, out, err = run(capsys, "verify", str(path))
+    assert rc == 0 and err == "" and json.loads(out)["status"] == "UNSUPPORTED", "the default policy is unchanged"
+    rc, out, err = run(capsys, "verify", str(path), "--policy", "nonlinear", "--signing-key-hex", KEY.hex(), "--key-id", KEY_ID)
+    assert rc == 0 and err == ""
+    result = VerificationResult.model_validate(json.loads(out))
+    assert result.status.value == "SATISFIABLE" and result.limits == NONLINEAR_LIMITS and named_policy_of(result.limits) == "nonlinear"
+    assert result.solver_config.rlimit == NONLINEAR_RLIMIT and verify_signature(result, KEY)
+
+
+@pytest.mark.parametrize("name", ["Nonlinear", "unbounded", "", "nonlinear "])
+def test_verify_refuses_an_unknown_policy_with_a_json_error(tmp_path, capsys, name):
+    path = tmp_path / "square.json"
+    path.write_text(json.dumps(_square_problem()), encoding="utf-8")
+    rc, out, err = run(capsys, "verify", str(path), "--policy", name)
+    assert rc == cli.EXIT_USAGE and out == ""
+    assert json.loads(err) == {"error": "--policy must be one of: joint, linear, nonlinear"}

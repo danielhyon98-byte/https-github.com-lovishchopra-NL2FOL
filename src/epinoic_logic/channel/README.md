@@ -33,7 +33,9 @@ agent ──relay()──► another agent (report or synthesis): envelope, send
             polarity and who holds a view (INT-LEDGER-026), from-memory labels kept (INT-LEDGER-027), undisclosed
             contradictions (INT-CONFLICT-002), entailment checks, and every material paraphrase or merge left unchecked
             stated (INT-SYNTH-012); a payload handed over as a mapping is validated against the contract its shape names,
-            anything else is REJECTED with INT-REQ-009 and nothing raises
+            anything else is REJECTED with INT-REQ-009 and nothing raises; a synthesis carrying a value outside one of the
+            contract's closed vocabularies (a transformation written as a description of the edit) is also named,
+            INT-SYNTH-014, and a synthesis object built around validation is re-validated and refused the same way
 router ──relay()──► peer specialist: a DELIVERED report forwarded unchanged (`specialist_report_forward/1.0`);
             the channel checks the forward against the delivery (INT-HANDOFF-013: never delivered / altered in transit)
 ```
@@ -124,6 +126,7 @@ INT-LEDGER-000/008; everything else is delivered with the report.
 | BR-INTERNAL-001 | warning (structural) | a branch pack failed internally; its findings are missing and must not be read as a pass (`branches/base.py`); raised together with the hub's PACK-INTERNAL-001 (error, `branches/README.md`) for the same failing call |
 | INT-STALE-011 | error | a claim outcome whose translation does not bind to the claim as transmitted (claim id, request, report, or `claim_text_sha256` of another text): stale; neither delivered nor pooled |
 | INT-SYNTH-013 | warning | the channel's synthesis-formalization hook failed internally; the entailment was not checked |
+| INT-SYNTH-014 | error | a synthesis that does not validate because a synthesized claim, a ledger entry or a conflict record carries a value outside one of the synthesis contract's closed vocabularies: a transformation that is not one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, `new`, `dropped` (`integrity.contracts.TRANSFORMATION_MEANINGS`; a synthesized claim takes one of the first five, and a description of the edit, an alias such as 'joined' or another spelling is no transformation), a certainty, a materiality or a conflict status outside its set. Raised with the INT-REQ-009 that refuses the synthesis (not delivered, nothing stored), for a synthesis received as JSON and for a synthesis object built around validation (`model_copy`, `model_construct`), which is re-validated before any check; one finding names every such synthesized claim (and the source claims of a ledger entry), the field and the rule, quotes a one-word value and describes free text only by its length, so no agent prose is echoed. The ledger's rules are chosen by these values, so none of them ran on the synthesis |
 | INT-INTERNAL-001 | error | the branch's integrity packs failed internally on this report: its subject findings and its own formal checks are missing from the receipt (the report is delivered with this finding; nothing raises into the router). Every other content check of `respond` and `relay` (claim-id collisions, quotations, peer figures, folds, echo, no answer, coverage, constraints, credits, supersession, claim verification, the cross-agent check, and on a synthesis the ledger, conflicts and entailment) runs guarded the same way: one that fails internally is "the channel's <check> check failed internally (<error>)", and the rest of the receipt is still produced |
 
 On a synthesis receipt the channel also raises INT-SYNTH-012 (warning) for every material 'paraphrased', 'narrowed',

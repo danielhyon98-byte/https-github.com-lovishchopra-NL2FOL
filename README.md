@@ -85,6 +85,7 @@ Integrity properties the channel holds on every transmission and relay:
 - A response that merely echoes the request is named as such and counts for no request item (INT-REQ-011).
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
+- A synthesis carrying a value outside the synthesis contract's closed vocabularies, such as a transformation written as a description of the edit instead of one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming the claims, whether it arrives as JSON or as an object built around validation; it is never delivered with the ledger rules those values select skipped, and never an exception (`integrity.contracts.TRANSFORMATION_MEANINGS`).
 
 ## STEM subjects: equations and prose (`src/epinoic_logic/stem/`)
 
@@ -301,7 +302,8 @@ It does not decide literary, historical or rubric judgements; it does not check
 quantifiers or symbolic calculus (these are reported as UNSUPPORTED or, for STEM answers,
 named undecided); units are checked only by the STEM branches' dimension warnings and explicit
 conversion checks, and nonlinear algebra only under the named `nonlinear` engine policy the STEM
-checks use; it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
+checks use (a caller of `POST /v1/verify` or `epinoic-logic verify` names the same policy, never
+limits of its own, so a problem decides over HTTP as it did in the pipeline); it does not run inside a Cloudflare Worker (see `docs/AUDIT.md` for
 the runtime evidence); and it does not call any model provider in its tests.
 
 ## Arena: real agents, contained environment
