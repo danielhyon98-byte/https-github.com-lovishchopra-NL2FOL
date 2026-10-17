@@ -72,13 +72,14 @@ def policy_manifest() -> dict[str, Any]:
     from ..version import POLICY_VERSION
     from .authority import dependency_policy
     from .errors import ADVISORY_CODES, NO_VERDICT_CODES
-    from .policies import JOINT_LIMITS, NONLINEAR_MAX_DEGREE, NONLINEAR_RLIMIT, PACK_POLICIES
+    from .policies import JOINT_LIMITS, NAMED_POLICIES, NONLINEAR_MAX_DEGREE, NONLINEAR_RLIMIT, PACK_POLICIES
     return {
         "policy_version": POLICY_VERSION,
         "allowlist": sorted(ALLOWED_OPS),
         "default_limits": DEFAULT_LIMITS.model_dump(mode="json"),
         "pack_policies": {name: PACK_POLICIES[name].model_dump(mode="json") for name in sorted(PACK_POLICIES)},
         "joint_limits": JOINT_LIMITS.model_dump(mode="json"),
+        "named_policies": {name: NAMED_POLICIES[name].model_dump(mode="json") for name in sorted(NAMED_POLICIES)},
         "nonlinear_rlimit": NONLINEAR_RLIMIT,
         "nonlinear_max_degree": NONLINEAR_MAX_DEGREE,
         "dependencies": dependency_policy(),

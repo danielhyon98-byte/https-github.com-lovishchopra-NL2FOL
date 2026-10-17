@@ -12,11 +12,14 @@ Three mutations, applied only to answers of STEM subjects (the subjects the regi
 
 The sites are found with bounded regular expressions over the answer's own text, independently of the STEM front end
 under test, and every change moves the leading significant digit of a number by 3 (d + 3 for d ≤ 6, else d − 3): a
-change of at least three units in the leading place, which no rounding of the written figures can absorb. A mutation
-with no site in an answer is skipped (``None``), as ``altered_quotation`` is for an answer with no quotation. The
-marker (the mutated stretch a finding's claim must carry) stays inside one statement: it stops at the end of its
-sentence and leaves a closing mark annotation ("  M1", "(A1)", "[2]") out, as every claim does. Nothing here evaluates
-text.
+change of at least three units in the leading place, which no rounding of the written figures can absorb. That holds for
+every figure, the exponent of a power of ten included (``10^(−8.2)`` → ``10^(−5.2)``): the checks must name such a change
+whatever unit the result is stated in, so the injection never steers around a reading. A mutation with no site in an
+answer is skipped (``None``), as ``altered_quotation`` is for an answer with no quotation. The marker (the mutated
+stretch a finding's claim must carry) stays inside one statement: it stops at the end of its sentence and leaves a part
+label ("(b) ") and a closing mark annotation ("  M1", "(A1)", "[2]") out, as every claim does. Nothing here evaluates
+text, and nothing here decides whether an injection counts: run_arena.py counts every injection no finding names as a
+miss.
 """
 from __future__ import annotations
 
@@ -49,6 +52,9 @@ _UNIT_TAIL = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 _ANNOTATION_TAIL_RE = re.compile(r"(?:(?:[ \t]{2,}|\t)\(?[MARN]\d{1,2}\)?|[ \t]*\([MARN]\d{1,2}\)|[ \t]*\[[ \t]*\d{1,2}(?:[ \t]*(?:marks?|spare))?[ \t]*\])+[ \t]*$")
 #: the end of a sentence inside a line: a full stop, question or exclamation mark, then a space and a capital or a figure
 _SENTENCE_END_RE = re.compile(r"[.?!](?=[ \t]+[A-Z0-9(\[])")
+#: a part label opening a line ("(b) ", "(a)(ii) ", "2. ", "b) ", "Part (c): "): structure, which no claim carries
+_PART_LABEL_RE = re.compile(r"[ \t]*(?:(?:part|question|q)[ \t]*)?(?:\([ \t]*(?:[a-h]|[ivx]{1,4}|\d{1,2})[ \t]*\)|(?:[a-h]|[ivx]{1,4})\)|\d{1,2}[.)])"
+                            r"(?:[ \t]*\([ \t]*(?:[a-h]|[ivx]{1,4})[ \t]*\))?[ \t]*[:.]?[ \t]+", re.IGNORECASE)
 
 
 def _number_at(text: str, i: int, end: int) -> int:
@@ -161,6 +167,9 @@ def _link_marker(text: str, a: int, b: int, *, through_next_relation: bool = Fal
     unsorted list ..." gives "mid + 4 is safe"); a mark annotation closing the stretch ("6 − 9t  M1") is left out, as
     every claim leaves it out."""
     s, e = _line_bounds(text, a)
+    label = _PART_LABEL_RE.match(text, s) if s == 0 or text[s - 1] == "\n" else None
+    if label is not None and label.end() <= a:
+        s = label.end()  # a part label opening the line is structure: no claim carries it
     if through_next_relation:
         left = text.rfind("=", s, a)
         right = text.find("=", b, e)

@@ -32,7 +32,7 @@ from .nodes import Neg, Num, Percent, Sym, is_value, value_of
 from .normalize import reading_view
 from .numbers import scan_number
 from .parser import ParseContext, parse_math
-from .relations import FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, plan_relations
+from .relations import FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, named_quantities, plan_relations
 from .scope import Binding, Formula, Scope, prescan_names
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
@@ -229,7 +229,8 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
             if sp.kind == "quantity":
                 node = _quantity_node(reading, text, sp, profile, limits, names)
                 if node is not None:
-                    prose_values.append(ProseValue(st.id, k, st.part, node, sp.start, sp.end, _prose_before(seg.prose, st.start, sp.start)))
+                    prose_values.append(ProseValue(st.id, k, st.part, node, sp.start, sp.end, _prose_before(seg.prose, st.start, sp.start),
+                                                   _prose_after(seg.prose, sp.end, st.end)))
                 cursor = max(cursor, sp.end)
                 continue
             if sp.kind == "data_line":
@@ -286,11 +287,12 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
             # a lone value written as inline maths ('is therefore $2.6\,\text{m s}^{-2}$') is a prose value like '2.6 m s⁻²'
             lone = _lone_value(pm) if sp.kind == "latex_inline" and not pm.issues and not pm.unparsed else None
             if lone is not None:
-                prose_values.append(ProseValue(st.id, k, st.part, lone, a, b, _prose_before(seg.prose, st.start, sp.start)))
+                prose_values.append(ProseValue(st.id, k, st.part, lone, a, b, _prose_before(seg.prose, st.start, sp.start),
+                                               _prose_after(seg.prose, sp.end, st.end)))
             cursor = max(cursor, sp.end)
         # bare numbers written in prose (outside every span) are prose values too
         for node, a0, b0 in _prose_numbers(reading, text, st, spans, profile, limits):
-            prose_values.append(ProseValue(st.id, k, st.part, node, a0, b0, _prose_before(seg.prose, st.start, a0)))
+            prose_values.append(ProseValue(st.id, k, st.part, node, a0, b0, _prose_before(seg.prose, st.start, a0), _prose_after(seg.prose, b0, st.end)))
     prose_values.sort(key=lambda pv: pv.start)
     return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids))
 
@@ -318,6 +320,14 @@ _BEFORE_WINDOW = 240
 
 def _prose_before(prose: str, a: int, b: int) -> str:
     return prose[max(a, b - _BEFORE_WINDOW):b] if b > a else ""
+
+
+#: how much statement prose after a value is kept (what qualifies it: a unit word, a rounding note, a condition)
+_AFTER_WINDOW = 120
+
+
+def _prose_after(prose: str, a: int, end: int) -> str:
+    return prose[a:min(end, a + _AFTER_WINDOW)] if end > a else ""
 
 
 _CHEM_ARROWS = ("\\rightarrow", "\\longrightarrow", "\\rightleftharpoons", "\\leftrightharpoons", "\\to", "→", "⇌")
@@ -397,7 +407,7 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
         return RequestReading(), scope
     rd = _read(request_text, profile, limits, names, request=True)
     _rels, _findings, req_relations = plan_relations(rd.items, rd.prose_values, scope, RequestReading(), profile, limits=limits, statement_order=rd.order,
-                                                     request_mode=True)
+                                                     request_mode=True, reading=rd.reading)
     bindings = tuple(b for lst in scope.bindings.values() for b in lst)
     quantities: list[tuple] = []
     for item in rd.items:
@@ -462,9 +472,16 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     for name, flist in req_scope.formulas.items():
         for f in flist:
             scope.add_formula(f)
+    for name, mlist in req_scope.models.items():
+        for m in mlist:
+            scope.add_model(m)
+    scope.functions |= req_scope.functions
     scope.notes.clear()
+    # the symbols the answer names by a description ('Let $M$ be the monthly payment'), each with its statement
+    definitions = [(rd.order[st.id], st.part, sym, variants, st.id) for st in rd.seg.statements if st.kind in ("sentence", "list_item")
+                   for sym, variants in named_quantities(reading[st.start:st.end])]
     relations, findings, _ = plan_relations(rd.items, rd.prose_values, scope, request, profile, limits=limits, statement_order=rd.order,
-                                            code_items=rd.code_items)
+                                            code_items=rd.code_items, definitions=definitions, reading=rd.reading)
     if rd.skipped:
         findings.append(FrontEndFinding("ST-LIM-002", ST_SEVERITY["ST-LIM-002"], f"{rd.skipped} math spans beyond the per-report bound of "
                                         f"{limits.max_math_items} were not read; their relations are not checked (first statements: {', '.join(rd.skipped_ids)})",

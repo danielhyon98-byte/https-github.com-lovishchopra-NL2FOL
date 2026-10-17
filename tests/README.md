@@ -147,6 +147,68 @@ harness rates of the second layer have not dropped.
    exponents, count nouns, per cent words and function values inside a calculation included), the
    exactness cue keeps the counterexample, and a genuinely rounded claim uses its stated tolerance.
 
+   The end-to-end simulation of 16 October 2026 found two channel and service bugs, tested at the
+   cause. The combinator's synthesis (bug 7): `tests/channel/test_synthesis_vocabulary.py` pins that a
+   synthesis carrying a value outside the synthesis contract's closed vocabularies (the simulation's
+   free-text transformations verbatim, an alias, another spelling, a certainty, a materiality, a
+   ledger entry, a conflict status) is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming every
+   claim without echoing the agent's text, also when the synthesis is an object built around
+   validation (which was delivered before), while every documented transformation is still delivered
+   and a valid synthesis gets the same receipt as a mapping and as an object; the harness side is in
+   `scripts/arena/test_arena_rules.py` (a round whose syntheses carry free text, are not JSON, hold a
+   claim that is not an object, lack a field or add one completes with a REJECTED synthesis record
+   and its codes, never an exception; `list_claims.py --json` prints the contract's transformation
+   values). The engine policy over HTTP (bug 8): `tests/service/test_named_policy_over_http.py` posts
+   the simulation's eight recorded problems (`tests/service/data/`) with the policy their pipeline
+   limits name and gets the pipeline's decision and the in-process binding (without a policy, the
+   old answer), shows the policy bound into the result's identity and the release check's currency,
+   refuses every name that is not exactly an allowlisted one before anything runs, keeps
+   authentication, the rate and size limits and the self-certification refusal under every policy,
+   and repeats one problem over a real local socket; `tests/engine/test_named_policies.py` pins the
+   named-policy table and `tests/service/test_cli.py` the CLI's `--policy`.
+
+   The same simulation left six injected faults unnamed (bugs 1 to 6), tested from its own answers
+   (`tests/channel/data/e2e_run1_material.json`, copied verbatim) in
+   `tests/stem/test_e2e_run1_detection.py`. The four detection gaps: the ch-e1b pH slip and
+   substitution in `10^(−8.2)` are named INT-SUBJ-001 on s1.2 (a closed power with a non-integer
+   exponent is one value: exact when it is rational, such as `16^(3/4) = 8`, else an enclosure decided
+   in Form S; the substitution as the harness injects it, `10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³`, because
+   an antilogarithm stated as a concentration is the concentration in mol dm⁻³, so an integer change
+   of the exponent is no longer absorbed by the SI reading of the unit, and nine more such faults are
+   named while the same concentration in any unit of concentration holds), the mai-e1 slip between LaTeX thin-space groups (`21\,131.40 − 18\,000`) on m10.1, and
+   the hi-e1a misquotation of "the Mathematics specialist" is refuted with INT-REQ-003 on h1.5 (also
+   "Maths" and "Math"); each genuine answer gains no error, correct work through irrational powers in
+   an algebra step is never an error, and a quotation whose sentence names no text is still only
+   unverifiable. The mai-e1 substitution in the annuity equation is named INT-SUBJ-001 on m3.1: an
+   integer power beyond 12 of a closed value (`(1 + 0.065/12)^{-60}`) is one value (exact when it fits
+   a literal, such as `2^{20}`, else the interval power; a power of an expression in symbols keeps the
+   bound), and a decimal the answer states in prose for the quantity it named by a symbol ("Let $M$
+   be the monthly payment" … "Her monthly payment is €352.19") is a stated root of the equation in
+   it; the tests pin when that reading applies and seventeen answers in which it reads no root (a
+   condition, a concession, a negation, a qualifier, a comparison, another quantity or part, a
+   question, a value stated in maths, a whole number, a unit, no equation before the value, an
+   equation outside the encodings, no name given to the symbol). The
+   maa-e1a substitution (`P(t + 4) = P₀e^(k(t + 1))`) is named INT-SUBJ-001 on m3.1 by a model
+   evaluation (`stem-mod`, UNSATISFIABLE), and the genuine answer's two model evaluations hold. The
+   harness counts every injection no finding names as a miss: an earlier rule that reported such STEM
+   injections "not applicable" excused real misses (the independent verification's probe round: a
+   substitution of g with the mass stated only in prose, a slip with the spring constant stated only
+   in prose), so it is withdrawn, and the probe round replays 27 of 29 with both misses listed; with no
+   finding allowed to name anything every injection is a failure whose reason quotes the receipt's
+   own ST-UNDEC findings; the injection is the base one (an exponent of ten moves its leading digit by
+   3 like any figure, and four such injections are named); a contained round names all six faults.
+   `tests/stem/test_model_evaluations.py`: an application of an exponential model the answer or the
+   request defines (`P(t + 4)` after `P = P₀e^(kt)`, `N(10)` after `N(t) = 800 × (1/2)^(t/5)`) is the
+   model at its argument; links with no solution are engine errors and correct ones hold, a letter
+   defined as two models is read in either, round 7's maa-p7b gains three model checks that hold, the
+   links the reading does not cover keep their old reading, and consecutive evaluations of a function
+   the text defines (`N(10) = 200`, then `N(15) = 100`; `C(2) = 13`, then `C(3) = 18`), each an error
+   at 22d6a5b, are no algebra step, while `ε = I(R + r)`, then `I = ε/(R + r)`, keeps its product
+   reading and its step. `tests/stem/test_ascii_unit_exponents.py`: a unit exponent written in ASCII
+   (`m s-1`, `mol dm-3`, `cm3`, `m/s2`) is read as the atom's power, so correct work in such units
+   (an error at 22d6a5b: `3 m s-1` was `3 m s − 1`) holds and faults in it are errors, while
+   `300 K-273`, `5 m-3 m` and `2 m2` keep their reading.
+
 2. **Contained arena (bug testing with real agents).** Isolated specialist agents answer
    router tasks: the English and History specialists, configured only from their
    knowledge documents. Every output crosses the hub exactly as in production. The harness
@@ -552,3 +614,9 @@ Work in progress after it is labelled as such.
 
 - Overseer rebuild: the independent audit after the fourth repair found three remaining problems (one medium: a numeric self-proving translation is only warned about when the request mentions the figure inside a negation or a question; two low: overseer dossiers built from recorded rounds do not yet carry STEM translations, and one knowledge-pack line describes model instructions for STEM translations as enforced rules). The fifth repair is in progress.
 - End-to-end fixes: both fix branches are complete and are being integrated and independently verified together.
+
+### Progress, 11:00 UTC
+
+- End-to-end fixes committed (8a78efe, "Fix the end-to-end simulation findings") after independent verification accepted all eight bugs on its third pass: decimal powers of ten and LaTeX thin-space thousands separators are read, substitutions are caught by the detection itself, an altered quotation is named, malformed combinator output is a named rejection, the HTTP service carries a named engine policy, and plain-text unit exponents (dm-3, s-1) are read as exponents. 5,667 tests passed, no test was removed, and every recorded round replays unchanged (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177).
+- Overseer rebuild: STEM completion staged (6,251 tests passed, every recorded round unchanged, all thirteen contained-run gates pass with 0 false alarms). Its independent STEM audit found six remaining gaps (among them an SI-prefixed ohm not read as a unit and a dimension check missed when one side has a single unit-bearing operand); the first STEM repair is in progress. The fast profile and the oversight planner are deferred.
+- Argument diagnostics: all five fixers finished (fixers a to e, each with regression tests; the re-run review findings in their files are included). Fixer c alone names all 12 STEM-method defects of the development corpus with 0 false alarms; the five branches are now being integrated and then verified on the development and hold-out corpora.

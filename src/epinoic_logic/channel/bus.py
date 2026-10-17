@@ -53,7 +53,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Callable, Mapping, Optional, Union
+from typing import Callable, Mapping, Optional, Union, get_args
 
 from pydantic import BaseModel, ValidationError
 
@@ -62,7 +62,8 @@ from ..engine.policies import UnknownPolicyError, policy_config, policy_limits
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S, is_definitive
-from ..integrity.contracts import AgentMessage, AgentRole, IntegrityFinding, Synthesis, SynthesizedClaim, WorkPlan, payload_hash
+from ..integrity.contracts import (AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, LedgerEntry, SYNTHESIZED_CLAIM_TRANSFORMATIONS, Synthesis,
+                                   SynthesizedClaim, WorkPlan, payload_hash)
 from ..integrity.cross_check import check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment
 from ..integrity.envelope import MessageLog, bind_payload
 from ..integrity.handoff import check_report_against_plan
@@ -439,19 +440,109 @@ def _formal_check_claims(fc, report: SpecialistReport) -> tuple[list[str], Optio
     return chosen, clause
 
 
-def _coerce_payload(payload) -> tuple[Optional[Union[SpecialistReport, Synthesis]], str]:
+def _literal_values(model: type[BaseModel], field: str) -> tuple[str, ...]:
+    """The values a ``Literal`` field of a contract model accepts, read from the model itself (never restated here)."""
+    return tuple(get_args(model.model_fields[field].annotation))
+
+
+#: The synthesis contract's closed vocabularies, (collection, field) -> the values synthesis/1.0 accepts there. A value
+#: outside one makes the synthesis invalid; the channel names it (INT-SYNTH-014) beside the INT-REQ-009 that refuses it.
+_SYNTHESIS_VOCABULARIES: dict[tuple[str, str], tuple[str, ...]] = {
+    ("claims", "transformation"): _literal_values(SynthesizedClaim, "transformation"),
+    ("claims", "certainty"): _literal_values(SynthesizedClaim, "certainty"),
+    ("claims", "materiality"): _literal_values(SynthesizedClaim, "materiality"),
+    ("ledger", "transformation"): _literal_values(LedgerEntry, "transformation"),
+    ("conflicts", "status"): _literal_values(ConflictRecord, "status"),
+}
+#: A refused vocabulary value is quoted only when it is one short word (an alias such as 'joined', a capitalised 'Merged');
+#: anything else is described by its shape, so no free text an agent wrote is echoed into a receipt.
+_SHOWN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z_-]{0,31}")
+
+
+def _shown_value(value) -> str:
+    if isinstance(value, str):
+        return repr(value) if _SHOWN_TOKEN_RE.fullmatch(value) else f"free text of {len(value)} characters"
+    return "null" if value is None else f"a value of type {type(value).__name__}"
+
+
+def _vocabulary_rule(collection: str, field: str) -> str:
+    values = _SYNTHESIS_VOCABULARIES[(collection, field)]
+    if (collection, field) == ("claims", "transformation"):
+        named = [v for v in SYNTHESIZED_CLAIM_TRANSFORMATIONS if v in values]
+        return (f"a synthesized claim's transformation names what was done to its sources and is one of {', '.join(named)} "
+                "('new' marks content no source asserts and is INT-LEDGER-005; 'dropped' belongs in a ledger entry), never a "
+                "description of the edit")
+    what = {"claims": "a synthesized claim's", "ledger": "a ledger entry's", "conflicts": "a conflict record's"}[collection]
+    return f"{what} {field} is one of {', '.join(values)}"
+
+
+def _vocabulary_findings(data: Mapping, exc: ValidationError) -> list[IntegrityFinding]:
+    """INT-SYNTH-014 for a synthesis payload that does not validate because a synthesized claim, a ledger entry or a
+    conflict record carries a value outside one of the contract's closed vocabularies (above all a transformation the
+    combinator wrote as a description of its edit instead of naming one of the documented transformations). One finding
+    names every such item (the synthesized claim ids, and the source claim ids of a ledger entry; identifier lists are
+    never cut) and the rule each broke; the payload is REJECTED by the INT-REQ-009 raised with it, so none of the ledger
+    rules those values select ran on it. Empty when no such value is among the validation errors. Never raises."""
+    try:
+        bad: dict[tuple[str, int], list[tuple[str, object]]] = {}
+        for err in exc.errors():
+            loc = tuple(err.get("loc", ()))
+            if err.get("type") != "literal_error" or len(loc) != 3 or not isinstance(loc[1], int) or (loc[0], loc[2]) not in _SYNTHESIS_VOCABULARIES:
+                continue
+            bad.setdefault((loc[0], loc[1]), []).append((loc[2], err.get("input")))
+        if not bad:
+            return []
+        claim_ids: list[str] = []
+        parts: list[str] = []
+        rules: list[tuple[str, str]] = []
+        for (collection, index), fields in bad.items():
+            seq = data.get(collection)
+            item = seq[index] if isinstance(seq, list) and 0 <= index < len(seq) and isinstance(seq[index], Mapping) else {}
+            if collection == "claims":
+                own = item.get("claim_id")
+                name = _scrub(own)[:128] if isinstance(own, str) and own else f"claims[{index}]"
+                claim_ids.append(name)
+                label = f"synthesized claim {name}"
+            elif collection == "ledger":
+                sources = item.get("source_claim_ids")
+                cited = [_scrub(s)[:128] for s in sources if isinstance(s, str)] if isinstance(sources, list) else []
+                claim_ids.extend(cited)
+                label = f"ledger[{index}]" + (f" (source claims {_named(cited)})" if cited else "")
+            else:
+                own = item.get("conflict_id")
+                label = f"conflict {_scrub(own)[:128]}" if isinstance(own, str) and own else f"conflicts[{index}]"
+            parts.append(f"{label}: " + ", ".join(f"{field} {_shown_value(value)}" for field, value in fields))
+            rules.extend((collection, field) for field, _ in fields)
+        rules = list(dict.fromkeys(rules))
+        sid = data.get("synthesis_id")
+        cid = data.get("combinator_agent_id")
+        whose = (f"synthesis {_scrub(sid)[:128]!r}" if isinstance(sid, str) and sid else "the synthesis") + (f" of combinator {_scrub(cid)[:128]!r}" if isinstance(cid, str) and cid else "")
+        shown = "; ".join(parts[:_MAX_NAMED]) + (f"; and {len(parts) - _MAX_NAMED} more" if len(parts) > _MAX_NAMED else "")
+        return [IntegrityFinding(code="INT-SYNTH-014", severity="error",
+                                 message=(f"{whose} carries values outside the synthesis contract's closed vocabularies ({shown}): "
+                                          + "; ".join(_vocabulary_rule(c, f) for c, f in rules)
+                                          + ". It does not validate against synthesis/1.0 and is not delivered (INT-REQ-009), so none of the "
+                                          "ledger rules those values select was run on it"),
+                                 claim_ids=list(dict.fromkeys(claim_ids)), agent_ids=[_scrub(cid)[:128]] if isinstance(cid, str) and cid else [])]
+    except Exception:  # naming the values only refines the rejection; INT-REQ-009 still refuses the payload
+        return []
+
+
+def _coerce_payload(payload) -> tuple[Optional[Union[SpecialistReport, Synthesis]], str, list[IntegrityFinding]]:
     """A relayed payload that is not a contract model: a mapping is validated against the contract its shape names
-    (``synthesis_id``: a synthesis; ``report_id``: a specialist report). ``(model, "")``, or ``(None, why)``."""
+    (``synthesis_id``: a synthesis; ``report_id``: a specialist report). ``(model, "", [])``, or ``(None, why, named)``:
+    ``named`` holds INT-SYNTH-014 when a synthesis fails on a value outside a closed vocabulary (``_vocabulary_findings``)."""
     if isinstance(payload, Mapping):
         data = dict(payload)
         model = Synthesis if "synthesis_id" in data else SpecialistReport if "report_id" in data else None
         if model is None:
-            return None, "a mapping that names neither a report_id nor a synthesis_id"
+            return None, "a mapping that names neither a report_id nor a synthesis_id", []
         try:
-            return model.model_validate(data), ""
+            return model.model_validate(data), "", []
         except (ValidationError, TypeError, ValueError) as exc:
-            return None, f"a mapping that does not validate against the {'synthesis' if model is Synthesis else 'specialist_report'} contract: {_shape_reason(exc)}"
-    return None, f"a payload of type {type(payload).__name__}, which is neither a specialist report nor a synthesis"
+            named = _vocabulary_findings(data, exc) if model is Synthesis and isinstance(exc, ValidationError) else []
+            return None, f"a mapping that does not validate against the {'synthesis' if model is Synthesis else 'specialist_report'} contract: {_shape_reason(exc)}", named
+    return None, f"a payload of type {type(payload).__name__}, which is neither a specialist report nor a synthesis", []
 
 
 #: The provenance fields a claim shares with its report: a claim whose value differs carries another report's provenance.
@@ -628,10 +719,12 @@ class TranslatorChannel:
 
     def _withheld_payload(self, in_reply_to: Optional[str], payload, *, agent_id: str, report_id: str, branch_key: str, message: str,
                           sender_role: AgentRole = AgentRole.SPECIALIST, recipient_role: AgentRole = AgentRole.ROUTER, recipient_agent_id: Optional[str] = None,
-                          findings: Optional[list[IntegrityFinding]] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+                          findings: Optional[list[IntegrityFinding]] = None, named: Optional[list[IntegrityFinding]] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         """A payload the channel cannot read as a contract (or, with ``findings``, one it refuses before validation: a claim
         carrying another report's provenance, INT-HANDOFF-012): the envelope carries its type and digest only; REJECTED
-        with INT-REQ-009 naming ``message``, or with the given findings."""
+        with INT-REQ-009 naming ``message``, or with the given findings. ``named`` are findings that say more precisely
+        what made the payload unreadable (INT-SYNTH-014: a value outside a closed vocabulary of the synthesis contract);
+        they are added after the INT-REQ-009, which still refuses the payload."""
         try:
             digest = payload_hash(payload) if isinstance(payload, (Mapping, list)) else sha256_hex(repr(payload))
         except Exception:
@@ -643,6 +736,7 @@ class TranslatorChannel:
                            payload=body, payload_sha256=payload_hash(body), in_reply_to=in_reply_to, created_at=_now())
         given = [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in findings] if findings else None
         findings = self.log.accept(msg) + (given or [IntegrityFinding(code="INT-REQ-009", severity="error", message=message, report_ids=[report_id] if report_id else [], agent_ids=[agent_id] if agent_id else [], message_ids=[msg.message_id])])
+        findings += [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in (named or [])]
         return self._finish(msg, "specialist_to_router" if recipient_role is AgentRole.ROUTER and sender_role is AgentRole.SPECIALIST else "agent_to_agent", findings, [], [], [], branch_key=branch_key)
 
     def _sender_identity(self, agent_id: str, req: Optional[TaskRequest]) -> list[IntegrityFinding]:
@@ -942,28 +1036,41 @@ class TranslatorChannel:
               payload_obj: Union[SpecialistReport, Synthesis], in_reply_to: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         """Carry a report or a synthesis between agents. A payload handed over as a mapping (JSON as received) is validated
         against the contract its shape names (``synthesis_id``: synthesis/1.0, ``report_id``: specialist_report/1.0) first;
-        anything else, or a mapping that does not validate, is REJECTED with INT-REQ-009 and nothing raises."""
+        anything else, or a mapping that does not validate, is REJECTED with INT-REQ-009 and nothing raises. A synthesis
+        that fails on a value outside one of the contract's closed vocabularies (a transformation written as free text,
+        say) is also named with INT-SYNTH-014; a synthesis object built around validation is re-validated and refused the
+        same way (``_revalidate_synthesis``)."""
         if not isinstance(payload_obj, (SpecialistReport, Synthesis)):
             provenance = _raw_claim_provenance(payload_obj) if isinstance(payload_obj, Mapping) and "report_id" in payload_obj and "synthesis_id" not in payload_obj else []
             if provenance:  # decided on the payload as received, before contract validation (never a bare value error)
                 return self._withheld_payload(in_reply_to, payload_obj, agent_id=_scrub(str(from_agent_id))[:128], report_id=_scrub(str(payload_obj.get("report_id") or ""))[:128], branch_key=self.branch.key,
                                               message="", sender_role=from_role if isinstance(from_role, AgentRole) else AgentRole.SPECIALIST,
                                               recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None), findings=provenance)
-            coerced, why = _coerce_payload(payload_obj)
+            coerced, why, named = _coerce_payload(payload_obj)
             if coerced is None:
                 rid = str(payload_obj.get("report_id") or payload_obj.get("synthesis_id") or "") if isinstance(payload_obj, Mapping) else ""
                 return self._withheld_payload(in_reply_to, payload_obj, agent_id=_scrub(str(from_agent_id))[:128], report_id=_scrub(rid)[:128], branch_key=self.branch.key,
                                               message=f"relay from {from_agent_id!r} to {to_agent_id!r} carries {why}; it was not delivered",
                                               sender_role=from_role if isinstance(from_role, AgentRole) else AgentRole.SPECIALIST,
-                                              recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None))
+                                              recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None),
+                                              named=named)
             payload_obj = coerced
         findings: list[IntegrityFinding] = []
-        payload = payload_obj.model_dump(mode="json", exclude_none=True)
         forward = isinstance(payload_obj, SpecialistReport) and from_role is AgentRole.ROUTER
         contract = ("specialist_report_forward/1.0" if forward else "specialist_report/1.0") if isinstance(payload_obj, SpecialistReport) else "synthesis/1.0"
-        msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=payload_obj.request_id, task_id=payload_obj.task_id, sender_agent_id=from_agent_id,
-                           sender_role=from_role, recipient_role=to_role, recipient_agent_id=to_agent_id, contract=contract,
-                           payload=payload, payload_sha256=payload_hash(payload), in_reply_to=in_reply_to, created_at=_now())
+        try:
+            payload = payload_obj.model_dump(mode="json", exclude_none=True)
+            msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=payload_obj.request_id, task_id=payload_obj.task_id, sender_agent_id=from_agent_id,
+                               sender_role=from_role, recipient_role=to_role, recipient_agent_id=to_agent_id, contract=contract,
+                               payload=payload, payload_sha256=payload_hash(payload), in_reply_to=in_reply_to, created_at=_now())
+        except Exception as exc:  # a payload built around validation, or relay fields, that cannot be put in an envelope: refused, never raised
+            rid = str(getattr(payload_obj, "report_id", None) or getattr(payload_obj, "synthesis_id", None) or "")
+            return self._withheld_payload(in_reply_to, payload_obj, agent_id=_scrub(str(from_agent_id))[:128], report_id=_scrub(rid)[:128], branch_key=self.branch.key,
+                                          message=f"relay from {_scrub(str(from_agent_id))[:128]!r} to {_scrub(str(to_agent_id))[:128]!r} carrying a {type(payload_obj).__name__} "
+                                                  f"cannot be put in an envelope ({type(exc).__name__}): the payload, built around its contract's validation, or the "
+                                                  "relay's own fields (sender, recipient, roles) do not validate; it was not delivered",
+                                          sender_role=from_role if isinstance(from_role, AgentRole) else AgentRole.SPECIALIST,
+                                          recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None))
         findings += self.log.accept(msg)
         if not forward:  # a forward carries another agent's report by design; every other relay must come from the payload's owner
             findings += bind_payload(msg, payload_obj)
@@ -1011,8 +1118,9 @@ class TranslatorChannel:
             if not _is_blocking(findings):
                 self.transmitted_reports.setdefault(payload_obj.report_id, payload_obj)
         else:
+            findings += self._revalidate_synthesis(payload_obj, payload)
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
-            if _is_blocking(findings):  # an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
+            if _is_blocking(findings):  # an invalid synthesis, an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
             sid = dict(claim_ids=[payload_obj.synthesis_id], agent_ids=[payload_obj.combinator_agent_id])
             scope = self._guarded("ledger scope", findings, lambda: self._ledger_scope(payload_obj), [], **sid)
@@ -1029,6 +1137,23 @@ class TranslatorChannel:
             if not _is_blocking(findings):
                 self.syntheses.setdefault(payload_obj.synthesis_id, payload_obj)
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
+
+    def _revalidate_synthesis(self, synthesis: Synthesis, payload: dict) -> list[IntegrityFinding]:
+        """The synthesis delivered to the recipient must re-validate against synthesis/1.0, as a report must against its
+        contract (``_revalidate``): a synthesis built around validation (``model_copy(update=...)`` or ``model_construct``,
+        with a transformation written as free text, say) is REJECTED here with INT-REQ-009, and a value outside one of
+        the contract's closed vocabularies is named (INT-SYNTH-014), instead of reaching the claim ledger, whose rules
+        those values select. A synthesis that validated on construction re-validates unchanged, so this adds nothing to
+        its receipt."""
+        try:
+            Synthesis.model_validate(payload)
+        except (ValidationError, TypeError, ValueError) as exc:
+            sid, cid = _scrub(str(getattr(synthesis, "synthesis_id", "") or ""))[:128], _scrub(str(getattr(synthesis, "combinator_agent_id", "") or ""))[:128]
+            out = [IntegrityFinding(code="INT-REQ-009", severity="error",
+                                    message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc)}",
+                                    claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])]
+            return out + (_vocabulary_findings(payload, exc) if isinstance(exc, ValidationError) else [])
+        return []
 
     def _synthesis_id_reuse(self, synthesis: Synthesis, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
         """A synthesis id already delivered on this channel: the same content (``created_at`` aside) again to a recipient

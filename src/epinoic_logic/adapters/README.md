@@ -127,6 +127,14 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   `credited_agents` the specialists a text credits with a view, `peer_prose_span` whether an excerpt
   is a colleague's own prose rather than a quotation the colleague makes, and `is_peer_text` a
   relayed report.
+  A specialist author is named by `specialist_names`: its agent id with each hyphen spelled as a
+  space ("history specialist"), and, when the id names a course or qualifier after the subject's
+  first word, that word with "specialist" as well ("mathematics specialist" for
+  `mathematics-aa-specialist`, the name the router's own hand-off gives the colleague), with
+  "maths specialist" and "math specialist" for Mathematics. `_names_of` and the English parser's
+  `documents_named`, which the History, STEM and generic parsers use, share it, so "The
+  Mathematics specialist states that ..." credits the colleague's relayed report and a
+  misquotation of it is refuted there (INT-REQ-003) rather than only reported unverifiable.
   A text is never credited for being supplied first. Answers are cached per excerpt and document
   text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
 - `generic_structured.py` — the integration contract for every specialist being

@@ -396,7 +396,11 @@ class _Lex:
     error: str = ""
 
 
-def _lex_unit(text: str) -> _Lex:
+def _lex_unit(text: str, ascii_exponents: bool = False) -> _Lex:
+    """The items of a unit expression. With ``ascii_exponents`` an exponent written in ASCII with no caret, glued to its
+    atom, is read as the atom's power: a hyphen-minus (or plus) and one digit (``s-1``, ``dm-3``, ``mol-1``), or one digit
+    2 to 9 right after an atom (``cm3``, ``dm3``, ``m2``). The parser asks for it only where it has seen such an exponent end a
+    unit after a number (``parser._ascii_unit_exponent``); every other caller reads a digit inside a unit as malformed."""
     out = _Lex()
     s = text
     n = len(s)
@@ -518,6 +522,14 @@ def _lex_unit(text: str) -> _Lex:
             out.items.append(("atom", word))
             i = j
             continue
+        if ascii_exponents and out.items and out.items[-1][0] == "atom" and i > 0 and (s[i - 1].isalpha() or s[i - 1] in "µμΩΩÅ"):
+            # an ASCII exponent glued to its atom: 's-1', 'dm-3' (a sign and one digit), 'cm3' (one digit, 2 to 9)
+            j = i + 1 if ch in "-+" else i
+            if j < n and is_ascii_digit(s[j]) and not (j + 1 < n and (is_ascii_digit(s[j + 1]) or s[j + 1] == ".")) and s[j] != "0" \
+                    and (ch in "-+" or s[j] != "1"):
+                out.items.append(("pow", -int(s[j]) if ch == "-" else int(s[j])))
+                i = j + 1
+                continue
         if is_ascii_digit(ch):
             out.error = f"a digit inside the unit ({ch!r})"
             return out
@@ -550,19 +562,22 @@ def _ascii_exponent(s: str, j: int, n: int) -> tuple[int, Optional[int]]:
     return k, val
 
 
-def parse_unit(text: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, profile_key: str = "") -> Optional[UnitExpr]:
+def parse_unit(text: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, profile_key: str = "",
+               ascii_exponents: bool = False) -> Optional[UnitExpr]:
     """Parse a unit expression as written (``"m s⁻²"``, ``"kg·m/s²"``, ``"J mol⁻¹ K⁻¹"``,
     ``"\\text{m s}^{-1}"``, ``"ms⁻¹"``, ``"kJ m⁻² yr⁻¹"``). Returns None when the text is not
     a unit expression at all (empty, malformed, a digit inside, too long, no known atom).
-    Unknown atoms are kept and listed in ``unknown`` (ST-UNIT-001)."""
-    return _parse_unit_cached(text, bare_m, tonne)
+    Unknown atoms are kept and listed in ``unknown`` (ST-UNIT-001). With ``ascii_exponents`` an
+    exponent glued to its atom with no caret is read too (``"m s-1"``, ``"mol dm-3"``, ``"cm3"``,
+    ``"g/cm3"``; :func:`_lex_unit`)."""
+    return _parse_unit_cached(text, bare_m, tonne, ascii_exponents)
 
 
 @lru_cache(maxsize=1024)
-def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool) -> Optional[UnitExpr]:
+def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_exponents: bool = False) -> Optional[UnitExpr]:
     if not text or len(text) > _MAX_UNIT_CHARS:
         return None
-    lx = _lex_unit(text)
+    lx = _lex_unit(text, ascii_exponents)
     if lx.error:
         return None
     # atoms with their signed powers: after '/', the next atom or parenthesised group is inverted
@@ -678,17 +693,25 @@ def unit_dimension(text: str, **kw: object) -> Optional[Dimension]:
 
 def unit_group(toks, a: int, b: int, profile) -> bool:
     """Tokens ``[a, b)`` (the inside of a bracket) are a unit expression only: unit atoms (or an unknown atom of two
-    or more letters, such as 'yr'), exponents (``²``, ``^2``, ``^-1``, ``**2``) and product signs. Bounded by ``b - a``."""
+    or more letters, such as 'yr'), exponents (``²``, ``^2``, ``^-1``, ``**2``, and glued to an atom in ASCII: ``K-1``,
+    ``m2`` as the lexer reads it, ``cm3``) and product signs. Bounded by ``b - a``."""
     if b <= a:
         return False
     atoms = 0
     k = a
     while k < b:
         t = toks[k]
-        if t.kind == "IDENT" and not t.sub and not t.delta and not t.primes:
+        prev = toks[k - 1] if k > a else None
+        if t.kind == "IDENT" and not t.delta and not t.primes and (not t.sub or (len(t.sub) == 1 and "2" <= t.sub <= "9" and len(t.text) == 1)):
             if not (is_unit_atom(t.text, bare_m=profile.bare_m, tonne=profile.tonne) or (len(t.text) >= 2 and t.text.isascii() and t.text.isalpha())):
                 return False
             atoms += 1
+        elif t.kind == "OP" and t.text in "-+" and not t.space and prev is not None and prev.kind == "IDENT" and k + 1 < b \
+                and toks[k + 1].kind == "NUM" and not toks[k + 1].space and len(toks[k + 1].text) == 1 and "1" <= toks[k + 1].text <= "9":
+            k += 1  # an ASCII exponent glued to its atom: 'K-1'
+        elif t.kind == "NUM" and not t.space and prev is not None and prev.kind == "IDENT" and len(prev.text) >= 2 and len(t.text) == 1 \
+                and "2" <= t.text <= "9":
+            pass  # 'cm3'
         elif t.kind == "SUP" and not t.space:
             pass
         elif t.kind in ("CARET", "DSTAR") and not t.space:

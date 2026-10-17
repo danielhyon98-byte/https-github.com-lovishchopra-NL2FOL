@@ -2,11 +2,14 @@
 
 Commands
 --------
-``verify <problem.json> [--timeout-ms N] [--rlimit N] [--signing-key-hex HEX] [--key-id ID]``
+``verify <problem.json> [--timeout-ms N] [--rlimit N] [--policy NAME] [--signing-key-hex HEX] [--key-id ID]``
     Verify one IR problem file and print the ``VerificationResult`` as JSON. The file
     is passed to the engine as untrusted bytes, so a malformed file yields a bound
-    ``INVALID_FORMALIZATION`` result rather than a crash. Exit code 0 whenever a
-    result was produced (the verdict is in ``status``), 2 on usage or I/O errors.
+    ``INVALID_FORMALIZATION`` result rather than a crash. ``--policy`` names the engine
+    policy (``linear`` by default, ``nonlinear`` or ``joint``; ``engine.policies.named_policy``),
+    exactly as ``POST /v1/verify`` takes it: never raw limits. Exit code 0 whenever a
+    result was produced (the verdict is in ``status``), 2 on usage or I/O errors (an
+    unknown policy name included).
 
 ``check-report <report.json> --fixtures <fixtures.json> [--adapter ID] [--claim-id ID ...]``
     Run every claim of a specialist report (or the selected ones) through
@@ -38,10 +41,10 @@ import sys
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
+from .engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
 from .engine.provenance import z3_version
 from .engine.results import SolverConfig
 from .engine.runner import verify
-from .ir.schema import DEFAULT_LIMITS
 from .version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 
 __all__ = ["build_parser", "main", "ADAPTER_IDS"]
@@ -123,9 +126,12 @@ def cmd_version(_: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     raw = _read_bytes(args.problem)
-    config = _solver_config(args)
+    try:
+        limits, config = named_policy(args.policy, _solver_config(args))
+    except UnknownPolicyError:
+        raise CliError(f"--policy must be one of: {', '.join(sorted(NAMED_POLICIES))}") from None
     key, key_id = _signing(args)
-    result = verify(raw, config, DEFAULT_LIMITS, key, key_id)
+    result = verify(raw, config, limits, key, key_id)
     _emit(result.model_dump(mode="json"))
     return EXIT_OK
 
@@ -258,6 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser("verify", help="verify an IR problem file and print the result JSON")
     p_verify.add_argument("problem", help="path to a problem JSON file")
     _add_solver_options(p_verify)
+    p_verify.add_argument("--policy", default=LINEAR, help=f"named engine policy ({'|'.join(sorted(NAMED_POLICIES))}; default {LINEAR})")
     p_verify.set_defaults(func=cmd_verify)
 
     p_check = sub.add_parser("check-report", help="translate and verify the claims of a specialist report")

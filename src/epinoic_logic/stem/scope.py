@@ -23,6 +23,15 @@
   for matching; dropping older ones is also noted (ST-SCOPE-001).
 * Formulas: a left-hand symbol (or ``f(x)``) maps to the expressions stated for it by
   definition and law links (``F = ma``, ``a = Δv/Δt``), most recent last.
+* Models: a function of one variable defined with a power of e (or of a positive closed base)
+  whose exponent holds symbols (``P = P₀e^(kt)`` in the request, ``C(t) = C0 e^(−kt)`` in the
+  answer), most recent last. They are kept apart from the formulas: a formula is a premise of
+  algebra steps and substitutions, a model only gives its applications (``P(t + 4)``) their
+  meaning in a ``mod`` check (``models.py``).
+* Functions: the letters the text defines as functions of one variable (``C(t) = 5t + 3``,
+  ``P = P₀e^(kt)``). The parser reads ``C(2)`` as a product (a function name other than f, g
+  and h is no function to it), so no algebra step is read over an application of such a
+  letter (``relations._Planner._function_definition``).
 """
 from __future__ import annotations
 
@@ -36,7 +45,7 @@ from .numbers import ExactNumber
 from .parser import STEM_NAMES, symbol_name
 from .units import UnitExpr
 
-__all__ = ["Binding", "Formula", "Scope", "ScopeNote", "prescan_names", "si_value"]
+__all__ = ["Binding", "Formula", "Model", "Scope", "ScopeNote", "prescan_names", "si_value"]
 
 _LONG_NAME = 4
 _STOP = frozenset({"is", "so", "of", "to", "be", "in", "by", "or", "if", "an", "it", "on", "we", "do", "no", "up", "as", "at", "the", "and", "for",
@@ -101,6 +110,20 @@ class Formula:
 
 
 @dataclass(frozen=True)
+class Model:
+    """A function of one variable defined with a power whose exponent holds symbols: ``name`` = ``expr`` with ``var`` the
+    variable (empty when the definition names none, ``P = P₀e^(kt)``: the answer's applications of ``name`` name it)."""
+
+    name: str
+    var: str
+    expr: Node
+    statement_id: str
+    source: str  # 'request' or 'answer'
+    start: int = 0
+    end: int = 0
+
+
+@dataclass(frozen=True)
 class ScopeNote:
     code: str
     message: str
@@ -116,6 +139,8 @@ class Scope:
     bindings: dict[str, list[Binding]] = field(default_factory=dict)
     substitutions: dict[str, list[Binding]] = field(default_factory=dict)
     formulas: dict[str, list[Formula]] = field(default_factory=dict)
+    models: dict[str, list[Model]] = field(default_factory=dict)
+    functions: set[str] = field(default_factory=set)
     notes: list[ScopeNote] = field(default_factory=list)
     names: set[str] = field(default_factory=set)
     _order: int = 0
@@ -158,6 +183,13 @@ class Scope:
         self.names.add(f.name)
         lst = self.formulas.setdefault(f.name, [])
         lst.append(f)
+        if len(lst) > self.limits.max_bindings_per_symbol:
+            lst.pop(0)
+
+    def add_model(self, m: Model) -> None:
+        lst = self.models.setdefault(m.name, [])
+        if not any(x.var == m.var and x.statement_id == m.statement_id and x.source == m.source for x in lst):
+            lst.append(m)
         if len(lst) > self.limits.max_bindings_per_symbol:
             lst.pop(0)
 

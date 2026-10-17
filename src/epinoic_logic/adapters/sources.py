@@ -58,7 +58,7 @@ __all__ = [
     "ExcerptCheck", "ExcerptStatus", "FOUND_STATUSES", "check_excerpt", "strip_trailing_punctuation", "word_count",
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
-    "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text",
+    "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -239,15 +239,37 @@ _REPORTING_VERB_RE = re.compile(r"^\W*(?:\w+\W+){0,3}?(?:argues?|argued|writes?|
 _POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*[\"'“”‘’«»„]?\s*$")
 
 
+#: the other spellings of a subject's first word ("the Maths specialist" for a mathematics specialist)
+_SUBJECT_WORD_SPELLINGS = {"mathematics": ("maths", "math")}
+
+
+def specialist_names(author: str) -> list[str]:
+    """How a sentence names the specialist agent ``author`` when it is an agent id ``<subject words>-specialist``: the id
+    with each hyphen spelled as a space ("history-specialist" -> "history specialist"), and, when the id names a course or
+    a qualifier after the subject's first word ("mathematics-aa-specialist", "english-a-lang-lit-specialist"), that first
+    word with "specialist" ("mathematics specialist"): the name the router's own hand-off gives the colleague ("attribute
+    them to the Mathematics specialist"); a mathematics specialist also as "maths specialist" and "math specialist".
+    Nothing for any other author."""
+    author = (author or "").strip()
+    if not author.endswith("-specialist"):
+        return []
+    names = [author.replace("-", " ")]
+    words = author[: -len("-specialist")].split("-")
+    if len(words) > 1 and len(words[0]) >= 3 and words[0].isalpha():
+        names.append(f"{words[0]} specialist")
+    names.extend(f"{w} specialist" for w in _SUBJECT_WORD_SPELLINGS.get(words[0], ()))
+    return names
+
+
 def _names_of(doc: SuppliedText) -> list[str]:
-    """How a sentence names ``doc``: its author (full name and surname; a specialist agent "history-specialist" also as
-    "history specialist"), and the title of a non-peer text up to any parenthesis, colon or comma."""
+    """How a sentence names ``doc``: its author (full name and surname; a specialist agent by :func:`specialist_names`:
+    "history-specialist" also as "history specialist", "mathematics-aa-specialist" also as "mathematics specialist"), and
+    the title of a non-peer text up to any parenthesis, colon or comma."""
     names: list[str] = []
     author = (doc.author or "").strip()
     if author:
         names.append(author)
-        if author.endswith("-specialist"):
-            names.append(author.replace("-", " "))
+        names.extend(specialist_names(author))
         parts = author.split()
         if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
             names.append(parts[-1])

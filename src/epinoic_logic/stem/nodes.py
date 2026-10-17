@@ -18,6 +18,10 @@ Node types:
                    juxtaposition)
 ``PlusMinus``      ``±``/``∓`` inside a formula (binary, or unary when ``left`` is None)
 ``Pow``            an integer power ``|n| <= max_int_power``
+``RealPower``      a closed base with no unit raised to a closed exponent that is no integer (``10^(−8.2)``,
+                   ``2^{1/3}``), or to an integer beyond ``max_int_power`` (``1.003^{144}``): one value, exact when
+                   rational and short enough (``16^{3/4}`` is 8), else an enclosure (``exp(x·ln b)``, or the interval
+                   power for an integer exponent)
 ``Root``           a square root (``√x``, ``\\sqrt{x}``, ``x^½``)
 ``Func``           sin cos tan arcsin arccos arctan ln log (with ``base``) log10 exp
 ``Apply``          ``f(x)``: a named function applied to an argument
@@ -28,7 +32,8 @@ Node types:
 ``Ratio``          ``a : b``
 ``BoolOp``         ``and or xor not`` (Computer Science)
 ``Unsupported``    a construct outside the encodings, with the reason (calculus, Σ, ``!``,
-                   a fractional or symbolic power, a vector, a complex number, ...)
+                   a symbolic power or a non-integer power of an expression with symbols or units, a vector,
+                   a complex number, ...)
 
 ``Chain`` is ``L0 op1 E1 … opk Ek`` (relation signs between operands), and an
 ``Operand`` holds the one or two readings of one operand (implicit multiplication
@@ -48,7 +53,7 @@ from .units import UnitExpr
 __all__ = [
     "replace_symbol",
     "Abs", "Apply", "BinOp", "BoolOp", "Chain", "Degrees", "Func", "Magnification", "Neg", "Node", "Num", "Operand", "Percent", "PlusMinus",
-    "Pow", "Quantity", "Ratio", "Root", "Sym", "Unsupported", "WithUnit", "align", "children", "depth", "is_closed", "is_value", "node_count", "render",
+    "Pow", "Quantity", "Ratio", "RealPower", "Root", "Sym", "Unsupported", "WithUnit", "align", "children", "depth", "is_closed", "is_value", "node_count", "render",
     "shape_key", "symbols", "unsupported_reasons", "value_of", "walk",
 ]
 
@@ -117,6 +122,21 @@ class PlusMinus:
 class Pow:
     base: "Node"
     exp: int
+    start: int = 0
+    end: int = 0
+
+
+@dataclass(frozen=True)
+class RealPower:
+    """``base ^ exponent`` where both are closed (no symbol, no unit) and the exponent is no integer as written
+    (``10^(−8.2)``, ``10^0.4``, ``(3465/250)^(1/6)``), or an integer beyond the integer-power bound
+    (``(1 + 0.065/12)^{-60}``). The parser builds it only from such operands; the encoder writes its exact value when
+    that is rational and fits one literal (``16^(3/4)`` is 8, ``2^20`` is 1048576) and otherwise decides it through a
+    rational enclosure: of ``exp(exponent·ln base)`` for a positive base, or the outward-rounded interval power for an
+    integer exponent (nothing is evaluated from text)."""
+
+    base: "Node"
+    exponent: "Node"
     start: int = 0
     end: int = 0
 
@@ -197,12 +217,17 @@ class Unsupported:
     start: int = 0
     end: int = 0
     #: a derivative written as a function applied to one argument (``f′(2)``): its name and argument, so an evaluation
-    #: can be set against a formula of it the answer states; never encoded itself
+    #: can be set against a formula of it the answer states; never encoded itself. A power whose exponent holds symbols
+    #: keeps its exponent here too: ``name`` "exp" for a power of e (``e^(kt)``), "pow" for a power of a positive closed
+    #: base (``1.05^t``, with ``base``), so a ``mod`` check can read it (``models.py``). Like every unsupported node it is
+    #: opaque to :func:`walk` and :func:`symbols`.
     name: str = ""
     arg: Optional["Node"] = None
+    base: Optional["Node"] = None
 
 
-Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, PlusMinus, Pow, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio, BoolOp, Unsupported]
+Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, PlusMinus, Pow, RealPower, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio, BoolOp,
+             Unsupported]
 
 
 @dataclass(frozen=True)
@@ -249,6 +274,8 @@ def children(node: Node) -> tuple[Node, ...]:
         return (node.arg if not isinstance(node, Pow) else node.base,)
     if isinstance(node, (BinOp, Ratio)):
         return (node.left, node.right)
+    if isinstance(node, RealPower):
+        return (node.base, node.exponent)
     if isinstance(node, PlusMinus):
         return (node.right,) if node.left is None else (node.left, node.right)
     if isinstance(node, BoolOp):
@@ -488,6 +515,11 @@ def _render(node: Node, canonical: bool, level: int) -> str:
         if not isinstance(node.base, (Num, Sym)) or (isinstance(node.base, Num) and (node.base.number.value < 0 or node.base.number.scientific)):
             base = f"({base})"
         return f"{base}^{node.exp}"
+    if isinstance(node, RealPower):
+        base = r(node.base)
+        if not isinstance(node.base, Num) or node.base.number.value < 0 or node.base.number.scientific:
+            base = f"({base})"
+        return f"{base}^({r(node.exponent)})"
     if isinstance(node, Root):
         return f"sqrt({r(node.arg)})"
     if isinstance(node, Func):
@@ -531,6 +563,9 @@ def replace_symbol(node: Node, name: str, value: Node, depth: int = 0) -> Option
     if isinstance(node, Pow):
         b = rec(node.base)
         return None if b is None else replace(node, base=b)
+    if isinstance(node, RealPower):
+        b, x = rec(node.base), rec(node.exponent)
+        return None if b is None or x is None else replace(node, base=b, exponent=x)
     if isinstance(node, (BinOp, Ratio)):
         a, b = rec(node.left), rec(node.right)
         return None if a is None or b is None else replace(node, left=a, right=b)

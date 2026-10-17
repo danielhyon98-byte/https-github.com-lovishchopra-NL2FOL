@@ -1294,6 +1294,167 @@ a unit conversion or a figure that starts the next expression) to unstated or to
 unstated to the reading of a genuine written calculation the old test missed (LaTeX, exponents, units, scale words). No
 reading becomes rounded by a cue it did not have.
 
+## Fixes after the end-to-end simulation of 16 October 2026: the channel and the service
+
+The end-to-end simulation of the website-to-backend flow (all sixteen specialists on the cheapest tier, a frozen copy
+of the integrated tree) found two faults on the channel and service side; both reproduced on 22d6a5b and are fixed at
+the cause (regression tests: `tests/README.md`).
+
+- **The combinator's synthesis (bug 7).** All 14 group syntheses of the simulation's round crashed in the harness with
+  a pydantic ValidationError: the combinator had written a description of each edit in `transformation` ("Verdict (s1.1)
+  and reason (s1.2) joined ...; figures verbatim.") instead of one of the documented values, and `run_arena.py` built
+  the contract models itself, so the hub never saw the syntheses. The harness now relays each synthesis as the JSON the
+  router receives, and the hub's contract validation decides it: such a synthesis is REJECTED with INT-REQ-009 and the
+  new INT-SYNTH-014, which names every claim whose transformation (or certainty, materiality, ledger transformation,
+  conflict status) is outside the closed vocabulary. The same fault had a second path: a synthesis object built around
+  validation (`model_copy`) with a free-text transformation was delivered, its value-specific ledger rules skipped; the
+  channel now re-validates synthesis objects as it does reports. The contract keeps its closed set
+  (`integrity.contracts.TRANSFORMATION_MEANINGS`), on the evidence of the recorded rounds: the combinator agents of r1
+  to r7, told the values, used one of them in all 202 synthesized claims, and the simulation's combinator, whose
+  instructions named the field without its values, wrote free text in all 62. `list_claims.py --json`, which the
+  combinator runs for every report, now prints the synthesis format with the values and their meanings from the
+  contract (`scripts/arena/README.md`, "Synthesis format").
+- **The engine policy over HTTP (bug 8).** `POST /v1/verify` always decided under the default limits, so 8 of the
+  simulation's 301 genuine-pass engine problems decided differently over HTTP than in the pipeline: seven STEM checks the
+  channel ran under `nonlinear` (UNSUPPORTED, E201) and one cross-agent joint check (INVALID_FORMALIZATION, E300 to
+  E302). A request (and `epinoic-logic verify --policy`) now names `linear`, `nonlinear` or `joint`, never limits of its
+  own; the service applies the name as the in-process caller does, and all eight decide as in the pipeline, each with
+  the binding the same payload has in process. Unknown names are refused before anything runs; authentication and the
+  rate, size and concurrency limits are unchanged.
+
+Replays on copies, record by record against the harness and code of 22d6a5b (findings and messages compared with ids
+masked): r1 30/30, r1-adv 150/151, r2 to r6 46/46 and r7 177/177, every record identical. On a copy of the simulation's
+round, the 120 records other than the syntheses are identical, and the 14 synthesis records, which held only the
+exception, are REJECTED receipts naming INT-REQ-009 and INT-SYNTH-014 with every claim; they stay failures (genuine
+traffic that was not delivered), so transport is 114 of 134 before and after (the six other failures are injected
+faults not named, the simulation's bugs 1 to 6, which this fix does not address). With the transformations relabelled
+by a fixed rule (one source:
+`paraphrased`, several: `merged`; a reconstruction, not what the combinator wrote), the same 14 syntheses are
+delivered and decided, transport 128 of 134, so nothing else on the synthesis path was hidden behind the
+ValidationError. No live agent or provider was called for these replays.
+
+## Both end-to-end fixes integrated: detection, channel and service
+
+The detection fixes for the simulation's bugs 1 to 6 (`docs/STEM_DESIGN.md`, section 21) and the channel and service
+fixes above were merged into the development branch together, on 22d6a5b. The two branches change no common file under
+`src/`, and they extend different functions of `scripts/arena/run_arena.py`.
+
+An independent verification of the merged tree rejected one part of it. The detection branch had reported the maa-e1a
+and mai-e1 substitutions "not applicable" (outside the transport count) through a harness reading that took a symbol
+for unstated unless an "x = value" binding stated it. Its probe round showed the rule excusing real misses: a
+substitution of the request's g in `E = m × 6.81 × 20 = 98.1 J`, with the mass stated only as "a ball of mass 0.50 kg",
+and a slip in `E = 0.5 × k × 0.15² = 5.25 J`, with k stated only as "a spring of constant 200 N m⁻¹", went from 27 of
+29 on 22d6a5b to 27 of 27. The rule is withdrawn (`docs/STEM_DESIGN.md`, section 21.3): every injection no finding names
+is a miss, and when the receipt names the injected claim undecided the failure reason quotes it. The two substitutions
+were then traced to their causes. The mai-e1 one is now named: an integer power beyond 12 of a closed value
+(`(1 + 0.065/12)^{-60}`) is one value, and a decimal the answer states in prose for the quantity it named by a symbol
+("Let $M$ be the monthly payment in euros." … "Her monthly payment is €352.19.") is a stated root of the equation in it.
+The maa-e1a one stayed a miss in this repair: deciding it needed readings outside the encodings then (section 21.2,
+item 7). A second verification rejected two of this repair's results, and the second repair below supersedes them.
+
+Measured once on the repaired tree, on fresh copies, with no live agent or provider called:
+
+- **Default suite:** 5,540 passed, 45 deselected (the stress selection), 4 expected failures (the same four as on
+  22d6a5b). That is 22d6a5b's 5,264 tests and 4 expected failures, every one still collected (one parametrized id in
+  `tests/integrity/test_integrity_round1.py` carries a UUID drawn at collection, so it reads differently each run), plus 276 new tests
+  (145 detection tests in `tests/stem/test_e2e_run1_detection.py`, 131 channel and service tests). The arena rule tests
+  (`scripts/arena/test_arena_rules.py`, run by path) give 39 passed.
+- **Recorded rounds**, record by record against 22d6a5b (findings and messages compared with ids masked): r1 30/30,
+  r1-adv 150/151, r2 to r6 46/46 and r7 177/177, as on 22d6a5b. Every record is identical except the nine records of r7's
+  mai-t13 (its genuine answer and its eight variants), which each lose four ST-UNDEC-001 warnings that named
+  `4000(1.003)^{60}`, `4000(1.003)^{132}` and `4000(1.003)^{144}` as integer powers beyond 12: the powers are now read,
+  and those relations stay undecided for their ellipses (`4787.58…`), so no check is added and no finding or verdict
+  changes otherwise.
+- **The verification's probe round** (four answers, 29 transmissions): 27 of 29, the substitution of g and the slip with
+  k listed as misses, as on 22d6a5b.
+- **The simulation's round** (run1): transport 119 of 134, where 22d6a5b gives 114 of 134. Of the 102 injected faults,
+  101 are named. Five of the six detection bugs are now detections: the ch-e1b slip and substitution are INT-SUBJ-001
+  on s1.2 (`10^(−8.2) = 9.31 × 10⁻⁹`, and `10^(−8.5) = 6.31 × 10⁻⁹` for the substitution); the mai-e1 slip is
+  INT-SUBJ-001 on m10.1 (`21\,131.40 − 18\,000 = 6131.40`, engine counterexample c = 15657/5, r = 30657/5); the mai-e1
+  substitution is INT-SUBJ-001 on m3.1 and m5.1 (the changed annuity equation's root is 29.75, not the €352.19 stated
+  for the payment; stem-sol UNSATISFIABLE); the hi-e1a misquotation is INT-REQ-003 on h1.5 (peer:maa-e1a holds all of
+  its words but 'aly'). The maa-e1a substitution is the one miss: its marker now leaves the part label out, so m3.1
+  carries it, and the failure reason quotes the receipt's ST-UNDEC-001 (a symbolic power) on m3.1. The other 14
+  failures are the 14 syntheses. Each is now a REJECTED receipt naming INT-REQ-009 and INT-SYNTH-014 for every
+  synthesized claim, not an exception; they stay failures because the simulation's combinator wrote free text in
+  `transformation`. No genuine answer or peer relay gained an error-level finding: the 12 genuine receipts with errors
+  are the same as on 22d6a5b, and the 14 additional receipts with errors are the rejected syntheses. ch-e1b, maa-e1a and
+  mai-e1 gain six STEM checks, all of which hold (mai-e1's payment root among them).
+- **The engine over HTTP**, using the simulation's own harness with one change: its HTTP leg names the policy that
+  each pipeline result's `limits` record stands for, as contract 0.3 says a replaying caller must. All 245
+  genuine-pass engine problems decide as in the pipeline (217 `linear`, 7 `nonlinear`, 21 `joint`), each matches the
+  in-process result of the same payload, and each signature verifies. Posted without a policy, the eight problems of
+  bug 8 still get the documented linear answer (seven UNSUPPORTED E201, one INVALID_FORMALIZATION E300 to E302). On
+  22d6a5b the same harness, with its HTTP leg unchanged, gives 8 of 240 problems deciding differently. The frozen
+  tree's 301 problems included 45 translator probes and 16 more translated claims of its older translator. The checks
+  the repair adds (mai-e1's payment root, under `nonlinear`, and integer powers beyond 12) decide over HTTP under
+  their named policy as in process, with signatures that verify.
+
+## The second repair of the end-to-end detection fixes
+
+A second independent verification of the repaired tree rejected three of its results and found a false-error class:
+
+- **The ch-e1b substitution was not detected.** The recorded fault, `At pH 8.2: [H⁺] = 10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³ [1]`,
+  still held: a calculation with no unit stated in a unit is read as written and in SI (`docs/STEM_DESIGN.md`, section 6.4), and
+  10^(−5.2) read as a bare number in SI, in mol m⁻³, is exactly that value in mol dm⁻³. The first repair had changed the harness's
+  injection instead of the detection (an exponent of ten moved its first decimal digit, `10^(−8.5)`; the run1 count above rests on
+  that), and a test asserted that the recorded line was no error.
+- **The maa-e1a substitution was still a miss** (`P(t + 4) = P₀e^(k(t + 1))`).
+- **False errors on correct decimal powers stated with ASCII units** (`[H+] = 10^(-3.3) = 5.01e-4 mol dm-3`): `dm-3` and `s-1`
+  were read as subtractions. That misreading is older than the repairs (`v = 6 ÷ 2 = 3 m s-1` was an error at 22d6a5b); reading the
+  decimal powers exposed it.
+
+Each is fixed at its cause (`docs/STEM_DESIGN.md`, section 21, items 1, 5 and 6, and 21.3). The injection is the base one again
+(the leading digit of every figure moves by 3, an exponent of ten included), and an antilogarithm stated as a concentration is the
+concentration in mol dm⁻³, the unit of the pH scale, so the recorded fault is UNSATISFIABLE and the test asserts the error. An
+application of an exponential model that the answer or the request defines is checked as a model evaluation (`stem-mod`). A unit
+exponent written in ASCII and glued to its atom is the atom's power. Measuring the model reading found two more false errors in its
+area, and both are fixed (item 5). Consecutive evaluations of a function the text defines were an algebra step under the product
+reading: `N(10) = 200`, then `N(15) = 100`, was refuted, as it already was at 22d6a5b. A letter defined as two models was read with
+its last definition only.
+
+Measured once on the staged tree, on fresh copies of every round, with no live agent or provider called:
+
+- **Default suite:** 5,667 passed, 45 deselected (the stress selection), 4 expected failures (the same four as on 22d6a5b), in 208 s.
+  All 5,268 tests that 22d6a5b collects are still collected, apart from the one parametrized id in
+  `tests/integrity/test_integrity_round1.py` that carries a UUID drawn at collection. There are 403 new ones: 165 detection tests in
+  `tests/stem/test_e2e_run1_detection.py`, 56 in `tests/stem/test_model_evaluations.py`, 50 in
+  `tests/stem/test_ascii_unit_exponents.py`, 1 front-end safety case for the new `stem/models.py`, and the 131 channel and service
+  tests. In the detection file, the tests that the verification rejected are replaced by stricter ones (section 21.4). The arena rule
+  tests (`scripts/arena/test_arena_rules.py`, run by path) give 39 passed.
+- **Recorded rounds**, compared record by record with 22d6a5b (findings and messages compared with ids masked): r1 30/30, r1-adv
+  150/151, r2 to r6 46/46 and r7 177/177, as on 22d6a5b. Rounds r1 to r6 are identical. In r7, 18 records differ. The nine records
+  of maa-p7b (its genuine answer and eight variants) each gain three model checks, all SATISFIABLE (`C(8) = 800`, `C(T) = ½C0`,
+  `C(40) = 1600 × 2^(−5)`). The nine records of mai-t13 each lose the four ST-UNDEC-001 warnings of the first repair. No record
+  gains or loses an error.
+- **The verification's probe round:** 27 of 29, the substitution of g and the slip with k listed as misses, as on 22d6a5b.
+- **The simulation's round (run1):** transport 120 of 134, against 114 of 134 on 22d6a5b. All 102 injected faults are named (96 on
+  22d6a5b), each as the harness injects it. The six detection bugs:
+  - ch-e1b slip: INT-SUBJ-001 on s1.2, `10^(−8.2) = 9.31 × 10⁻⁹ mol dm⁻³`, UNSATISFIABLE.
+  - ch-e1b substitution: INT-SUBJ-001 on s1.2, as recorded, `10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³`, UNSATISFIABLE.
+  - maa-e1a substitution: INT-SUBJ-001 on m3.1, `stem-mod-1` UNSATISFIABLE (e^(3k) = 1 would be needed, with k = 2.05 to 3 s.f.).
+  - mai-e1 slip: INT-SUBJ-001 on m10.1.
+  - mai-e1 substitution: INT-SUBJ-001 on m3.1 and m5.1.
+  - hi-e1a misquotation: INT-REQ-003 on h1.5.
+
+  The 14 failures are the 14 syntheses, each a REJECTED receipt naming INT-REQ-009 and INT-SYNTH-014. The genuine answers and the
+  two peer relays are all functional. The 12 genuine receipts with errors are the same as on 22d6a5b. Against the first repair's
+  replay, 9 records differ. The ch-e1b substitution is named as recorded (`10^(−5.2)`, not `10^(−8.5)`). The maa-e1a substitution is
+  now functional. The other seven maa-e1a records each gain two model checks, both SATISFIABLE.
+- **The engine over HTTP:** the simulation's own harness, with the policy-naming HTTP leg of the first repair, was run on the staged
+  tree. It started the service as shipped on 127.0.0.1 and used a copy of run1. All 248 genuine-pass engine problems decide as in
+  the pipeline, and each matches the in-process result of the same payload with a signature that verifies. The policies are 217
+  `linear`, 21 `joint` and 10 `nonlinear`. That is the first repair's 245 plus maa-e1a's two model checks (`nonlinear`) and
+  mai-e1's payment root. The harness's own bug list holds only the 14 rejected syntheses: none of the six detection bugs, no crash
+  and no HTTP difference. Separately, the 15 checks this repair adds or changes were posted with their named policy through the
+  service app's test client: maa-e1a's model checks on the genuine and the injected answer, ch-e1b's concentration readings, three
+  ASCII-unit lines and two two-model lines. Each decides as in process.
+- **The verification's own probe list** (48 STEM answers): 47 give the expected outcome. The one that does not is
+  `c = 0.25 × 4 = 0.001 mol dm⁻³`, which holds in SI (1 mol m⁻³). The product has no unit, so reading its operands in SI is an
+  admissible reading of section 6.4, and dropping that reading would turn correct work into errors (`d = 20 × 25 = 0.5 km`, or
+  `c = 0.0969/0.0024 = 0.0404 mol dm⁻³` with the volume in m³). It is recorded as a known gap (`docs/STEM_RESULTS.md`, section 9),
+  not fixed.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |

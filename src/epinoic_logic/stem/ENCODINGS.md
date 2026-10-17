@@ -55,6 +55,9 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | `±`, `∓` | the sign of the reading. `eq` and `sub` require both choices (AND); a step's relations take either (OR); roots expand to two. | as the operands |
 | exact-table function | sin/cos/tan of multiples of 30° and 45° (and the same angles as rational multiples of π): `q` or `q·sq` with `sq·sq = 2` or `3`. Also log₁₀ and log_b of exact powers, ln 1, exp 0, and the inverse functions at table values in degrees. | as the surd |
 | other function, π, e | `enc` with `ENC_LO ≤ enc ≤ ENC_HI` (forces Form S) | linear |
+| `b^x` with b and x closed and no unit, x no integer (`RealPower`: `10^(−8.2)`, `2^{1/3}`) | its exact value when rational and it fits one literal (`16^{3/4} = 8`, `enclosures.exact_real_power`); otherwise `enc` of `exp(x·ln b)` for b > 0, cross-checked against `math.pow` (forces Form S; an algebra step holding one is ST-UNDEC-001, since a step is compared exactly); `0^x = 0` for x > 0; a zero base under a non-positive exponent is ST-UNDEF-001, a base that is or may be negative ST-UNDEC-001 | linear |
+| `bⁿ` with b closed and no unit, n an integer beyond 12 and up to 1000 (`RealPower`: `(1 + 0.065/12)^{-60}`, `1.003^{144}`, `2^{20}`) | its exact value when it fits one literal (`2^{20} = 1048576`; a negative base takes the sign of n's parity); otherwise `enc` of the outward-rounded interval power `Interval.power(n)` of b, cross-checked against `math.pow` (forces Form S; an algebra step holding one is ST-UNDEC-001); a zero base under a power that is not positive is ST-UNDEF-001; a value beyond about 10^±300 is ST-UNDEC-001 and is never computed | linear |
+| a power of e or of a positive closed base with no unit, its exponent in symbols (`e^(kt)`, `2^(t/3)`, `(1/2)^(t/5)`) | no value: ST-UNDEC-001 ('a symbolic power'), the base and the exponent kept on the node; an `alg` step whose unknown appears only in powers of e reads `u = e^(−k)` (`SIDE_POS`); in a `mod` check, `B^X` with `X = c + Σ qᵢ·mᵢ` is `B^c · Π uᵢ^(qᵢ/sᵢ)` over positive variables `uᵢ = B^(sᵢ·mᵢ)` (`U_POS`; bounded by the enclosure of `B^(sᵢ·range)` when every symbol of mᵢ has a stated value, `U_LO`/`U_HI`), sᵢ the step of mᵢ's coefficients, a power beyond the degree bound ST-LIM-001 | nonlinear when two factors hold variables |
 | function of an unknown, `f(x)`, `Unsupported(reason)` | ST-UNDEC-001 with the reason | — |
 | Boolean `∧ ∨ ¬ ⊕` | `and`, `or`, `not`, `not(iff)` | linear |
 | based numeral | its exact value (Int in `stem-base`) | linear |
@@ -75,9 +78,9 @@ Angles:
   `V` → `s_cap_v`, `v₀` → `s_v_0`, `Δv` → `s_delta_v`, `θ` → `s_theta`, `f′` → `s_f_prime`. A
   numeric suffix is added on collision. Per-reading copies carry `_r2`, `_r3`.
 - **Auxiliaries.** `q_n`, `p_n`, `sq_n`, `enc_n`, `x_n` (interval operands), `w_n` (substituted
-  values), `root_n`, `k_n` and `t_<el>_<l|r>` (balances), `o_<row>_<col>` (truth tables), and
-  `c`, `r`, `l` (the compared values). User symbols always start with `s_`, so they never
-  collide with these.
+  values), `root_n`, `k_n` and `t_<el>_<l|r>` (balances), `o_<row>_<col>` (truth tables), `u_n`
+  (the positive variables of a model check), and `c`, `r`, `l` (the compared values). User
+  symbols always start with `s_`, so they never collide with these.
 
 | Premise | Grounding kind |
 | --- | --- |
@@ -85,7 +88,8 @@ Angles:
 | a value located in the request | `task_setting`, `verified` |
 | `PREV` (the preceding relation of a step), `FORMULA` (a stated law) | `specialist_inference` |
 | `GUARD_*`, `SIDE_ROOT` (principal root), a booklet value for an unstated symbol | `assumption` (the engine lists them in `ungrounded_dependencies`) |
-| `Q_DEF`, `S_SQ`, `P_DEF`, tallies, step definitions, `ENC_*`, a written constant widened to its booklet value | `arithmetic_fact` (encoding devices; the note says so; no check verifies them, so since engine 0.4.0 the engine lists them in `unverified_dependencies`, which no STEM decision reads) |
+| `REL` (the relation of a model check, as written) | `supplied_text`, `verified` |
+| `Q_DEF`, `S_SQ`, `P_DEF`, tallies, step definitions, `ENC_*`, `U_POS`, `U_LO`/`U_HI`, a written constant widened to its booklet value | `arithmetic_fact` (encoding devices; the note says so; no check verifies them, so since engine 0.4.0 the engine lists them in `unverified_dependencies`, which no STEM decision reads) |
 
 Every problem's `notes` starts with the STEM scope statement (`tolerance.STEM_SCOPE`). Notes
 also record:
@@ -113,7 +117,10 @@ also record:
   SATISFIABLE never means "true", and the description says so.
 - Every symbol of a Form S problem is pinned, interval-bounded or an auxiliary defined by a
   premise. A free symbol is refused (ST-INTERNAL-001), so it can never make the query vacuously
-  satisfiable.
+  satisfiable. The one exception is a `mod` check, whose query is whether the relation has a
+  solution at all: its variables (the model's variable and the symbols with no stated value)
+  have the role `variable`, and the description and the notes say that SATISFIABLE never shows
+  that the relation holds for every value.
 - A guard that could fail inside an interval would make the query unsatisfiable for a reason
   that is no fault of the stated value. Such a divisor is therefore refused first (ST-UNDEC-001).
 
@@ -125,6 +132,11 @@ also record:
 
 The rules for picking them:
 - Every numeral carries a unit: SI only.
+- An antilogarithm set against a concentration (`[H⁺] = 10^(−8.2) = 6.31 × 10⁻⁹ mol dm⁻³`, a
+  lone power of ten with no unit on one side, a value in a concentration unit on the other):
+  SI only, the power read in mol dm⁻³ (the unit the pH, pOH, pKa and pKb scales are defined
+  in). Read as a bare number in SI it would take a unit prefix, an integer power of ten, for a
+  change of its exponent (`10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³` in mol m⁻³). The label says so.
 - A bare numeral appears with units: both.
 - No unit anywhere: as written.
 - When every unit factor is 1 and nothing is a per cent, SI and as written coincide, and one
@@ -143,7 +155,8 @@ Numbers in a reading:
 | `eq` | `E = S`. τ = 1/100 (1/20 for ≈ or "about"). Exact mode: τ = 0, h = 0. A value set against a value adds its own half-width. A stated value with its absolute uncertainty (`1600 ± 32`, stated for a computed side with no `±`) widens h by the uncertainty. | E or S |
 | `sub` | **Pairs**: each substituted value matches a binding of its symbol, as written or in SI (R7). A value written in another order of the same product or sum also matches. **Evaluation**: the symbolic side under its bindings (or substitution readings, or a booklet reading admitted by a dimension check) against the numeric side. | E (pairs); E or S |
 | `alg` | `PREV` (with guards and the principal-root side condition) entails the next relation. Bindings, substitution readings (a line that writes the preceding relation with values put in) and up to 8 stated formulas are included for the symbols that appear on one side only. A rounded decimal in the step is compared within its band. Warning when the step brings in symbols that nothing connects. A step whose unknown appears only in powers of e (`e^(−8k)`) is decided in `u = e^(−k)` with the side condition `u > 0` (`SIDE_POS`). An antiderivative (`∫6t dt = 3t²`) is an `alg` check from `D = D` to `D = integrand`, D being the derivative of the stated antiderivative formed by the STEM pack (power rule), so it holds iff the polynomials agree for every value. | E |
-| `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. | E; S for membership of decimal roots |
+| `mod` | A model evaluation: an equality that applies an exponential model of the answer or the request at an argument (`P(t + 4) = P₀e^(k(t + 1))` after `P = P₀e^(kt)`; the model's letter glued to its bracket, `models.py`). The model's expression stands at the written argument; some value of the variables, and of the stated symbols within their stated values, must satisfy the relation, every power of an exponent in symbols read through positive variables (above). The relaxation only widens the solutions: UNSATISFIABLE proves that no value satisfies the relation; SATISFIABLE never shows that it holds. A letter defined as two models gives one pair of sides per definition (at most 4 combinations), as a disjunction: the relation must hold under one of them. Planned only when the relaxation fits (planning-time `relaxation_fits`); a written decimal, a unit, the model's own definition, a space before the bracket and the sciences reading of e keep the old reading. | S, SATISFIABLE |
+| `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value. | E; S for membership of decimal roots |
 | `cnv` | `|C − S| ≤ h(S) + h(C)` in SI, τ = 0 (R5). Unknown unit atoms that are the same on both sides cancel. | E |
 | `cmp` | Values: `l op r` exactly (R6). Bound symbols with several values: some admissible values satisfy it. Steps: as `alg`. | E (or S) |
 | `res` | `|S − S′| ≤ h(S) + h(S′)` (R8). | E |

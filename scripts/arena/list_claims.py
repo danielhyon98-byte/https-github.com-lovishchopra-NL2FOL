@@ -13,7 +13,14 @@ parser records inline from-memory labels and single-quoted spans with no text to
 against there) and a claim that is an agent self-report shows its ``advisory_verification_status``
 (recorded for audit, never trusted). With ``--json`` every claim also carries ``claim_text_sha256``,
 the digest a translation fixture file may record so run_arena.py refuses the fixture once the
-claim's text changes."""
+claim's text changes.
+
+The combinator's instructions: both outputs end with the synthesis format the combinator writes
+(``synthesis_format`` in the JSON), built from the synthesis contract itself
+(``integrity.contracts.TRANSFORMATION_MEANINGS``), so the allowed transformation values and what each
+one records can never drift from what the hub accepts. A transformation is one of those words, never a
+description of the edit: the hub refuses any other value (INT-REQ-009 with INT-SYNTH-014) and the
+synthesis is not delivered."""
 from __future__ import annotations
 
 import json
@@ -22,9 +29,24 @@ from pathlib import Path
 
 from epinoic_logic.adapters.sources import check_excerpt
 from epinoic_logic.branches import default_registry
+from epinoic_logic.integrity.contracts import CERTAINTY_RANK, SYNTHESIZED_CLAIM_TRANSFORMATIONS, TRANSFORMATION_MEANINGS
 from epinoic_logic.translate.contracts import SuppliedText, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.subjects import resolve_profile
+
+#: What the combinator writes to <round>/syntheses/<task_id>.json for this report (scripts/arena/README.md, "Synthesis format").
+SYNTHESIS_FORMAT = {
+    "file": "<round>/syntheses/<task_id>.json",
+    "shape": {"report_id": "the report_id printed here",
+              "claims": "2 to 4 of {text, source_claim_ids, certainty, transformation}",
+              "dropped": "{source_claim_ids, reason} for every material claim left out, with a meaningful reason"},
+    "transformation": {v: TRANSFORMATION_MEANINGS[v] for v in SYNTHESIZED_CLAIM_TRANSFORMATIONS},
+    "certainty": sorted(CERTAINTY_RANK, key=CERTAINTY_RANK.get, reverse=True),
+    "rules": ["transformation is exactly one of the words above: a category, never a description of the edit; any other value "
+              "(free text, an alias, another spelling) is refused by the hub (INT-REQ-009, INT-SYNTH-014) and the synthesis is not delivered",
+              "certainty is never stronger than the weakest cited source claim (INT-LEDGER-003)",
+              "keep every figure, unit, date and quotation exactly as the source states it"],
+}
 
 spec_path = Path(sys.argv[1]).resolve()
 item = json.loads(spec_path.read_text())
@@ -53,7 +75,8 @@ for c in report.claims:
                  "supporting_claim_ids": c.supporting_claim_ids, "source_refs": refs, "assumptions": list(c.assumptions), "advisory_verification_status": c.advisory_verification_status,
                  "claim_text_sha256": sha256_text(c.claim_text), "text": c.claim_text})
 if as_json:
-    print(json.dumps({"report_id": report.report_id, "request_id": report.request_id, "branch": branch.key, "claims": rows}, indent=2, ensure_ascii=False))
+    print(json.dumps({"report_id": report.report_id, "request_id": report.request_id, "branch": branch.key, "claims": rows, "synthesis_format": SYNTHESIS_FORMAT},
+                     indent=2, ensure_ascii=False))
 else:
     print(f"report_id={report.report_id} request_id={report.request_id} branch={branch.key} claims={len(report.claims)}")
     for r in rows:
@@ -62,3 +85,5 @@ else:
         print(f"{r['claim_id']:8} {r['role']:16} {r['materiality']:11} {'ELIGIBLE' if r['eligible'] else '-':9} {r['eligibility_class']:28} supports={r['supporting_claim_ids']}{' UNLOCATED-EXCERPT' if unlocated else ''}{self_report} :: {r['text'][:140]}")
         for a in r["assumptions"]:
             print(f"{'':8} assumption: {a[:220]}")
+    print(f"synthesis transformation (exactly one of): {', '.join(SYNTHESIS_FORMAT['transformation'])}; certainty: {', '.join(SYNTHESIS_FORMAT['certainty'])} "
+          "(never stronger than the weakest source); any other transformation value is refused by the hub (INT-SYNTH-014)")

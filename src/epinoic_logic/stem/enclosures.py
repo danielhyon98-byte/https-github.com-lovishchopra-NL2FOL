@@ -6,7 +6,9 @@ Two kinds of value come out of this module, and only these two:
   (and of the same angles in radians, written as rational multiples of π), as ``q`` or
   ``q·√2`` or ``q·√3`` with ``q`` rational (:func:`exact_trig`); ``log₁₀`` of an exact power of
   ten and ``log_b`` of an exact power of an integer base ``b`` (:func:`exact_log`); ``ln 1 = 0``
-  and ``exp 0 = 1``. ``sin 30° = 1/2`` stays exact, and a surd is encoded exactly by the
+  and ``exp 0 = 1``; a rational power ``b^(p/q)`` of a positive rational whose numerator and
+  denominator are exact ``q``-th powers (``16^(3/4) = 8``, ``4^1.5 = 8``, ``(8/27)^(2/3) = 4/9``:
+  :func:`exact_real_power`). ``sin 30° = 1/2`` stays exact, and a surd is encoded exactly by the
   caller (an auxiliary ``sq ≥ 0, sq·sq = 2``).
 * **Enclosures** for everything else: π, e, and sin, cos, tan, arcsin, arccos, arctan, ln,
   log₁₀, log_b and exp of a closed argument. :func:`enclose` returns a rational interval
@@ -44,8 +46,8 @@ from functools import lru_cache
 from typing import Optional
 
 __all__ = [
-    "BITS", "EnclosureError", "ExactTrig", "Interval", "MAX_TRIG_ARGUMENT", "cross_check", "e_interval", "enclose", "exact_log", "exact_trig",
-    "pi_interval", "width_ok",
+    "BITS", "EnclosureError", "ExactTrig", "Interval", "MAX_TRIG_ARGUMENT", "cross_check", "e_interval", "enclose", "exact_log", "exact_real_power",
+    "exact_trig", "pi_interval", "width_ok",
 ]
 
 #: significant bits kept by every outward-rounded operation
@@ -475,15 +477,19 @@ def width_ok(iv: Interval) -> bool:
     return iv.width <= Fraction(1, 10 ** 15) * max(Fraction(1), abs(iv.mid))
 
 
-def cross_check(name: str, x: Optional[Interval], iv: Interval, *, base: Optional[int] = None) -> bool:
+def cross_check(name: str, x: Optional[Interval], iv: Interval, *, base: Optional[int] = None, exponent: Optional[Interval] = None) -> bool:
     """``lo <= libm(x) <= hi`` within 10⁻⁹ relative, using the standard ``math`` module at the
-    midpoint of ``x``. Returns False on a mismatch (the caller reports ST-INTERNAL-001). An
-    argument whose float conversion overflows is accepted as not checkable (True)."""
+    midpoint of ``x`` (for ``pow``, ``x`` is the base and ``exponent`` the exponent: ``math.pow`` at both midpoints,
+    within 10⁻⁹ of the value itself). Returns False on a mismatch (the caller reports ST-INTERNAL-001). An argument
+    whose float conversion overflows is accepted as not checkable (True)."""
     try:
         if name == "pi":
             ref = math.pi
         elif name == "e":
             ref = math.e
+        elif name == "pow":
+            assert x is not None and exponent is not None
+            ref = math.pow(float(x.mid), float(exponent.mid))
         else:
             assert x is not None
             v = float(x.mid)
@@ -495,9 +501,14 @@ def cross_check(name: str, x: Optional[Interval], iv: Interval, *, base: Optiona
         return True
     if math.isinf(ref) or math.isnan(ref):
         return True
-    slack = 1e-9 * max(1.0, abs(ref))
-    if x is not None and not x.is_point:
-        slack += float(x.width) * 10.0  # an interval argument: the function moves by at most a few times its width here
+    if name == "pow":
+        # math.pow is accurate to a few units in the last place: the value at the midpoints lies in the enclosure of any
+        # interval arguments (b^x is monotone in each), so the slack is relative to the value however small it is
+        slack = 1e-9 * abs(ref)
+    else:
+        slack = 1e-9 * max(1.0, abs(ref))
+        if x is not None and not x.is_point:
+            slack += float(x.width) * 10.0  # an interval argument: the function moves by at most a few times its width here
     return float(iv.lo) - slack <= ref <= float(iv.hi) + slack
 
 
@@ -568,6 +579,52 @@ def _exact_power(x: Fraction, base: int, limit: int = 400) -> Optional[int]:
         n //= base
         k += 1
     return k if n == 1 else None
+
+
+#: the most digits the numerator or the denominator of an exact power may have (a larger value is enclosed instead)
+EXACT_POWER_MAX_DIGITS = 30
+
+
+def _integer_root(n: int, q: int) -> Optional[int]:
+    """``r`` with ``r**q == n`` exactly (``n >= 0``, ``q >= 1``), or None. Integer bisection over at most
+    ``n.bit_length() / q + 2`` steps; no float is used."""
+    if n < 2 or q == 1:
+        return n
+    if q > n.bit_length():
+        return None  # 2**q > n: only 0 and 1 are exact q-th powers this small
+    lo, hi = 1, 1 << (n.bit_length() // q + 1)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        m = mid ** q
+        if m == n:
+            return mid
+        if m < n:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return None
+
+
+def exact_real_power(base: Fraction, exponent: Fraction) -> Optional[Fraction]:
+    """``base ** exponent`` when it is rational: ``base`` positive and its numerator and denominator exact ``q``-th
+    powers for the exponent ``p/q`` in lowest terms (``16^(3/4) = 8``, ``4^1.5 = 8``, ``(8/27)^(2/3) = 4/9``,
+    ``8^(−2/3) = 1/4``), and ``1^x = 1``. None otherwise (``10^0.4`` and ``2^(−3.5)`` are irrational: the caller
+    encloses them), and None when the value would have more than :data:`EXACT_POWER_MAX_DIGITS` digits in its
+    numerator or denominator. Exact integer arithmetic only."""
+    if base <= 0:
+        return None
+    if base == 1:
+        return Fraction(1)
+    p, q = exponent.numerator, exponent.denominator
+    rn, rd = _integer_root(base.numerator, q), _integer_root(base.denominator, q)
+    if rn is None or rd is None:
+        return None
+    if abs(p) * max(rn.bit_length(), rd.bit_length()) > EXACT_POWER_MAX_DIGITS * 10 // 3:
+        return None  # 2**(10/3 bits per digit): the value would be too long to stay exact here
+    value = Fraction(rn, rd) ** p
+    if len(str(value.numerator)) > EXACT_POWER_MAX_DIGITS or len(str(value.denominator)) > EXACT_POWER_MAX_DIGITS:
+        return None
+    return value
 
 
 def exact_log(name: str, x: Fraction, base: Optional[int] = None) -> Optional[Fraction]:

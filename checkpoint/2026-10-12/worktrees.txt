@@ -1,10 +1,11 @@
-/home/user/https-github.com-lovishchopra-NL2FOL                                                               d5ca8ef [claude/z3-verification-engine-plan-nk3luq]
+/home/user/https-github.com-lovishchopra-NL2FOL                                                               6a02cb4 [claude/z3-verification-engine-plan-nk3luq]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a                                          72173b9 [argdiag-a]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b                                          b3c66f3 [argdiag-b]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base                                       be6723c [argdiag-base]
-/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c                                          48255f9 [argdiag-c]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c                                          542d345 [argdiag-c]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d                                          1f4f0f1 [argdiag-d]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e                                          1e6103f [argdiag-e]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-integ                                      8a78efe (detached HEAD)
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel                                    0d28eba [e2e-fix-channel]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect                                     dae3265 [e2e-fix-detect]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import                                             650d1d3 [import/translator-baseline]

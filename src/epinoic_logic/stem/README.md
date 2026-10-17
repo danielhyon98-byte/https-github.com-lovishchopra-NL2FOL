@@ -29,13 +29,14 @@ doc.items               # MathItem: one read span or display row: chains (ASTs),
 doc.bindings            # symbol -> (Binding(value, number, unit, source, statement_id), ...)
 doc.substitutions       # values substituted into symbols bound nowhere else (readings only)
 doc.formulas            # symbol -> (Formula(expr, statement_id, source), ...)
+                        # (models of one variable, P = P₀e^(kt), are kept apart in the scope: models.py)
 doc.relations           # every recognised relation and its outcome (check/binding/formula/context/undecided)
 doc.checks              # planned checks: Relation(check_id="stem-eq-1", kind, statement_ids, left, op, right, ...)
 doc.findings            # FrontEndFinding(code="ST-...", severity, message, statement_ids, check_id)
 doc.request             # RequestReading: request bindings, quantities, relations, show-that targets
 ```
 
-* **Check ids** are `stem-<kind>-<n>` per kind in document order (kinds: `eq sub alg sol cnv cmp
+* **Check ids** are `stem-<kind>-<n>` per kind in document order (kinds: `eq sub alg sol mod cnv cmp
   res giv tgt chem bool tt base`). They are planned here, so the parser's claim assumptions and the
   pack's checks agree. A planned check that the `checks` stage cannot encode keeps its id: the
   undecided finding names it.
@@ -73,6 +74,7 @@ doc.request             # RequestReading: request bindings, quantities, relation
 | `boolean.py` | Boolean expressions, truth tables |
 | `relations.py` | link classification, sequence steps and roots, results, givens and targets, dimension and unit findings, check planning and ids |
 | `calculus.py` | polynomials in one variable and the power rule, for the antiderivative check (the derivative is the pack's, the identity the engine's; section 20.5) |
+| `models.py` | exponential models (`P = P₀e^(kt)`, `C(t) = C0 e^(−kt)`, `A(t) = 500 × 2^(t/3)`), their applications (the model's letter glued to its bracket) and the polynomial exponents a `mod` check reads through positive variables (docs/STEM_DESIGN.md, section 21, item 5) |
 | `document.py` | `StemDocument` and the memoised `build_document` |
 
 The later stages added these modules to the same package (still importing nothing from
@@ -95,7 +97,8 @@ describe the STEM branches end to end, with a worked example.
 ## Bounds (all in `StemLimits`)
 
 Response 400,000 characters; math span 2,000 characters; 400 tokens per span; 12 links per chain;
-256 nodes and depth 24 per expression (checked before each descent); integer powers |n| ≤ 12;
+256 nodes and depth 24 per expression (checked before each descent); integer powers |n| ≤ 12 (up to
+1000 over a closed base with no unit, read as one value);
 scientific exponent |e| ≤ 99; 30 written digits; 2 readings per expression and 4 per check; 8
 bindings per symbol; 128 checks per report (ST-LIM-002 beyond); 1,024 math spans read per report
 (ST-LIM-002 beyond); 512 statements (the rest merge into `s.tail`); 16 species per side and 999
@@ -110,7 +113,26 @@ the 400,000-character response bound under `-m stress` (each under two seconds w
 ## What the front end does not decide
 
 Whether a relation holds: every verdict on a stated relation is an engine result in the later
-stages. The front end reads structure, records bindings with provenance and plans checks. It never
+stages. A power with a non-integer exponent is read as one value (`RealPower`) only when its base
+and its exponent are closed and carry no unit (`10^(−8.2)`); so is an integer power beyond 12, up to
+1000, of such a base (`(1 + 0.065/12)^{-60}`, `1.003^{144}`). The later stages decide it exactly when
+its value is rational and fits one literal (`16^{3/4} = 8`, `2^{20} = 1048576`) and otherwise through
+an enclosure, and an algebra step that holds an enclosed power stays undecided. A symbolic power
+(`10^(−pH)`, `e^(kt)`), and an integer power beyond 12 of anything else, stay undecided as values; a
+power of e or of a positive closed base with an exponent in symbols keeps its base and exponent on
+the node, and an equality that applies an exponential model of the answer or the request at an
+argument (`P(t + 4) = P₀e^(k(t + 1))` after `P = P₀e^(kt)`) is planned as a `mod` check (the model's
+letter glued to its bracket; written decimals, units and the model's own definition keep the old
+reading; a letter defined as two models is read in each). No algebra step is read over an
+application of a letter the text defines as a function (`N(10) = 200`, then `N(15) = 100`, after
+`N(t) = …`): an evaluation at a value is no step, and a step at an unknown is ST-UNDEC-001. A unit exponent may be written in ASCII glued to its atom after a number (`3 m s-1`,
+`1 mol dm-3`, `25 cm3`, `9.81 m/s2`); `300 K-273`, `5 m-3 m` and `2 m2` keep their reading. Digit groups
+may be separated by `,`, a thin space or the LaTeX thin space `\,` (`21\,131.40`), in groups of
+exactly three. A decimal the answer states in prose for a quantity it named by a symbol ("Let $M$ be
+the monthly payment" … "Her monthly payment is €352.19") is planned as a stated root of the latest
+equation in that symbol in the part (`stem-sol`), read only word for word and with no qualifier,
+condition or unit (docs/STEM_DESIGN.md, section 21, item 4); it binds nothing. The front end reads
+structure, records bindings with provenance and plans checks. It never
 supplies a constant's value (data-booklet readings are the `checks` stage's, at warning severity),
 never runs code (ST-CODE-001), and never reads a molar mass from a formula.
 
