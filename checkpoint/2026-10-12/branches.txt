@@ -4,11 +4,11 @@
 + argdiag-c                                 542d345 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c) Argument diagnosis (fixer c): STEM reference, named STEM diagnostics, STEM false errors
 + argdiag-d                                 1f4f0f1 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Argument diagnosis, fixer d: the channel and the response gate
 + argdiag-e                                 1e6103f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Re-run review findings: engine runner and provenance, CLI, translation records, hub, sentence reader
-* claude/z3-verification-engine-plan-nk3luq 6a02cb4 [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 11:00 UTC
+* claude/z3-verification-engine-plan-nk3luq d6c9d36 [origin/claude/z3-verification-engine-plan-nk3luq] Testing README: progress, 12:00 UTC
 + e2e-fix-channel                           0d28eba (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel) Fix the channel and service bugs of the end-to-end simulation
 + e2e-fix-detect                            dae3265 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect) Name the run1 STEM and quotation injections the arena missed
 + import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
-+ integ-prebuild                            af10b4a (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Integration: fix the protocol pre-build verification findings (round 2)
++ integ-prebuild                            f2e6953 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Merge the end-to-end fixes into the integration pre-build
 + overseer-build                            ef4ba9f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer: circular-translation severity, adjudicated genuine faults and STEM-ready checks
   preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
   preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
