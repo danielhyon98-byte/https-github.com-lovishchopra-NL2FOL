@@ -3,7 +3,7 @@
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b                                          be6723c [argdiag-b]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base                                       be6723c [argdiag-base]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c                                          48255f9 [argdiag-c]
-/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d                                          be6723c [argdiag-d]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d                                          48255f9 [argdiag-d]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e                                          be6723c [argdiag-e]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel                                    0d28eba [e2e-fix-channel]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect                                     dae3265 [e2e-fix-detect]
