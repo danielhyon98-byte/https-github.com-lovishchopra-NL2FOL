@@ -236,11 +236,13 @@
               "cost_cheapest",
               "profile_fast",
               "profile_standard",
-              "cap_merged"
+              "cap_merged",
+              "risk_diagnostics",
+              "risk_unverified_dependencies"
             ],
             "type": "string"
           },
-          "maxItems": 13,
+          "maxItems": 15,
           "minItems": 1,
           "title": "Reasons",
           "type": "array"

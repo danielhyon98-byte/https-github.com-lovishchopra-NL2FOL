@@ -3,6 +3,7 @@ file: public/chat.js
 anchor: const badges = [outcome.review === "passed"
 mode: replace-line
 ---
-  // Kit W1: a verified answer's badge names what ran (decision D13/D27), never "Reviewed".
-  const badges = [outcome.review === "checks:integration.v1" ? [`Automatic checks passed${simulated}`, "is-ok"]
+  // Kit W1: a verified answer's badge follows its checks summary (decision D13/D27; chat-contract.js checksBadge): it
+  // never says "passed" without a positive result or with a missing material check, and never "Reviewed".
+  const badges = [outcome.review === "checks:integration.v1" ? checksBadge(outcome.checksSummary, simulated)
     : outcome.review === "passed" ? [`Reviewed${simulated}`, "is-ok"] : [`Review not required${simulated}`, null]];

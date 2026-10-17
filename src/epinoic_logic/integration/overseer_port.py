@@ -17,8 +17,10 @@ authenticated socket):
                 (:class:`DeliveryDecision`)
 ``view``        the authoritative journal view of the delivered claims (``hub.view``)
 ``repeats``     repeated-fault counts per answer (``hub.repeats``), an input of the flash router's request
-``review``      the asynchronous overseer-agent review under an admitted routing plan (:class:`ReviewTicket`);
-                never on the critical path, never a release condition
+``review``      the asynchronous overseer-agent review under an admitted routing plan (:class:`ReviewTicket`):
+                called after the delivery decision is made; it queues the review and returns without waiting
+                for it (the review runs after delivery); never a release condition. A failure of ``repeats``
+                or ``review``, or a ticket out of contract, leaves the review unqueued and changes no decision
 ==============  ==============================================================================================
 
 Trust rules carried over unchanged: only deterministic ``OVS-*`` findings affect clearance; ``OVS-AGENT-*`` never changes
@@ -277,12 +279,21 @@ def check_delivery(raw: Any, *, task_id: str, final_audit_id: str, answers: Sequ
     return d
 
 
-def check_review_ticket(raw: Any, *, task_id: str) -> ReviewTicket:
+_UNSET: Any = object()
+
+
+def check_review_ticket(raw: Any, *, task_id: str, origin: Any = _UNSET, plan_id: Any = _UNSET, refusal: Any = _UNSET) -> ReviewTicket:
+    """Validate a review ticket; with ``origin``, ``plan_id`` and ``refusal`` given, it must name exactly the plan the
+    service admitted (``KIT-OP-010`` otherwise: a ticket for another plan is never taken as this review's)."""
     t = _validate(ReviewTicket, _data(raw))
     if t.task_id != task_id:
         raise IntegrationError("KIT-OP-010", "the ticket is for another task")
     if t.queued and t.dropped:
         raise IntegrationError("KIT-OP-011", "a review is either queued or dropped")
+    expected = {"origin": origin, "plan_id": plan_id, "refusal": refusal}
+    got = {"origin": t.plan.origin, "plan_id": t.plan.plan_id, "refusal": t.plan.refusal}
+    if any(v is not _UNSET and got[k] != v for k, v in expected.items()):
+        raise IntegrationError("KIT-OP-010", "the ticket is for another plan than the one admitted")
     return t
 
 

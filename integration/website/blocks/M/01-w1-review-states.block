@@ -25,6 +25,22 @@ const NEGATIVE_STATUSES = Object.freeze(["COUNTEREXAMPLE", "INCONSISTENT_PREMISE
 const UNAVAILABLE_STATUSES = Object.freeze(["UNKNOWN", "TIMEOUT", "INTERNAL_ERROR", "NOT_ATTEMPTED"]);
 const CHECK_FIELDS = Object.freeze(["claim", "formal", "fidelity"]);
 
+// The badge of a verified answer, from its checks summary (decision D27; the closed copy of the kit's chat-contract
+// vectors): "Automatic checks passed" only when the formal checks gave a positive result and no material check is
+// missing. An answer with no positive result, or one whose material checks did not all complete, never says "passed",
+// whatever the policy; an unknown summary reads as not formally checked. Returns [text, tone] for the page's badges.
+export const CHECK_BADGES = Object.freeze({
+  formally_checked: Object.freeze(["Automatic checks passed", "is-ok"]),
+  partly_checked: Object.freeze(["Automatic checks passed", "is-ok"]),
+  formal_only: Object.freeze(["Automatic checks passed", "is-ok"]),
+  not_formally_checkable: Object.freeze(["Not formally checked", null]),
+  incomplete: Object.freeze(["Some checks unavailable", null]),
+});
+export function checksBadge(summary, suffix = "") {
+  const [text, tone] = Object.hasOwn(CHECK_BADGES, summary) ? CHECK_BADGES[summary] : ["Not formally checked", null];
+  return [`${text}${suffix}`, tone];
+}
+
 // The label of one check entry (the closed copy of the kit's chat-contract vectors).
 export function checkLabel(entry) {
   if (POSITIVE_STATUSES.includes(entry.formal)) {

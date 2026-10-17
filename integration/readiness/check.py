@@ -49,7 +49,10 @@ def g1(kit: Path, rows: list) -> None:
     compat = json.loads((kit / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
     row(rows, "G1 protocol", PASS if compat.get("protocol") == "epinoic.integration.v1" else BLOCKER, compat.get("protocol", "?"))
     router = kit / "flash-router"
-    row(rows, "flash router sub-project", REPORTED, "flash-router/ present" if router.exists() else "absent: the floor plan runs (never required)")
+    version = re.search(r'^version = "([^"]+)"', (router / "pyproject.toml").read_text(encoding="utf-8"), re.M) if (router / "pyproject.toml").exists() else None
+    row(rows, "flash router sub-project", REPORTED,
+        f"flash-router/ present (epinoic-flash-router {version.group(1) if version else '?'}; attached only when EPINOIC_FLASH_ROUTER names it; never required)"
+        if router.exists() else "absent: the floor plan runs (never required)")
 
 
 def _py(kit: Path) -> dict:
@@ -117,20 +120,38 @@ def start_service(kit: Path, rows: list, profile: str) -> None:
 
 
 def router(kit: Path, rows: list, module: str) -> None:
+    """Playbook step 7a (integration/router-port/CONFORMANCE.md items 1, 3 and 6): the router's hello, then, for every
+    router-port vector's request, the router's own plan through the service's admission, run as the service runs it (in
+    its own process). A plan is good only when it is ADOPTED: origin "router" and no refusal. A refused plan (out of
+    contract, below the floor, a failing router) runs the floor in service, but here it is a BLOCKER, named with its
+    KIT-RT code. The same request text must give the same plan text."""
     sys.path.insert(0, str(kit / "src"))
     from epinoic_logic.integration import router_port as R
+    from epinoic_logic.integration.canonical import canonical_json
     att = R.attach_router(module)
     if not att.attached:
         row(rows, "flash router hello", REPORTED, f"not attached ({att.refusal}): the floor plan runs")
         return
     row(rows, "flash router hello", PASS, json.dumps(R.dump(att.hello.router)))
-    bad = []
-    for p in sorted((kit / "integration" / "vectors" / "router-port").glob("*.json")):
-        v = json.loads(p.read_text(encoding="utf-8"))
-        adm = R.route(R.check_request(v["request"]), att)
-        if R.below_floor(adm.effective, adm.floor) is not None:
-            bad.append(p.stem)
-    row(rows, "flash router plans at or above the floor", PASS if not bad else BLOCKER, ", ".join(bad) or "every vector request")
+    refused, unstable = [], []
+    paths = sorted((kit / "integration" / "vectors" / "router-port").glob("*.json"))
+    for p in paths:
+        req = R.check_request(json.loads(p.read_text(encoding="utf-8"))["request"])
+        adm = R.route(req, att)
+        if adm.origin != "router" or adm.refusal is not None:
+            refused.append(f"{p.stem} {adm.refusal or 'not adopted'}")
+        text = canonical_json(R.dump(req))
+        try:
+            first, second = att.plan_fn(text, R.PLAN_TIMEOUT_S), att.plan_fn(text, R.PLAN_TIMEOUT_S)  # type: ignore[misc]
+        except R.RouterFailure as exc:
+            unstable.append(f"{p.stem} {exc.code}")
+            continue
+        if first != second:
+            unstable.append(f"{p.stem} differs")
+    row(rows, "flash router plans at or above the floor", PASS if not refused else BLOCKER,
+        "; ".join(refused) or f"every vector request ({len(paths)}) adopted: origin router, no refusal")
+    row(rows, "flash router plans deterministic", PASS if not unstable else BLOCKER,
+        "; ".join(unstable) or "the same request text gives the same plan text")
 
 
 def everything(args, rows: list) -> None:

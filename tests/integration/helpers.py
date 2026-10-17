@@ -258,29 +258,46 @@ def plan_for(request: dict, entries: list[dict], *, identity: Optional[dict] = N
 NFOLD_CONTEXT = {"scope": "request", "contents": "validated_outcomes", "max_bytes": 32768, "discard": "after_request"}
 
 
-def write_router_module(tmp_path: Path, monkeypatch: Any, name: str, *, plan_body: Optional[str] = None) -> str:
-    """A minimal flash router written as a separate module (JSON text in, JSON text out), for attachment tests: it plans
-    every transfer at the floor (IN_DEPTH, or DUPLICATE x2 when the receipt has error codes) unless ``plan_body`` is given."""
+def write_router_module(tmp_path: Path, monkeypatch: Any, name: str, *, plan_body: Optional[str] = None, epilogue: str = "",
+                        hello_body: Optional[str] = None) -> str:
+    """A minimal flash router written as a separate module (JSON text in, JSON text out), for attachment tests. The
+    service runs it in its own process (``router_port.run_router``) on its import path, which this adds ``tmp_path`` to.
+
+    Unless ``plan_body`` is given it plans every transfer at the floor (standard library only): DUPLICATE x2 when any
+    agreement signal of the floor holds (receipt REJECTED, error findings, a repeated fault, a negative result, a STEM
+    output with an undecided check or INT-SUBJ-002), IN_DEPTH otherwise, and N_FOLD over the sources for a combined
+    answer's synthesis. ``plan_id`` comes from ``_plan_id(digest)``. ``epilogue`` is module code run at import, after
+    the functions (it may redefine ``_plan_id`` or patch anything); ``hello_body`` replaces the body of ``hello()``."""
     body = plan_body or (
         "    req = json.loads(request_json)\n"
+        "    topo = req['topology']\n"
         "    ts = []\n"
         "    for o in req['outputs']:\n"
-        "        risky = bool(o['receipt']['error_codes']) or o['receipt']['status'] == 'REJECTED' or o['repeated_faults'] > 0\n"
+        "        st, rc = o['engine_statuses'], o['receipt']\n"
+        "        risky = (rc['status'] == 'REJECTED' or bool(rc['error_codes']) or o['repeated_faults'] > 0\n"
+        "                 or any(st.get(s, 0) > 0 for s in ('COUNTEREXAMPLE', 'INCONSISTENT_PREMISES', 'UNSATISFIABLE'))\n"
+        "                 or (o['stem'] and (any(st.get(s, 0) > 0 for s in ('UNKNOWN', 'TIMEOUT', 'INTERNAL_ERROR', 'NOT_ATTEMPTED'))\n"
+        "                                    or 'INT-SUBJ-002' in rc['warning_codes'])))\n"
         "        n = 2 if risky else 1\n"
-        "        ts.append({'transfer_key': o['transfer_key'], 'method': 'DUPLICATE' if risky else 'IN_DEPTH', 'reviews': n, 'parts': 1,\n"
-        "                   'instances': n, 'profile': 'standard', 'tier': 'cheapest', 'sources': [], 'context': None,\n"
-        "                   'reasons': ['risk_error_findings' if risky else 'cost_cheapest'], 'features_used': ['receipt'],\n"
-        "                   'estimated_cost': {'tokens': 1000 * n, 'seconds': 10 * n}})\n"
+        "        t = {'transfer_key': o['transfer_key'], 'method': 'DUPLICATE' if risky else 'IN_DEPTH', 'reviews': n, 'parts': 1,\n"
+        "             'instances': n, 'profile': 'standard', 'tier': 'cheapest', 'sources': [], 'context': None,\n"
+        "             'reasons': ['risk_error_findings' if risky else 'cost_cheapest'], 'features_used': ['receipt'],\n"
+        "             'estimated_cost': {'tokens': 1000 * n, 'seconds': 10 * n}}\n"
+        "        if topo['kind'] == 'combined' and o['transfer_key'] == topo['synthesis']:\n"
+        "            t.update(method='N_FOLD', sources=list(topo['sources']), reasons=['topology_combined'], features_used=['topology'],\n"
+        "                     context={'scope': 'request', 'contents': 'validated_outcomes', 'max_bytes': 65536, 'discard': 'after_request'})\n"
+        "        ts.append(t)\n"
         "    digest = hashlib.sha256(json.dumps(req, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()\n"
         "    return json.dumps({'schema': 'epinoic.integration.routing-plan.v1', 'protocol': 'epinoic.integration.v1', 'port_version': '1.0',\n"
-        "                       'origin': 'router', 'plan_id': 'plan-' + digest[:16], 'ids': req['ids'], 'request_sha256': digest,\n"
+        "                       'origin': 'router', 'plan_id': _plan_id(digest), 'ids': req['ids'], 'request_sha256': digest,\n"
         "                       'router': IDENTITY, 'transfers': ts,\n"
         "                       'totals': {'instances': sum(t['instances'] for t in ts), 'estimated_cost': {'tokens': sum(t['estimated_cost']['tokens'] for t in ts), 'seconds': sum(t['estimated_cost']['seconds'] for t in ts)}}})\n")
-    src = ("import hashlib, json\n"
+    src = ("import hashlib, json, os, sys, time\n"
            f"IDENTITY = {ROUTER_IDENTITY!r}\n"
            f"HELLO = {router_hello()!r}\n"
-           "def hello():\n    return json.dumps(HELLO)\n"
-           "def plan(request_json):\n" + body)
+           "def _plan_id(digest):\n    return 'plan-' + digest[:16]\n"
+           "def hello():\n" + (hello_body or "    return json.dumps(HELLO)\n") +
+           "def plan(request_json):\n" + body + epilogue)
     (tmp_path / f"{name}.py").write_text(src)
     monkeypatch.syspath_prepend(str(tmp_path))
     return name

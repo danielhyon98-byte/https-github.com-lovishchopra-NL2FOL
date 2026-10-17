@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  CHECK_LIMITS, REVIEW_STATES, SCOPE_STATEMENT, VERIFIED_REVIEW, chatResultProblem, checkLabel, conversationProblem,
+  CHECK_BADGES, CHECK_LIMITS, CHECK_SUMMARIES, REVIEW_STATES, SCOPE_STATEMENT, VERIFIED_REVIEW, chatResultProblem, checkLabel, checksBadge,
+  conversationProblem,
 } from "../public/chat-contract.js";
 import { ERROR_CODES, errorResult, statusForError } from "../src/chat/contract.js";
 import { KIT_PUBLIC_CODES } from "../src/verify/codes.js";
@@ -83,6 +84,24 @@ test("the labels are the closed copy and never claim truth or review", () => {
     assert.equal(checkLabel({ formal: status, fidelity: "missing" }), labels[status], status);
   }
   for (const text of Object.values(labels)) for (const w of forbidden) assert.ok(!new RegExp(`\\b${w}\\b`, "i").test(text), text);
+});
+
+test("the answer badge follows the checks summary: passed only with a positive result and no missing material check", () => {
+  const { badges, unknown_summary_badge: unknown, forbidden_words: forbidden } = vector("chat-contract", "labels");
+  assert.deepEqual(Object.keys(CHECK_BADGES).sort(), [...CHECK_SUMMARIES].sort());
+  assert.deepEqual(Object.keys(badges).sort(), [...CHECK_SUMMARIES].sort());
+  for (const summary of CHECK_SUMMARIES) {
+    assert.deepEqual(checksBadge(summary), badges[summary], summary);
+    assert.deepEqual(checksBadge(summary, " (simulated)"), [`${badges[summary][0]} (simulated)`, badges[summary][1]], summary);
+  }
+  for (const summary of ["not_formally_checkable", "incomplete"]) {
+    const [text, tone] = checksBadge(summary);
+    assert.doesNotMatch(text, /passed|checked:/i, summary);
+    assert.equal(tone, null, summary);
+  }
+  for (const summary of ["formally_checked", "partly_checked", "formal_only"]) assert.equal(checksBadge(summary)[0], "Automatic checks passed", summary);
+  for (const odd of [undefined, null, "", "verified", "toString", "__proto__"]) assert.deepEqual(checksBadge(odd), unknown, String(odd));
+  for (const [text] of [...Object.values(badges), unknown]) for (const w of forbidden) assert.ok(!new RegExp(`\\b${w}\\b`, "i").test(text), text);
 });
 
 test("the scope statement is the engine's, verbatim", () => {

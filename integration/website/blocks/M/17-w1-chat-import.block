@@ -3,4 +3,4 @@ file: public/chat.js
 anchor: import { CHAT_LIMITS, checkTitle, countCharacters, formatNumber } from "./chat-contract.js";
 mode: replace
 ---
-import { CHAT_LIMITS, SCOPE_STATEMENT, checkLabel, checkTitle, countCharacters, formatNumber } from "./chat-contract.js";
+import { CHAT_LIMITS, SCOPE_STATEMENT, checkLabel, checkTitle, checksBadge, countCharacters, formatNumber } from "./chat-contract.js";

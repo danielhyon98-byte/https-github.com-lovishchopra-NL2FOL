@@ -14,13 +14,19 @@ One call uses one fresh hub from the overseer port (``new_hub``: a ``RouterHub``
    connected (the capabilities omit the mode ``combined``);
 7. ``close``: the FINAL audit, signed under ``overseer-audit``;
 8. ``deliver``: consolidation and ``delivery_decision`` (single, duplicate), or ``release_decision`` (combined);
-9. per-claim entries of the deliverable, the counts and the decision table under the named policy;
-10. sign the verdict with the verdict key; when the asynchronous overseer-agent review is enabled, build the flash
-    router's request, admit its plan against the minimum-oversight floor (or run the floor) and queue the review;
+9. per-claim entries of the deliverable, the counts and the decision table under the named policy: the decision is
+   made here and nothing after this step changes it;
+10. when the asynchronous overseer-agent review is enabled: build the flash router's request, ask the router (in its own
+    process) for a plan within what is left of the budget and at most ``router_timeout_s``, admit the plan against the
+    minimum-oversight floor (or run the floor), and hand the review to the overseer port, which queues it. Any failure
+    here (the router, the port's ``repeats`` or ``review``, an out-of-contract ticket) leaves the review unqueued
+    (``queued: false``), is recorded in the evidence, and changes neither the decision nor its reasons. Then sign the
+    verdict with the verdict key;
 11. ``integration-sim`` only: write the call's evidence to the evidence tap.
 
 Budget: one monotonic deadline covers steps 3 to 9; once it has passed the verifier returns ``None`` for the remaining
 claims, which become NOT_ATTEMPTED (``skipped_budget``); STEM checks left over become NOT_ATTEMPTED (``stem_budget``).
+The router of step 10 only gets what is left of that deadline, so the review never makes a call later than its budget.
 An unexpected exception yields a signed verdict whose decision is ``refuse_incomplete`` with reason KIT-DL-900: never
 ``deliver``. The overseer is reached only through the port; every message it returns is validated before it is used.
 """
@@ -41,7 +47,7 @@ from .overseer_port import (
     MAX_PENDING_WAIT_MS, check_clearance, check_delivery, check_final_audit, check_review_ticket,
 )
 from .protocol import AUDIT_SCOPE_STATEMENT, PROTOCOL, SCOPE_STATEMENT, TurnCheckRequest, dump
-from .router_port import RouterAttachment, route
+from .router_port import PLAN_TIMEOUT_S, RouterAttachment, route
 from .routing_features import OutputRecord, build_routing_request
 from .verifier import BudgetedVerifier, FixtureCorpus, VerifierLog
 
@@ -77,6 +83,8 @@ class CheckerConfig:
     review_profiles: Sequence[str] = ("standard",)
     review_max_instances: int = 4
     prefetch: bool = True
+    #: The longest the review waits for the flash router's plan (never longer than what is left of the call's budget).
+    router_timeout_s: float = PLAN_TIMEOUT_S
 
 
 class TurnChecker:
@@ -228,8 +236,8 @@ class TurnChecker:
                             claims=tuple(fields))
         decision, reasons = decide(inp)
 
-        # 10. The asynchronous review (never a release condition), then the signature.
-        review = self._review(req, hub, task_id, received, dispatched[0][2], evidence, timed)
+        # 10. The asynchronous review (never a release condition, never a change of the decision), then the signature.
+        review = self._review(req, hub, task_id, received, dispatched[0][2], evidence, timed, deadline)
         verdict = self._assemble(req, started, plan, final.audit_id, final.channel_uid, received, rc, entries, counts, decision, reasons,
                                  deliverable=delivery.deliverable, consolidation=delivery.consolidation, final_state=final.state,
                                  final_codes=list(final.error_codes), delivery_allowed=delivery.allowed, refusal=delivery.refusal,
@@ -237,29 +245,44 @@ class TurnChecker:
         return sign_verdict(verdict, cfg.verdict_key, cfg.verdict_key_id)
 
     def _review(self, req: TurnCheckRequest, hub: Any, task_id: str, received: Sequence[tuple[Any, Any, Any]], task_request: Any,
-                evidence: dict, timed: Callable[[Callable[[], Any]], Any]) -> dict:
-        """Queue the asynchronous overseer-agent review under the admitted routing plan. ``task_request`` is the request
-        record the dispatch returned (the hub's public return value, never channel internals)."""
+                evidence: dict, timed: Callable[[Callable[[], Any]], Any], deadline: float) -> dict:
+        """Queue the asynchronous overseer-agent review under the admitted routing plan (step 10). ``task_request`` is
+        the request record the dispatch returned (the hub's public return value, never channel internals).
+
+        The decision is already made and this never changes it: the router gets at most ``min(router_timeout_s, what is
+        left of the budget)`` and runs in its own process; every failure (the router, ``repeats``, ``review``, the
+        ticket) leaves the review unqueued (``queued: false``), recorded in the evidence, and is never raised."""
         if not self.cfg.review_async:
             return {"queued": False, "plan_origin": None, "plan_refusal": None, "router": None}
-        from ..translate.contracts import SpecialistReport
-        repeats = timed(lambda: self.port.repeats(hub, task_id)) or {}
-        outputs = []
-        for a, reply, rc in received:
-            key = reply.message_id if reply is not None else rc.message_id
-            claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
-            outputs.append(OutputRecord(transfer_key=key, role="answer", agent_id=a.agent_id, subject=req.task.subject, receipt=rc, claims=claims,
-                                        text=a.answer, repeated_faults=int(repeats.get(key, 0)), peer_relays=0, diagnostics=()))
-        topology = {"kind": req.mode, "sources": [], "synthesis": None}
-        request = build_routing_request(task_id=task_id, request_id=req.ids.request_id, task_request=task_request, subjects=[req.task.subject],
-                                        outputs=outputs, topology=topology, max_instances=self.cfg.review_max_instances,
-                                        profiles=self.cfg.review_profiles)
-        admission = route(request, self.router)
-        evidence["admission"] = admission.record()
-        raw_ticket = timed(lambda: self.port.review(hub, task_id, admission))
-        ticket = check_review_ticket(raw_ticket, task_id=task_id)
-        return {"queued": ticket.queued, "plan_origin": admission.origin, "plan_refusal": admission.refusal,
-                "router": dump(admission.router) if admission.router is not None else None}
+        attached = self.router is not None and self.router.attached
+        review: dict = {"queued": False, "plan_origin": None, "plan_refusal": None,
+                        "router": dump(self.router.hello.router) if attached else None}  # type: ignore[union-attr]
+        try:
+            from ..translate.contracts import SpecialistReport
+            repeats = timed(lambda: self.port.repeats(hub, task_id)) or {}
+            outputs = []
+            for a, reply, rc in received:
+                key = reply.message_id if reply is not None else rc.message_id
+                claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
+                outputs.append(OutputRecord(transfer_key=key, role="answer", agent_id=a.agent_id, subject=req.task.subject, receipt=rc, claims=claims,
+                                            text=a.answer, repeated_faults=int(repeats.get(key, 0)), peer_relays=0, diagnostics=()))
+            topology = {"kind": req.mode, "sources": [], "synthesis": None}
+            request = build_routing_request(task_id=task_id, request_id=req.ids.request_id, task_request=task_request, subjects=[req.task.subject],
+                                            outputs=outputs, topology=topology, max_instances=self.cfg.review_max_instances,
+                                            profiles=self.cfg.review_profiles)
+            admission = route(request, self.router, timeout_s=min(self.cfg.router_timeout_s, max(0.0, deadline - self.clock())))
+            evidence["admission"] = admission.record()
+            review.update(plan_origin=admission.origin, plan_refusal=admission.refusal,
+                          router=dump(admission.router) if admission.router is not None else None)
+            raw_ticket = timed(lambda: self.port.review(hub, task_id, admission))
+            ticket = check_review_ticket(raw_ticket, task_id=task_id, origin=admission.origin, plan_id=admission.effective.plan_id,
+                                         refusal=admission.refusal)
+            review["queued"] = ticket.queued
+        except Exception as exc:  # noqa: BLE001 - the review never changes the decision: a failure leaves it unqueued
+            code = getattr(exc, "code", None)
+            evidence["review_error"] = {"type": type(exc).__name__, "code": code if isinstance(code, str) else None}
+            review["queued"] = False
+        return review
 
     def _early(self, req: TurnCheckRequest, started: float, hub: Any, rc: Any, plan: Any, evidence: dict, *, refusal: Optional[str],
                overseer_ms_ref: Callable[[], float], timed: Callable[[Callable[[], Any]], Any]) -> dict:

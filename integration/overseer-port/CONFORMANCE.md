@@ -21,13 +21,16 @@ The overseer is reached only through the port adapter named by `EPINOIC_OVERSEER
    `release_decision` (combined), mapping every reason the overseer gives onto exactly one label of
    `protocol.OVERSEER_REFUSALS` (an unmapped reason is a test failure, never a silent `not_deliverable`);
 6. answer `repeats` with the repeated-fault count per transfer key, and `review` with a ticket for the asynchronous
-   review under the admitted routing plan (never on the critical path).
+   review under the admitted routing plan: `review` queues the review and returns at once, without waiting for it
+   (the review runs after delivery), and its ticket names exactly the admitted plan (`origin`, `plan_id`, `refusal`;
+   a ticket for another plan is `KIT-OP-010`). The service calls both after the decision is made: a failure of either,
+   or a ticket out of contract, leaves the review unqueued and changes no decision (`tests/integration/test_turn_review.py`).
 
 ## The suite it must pass
 
 - `tests/integration/test_overseer_port.py` (every message's round trip and every `KIT-OP` refusal) and
-  `tests/integration/test_turn_checker.py` with the adapter in place of `RecordingPort` (the test double): the same
-  decisions, reasons and refusals on the synthetic corpus;
+  `tests/integration/test_turn_checker.py` and `test_turn_review.py` with the adapter in place of `RecordingPort` (the
+  test double): the same decisions, reasons and refusals on the synthetic corpus;
 - the overseer's own tampering suite T1 to T22, still naming its expected codes;
 - for a **sidecar** (later): the same clearances, audit states, consolidation statuses, delivery decisions and refusal
   reasons as the embedded adapter on every vector, on the simulation corpus and on T1 to T22. Until a sidecar passes,

@@ -17,7 +17,7 @@ Five ports, each with its own version and closed messages:
 | checks port `POST /v1/turns/check` | `turn-check.v1` in, `turn-verdict.v1` out | **yes** | 5 |
 | overseer port `epinoic.integration.overseer-port.v1` | hello, clearance, FINAL audit, delivery decision, review ticket | **yes** | 6 |
 | combinator port `epinoic.integration.combinator-port.v1` | synthesis input and output | combined mode only | 7 |
-| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello | never required (advisory) | 7a |
+| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process) | never required (advisory) | 7a |
 
 Machine-readable forms: the pydantic models in `src/epinoic_logic/integration/` (`protocol.py`, `overseer_port.py`,
 `combinator_port.py`, `router_port.py`), the JSON Schemas generated from them in `integration/schemas/`, and the golden
@@ -168,15 +168,21 @@ One call uses one fresh hub from the overseer port (`new_hub`: a `RouterHub` wit
 7. `close`: the FINAL audit, signed under `overseer-audit`;
 8. `deliver`: `consolidate` then `delivery_decision` (single, duplicate), or `release_decision` (combined);
 9. the per-claim entries of the deliverable, the counts over all its claims, and the decision table (section 8) under
-   the named policy;
-10. sign the verdict (HMAC-SHA256 under the verdict key, never the engine key); when the asynchronous overseer-agent
-    review is enabled, build the flash router's request, admit its plan against the floor (section 7a) or run the
-    floor, and queue the review; the review is never a release condition;
+   the named policy: **the decision is made here, and nothing after this step changes it**;
+10. when the asynchronous overseer-agent review is enabled: build the flash router's request, ask the router, in its
+    own process, for a plan within what is left of the budget and at most 3 s (`router_port.PLAN_TIMEOUT_S`), admit
+    the plan against the floor (section 7a) or run the floor, and hand the review to the overseer port, which queues it
+    and returns. Any failure of this step (the router; the port's `repeats` or `review`; a ticket out of contract or
+    for another plan) leaves the review unqueued (`overseer.review.queued: false`), is recorded in the evidence, and
+    changes neither the decision nor its reasons; the review itself runs after delivery and is never a release
+    condition. Then sign the verdict (HMAC-SHA256 under the verdict key, never the engine key);
 11. `integration-sim` profile only: write the call's evidence to the evidence tap (section 5.5).
 
 **Budget.** One monotonic deadline covers steps 3 to 9. Once it has passed the verifier returns no outcome for the
 remaining claims: each eligible claim left so becomes `NOT_ATTEMPTED` with `skipped_budget`; STEM checks left over
-(`INT-SUBJ-002`) become `NOT_ATTEMPTED` with `stem_budget`. **An unexpected exception yields a signed verdict whose
+(`INT-SUBJ-002`) become `NOT_ATTEMPTED` with `stem_budget`. Step 10 only uses what is left of the same deadline (with
+none left the router is not asked: `KIT-RT-016`, the floor runs), so the review never makes a verdict later than its
+budget and the Worker's timeout (budget plus `checks_tail_ms`) is never spent on it. **An unexpected exception yields a signed verdict whose
 decision is `refuse_incomplete` with reason `KIT-DL-900`, never `deliver`.** Every message the overseer port returns is
 validated before it is used; an out-of-contract message is never acted on.
 
@@ -218,7 +224,12 @@ validated before it is used; an out-of-contract message is never acted on.
 
 `receipt` and `claims` describe the deliverable (single: the answer; duplicate: the representative; combined: the
 synthesis). `excerpt` is a verbatim part of the deliverable of at most 200 characters. `counts` cover **every** claim
-(the list is capped at 32), so the Worker re-derives the decision and the summary exactly. `summary` is set only for
+(the list is capped at 32, material first, and a claim without an excerpt is counted but not listed), so the Worker
+re-derives the decision and the summary exactly from them, and checks them against the list: every listed count is a
+lower bound of its count whatever the list's length, every count is exact when every claim is listed and every count
+but `claims_total` when every material claim is, and the counts must be those of some list of claims
+(`delivery.counts_problem`, `release-gate.js countsProblem`). A listed material claim that is TIMEOUT or
+COUNTEREXAMPLE can therefore never be counted away. `summary` is set only for
 `deliver`. The overseer's `refusal` is one closed label: `clearance_failed`, `clearance_pending`,
 `final_audit_not_passed`, `signature_invalid`, `custody_failed`, `stale`, `consolidation_conflicting`,
 `no_deliverable_output`, `receipt_error_findings`, `not_deliverable`, or `internal_error` (the service's own label for
@@ -283,9 +294,20 @@ package `epinoic_flash_router`) that can be edited and released without touching
 service only through this port (JSON text in, JSON text out). It is not the translator's `RouterHub` (which carries
 messages between agents) and not the website's subject routing (which picks one specialist).
 
-**Attachment.** `EPINOIC_FLASH_ROUTER` names a module (default `epinoic_flash_router.port`; `none` detaches) exposing
-`hello() -> str` (`router-hello.v1`) and `plan(request_json: str) -> str` (`routing-plan.v1`). A missing module or an
-out-of-contract hello leaves the router detached and reported with its refusal code; the service starts either way.
+**Attachment.** The router is attached only when `EPINOIC_FLASH_ROUTER` names its module (`epinoic_flash_router.port`
+for the sub-project); unset, empty or `none` (the default, decision D28) detaches it and the floor runs. The module
+exposes `hello() -> str` (`router-hello.v1`) and `plan(request_json: str) -> str` (`routing-plan.v1`).
+
+**The router runs in its own process, never in the service's** (`router_port.run_router`, `router_child.py`): for each
+call the service starts `python -I` with its own import path and an environment holding only `PATH`, the locale, `TZ`
+and the temporary-directory variables (`router_port.CHILD_ENV_NAMES`: no `EPINOIC_` variable, so no key, secret or
+token), writes one job to its standard input and reads the router's answer, written only by the runner, from its
+standard output: at most 10 s for the hello at start-up (`HELLO_TIMEOUT_S`), at most `min(3 s, what is left of the
+budget)` for a plan (`PLAN_TIMEOUT_S`), at most 1 MiB (`MAX_ANSWER_BYTES`). Whatever the router's code does stays in
+that process: it cannot change the floor or the admission, read the service's keys, or raise into the service; on a
+timeout it is killed with its own children. Not configured: detached, no refusal. Configured but not importable, or
+failing its hello: detached with `KIT-RT-016`; without `hello()` and `plan()`, or with a hello out of contract:
+detached with `KIT-RT-015`. The service starts either way.
 
 ### 7a.1 Methods (per transfer)
 
@@ -321,7 +343,9 @@ or fault label, any text) is refused (`KIT-RT-011`).
 rules_sha256, cost_data_sha256}, transfers: [{transfer_key, method, reviews, parts, instances, profile, tier,
 sources, context, reasons, features_used, estimated_cost: {tokens, seconds} | null}], totals: {instances,
 estimated_cost}}`. `reasons` and `features_used` are closed vocabularies (`REASON_CODES`, `FEATURE_NAMES`): a plan
-carries no free text. `router` must equal the identity of the router's hello.
+carries no free text. `risk_diagnostics` and `risk_unverified_dependencies` name escalations a router may add on
+features the floor does not read. `router` must equal the identity of the router's hello. No member names a model,
+and neither the `plan_id` nor a router name names a model family (`router_port.MODEL_FAMILIES`).
 
 ### 7a.4 The minimum-oversight floor (`minimum-oversight-floor/1`; its rules and digest are `FLOOR_RULES`)
 
@@ -340,19 +364,28 @@ signals the router reads:
 **Admission** (`admit_plan`, `route`): no router attached → the floor plan runs (origin `floor`, no refusal). A plan
 out of contract → refused with its `KIT-RT` code, the floor plan runs. A plan below the floor → refused with
 `KIT-RT-020 below_floor`, the floor plan runs. Otherwise the router's plan runs (origin `router`). So a router can only
-add oversight; risk signals only escalate; the review never changes a clearance, a delivery or a verdict.
+add oversight; risk signals only escalate; the review never changes a clearance, a delivery or a verdict's decision.
+
+`minimum-oversight-floor/1` reads neither the named diagnostics nor the unverified dependencies of an output: a router
+may escalate on them, the floor does not. A floor that does is a new floor version (`minimum-oversight-floor/2`, its own
+rules digest), decided when the argument diagnostics are connected (decision D29).
 
 ### 7a.5 Refusals (`KIT-RT`), in the order `check_plan` applies them
 
-001 malformed; 011 hidden content anywhere in the plan; 009 a model named or a tier other than `cheapest`; schema errors
-mapped by location (012 vocabulary, 013 cost, 007 method, 010 profile, 009 tier); 003 origin or identity (the floor's
-identity is reserved); 002 not bound to this request (`request_sha256`, ids); 003 an identity other than the hello's;
+001 malformed; 011 hidden content anywhere in the plan; 009 a model named (a member, or a `plan_id` or router name naming
+a model family) or a tier other than `cheapest`; schema errors mapped by location (012 vocabulary, 013 cost, 007 method,
+010 profile, 009 tier); 003 origin or identity (the floor's identity is reserved); 002 not bound to this request
+(`request_sha256`, ids); 003 an identity other than the hello's;
 004 a transfer key the request does not hold; 006 a transfer planned twice; 005 a transfer left unplanned; 007 a method
 shape that does not hold (`N_FOLD` only for the synthesis of a combined answer, its sources exactly the topology's,
 its context bounded; `SPLIT` with parts; `DUPLICATE` with at least 2 reviews; `IN_DEPTH` 1 × 1) or a method the hello
 does not offer; 010 a profile the overseer does not offer; 012 duplicated vocabulary; 013 a missing cost; 008 more
-instances than the limit for a transfer; 013 totals that do not add up; then 020 below the floor. Hello refusals: 015;
-request refusals: 014 (or 011); a router that raises or returns non-JSON: 016.
+instances than the limit for a transfer; 013 totals that do not add up; then 020 below the floor. Hello refusals: 015
+(a hello out of contract, a router name naming a model family, a module without `hello()` and `plan()`); request
+refusals: 014 (or 011). **016, the router failed**: a configured module that cannot be imported; a router that raises
+(whatever it raises), exits, is killed, does not answer within its time, or answers with anything but JSON text (a
+non-text value, text that is not strict JSON, more than 1 MiB); no time left in the budget. JSON that is not an
+admissible plan keeps its own code (001 when it is not a plan object at all).
 
 ### 7a.6 What the handshake reports
 
@@ -389,7 +422,11 @@ definitive result, reachable only under the qualify policy); `not_formally_check
 the policy** (property-tested).
 
 **Website mapping** (proposed; decisions D13, D26, D27). A delivered verified answer carries
-`review: "checks:integration.v1"` (append-only in `REVIEW_STATES`), never `passed` or `not_required`. `checks` holds at
+`review: "checks:integration.v1"` (append-only in `REVIEW_STATES`), never `passed` or `not_required`. **Its badge
+follows its `checksSummary`** (`chat-contract.js checksBadge`, vectors `chat-contract/labels.json` `badges`):
+"Automatic checks passed" for `formally_checked`, `partly_checked` and `formal_only`; "Not formally checked" for
+`not_formally_checkable` (and any unknown summary); "Some checks unavailable" for `incomplete`. An answer without a
+positive result, or with a material check that did not complete, never carries the word "passed". `checks` holds at
 most 12 entries `{claim, formal, fidelity}` for material claims, plus `checksSummary`; a faithful translation whose
 evidence is unresolved or whose release is not permitted reads `without_evidence`. The page writes the labels from the
 closed statuses (`vectors/chat-contract/labels.json`), never from the service's prose, shows the engine scope statement
@@ -427,7 +464,8 @@ holds, checked in this order; the first that fails names the refusal:
 11. the text released is byte-identical to the checked deliverable (digest comparison);
 12. the ChatResult passes the website's own gate, its size is at most 64 KiB, `review` is `checks:integration.v1`, and
     `checks` agree with the verdict's claims;
-13. the labels are truthful: nothing non-definitive is labelled checked; the scope statement is present whenever a
+13. the labels are truthful: nothing non-definitive is labelled checked, and the answer's badge says "passed" only
+    when its summary is `formally_checked`, `partly_checked` or `formal_only`; the scope statement is present whenever a
     formal status is shown; `simulated` is true unless both the specialist and the checks are live.
 
 Only then does the website store the result, which is then replayed unchanged. **The rule holds in every case: an
@@ -448,7 +486,8 @@ No v1 policy allows a revision, so `revise` is never produced. If D5 allows one:
   student (D19); a combinator synthesis; `release_decision` on the synthesis receipt; no half answers. Not offered until
   a combinator is connected.
 - **How the overseer reviews** (in depth, split, duplicated, n-fold) is the flash router's advisory plan under the
-  enforced floor (section 7a); it is never on the critical path and never changes a clearance or a release.
+  enforced floor (section 7a); it never changes a clearance, a release or a decision, the router only gets what is
+  left of the budget (at most 3 s), and the review itself runs after delivery.
 
 ## 12. Closed error codes (`integration/errors.py`)
 
@@ -500,7 +539,10 @@ the budget spent before and half-way; a STEM report cut by its budget; a provide
 out-of-contract overseer message; an unexpected exception); the decision-table vectors and the property test;
 prefetch non-interference; fixture-verifier parity with `run_arena`; service routes behind the existing gates; the
 evidence tap refused outside the sim profile; the review routing with the router absent, at the floor and below it;
-manifest freshness. The full suite passes with no test weakened or deleted.
+the router in its own process (no `EPINOIC_` variable, no patch of the floor, every way of failing refused with 016, a
+time limit); a failing review that changes no decision; the binding checks on a truncated claim list; the flash-router
+sub-project's own suite and its adoption on every vector; manifest freshness. The full suite passes with no test
+weakened or deleted.
 
 **14.2 Website** (offline: a fake `fetchImpl` or the loopback service, `node:sqlite` D1): the kit's adapter tests
 (`website/tests/`), and once a patch set is applied, every existing test unchanged plus the contract, codes, readiness,
@@ -520,9 +562,9 @@ no gate FAILs and all eight PASS (`integration/sim/README.md`).
 G0 in force, makes no website branch, the simulation exits 0, and a transcript audit finds no push, deploy, secret,
 remote D1 command, provider host or weakened test.
 
-**14.7 Rollback rehearsal** (`integration/rollback/ROLLBACK.md`): W1 alone replays rows written by W3; removing W3
-leaves every row valid; an incompatible service gives `service_unavailable` or `chat_unavailable`, never an unchecked
-answer; on base P removing patch set P leaves the pilot unchanged.
+**14.7 Rollback rehearsal** (`integration/rollback/ROLLBACK.md`; playbook step 11a): W1 alone replays rows written by
+W3; removing W3 leaves every row valid; an incompatible service gives `service_unavailable` or `chat_unavailable`,
+never an unchecked answer; on base P removing patch set P leaves the pilot unchanged.
 
 ---
 

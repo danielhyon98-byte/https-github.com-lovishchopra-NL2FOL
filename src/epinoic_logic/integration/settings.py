@@ -16,7 +16,8 @@ Environment variables (names only; values are never logged, printed or returned,
 ``EPINOIC_OVERSEER_SECRET``         overseer secret, hex, at least 32 bytes, distinct from both keys
 ``EPINOIC_OVERSEER_PORT``           the overseer port adapter module (default ``epinoic_overseer.port``)
 ``EPINOIC_OVERSEER_AGENTS``         ``off`` (default) | ``async``: the asynchronous overseer-agent review
-``EPINOIC_FLASH_ROUTER``            the flash-router module (default ``epinoic_flash_router.port``; ``none`` for none)
+``EPINOIC_FLASH_ROUTER``            the flash-router module, attached only when named (``epinoic_flash_router.port``);
+                                    unset or ``none`` (the default): no router, the floor plan runs (decision D28)
 ``EPINOIC_COMBINATOR``              ``none`` (default): no combinator is connected, so the mode ``combined`` is omitted
 ``EPINOIC_TRANSLATION_PROVIDER``    ``fixture`` | ``anthropic`` | ``openai_compatible`` (the cheapest tier)
 ``EPINOIC_FIXTURE_DIR``             the fixture provider's translations (arena round format)
@@ -58,7 +59,7 @@ class IntegrationSettings:
     overseer_secret_hex: Optional[str] = field(default=None, repr=False)
     overseer_port: str = "epinoic_overseer.port"
     overseer_agents: str = "off"
-    flash_router: str = "epinoic_flash_router.port"
+    flash_router: str = "none"
     combinator: str = "none"
     translation_provider: Optional[str] = None
     fixture_dir: Optional[str] = None
@@ -92,7 +93,7 @@ class IntegrationSettings:
             overseer_secret_hex=get("OVERSEER_SECRET"),
             overseer_port=get("OVERSEER_PORT", "epinoic_overseer.port") or "",
             overseer_agents=get("OVERSEER_AGENTS", "off") or "off",
-            flash_router=get("FLASH_ROUTER", "epinoic_flash_router.port") or "none",
+            flash_router=get("FLASH_ROUTER", "none") or "none",
             combinator=get("COMBINATOR", "none") or "none",
             translation_provider=get("TRANSLATION_PROVIDER", "fixture" if profile == "integration-sim" else None),
             fixture_dir=get("FIXTURE_DIR"),

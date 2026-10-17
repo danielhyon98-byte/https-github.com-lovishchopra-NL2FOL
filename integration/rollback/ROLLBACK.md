@@ -27,8 +27,11 @@ Nothing to roll back in the runtime or the router. Revert the docs, port and tes
 
 ## Flash router (its sub-project's owner)
 
-Detach it: set `EPINOIC_FLASH_ROUTER=none` (or remove the variable) and restart the service. The floor plan then runs
-for every review; nothing on the critical path changes, because a plan never changes a clearance or a delivery.
+Detach it: set `EPINOIC_FLASH_ROUTER=none`, or remove the variable (the service attaches the router only when the
+variable names it; the default is `none`, decision D28), and restart the service. The floor plan then runs for every
+review; no decision changes, because a plan never changes a clearance, a delivery or a verdict's decision. To roll back
+a release of the router itself, reinstall the previous version of `flash-router/` (its identity in the handshake and in
+every verdict's review names the version that planned it); the translator and the kit need no change.
 
 ## The kit itself (Daniel)
 
@@ -39,7 +42,9 @@ changed, because the default profile is `engine`.
 
 ## Rollback rehearsal (PROTOCOL.md section 14.7)
 
-To be run on a disposable website export with the patch set applied (connected with the website patch material):
+Playbook step 11a runs it on three disposable exports of the website's `origin/main` (the whole patch set, W1 alone,
+and the unpatched base): `node integration/rollback/rehearse.mjs --full <export> --reader <W1-only export> --base
+<unpatched export> --work <dir>`. `website/patches/M/TESTED.json` records the last run. It shows:
 
 1. with W1 alone (the reader) applied to a database that holds rows written by W3, replay and history still work;
 2. removing W3 (the writer) leaves every stored row valid;
@@ -47,7 +52,8 @@ To be run on a disposable website export with the patch set applied (connected w
    `chat_unavailable` before admission, and never an unchecked answer;
 4. on base P, removing patch set P leaves the pilot's own behaviour unchanged.
 
-What the kit rehearses today, without a website export: `tests/integration/test_rollback.py` shows on the service
-side that a service whose versions fall outside the compatibility set is refused by the Worker's handshake rules
+What the kit rehearses without a website export: `tests/integration/test_rollback.py` shows on the service side that
+a service whose versions fall outside the compatibility set is refused by the Worker's handshake rules
 (`kit_hs_mismatch` for every refusing code), that the floor runs when the router is detached, and that the `engine`
-profile serves exactly the routes it served before.
+profile serves exactly the routes it served before; `tests/integration/test_flash_router_subproject.py` shows that
+removing `EPINOIC_FLASH_ROUTER` detaches the router even when its sub-project is installed.

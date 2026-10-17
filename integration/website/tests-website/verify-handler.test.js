@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { checksBadge } from "../public/chat-contract.js";
 import { errorResult, statusForError } from "../src/chat/contract.js";
 import { handleRequest } from "../src/index.js";
 import { countClaims } from "../src/verify/decision-table.js";
@@ -39,6 +40,11 @@ function verdictFor(req, mode) {
     v.claims = [claim("COUNTEREXAMPLE")];
     v.delivery = { ...v.delivery, decision: "refuse_unresolved", reasons: ["KIT-DL-010"], deliverable: null };
     v.summary = null;
+  } else if (mode === "invalid" || mode === "noclaims") {
+    // delivered, but no material claim has a positive formal result: the summary is not_formally_checkable
+    v.claims = mode === "invalid" ? [claim("INVALID_FORMALIZATION")] : [];
+    v.delivery = { ...v.delivery, deliverable: { agent_id: a.agent_id, answer_sha256: a.answer_sha256, message_id: "m-1" } };
+    v.summary = "not_formally_checkable";
   } else {
     v.claims = [claim("ENTAILED")];
     v.delivery = { ...v.delivery, deliverable: { agent_id: a.agent_id, answer_sha256: a.answer_sha256, message_id: "m-1" } };
@@ -116,6 +122,23 @@ test("a bound deliver verdict releases the answer with review checks:integration
   const stored = await w.history(r.body.conversationId);
   assert.deepEqual(stored.turns[0].reply.checks, r.body.checks);
   assert.equal(w.one("SELECT simulated FROM turns").simulated, 1);
+});
+
+test("an answer delivered without a positive formal result is labelled not formally checked, never passed", async () => {
+  for (const service of ["invalid", "noclaims"]) {
+    const w = world({ service });
+    const r = await w.post(send());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.review, "checks:integration.v1");
+    assert.equal(r.body.checksSummary, "not_formally_checkable", service);
+    assert.deepEqual(checksBadge(r.body.checksSummary), ["Not formally checked", null], service);
+    const stored = await w.history(r.body.conversationId);
+    assert.equal(stored.turns[0].reply.checksSummary, "not_formally_checkable", "history replays the same summary, so the same badge");
+    const formal = r.body.checks.map((c) => c.formal);
+    assert.deepEqual(formal, service === "invalid" ? ["INVALID_FORMALIZATION"] : [], service);
+  }
+  const positive = await world().post(send());
+  assert.deepEqual(checksBadge(positive.body.checksSummary), ["Automatic checks passed", "is-ok"]);
 });
 
 test("a refusing verdict is 422 review_unresolved, stored under its raw code and shown as the same public code", async () => {

@@ -1,4 +1,26 @@
 {
+  "badges": {
+    "formal_only": [
+      "Automatic checks passed",
+      "is-ok"
+    ],
+    "formally_checked": [
+      "Automatic checks passed",
+      "is-ok"
+    ],
+    "incomplete": [
+      "Some checks unavailable",
+      null
+    ],
+    "not_formally_checkable": [
+      "Not formally checked",
+      null
+    ],
+    "partly_checked": [
+      "Automatic checks passed",
+      "is-ok"
+    ]
+  },
   "forbidden_words": [
     "verified",
     "true",
@@ -16,5 +38,9 @@
     "UNSUPPORTED": "Not formally checked.",
     "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",
     "positive_other": "The logic encoding passed a formal check; the encoding and its premises were not independently established."
-  }
+  },
+  "unknown_summary_badge": [
+    "Not formally checked",
+    null
+  ]
 }

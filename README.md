@@ -279,7 +279,9 @@ adapter and patch material, the agents checks port, the golden vectors, the simu
 playbook a fresh session follows. Start with [`integration/README.md`](integration/README.md) and
 [`docs/INTEGRATION_PROTOCOL.md`](docs/INTEGRATION_PROTOCOL.md). Z3 and STEM checks are required: a missing part fails
 with a named `KIT-HS` code. The service side lives in `src/epinoic_logic/integration/`; the default `engine` profile is
-unchanged.
+unchanged. The flash router, which plans how the overseer reviews each answer, is a separate sub-project,
+[`flash-router/`](flash-router/README.md), edited and released apart from the Z3 infrastructure and run by the service
+in its own process.
 
 ## Repository layout
 
@@ -293,6 +295,7 @@ unchanged.
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `src/epinoic_logic/integration/` and `integration/` — the integration protocol's service side and the integration kit
+- `flash-router/` — the flash router, a sub-project of its own (`pyproject.toml`, package `epinoic_flash_router`, tests)
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 

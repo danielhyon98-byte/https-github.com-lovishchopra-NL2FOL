@@ -21,7 +21,7 @@ Results prove properties of the logic encoding only, and every verdict carries t
 | the specialist port (runtime results v1 and v2) | `specialist_port.py` |
 | the overseer port (the overseer as a separate sub-project) | `overseer_port.py`; the embedded adapter `epinoic_overseer.port` is connected in phase 2 |
 | the combinator port | `combinator_port.py`; `combined` is not offered until a combinator is connected |
-| the flash-router port (the oversight planner as a separate, independent sub-agent) | `router_port.py`, `routing_features.py`; the router sub-project `flash-router/` is connected in phase 2; without it the minimum-oversight floor runs |
+| the flash-router port (the oversight planner as a separate, independent sub-agent) | `router_port.py` (the router run in its own process: `router_child.py`), `routing_features.py`; the router itself is the sub-project `flash-router/` (package `epinoic_flash_router`), attached only when `EPINOIC_FLASH_ROUTER` names it; without it the minimum-oversight floor runs |
 | the decision table, verdict signing, the Worker's binding checks | `delivery.py` |
 | the fixture provider of the simulation (the arena's serving rule) | `verifier.py` (`FixtureCorpus`) |
 | the STEM budget as a per-channel parameter | `channel/bus.py` (`stem_budget_s`, bounded by `STEM_CHECK_BUDGET_S`) |
@@ -35,7 +35,8 @@ The decisions still open, with the fail-closed default the kit implements for ea
 ## State on the pre-build branch
 
 The overseer package, the named-policy allowlist of contract 0.3, the argument diagnostics, the closed transformation
-values, the combinator and the flash-router sub-project are built by other work streams and connected in phase 2. On
+values and the combinator are built by other work streams and connected in phase 2; the flash-router sub-project is
+in this kit (`flash-router/`), edited and released apart from the Z3 infrastructure. On
 this branch the service therefore refuses to start with `KIT-HS-006 named_policies_unavailable`; every part that does
 not depend on them is built and tested, against fixtures where a port's other side is missing (`RecordingPort` is a
 test double of the overseer port in `tests/integration/helpers.py`, never importable by the package). Nothing is

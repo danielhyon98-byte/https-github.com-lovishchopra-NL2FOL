@@ -17,7 +17,8 @@ in [DECISIONS.md](DECISIONS.md).
 | protocol, five ports, codes, compatibility (`src/epinoic_logic/integration/`) | built and tested |
 | service profiles `integration` / `integration-sim`, bootstrap, preflight, self-test, capabilities, `POST /v1/turns/check` | built and tested; the service **refuses to start on this branch** with `KIT-HS-006` (contract 0.3's named policies are not on it) and then `KIT-HS-007` (no overseer port adapter) until phase 2 connects them |
 | TurnChecker (normative order, budget, STEM budget, prefetch, decision table, signing, review routing) | built; tested through `RecordingPort`, a test double of the overseer port |
-| flash-router port: request, plan, hello, floor, admission | built and tested on fixtures; the router itself is a separate sub-project (`flash-router/`, connected in phase 2) |
+| flash-router port: request, plan, hello, floor, admission; the router run in its own process | built and tested |
+| flash router (`flash-router/`, package `epinoic_flash_router` 0.1.0) | a separate, independent sub-project with its own `pyproject.toml`, rules, cost model and conformance suite; built and tested; attached only when `EPINOIC_FLASH_ROUTER` names it (decision D28) |
 | overseer port adapter (`epinoic_overseer.port`) | **connected in phase 2** (the overseer is not on this branch) |
 | combinator | **connected in phase 2**; until then `combined` is not offered |
 | website adapter (`website/src/verify/`) and its `node:test` tests | built and tested in the kit; the website patch set is described in `website/PATCH-PLAN.md` |
@@ -54,6 +55,8 @@ integration/
   deploy/container/             PROPOSED container files; built and deployed only on the owners' go-ahead
   rollback/ROLLBACK.md          rollback per repository; prints commands, runs nothing
 src/epinoic_logic/integration/  the service side (installed with the package)
+flash-router/                   the flash router: its own sub-project (pyproject.toml, src/epinoic_flash_router/, tests/),
+                                standard library only at run time, never imported by the translator
 tests/integration/              the kit's Python tests; tests/fixtures/integration/ the runtime fixtures (SOURCE.md)
 docs/INTEGRATION_PROTOCOL.md    the protocol in the translator's documentation set
 ```
@@ -80,7 +83,7 @@ python integration/tools/manifest.py        # MANIFEST.sha256 files, last       
 - **T5.** `POST /v1/turns/check`; the existing routes and their behaviour do not change; the default profile stays
   `engine`.
 - **T6.** The overseer port's embedded adapter, its conformance suite and the asynchronous review queue
-  (**phase 2**); the flash-router sub-project behind the router port (**phase 2**).
+  (**phase 2**); the flash-router sub-project behind the router port (built: `flash-router/`, run in its own process).
 - **T7.** The website adapter and its tests; patch sets M (against `2cd3182`) and P (when a base-P website exists);
   `apply.mjs`, `ANCHORS.md`, `RESULT.sha256`; the vectors.
 - **T8.** The simulation: the synthetic corpus in the arena round format, the reference harness, the comparison, the

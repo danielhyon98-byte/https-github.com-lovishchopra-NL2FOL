@@ -188,12 +188,13 @@ def decision_vectors() -> dict[str, dict]:
 
 def synthetic_verdict(claims: list[dict], *, answer: str = ANSWER, user_text: str = USER_TEXT, receipt_status="ACCEPTED", receipt_errors=(),
                       overseer_state="AUDIT_PASSED", delivery_allowed=True, refusal=None, consolidation_status="CONSOLIDATED",
-                      mode="single", policy="verified-v1", sign=True) -> dict:
-    """A synthetic, internally consistent verdict (signed under the vector key)."""
+                      mode="single", policy="verified-v1", sign=True, unlisted=()) -> dict:
+    """A synthetic, internally consistent verdict (signed under the vector key). ``unlisted`` holds the decision fields
+    of claims that are counted but not listed (as a claim without an excerpt is, or one past the 32 listed)."""
     from epinoic_logic.integration.canonical import sha256_text
     from epinoic_logic.integration.delivery import ClaimFields, DecisionInput, count_claims, decide, sign_verdict, summarize
     from epinoic_logic.integration.protocol import AUDIT_SCOPE_STATEMENT, PROTOCOL, SCOPE_STATEMENT
-    fields = [ClaimFields(c["materiality"], c["formal"], c["attempt"], c["release_permitted"]) for c in claims]
+    fields = [ClaimFields(c["materiality"], c["formal"], c["attempt"], c["release_permitted"]) for c in claims] + list(unlisted)
     counts = count_claims(fields)
     decision, reasons = decide(DecisionInput(policy=policy, revision_of=None, receipt_status=receipt_status, receipt_error_codes=tuple(receipt_errors),
                                              overseer_state=overseer_state, delivery_allowed=delivery_allowed, overseer_refusal=refusal,
@@ -232,10 +233,18 @@ def binding_context(**kw):
     return ctx
 
 
+def _counted(verdict: dict, **more: int) -> dict:
+    """``verdict`` with its counts raised by ``more`` (as if claims beyond the listed ones were counted)."""
+    return dict(verdict, counts={k: v + more.get(k, 0) for k, v in verdict["counts"].items()})
+
+
 def verdict_vectors() -> dict[str, dict]:
-    from epinoic_logic.integration.delivery import BindingContext, binding_problem
+    from epinoic_logic.integration.delivery import BindingContext, ClaimFields, binding_problem
     good = synthetic_verdict([E("c1", "The treaty was signed in 1919."), E("c2", "The hyperinflation peaked in 1923.")])
     blocking = synthetic_verdict([E("c1", "The treaty was signed in 1919.", formal="COUNTEREXAMPLE")])
+    # a genuine verdict whose list is shorter than its counts: a third material claim is counted but has no excerpt
+    truncated = synthetic_verdict([E("c1", "The treaty was signed in 1919."), E("c2", "The hyperinflation peaked in 1923.")],
+                                  unlisted=[ClaimFields("material", "ENTAILED", "attempted", False)])
     cases = {
         "deliver-bound": (good, binding_context()),
         "refusal-bound": (blocking, binding_context(release_text=None)),
@@ -253,6 +262,15 @@ def verdict_vectors() -> dict[str, dict]:
         "summary-tampered": (dict(good, summary="formally_checked"), binding_context()),
         "counts-disagree": (dict(good, counts={**good["counts"], "blocking": 1}), binding_context()),
         "excerpt-not-in-answer": (dict(good, claims=[dict(good["claims"][0], excerpt="The treaty was signed in 1918.")] + good["claims"][1:]), binding_context()),
+        # the listed claims are lower bounds of the counts even when the list is truncated (counts_problem)
+        "truncated-list-bound": (truncated, binding_context()),
+        "truncated-list-hides-timeout": (_counted(dict(good, claims=[dict(good["claims"][0], formal="TIMEOUT")] + good["claims"][1:]), claims_total=1),
+                                         binding_context()),
+        "truncated-list-hides-counterexample": (_counted(dict(good, claims=[dict(good["claims"][0], formal="COUNTEREXAMPLE")] + good["claims"][1:]),
+                                                         claims_total=1), binding_context()),
+        "more-listed-than-counted": (dict(good, counts={**good["counts"], "claims_total": 1}), binding_context()),
+        "truncated-list-inflates-permitted": (dict(_counted(good, claims_total=1, permitted=2), summary="formally_checked"), binding_context()),
+        "counts-incoherent": (_counted(good, claims_total=1, material=1), binding_context()),  # a material claim neither eligible nor not
     }
     out = {}
     for name, (verdict, ctx) in cases.items():
@@ -328,7 +346,11 @@ def router_vectors() -> dict[str, dict]:
 
 
 def chat_contract_vectors() -> dict[str, dict]:
-    """The website's check entries derived from verdict claims (the labels the page writes from the closed statuses)."""
+    """The website's check entries derived from verdict claims (the labels the page writes from the closed statuses),
+    and the answer badge the page writes from a delivered answer's ``checksSummary`` (decisions D13 and D27): "passed"
+    only when the formal checks gave a positive result and no material check is missing; an answer with no positive
+    result, or one whose material checks did not all complete (reachable under the qualify policy only), never carries
+    the word "passed", whatever the policy."""
     labels = {
         "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",
         "positive_other": "The logic encoding passed a formal check; the encoding and its premises were not independently established.",
@@ -337,7 +359,13 @@ def chat_contract_vectors() -> dict[str, dict]:
         "AMBIGUOUS_TRANSLATION": "Not formally checked: more than one reading.",
         "UNKNOWN": "Check unavailable.", "TIMEOUT": "Check unavailable.", "INTERNAL_ERROR": "Check unavailable.", "NOT_ATTEMPTED": "Check unavailable.",
     }
-    return {"labels.json": {"labels": labels, "forbidden_words": ["verified", "true", "proven", "Reviewed"]}}
+    badges = {
+        "formally_checked": ["Automatic checks passed", "is-ok"], "partly_checked": ["Automatic checks passed", "is-ok"],
+        "formal_only": ["Automatic checks passed", "is-ok"],
+        "not_formally_checkable": ["Not formally checked", None], "incomplete": ["Some checks unavailable", None],
+    }
+    return {"labels.json": {"labels": labels, "badges": badges, "unknown_summary_badge": ["Not formally checked", None],
+                            "forbidden_words": ["verified", "true", "proven", "Reviewed"]}}
 
 
 GENERATORS = {
@@ -346,8 +374,10 @@ GENERATORS = {
 }
 
 
-#: Copies of vectors that travel with kit material for another repository (the agents checks port's own tests).
+#: Copies of vectors that travel with material maintained apart from the kit: the agents checks port's own tests, and
+#: the flash-router sub-project's conformance suite (``flash-router/tests/vectors/router-port/``).
 COPIES = {ROOT / "integration" / "agents" / "checks-port" / "vectors" / "v1-answer.json": OUT / "specialist-port" / "v1" / "answer.json"}
+COPY_DIRS = {ROOT / "flash-router" / "tests" / "vectors" / "router-port": "router-port"}
 
 
 def outputs() -> dict[Path, str]:
@@ -357,6 +387,10 @@ def outputs() -> dict[Path, str]:
             texts[OUT / folder / name] = _dump(doc)
     for copy, source in COPIES.items():
         texts[copy] = texts[source]
+    for target, folder in COPY_DIRS.items():
+        for path, text in list(texts.items()):
+            if path.parent == OUT / folder:
+                texts[target / path.name] = text
     return texts
 
 
@@ -366,7 +400,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     texts = outputs()
     drifted = [p for p, t in texts.items() if not p.exists() or p.read_text(encoding="utf-8") != t]
-    stale = [p for p in OUT.rglob("*.json") if p not in texts]  # copies live outside OUT and are never stale here
+    stale = [p for p in OUT.rglob("*.json") if p not in texts]
+    stale += [p for d in COPY_DIRS for p in d.glob("*.json") if p not in texts]  # a copy whose vector is gone
     if args.check:
         for p in drifted + stale:
             print(f"drift: {p.relative_to(ROOT)}")

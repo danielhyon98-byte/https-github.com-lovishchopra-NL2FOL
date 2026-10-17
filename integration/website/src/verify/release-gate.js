@@ -4,7 +4,8 @@
 // - a verdict is accepted only when its shape is exactly epinoic.integration.turn-verdict.v1 (closed key sets, closed
 //   enums, the pinned scope statements, a signature of the right algorithm): anything else is verifier_malformed;
 // - it must be bound to this turn and attempt, this student text, this policy and mode and these answer digests, and
-//   its decision, counts and summary must follow from its own fields (decision-table.js): anything else is kit_dl_030;
+//   its decision, counts and summary must follow from its own fields (decision-table.js), the listed claims counting as
+//   lower bounds of the counts even when the list is truncated (countsProblem): anything else is kit_dl_030;
 // - the text released is byte-identical to the checked deliverable (digest comparison), every listed excerpt is a
 //   verbatim part of it, and the ChatResult says review "checks:integration.v1" with checks that agree with the verdict;
 // - the Worker holds no verdict key (it cannot verify the HMAC); it checks that a signature is present.
@@ -132,6 +133,28 @@ function normalized(v) {
 const pairKey = (t) => t.join("\u0000");
 
 /**
+ * Why `counts` (the verdict's counts over EVERY claim of its deliverable) cannot go with the claims it lists, whose own
+ * counts are `listed` (`nListed` entries), or null. The list is a part of every claim (claims without an excerpt are
+ * counted but not listed; at most 32 are listed), so each listed count is a lower bound of the verdict's count whatever
+ * the list's length, and equal to it when every claim is listed; and the counts must be the counts of some list of
+ * claims. So a listed material claim that is TIMEOUT or COUNTEREXAMPLE is never hidden from the re-derived decision.
+ * The same rule as the service's delivery.counts_problem.
+ */
+export function countsProblem(counts, listed, nListed) {
+  if (nListed > counts.claims_total) return "more claims are listed than counted";
+  const keys = Object.keys(listed);
+  if (keys.some((k) => listed[k] > counts[k])) return "a listed claim is missing from the counts";
+  if (nListed === counts.claims_total && keys.some((k) => listed[k] !== counts[k])) return "the counts disagree with the listed claims";
+  // every material claim is listed: every count but claims_total (the only one that counts supporting claims) is exact
+  if (listed.material === counts.material && keys.some((k) => k !== "claims_total" && listed[k] !== counts[k])) return "the counts disagree with the listed material claims";
+  const c = counts;
+  const coherent = c.material <= c.claims_total && c.eligible + c.not_eligible === c.material && c.attempted <= c.eligible
+    && c.positive <= c.definitive && c.permitted <= c.positive && c.definitive + c.unavailable <= c.eligible
+    && c.definitive - c.positive <= c.blocking && c.blocking <= c.material;
+  return coherent ? null : "the counts are not the counts of any list of claims";
+}
+
+/**
  * Row 1 of the decision table: null when `verdict` is well formed, bound to this attempt and internally consistent;
  * otherwise [rawCode, detail] with rawCode verifier_malformed or kit_dl_030.
  * `ctx`: { taskId, requestId, userText, policy, mode, answers: [[agentId, answerText, resultSha256]], releaseText, revisionOf }.
@@ -153,13 +176,14 @@ export async function bindingProblem(verdict, ctx) {
   for (const [agentId, text, resultSha] of ctx.answers) sent.push(pairKey([agentId, await sha256Text(text), resultSha]));
   const got = v.bound.answers.map((a) => pairKey([a.agent_id, a.answer_sha256, a.result_sha256]));
   if (JSON.stringify([...sent].sort(compareCodePoints)) !== JSON.stringify([...got].sort(compareCodePoints))) return ["kit_dl_030", "bound to other answers"];
+  const listed = countClaims(v.claims.map((c) => ({ materiality: c.materiality, formal: c.formal, attempt: c.attempt, release_permitted: c.release_permitted })));
+  const countsDetail = countsProblem(v.counts, listed, v.claims.length);
+  if (countsDetail !== null) return ["kit_dl_030", countsDetail];
   const [decision, reasons] = decide(decisionInputOf(v, ctx.revisionOf ?? null));
   const sortedReasons = [...v.delivery.reasons].sort();
   if (decision !== v.delivery.decision || JSON.stringify([...reasons].sort()) !== JSON.stringify(sortedReasons)) {
     return ["kit_dl_030", "the decision does not follow from the verdict's own fields"];
   }
-  const listed = countClaims(v.claims.map((c) => ({ materiality: c.materiality, formal: c.formal, attempt: c.attempt, release_permitted: c.release_permitted })));
-  if (v.counts.claims_total === v.claims.length && Object.keys(listed).some((k) => listed[k] !== v.counts[k])) return ["kit_dl_030", "the counts disagree with the listed claims"];
   if (decision === "deliver") {
     if (v.delivery.deliverable === null || typeof ctx.releaseText !== "string") return ["kit_dl_030", "a delivered verdict names its deliverable"];
     if (v.delivery.deliverable.answer_sha256 !== (await sha256Text(ctx.releaseText))) return ["kit_dl_030", "the text to release is not the checked deliverable"];

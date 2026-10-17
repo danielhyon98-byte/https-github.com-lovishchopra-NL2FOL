@@ -40,7 +40,7 @@ from .protocol import (
 __all__ = [
     "REVISION_POLICIES", "BUDGET_ATTEMPTS", "INTEGRITY_REFUSALS", "ClaimFields", "DecisionInput", "decide", "summarize",
     "count_claims", "decision_input_of", "signable_bytes", "sign_verdict", "verify_verdict_signature", "BindingContext",
-    "binding_problem",
+    "counts_problem", "binding_problem",
 ]
 
 #: Policies that allow one bounded revision (decision D5: none by default, so ``revise`` is never produced in v1).
@@ -236,6 +236,32 @@ class BindingContext:
     revision_of: Optional[str] = None
 
 
+def counts_problem(counts: Mapping[str, int], listed: Mapping[str, int], n_listed: int) -> Optional[str]:
+    """Why ``counts`` (a verdict's counts over EVERY claim of its deliverable) cannot go with the claims it lists, whose
+    own counts are ``listed`` (``n_listed`` entries), or ``None``.
+
+    The list is a part of every claim (claims without an excerpt are counted but not listed, and at most 32 are
+    listed), so each listed count is a lower bound of the verdict's count whatever the list's length, and equal to it
+    when every claim is listed; when every material claim is listed, every count but ``claims_total`` (the only one
+    that counts supporting claims) is exact. The counts must also be the counts of SOME list of claims: a material
+    claim is eligible or not; attempted, definitive and unavailable claims are eligible ones; positive results are
+    definitive; permitted ones are positive; a definitive result that is not positive is a blocking one. So a listed
+    material claim that is TIMEOUT or COUNTEREXAMPLE can never be hidden from the decision re-derived from the counts."""
+    if n_listed > counts["claims_total"]:
+        return "more claims are listed than counted"
+    if any(listed[k] > counts[k] for k in listed):
+        return "a listed claim is missing from the counts"
+    if n_listed == counts["claims_total"] and any(listed[k] != counts[k] for k in listed):
+        return "the counts disagree with the listed claims"
+    if listed["material"] == counts["material"] and any(listed[k] != counts[k] for k in listed if k != "claims_total"):
+        return "the counts disagree with the listed material claims"  # all material claims listed: all but the total exact
+    c = counts
+    coherent = (c["material"] <= c["claims_total"] and c["eligible"] + c["not_eligible"] == c["material"]
+                and c["attempted"] <= c["eligible"] and c["positive"] <= c["definitive"] and c["permitted"] <= c["positive"]
+                and c["definitive"] + c["unavailable"] <= c["eligible"] and c["definitive"] - c["positive"] <= c["blocking"] <= c["material"])
+    return None if coherent else "the counts are not the counts of any list of claims"
+
+
 def binding_problem(verdict: Any, ctx: BindingContext) -> Optional[tuple[str, str]]:
     """``None`` when ``verdict`` is well formed, bound to this attempt and internally consistent; otherwise
     ``(raw code, detail)`` with the raw code ``verifier_malformed`` (not a verdict) or ``kit_dl_030`` (a verdict for
@@ -263,13 +289,14 @@ def binding_problem(verdict: Any, ctx: BindingContext) -> Optional[tuple[str, st
         return "kit_dl_030", "bound to other answers"
     if v.scope_statement != SCOPE_STATEMENT or v.audit_scope_statement != AUDIT_SCOPE_STATEMENT:  # pragma: no cover - Literal-checked
         return "kit_dl_030", "the scope statement differs from the pinned constant"
+    counts = {k: data["counts"][k] for k in data["counts"]}
+    listed = count_claims(ClaimFields(c.materiality, c.formal, c.attempt, c.release_permitted) for c in v.claims)
+    problem = counts_problem(counts, listed, len(v.claims))
+    if problem:
+        return "kit_dl_030", problem
     decision, reasons = decide(decision_input_of(data, revision_of=ctx.revision_of))
     if decision != v.delivery.decision or sorted(reasons) != sorted(v.delivery.reasons):
         return "kit_dl_030", "the decision does not follow from the verdict's own fields"
-    counts = {k: data["counts"][k] for k in data["counts"]}
-    listed = count_claims(ClaimFields(c.materiality, c.formal, c.attempt, c.release_permitted) for c in v.claims)
-    if counts["claims_total"] == len(v.claims) and any(listed[k] != counts.get(k, listed[k]) for k in listed):
-        return "kit_dl_030", "the counts disagree with the listed claims"
     if decision == "deliver":
         if v.delivery.deliverable is None or ctx.release_text is None:
             return "kit_dl_030", "a delivered verdict names its deliverable"

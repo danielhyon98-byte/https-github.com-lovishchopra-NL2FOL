@@ -245,11 +245,20 @@ def test_an_attached_router_module_is_called_with_json_and_its_plan_admitted(tmp
     assert [t.reviews for t in adm.effective.transfers] == [1, 2]
 
 
+# PROTOCOL.md section 7a.5 is normative here: a router that raises or answers with anything but JSON text (non-JSON
+# text, a non-text value, nothing) is a failed router, KIT-RT-016; JSON that is not an admissible plan keeps its own code
+# (KIT-RT-001 for one out of shape). check_plan called directly on a text that is not JSON still says KIT-RT-001 (above).
 @pytest.mark.parametrize("body,refusal", [
     ("    raise RuntimeError('router bug')\n", "KIT-RT-016"),
     ("    return None\n", "KIT-RT-016"),
-    ("    return 'not json'\n", "KIT-RT-001"),
+    ("    return 'not json'\n", "KIT-RT-016"),
+    ("    return {'schema': 'epinoic.integration.routing-plan.v1'}\n", "KIT-RT-016"),
+    ("    return 42\n", "KIT-RT-016"),
+    ("    return b'{}'\n", "KIT-RT-016"),
+    ("    return '{\"a\": NaN}'\n", "KIT-RT-016"),
     ("    return json.dumps({'schema': 'epinoic.integration.routing-plan.v1'})\n", "KIT-RT-001"),
+    ("    return '[]'\n", "KIT-RT-001"),
+    ("    return '{}'\n", "KIT-RT-001"),
 ])
 def test_a_failing_or_misbehaving_router_never_fails_the_review_the_floor_runs(tmp_path, monkeypatch, body, refusal):
     name = write_router_module(tmp_path, monkeypatch, f"bad_router_{abs(hash(body)) % 10**8}", plan_body=body)
@@ -260,8 +269,13 @@ def test_a_failing_or_misbehaving_router_never_fails_the_review_the_floor_runs(t
 
 
 def test_an_absent_router_module_is_reported_not_required():
+    """Not configured (unset, empty, ``none``): detached without a refusal. Configured but not importable: detached and
+    reported with KIT-RT-016, so the handshake tells the two apart (PROTOCOL.md section 7a, "Attachment")."""
     att = R.attach_router("epinoic_flash_router_that_is_not_installed.port")
-    assert not att.attached and att.refusal is None and "not importable" in att.detail
+    assert not att.attached and att.refusal == "KIT-RT-016" and "not importable" in att.detail
+    for spec in (None, "", "  ", "none"):
+        quiet = R.attach_router(spec)
+        assert not quiet.attached and quiet.refusal is None and "no router configured" in quiet.detail
     assert R.attach_router("not a module path!").refusal == "KIT-RT-015"
 
 

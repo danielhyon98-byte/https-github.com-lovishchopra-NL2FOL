@@ -6,10 +6,11 @@
  "node": "v22.22.0",
  "date": "2026-10-17",
  "commands": [
-  "node integration/website/apply.mjs --base M --target <export>",
+  "node integration/website/apply.mjs --base M --target <export> --write-result",
   "node --test --test-timeout=30000 tests/*.test.js   (in the export)",
   "node integration/website/apply.mjs --base M --target <fresh export> --verify   -> exact",
   "node integration/readiness/check-website.mjs --anchors <unpatched export>   -> every count as expected",
+  "node integration/website/apply.mjs --base M --target <another export> --steps W1",
   "node integration/rollback/rehearse.mjs --full <export> --reader <export with --steps W1> --base <unpatched export> --work <dir>"
  ],
  "baseline": {
@@ -19,14 +20,14 @@
   "failing": "the three tests that need the Playwright devDependency (not installed in an export without dependencies)"
  },
  "patched": {
-  "tests": 357,
-  "pass": 354,
+  "tests": 359,
+  "pass": 356,
   "fail": 3,
   "failing": "the same three tests as the baseline, and no other",
-  "new_tests": 67
+  "new_tests": 69
  },
  "blocks": 39,
- "copied_files": 107,
+ "copied_files": 113,
  "rollback_rehearsal": {
   "1 rows written by W3": "PASS",
   "2 W1 alone reads them (history and replay)": "PASS",

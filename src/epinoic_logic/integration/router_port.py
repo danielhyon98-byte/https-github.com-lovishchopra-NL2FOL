@@ -21,9 +21,17 @@ signals (:func:`floor_plan`). A plan below the floor is refused with ``KIT-RT-02
 out-of-contract plan is refused with its own ``KIT-RT`` code and the floor plan runs; with no router attached the floor
 plan runs. So a router can only ever add oversight, never remove it, and risk signals only escalate. A plan carries
 only closed-vocabulary values, digests bound to its request and hello, and transfer keys from its request: nothing a
-blind dossier hides (no auditor finding, no consolidation result, no OVS code, no gold or fault label), and no model:
-every instance runs on the cheapest tier. The plan never changes a clearance, a delivery decision or a verdict: the
-review it plans runs after delivery, off the student's critical path.
+blind dossier hides (no auditor finding, no consolidation result, no OVS code, no gold or fault label), and no model
+(no model member, and no plan id or router name naming a model family): every instance runs on the cheapest tier. The
+plan never changes a clearance, a delivery decision or a verdict's decision: the review it plans runs after delivery.
+
+**The router runs in its own process** (:func:`run_router`, ``router_child.py``): ``python -I`` with the service's import
+path, an environment without any ``EPINOIC_`` variable (no key, secret or token reaches it), its answer read from its
+standard output, at most :data:`HELLO_TIMEOUT_S` for its hello and at most ``min(PLAN_TIMEOUT_S, what is left of the
+call's budget)`` for a plan. Its code never runs in the service: it cannot change the floor or the admission, read the
+service's keys, or raise into the service. A router that raises, exits, hangs, answers with more than
+:data:`MAX_ANSWER_BYTES` or with anything but JSON text is refused with ``KIT-RT-016`` and the floor runs; JSON that is
+not a plan keeps its own code (``KIT-RT-001`` and the rest of :func:`check_plan`).
 
 Standard library and pydantic only: nothing here imports the engine or Z3, so a router sub-project can validate its own
 output against this module, the JSON Schemas in ``integration/schemas/`` and the vectors in
@@ -31,13 +39,22 @@ output against this module, the JSON Schemas in ``integration/schemas/`` and the
 """
 from __future__ import annotations
 
-import importlib
+import json
+import os
 import re
+import signal
+import subprocess
+import sys
+import threading
+import time
 from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional, Union
 
 from pydantic import Field, StringConstraints, ValidationError, model_validator
 
+from . import router_child as _child
 from .canonical import CanonicalError, canonical_json, loads_strict, sha256_json, sha256_text
 from .errors import IntegrationError
 from .protocol import (
@@ -48,11 +65,12 @@ __all__ = [
     "PORT_VERSION", "REQUEST_SCHEMA", "PLAN_SCHEMA", "HELLO_SCHEMA", "METHODS", "PROFILES", "TIER", "HARD_MAX_INSTANCES",
     "MIN_AGREEMENT_REVIEWS", "MAX_REVIEWS", "MAX_PARTS", "CONTEXT_MAX_BYTES", "REASON_CODES", "FEATURE_NAMES",
     "AGREEMENT_SIGNALS", "FLOOR_NAME", "FLOOR_RULES", "FLOOR_RULES_SHA256", "FLOOR_IDENTITY", "FLOOR_REF",
+    "MODEL_FAMILIES", "HELLO_TIMEOUT_S", "PLAN_TIMEOUT_S", "MAX_ANSWER_BYTES", "CHILD_ENV_NAMES",
     "RequestItemFeature", "ConstraintFeature", "SuppliedTextFeature", "RequestFeatures", "SizeFeature", "ClaimsFeature",
     "ReceiptFeature", "OutputFeatures", "Topology", "RoutingLimits", "RoutingRequest", "RouterHello", "Cost",
-    "TemporaryContext", "TransferPlan", "PlanTotals", "RoutingPlan", "Admission", "RouterAttachment",
+    "TemporaryContext", "TransferPlan", "PlanTotals", "RoutingPlan", "Admission", "RouterAttachment", "RouterFailure",
     "check_request", "check_hello", "check_plan", "risk_signals", "floor_plan", "below_floor", "admit_plan",
-    "attach_router", "route", "request_digest",
+    "attach_router", "route", "run_router", "request_digest",
 ]
 
 PORT_VERSION = "1.0"
@@ -72,11 +90,12 @@ MAX_OUTPUTS = 17
 #: Upper bound of an N_FOLD merged review's temporary context (the per-source validated outcomes), in UTF-8 bytes.
 CONTEXT_MAX_BYTES = 65536
 
-#: Why a transfer gets its oversight. Closed: a plan carries no free text.
+#: Why a transfer gets its oversight. Closed: a plan carries no free text. ``risk_diagnostics`` and
+#: ``risk_unverified_dependencies`` name escalations a router may add on features the floor does not read.
 REASON_CODES: tuple[str, ...] = (
     "baseline_single_review", "risk_receipt_rejected", "risk_error_findings", "risk_repeated_faults",
     "risk_negative_results", "risk_stem_undecided", "volume_split", "topology_combined", "topology_source",
-    "cost_cheapest", "profile_fast", "profile_standard", "cap_merged",
+    "cost_cheapest", "profile_fast", "profile_standard", "cap_merged", "risk_diagnostics", "risk_unverified_dependencies",
 )
 #: The request features a plan may say it used. Closed: names only, never values.
 FEATURE_NAMES: tuple[str, ...] = (
@@ -123,6 +142,20 @@ _HIDDEN_KEYS = frozenset({"auditor", "audit", "consolidation", "consolidations",
                           "verdict", "verdicts", "dossier", "dossiers", "findings", "messages", "text", "answer", "claims_text"})
 _OVS_RE = re.compile(r"OVS-[A-Z]{2,12}-[0-9]{3}")
 _MODEL_KEYS = frozenset({"model", "model_id", "models", "provider", "model_name"})
+#: Model families that a plan's free-form values (its ``plan_id`` and its router's name) and a hello's router name must
+#: not name: a plan never names a model (``KIT-RT-009``; a hello ``KIT-RT-015``). Matched as a whole word, any case.
+MODEL_FAMILIES: tuple[str, ...] = ("claude", "gpt", "gemini", "llama", "mistral", "mixtral", "opus", "sonnet", "haiku", "qwen", "deepseek")
+_MODEL_VALUE_RE = re.compile(r"(?i)(?:^|[^a-z0-9])(?:" + "|".join(MODEL_FAMILIES) + r")(?:[^a-z]|$)")
+
+#: How long the service waits for the router's hello when it attaches it (at start-up, never on a turn).
+HELLO_TIMEOUT_S = 10.0
+#: The longest the service waits for one plan; a call never waits longer than what is left of its budget either.
+PLAN_TIMEOUT_S = 3.0
+#: The most the service reads of a router's answer (UTF-8 bytes): a larger answer is a failed router (``KIT-RT-016``).
+MAX_ANSWER_BYTES = _child.MAX_ANSWER_BYTES
+#: The only environment variables the router's process gets (names, never values; no ``EPINOIC_`` variable is among them).
+CHILD_ENV_NAMES: tuple[str, ...] = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT")
+_CHILD_SCRIPT = Path(_child.__file__).resolve()
 
 _Key = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{1,128}$")]
 _DocId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:/-]{1,200}$")]
@@ -135,7 +168,7 @@ _Profile = Literal["standard", "fast"]
 _Reason = Literal[
     "baseline_single_review", "risk_receipt_rejected", "risk_error_findings", "risk_repeated_faults",
     "risk_negative_results", "risk_stem_undecided", "volume_split", "topology_combined", "topology_source",
-    "cost_cheapest", "profile_fast", "profile_standard", "cap_merged",
+    "cost_cheapest", "profile_fast", "profile_standard", "cap_merged", "risk_diagnostics", "risk_unverified_dependencies",
 ]
 _Feature = Literal[
     "subjects", "stem", "task_type", "course_level", "items", "constraints", "supplied_texts",
@@ -383,6 +416,19 @@ def _model_named(value: Any) -> Optional[str]:
     return None
 
 
+def _model_value(*values: Any) -> Optional[str]:
+    """Why one of ``values`` (free-form strings a router chooses) names a model family, or ``None``."""
+    for v in values:
+        if isinstance(v, str) and _MODEL_VALUE_RE.search(v):
+            return "a value that names a model family"
+    return None
+
+
+def _router_name(data: Any) -> Any:
+    router = data.get("router") if isinstance(data, dict) else None
+    return router.get("name") if isinstance(router, dict) else None
+
+
 def request_digest(request: Union[RoutingRequest, dict]) -> str:
     data = dump(request) if isinstance(request, RoutingRequest) else request
     return sha256_json(data)
@@ -407,7 +453,7 @@ def check_hello(raw: Any) -> RouterHello:
     data = _parsed(raw, "KIT-RT-015")
     if not isinstance(data, dict):
         raise IntegrationError("KIT-RT-015", "a router hello is a JSON object")
-    if _model_named(data):
+    if _model_named(data) or _model_value(_router_name(data)):
         raise IntegrationError("KIT-RT-015", "a router hello names no model: every overseer instance runs on the cheapest tier")
     try:
         return RouterHello.model_validate(data)
@@ -440,7 +486,7 @@ def check_plan(raw: Any, request: RoutingRequest, *, hello: RouterHello) -> Rout
     hidden = _hidden(data)
     if hidden:
         raise IntegrationError("KIT-RT-011", f"the plan carries {hidden}, which a blind dossier hides")
-    named = _model_named(data)
+    named = _model_named(data) or _model_value(data.get("plan_id"), _router_name(data))
     if named:
         raise IntegrationError("KIT-RT-009", f"the plan carries {named}: no plan names a model; every instance runs on the cheapest tier")
     for t in data.get("transfers", []) if isinstance(data.get("transfers"), list) else []:
@@ -625,53 +671,204 @@ def admit_plan(request: RoutingRequest, raw_plan: Any, *, hello: Optional[Router
     return Admission(plan, "router", None, "", hello.router, floor)
 
 
+class RouterFailure(Exception):
+    """A router call that produced no answer to validate: the router could not be started, raised, exited, did not
+    answer in time, or answered too much. ``code`` is ``KIT-RT-016`` (``KIT-RT-015`` for a module without the two
+    functions); ``detail`` never carries anything the router wrote."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+_CHILD_FAILURES = {
+    _child.EXIT_JOB: ("KIT-RT-016", "the router's process could not read its job"),
+    _child.EXIT_IMPORT: ("KIT-RT-016", "the router module is not importable in its process"),
+    _child.EXIT_NO_FUNCTION: ("KIT-RT-015", "the router module exposes no hello() and plan(request_json)"),
+    _child.EXIT_RAISED: ("KIT-RT-016", "the router raised"),
+    _child.EXIT_NOT_TEXT: ("KIT-RT-016", "the router answered with something other than text"),
+    _child.EXIT_TOO_LARGE: ("KIT-RT-016", f"the router's answer is larger than {MAX_ANSWER_BYTES} bytes"),
+}
+
+
+def _child_env() -> dict[str, str]:
+    return {name: os.environ[name] for name in CHILD_ENV_NAMES if name in os.environ}
+
+
+def _cwd() -> str:
+    try:
+        return os.getcwd()
+    except OSError:  # the service's working directory is gone: run the router from this package's directory
+        return str(_CHILD_SCRIPT.parent)
+
+
+def _import_paths() -> list[str]:
+    """The service's own import path, so the router's process imports exactly the modules the service would."""
+    return [_cwd() if p == "" else p for p in sys.path if isinstance(p, str)]
+
+
+def _kill(proc: "subprocess.Popen[bytes]") -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)  # the router's own children go with it (it runs in its own session)
+        else:  # pragma: no cover - the service runs on POSIX
+            proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # pragma: no cover - a process killed with SIGKILL is reaped at once
+        pass
+
+
+def run_router(module: str, op: str, request_json: Optional[str], timeout_s: float) -> str:
+    """One call of the flash router (``op`` ``hello`` or ``plan``) in its own process, waiting at most ``timeout_s``.
+
+    Returns the text the router's function returned. Raises :class:`RouterFailure` for everything else: the process
+    could not start, the module cannot be imported or lacks the function, the function raised (``SystemExit`` and
+    ``KeyboardInterrupt`` included) or returned a non-text value, the answer is not UTF-8 or larger than
+    :data:`MAX_ANSWER_BYTES`, or no answer came within ``timeout_s`` (the process and its children are then killed).
+    The process gets ``python -I`` (no user site, no ``PYTHON*`` variable, no current directory on its path), the
+    service's import path, and only the variables of :data:`CHILD_ENV_NAMES`: no ``EPINOIC_`` variable reaches it."""
+    job = json.dumps({"paths": _import_paths(), "module": module, "op": op, "request": request_json}).encode("utf-8")
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    try:
+        proc = subprocess.Popen([sys.executable, "-I", str(_CHILD_SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, env=_child_env(), cwd=_cwd(), close_fds=True,
+                                start_new_session=os.name == "posix")
+    except OSError as exc:
+        raise RouterFailure("KIT-RT-016", f"the router's process could not be started ({type(exc).__name__})") from None
+    out = bytearray()
+    state = {"too_large": False}
+
+    def feed() -> None:
+        try:
+            proc.stdin.write(job)  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+
+    def drain() -> None:
+        try:
+            while True:
+                chunk = proc.stdout.read1(65536)  # type: ignore[union-attr]
+                if not chunk:
+                    return
+                if len(out) + len(chunk) > MAX_ANSWER_BYTES:
+                    state["too_large"] = True
+                    return
+                out.extend(chunk)
+        except (OSError, ValueError):
+            return
+
+    writer = threading.Thread(target=feed, name="flash-router-feed", daemon=True)
+    reader = threading.Thread(target=drain, name="flash-router-drain", daemon=True)
+    writer.start()
+    reader.start()
+    reader.join(max(0.0, deadline - time.monotonic()))
+    status: Optional[int] = None
+    if not reader.is_alive() and not state["too_large"]:
+        try:
+            status = proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            status = None
+    if status is None:
+        _kill(proc)
+    reader.join(1.0)
+    writer.join(1.0)
+    for stream in (proc.stdout, proc.stdin):
+        try:
+            if stream is not None:
+                stream.close()
+        except OSError:  # pragma: no cover
+            pass
+    if state["too_large"]:
+        raise RouterFailure("KIT-RT-016", f"the router's answer is larger than {MAX_ANSWER_BYTES} bytes")
+    if status is None:
+        raise RouterFailure("KIT-RT-016", f"the router did not answer within {int(max(0.0, timeout_s) * 1000)} ms")
+    if status != _child.EXIT_OK:
+        code, detail = _CHILD_FAILURES.get(status, ("KIT-RT-016", f"the router's process exited with status {status}"))
+        raise RouterFailure(code, f"{detail} ({op})")
+    try:
+        return bytes(out).decode("utf-8")
+    except UnicodeDecodeError:
+        raise RouterFailure("KIT-RT-016", "the router's answer is not UTF-8 text") from None
+
+
 @dataclass(frozen=True)
 class RouterAttachment:
-    """The result of attaching a router: its validated hello and its plan function, or why none is attached."""
+    """The result of attaching a router: its validated hello and its plan function, or why none is attached.
+
+    ``plan_fn(request_json, timeout_s)`` returns the router's answer text or raises :class:`RouterFailure`;
+    :func:`attach_router` makes one that runs the router in its own process (:func:`run_router`). ``module`` is the
+    module the service attached (``None`` when no router is attached)."""
     hello: Optional[RouterHello]
-    plan_fn: Optional[Callable[[str], Any]]
+    plan_fn: Optional[Callable[[str, float], Any]]
     refusal: Optional[str]
     detail: str
+    module: Optional[str] = None
 
     @property
     def attached(self) -> bool:
         return self.hello is not None and self.plan_fn is not None
 
 
-def attach_router(spec: Optional[str]) -> RouterAttachment:
-    """Attach the flash router named by ``spec``: ``"none"`` (or empty) for no router, otherwise an importable module
-    that exposes ``hello() -> str`` and ``plan(request_json: str) -> str``. The router is a separate agent: it gets JSON
-    text and returns JSON text, and everything it returns is validated here as untrusted data. A module that cannot be
-    imported is reported absent (the router is never required); a hello out of contract is reported absent with
-    ``KIT-RT-015``."""
+def attach_router(spec: Optional[str], *, timeout_s: float = HELLO_TIMEOUT_S) -> RouterAttachment:
+    """Attach the flash router named by ``spec`` (``EPINOIC_FLASH_ROUTER``): unset, empty or ``"none"`` for no router,
+    otherwise a module that exposes ``hello() -> str`` and ``plan(request_json: str) -> str``. The router is a separate
+    agent: it runs in its own process (:func:`run_router`), gets JSON text and returns JSON text, and everything it
+    returns is validated here as untrusted data. Not configured: detached, no refusal. Configured but not importable,
+    failing or answering with anything but JSON: detached with ``KIT-RT-016``; a module without the two functions or a
+    hello out of contract: detached with ``KIT-RT-015``. The service starts either way: the router is never required."""
     if spec is None or spec.strip() in ("", "none"):
         return RouterAttachment(None, None, None, "no router configured: the floor plan runs")
     name = spec.strip()
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", name):
         return RouterAttachment(None, None, "KIT-RT-015", "the router module name is not a Python module path")
     try:
-        module = importlib.import_module(name)
-    except Exception as exc:  # noqa: BLE001 - an absent or broken router is reported, never raised
-        return RouterAttachment(None, None, None, f"router module not importable ({type(exc).__name__}): the floor plan runs")
-    hello_fn, plan_fn = getattr(module, "hello", None), getattr(module, "plan", None)
-    if not callable(hello_fn) or not callable(plan_fn):
-        return RouterAttachment(None, None, "KIT-RT-015", "the router module exposes no hello() and plan(request_json)")
+        text = run_router(name, "hello", None, timeout_s)
+    except RouterFailure as exc:
+        return RouterAttachment(None, None, exc.code, f"{exc.detail}: the floor plan runs")
     try:
-        hello = check_hello(hello_fn())
+        data = loads_strict(text)
+    except CanonicalError:
+        return RouterAttachment(None, None, "KIT-RT-016", "the router's hello is not JSON: the floor plan runs")
+    try:
+        hello = check_hello(data)
     except IntegrationError as exc:
         return RouterAttachment(None, None, exc.code, exc.detail)
-    except Exception as exc:  # noqa: BLE001
-        return RouterAttachment(None, None, "KIT-RT-016", f"the router's hello failed ({type(exc).__name__})")
-    return RouterAttachment(hello, plan_fn, None, "")
+    return RouterAttachment(hello, partial(run_router, name, "plan"), None, "", module=name)
 
 
-def route(request: RoutingRequest, attachment: Optional[RouterAttachment]) -> Admission:
-    """Ask the attached router for a plan and admit it. Without a router, or when the router fails, the floor runs."""
+def route(request: RoutingRequest, attachment: Optional[RouterAttachment], *, timeout_s: float = PLAN_TIMEOUT_S) -> Admission:
+    """Ask the attached router for a plan, waiting at most ``timeout_s``, and admit it. Without a router the floor runs
+    (no refusal). A router that fails (raises, exits, does not answer in time, answers with a non-text value or with text
+    that is not JSON) is refused with ``KIT-RT-016`` and the floor runs; JSON that is not an admissible plan is refused by
+    :func:`admit_plan` with its own code. No time left (``timeout_s <= 0``): the router is not asked, ``KIT-RT-016``.
+    Never raises for anything the router does."""
     if attachment is None or not attachment.attached:
         return admit_plan(request, None, hello=None)
+    floor = floor_plan(request)
+    identity = attachment.hello.router  # type: ignore[union-attr]
+
+    def refused(code: str, detail: str) -> Admission:
+        return Admission(floor, "floor", code, detail, identity, floor)
+
+    if timeout_s <= 0:
+        return refused("KIT-RT-016", "no time was left in the call's budget for the router: the floor plan runs")
     try:
-        raw = attachment.plan_fn(canonical_json(dump(request)))  # type: ignore[misc]
-    except Exception as exc:  # noqa: BLE001 - a failing router never fails the review
-        floor = floor_plan(request)
-        return Admission(floor, "floor", "KIT-RT-016", f"the router failed ({type(exc).__name__})", attachment.hello.router, floor)  # type: ignore[union-attr]
-    return admit_plan(request, raw, hello=attachment.hello)
+        raw = attachment.plan_fn(canonical_json(dump(request)), timeout_s)  # type: ignore[misc]
+    except RouterFailure as exc:
+        return refused(exc.code, exc.detail)
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - an in-process plan function (tests, tools): whatever it raises, the floor runs
+        return refused("KIT-RT-016", f"the router failed ({type(exc).__name__})")
+    if not isinstance(raw, str):
+        return refused("KIT-RT-016", "the router answered with something other than JSON text")
+    try:
+        data = loads_strict(raw)
+    except CanonicalError:
+        return refused("KIT-RT-016", "the router's answer is not JSON")
+    return admit_plan(request, data, hello=attachment.hello)

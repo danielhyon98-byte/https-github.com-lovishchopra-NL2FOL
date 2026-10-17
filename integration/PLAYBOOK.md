@@ -17,8 +17,9 @@
 >
 > Steps marked **(connected in phase 2)** depend on parts that were still being built when the kit was pre-built: the
 > rebuilt overseer and its port adapter, the named policies of contract 0.3, the argument diagnostics, the closed
-> transformation values and the combinator, and the flash-router sub-project. On a kit commit that lacks them, those
-> steps stop with the named code they print; that is the expected result, not a failure to work around.
+> transformation values and the combinator. On a kit commit that lacks them, those steps stop with the named code they
+> print; that is the expected result, not a failure to work around. The flash router is in the kit as its own
+> sub-project (`flash-router/`, step 7a) and is never required.
 
 ## Step 0. Rules you keep throughout
 
@@ -144,19 +145,28 @@
 - **Stop if:** the service refuses to start. Report the `KIT-HS` line it printed (on a pre-build commit:
   `KIT-HS-006 named_policies_unavailable`, then `KIT-HS-007 overseer_unavailable`).
 
-## Step 7a. The flash router (optional, never required) **(connected in phase 2)**
+## Step 7a. The flash router (optional, never required)
 
-The flash router is a separate, independent sub-agent (`flash-router/`, package `epinoic_flash_router`) that plans how
+The flash router is a separate, independent sub-agent in its own sub-project (`<kit>/flash-router/`, package
+`epinoic_flash_router`, its own `pyproject.toml`, version and tests; standard library only at run time) that plans how
 the overseer reviews: IN_DEPTH, SPLIT, DUPLICATE or N_FOLD per transfer. Its plan is advisory; the overseer enforces the
-minimum-oversight floor (PROTOCOL.md section 7a).
+minimum-oversight floor (PROTOCOL.md section 7a). The service runs it in a process of its own, with no `EPINOIC_`
+variable in its environment, and attaches it only when `EPINOIC_FLASH_ROUTER=epinoic_flash_router.port` is set.
 
-- **Do,** only if `<kit>/flash-router/` exists: run that sub-project's own suite in `<scratch>/venv`, then
-  `python integration/readiness/check.py --router epinoic_flash_router.port`, which checks its hello and runs its plans
-  over the router-port vectors through the admission (`integration/router-port/CONFORMANCE.md`).
-- **Expect:** the hello is in contract; every vector's admission matches; a plan below the floor is refused with
-  `KIT-RT-020` and the floor plan runs. Without a router, the floor plan runs and the handshake reports
-  `attached: false`: that is a complete, supported configuration.
-- **Stop if:** never because the router is absent. Report an out-of-contract hello or plan with its `KIT-RT` code.
+- **Do,** only if `<kit>/flash-router/` exists (nothing to install: the sub-project's tests find its `src/` and the
+  kit's router port themselves):
+  ```
+  (cd <kit>/flash-router && <scratch>/venv/bin/python -m pytest -q -p no:cacheprovider)
+  PYTHONPATH=<kit>/flash-router/src <scratch>/venv/bin/python integration/readiness/check.py --router epinoic_flash_router.port
+  ```
+  The second command attaches the router as the service does (its own process) and asks it for a plan for every
+  router-port vector's request (`integration/router-port/CONFORMANCE.md`).
+- **Expect:** the sub-project's suite passes; three PASS rows: `flash router hello`, `flash router plans at or above
+  the floor` (every plan ADOPTED: origin `router`, no refusal) and `flash router plans deterministic`. Without a router,
+  the floor plan runs and the handshake reports `attached: false`: that is a complete, supported configuration.
+- **Stop if:** never because the router is absent. Report a BLOCKER row with the `KIT-RT` codes it names (an
+  out-of-contract hello `KIT-RT-015`; a failing router or an answer that is not JSON `KIT-RT-016`; a plan out of
+  contract with its own code; below the floor `KIT-RT-020`). It is the router owner's to fix, never yours.
 
 ## Step 8. Agents repository: the parts that stay unchanged
 
@@ -205,6 +215,49 @@ minimum-oversight floor (PROTOCOL.md section 7a).
 - **Expect:** every test that passed in the baseline still passes, unchanged; every new `tests/verify-*.test.js`
   passes; no failure the baseline did not have.
 - **Stop if:** a new failure appears. It is not yours to fix by editing tests.
+
+## Step 11a. Rollback rehearsal on disposable exports (PROTOCOL.md section 14.7)
+
+- **Do:** two more exports of the same `origin/main` (the base, left unpatched, and the reader, W1 alone), then the
+  rehearsal against them and the whole patch set of step 10 (`<scratch>/website-sim`):
+  ```
+  for d in website-base website-reader; do
+    mkdir -p <scratch>/$d
+    git -C <website> archive --format=tar origin/main | tar -x -C <scratch>/$d
+    { echo "UNREVIEWED SIMULATION COPY of origin/main $(git -C <website> rev-parse origin/main)."
+      echo "Not a branch. Never commit, push or deploy from this directory."; } > <scratch>/$d/UNREVIEWED-SIMULATION-COPY.txt
+  done
+  node <kit>/integration/website/apply.mjs --base M --target <scratch>/website-reader --steps W1
+  node <kit>/integration/rollback/rehearse.mjs --full <scratch>/website-sim --reader <scratch>/website-reader \
+       --base <scratch>/website-base --work <scratch>/rehearsal
+  ```
+  The rehearsal imports modules from the three exports only, writes one SQLite file in `<scratch>/rehearsal`, and
+  fetches nothing (its checks service is a fake behind `fetchImpl`, loopback only).
+- **Expect:** steps 1 to 4 PASS (rows written by W3; W1 alone reads them, history and replay; without W1 the replay
+  fails, so W1 stays for good; an incompatible service is refused after admission, never an unchecked answer); step 5
+  NOT RUN on base M ("no patch set P in this kit"); exit status 0.
+- **Stop if:** a step FAILs. Report it with its detail; never edit the rehearsal, a block or a test.
+
+## Step 11b. Configuration by name only (owner actions)
+
+Configuring a hosted service or Worker is its owner's action, through that service's own secret store, on their own
+go-ahead (`DECISIONS.md` D7, D14, D23). **You set, read, print and log no value.** Local runs use only the ephemeral
+values `check.py --start-service` generates in memory. The names, for the report:
+
+| Where | Name | Holds | Owner |
+|---|---|---|---|
+| translator service | `EPINOIC_SERVICE_TOKEN` | the Worker's bearer token (at least 16 characters) | Daniel |
+| translator service | `EPINOIC_SIGNING_KEY`, `EPINOIC_SIGNING_KEY_ID` | the engine signing key (hex, at least 32 bytes) and its id | Daniel |
+| translator service | `EPINOIC_VERDICT_KEY`, `EPINOIC_VERDICT_KEY_ID` | the verdict key (hex, at least 32 bytes, distinct) and its id | Daniel |
+| translator service | `EPINOIC_OVERSEER_SECRET` | the overseer secret (hex, at least 32 bytes, distinct from both keys) | Daniel |
+| translator service | `EPINOIC_TRANSLATION_PROVIDER` and, for a live provider, `EPINOIC_ANTHROPIC_MODEL` (credentials read by its SDK from its own default variable) or `EPINOIC_OPENAI_BASE_URL`, `EPINOIC_OPENAI_MODEL`, `EPINOIC_OPENAI_API_KEY` | the cheapest-tier provider; no model id is approved (D23) and no cap (D14) | the founder, Daniel |
+| translator service | `EPINOIC_FLASH_ROUTER` | `epinoic_flash_router.port` to attach the router; unset or `none` detaches it (D28) | Daniel |
+| Worker (website) | `TRANSLATOR_SERVICE_TOKEN` (a `wrangler secret`) | the same bearer token, on the Worker side | Bruno |
+| Worker (website) | `TRANSLATOR_MODE`, `TRANSLATOR_BASE_URL` (vars, W4) | `http` or `binding`; the service's https URL | Bruno |
+
+- **Expect:** the report lists these names and who sets each; the service's preflight names the first missing part
+  by its `KIT-HS` code (`KIT-HS-008` for a key or the token) without printing a value.
+- **Stop if:** a step would need you to set or read a value: stop and report it as an owner action.
 
 ## Step 12. Run the simulation **(website-path and agents drivers connected in phase 2)**
 
