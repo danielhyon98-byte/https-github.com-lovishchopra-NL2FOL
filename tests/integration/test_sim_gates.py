@@ -83,6 +83,17 @@ def test_g_inv_fails_on_a_broken_invariant_and_is_not_run_without_material_for_o
     ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [{"formal": "ENTAILED", "text": "Verified."}]}, False),
     ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [{"formal": "UNKNOWN", "text": "Formally checked: ..."}]}, False),
     ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": False, "labels": [{"formal": "ENTAILED", "text": "Formally checked: ..."}]}, False),
+    # the answer badge: "passed" only for formally_checked (one positive result of the encoding among unchecked claims is not)
+    ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [],
+      "badge": "Automatic checks passed (simulated)", "summary": "formally_checked"}, True),
+    ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [],
+      "badge": "Partly checked (encoding only) (simulated)", "summary": "formal_only"}, True),
+    ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [],
+      "badge": "Automatic checks passed (simulated)", "summary": "formal_only"}, False),
+    ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [],
+      "badge": "Automatic checks passed", "summary": "partly_checked"}, False),
+    ({"review": "checks:integration.v1", "simulated": True, "scope_statement_shown": True, "labels": [],
+      "badge": "Verified (simulated)", "summary": "formally_checked"}, False),
 ])
 def test_g_hon_labels_are_allowed_for_their_status(display, ok):
     assert G.g_hon([display])["status"] == (G.PASS if ok else G.FAIL)

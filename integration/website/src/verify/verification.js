@@ -3,13 +3,18 @@
 // Invariants:
 // - configProblem() is synchronous and runs before admission: an incomplete configuration answers 503
 //   chat_unavailable with nothing stored or charged, and is logged only as the label kit_config:<problem>;
+// - the simulation switch KIT_SIMULATION is honoured only in local development: set on staging, production or any
+//   other APP_ENV it is the configuration problem simulation_on_hosted, and it never makes a hosted Worker accept a
+//   simulation service (workerEnvOf);
 // - ready({ signal }) runs after admission and before routing: it needs a capabilities response fetched less than
 //   60 s ago (one GET, 3 s timeout, cached per isolate, injectable now()) that matches the pinned compatibility set
 //   and reports a passed self-test; otherwise the attempt fails with kit_hs_not_ready, kit_hs_unreachable or
 //   kit_hs_mismatch, and no classifier, specialist or checks call is made; a replay never reaches it;
 // - evaluateCapabilities() states the same rules as the service's handshake.evaluate on the same golden vectors
 //   (integration/vectors/handshake/), so both sides refuse the same responses with the same KIT-HS code;
-// - the flash router is reported, never required: its absence changes nothing here;
+// - the flash router is reported, never required: its absence changes nothing here, and an incoherent report of it
+//   (attached without an identity, an identity while detached, a refusal while attached, a refusal no attachment gives)
+//   is out of contract, KIT-HS-001, as in the service's protocol.RouterPortCaps;
 // - Z3 is not optional: there is no mode in which an answer is released without this service.
 
 import { COMPATIBILITY } from "./compat.js";
@@ -72,11 +77,22 @@ const CAPABILITIES = obj({
 
 const sameSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
+/** The refusals a router's attachment can give (protocol.ROUTER_ATTACH_REFUSALS). */
+export const ROUTER_ATTACH_REFUSALS = Object.freeze(["KIT-RT-015", "KIT-RT-016"]);
+
+/** A coherent router report: attached exactly with an identity, no refusal when attached, a refusal an attachment can give. */
+function routerCoherent(r) {
+  const identity = r.identity ?? null;
+  const refusal = r.refusal ?? null;
+  if (r.attached !== (identity !== null) || (r.attached && refusal !== null)) return false;
+  return refusal === null || ROUTER_ATTACH_REFUSALS.includes(refusal);
+}
+
 /** The Worker's handshake rules: { ok, code, rawCode, router }. The same order and codes as handshake.evaluate. */
 export function evaluateCapabilities(raw, { workerEnv, base = "M" }) {
   const refuse = (code, router = null) => ({ ok: false, code, rawCode: "kit_hs_mismatch", router });
   if (!isPlain(raw) || raw.protocol !== "epinoic.integration.v1" || raw.schema !== "epinoic.integration.capabilities.v1") return refuse("KIT-HS-001");
-  if (!CAPABILITIES(raw)) return refuse("KIT-HS-001");
+  if (!CAPABILITIES(raw) || !routerCoherent(raw.ports.router)) return refuse("KIT-HS-001");
   const router = raw.ports.router;
   const accepted = COMPATIBILITY.components;
   for (const name of ["ir", "engine", "policy", "translator", "contract"]) if (!accepted[name].includes(raw.versions[name])) return refuse("KIT-HS-002", router);
@@ -104,9 +120,22 @@ export function evaluateCapabilities(raw, { workerEnv, base = "M" }) {
 
 // ------------------------------------------------------------------------------------------------- configuration and readiness
 
-/** The Worker environment label the service must report (APP_ENV development | staging | production; sim in the simulation). */
+/** Local development: APP_ENV "development" (or unset, as in the kit's own tests). The verified backend runs there only on a
+ * loopback host (handler.js chatBackendMode, isLocalDevelopment). */
+const isDevelopmentEnv = (env) => env.APP_ENV === undefined || env.APP_ENV === "development";
+
+/** True when the simulation switch KIT_SIMULATION is set at all (any non-empty value). */
+const simulationSwitchSet = (env) => env.KIT_SIMULATION !== undefined && env.KIT_SIMULATION !== null && env.KIT_SIMULATION !== "";
+
+/**
+ * The Worker environment label the service must report (APP_ENV development | staging | production; sim in the
+ * simulation). The simulation switch KIT_SIMULATION="1" is honoured only in local development: on staging, production
+ * or any other APP_ENV it never turns the label into "sim" (so the handshake still requires a live provider and the
+ * hosted environment's own label there), and configProblem() refuses the configuration (simulation_on_hosted).
+ */
 export function workerEnvOf(env) {
-  return env.KIT_SIMULATION === "1" ? "sim" : env.APP_ENV === "staging" ? "staging" : env.APP_ENV === "production" ? "production" : "development";
+  if (env.KIT_SIMULATION === "1" && isDevelopmentEnv(env)) return "sim";
+  return env.APP_ENV === "staging" ? "staging" : env.APP_ENV === "production" ? "production" : "development";
 }
 
 /**
@@ -121,6 +150,7 @@ export function createVerification({ env, binding = null, inner = null, fetchImp
   let cache = null; // { at, outcome } per isolate
 
   function configProblem() {
+    if (simulationSwitchSet(env) && !isDevelopmentEnv(env)) return "simulation_on_hosted";
     if (!MODES.includes(mode) || mode === "none") return "translator_mode";
     if (mode === "http" && baseUrlProblem(env.TRANSLATOR_BASE_URL ?? "") !== null) return "translator_url";
     if (mode === "binding" && (binding === null || typeof binding.fetch !== "function")) return "translator_binding";

@@ -20,6 +20,17 @@
 > transformation values and the combinator. On a kit commit that lacks them, those steps stop with the named code they
 > print; that is the expected result, not a failure to work around. The flash router is in the kit as its own
 > sub-project (`flash-router/`, step 7a) and is never required.
+>
+> **A pre-build commit is not a published kit.** A kit is published only by its annotated tag (step 2, decision D20). A
+> commit without one (a pre-build branch, for example) is used only when your user names that commit and asks for a
+> rehearsal. Then: check it out detached at that commit (`git -C C worktree add --detach <scratch>/translator-kit
+> <commit>`, never a branch), record it as "not a published kit: <commit>", run step 2's manifest checks (its tag checks
+> do not apply), and run steps 3 to 14 as a **rehearsal**. Every gate is still evaluated and reported, never skipped or
+> waived. A G1 BLOCKER row whose detail says "(connected in phase 2: ...)" is the expected result of a pre-build commit:
+> record it and continue; a BLOCKER row without that mark is a defect of the commit and stops the rehearsal. Each step
+> marked (connected in phase 2) stops at the code it names, and the rehearsal goes on with the next step. The report
+> says "rehearsal of an unpublished commit, blocked by G1" (and "blocked by G0" while G0 is in force), never
+> "integrated" or "ready". Without such a request, a commit without the tag stops at step 2.
 
 ## Step 0. Rules you keep throughout
 
@@ -77,7 +88,8 @@
   ```
   **A default branch is never the kit base.**
 - **Expect:** exactly one `K`, an annotated tag, clean manifest checks.
-- **Stop if:** no candidate has the tag ("kit not published (decision D20)"); the tag resolves to different commits
+- **Stop if:** no candidate has the tag ("kit not published (decision D20)"), unless your user named a pre-build commit
+  to rehearse (then follow "A pre-build commit is not a published kit" above); the tag resolves to different commits
   ("tag conflict"); the tag is not annotated; a manifest check fails.
 
 ## Step 3. Read, in this order
@@ -113,8 +125,10 @@
   the protocol in `COMPATIBILITY.json`, and the flash router, reported but not required).
 - **Expect:** contract 0.4, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
 - **Stop if:** any required part is missing: the service would refuse with `KIT-HS-006`, `KIT-HS-007` or `KIT-HS-005`.
-  Only Daniel can publish a corrected kit, under a new tag. **(The overseer and the named policies are connected in
-  phase 2; a pre-build commit stops here.)**
+  Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.4, which follows the contract 0.3 merge, the
+  overseer package and the named policies of contract 0.3 are connected in phase 2: on a pre-build commit these three
+  rows are BLOCKERs whose detail says "(connected in phase 2: ...)". A published kit stops here; a rehearsal of a
+  pre-build commit records them as "blocked by G1" and continues. A BLOCKER row without that mark stops both.)**
 
 ## Step 6. Translator environment and suite
 
@@ -126,7 +140,11 @@
   <scratch>/venv/bin/python integration/readiness/check.py --translator .
   ```
   When the overseer is on the kit commit, also its own suite (`PYTHONPATH=src:scripts/overseer ... -p pytest_attach`).
-- **Expect:** `failed` is 0 (record the counts); the translator section of the readiness check passes.
+- **Expect:** `failed` is 0 (record the counts); the translator section of the readiness check passes, except, on a
+  pre-build commit, its preflight row **(connected in phase 2)**: `service preflight (integration-sim) BLOCKER KIT-HS-006
+  named_policies_unavailable: ... (connected in phase 2: ...)` (the named policies of contract 0.3; after their merge the
+  preflight stops at `KIT-HS-007 overseer_unavailable` until the overseer port adapter exists). Any other BLOCKER row of
+  that section is a defect.
 - **Stop if:** the install needs a network you do not have, or any test fails. Never edit tests or code to pass.
 
 ## Step 7. Service start-up and handshake on loopback **(connected in phase 2)**
@@ -138,7 +156,11 @@
   ```
   The first command generates ephemeral test keys in memory, starts
   `python -m epinoic_logic.integration serve --host 127.0.0.1` on a free port, requests `/v1/capabilities`, prints the
-  report and stops the service.
+  report and stops the service. To start it with the flash router attached (step 7a), name the router for that one
+  command: `EPINOIC_FLASH_ROUTER=epinoic_flash_router.port <scratch>/venv/bin/python integration/readiness/check.py
+  --start-service --profile integration-sim` (`check.py` puts `<kit>/flash-router/src` after `<kit>/src` on the service's
+  import path, which the router's own process receives); the `flash router (handshake)` row then reports
+  `attached=True` with the router's identity.
 - **Expect:** `selftest.passed`; modes include `single`; the STEM branches listed; `overseer.mode = embedded`;
   `translation.provider = fixture`; `router.required = false` with `attached` and the floor's digest reported; one
   refusal test per `KIT-HS` code passes, including the bootstrap test that hides Z3.
@@ -151,7 +173,11 @@ The flash router is a separate, independent sub-agent in its own sub-project (`<
 `epinoic_flash_router`, its own `pyproject.toml`, version and tests; standard library only at run time) that plans how
 the overseer reviews: IN_DEPTH, SPLIT, DUPLICATE or N_FOLD per transfer. Its plan is advisory; the overseer enforces the
 minimum-oversight floor (PROTOCOL.md section 7a). The service runs it in a process of its own, with no `EPINOIC_`
-variable in its environment, and attaches it only when `EPINOIC_FLASH_ROUTER=epinoic_flash_router.port` is set.
+variable in that process's environment (a fault boundary, not a sandbox: it runs as the service's user, and the hosted
+profile attaches it only where it cannot read the service's keys), and attaches it only when
+`EPINOIC_FLASH_ROUTER=epinoic_flash_router.port` is set. The router is released by its own version, not by the kit tag:
+its identity (name, version, rules digest, cost-data digest) is what the hello row below prints, and a router-only
+release changes `flash-router/` alone (D28 says whether it gets a repository or a tag of its own).
 
 - **Do,** only if `<kit>/flash-router/` exists (nothing to install: the sub-project's tests find its `src/` and the
   kit's router port themselves):
@@ -162,8 +188,9 @@ variable in its environment, and attaches it only when `EPINOIC_FLASH_ROUTER=epi
   The second command attaches the router as the service does (its own process) and asks it for a plan for every
   router-port vector's request (`integration/router-port/CONFORMANCE.md`).
 - **Expect:** the sub-project's suite passes; three PASS rows: `flash router hello`, `flash router plans at or above
-  the floor` (every plan ADOPTED: origin `router`, no refusal) and `flash router plans deterministic`. Without a router,
-  the floor plan runs and the handshake reports `attached: false`: that is a complete, supported configuration.
+  the floor` (every plan ADOPTED: origin `router`, no refusal) and `flash router plans deterministic`. Record the
+  router release the hello row names (its name, version and digests), next to the kit tag. Without a router, the floor
+  plan runs and the handshake reports `attached: false`: that is a complete, supported configuration.
 - **Stop if:** never because the router is absent. Report a BLOCKER row with the `KIT-RT` codes it names (an
   out-of-contract hello `KIT-RT-015`; a failing router or an answer that is not JSON `KIT-RT-016`; a plan out of
   contract with its own code; below the floor `KIT-RT-020`). It is the router owner's to fix, never yours.
@@ -255,8 +282,10 @@ values `check.py --start-service` generates in memory. The names, for the report
 | Worker (website) | `TRANSLATOR_SERVICE_TOKEN` (a `wrangler secret`) | the same bearer token, on the Worker side | Bruno |
 | Worker (website) | `TRANSLATOR_MODE`, `TRANSLATOR_BASE_URL` (vars, W4) | `http` or `binding`; the service's https URL | Bruno |
 
-- **Expect:** the report lists these names and who sets each; the service's preflight names the first missing part
-  by its `KIT-HS` code (`KIT-HS-008` for a key or the token) without printing a value.
+- **Expect:** the report lists these names and who sets each. **(connected in phase 2)** The service's preflight names
+  the first missing part by its `KIT-HS` code (`KIT-HS-008` for a key or the token) without printing a value; on a
+  pre-build commit it stops earlier, at `KIT-HS-006 named_policies_unavailable`, so `KIT-HS-008` cannot be seen there
+  (the kit's tests show each `KIT-HS-008` case with fixture probes: `tests/integration/test_preflight_handshake.py`).
 - **Stop if:** a step would need you to set or read a value: stop and report it as an owner action.
 
 ## Step 12. Run the simulation **(website-path and agents drivers connected in phase 2)**

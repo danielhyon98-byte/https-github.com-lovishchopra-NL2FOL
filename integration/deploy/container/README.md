@@ -16,4 +16,7 @@ The image fails closed: any missing required part stops it with its `KIT-HS` lin
 The flash router (`flash-router/`, a sub-project of its own) is not in the image and is never required: decision D28
 says whether hosted environments attach it. If they do, the image also installs it (`pip install ./flash-router`, standard
 library only) and the environment sets `EPINOIC_FLASH_ROUTER=epinoic_flash_router.port`; the service then runs it in a
-process of its own, with no `EPINOIC_` variable in its environment.
+process of its own, with no `EPINOIC_` variable in its environment. That process runs as the service's user: the image's
+non-root user, the `exec` entrypoint (no other process holds the secrets) and keys only in the environment are what let
+the service's non-dumpable mark keep its keys out of the router's reach; the hosted profile refuses to attach a router
+when the service runs as root or holds `CAP_SYS_PTRACE` (`KIT-RT-016`, PROTOCOL.md section 7a).

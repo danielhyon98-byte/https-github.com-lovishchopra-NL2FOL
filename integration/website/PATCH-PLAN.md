@@ -20,7 +20,7 @@ models D23, data terms D15, timing D25). W7 and W8 wait for their decisions. W0 
   touches on the pinned base) and `TESTED.json` (where and how it was tested).
 
 Tested on a disposable export of `2cd3182` with Node 22: the baseline is 287 of 290 passing (the 3 failures need the
-Playwright devDependency); with the patch set applied, 356 of 359 pass, the same 3 failing and no other, and the 69 new
+Playwright devDependency); with the patch set applied, 358 of 361 pass, the same 3 failing and no other, and the 71 new
 tests pass; the rollback rehearsal (playbook step 11a) gives steps 1 to 4 PASS and step 5 (base P) NOT RUN. `apply.mjs --verify` on a fresh export prints `exact`. A renamed anchor stops the applier with
 `anchor not found: <file>: <anchor>` before anything is written. The `W*.patch` files are not published while the
 translator repository is public (decision D20); `apply.mjs` applies the same blocks.
@@ -40,10 +40,11 @@ translator repository is public (decision D20); `apply.mjs` applies the same blo
   exactly with the verified review; closed values; never a negative status); history's `reply()` copies them and its
   `publicTurnCode` reads `src/verify/codes.js` first; `review_unresolved` (422) and `checks_incomplete` (503), both not
   retryable, in `ERRORS` and in the page's `ERROR_COPY`; the page's badge for the verified review follows its
-  `checksSummary` (`checksBadge`, decision D27: "Automatic checks passed" for `formally_checked`, `partly_checked` and
-  `formal_only`, "Not formally checked" for `not_formally_checkable`, "Some checks unavailable" for `incomplete`; never
-  "Reviewed"), the checks rendered with `textContent` and the scope statement shown once, and `X-Chat-Simulated` read
-  next to `X-Chat-Backend`.
+  `checksSummary` (`checksBadge`, decision D27, conservative default: "Automatic checks passed" only for
+  `formally_checked`, where every material eligible claim has a permitted positive result; "Partly checked" for
+  `partly_checked` and "Partly checked (encoding only)" for `formal_only`, with no success tone; "Not formally checked"
+  for `not_formally_checkable`, "Some checks unavailable" for `incomplete`; never "Reviewed"), the checks rendered with
+  `textContent` and the scope statement shown once, and `X-Chat-Simulated` read next to `X-Chat-Backend`.
 - **W2. Outbound client and readiness** (new files only): `translator-client.js`, `canonical-json.js`, `sha256.js`,
   `compat.js`, `subject-map.js`, `verification.js` (`configProblem()` synchronous; `ready({signal})` with a per-isolate
   60 s cache and an injectable `now()`); tests `verify-client.test.js`, `verify-readiness.test.js`.

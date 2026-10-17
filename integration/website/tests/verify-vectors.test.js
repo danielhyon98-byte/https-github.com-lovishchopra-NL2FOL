@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { CanonicalError, canonicalJson, parseStrict } from "../src/verify/canonical-json.js";
 import { KIT_PUBLIC_CODES, publicCodeFor } from "../src/verify/codes.js";
-import { countClaims, decide, summarize } from "../src/verify/decision-table.js";
+import { POSITIVE, countClaims, decide, summarize } from "../src/verify/decision-table.js";
 import { bindingProblem } from "../src/verify/release-gate.js";
 import { sha256Json, sha256Text } from "../src/verify/sha256.js";
 import { envelopeFor, PortRefusal } from "../src/verify/specialist-port.js";
@@ -99,4 +99,37 @@ test("the specialist port projects runtime results v1 and v2 exactly as the serv
 test("the chat-contract labels never claim truth or review", () => {
   const { labels, forbidden_words: forbidden } = vector("chat-contract", "labels");
   for (const text of Object.values(labels)) for (const word of forbidden) assert.ok(!new RegExp(`\\b${word}\\b`, "i").test(text), `${word} in ${text}`);
+});
+
+test("the answer badge says passed only when every material eligible claim has a permitted positive result", () => {
+  const { badges, badge_cases: cases } = vector("chat-contract", "labels");
+  const passed = ([text, tone]) => /passed/i.test(text) || tone === "is-ok";
+  assert.deepEqual(Object.keys(badges).filter((s) => passed(badges[s])), ["formally_checked"]);
+  for (const c of cases) {
+    const summary = summarize(countClaims(c.claims));
+    assert.equal(summary, c.summary, c.name);
+    assert.deepEqual(badges[summary], c.badge, c.name);
+  }
+  // every list of up to three claims over the statuses a delivered answer can hold: a "passed" badge implies that every
+  // material eligible claim is positive with its release permitted
+  const kinds = [];
+  for (const formal of ["ENTAILED", "CONSISTENT", "UNSUPPORTED", "INVALID_FORMALIZATION", "AMBIGUOUS_TRANSLATION", "UNKNOWN", "NOT_ELIGIBLE"]) {
+    for (const permitted of [false, true]) {
+      for (const materiality of ["material", "supporting"]) {
+        kinds.push({ materiality, formal, attempt: formal === "NOT_ELIGIBLE" ? "not_eligible" : "attempted", release_permitted: permitted });
+      }
+    }
+  }
+  let lists = [[]];
+  let seen = 0;
+  for (let n = 1; n <= 3; n += 1) {
+    lists = lists.flatMap((l) => kinds.map((k) => [...l, k]));
+    for (const claims of lists) {
+      seen += 1;
+      if (!passed(badges[summarize(countClaims(claims))])) continue;
+      const eligible = claims.filter((c) => c.materiality === "material" && c.attempt !== "not_eligible");
+      assert.ok(eligible.length > 0 && eligible.every((c) => POSITIVE.includes(c.formal) && c.release_permitted), JSON.stringify(claims));
+    }
+  }
+  assert.ok(seen > 20000);
 });

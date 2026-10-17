@@ -53,3 +53,35 @@ def test_removing_the_router_variable_detaches_it_as_the_rollback_says():
     decisions = (ROOT / "integration" / "DECISIONS.md").read_text(encoding="utf-8")
     assert "or remove the variable" in rollback and "unset or `none` (the default)" in decisions
     assert IntegrationSettings.from_env({}).flash_router == "none"
+
+
+def test_a_pre_build_commit_is_rehearsed_only_on_request_and_reported_as_blocked():
+    """A commit without the kit's tag is not a published kit: a session rehearses it only when its user names it, checks
+    it out detached at that commit, evaluates every gate (never skips one), continues past the G1 rows marked as
+    connected in phase 2 and stops at any other BLOCKER, and reports the rehearsal as blocked by G1."""
+    intro = PLAYBOOK.split("## Step 0.", 1)[0]
+    rule = intro[intro.index("**A pre-build commit is not a published kit.**"):]
+    for phrase in ("names that commit and asks for a rehearsal", "worktree add --detach <scratch>/translator-kit", "<commit>`, never a branch",
+                   '"not a published kit: <commit>"', "never skipped or", '"(connected in phase 2: ...)"', "stops the rehearsal",
+                   '"rehearsal of an unpublished commit, blocked by G1"', "a commit without the tag stops at step 2"):
+        assert phrase in rule.replace("\n> ", " "), phrase
+    assert "A pre-build commit is not a published kit" in _step("Step 2.")
+    step5 = _step("Step 5.")
+    assert "Contract 0.4" in step5 and "contract 0.3 merge" in step5 and "(connected in phase 2: ...)" in step5
+    assert "A published kit stops here" in step5 and "rehearsal" in step5 and "A BLOCKER row without that mark stops both" in step5
+
+
+def test_the_steps_that_cannot_pass_on_a_pre_build_commit_say_what_they_show_there():
+    step6 = _step("Step 6.")
+    assert "(connected in phase 2)" in step6 and "KIT-HS-006" in step6 and "KIT-HS-007" in step6
+    step11b = _step("Step 11b.")
+    assert "(connected in phase 2)" in step11b and "KIT-HS-006 named_policies_unavailable" in step11b and "KIT-HS-008" in step11b
+
+
+def test_step_7a_names_the_router_release_apart_from_the_kit_tag_and_step_7_starts_the_service_with_it():
+    step7a = _step("Step 7a.")
+    assert "released by its own version, not by the kit tag" in step7a and "Record the" in step7a and "router release" in step7a
+    assert "a fault boundary, not a sandbox" in step7a
+    step7 = _step("Step 7.")
+    assert "EPINOIC_FLASH_ROUTER=epinoic_flash_router.port <scratch>/venv/bin/python integration/readiness/check.py" in step7
+    assert "--start-service --profile integration-sim" in step7 and "<kit>/flash-router/src" in step7

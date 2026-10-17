@@ -10,6 +10,7 @@ import {
 } from "../public/chat-contract.js";
 import { ERROR_CODES, errorResult, statusForError } from "../src/chat/contract.js";
 import { KIT_PUBLIC_CODES } from "../src/verify/codes.js";
+import { countClaims, summarize } from "../src/verify/decision-table.js";
 import { vector } from "./kit-vectors.js";
 
 const answer = (extra = {}) => ({
@@ -86,20 +87,31 @@ test("the labels are the closed copy and never claim truth or review", () => {
   for (const text of Object.values(labels)) for (const w of forbidden) assert.ok(!new RegExp(`\\b${w}\\b`, "i").test(text), text);
 });
 
-test("the answer badge follows the checks summary: passed only with a positive result and no missing material check", () => {
-  const { badges, unknown_summary_badge: unknown, forbidden_words: forbidden } = vector("chat-contract", "labels");
+test("the answer badge follows the checks summary: passed only when every material eligible claim has a permitted positive result", () => {
+  const { badges, badge_cases: cases, unknown_summary_badge: unknown, forbidden_words: forbidden } = vector("chat-contract", "labels");
   assert.deepEqual(Object.keys(CHECK_BADGES).sort(), [...CHECK_SUMMARIES].sort());
   assert.deepEqual(Object.keys(badges).sort(), [...CHECK_SUMMARIES].sort());
   for (const summary of CHECK_SUMMARIES) {
     assert.deepEqual(checksBadge(summary), badges[summary], summary);
     assert.deepEqual(checksBadge(summary, " (simulated)"), [`${badges[summary][0]} (simulated)`, badges[summary][1]], summary);
   }
-  for (const summary of ["not_formally_checkable", "incomplete"]) {
+  // only formally_checked says passed: partly_checked and formal_only may hold material claims that are not formally
+  // checked, or positive results of the encoding only, so they carry no success tone either
+  assert.deepEqual(checksBadge("formally_checked"), ["Automatic checks passed", "is-ok"]);
+  for (const summary of CHECK_SUMMARIES.filter((s) => s !== "formally_checked")) {
     const [text, tone] = checksBadge(summary);
     assert.doesNotMatch(text, /passed|checked:/i, summary);
     assert.equal(tone, null, summary);
   }
-  for (const summary of ["formally_checked", "partly_checked", "formal_only"]) assert.equal(checksBadge(summary)[0], "Automatic checks passed", summary);
+  // the shared delivered cases: their counts give their summary, and the page shows their badge
+  assert.ok(cases.length >= 7);
+  for (const c of cases) {
+    const summary = summarize(countClaims(c.claims));
+    assert.equal(summary, c.summary, c.name);
+    assert.deepEqual(checksBadge(summary), c.badge, c.name);
+  }
+  const oneOfEight = cases.find((c) => c.name === "one-positive-of-eight-encoding-only");
+  assert.deepEqual(checksBadge(summarize(countClaims(oneOfEight.claims))), ["Partly checked (encoding only)", null]);
   for (const odd of [undefined, null, "", "verified", "toString", "__proto__"]) assert.deepEqual(checksBadge(odd), unknown, String(odd));
   for (const [text] of [...Object.values(badges), unknown]) for (const w of forbidden) assert.ok(!new RegExp(`\\b${w}\\b`, "i").test(text), text);
 });

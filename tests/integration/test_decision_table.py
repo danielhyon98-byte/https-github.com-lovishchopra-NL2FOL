@@ -69,6 +69,9 @@ GOLDEN = [
     ("row 5: the claim cap", _inp([(M, "NOT_ATTEMPTED", "skipped_cap")]), "refuse_incomplete", ["KIT-DL-011"]),
     ("row 5: the provider is unavailable", _inp([(M, "NOT_ATTEMPTED", "provider_unavailable")]), "refuse_incomplete", ["KIT-DL-011"]),
     ("row 5: the qualify policy continues", _inp([(M, "UNKNOWN", "attempted")], policy="verified-v1-qualify"), "deliver", []),
+    ("row 5: a policy the table does not know refuses (fails closed)", _inp([(M, "UNKNOWN", "attempted")], policy="verified-v2-unlisted"),
+     "refuse_incomplete", ["KIT-DL-011"]),
+    ("row 5: an empty policy name refuses too", _inp([(M, "TIMEOUT", "attempted")], policy=""), "refuse_incomplete", ["KIT-DL-011"]),
     ("row 5: a supporting UNKNOWN does not count", _inp([(S, "UNKNOWN", "attempted"), (M, "ENTAILED", "attempted")]), "deliver", []),
     ("row 6: an ambiguous material claim continues", _inp([(M, "AMBIGUOUS_TRANSLATION", "attempted")]), "deliver", []),
     ("NOT_ELIGIBLE, UNSUPPORTED and INVALID_FORMALIZATION neither block nor leave the checks incomplete",
@@ -81,6 +84,19 @@ GOLDEN = [
 @pytest.mark.parametrize("name,inp,decision,reasons", GOLDEN, ids=[g[0] for g in GOLDEN])
 def test_golden_rows(name, inp, decision, reasons):
     assert decide(inp) == (decision, reasons)
+
+
+@hsettings(max_examples=300, deadline=None)
+@given(policy=st.text(max_size=24), status=st.sampled_from(sorted(INCOMPLETE_STATUSES)))
+def test_row_5_continues_only_under_the_qualify_policy(policy, status):
+    """Whatever the policy string, a material eligible claim without a definitive result delivers only under
+    verified-v1-qualify: verified-v1 and every policy the table does not know refuse (row 5 fails closed)."""
+    attempt = "skipped_budget" if status == "NOT_ATTEMPTED" else "attempted"
+    decision, reasons = decide(_inp([(M, status, attempt), (M, "ENTAILED", "attempted", True)], policy=policy))
+    if policy == "verified-v1-qualify":
+        assert decision == "deliver"
+    else:
+        assert decision == "refuse_incomplete" and "KIT-DL-011" in reasons, policy
 
 
 def test_every_overseer_refusal_label_is_refused_and_named():

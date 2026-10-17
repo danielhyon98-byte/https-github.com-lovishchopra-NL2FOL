@@ -52,7 +52,14 @@ These cover the router's code, not only its return values, because the code neve
 
 - **Own process.** `python -I` with the service's import path and an environment holding only `PATH`, the locale, `TZ`
   and the temporary-directory variables (`router_port.CHILD_ENV_NAMES`): no `EPINOIC_` variable, so no key, secret or
-  token reaches it. A patch of the kit's modules (the floor, the admission) changes only the router's own process.
+  token is in the router's own environment. A patch of the kit's modules (the floor, the admission) changes only the
+  router's own process.
+- **A fault boundary, not a sandbox.** The router's process runs as the service's user. Before it starts one, the
+  service marks itself non-dumpable on Linux (`router_child.protect_service`), so a router without root and without
+  `CAP_SYS_PTRACE` cannot read the service's environment or memory; if Linux refuses, no router process starts
+  (`KIT-RT-016`). The hosted profile attaches a router only where that holds (`router_child.boundary_problem`: Linux, not
+  root, no `CAP_SYS_PTRACE`). Nothing hides the files or other processes of the service's user from the router, so a
+  router is installed only as code trusted with that user (decision D28).
 - **Bounded.** At most 10 s for the hello at start-up; at most `min(3 s, what is left of the call's budget)` for a plan;
   at most 1 MiB of answer. On a timeout the router and the processes it started are killed. With no time left the
   router is not asked.

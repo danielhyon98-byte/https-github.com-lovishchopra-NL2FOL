@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 __all__ = [
     "PROTOCOL", "PROTOCOL_HEADER", "INTEGRATION_CONTRACT_VERSION", "SCOPE_STATEMENT", "AUDIT_SCOPE_STATEMENT",
@@ -29,7 +29,7 @@ __all__ = [
     "VerdictIds", "BoundAnswer", "Bound", "ServiceRef", "Deliverable", "ConsolidationRef", "SynthesisRef", "Delivery",
     "ReviewRef", "OverseerSection", "ReceiptSection", "ClaimEntry", "Counts", "Timings", "Signature", "TurnVerdict",
     "MODES", "POLICIES", "DECISIONS", "SUMMARIES", "ATTEMPTS", "FIDELITY", "CLAIM_SOURCES", "OVERSEER_REFUSALS",
-    "SERVICE_ENVS", "WEBSITE_ROUTES", "SELF_CERTIFICATION_KEYS",
+    "SERVICE_ENVS", "WEBSITE_ROUTES", "SELF_CERTIFICATION_KEYS", "ROUTER_ATTACH_REFUSALS",
 ]
 
 PROTOCOL = "epinoic.integration.v1"
@@ -84,6 +84,9 @@ OVERSEER_REFUSALS: tuple[str, ...] = (
     "clearance_failed", "clearance_pending", "final_audit_not_passed", "signature_invalid", "custody_failed", "stale",
     "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "internal_error",
 )
+#: The refusals a router's attachment can give, as the handshake reports them (``ports.router.refusal``): a hello out of
+#: contract or a module without ``hello()`` and ``plan()`` (``KIT-RT-015``), a router that failed (``KIT-RT-016``).
+ROUTER_ATTACH_REFUSALS: tuple[str, ...] = ("KIT-RT-015", "KIT-RT-016")
 #: Keys a caller might use to certify its own payload. Refused at the top level of every request and of every specialist
 #: envelope (``KIT-REQ-005``), as the service's E505 does for ``/v1/verify``.
 SELF_CERTIFICATION_KEYS: frozenset[str] = frozenset({"advisory_verification_status", "verified", "self_certified", "status"})
@@ -194,13 +197,25 @@ class FloorRef(Frozen):
 
 class RouterPortCaps(Frozen):
     """What the handshake reports about the flash router. The router is never required: without one the overseer runs
-    the floor plan, and a router whose hello is out of contract is reported absent with its refusal code."""
+    the floor plan, and a router whose hello is out of contract is reported absent with its refusal code.
+
+    The report is coherent: a router is ``attached`` exactly when its ``identity`` is reported, an attached router has
+    no ``refusal``, and a refusal is one an attachment can give (:data:`ROUTER_ATTACH_REFUSALS`). Anything else is out
+    of contract (the Worker's handshake refuses it with ``KIT-HS-001``, as ``handshake.evaluate`` does)."""
     version: Literal["1.0"]
     required: Literal[False]
     attached: bool
     identity: Optional[RouterIdentity] = None
     refusal: Optional[RtCode] = None
     floor: FloorRef
+
+    @model_validator(mode="after")
+    def _coherent(self) -> "RouterPortCaps":
+        if self.attached != (self.identity is not None) or (self.attached and self.refusal is not None):
+            raise ValueError("a router is attached exactly when its identity is reported, and an attached router has no refusal")
+        if self.refusal is not None and self.refusal not in ROUTER_ATTACH_REFUSALS:
+            raise ValueError("a router's refusal is one its attachment can give (KIT-RT-015 or KIT-RT-016)")
+        return self
 
 
 class Ports(Frozen):

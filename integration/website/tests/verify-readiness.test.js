@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createVerification } from "../src/verify/verification.js";
+import { createVerification, evaluateCapabilities, workerEnvOf } from "../src/verify/verification.js";
 import { vector } from "./kit-vectors.js";
 
 const TOKEN = "kit-test-token-0123456789";
@@ -56,6 +56,28 @@ test("an incompatible service is kit_hs_mismatch with its KIT-HS code", async ()
   body.ports.checks.named_policies = ["linear", "nonlinear"];
   const v = createVerification({ env: env(), inner, fetchImpl: async () => ok(body) });
   assert.deepEqual(await v.ready(), { ok: false, rawCode: "kit_hs_mismatch", code: "KIT-HS-006" });
+});
+
+test("the simulation switch is honoured only in local development: on a hosted environment it is a configuration problem", async () => {
+  for (const APP_ENV of ["staging", "production", "preview"]) {
+    for (const KIT_SIMULATION of ["1", "true", "0"]) {
+      const hosted = { ...env({ APP_ENV, KIT_SIMULATION }), TRANSLATOR_BASE_URL: "https://checks.example.test" };
+      assert.equal(createVerification({ env: hosted, inner }).configProblem(), "simulation_on_hosted", `${APP_ENV} ${KIT_SIMULATION}`);
+    }
+    assert.notEqual(workerEnvOf({ APP_ENV, KIT_SIMULATION: "1" }), "sim", APP_ENV);
+  }
+  assert.equal(workerEnvOf({ APP_ENV: "staging", KIT_SIMULATION: "1" }), "staging");
+  assert.equal(workerEnvOf({ APP_ENV: "production", KIT_SIMULATION: "1" }), "production");
+  // in local development the switch selects the simulation, as before
+  assert.equal(workerEnvOf({ APP_ENV: "development", KIT_SIMULATION: "1" }), "sim");
+  assert.equal(workerEnvOf({ KIT_SIMULATION: "1" }), "sim");
+  assert.equal(createVerification({ env: env({ APP_ENV: "development" }), inner }).configProblem(), null);
+  // even if the configuration check were skipped, a staging Worker with the switch set never accepts a sim service
+  const sim = caps();
+  const v = createVerification({ env: env({ APP_ENV: "staging", TRANSLATOR_BASE_URL: "https://checks.example.test" }), inner, fetchImpl: async () => ok(sim) });
+  assert.equal(v.workerEnv, "staging");
+  assert.equal((await v.ready()).code, "KIT-HS-009");
+  assert.equal(evaluateCapabilities(sim, { workerEnv: v.workerEnv }).ok, false);
 });
 
 test("a hosted environment needs a live provider: a fixture service is refused on staging", async () => {

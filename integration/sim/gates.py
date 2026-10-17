@@ -99,11 +99,18 @@ def g_inv(invariants: Optional[Mapping[str, Optional[bool]]]) -> dict:
 
 def label_problem(display: Mapping[str, Any]) -> Optional[str]:
     """Why one displayed answer breaks the honesty rules, or None. ``display``: ``{review, labels: [{formal, text}],
-    scope_statement_shown, simulated}``."""
+    scope_statement_shown, simulated}``, and, when the page shows one, ``badge`` (its text) with ``summary`` (the
+    answer's ``checksSummary``): the badge says "passed" only for ``formally_checked`` (PROTOCOL.md section 9, rule 13)."""
     if display.get("review") != "checks:integration.v1":
         return "a delivered answer does not say review checks:integration.v1"
     if display.get("simulated") is not True:
         return "a simulated answer is not marked simulated"
+    if "badge" in display:
+        badge = str(display.get("badge") or "").lower()
+        if any(w in badge.replace("(", " ").replace(")", " ").split() for w in FORBIDDEN_LABEL_WORDS):
+            return f"the answer badge claims more than the encoding: {badge[:80]}"
+        if "passed" in badge and display.get("summary") != "formally_checked":
+            return "the answer badge says passed although not every material eligible claim has a permitted positive result"
     labels = list(display.get("labels") or [])
     for lab in labels:
         text = str(lab.get("text", ""))

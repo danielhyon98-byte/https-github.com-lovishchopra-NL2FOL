@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings as hsettings, strategies as st
 
 from epinoic_logic.integration import router_port as R
 from epinoic_logic.integration.canonical import CanonicalError, canonical_json, loads_strict, sha256_json, sha256_text
@@ -65,6 +66,46 @@ def test_code_vectors_are_the_closed_tables():
     for code in CODES:
         if code.startswith("KIT-DL-"):
             assert f"kit_dl_{code[-3:]}" in WORKER_RAW_CODES, code
+
+
+def test_the_answer_badge_says_passed_only_when_every_material_eligible_claim_has_a_permitted_positive_result():
+    """The page's badge (chat-contract labels.json ``badges``, decision D27's conservative default): only
+    ``formally_checked`` says "Automatic checks passed" or carries the success tone. The shared delivered cases give their
+    summary and badge here as in the Worker's tests, among them one positive result of the encoding among eight material
+    claims, an ambiguous material claim with a positive one, and a permitted positive with an invalid formalization."""
+    from epinoic_logic.integration.delivery import ClaimFields, count_claims, summarize
+    [labels] = _load("chat-contract")
+    badges = labels["badges"]
+    passed = lambda b: "passed" in b[0].lower() or b[1] == "is-ok"  # noqa: E731
+    assert [s for s, b in badges.items() if passed(b)] == ["formally_checked"]
+    assert not passed(labels["unknown_summary_badge"])
+    cases = {c["name"]: c for c in labels["badge_cases"]}
+    assert {"one-positive-of-eight-encoding-only", "an-ambiguous-material-claim-and-a-positive-one",
+            "a-permitted-positive-and-an-invalid-formalization"} <= set(cases)
+    for c in cases.values():
+        summary = summarize(count_claims(ClaimFields(x["materiality"], x["formal"], x["attempt"], x["release_permitted"]) for x in c["claims"]))
+        assert (summary, badges[summary]) == (c["summary"], c["badge"]), c["name"]
+    assert not passed(cases["one-positive-of-eight-encoding-only"]["badge"])
+
+
+_BADGE_CLAIM = st.tuples(st.sampled_from(["material", "supporting"]),
+                         st.sampled_from(["ENTAILED", "CONSISTENT", "SATISFIABLE", "UNSUPPORTED", "INVALID_FORMALIZATION",
+                                          "AMBIGUOUS_TRANSLATION", "NOT_ELIGIBLE", "UNKNOWN", "TIMEOUT", "NOT_ATTEMPTED"]),
+                         st.booleans())
+
+
+@hsettings(max_examples=500, deadline=None)
+@given(st.lists(_BADGE_CLAIM, max_size=10))
+def test_a_passed_badge_implies_every_material_eligible_claim_positive_and_permitted(raw):
+    from epinoic_logic.integration.delivery import ClaimFields, count_claims, summarize
+    from epinoic_logic.integration.protocol import POSITIVE
+    badges = _load("chat-contract")[0]["badges"]
+    claims = [ClaimFields(m, f, "not_eligible" if f == "NOT_ELIGIBLE" else "skipped_budget" if f == "NOT_ATTEMPTED" else "attempted",
+                          permitted and f in POSITIVE) for m, f, permitted in raw]
+    text, tone = badges[summarize(count_claims(claims))]
+    if "passed" in text.lower() or tone == "is-ok":
+        eligible = [c for c in claims if c.materiality == "material" and c.attempt != "not_eligible"]
+        assert eligible and all(c.formal in POSITIVE and c.release_permitted for c in eligible)
 
 
 def test_router_port_vectors_re_derive():

@@ -26,12 +26,20 @@ blind dossier hides (no auditor finding, no consolidation result, no OVS code, n
 plan never changes a clearance, a delivery decision or a verdict's decision: the review it plans runs after delivery.
 
 **The router runs in its own process** (:func:`run_router`, ``router_child.py``): ``python -I`` with the service's import
-path, an environment without any ``EPINOIC_`` variable (no key, secret or token reaches it), its answer read from its
-standard output, at most :data:`HELLO_TIMEOUT_S` for its hello and at most ``min(PLAN_TIMEOUT_S, what is left of the
-call's budget)`` for a plan. Its code never runs in the service: it cannot change the floor or the admission, read the
-service's keys, or raise into the service. A router that raises, exits, hangs, answers with more than
+path, an environment of :data:`CHILD_ENV_NAMES` only (no ``EPINOIC_`` variable, so no key, secret or token is in its own
+environment), its answer read from its standard output, at most :data:`HELLO_TIMEOUT_S` for its hello and at most
+``min(PLAN_TIMEOUT_S, what is left of the call's budget)`` for a plan. Its code never runs in the service: it cannot
+change the floor or the admission, or raise into the service. A router that raises, exits, hangs, answers with more than
 :data:`MAX_ANSWER_BYTES` or with anything but JSON text is refused with ``KIT-RT-016`` and the floor runs; JSON that is
 not a plan keeps its own code (``KIT-RT-001`` and the rest of :func:`check_plan`).
+
+That process is a fault boundary, not a sandbox: it runs as the service's user. Before it starts one, the service marks
+itself non-dumpable on Linux, so a router without root and without ``CAP_SYS_PTRACE`` cannot read the service's
+environment or memory; a service that runs as root or with ``CAP_SYS_PTRACE``, another system, and secrets kept in files
+or in other processes of the same user are outside that protection (``router_child.protect_service``,
+``router_child.boundary_problem``). The hosted profile therefore attaches a router only where the protection holds
+(:func:`attach_router` with ``require_secret_boundary``); a router is installed only as code trusted with the service's
+user (decision D28).
 
 Standard library and pydantic only: nothing here imports the engine or Z3, so a router sub-project can validate its own
 output against this module, the JSON Schemas in ``integration/schemas/`` and the vectors in
@@ -39,17 +47,9 @@ output against this module, the JSON Schemas in ``integration/schemas/`` and the
 """
 from __future__ import annotations
 
-import json
-import os
 import re
-import signal
-import subprocess
-import sys
-import threading
-import time
 from dataclasses import dataclass
 from functools import partial
-from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional, Union
 
 from pydantic import Field, StringConstraints, ValidationError, model_validator
@@ -154,8 +154,7 @@ PLAN_TIMEOUT_S = 3.0
 #: The most the service reads of a router's answer (UTF-8 bytes): a larger answer is a failed router (``KIT-RT-016``).
 MAX_ANSWER_BYTES = _child.MAX_ANSWER_BYTES
 #: The only environment variables the router's process gets (names, never values; no ``EPINOIC_`` variable is among them).
-CHILD_ENV_NAMES: tuple[str, ...] = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT")
-_CHILD_SCRIPT = Path(_child.__file__).resolve()
+CHILD_ENV_NAMES: tuple[str, ...] = _child.CHILD_ENV_NAMES
 
 _Key = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{1,128}$")]
 _DocId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:/-]{1,200}$")]
@@ -479,7 +478,8 @@ def _validation_code(exc: ValidationError) -> str:
 
 def check_plan(raw: Any, request: RoutingRequest, *, hello: RouterHello) -> RoutingPlan:
     """Validate a router's plan against its request and the attached router's hello, then against the floor. Raises
-    :class:`IntegrationError` with the ``KIT-RT`` code of the first rule it breaks (PROTOCOL.md section 7a.4)."""
+    :class:`IntegrationError` with the ``KIT-RT`` code of the first rule it breaks, in the order of PROTOCOL.md section
+    7a.5; a rule about transfers is applied to every transfer before the next rule."""
     data = _parsed(raw, "KIT-RT-001")
     if not isinstance(data, dict):
         raise IntegrationError("KIT-RT-001", "a routing plan is a JSON object")
@@ -503,27 +503,18 @@ def check_plan(raw: Any, request: RoutingRequest, *, hello: RouterHello) -> Rout
     if plan.router != hello.router:
         raise IntegrationError("KIT-RT-003", "the plan's router identity is not the attached router's")
     outputs = {o.transfer_key: o for o in request.outputs}
-    seen: set[str] = set()
-    for t in plan.transfers:
-        if t.transfer_key not in outputs:
-            raise IntegrationError("KIT-RT-004", "the plan names a transfer the request does not hold")
-        if t.transfer_key in seen:
-            raise IntegrationError("KIT-RT-006", "the plan names one transfer twice")
-        seen.add(t.transfer_key)
-    if seen != set(outputs):
+    keys = [t.transfer_key for t in plan.transfers]
+    if any(k not in outputs for k in keys):
+        raise IntegrationError("KIT-RT-004", "the plan names a transfer the request does not hold")
+    if len(set(keys)) != len(keys):
+        raise IntegrationError("KIT-RT-006", "the plan names one transfer twice")
+    if set(keys) != set(outputs):
         raise IntegrationError("KIT-RT-005", "the plan leaves a transfer of the request without a review")
-    for t in plan.transfers:
-        problem = _method_problem(t, outputs[t.transfer_key], request)
-        if problem:
-            raise IntegrationError("KIT-RT-007", problem)
-        if t.method not in hello.methods:
-            raise IntegrationError("KIT-RT-007", "the plan uses a method its router's hello does not declare")
-        if t.profile not in request.limits.profiles or t.profile not in hello.profiles:
-            raise IntegrationError("KIT-RT-010", "the plan uses an overseer profile that is not available")
-        if len(set(t.reasons)) != len(t.reasons) or len(set(t.features_used)) != len(t.features_used):
-            raise IntegrationError("KIT-RT-012", "a reason or a feature is listed twice")
-        if t.estimated_cost is None:
-            raise IntegrationError("KIT-RT-013", "a router's plan estimates the cost of every transfer")
+    for code, rule in _transfer_rules(request, hello, outputs):  # PROTOCOL.md 7a.5: each rule over every transfer, in order
+        for t in plan.transfers:
+            problem = rule(t)
+            if problem:
+                raise IntegrationError(code, problem)
     maximum = min(request.limits.max_instances, HARD_MAX_INSTANCES)
     for t in plan.transfers:
         if t.instances > maximum:
@@ -538,6 +529,32 @@ def check_plan(raw: Any, request: RoutingRequest, *, hello: RouterHello) -> Rout
     if below:
         raise IntegrationError("KIT-RT-020", below)
     return plan
+
+
+def _transfer_rules(request: RoutingRequest, hello: RouterHello, outputs: dict) -> tuple[tuple[str, Callable[[TransferPlan], Optional[str]]], ...]:
+    """The per-transfer rules of :func:`check_plan` in the order of PROTOCOL.md section 7a.5, each with its code and a
+    function giving why a transfer breaks it (``None`` when it does not). Each rule is applied to every transfer before
+    the next rule, so a plan's code does not depend on the order of its transfers."""
+    def method(t: TransferPlan) -> Optional[str]:
+        problem = _method_problem(t, outputs[t.transfer_key], request)
+        if problem:
+            return problem
+        return None if t.method in hello.methods else "the plan uses a method its router's hello does not declare"
+
+    def profile(t: TransferPlan) -> Optional[str]:
+        if t.profile in request.limits.profiles and t.profile in hello.profiles:
+            return None
+        return "the plan uses an overseer profile that is not available"
+
+    def vocabulary(t: TransferPlan) -> Optional[str]:
+        if len(set(t.reasons)) == len(t.reasons) and len(set(t.features_used)) == len(t.features_used):
+            return None
+        return "a reason or a feature is listed twice"
+
+    def cost(t: TransferPlan) -> Optional[str]:
+        return None if t.estimated_cost is not None else "a router's plan estimates the cost of every transfer"
+
+    return (("KIT-RT-007", method), ("KIT-RT-010", profile), ("KIT-RT-012", vocabulary), ("KIT-RT-013", cost))
 
 
 def _method_problem(t: TransferPlan, out: OutputFeatures, request: RoutingRequest) -> Optional[str]:
@@ -671,129 +688,25 @@ def admit_plan(request: RoutingRequest, raw_plan: Any, *, hello: Optional[Router
     return Admission(plan, "router", None, "", hello.router, floor)
 
 
-class RouterFailure(Exception):
-    """A router call that produced no answer to validate: the router could not be started, raised, exited, did not
-    answer in time, or answered too much. ``code`` is ``KIT-RT-016`` (``KIT-RT-015`` for a module without the two
-    functions); ``detail`` never carries anything the router wrote."""
-
-    def __init__(self, code: str, detail: str) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.code = code
-        self.detail = detail
-
-
-_CHILD_FAILURES = {
-    _child.EXIT_JOB: ("KIT-RT-016", "the router's process could not read its job"),
-    _child.EXIT_IMPORT: ("KIT-RT-016", "the router module is not importable in its process"),
-    _child.EXIT_NO_FUNCTION: ("KIT-RT-015", "the router module exposes no hello() and plan(request_json)"),
-    _child.EXIT_RAISED: ("KIT-RT-016", "the router raised"),
-    _child.EXIT_NOT_TEXT: ("KIT-RT-016", "the router answered with something other than text"),
-    _child.EXIT_TOO_LARGE: ("KIT-RT-016", f"the router's answer is larger than {MAX_ANSWER_BYTES} bytes"),
-}
-
-
-def _child_env() -> dict[str, str]:
-    return {name: os.environ[name] for name in CHILD_ENV_NAMES if name in os.environ}
-
-
-def _cwd() -> str:
-    try:
-        return os.getcwd()
-    except OSError:  # the service's working directory is gone: run the router from this package's directory
-        return str(_CHILD_SCRIPT.parent)
-
-
-def _import_paths() -> list[str]:
-    """The service's own import path, so the router's process imports exactly the modules the service would."""
-    return [_cwd() if p == "" else p for p in sys.path if isinstance(p, str)]
-
-
-def _kill(proc: "subprocess.Popen[bytes]") -> None:
-    try:
-        if os.name == "posix":
-            os.killpg(proc.pid, signal.SIGKILL)  # the router's own children go with it (it runs in its own session)
-        else:  # pragma: no cover - the service runs on POSIX
-            proc.kill()
-    except (ProcessLookupError, PermissionError, OSError):
-        pass
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:  # pragma: no cover - a process killed with SIGKILL is reaped at once
-        pass
+#: A router call that produced no answer to validate (``router_child.RouterFailure``): ``code`` is ``KIT-RT-016``
+#: (``KIT-RT-015`` for a module without the two functions); ``detail`` never carries anything the router wrote.
+RouterFailure = _child.RouterFailure
+_child_env = _child.child_env
 
 
 def run_router(module: str, op: str, request_json: Optional[str], timeout_s: float) -> str:
-    """One call of the flash router (``op`` ``hello`` or ``plan``) in its own process, waiting at most ``timeout_s``.
+    """One call of the flash router (``op`` ``hello`` or ``plan``) in its own process, waiting at most ``timeout_s``
+    (``router_child.launch``).
 
-    Returns the text the router's function returned. Raises :class:`RouterFailure` for everything else: the process
-    could not start, the module cannot be imported or lacks the function, the function raised (``SystemExit`` and
-    ``KeyboardInterrupt`` included) or returned a non-text value, the answer is not UTF-8 or larger than
-    :data:`MAX_ANSWER_BYTES`, or no answer came within ``timeout_s`` (the process and its children are then killed).
-    The process gets ``python -I`` (no user site, no ``PYTHON*`` variable, no current directory on its path), the
-    service's import path, and only the variables of :data:`CHILD_ENV_NAMES`: no ``EPINOIC_`` variable reaches it."""
-    job = json.dumps({"paths": _import_paths(), "module": module, "op": op, "request": request_json}).encode("utf-8")
-    deadline = time.monotonic() + max(0.0, timeout_s)
-    try:
-        proc = subprocess.Popen([sys.executable, "-I", str(_CHILD_SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, env=_child_env(), cwd=_cwd(), close_fds=True,
-                                start_new_session=os.name == "posix")
-    except OSError as exc:
-        raise RouterFailure("KIT-RT-016", f"the router's process could not be started ({type(exc).__name__})") from None
-    out = bytearray()
-    state = {"too_large": False}
-
-    def feed() -> None:
-        try:
-            proc.stdin.write(job)  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
-        except (OSError, ValueError):
-            pass
-
-    def drain() -> None:
-        try:
-            while True:
-                chunk = proc.stdout.read1(65536)  # type: ignore[union-attr]
-                if not chunk:
-                    return
-                if len(out) + len(chunk) > MAX_ANSWER_BYTES:
-                    state["too_large"] = True
-                    return
-                out.extend(chunk)
-        except (OSError, ValueError):
-            return
-
-    writer = threading.Thread(target=feed, name="flash-router-feed", daemon=True)
-    reader = threading.Thread(target=drain, name="flash-router-drain", daemon=True)
-    writer.start()
-    reader.start()
-    reader.join(max(0.0, deadline - time.monotonic()))
-    status: Optional[int] = None
-    if not reader.is_alive() and not state["too_large"]:
-        try:
-            status = proc.wait(timeout=max(0.0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            status = None
-    if status is None:
-        _kill(proc)
-    reader.join(1.0)
-    writer.join(1.0)
-    for stream in (proc.stdout, proc.stdin):
-        try:
-            if stream is not None:
-                stream.close()
-        except OSError:  # pragma: no cover
-            pass
-    if state["too_large"]:
-        raise RouterFailure("KIT-RT-016", f"the router's answer is larger than {MAX_ANSWER_BYTES} bytes")
-    if status is None:
-        raise RouterFailure("KIT-RT-016", f"the router did not answer within {int(max(0.0, timeout_s) * 1000)} ms")
-    if status != _child.EXIT_OK:
-        code, detail = _CHILD_FAILURES.get(status, ("KIT-RT-016", f"the router's process exited with status {status}"))
-        raise RouterFailure(code, f"{detail} ({op})")
-    try:
-        return bytes(out).decode("utf-8")
-    except UnicodeDecodeError:
-        raise RouterFailure("KIT-RT-016", "the router's answer is not UTF-8 text") from None
+    Returns the text the router's function returned. Raises :class:`RouterFailure` for everything else: the service
+    could not mark itself non-dumpable (Linux), the process could not start, the module cannot be imported or lacks the
+    function, the function raised (``SystemExit`` and ``KeyboardInterrupt`` included) or returned a non-text value, the
+    answer is not UTF-8 or larger than :data:`MAX_ANSWER_BYTES`, or no answer came within ``timeout_s`` (the process and
+    its children are then killed). The process gets ``python -I`` (no user site, no ``PYTHON*`` variable, no current
+    directory on its path), the service's import path, and only the variables of :data:`CHILD_ENV_NAMES`: no
+    ``EPINOIC_`` variable is in its environment, and on Linux a router without root or ``CAP_SYS_PTRACE`` cannot read
+    the service's environment or memory either."""
+    return _child.launch(module, op, request_json, timeout_s)
 
 
 @dataclass(frozen=True)
@@ -814,18 +727,28 @@ class RouterAttachment:
         return self.hello is not None and self.plan_fn is not None
 
 
-def attach_router(spec: Optional[str], *, timeout_s: float = HELLO_TIMEOUT_S) -> RouterAttachment:
+def attach_router(spec: Optional[str], *, timeout_s: float = HELLO_TIMEOUT_S, require_secret_boundary: bool = False) -> RouterAttachment:
     """Attach the flash router named by ``spec`` (``EPINOIC_FLASH_ROUTER``): unset, empty or ``"none"`` for no router,
     otherwise a module that exposes ``hello() -> str`` and ``plan(request_json: str) -> str``. The router is a separate
     agent: it runs in its own process (:func:`run_router`), gets JSON text and returns JSON text, and everything it
     returns is validated here as untrusted data. Not configured: detached, no refusal. Configured but not importable,
     failing or answering with anything but JSON: detached with ``KIT-RT-016``; a module without the two functions or a
-    hello out of contract: detached with ``KIT-RT-015``. The service starts either way: the router is never required."""
+    hello out of contract: detached with ``KIT-RT-015``. The service starts either way: the router is never required.
+
+    ``require_secret_boundary`` (the hosted profile, which holds real keys): the router is started only where its
+    process cannot read the service's environment or memory (``router_child.boundary_problem``: Linux, a service that is
+    not root and holds no ``CAP_SYS_PTRACE``, marked non-dumpable); elsewhere it is detached with ``KIT-RT-016`` before
+    any router process starts."""
     if spec is None or spec.strip() in ("", "none"):
         return RouterAttachment(None, None, None, "no router configured: the floor plan runs")
     name = spec.strip()
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", name):
         return RouterAttachment(None, None, "KIT-RT-015", "the router module name is not a Python module path")
+    if require_secret_boundary:
+        problem = _child.boundary_problem()
+        if problem is not None:
+            return RouterAttachment(None, None, "KIT-RT-016", f"{problem}: a hosted service starts a router only where it cannot read "
+                                    "the service's keys, so the floor plan runs")
     try:
         text = run_router(name, "hello", None, timeout_s)
     except RouterFailure as exc:

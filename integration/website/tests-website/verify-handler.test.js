@@ -124,7 +124,7 @@ test("a bound deliver verdict releases the answer with review checks:integration
   assert.equal(w.one("SELECT simulated FROM turns").simulated, 1);
 });
 
-test("an answer delivered without a positive formal result is labelled not formally checked, never passed", async () => {
+test("an answer delivered without a positive formal result is labelled not formally checked, and one with a positive result of the encoding only partly checked: neither says passed", async () => {
   for (const service of ["invalid", "noclaims"]) {
     const w = world({ service });
     const r = await w.post(send());
@@ -137,8 +137,9 @@ test("an answer delivered without a positive formal result is labelled not forma
     const formal = r.body.checks.map((c) => c.formal);
     assert.deepEqual(formal, service === "invalid" ? ["INVALID_FORMALIZATION"] : [], service);
   }
-  const positive = await world().post(send());
-  assert.deepEqual(checksBadge(positive.body.checksSummary), ["Automatic checks passed", "is-ok"]);
+  const positive = await world().post(send()); // ENTAILED, fidelity missing, release not permitted: a check of the encoding only
+  assert.equal(positive.body.checksSummary, "formal_only");
+  assert.deepEqual(checksBadge(positive.body.checksSummary), ["Partly checked (encoding only)", null]);
 });
 
 test("a refusing verdict is 422 review_unresolved, stored under its raw code and shown as the same public code", async () => {

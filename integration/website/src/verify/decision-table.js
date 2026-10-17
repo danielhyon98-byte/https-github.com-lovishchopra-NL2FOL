@@ -6,7 +6,8 @@
 // - rows in order, first match wins; only material claims count where a row says so;
 // - a verdict the service issued after an unexpected exception (refusal internal_error) is refuse_incomplete
 //   (KIT-DL-900) before every row: it never delivers;
-// - an answer whose required checks did not complete is never summarised as formally_checked, whatever the policy.
+// - an answer whose required checks did not complete is never summarised as formally_checked, whatever the policy;
+// - row 5 continues only under the qualify policy: verified-v1 and any policy it does not know refuse (fail closed).
 
 const freeze = Object.freeze;
 
@@ -17,6 +18,8 @@ export const INCOMPLETE_STATUSES = freeze(["UNKNOWN", "TIMEOUT", "INTERNAL_ERROR
 const BUDGET_ATTEMPTS = freeze(["skipped_budget", "stem_budget"]);
 /** No v1 policy allows a revision (decision D5): "revise" is never produced. */
 export const REVISION_POLICIES = freeze([]);
+/** The one policy under which a material eligible claim without a definitive result does not refuse (row 5, D2). */
+export const QUALIFY_POLICY = "verified-v1-qualify";
 const INTEGRITY_REFUSALS = freeze({
   clearance_failed: "KIT-DL-003", final_audit_not_passed: "KIT-DL-005", signature_invalid: "KIT-DL-006",
   custody_failed: "KIT-DL-006", stale: "KIT-DL-006", not_deliverable: "KIT-DL-006",
@@ -68,7 +71,8 @@ export function decide(inp) {
     return ["refuse_unresolved", uniqueSorted(reasons)];
   }
   if (!inp.delivery_allowed) return ["refuse_integrity", ["KIT-DL-006"]];
-  if (inp.unavailable > 0 && inp.policy === "verified-v1") {
+  // Row 5: only the qualify policy continues; verified-v1 and any policy this table does not know refuse (fail closed).
+  if (inp.unavailable > 0 && inp.policy !== QUALIFY_POLICY) {
     const out = ["KIT-DL-011"];
     if (inp.claims.some((c) => material(c) && eligible(c) && INCOMPLETE_STATUSES.includes(c.formal) && BUDGET_ATTEMPTS.includes(c.attempt))) out.push("KIT-DL-013");
     return ["refuse_incomplete", out];

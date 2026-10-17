@@ -10,7 +10,8 @@ never fetches, never deploys and never calls a provider; services it starts bind
     check.py --all --website <checkout> --website-copy <export> --agents <copy> --sim-out <dir> [--kit <kit>]
 
 Every row is PASS, BLOCKER, NOT RUN (with its reason) or REPORTED (the flash router: reported, never required).
-Exit status 1 when a row is a BLOCKER.
+Exit status 1 when a row is a BLOCKER. On a pre-build commit (the parts phase 2 connects are absent), a BLOCKER row that
+only those parts cause says "(connected in phase 2: ...)"; a BLOCKER row without that mark is a defect of the commit.
 """
 from __future__ import annotations
 
@@ -35,17 +36,33 @@ def row(rows: list, name: str, status: str, detail: str) -> None:
     rows.append((name, status, detail))
 
 
-def g1(kit: Path, rows: list) -> None:
+def _contract_version(kit: Path) -> str | None:
     contract = kit / "docs" / "integration-contract.md"
     m = re.search(r"Contract version:\*\* ([0-9.]+)", contract.read_text(encoding="utf-8")) if contract.exists() else None
-    row(rows, "G1 contract 0.4", PASS if m and m.group(1) == "0.4" else BLOCKER, f"contract {m.group(1) if m else 'absent'}")
-    row(rows, "G1 overseer package", PASS if (kit / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists() else BLOCKER,
-        "src/epinoic_logic/overseer/" + ("" if (kit / "src" / "epinoic_logic" / "overseer").exists() else " absent (connected in phase 2)"))
+    return m.group(1) if m else None
+
+
+def _named_policies(kit: Path) -> bool:
+    pol = (kit / "src" / "epinoic_logic" / "engine" / "policies.py").read_text(encoding="utf-8")
+    return "NAMED_POLICIES" in pol and "def named_policy" in pol
+
+
+def _overseer_package(kit: Path) -> bool:
+    return (kit / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists()
+
+
+def g1(kit: Path, rows: list) -> None:
+    version, named, overseer = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
+    # the contract line moves to 0.4 when phase 2 merges contract 0.3: before that merge (no named policies yet) a
+    # contract older than 0.4 is the expected pre-build state; after it, an older line is a defect
+    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.4)" if version != "0.4" and not named else ""
+    row(rows, "G1 contract 0.4", PASS if version == "0.4" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
+    row(rows, "G1 overseer package", PASS if overseer else BLOCKER,
+        "src/epinoic_logic/overseer/" + ("" if overseer else " absent (connected in phase 2: the rebuilt overseer and its port adapter)"))
     reg = (kit / "src" / "epinoic_logic" / "branches" / "registry.py").read_text(encoding="utf-8")
     row(rows, "G1 STEM branches", PASS if all(b in reg for b in ("sciences", "mathematics", "computer_science")) else BLOCKER, "branches/registry.py")
-    pol = (kit / "src" / "epinoic_logic" / "engine" / "policies.py").read_text(encoding="utf-8")
-    row(rows, "G1 named policies (contract 0.3)", PASS if "NAMED_POLICIES" in pol and "def named_policy" in pol else BLOCKER,
-        "engine/policies.py NAMED_POLICIES" + ("" if "NAMED_POLICIES" in pol else " absent (connected in phase 2)"))
+    row(rows, "G1 named policies (contract 0.3)", PASS if named else BLOCKER,
+        "engine/policies.py NAMED_POLICIES" + ("" if named else " absent (connected in phase 2: contract 0.3 merge)"))
     compat = json.loads((kit / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
     row(rows, "G1 protocol", PASS if compat.get("protocol") == "epinoic.integration.v1" else BLOCKER, compat.get("protocol", "?"))
     router = kit / "flash-router"
@@ -56,8 +73,12 @@ def g1(kit: Path, rows: list) -> None:
 
 
 def _py(kit: Path) -> dict:
+    """The environment of a process run from the kit: no EPINOIC_ variable of the caller, and the kit's src/ on the
+    import path, with the flash-router sub-project's src/ after it when the kit has one (so a service started with
+    EPINOIC_FLASH_ROUTER=epinoic_flash_router.port can import the router in the router's own process)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
-    env["PYTHONPATH"] = str(kit / "src")
+    paths = [kit / "src"] + ([kit / "flash-router" / "src"] if (kit / "flash-router" / "src").is_dir() else [])
+    env["PYTHONPATH"] = os.pathsep.join(str(p) for p in paths)
     return env
 
 
@@ -71,7 +92,12 @@ def translator(kit: Path, rows: list) -> None:
     env = service_env(kit)
     p = subprocess.run([sys.executable, "-m", "epinoic_logic.integration", "preflight"], env=env, capture_output=True, text=True, timeout=300)
     line = (p.stderr.strip().splitlines() or ["ready"])[-1] if p.returncode else "ready"
-    row(rows, "service preflight (integration-sim)", PASS if p.returncode == 0 else BLOCKER, line[:160])
+    note = ""
+    if line.startswith("KIT-HS-006") and not _named_policies(kit):
+        note = " (connected in phase 2: the named policies of contract 0.3; then KIT-HS-007 until the overseer port adapter)"
+    elif line.startswith("KIT-HS-007") and not _overseer_package(kit):
+        note = " (connected in phase 2: the overseer port adapter)"
+    row(rows, "service preflight (integration-sim)", PASS if p.returncode == 0 else BLOCKER, line[:160] + note)
 
 
 def service_env(kit: Path, profile: str = "integration-sim") -> dict:

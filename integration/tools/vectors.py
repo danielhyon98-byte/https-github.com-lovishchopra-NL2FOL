@@ -98,6 +98,15 @@ def handshake_vectors() -> dict[str, dict]:
         "timing-infeasible": [(("limits", "checks_min_ms"), 120000)],
         "router-attached-changes-nothing": [(("ports", "router", "attached"), True),
                                             (("ports", "router", "identity"), {"name": "test-flash-router", "version": "0.1", "rules_sha256": "a1" * 32, "cost_data_sha256": "b2" * 32})],
+        # a router refused at attachment is reported with its code and changes nothing either
+        "router-refused-changes-nothing": [(("ports", "router", "refusal"), "KIT-RT-016")],
+        "router-hello-refused-changes-nothing": [(("ports", "router", "refusal"), "KIT-RT-015")],
+        # an incoherent router report is out of contract on both sides (KIT-HS-001)
+        "router-attached-without-identity": [(("ports", "router", "attached"), True)],
+        "router-identity-while-detached": [(("ports", "router", "identity"), {"name": "test-flash-router", "version": "0.1", "rules_sha256": "a1" * 32, "cost_data_sha256": "b2" * 32})],
+        "router-attached-and-refused": [(("ports", "router", "attached"), True), (("ports", "router", "refusal"), "KIT-RT-015"),
+                                        (("ports", "router", "identity"), {"name": "test-flash-router", "version": "0.1", "rules_sha256": "a1" * 32, "cost_data_sha256": "b2" * 32})],
+        "router-refusal-unassigned": [(("ports", "router", "refusal"), "KIT-RT-999")],
     }
     out = {}
     for name, (changes, env, base) in {**cases, **{k: (v, "sim", "M") for k, v in edits.items()}, "base-p-timing": ([], "sim", "P"),
@@ -154,6 +163,9 @@ def decision_vectors() -> dict[str, dict]:
         "deliver-not-formally-checkable": _fields([C("NOT_ELIGIBLE", "not_eligible"), C("UNSUPPORTED")]),
         "deliver-with-supporting-blocking-claim": _fields([C("ENTAILED"), C("COUNTEREXAMPLE", materiality="supporting")]),
         "deliver-ambiguous-material-claim-labelled": _fields([C("AMBIGUOUS_TRANSLATION"), C("ENTAILED")]),
+        # one positive result of the encoding among eight material claims, the seven others not formally checked: it is
+        # delivered (D4, row 6) as formal_only, which the page never badges "passed" (labels.json badge_cases).
+        "deliver-formal-only-one-positive-of-eight": _fields([C("ENTAILED")] + [C("UNSUPPORTED")] * 7),
         "row2-receipt-rejected": _fields([C("ENTAILED")], receipt={"status": "REJECTED"}),
         "row2-final-audit-failed": _fields([C("ENTAILED")], overseer={"state": "AUDIT_FAILED", "delivery_allowed": False, "refusal": "final_audit_not_passed"}),
         "row2-clearance-failed": _fields([C("ENTAILED")], overseer={"delivery_allowed": False, "refusal": "clearance_failed"}),
@@ -177,6 +189,8 @@ def decision_vectors() -> dict[str, dict]:
         "row5-not-attempted-cap": _fields([C("NOT_ATTEMPTED", "skipped_cap")]),
         "row5-provider-unavailable": _fields([C("NOT_ATTEMPTED", "provider_unavailable")]),
         "row5-qualify-policy-continues": _fields([C("UNKNOWN"), C("ENTAILED", permitted=True)], policy="verified-v1-qualify"),
+        # row 5 continues only under the qualify policy: a policy the table does not know refuses (fails closed).
+        "row5-unlisted-policy-refuses": _fields([C("UNKNOWN"), C("ENTAILED", permitted=True)], policy="verified-v2-unlisted"),
         "row5-supporting-claim-does-not-count": _fields([C("UNKNOWN", materiality="supporting"), C("ENTAILED")]),
         "internal-error-verdict": _fields([], overseer={"state": "AUDIT_PENDING", "delivery_allowed": False, "refusal": "internal_error"}, receipt={"status": "REJECTED"}),
     }
@@ -347,10 +361,16 @@ def router_vectors() -> dict[str, dict]:
 
 def chat_contract_vectors() -> dict[str, dict]:
     """The website's check entries derived from verdict claims (the labels the page writes from the closed statuses),
-    and the answer badge the page writes from a delivered answer's ``checksSummary`` (decisions D13 and D27): "passed"
-    only when the formal checks gave a positive result and no material check is missing; an answer with no positive
+    and the answer badge the page writes from a delivered answer's ``checksSummary`` (decisions D13 and D27).
+
+    The badge's default is the conservative one until Bruno decides D27: "Automatic checks passed" (tone ``is-ok``) only
+    for ``formally_checked``, where every material eligible claim has a positive result whose release is permitted;
+    ``partly_checked`` (some of them) and ``formal_only`` (positive results of the encoding only, none permitted, with
+    possibly other material claims not formally checked) carry a neutral qualified badge; an answer with no positive
     result, or one whose material checks did not all complete (reachable under the qualify policy only), never carries
-    the word "passed", whatever the policy."""
+    the word "passed", whatever the policy. ``badge_cases`` are delivered answers' claims (the decision fields only) with
+    the summary their counts give and the badge it shows, so both sides show the rule on the same cases."""
+    from epinoic_logic.integration.delivery import ClaimFields, count_claims, summarize
     labels = {
         "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",
         "positive_other": "The logic encoding passed a formal check; the encoding and its premises were not independently established.",
@@ -360,12 +380,31 @@ def chat_contract_vectors() -> dict[str, dict]:
         "UNKNOWN": "Check unavailable.", "TIMEOUT": "Check unavailable.", "INTERNAL_ERROR": "Check unavailable.", "NOT_ATTEMPTED": "Check unavailable.",
     }
     badges = {
-        "formally_checked": ["Automatic checks passed", "is-ok"], "partly_checked": ["Automatic checks passed", "is-ok"],
-        "formal_only": ["Automatic checks passed", "is-ok"],
+        "formally_checked": ["Automatic checks passed", "is-ok"], "partly_checked": ["Partly checked", None],
+        "formal_only": ["Partly checked (encoding only)", None],
         "not_formally_checkable": ["Not formally checked", None], "incomplete": ["Some checks unavailable", None],
     }
+
+    def claim(formal: str, attempt: str = "attempted", permitted: bool = False, materiality: str = "material") -> dict:
+        return {"materiality": materiality, "formal": formal, "attempt": attempt, "release_permitted": permitted}
+
+    cases = [
+        ("one-positive-of-eight-encoding-only", "verified-v1", [claim("ENTAILED")] + [claim("UNSUPPORTED")] * 7),
+        ("an-ambiguous-material-claim-and-a-positive-one", "verified-v1", [claim("AMBIGUOUS_TRANSLATION"), claim("ENTAILED")]),
+        ("a-permitted-positive-and-an-invalid-formalization", "verified-v1", [claim("ENTAILED", permitted=True), claim("INVALID_FORMALIZATION")]),
+        ("every-material-claim-positive-in-its-encoding-only", "verified-v1", [claim("ENTAILED"), claim("CONSISTENT")]),
+        ("every-material-claim-positive-and-permitted", "verified-v1",
+         [claim("ENTAILED", permitted=True), claim("CONSISTENT", permitted=True), claim("NOT_ELIGIBLE", "not_eligible"),
+          claim("UNSUPPORTED", materiality="supporting")]),
+        ("no-positive-result", "verified-v1", [claim("UNSUPPORTED"), claim("NOT_ELIGIBLE", "not_eligible")]),
+        ("a-check-unavailable-under-the-qualify-policy", "verified-v1-qualify", [claim("UNKNOWN"), claim("ENTAILED", permitted=True)]),
+    ]
+    badge_cases = []
+    for name, policy, claims in cases:
+        summary = summarize(count_claims(ClaimFields(c["materiality"], c["formal"], c["attempt"], c["release_permitted"]) for c in claims))
+        badge_cases.append({"name": name, "policy": policy, "claims": claims, "summary": summary, "badge": badges[summary]})
     return {"labels.json": {"labels": labels, "badges": badges, "unknown_summary_badge": ["Not formally checked", None],
-                            "forbidden_words": ["verified", "true", "proven", "Reviewed"]}}
+                            "badge_cases": badge_cases, "forbidden_words": ["verified", "true", "proven", "Reviewed"]}}
 
 
 GENERATORS = {

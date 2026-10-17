@@ -324,3 +324,39 @@ def test_risk_signals_only_escalate(a, b):
     more = R.floor_plan(R.check_request(routing_request([out(merged)]))).transfers[0].reviews
     assert more >= base
     assert base in (1, 2) and more in (1, 2)
+
+
+# ----------------------------------------------------------------------------------------------- the order of the rules (7a.5)
+
+
+def _permuted_codes(plan: dict, req: R.RoutingRequest) -> set[str]:
+    import itertools
+    codes = set()
+    for order in itertools.permutations(range(len(plan["transfers"]))):
+        p = copy.deepcopy(plan)
+        p["transfers"] = [plan["transfers"][i] for i in order]
+        codes.add(_code(lambda p=p: R.check_plan(p, req, hello=HELLO)))
+    return codes
+
+
+def test_each_rule_about_transfers_is_applied_to_every_transfer_before_the_next_rule():
+    """PROTOCOL.md 7a.5: 007 (method shape) comes before 013 (a missing cost) for the whole plan, so a plan whose first
+    transfer lacks its cost and whose second has a broken method shape is refused for the method shape, whatever the
+    order of its transfers (verification finding V2-L1); likewise 004 (an unknown transfer) before 006 (a duplicate)."""
+    raw = combined_request()
+    req = R.check_request(raw)
+    plan = plan_for(raw, [{"transfer_key": "m-h"}, {"transfer_key": "m-e"},
+                          {"transfer_key": "m-s", "method": "N_FOLD", "sources": ["m-h", "m-e"], "context": NFOLD_CONTEXT}])
+    assert R.admit_plan(req, plan, hello=HELLO).refusal is None
+    plan["transfers"][0]["estimated_cost"] = None
+    plan["transfers"][1]["instances"] += 1  # instances are no longer reviews x parts: a method shape that does not hold
+    assert _code(lambda: R.check_plan(plan, req, hello=HELLO)) == "KIT-RT-007"
+    assert _permuted_codes(plan, req) == {"KIT-RT-007"}
+    plan["transfers"][1]["instances"] -= 1
+    assert _permuted_codes(plan, req) == {"KIT-RT-013"}
+    single = routing_request()
+    dup = plan_for(single, [{"transfer_key": "m-1"}, {"transfer_key": "m-1"}, {"transfer_key": "m-unknown"}])
+    assert _permuted_codes(dup, R.check_request(single)) == {"KIT-RT-004"}
+    standard_only = routing_request(profiles=("standard",))
+    profiles = plan_for(standard_only, [{"transfer_key": "m-1", "profile": "fast", "reasons": ["cost_cheapest", "cost_cheapest"]}])
+    assert _code(lambda: R.check_plan(profiles, R.check_request(standard_only), hello=HELLO)) == "KIT-RT-010"  # 010 before 012

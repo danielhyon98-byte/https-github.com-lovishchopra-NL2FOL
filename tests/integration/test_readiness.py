@@ -88,6 +88,42 @@ def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router
     assert "REPORTED" in rows["flash router sub-project"] and "never required" in rows["flash router sub-project"]
 
 
+def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_its_phase_2_connection():
+    """A fresh session tells an expected pre-build stop from a defect by the row itself: on this pre-build tree every
+    BLOCKER row of G1 (the contract line included) and the preflight row of the translator section say "(connected in
+    phase 2: ...)", and the preflight row names KIT-HS-006."""
+    out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
+    blockers = [line for line in out.stdout.splitlines() if "  BLOCKER  " in line]
+    assert len(blockers) == 3 and all("(connected in phase 2: " in line for line in blockers), out.stdout
+    assert any(line.startswith("G1 contract 0.4") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
+    out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--translator", str(ROOT)], capture_output=True, text=True, timeout=600, env=env)
+    [preflight] = [line for line in out.stdout.splitlines() if line.startswith("service preflight")]
+    assert "BLOCKER" in preflight and "KIT-HS-006" in preflight and "(connected in phase 2: " in preflight, out.stdout
+    assert not [line for line in out.stdout.splitlines() if "  BLOCKER  " in line and "connected in phase 2" not in line], out.stdout
+
+
+def _check_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("kit_readiness_check", READINESS / "check.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_own_process():
+    """check.py --start-service with EPINOIC_FLASH_ROUTER=epinoic_flash_router.port: the service's import path holds the
+    kit's src/ and then the sub-project's src/, so the router's own process (which receives that path) imports it."""
+    env = _check_module().service_env(ROOT)
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(ROOT / "src"), str(ROOT / "flash-router" / "src")]
+    code = ("from epinoic_logic.integration import router_port as R\n"
+            "a = R.attach_router('epinoic_flash_router.port')\n"
+            "print(a.attached, a.refusal, a.hello.router.name if a.hello else None)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, env=env, cwd=str(ROOT))
+    assert out.stdout.split() == ["True", "None", "epinoic-flash-router"], out.stdout + out.stderr
+    assert not any(k.startswith("EPINOIC_") and k != "EPINOIC_FLASH_ROUTER" and k not in env for k in os.environ)
+
+
 def test_the_router_check_runs_a_router_over_the_vectors_through_the_admission(tmp_path, monkeypatch):
     name = write_router_module(tmp_path, monkeypatch, "readiness_router")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(tmp_path), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])}

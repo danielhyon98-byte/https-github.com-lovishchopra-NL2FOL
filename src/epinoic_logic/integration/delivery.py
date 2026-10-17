@@ -13,9 +13,9 @@ the verdict it receives (``integration/website/src/verify/decision-table.js``, s
 4. error-level receipt findings, a CONFLICTING or NO_DELIVERABLE_OUTPUT consolidation, or a material claim that is
    COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE -> ``revise`` when the policy allows one revision that has not
    happened yet, else ``refuse_unresolved`` (KIT-DL-002, -007, -008, -010; KIT-DL-020 after a revision);
-5. a material eligible claim is UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED -> under ``verified-v1`` (the
-   default) ``refuse_incomplete`` (KIT-DL-011, and KIT-DL-013 when the budget was spent); under ``verified-v1-qualify``
-   continue;
+5. a material eligible claim is UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED -> ``refuse_incomplete`` (KIT-DL-011,
+   and KIT-DL-013 when the budget was spent) under every policy but ``verified-v1-qualify``, which continues (so
+   ``verified-v1``, the default, and any policy this table does not know refuse: the row fails closed);
 6. a material claim is AMBIGUOUS_TRANSLATION -> continue with its label (no v1 policy blocks it; decision D4);
 7. otherwise ``deliver``.
 
@@ -38,13 +38,15 @@ from .protocol import (
 )
 
 __all__ = [
-    "REVISION_POLICIES", "BUDGET_ATTEMPTS", "INTEGRITY_REFUSALS", "ClaimFields", "DecisionInput", "decide", "summarize",
+    "REVISION_POLICIES", "QUALIFY_POLICY", "BUDGET_ATTEMPTS", "INTEGRITY_REFUSALS", "ClaimFields", "DecisionInput", "decide", "summarize",
     "count_claims", "decision_input_of", "signable_bytes", "sign_verdict", "verify_verdict_signature", "BindingContext",
     "counts_problem", "binding_problem",
 ]
 
 #: Policies that allow one bounded revision (decision D5: none by default, so ``revise`` is never produced in v1).
 REVISION_POLICIES: frozenset[str] = frozenset()
+#: The one policy under which a material eligible claim without a definitive result does not refuse (row 5, decision D2).
+QUALIFY_POLICY = "verified-v1-qualify"
 BUDGET_ATTEMPTS: frozenset[str] = frozenset({"skipped_budget", "stem_budget"})
 #: Overseer refusal labels that are integrity failures (row 2), with their delivery reason.
 INTEGRITY_REFUSALS: Mapping[str, str] = {
@@ -155,8 +157,9 @@ def decide(inp: DecisionInput) -> tuple[str, list[str]]:
         return "refuse_unresolved", sorted(set(reasons))
     if not inp.delivery_allowed:  # pragma: no cover - every refusal label is handled above
         return "refuse_integrity", ["KIT-DL-006"]
-    # Row 5: checks incomplete for a material eligible claim.
-    if inp.unavailable > 0 and inp.policy == "verified-v1":
+    # Row 5: checks incomplete for a material eligible claim. Only the qualify policy continues; verified-v1 and any
+    # policy this table does not know refuse (fail closed).
+    if inp.unavailable > 0 and inp.policy != QUALIFY_POLICY:
         reasons = ["KIT-DL-011"]
         if any(_material(c) and _eligible(c) and c.formal in INCOMPLETE_STATUSES and c.attempt in BUDGET_ATTEMPTS for c in inp.claims):
             reasons.append("KIT-DL-013")

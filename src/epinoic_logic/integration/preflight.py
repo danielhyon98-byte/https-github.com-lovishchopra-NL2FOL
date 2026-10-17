@@ -19,7 +19,7 @@ from typing import Any, Mapping, Optional
 
 from .compat import COMPATIBILITY, SUBJECT_MAP, SUBJECT_MAP_SHA256
 from .errors import IntegrationError
-from .overseer_port import OverseerHello, OverseerPort, check_hello, load_port
+from .overseer_port import OverseerHello, OverseerPort, load_port
 from .protocol import (
     INTEGRATION_CONTRACT_VERSION, BuildIdentity, CombinatorPortCaps, ComponentVersions, RouterPortCaps, ServiceLimits,
     SpecialistPair, SpecialistPortCaps, StemCaps, SubjectMapRef, TranslationCaps,
@@ -131,11 +131,11 @@ class Probes:
         return tuple(sorted(table))
 
     def overseer(self, settings: IntegrationSettings, keys: Keys) -> tuple[OverseerHello, OverseerPort]:
-        port = load_port(settings.overseer_port, {
+        # load_port validates the hello once and returns it with the port: every failure in there is KIT-HS-007.
+        return load_port(settings.overseer_port, {
             "engine_key": keys.engine_key, "engine_key_id": keys.engine_key_id, "overseer_secret": keys.overseer_secret,
             "replay_mode": "process", "agents": settings.overseer_agents,
         })
-        return check_hello(port.hello()), port
 
     def subject_map(self) -> SubjectMapRef:
         from .canonical import sha256_json
@@ -158,7 +158,9 @@ class Probes:
         return SpecialistPortCaps(version="1.0", accepted=[SpecialistPair(result=p["result"], runtime=p["runtime"], log=p["log"]) for p in pairs])
 
     def router(self, settings: IntegrationSettings) -> RouterAttachment:
-        return attach_router(settings.flash_router)
+        # The hosted profile holds real keys: it starts a router only where the router's process cannot read them
+        # (router_child.boundary_problem). The loopback simulation runs with ephemeral test keys and attaches it anyway.
+        return attach_router(settings.flash_router, require_secret_boundary=settings.profile == "integration")
 
     def combinator(self, settings: IntegrationSettings) -> CombinatorPortCaps:
         # The combinator's v1 implementation (a provider call with a pinned instruction pack) is connected in phase 2;

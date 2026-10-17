@@ -91,11 +91,13 @@ availability; **the router: `required: false`, `attached`, its `identity` (name,
 digest) or the refusal code of its hello, and the floor's name and rules digest**), the `subject_map` version and
 digest, the `policies`, the `limits`, the `signing` key ids (never keys) and `issued_at`.
 
-**Check 3, in the Worker before admission: the configuration** (`verification.configProblem()`, synchronous):
-`TRANSLATOR_MODE` is `http` or `binding`; the base URL is https (http only on loopback); the token is present and well
-formed; the binding is present in `binding` mode; an inner orchestrator exists; the timing invariant holds for the
-base's deadline. Otherwise 503 `chat_unavailable` before admission (nothing stored or charged), logged only as the
-label `kit_config:<problem>`.
+**Check 3, in the Worker before admission: the configuration** (`verification.configProblem()`, synchronous): the
+simulation switch `KIT_SIMULATION` is set only in local development (`APP_ENV` `development`; on `staging`,
+`production` or any other environment it is `simulation_on_hosted`, and it never turns a hosted Worker's environment
+label into `sim`); `TRANSLATOR_MODE` is `http` or `binding`; the base URL is https (http only on loopback); the token is
+present and well formed; the binding is present in `binding` mode; an inner orchestrator exists; the timing invariant
+holds for the base's deadline. Otherwise 503 `chat_unavailable` before admission (nothing stored or charged), logged
+only as the label `kit_config:<problem>`.
 
 **Check 4, in the Worker after admission and before routing: the handshake** (`await verification.ready({signal})`):
 a capabilities response fetched less than 60 s ago (one GET, 3 s timeout, cached per isolate) that matches the pinned
@@ -199,7 +201,8 @@ validated before it is used; an out-of-contract message is never acted on.
   serves for the same item, called as `fn(claim, report)` without a task, as the arena calls its verifier. A fixture is
   served under the request id of the claim it translates (`RekeyingFixtureProvider`; a no-op in the arena).
 - **Fidelity review** (decision D6) is off: `release_permitted` is false, so a positive formal result is labelled a
-  formal check of the encoding, never "checked".
+  formal check of the encoding, never "checked", and an answer's badge says at most "Partly checked (encoding only)",
+  never "passed" (section 8).
 
 ### 5.4 Response (`epinoic.integration.turn-verdict.v1`; `protocol.TurnVerdict`)
 
@@ -301,13 +304,27 @@ exposes `hello() -> str` (`router-hello.v1`) and `plan(request_json: str) -> str
 **The router runs in its own process, never in the service's** (`router_port.run_router`, `router_child.py`): for each
 call the service starts `python -I` with its own import path and an environment holding only `PATH`, the locale, `TZ`
 and the temporary-directory variables (`router_port.CHILD_ENV_NAMES`: no `EPINOIC_` variable, so no key, secret or
-token), writes one job to its standard input and reads the router's answer, written only by the runner, from its
-standard output: at most 10 s for the hello at start-up (`HELLO_TIMEOUT_S`), at most `min(3 s, what is left of the
-budget)` for a plan (`PLAN_TIMEOUT_S`), at most 1 MiB (`MAX_ANSWER_BYTES`). Whatever the router's code does stays in
-that process: it cannot change the floor or the admission, read the service's keys, or raise into the service; on a
-timeout it is killed with its own children. Not configured: detached, no refusal. Configured but not importable, or
-failing its hello: detached with `KIT-RT-016`; without `hello()` and `plan()`, or with a hello out of contract:
-detached with `KIT-RT-015`. The service starts either way.
+token is in the router's own environment), writes one job to its standard input and reads the router's answer, written
+only by the runner, from its standard output: at most 10 s for the hello at start-up (`HELLO_TIMEOUT_S`), at most
+`min(3 s, what is left of the budget)` for a plan (`PLAN_TIMEOUT_S`), at most 1 MiB (`MAX_ANSWER_BYTES`). Whatever the
+router's code raises, however it exits, whatever it prints and whichever kit module it patches stays in that process:
+it cannot change the floor or the admission, or raise into the service; on a timeout it is killed with its own
+children. Not configured: detached, no refusal. Configured but not importable, or failing its hello: detached with
+`KIT-RT-016`; without `hello()` and `plan()`, or with a hello out of contract: detached with `KIT-RT-015`. The service
+starts either way.
+
+**A fault boundary, not a sandbox.** The router's process runs as the service's user and can do what that user can do
+(read its files, signal its processes, use the network). What keeps the service's keys out of its reach: before it
+starts any router process the service marks itself non-dumpable on Linux (`router_child.protect_service`,
+`prctl(PR_SET_DUMPABLE, 0)`), so a router without root and without `CAP_SYS_PTRACE` can read neither the service's
+environment nor its memory (`/proc/<pid>/environ`, `/proc/<pid>/mem`, `ptrace`); when Linux refuses, no router process
+starts (`KIT-RT-016`). This does not hold for a service that runs as root or with `CAP_SYS_PTRACE` (its router gets the
+same power), on another system, or for secrets kept in files or in other processes of the same user
+(`router_child.boundary_problem`). So **the hosted profile `integration` attaches a router only where it holds** (Linux,
+not root, no `CAP_SYS_PTRACE`; otherwise detached with `KIT-RT-016` before any router process starts), keys and tokens
+come from the service's own environment only, and a router is installed only as code trusted with the service's user
+(decision D28). The loopback simulation (`integration-sim`, ephemeral test keys) and `check.py --router` attach it
+anyway and claim no secret boundary.
 
 ### 7a.1 Methods (per transfer)
 
@@ -372,6 +389,9 @@ rules digest), decided when the argument diagnostics are connected (decision D29
 
 ### 7a.5 Refusals (`KIT-RT`), in the order `check_plan` applies them
 
+Each rule about transfers is applied to every transfer before the next rule, so a plan's code does not depend on the
+order of its transfers.
+
 001 malformed; 011 hidden content anywhere in the plan; 009 a model named (a member, or a `plan_id` or router name naming
 a model family) or a tier other than `cheapest`; schema errors mapped by location (012 vocabulary, 013 cost, 007 method,
 010 profile, 009 tier); 003 origin or identity (the floor's identity is reserved); 002 not bound to this request
@@ -390,8 +410,11 @@ admissible plan keeps its own code (001 when it is not a plan object at all).
 ### 7a.6 What the handshake reports
 
 `ports.router`: `required: false`, `attached`, `identity` (name, version, rules digest, cost-data digest) or the
-refusal code of its hello, and the floor's name and rules digest. Every verdict's `overseer.review` names the plan's
-origin, any refusal and the router's identity.
+refusal code of its hello, and the floor's name and rules digest. The report is coherent: `attached` exactly when an
+`identity` is reported, no `refusal` when attached, and a refusal is one an attachment gives (`KIT-RT-015` or
+`KIT-RT-016`, `protocol.ROUTER_ATTACH_REFUSALS`); an incoherent report is out of contract and both handshakes refuse it
+with `KIT-HS-001` (vectors `handshake/router-*`). Every verdict's `overseer.review` names the plan's origin, any refusal
+and the router's identity.
 
 ## 8. Statuses, the decision table and the website mapping
 
@@ -410,7 +433,7 @@ order, first match wins; only material claims count where a row says so:
 | 2 | the receipt is REJECTED; the FINAL audit failed; delivery refused for a clearance, signature, custody or staleness reason, or without a label | `refuse_integrity` | KIT-DL-001, -003, -005, -006 |
 | 3 | the clearance is still pending after the bounded wait | `refuse_incomplete` | KIT-DL-004 |
 | 4 | error-level receipt findings; a CONFLICTING or NO_DELIVERABLE_OUTPUT consolidation; a material claim COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE | `revise` when the policy allows one revision not yet made (no v1 policy does, D5), else `refuse_unresolved` | KIT-DL-002, -007, -008, -010; -020 after a revision |
-| 5 | a material eligible claim UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED | `verified-v1`: `refuse_incomplete`; `verified-v1-qualify`: continue | KIT-DL-011; -013 when the budget was spent |
+| 5 | a material eligible claim UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED | `verified-v1-qualify`: continue; `verified-v1` and any policy the table does not know: `refuse_incomplete` (fails closed) | KIT-DL-011; -013 when the budget was spent |
 | 6 | a material claim AMBIGUOUS_TRANSLATION | continue with its label (no v1 policy blocks it, D4) | (KIT-DL-012 reserved) |
 | 7 | otherwise | `deliver` | |
 
@@ -423,10 +446,14 @@ the policy** (property-tested).
 
 **Website mapping** (proposed; decisions D13, D26, D27). A delivered verified answer carries
 `review: "checks:integration.v1"` (append-only in `REVIEW_STATES`), never `passed` or `not_required`. **Its badge
-follows its `checksSummary`** (`chat-contract.js checksBadge`, vectors `chat-contract/labels.json` `badges`):
-"Automatic checks passed" for `formally_checked`, `partly_checked` and `formal_only`; "Not formally checked" for
-`not_formally_checkable` (and any unknown summary); "Some checks unavailable" for `incomplete`. An answer without a
-positive result, or with a material check that did not complete, never carries the word "passed". `checks` holds at
+follows its `checksSummary`** (`chat-contract.js checksBadge`, vectors `chat-contract/labels.json` `badges` and
+`badge_cases`; decision D27, conservative default): "Automatic checks passed" (success tone) only for
+`formally_checked`, where every material eligible claim has a positive result whose release is permitted; "Partly
+checked" for `partly_checked` and "Partly checked (encoding only)" for `formal_only`, with no success tone, since either
+may hold material claims that are not formally checked or positive results of the encoding only; "Not formally checked"
+for `not_formally_checkable` (and any unknown summary); "Some checks unavailable" for `incomplete`. An answer with a
+material eligible claim that is not positive with its release permitted never carries the word "passed": while fidelity
+review is off (D6) no answer does. `checks` holds at
 most 12 entries `{claim, formal, fidelity}` for material claims, plus `checksSummary`; a faithful translation whose
 evidence is unresolved or whose release is not permitted reads `without_evidence`. The page writes the labels from the
 closed statuses (`vectors/chat-contract/labels.json`), never from the service's prose, shows the engine scope statement
@@ -465,8 +492,9 @@ holds, checked in this order; the first that fails names the refusal:
 12. the ChatResult passes the website's own gate, its size is at most 64 KiB, `review` is `checks:integration.v1`, and
     `checks` agree with the verdict's claims;
 13. the labels are truthful: nothing non-definitive is labelled checked, and the answer's badge says "passed" only
-    when its summary is `formally_checked`, `partly_checked` or `formal_only`; the scope statement is present whenever a
-    formal status is shown; `simulated` is true unless both the specialist and the checks are live.
+    when its summary is `formally_checked` (every material eligible claim positive with its release permitted); the
+    scope statement is present whenever a formal status is shown; `simulated` is true unless both the specialist and the
+    checks are live.
 
 Only then does the website store the result, which is then replayed unchanged. **The rule holds in every case: an
 answer whose required checks did not complete is never labelled as checked, whatever the policy.**
@@ -536,13 +564,14 @@ handshake refusal per `KIT-HS` code; the bootstrap with Z3 hidden (exactly `KIT-
 traceback; also through the `epinoic-logic serve` console script); lazy CLI imports; the self-test and a tampered
 digest; the TurnChecker per mode (single clean, an error finding, REJECTED; duplicate identical, chosen, conflicting;
 the budget spent before and half-way; a STEM report cut by its budget; a provider failure; every overseer refusal; an
-out-of-contract overseer message; an unexpected exception); the decision-table vectors and the property test;
-prefetch non-interference; fixture-verifier parity with `run_arena`; service routes behind the existing gates; the
-evidence tap refused outside the sim profile; the review routing with the router absent, at the floor and below it;
-the router in its own process (no `EPINOIC_` variable, no patch of the floor, every way of failing refused with 016, a
-time limit); a failing review that changes no decision; the binding checks on a truncated claim list; the flash-router
-sub-project's own suite and its adoption on every vector; manifest freshness. The full suite passes with no test
-weakened or deleted.
+out-of-contract overseer message; an unexpected exception); the decision-table vectors and the property test; prefetch
+non-interference; fixture-verifier parity with `run_arena`; service routes behind the existing gates; the evidence tap
+refused outside the sim profile; the review routing with the router absent, at the floor and below it; the router in its
+own process (no `EPINOIC_` variable, no patch of the floor, every way of failing refused with 016, a time limit, and on
+Linux a router under the service's own unprivileged user cannot read the service's start environment; the hosted profile
+attaches none where that cannot hold); a failing review that changes no decision; the binding checks on a truncated
+claim list; the flash-router sub-project's own suite and its adoption on every vector; manifest freshness. The full
+suite passes with no test weakened or deleted.
 
 **14.2 Website** (offline: a fake `fetchImpl` or the loopback service, `node:sqlite` D1): the kit's adapter tests
 (`website/tests/`), and once a patch set is applied, every existing test unchanged plus the contract, codes, readiness,

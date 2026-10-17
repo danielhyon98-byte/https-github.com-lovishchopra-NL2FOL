@@ -20,14 +20,14 @@
   "failing": "the three tests that need the Playwright devDependency (not installed in an export without dependencies)"
  },
  "patched": {
-  "tests": 359,
-  "pass": 356,
+  "tests": 361,
+  "pass": 358,
   "fail": 3,
   "failing": "the same three tests as the baseline, and no other",
-  "new_tests": 69
+  "new_tests": 71
  },
  "blocks": 39,
- "copied_files": 113,
+ "copied_files": 121,
  "rollback_rehearsal": {
   "1 rows written by W3": "PASS",
   "2 W1 alone reads them (history and replay)": "PASS",

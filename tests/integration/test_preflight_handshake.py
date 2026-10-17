@@ -74,6 +74,48 @@ def test_an_out_of_contract_overseer_hello_is_overseer_unavailable(tmp_path, mon
     assert _code(lambda: run_preflight(s, FixtureProbes(missing="overseer"))) == "KIT-HS-007"
 
 
+_ADAPTER = """import json
+from epinoic_logic.integration.errors import IntegrationError
+GOOD = json.loads({good!r})
+BAD = json.loads({bad!r})
+class _P:
+    calls = 0
+    def hello(self):
+        _P.calls += 1
+{hello}
+def connect(config):
+{connect}
+"""
+
+
+@pytest.mark.parametrize("name,connect,hello_body,inner", [
+    ("adapter_connect_refuses", "    raise IntegrationError('KIT-OP-001', 'the adapter refused')", "        return GOOD", "KIT-OP-001"),
+    ("adapter_connect_exits", "    raise SystemExit(3)", "        return GOOD", "SystemExit"),
+    ("adapter_hello_raises", "    return _P()", "        raise RuntimeError('hello bug')", "RuntimeError"),
+    ("adapter_hello_refused", "    return _P()", "        return BAD", "KIT-OP-002"),
+])
+def test_every_failure_inside_the_overseer_adapter_is_overseer_unavailable_with_its_inner_code(tmp_path, monkeypatch, name, connect, hello_body, inner):
+    """Start-up names KIT-HS-007 whatever the adapter does (an inner KIT code of its own included), the inner code or
+    exception type kept in the detail, never a traceback and never another start-up code."""
+    (tmp_path / f"{name}.py").write_text(_ADAPTER.format(good=__import__("json").dumps(hello()), bad=__import__("json").dumps(hello(port_version="2.0")),
+                                                       hello=hello_body, connect=connect))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(IntegrationError) as exc:
+        run_preflight(settings(OVERSEER_PORT=name), FixtureProbes(missing="overseer"))
+    assert exc.value.code == "KIT-HS-007" and inner in exc.value.detail, exc.value.detail
+
+
+def test_the_overseer_hello_is_validated_once_and_that_hello_is_the_one_used(tmp_path, monkeypatch):
+    """A hello that changes between two calls can no longer surface as a KIT-OP code at start-up: load_port returns the
+    hello it validated, and the preflight never asks again."""
+    body = "        return GOOD if _P.calls == 1 else BAD"
+    (tmp_path / "adapter_changing_hello.py").write_text(_ADAPTER.format(good=__import__("json").dumps(hello()), bad=__import__("json").dumps(hello(port_version="2.0")),
+                                                                      hello=body, connect="    return _P()"))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    facts = run_preflight(settings(OVERSEER_PORT="adapter_changing_hello"), FixtureProbes(missing="overseer"))
+    assert facts.overseer.port_version == "1.0" and type(facts.overseer_port).calls == 1
+
+
 @pytest.mark.parametrize("overrides,code", [
     ({"SERVICE_TOKEN": None}, "KIT-HS-008"), ({"SERVICE_TOKEN": "short"}, "KIT-HS-008"),
     ({"SIGNING_KEY": None}, "KIT-HS-008"), ({"SIGNING_KEY": "aa" * 8}, "KIT-HS-008"), ({"SIGNING_KEY": "zz"}, "KIT-HS-008"),

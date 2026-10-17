@@ -297,27 +297,33 @@ def check_review_ticket(raw: Any, *, task_id: str, origin: Any = _UNSET, plan_id
     return t
 
 
-def load_port(spec: Optional[str], config: Mapping[str, Any]) -> OverseerPort:
-    """Connect the overseer port adapter named by ``spec`` (a module exposing ``connect(config)``). The overseer is
-    required: anything that prevents a connection is ``KIT-HS-007 overseer_unavailable``, before the service binds."""
+def _why(exc: BaseException) -> str:
+    """A failure inside the adapter, named for the KIT-HS-007 line: an inner code, else the exception's type (never its
+    text, which the adapter wrote)."""
+    return exc.code if isinstance(exc, IntegrationError) else type(exc).__name__
+
+
+def load_port(spec: Optional[str], config: Mapping[str, Any]) -> tuple[OverseerHello, OverseerPort]:
+    """Connect the overseer port adapter named by ``spec`` (a module exposing ``connect(config)``) and validate its hello
+    once: ``(hello, port)``. The overseer is required: anything that prevents a connection is
+    ``KIT-HS-007 overseer_unavailable``, before the service binds, whatever the adapter raised (an inner ``KIT`` code, a
+    ``KIT-OP`` refusal of its hello included, is kept in the detail, never surfaced as the start-up code)."""
     name = (spec or "").strip()
     if not name or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", name):
         raise IntegrationError("KIT-HS-007", "EPINOIC_OVERSEER_PORT names no overseer port adapter module")
     try:
         module = importlib.import_module(name)
-    except Exception as exc:  # noqa: BLE001 - reported as the named refusal, never a traceback
-        raise IntegrationError("KIT-HS-007", f"the overseer port adapter {name!r} cannot be imported ({type(exc).__name__})") from None
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - reported as the named refusal, never a traceback
+        raise IntegrationError("KIT-HS-007", f"the overseer port adapter {name!r} cannot be imported ({_why(exc)})") from None
     connect = getattr(module, "connect", None)
     if not callable(connect):
         raise IntegrationError("KIT-HS-007", f"the overseer port adapter {name!r} exposes no connect(config)")
     try:
         port = connect(dict(config))
-    except IntegrationError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise IntegrationError("KIT-HS-007", f"the overseer port adapter failed to connect ({type(exc).__name__})") from None
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - an IntegrationError of the adapter included: start-up says KIT-HS-007
+        raise IntegrationError("KIT-HS-007", f"the overseer port adapter failed to connect ({_why(exc)})") from None
     try:
-        check_hello(port.hello())
-    except IntegrationError as exc:
-        raise IntegrationError("KIT-HS-007", f"the overseer's hello is out of contract ({exc.code})") from None
-    return port
+        hello = check_hello(port.hello())
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - a hello out of contract (KIT-OP) or a hello() that raised
+        raise IntegrationError("KIT-HS-007", f"the overseer's hello is out of contract or failed ({_why(exc)})") from None
+    return hello, port

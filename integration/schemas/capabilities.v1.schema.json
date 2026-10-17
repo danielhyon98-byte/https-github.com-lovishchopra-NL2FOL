@@ -342,7 +342,7 @@
     },
     "RouterPortCaps": {
       "additionalProperties": false,
-      "description": "What the handshake reports about the flash router. The router is never required: without one the overseer runs\nthe floor plan, and a router whose hello is out of contract is reported absent with its refusal code.",
+      "description": "What the handshake reports about the flash router. The router is never required: without one the overseer runs\nthe floor plan, and a router whose hello is out of contract is reported absent with its refusal code.\n\nThe report is coherent: a router is ``attached`` exactly when its ``identity`` is reported, an attached router has\nno ``refusal``, and a refusal is one an attachment can give (:data:`ROUTER_ATTACH_REFUSALS`). Anything else is out\nof contract (the Worker's handshake refuses it with ``KIT-HS-001``, as ``handshake.evaluate`` does).",
       "properties": {
         "attached": {
           "title": "Attached",
