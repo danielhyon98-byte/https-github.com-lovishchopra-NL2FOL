@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat-contract.js
+anchor:   answer: Object.freeze(["kind", "specialist", "text", "references", "review"]),
+mode: replace
+---
+  answer: Object.freeze(["kind", "specialist", "text", "references", "review", "checks", "checksSummary"]),

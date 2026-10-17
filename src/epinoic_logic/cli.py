@@ -24,9 +24,16 @@ Commands
 
 ``serve [--host H] [--port P]``
     Run the HTTP service with uvicorn using settings from the environment.
-    Untested live in this repository.
+    Untested live in this repository. With ``EPINOIC_PROFILE=integration`` or ``integration-sim`` it runs the
+    integration checks service instead (``python -m epinoic_logic.integration serve``): the standard-library
+    bootstrap first (``KIT-HS-003 z3_unavailable``, exit status 2, when Z3 is missing), then the preflight and the
+    self-test. The default profile, ``engine``, is today's service exactly.
 
 Output is JSON on stdout; errors are one-line JSON objects on stderr, never stack traces.
+
+The engine (and with it Z3) is imported inside the commands that need it, never at module import, so
+``import epinoic_logic.cli`` and ``epinoic-logic serve`` under an integration profile reach the bootstrap even when Z3
+is missing.
 """
 from __future__ import annotations
 
@@ -38,10 +45,6 @@ import sys
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from .engine.provenance import z3_version
-from .engine.results import SolverConfig
-from .engine.runner import verify
-from .ir.schema import DEFAULT_LIMITS
 from .version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 
 __all__ = ["build_parser", "main", "ADAPTER_IDS"]
@@ -96,7 +99,9 @@ def _signing(args: argparse.Namespace) -> tuple[Optional[bytes], Optional[str]]:
     return key, args.key_id or "default"
 
 
-def _solver_config(args: argparse.Namespace) -> SolverConfig:
+def _solver_config(args: argparse.Namespace) -> Any:
+    from .engine.results import SolverConfig
+
     values: dict[str, Any] = {}
     if args.timeout_ms is not None:
         values["timeout_ms"] = args.timeout_ms
@@ -111,6 +116,8 @@ def _solver_config(args: argparse.Namespace) -> SolverConfig:
 # --- commands ------------------------------------------------------------------------
 
 def cmd_version(_: argparse.Namespace) -> int:
+    from .engine.provenance import z3_version
+
     _emit({
         "ir_version": IR_VERSION,
         "engine_version": ENGINE_VERSION,
@@ -122,6 +129,9 @@ def cmd_version(_: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    from .engine.runner import verify
+    from .ir.schema import DEFAULT_LIMITS
+
     raw = _read_bytes(args.problem)
     config = _solver_config(args)
     key, key_id = _signing(args)
@@ -227,7 +237,14 @@ def cmd_check_report(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Run the HTTP service. Untested live in this repository."""
+    """Run the HTTP service. Untested live in this repository. Under an integration profile, the integration checks
+    service (its bootstrap checks for Z3 before any engine import); otherwise the engine service, unchanged."""
+    import os
+
+    if os.environ.get("EPINOIC_PROFILE", "engine").strip() in ("integration", "integration-sim"):
+        from .integration.__main__ import main as integration_main
+
+        return integration_main(["serve", "--host", args.host, "--port", str(args.port)])
     try:
         uvicorn = importlib.import_module("uvicorn")
     except ImportError:

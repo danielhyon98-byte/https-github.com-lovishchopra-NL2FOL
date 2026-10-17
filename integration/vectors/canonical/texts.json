@@ -1,0 +1,29 @@
+{
+  "name": "texts",
+  "texts": [
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text": ""
+    },
+    {
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "text": "abc"
+    },
+    {
+      "sha256": "a9991c64d5fcc01960dc982eb8803e0222b9d4c73a10f3739995e63d1e946517",
+      "text": "élève"
+    },
+    {
+      "sha256": "697affca60d5d0dc96f00aac4b2d833e3adc0708a4efd8b657acc4229f4449ef",
+      "text": "line\nbreak"
+    },
+    {
+      "sha256": "c5db20e64d86b693d8e312b379cfdd211311f63f3743831e6f4139344b39d762",
+      "text": "😀 emoji"
+    },
+    {
+      "sha256": "65bd29b54132ae7ed55be1a6274a534f7f7ec7b2d27fa2f9f37155dbd48ca0fa",
+      "text": "SYNTHETIC answer. The treaty was signed in 1919. The hyperinflation peaked in 1923. Historians still debate how far the treaty explains later instability.\nSources: none consulted (synthetic)"
+    }
+  ]
+}

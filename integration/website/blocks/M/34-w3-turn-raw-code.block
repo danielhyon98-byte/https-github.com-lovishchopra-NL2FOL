@@ -1,0 +1,6 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: return failWith(result.code, { status: outcome.status, result });
+mode: replace
+---
+return failWith(verification?.rawCode(outcome) ?? result.code, { status: outcome.status, result });

@@ -1,0 +1,48 @@
+{
+  "expect": {
+    "decision": "deliver",
+    "reasons": [],
+    "summary": "partly_checked"
+  },
+  "fields": {
+    "claims": [
+      {
+        "attempt": "attempted",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": true
+      },
+      {
+        "attempt": "attempted",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": false
+      }
+    ],
+    "consolidation_status": "CONSOLIDATED",
+    "counts": {
+      "attempted": 2,
+      "blocking": 0,
+      "claims_total": 2,
+      "definitive": 2,
+      "eligible": 2,
+      "material": 2,
+      "not_eligible": 0,
+      "permitted": 1,
+      "positive": 2,
+      "unavailable": 0
+    },
+    "overseer": {
+      "delivery_allowed": true,
+      "refusal": null,
+      "state": "AUDIT_PASSED"
+    },
+    "policy": "verified-v1",
+    "receipt": {
+      "error_codes": [],
+      "status": "ACCEPTED"
+    },
+    "revision_of": null
+  },
+  "name": "deliver-partly-checked"
+}

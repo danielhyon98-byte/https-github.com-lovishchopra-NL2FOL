@@ -1,0 +1,9 @@
+{
+  "task_id": "ph-s2",
+  "subject": "Physics",
+  "agent_id": "physics",
+  "task_type": "calculation",
+  "question": "SYNTHETIC: A car travels 120 km in 2 hours. Find its average speed in km/h.",
+  "supplied_texts": [],
+  "response_text": "Average speed is distance divided by time.\nv = d / t = 120 km / 2 h = 50 km/h\nThe average speed is 50 km/h."
+}

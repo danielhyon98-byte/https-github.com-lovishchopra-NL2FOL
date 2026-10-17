@@ -1,0 +1,7 @@
+kit-block: W6
+file: src/chat/handler.js
+anchor:     if (typeof outcome.rawBody === "string") {
+mode: before-line
+---
+    // Kit W6: one chat_check line per verified turn, labels only (never text, ids of people or conversations).
+    if (verification !== null) log({ event: "chat_check", requestId, stage: "turn", outcome: outcome.result?.kind === "error" ? outcome.result.code : outcome.result?.kind ?? "raw_body", ms: Date.now() - startedAt });

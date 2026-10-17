@@ -1,0 +1,14 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: const store = options.store ?? createChatStore(env.CHAT_DB);
+mode: before-line
+---
+    // Kit W3, readiness check 3 (synchronous, before admission): an incomplete configuration answers 503 with
+    // nothing stored or charged, and is logged as a label only.
+    if (verification !== null) {
+      const problem = verification.configProblem();
+      if (problem !== null) {
+        log({ event: "chat_check", requestId, stage: "config", label: `kit_config:${problem}` });
+        return fail("chat_unavailable", owned);
+      }
+    }

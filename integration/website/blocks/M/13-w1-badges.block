@@ -1,0 +1,8 @@
+kit-block: W1
+file: public/chat.js
+anchor: const badges = [outcome.review === "passed"
+mode: replace-line
+---
+  // Kit W1: a verified answer's badge names what ran (decision D13/D27), never "Reviewed".
+  const badges = [outcome.review === "checks:integration.v1" ? [`Automatic checks passed${simulated}`, "is-ok"]
+    : outcome.review === "passed" ? [`Reviewed${simulated}`, "is-ok"] : [`Review not required${simulated}`, null]];

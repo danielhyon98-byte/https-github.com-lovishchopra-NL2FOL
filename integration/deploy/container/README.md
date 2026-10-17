@@ -1,0 +1,14 @@
+# PROPOSED: a container for the checks service
+
+**PROPOSED ONLY. Not built, not pushed, not deployed.** Building, pushing or deploying an image needs the owners'
+go-ahead (decision D7: hosting, the operator, per-environment deployments and tokens, capacity). No secret is in any
+file here: keys and tokens come from the host's secret store as environment variables at run time (names only:
+`EPINOIC_SERVICE_TOKEN`, `EPINOIC_SIGNING_KEY`, `EPINOIC_VERDICT_KEY`, `EPINOIC_OVERSEER_SECRET`, and the provider's
+own key variable).
+
+- `Dockerfile`: a slim Python image, the translator package with its `service` and `providers` extras, a non-root
+  user, the `integration` profile.
+- `entrypoint.sh`: `python -m epinoic_logic.integration serve`, which runs the standard-library bootstrap first (Z3
+  missing prints `KIT-HS-003 z3_unavailable` and exits 2), then the preflight and the self-test before binding.
+
+The image fails closed: any missing required part stops it with its `KIT-HS` line before a socket is bound.

@@ -1,0 +1,688 @@
+{
+ "answer": {
+  "log": {
+   "answerPresent": true,
+   "completion": {
+    "finishReason": "stop",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": null,
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_valid",
+      "id": "sources-line",
+      "status": "pass"
+     }
+    ],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "kind": "deterministic-format-policy",
+    "status": "passed",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "answer",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidencePresent": true,
+   "resultSchema": "epinoic.specialist-turn-result.v1",
+   "schema": "epinoic.specialist-turn-log.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  },
+  "result": {
+   "answer": "The Treaty of Versailles (1919) imposed reparations and territorial losses on Germany.\nHistorians still debate how far it, rather than the 1923 hyperinflation, explains later instability.\nSources: none consulted (no retrieval in this session)",
+   "completion": {
+    "finishReason": "stop",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": null,
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_valid",
+      "id": "sources-line",
+      "status": "pass"
+     }
+    ],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "status": "passed",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "answer",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidence": {
+    "model": "synthetic-model",
+    "provider": "synthetic-offline",
+    "requestId": "synthetic-req-0001",
+    "synthetic": true
+   },
+   "schema": "epinoic.specialist-turn-result.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  }
+ },
+ "declined": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "finishReason": null,
+    "outputUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "declined",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "budget_unavailable",
+    "stage": "authorization"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "declined",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidencePresent": false,
+   "resultSchema": "epinoic.specialist-turn-result.v1",
+   "schema": "epinoic.specialist-turn-log.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": null,
+   "usageStatus": "unknown"
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "finishReason": null,
+    "outputUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "declined",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "budget_unavailable",
+    "stage": "authorization"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "declined",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidence": null,
+   "schema": "epinoic.specialist-turn-result.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": null,
+   "usageStatus": "unknown"
+  }
+ },
+ "gate_failed": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "finishReason": "stop",
+    "outputUtf8Bytes": 187
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "sources_line_missing",
+    "stage": "gate"
+   },
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_missing",
+      "id": "sources-line",
+      "status": "fail"
+     }
+    ],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "kind": "deterministic-format-policy",
+    "status": "failed",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "gate_failed",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidencePresent": true,
+   "resultSchema": "epinoic.specialist-turn-result.v1",
+   "schema": "epinoic.specialist-turn-log.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "finishReason": "stop",
+    "outputUtf8Bytes": 187
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "sources_line_missing",
+    "stage": "gate"
+   },
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_missing",
+      "id": "sources-line",
+      "status": "fail"
+     }
+    ],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "status": "failed",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "gate_failed",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidence": {
+    "model": "synthetic-model",
+    "provider": "synthetic-offline",
+    "requestId": "synthetic-req-0001",
+    "synthetic": true
+   },
+   "schema": "epinoic.specialist-turn-result.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  }
+ },
+ "incomplete": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "finishReason": "length",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "finish_length",
+    "stage": "completion"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "incomplete",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidencePresent": true,
+   "resultSchema": "epinoic.specialist-turn-result.v1",
+   "schema": "epinoic.specialist-turn-log.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "finishReason": "length",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "finish_length",
+    "stage": "completion"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "incomplete",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidence": {
+    "model": "synthetic-model",
+    "provider": "synthetic-offline",
+    "requestId": "synthetic-req-0001",
+    "synthetic": true
+   },
+   "schema": "epinoic.specialist-turn-result.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  }
+ },
+ "refusal": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "finishReason": "refusal",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "finish_refusal",
+    "stage": "completion"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "refusal",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidencePresent": true,
+   "resultSchema": "epinoic.specialist-turn-result.v1",
+   "schema": "epinoic.specialist-turn-log.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "finishReason": "refusal",
+    "outputUtf8Bytes": 242
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.1.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "finish_refusal",
+    "stage": "completion"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "synthetic-offline-test/0.1.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "status": "not_run",
+    "version": "history-gate/0.1.0"
+   },
+   "outcome": "refusal",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "synthetic-offline-test/0.1.0",
+    "gateVersion": "history-gate/0.1.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": "pilot-notice/0.1.0",
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "providerEvidence": {
+    "model": "synthetic-model",
+    "provider": "synthetic-offline",
+    "requestId": "synthetic-req-0001",
+    "synthetic": true
+   },
+   "schema": "epinoic.specialist-turn-result.v1",
+   "turn": {
+    "attemptId": "synthetic-attempt-2",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "synthetic-turn-7",
+    "turnVersion": 3
+   },
+   "usage": {
+    "cacheReadTokens": 0,
+    "inputTokens": 1234,
+    "note": "SYNTHETIC usage, not a provider observation",
+    "outputTokens": 56,
+    "synthetic": true
+   },
+   "usageStatus": "reported"
+  }
+ }
+}

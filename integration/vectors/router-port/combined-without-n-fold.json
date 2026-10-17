@@ -1,0 +1,363 @@
+{
+  "expect": {
+    "effective_plan_id": "floor-5c61e4aa10d07557bf36f4942df13c3c",
+    "floor": {
+      "ids": {
+        "request_id": "a_00000000000000000000000000000001",
+        "task_id": "t_00000000000000000000000000000001"
+      },
+      "origin": "floor",
+      "plan_id": "floor-5c61e4aa10d07557bf36f4942df13c3c",
+      "port_version": "1.0",
+      "protocol": "epinoic.integration.v1",
+      "request_sha256": "33023c4b718dae4d644a88ea41052b6ad6552c1410cd4d273da6640550ff9c53",
+      "router": {
+        "cost_data_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "name": "minimum-oversight-floor",
+        "rules_sha256": "78d4ce57d86e8f343eadfe00bda19e0383e18c4db9340425ac6b1aca4c454045",
+        "version": "1"
+      },
+      "schema": "epinoic.integration.routing-plan.v1",
+      "totals": {
+        "estimated_cost": null,
+        "instances": 3
+      },
+      "transfers": [
+        {
+          "context": null,
+          "estimated_cost": null,
+          "features_used": [
+            "topology"
+          ],
+          "instances": 1,
+          "method": "IN_DEPTH",
+          "parts": 1,
+          "profile": "standard",
+          "reasons": [
+            "baseline_single_review",
+            "topology_source",
+            "profile_standard"
+          ],
+          "reviews": 1,
+          "sources": [],
+          "tier": "cheapest",
+          "transfer_key": "m-h"
+        },
+        {
+          "context": null,
+          "estimated_cost": null,
+          "features_used": [
+            "topology"
+          ],
+          "instances": 1,
+          "method": "IN_DEPTH",
+          "parts": 1,
+          "profile": "standard",
+          "reasons": [
+            "baseline_single_review",
+            "topology_source",
+            "profile_standard"
+          ],
+          "reviews": 1,
+          "sources": [],
+          "tier": "cheapest",
+          "transfer_key": "m-e"
+        },
+        {
+          "context": {
+            "contents": "validated_outcomes",
+            "discard": "after_request",
+            "max_bytes": 65536,
+            "scope": "request"
+          },
+          "estimated_cost": null,
+          "features_used": [
+            "topology"
+          ],
+          "instances": 1,
+          "method": "N_FOLD",
+          "parts": 1,
+          "profile": "standard",
+          "reasons": [
+            "topology_combined",
+            "profile_standard"
+          ],
+          "reviews": 1,
+          "sources": [
+            "m-h",
+            "m-e"
+          ],
+          "tier": "cheapest",
+          "transfer_key": "m-s"
+        }
+      ]
+    },
+    "origin": "floor",
+    "refusal": "KIT-RT-007"
+  },
+  "hello": {
+    "deterministic": true,
+    "methods": [
+      "IN_DEPTH",
+      "SPLIT",
+      "DUPLICATE",
+      "N_FOLD"
+    ],
+    "port_version": "1.0",
+    "profiles": [
+      "standard",
+      "fast"
+    ],
+    "protocol": "epinoic.integration.v1",
+    "router": {
+      "cost_data_sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "name": "test-flash-router",
+      "rules_sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "version": "0.1"
+    },
+    "schema": "epinoic.integration.router-hello.v1",
+    "tier": "cheapest"
+  },
+  "name": "combined-without-n-fold",
+  "plan": {
+    "ids": {
+      "request_id": "a_00000000000000000000000000000001",
+      "task_id": "t_00000000000000000000000000000001"
+    },
+    "origin": "router",
+    "plan_id": "plan-router-test",
+    "port_version": "1.0",
+    "protocol": "epinoic.integration.v1",
+    "request_sha256": "33023c4b718dae4d644a88ea41052b6ad6552c1410cd4d273da6640550ff9c53",
+    "router": {
+      "cost_data_sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "name": "test-flash-router",
+      "rules_sha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "version": "0.1"
+    },
+    "schema": "epinoic.integration.routing-plan.v1",
+    "totals": {
+      "estimated_cost": {
+        "seconds": 135,
+        "tokens": 180000
+      },
+      "instances": 3
+    },
+    "transfers": [
+      {
+        "context": null,
+        "estimated_cost": {
+          "seconds": 45,
+          "tokens": 60000
+        },
+        "features_used": [
+          "size"
+        ],
+        "instances": 1,
+        "method": "IN_DEPTH",
+        "parts": 1,
+        "profile": "fast",
+        "reasons": [
+          "cost_cheapest"
+        ],
+        "reviews": 1,
+        "sources": [],
+        "tier": "cheapest",
+        "transfer_key": "m-h"
+      },
+      {
+        "context": null,
+        "estimated_cost": {
+          "seconds": 45,
+          "tokens": 60000
+        },
+        "features_used": [
+          "size"
+        ],
+        "instances": 1,
+        "method": "IN_DEPTH",
+        "parts": 1,
+        "profile": "fast",
+        "reasons": [
+          "cost_cheapest"
+        ],
+        "reviews": 1,
+        "sources": [],
+        "tier": "cheapest",
+        "transfer_key": "m-e"
+      },
+      {
+        "context": null,
+        "estimated_cost": {
+          "seconds": 45,
+          "tokens": 60000
+        },
+        "features_used": [
+          "size"
+        ],
+        "instances": 1,
+        "method": "IN_DEPTH",
+        "parts": 1,
+        "profile": "fast",
+        "reasons": [
+          "cost_cheapest"
+        ],
+        "reviews": 1,
+        "sources": [],
+        "tier": "cheapest",
+        "transfer_key": "m-s"
+      }
+    ]
+  },
+  "request": {
+    "ids": {
+      "request_id": "a_00000000000000000000000000000001",
+      "task_id": "t_00000000000000000000000000000001"
+    },
+    "limits": {
+      "max_instances": 8,
+      "profiles": [
+        "standard",
+        "fast"
+      ]
+    },
+    "outputs": [
+      {
+        "agent_id": "history",
+        "branch": "history",
+        "claims": {
+          "eligible": 3,
+          "material": 4,
+          "total": 6,
+          "translated": 2
+        },
+        "diagnostics": [],
+        "engine_statuses": {
+          "ENTAILED": 2
+        },
+        "peer_relays": 0,
+        "receipt": {
+          "error_codes": [],
+          "status": "ACCEPTED",
+          "warning_codes": []
+        },
+        "repeated_faults": 0,
+        "role": "answer",
+        "size": {
+          "chars": 900,
+          "paragraphs": 2,
+          "words": 150
+        },
+        "stem": false,
+        "subject": "History",
+        "transfer_key": "m-h",
+        "unverified_dependencies": 0
+      },
+      {
+        "agent_id": "english-a-literature",
+        "branch": "english",
+        "claims": {
+          "eligible": 3,
+          "material": 4,
+          "total": 6,
+          "translated": 2
+        },
+        "diagnostics": [],
+        "engine_statuses": {
+          "ENTAILED": 2
+        },
+        "peer_relays": 0,
+        "receipt": {
+          "error_codes": [],
+          "status": "ACCEPTED",
+          "warning_codes": []
+        },
+        "repeated_faults": 0,
+        "role": "answer",
+        "size": {
+          "chars": 900,
+          "paragraphs": 2,
+          "words": 150
+        },
+        "stem": false,
+        "subject": "English A: Literature",
+        "transfer_key": "m-e",
+        "unverified_dependencies": 0
+      },
+      {
+        "agent_id": "synthesis",
+        "branch": "history",
+        "claims": {
+          "eligible": 3,
+          "material": 4,
+          "total": 6,
+          "translated": 2
+        },
+        "diagnostics": [],
+        "engine_statuses": {
+          "ENTAILED": 2
+        },
+        "peer_relays": 0,
+        "receipt": {
+          "error_codes": [],
+          "status": "ACCEPTED",
+          "warning_codes": []
+        },
+        "repeated_faults": 0,
+        "role": "synthesis",
+        "size": {
+          "chars": 900,
+          "paragraphs": 2,
+          "words": 150
+        },
+        "stem": false,
+        "subject": "History",
+        "transfer_key": "m-s",
+        "unverified_dependencies": 0
+      }
+    ],
+    "port_version": "1.0",
+    "protocol": "epinoic.integration.v1",
+    "request": {
+      "constraints": [
+        {
+          "constraint_id": "k1",
+          "kind": "max_words",
+          "value": "350"
+        }
+      ],
+      "course_level": "unknown",
+      "items": [
+        {
+          "command_term": "to what extent",
+          "item_id": "i1",
+          "kind": "question",
+          "level": 3,
+          "required": true
+        }
+      ],
+      "stem": false,
+      "subjects": [
+        "History"
+      ],
+      "supplied_texts": [
+        {
+          "chars": 1200,
+          "document_id": "src-a",
+          "sha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+        }
+      ],
+      "task_type": "short_answer",
+      "user_text_sha256": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+    },
+    "schema": "epinoic.integration.routing-request.v1",
+    "topology": {
+      "kind": "combined",
+      "sources": [
+        "m-h",
+        "m-e"
+      ],
+      "synthesis": "m-s"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "AuditSignature": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "const": "hmac-sha256",
+          "title": "Alg",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alg",
+        "key_id",
+        "value"
+      ],
+      "title": "AuditSignature",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "audit_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "audit_scope_statement": {
+      "const": "This audit covers only the transfers journaled since the auditor was attached to the channel. It shows whether the recorded transfers, receipts and signed results agree with each other and with this repository's rules. It does not show that any claim is true or any reading correct.",
+      "title": "Audit Scope Statement",
+      "type": "string"
+    },
+    "channel_uid": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Channel Uid",
+      "type": "string"
+    },
+    "error_codes": {
+      "items": {
+        "pattern": "^OVS-[A-Z]{2,12}-[0-9]{3}$",
+        "type": "string"
+      },
+      "maxItems": 128,
+      "title": "Error Codes",
+      "type": "array"
+    },
+    "journal_head": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Journal Head",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.overseer-final-audit.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "scope": {
+      "const": "FINAL",
+      "title": "Scope",
+      "type": "string"
+    },
+    "scope_statement": {
+      "const": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+      "title": "Scope Statement",
+      "type": "string"
+    },
+    "signature": {
+      "$ref": "#/$defs/AuditSignature"
+    },
+    "state": {
+      "enum": [
+        "AUDIT_FAILED",
+        "AUDIT_PENDING",
+        "AUDIT_PASSED_WITH_FINDINGS",
+        "AUDIT_PASSED"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "task_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Task Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "task_id",
+    "audit_id",
+    "channel_uid",
+    "scope",
+    "state",
+    "journal_head",
+    "scope_statement",
+    "audit_scope_statement",
+    "signature"
+  ],
+  "title": "FinalAudit",
+  "type": "object"
+}

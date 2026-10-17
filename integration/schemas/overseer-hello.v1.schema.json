@@ -1,0 +1,106 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agents": {
+      "enum": [
+        "off",
+        "async"
+      ],
+      "title": "Agents",
+      "type": "string"
+    },
+    "auditor_version": {
+      "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+      "title": "Auditor Version",
+      "type": "string"
+    },
+    "inline_final_release": {
+      "const": false,
+      "title": "Inline Final Release",
+      "type": "boolean"
+    },
+    "key_ids": {
+      "items": {
+        "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+        "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Key Ids",
+      "type": "array"
+    },
+    "max_pending_wait_ms": {
+      "maximum": 250,
+      "minimum": 1,
+      "title": "Max Pending Wait Ms",
+      "type": "integer"
+    },
+    "mode": {
+      "enum": [
+        "embedded",
+        "sidecar"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "pack_digests": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Pack Digests",
+      "type": "array"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "profiles": {
+      "items": {
+        "enum": [
+          "standard",
+          "fast"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "replay_mode": {
+      "const": "process",
+      "title": "Replay Mode",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.overseer-hello.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "mode",
+    "auditor_version",
+    "pack_digests",
+    "key_ids",
+    "replay_mode",
+    "inline_final_release",
+    "max_pending_wait_ms",
+    "agents",
+    "profiles"
+  ],
+  "title": "OverseerHello",
+  "type": "object"
+}

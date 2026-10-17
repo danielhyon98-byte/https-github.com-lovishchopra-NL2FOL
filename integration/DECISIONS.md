@@ -1,0 +1,45 @@
+# Decisions for the founder and the owners
+
+Each decision states the default the kit implements until it is decided. **Every default fails closed. None of them
+is decided here**: a decision is recorded by its owner, in this file on a new kit tag (the kit itself never marks a
+decision as made). Owners: the website belongs to Bruno; the translator and the agents repositories belong to Daniel;
+"founder" is the founder of Epinoic AI.
+
+| # | Decision | Who decides | Kit default until decided | Status |
+|---|---|---|---|---|
+| D1 | Record "Z3 is required" in the website repository: lift the 12 October deferral, invariant 25 and the two notices (W0) | Bruno | Website work stays a patch file and a disposable export; gate G0 is evaluated on `origin/main` | open |
+| D2 | When checks cannot complete for a material eligible claim: refuse (503 `checks_incomplete`), or release qualified, labelled "check unavailable" | founder, with Bruno | Refuse (`verified-v1`) | open |
+| D3 | Do COUNTEREXAMPLE, INCONSISTENT_PREMISES and UNSATISFIABLE on a material claim block the answer, including COUNTEREXAMPLE with only the advisory W110/W111 | founder | Block | open |
+| D4 | AMBIGUOUS_TRANSLATION on a material claim: qualify, block, or a clarification written by the website | founder, with Bruno | Qualify, labelled ("Not formally checked: more than one reading") | open |
+| D5 | One bounded revision, or none | founder, with Bruno (budget) | None: `revise` is never produced | open |
+| D6 | Wire a cheapest-tier fidelity reviewer (without one, nothing can be labelled "formally checked"; one more call per translated claim) | founder | Not wired: `formal_only` at best | open |
+| D7 | Hosting: a container behind a service binding or external HTTPS; who operates it; per-environment deployments and tokens; capacity | founder, Daniel, Bruno | No deployment; `deploy/container/` is PROPOSED only | open |
+| D8 | Who extracts claims | founder | The translator's branch parsers, in the service; specialists keep `claims: null`; the website never extracts | open |
+| D9 / D10 | Mapping subjects to slugs; which specialist `english` means; STEM subjects on the website | Bruno, with Daniel | History only on the website; `english` is mapped only in the `sim` environment (to a synthetic `english-a-literature` specialist); STEM checked by the service and the agents driver only | open |
+| D11 | Mapping ids: `task_id` = turnId, `request_id` = attemptId | Bruno | As stated | open |
+| D12 | Signing the verdict: HMAC plus an authenticated channel plus the Worker's binding checks, or Ed25519 (a new dependency) | founder | HMAC; the Worker checks bindings and re-derives, and never claims to verify the HMAC | open |
+| D13 | Display: `checks` and `checksSummary`, the label copy, the disclosure copy, the `simulated` semantics, the copy of the two new codes | Bruno | PROTOCOL.md section 8 proposals; simulated unless both parts are live | open |
+| D14 | Budgets and caps for specialist, checks and provider calls, and who approves them; the form of W5 | Bruno (website task 04), founder | No caps approved, so no live calls | open |
+| D15 | Data terms and retention for the verification host and its provider; whether a subset of the recorded rounds may ship in the kit corpus (`corpus/licensed/`) | founder, Daniel | Nothing retained; synthetic corpus only | open |
+| D16 | Delivery: synchronous within the base's deadline, or asynchronous | Bruno, founder | Synchronous | open |
+| D17 | Delivery-rule parameters seen in a brief but in no repository ("a four-minute budget", "overseer selection above 90%", "never labelled checked") | founder | A budget bounded by the base's deadline; no selection threshold; "an answer whose required checks did not complete is never labelled checked" always on | open |
+| D18 | The overseer: embedded for v1; when a sidecar may replace it; agents asynchronous and advisory; removing the simulation adjudicator's power to clear formal errors | founder, Daniel | Embedded, asynchronous, power removed | open |
+| D19 | Twofold modes: which routes use duplicate (cost x2); the contract and router path of the combined mode | founder, Bruno | Single only on the website; duplicate and combined only in the simulation; combined not offered until a combinator is connected | open |
+| D20 | Repositories: the T1 base contents; the canonical translator remote that carries the tag and the pointer; whether the mirror gets the pointer; the canonical agents repository; the visibility of the translator repository and whether the website patch files may be published in it; the licence for kit material that goes into a public repository | Daniel, with Bruno for the website files | Tag and pointer on `origin` (proposed); **no `W*.patch` file published while the translator repository is public** (only `apply.mjs`, the kit-authored code blocks, `ANCHORS.md` and `RESULT.sha256`); no kit material copied into the public agents repository | open |
+| D21 | `verified` as the only path to real answers on hosted environments (no specialist backend without checks) | founder | Pinned | open |
+| D22 | What happens to overseer-agent findings after delivery (a human review queue, a notification) | founder | Recorded only | open |
+| D23 | Approving model identifiers for the specialist tier and the cheapest tier (translation, combinator, overseer agents, any model the flash router's cost data refers to) | Bruno (website task 03), founder | None approved: model ids stay a placeholder of the owner's configuration (`EPINOIC_ANTHROPIC_MODEL`, `EPINOIC_OPENAI_MODEL`); no plan or message ever names one | open |
+| D24 | Conversation context for follow-ups (`priorTurns`), and where it is stored under KEEP and hard delete | Bruno | Website 01 decides; the kit is unaffected | open |
+| D25 | Timing of a verified turn on base P: keep 25 s and shorten the provider timeout; a longer synchronous deadline; asynchronous delivery; or only deterministic checks on the critical path | Bruno, with the founder | None chosen: on base P the verified backend refuses with `KIT-HS-016` | open |
+| D26 | Retry semantics after the specialist call: refusals final, or re-armable at the cost of a second generation; the codes `review_unresolved` and `checks_incomplete` and their copy | Bruno | Final | open |
+| D27 | The review value `checks:integration.v1` and its page label ("Automatic checks passed") | Bruno | As proposed | open |
+| D28 | The flash router as a separate, independent sub-agent: the sub-project `flash-router/` (package `epinoic_flash_router`), who maintains and releases it, and its release cadence apart from the Z3 infrastructure | founder, Daniel | Not attached: `EPINOIC_FLASH_ROUTER` unset or `none` runs the floor plan for every review; the handshake reports the router absent and never requires it | open |
+| D29 | The minimum-oversight floor (`minimum-oversight-floor/1`): its agreement signals, the 2 independent reviews they call for, N_FOLD for a combined answer, the 65,536-byte temporary context | founder | As in `router_port.FLOOR_RULES`; the floor can only be raised by a new floor version with its own digest, never lowered by a router | open |
+| D30 | The overseer-agent profiles a plan may choose (`standard`, `fast`) and whether `fast` is offered at all | founder, Daniel | Only the profiles the overseer's hello lists; the floor runs `standard`; the profile is not part of the floor | open |
+| D31 | The task type the website sends with a check (the website carries none today) | Bruno | `short_answer` | open |
+| D32 | Per-call timeout of a live cheapest-tier translation provider | founder | 20 s (`runtime.PROVIDER_TIMEOUT_S`), proposed; no live call is made until D14 and D23 | open |
+
+## Withdrawn kit tags
+
+None. A published tag is never moved or deleted; a bad kit is withdrawn by naming the previous or the next tag in
+`INTEGRATION_KIT.md` and by listing the bad tag here.

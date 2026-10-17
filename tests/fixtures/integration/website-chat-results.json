@@ -1,0 +1,69 @@
+{
+ "answer-history": {
+  "result": {
+   "conversationId": "conv-synthetic-0001",
+   "kind": "answer",
+   "references": [
+    {
+     "locator": "Placeholder chapter 2",
+     "sourceId": "mock-history-1",
+     "title": "Mock source: History library"
+    }
+   ],
+   "requestId": "req-synthetic-0001",
+   "review": "passed",
+   "specialist": "history",
+   "text": "Mock answer. No AI model was called.\n\nIn the finished app, the History specialist writes this answer from the History rules and library. It receives your original question: “When was the Treaty of Versailles signed?”\n\nThe server chose the History subject.\n\nThis placeholder also shows how a longer answer looks: separate paragraphs, line wrapping and the list of sources below.",
+   "turnVersion": 1
+  },
+  "status": 200
+ },
+ "answer-review-not-required": {
+  "result": {
+   "conversationId": "conv-synthetic-0001",
+   "kind": "answer",
+   "references": [
+    {
+     "locator": "Placeholder chapter 2",
+     "sourceId": "mock-history-1",
+     "title": "Mock source: History library"
+    }
+   ],
+   "requestId": "req-synthetic-0001",
+   "review": "not_required",
+   "specialist": "history",
+   "text": "Mock answer. No AI model was called.\n\nIn the finished app, the History specialist writes this answer from the History rules and library. It receives your original question: “When was the Treaty of Versailles signed?”\n\nThe server chose the History subject.\n\nThis placeholder also shows how a longer answer looks: separate paragraphs, line wrapping and the list of sources below.",
+   "turnVersion": 1
+  },
+  "status": 200
+ },
+ "clarification": {
+  "result": {
+   "conversationId": "conv-synthetic-0001",
+   "kind": "clarification",
+   "question": "Mock clarification. Is your question about English or History?",
+   "requestId": "req-synthetic-0001",
+   "turnVersion": 1
+  },
+  "status": 200
+ },
+ "unreviewed-answer": {
+  "result": {
+   "conversationId": "conv-synthetic-0001",
+   "kind": "answer",
+   "references": [
+    {
+     "locator": "Placeholder chapter 2",
+     "sourceId": "mock-history-1",
+     "title": "Mock source: History library"
+    }
+   ],
+   "requestId": "req-synthetic-0001",
+   "review": "passed",
+   "specialist": "history",
+   "text": "Mock answer. No AI model was called.\n\nIn the finished app, the History specialist writes this answer from the History rules and library. It receives your original question: “When was the Treaty of Versailles signed?”\n\nThe server chose the History subject.\n\nThis placeholder also shows how a longer answer looks: separate paragraphs, line wrapping and the list of sources below.",
+   "turnVersion": 1
+  },
+  "status": 200
+ }
+}

@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat.js
+anchor: import { CHAT_LIMITS, checkTitle, countCharacters, formatNumber } from "./chat-contract.js";
+mode: replace
+---
+import { CHAT_LIMITS, SCOPE_STATEMENT, checkLabel, checkTitle, countCharacters, formatNumber } from "./chat-contract.js";

@@ -1,0 +1,10 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor:     if (problem) return failWith("internal_error", failure(requestId, "internal_error"));
+mode: after-line
+---
+    // Kit W3: the verified backend's release gate (bindings, re-derivation, review value, checks); a refusal is final.
+    if (verification !== null) {
+      const gate = verification.releaseGate(outcome, result);
+      if (gate !== null) return failWith(gate.rawCode, failure(requestId, "upstream_invalid"));
+    }

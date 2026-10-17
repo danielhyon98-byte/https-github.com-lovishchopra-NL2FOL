@@ -1,0 +1,10 @@
+{
+  "canonical": "{\"math\":\"x² ≤ 4\",\"name\":\"élève\",\"quote\":\"“quoted”\"}",
+  "name": "non-ascii-raw",
+  "sha256": "f9c76dd6d7ac0760c36e07648654e808ac4093b8b5aa39c51f1872e2e237a684",
+  "value": {
+    "math": "x² ≤ 4",
+    "name": "élève",
+    "quote": "“quoted”"
+  }
+}

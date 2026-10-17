@@ -1,0 +1,7 @@
+kit-block: W4
+file: .dev.vars.example
+anchor: ENABLE_OPENAI_TEST="false"
+mode: after-line
+---
+# Kit W4: the checks service's bearer token, for the verified backend in a local simulation only (names only here).
+TRANSLATOR_SERVICE_TOKEN=""

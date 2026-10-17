@@ -1,0 +1,20 @@
+{
+  "forbidden_words": [
+    "verified",
+    "true",
+    "proven",
+    "Reviewed"
+  ],
+  "labels": {
+    "AMBIGUOUS_TRANSLATION": "Not formally checked: more than one reading.",
+    "INTERNAL_ERROR": "Check unavailable.",
+    "INVALID_FORMALIZATION": "Not formally checked.",
+    "NOT_ATTEMPTED": "Check unavailable.",
+    "NOT_ELIGIBLE": "Not eligible for a formal check.",
+    "TIMEOUT": "Check unavailable.",
+    "UNKNOWN": "Check unavailable.",
+    "UNSUPPORTED": "Not formally checked.",
+    "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",
+    "positive_other": "The logic encoding passed a formal check; the encoding and its premises were not independently established."
+  }
+}

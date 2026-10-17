@@ -1,0 +1,10 @@
+{
+  "canonical": "{\"array\":[],\"object\":{},\"string\":\"\"}",
+  "name": "empty",
+  "sha256": "160df1cb7c08864a4d113733fe02cfbc06a3e39c4ce0e0273ca7f2bb42e0facc",
+  "value": {
+    "array": [],
+    "object": {},
+    "string": ""
+  }
+}

@@ -1,0 +1,269 @@
+{
+  "report_id": "rep-hi-s2-0",
+  "claims": {
+    "h1.1": {
+      "problem": {
+        "ir_version": "1.0",
+        "problem_id": "hi-s2-h1.1",
+        "request_id": "req-hi-s2",
+        "claim_id": "h1.1",
+        "query": "entailment",
+        "symbols": [
+          {
+            "name": "reparations",
+            "sort": "Bool",
+            "meaning": "the treaty imposed reparations on Germany",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            }
+          },
+          {
+            "name": "hyperinflation",
+            "sort": "Bool",
+            "meaning": "the hyperinflation peaked in 1923",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            }
+          },
+          {
+            "name": "weakened",
+            "sort": "Bool",
+            "meaning": "the treaty weakened the republic",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            }
+          },
+          {
+            "name": "not_alone",
+            "sort": "Bool",
+            "meaning": "the treaty does not explain the instability alone",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            }
+          }
+        ],
+        "premises": [
+          {
+            "id": "e_reparations",
+            "expr": {
+              "op": "var",
+              "name": "reparations"
+            },
+            "label": "the treaty imposed reparations on Germany",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            },
+            "materiality": "supporting"
+          },
+          {
+            "id": "e_hyperinflation",
+            "expr": {
+              "op": "var",
+              "name": "hyperinflation"
+            },
+            "label": "the hyperinflation peaked in 1923",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            },
+            "materiality": "supporting"
+          },
+          {
+            "id": "l_weakened",
+            "expr": {
+              "op": "implies",
+              "left": {
+                "op": "var",
+                "name": "reparations"
+              },
+              "right": {
+                "op": "var",
+                "name": "weakened"
+              }
+            },
+            "label": "reparations weakened the republic (the stated link)",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            },
+            "materiality": "material"
+          },
+          {
+            "id": "l_not_alone",
+            "expr": {
+              "op": "implies",
+              "left": {
+                "op": "var",
+                "name": "hyperinflation"
+              },
+              "right": {
+                "op": "var",
+                "name": "not_alone"
+              }
+            },
+            "label": "a second cause means the treaty does not explain the instability alone (the stated link)",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            },
+            "materiality": "material"
+          }
+        ],
+        "conclusion": {
+          "id": "claim",
+          "expr": {
+            "op": "and",
+            "args": [
+              {
+                "op": "var",
+                "name": "weakened"
+              },
+              {
+                "op": "var",
+                "name": "not_alone"
+              }
+            ]
+          },
+          "label": "The Treaty of Versailles weakened the Weimar Republic, though it does not explain its instability alone.",
+          "grounding": {
+            "kind": "specialist_inference",
+            "certainty": "established"
+          },
+          "materiality": "material"
+        }
+      },
+      "interpretation": {
+        "reading": "SYNTHETIC: the point follows from two remembered facts and two stated links.",
+        "glossary": [],
+        "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+    },
+    "h1.3": {
+      "problem": {
+        "ir_version": "1.0",
+        "problem_id": "hi-s2-h1.3",
+        "request_id": "req-hi-s2",
+        "claim_id": "h1.3",
+        "query": "entailment",
+        "symbols": [
+          {
+            "name": "treaty_yr",
+            "sort": "Int",
+            "meaning": "the year the treaty was signed",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            }
+          },
+          {
+            "name": "peak_yr",
+            "sort": "Int",
+            "meaning": "the year the hyperinflation peaked",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            }
+          }
+        ],
+        "premises": [
+          {
+            "id": "p_treaty_yr",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "treaty_yr"
+              },
+              "right": {
+                "op": "int",
+                "value": "1919"
+              }
+            },
+            "label": "the treaty was signed in 1919",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            },
+            "materiality": "material"
+          },
+          {
+            "id": "p_peak_yr",
+            "expr": {
+              "op": "eq",
+              "left": {
+                "op": "var",
+                "name": "peak_yr"
+              },
+              "right": {
+                "op": "int",
+                "value": "1923"
+              }
+            },
+            "label": "the hyperinflation peaked in 1923",
+            "grounding": {
+              "kind": "general_knowledge",
+              "certainty": "probable",
+              "note": "SYNTHETIC: stated from memory"
+            },
+            "materiality": "material"
+          }
+        ],
+        "conclusion": {
+          "id": "claim",
+          "expr": {
+            "op": "eq",
+            "left": {
+              "op": "var",
+              "name": "peak_yr"
+            },
+            "right": {
+              "op": "add",
+              "args": [
+                {
+                  "op": "var",
+                  "name": "treaty_yr"
+                },
+                {
+                  "op": "int",
+                  "value": "2"
+                }
+              ]
+            }
+          },
+          "label": "the peak came 2 years after the treaty",
+          "grounding": {
+            "kind": "general_knowledge",
+            "certainty": "probable",
+            "note": "SYNTHETIC: stated from memory"
+          },
+          "materiality": "material"
+        }
+      },
+      "interpretation": {
+        "reading": "SYNTHETIC: the interval between two remembered dates.",
+        "glossary": [],
+        "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+    }
+  },
+  "claim_text_sha256": {
+    "h1.1": "d9d11b1f6fd8f85d941718d866f21859d8332d9fd11a16cab3f77e750810b6dd",
+    "h1.3": "04772e89e56164c8651881e9423be48a9bc2d4777bf446869c59d6988446e39d"
+  }
+}

@@ -1,0 +1,7 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: { requestId, scenario, signal, route, routing: routing.mode },
+mode: replace
+---
+{ requestId, scenario, signal, route, routing: routing.mode, turn: { turnId: admitted.turnId, attemptId: admitted.attemptId }, deadlineAt,
+        stillPending: () => store.attemptPending(principal, admitted) },

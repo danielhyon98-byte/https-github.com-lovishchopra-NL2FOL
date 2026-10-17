@@ -1,0 +1,42 @@
+{
+ "schema": "epinoic.integration.website-patch-tested.v1",
+ "base": "M",
+ "website_commit": "2cd318208980e5b236d16b4281dfc0560a7b9610",
+ "tested_on": "a disposable export of the website's main at the commit above, marked with UNREVIEWED-SIMULATION-COPY.txt; no website branch, commit or deployment",
+ "node": "v22.22.0",
+ "date": "2026-10-17",
+ "commands": [
+  "node integration/website/apply.mjs --base M --target <export>",
+  "node --test --test-timeout=30000 tests/*.test.js   (in the export)",
+  "node integration/website/apply.mjs --base M --target <fresh export> --verify   -> exact",
+  "node integration/readiness/check-website.mjs --anchors <unpatched export>   -> every count as expected",
+  "node integration/rollback/rehearse.mjs --full <export> --reader <export with --steps W1> --base <unpatched export> --work <dir>"
+ ],
+ "baseline": {
+  "tests": 290,
+  "pass": 287,
+  "fail": 3,
+  "failing": "the three tests that need the Playwright devDependency (not installed in an export without dependencies)"
+ },
+ "patched": {
+  "tests": 357,
+  "pass": 354,
+  "fail": 3,
+  "failing": "the same three tests as the baseline, and no other",
+  "new_tests": 67
+ },
+ "blocks": 39,
+ "copied_files": 107,
+ "rollback_rehearsal": {
+  "1 rows written by W3": "PASS",
+  "2 W1 alone reads them (history and replay)": "PASS",
+  "3 without W1 the replay fails (W1 stays for good)": "PASS",
+  "4 an incompatible service is refused after admission": "PASS",
+  "5 base P": "NOT RUN: no patch set P in this kit"
+ },
+ "not_run": [
+  "./run.sh test, ./run.sh check and ./run.sh check:staging (no dependency install in the export)",
+  "base P (no base-P website)"
+ ],
+ "patch_files": "W1.patch to W6.patch are not published while the translator repository is public (decision D20); apply.mjs applies the same kit-authored blocks"
+}

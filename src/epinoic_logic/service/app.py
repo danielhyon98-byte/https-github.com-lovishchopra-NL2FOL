@@ -375,12 +375,16 @@ def _versions() -> dict[str, str]:
     }
 
 
-def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[], float] = time.monotonic) -> FastAPI:
+def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[], float] = time.monotonic, integration: Any = None) -> FastAPI:
     """Build the FastAPI application. ``settings`` defaults to :meth:`ServiceSettings.from_env`.
 
     The returned app exposes ``app.state.settings``, ``app.state.semaphore`` and
     ``app.state.rate_limiter`` for tests and operators. Interactive API docs are
     disabled: this is an internal service.
+
+    ``integration`` is the integration profiles' runtime (``epinoic_logic.integration.runtime``). Only with it does
+    the app add ``GET /v1/capabilities`` and ``POST /v1/turns/check``, behind the same gates as every ``/v1`` route;
+    without it (the ``engine`` profile, the default) the app is exactly as before.
     """
     cfg = settings if settings is not None else ServiceSettings.from_env()
     app = FastAPI(title="Epinoic logic verification service", version=ENGINE_VERSION, docs_url=None, redoc_url=None, openapi_url=None)
@@ -542,4 +546,8 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
     app.add_api_route("/v1/results/verify-signature", _guarded(post_verify_signature), methods=["POST"])
     app.add_api_route("/v1/results/release-check", _guarded(post_release_check), methods=["POST"])
     app.add_api_route("/v1/outcomes", _guarded(post_outcomes), methods=["POST"])
+    if integration is not None:
+        from ..integration.routes import install_routes
+        install_routes(app, integration, admit=admit, read_body=_read_body, parse_envelope=_parse_envelope, guarded=_guarded,
+                       solver_slot=_solver_slot, request_id=_request_id)
     return app

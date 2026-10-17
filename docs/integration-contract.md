@@ -386,6 +386,18 @@ record carries none of them and must be translated and verified again, not trust
   structural error, and a `faithful` review that is current and was made with the evidence. Every
   unresolved item is listed; nothing in the channel or hub releases an answer by itself.
 
+## 9a. Integration protocol `epinoic.integration.v1` (contract 0.4)
+
+Contract 0.4 adds the integration protocol (`integration/PROTOCOL.md`; `docs/INTEGRATION_PROTOCOL.md`): two routes of
+the integration profiles only, `GET /v1/capabilities` and `POST /v1/turns/check`, behind the service's existing gates
+(E502, E503, E306, E100, E505, E504), and the five ports (specialist, checks, overseer, combinator, flash router) with
+their closed codes `KIT-HS`, `KIT-REQ`, `KIT-DL`, `KIT-OP`, `KIT-CB` and `KIT-RT`. The default profile `engine` and
+every existing route are unchanged, and the component versions above do not change: the protocol adds no engine,
+policy or IR semantics. **0.4 takes effect when phase 2 merges contract 0.3** (the named policies `linear`,
+`nonlinear` and `joint`) into the integrated tree: until then the contract version line above stays 0.2 and the service
+refuses to start in an integration profile (`KIT-HS-006`). Phase 2 then sets the version line to 0.4 (playbook step 5
+reads it).
+
 ## 10. PROPOSED (not implemented)
 
 - Non-zero CLI exit codes for non-definitive statuses. Today the exit code is always 0.

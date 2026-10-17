@@ -272,6 +272,15 @@ release: `engine.release.release_check` (HTTP `POST /v1/results/release-check`) 
 an authentic, current result resting on established premises only, and a result of an
 earlier release stays inspectable but is never current.
 
+## Integration kit: required Z3 and STEM checks for the website and the specialist APIs
+
+`integration/` holds the integration protocol `epinoic.integration.v1` and the kit that applies it: the website's
+adapter and patch material, the agents checks port, the golden vectors, the simulation, the readiness checks and the
+playbook a fresh session follows. Start with [`integration/README.md`](integration/README.md) and
+[`docs/INTEGRATION_PROTOCOL.md`](docs/INTEGRATION_PROTOCOL.md). Z3 and STEM checks are required: a missing part fails
+with a named `KIT-HS` code. The service side lives in `src/epinoic_logic/integration/`; the default `engine` profile is
+unchanged.
+
 ## Repository layout
 
 - `src/epinoic_logic/ir/` — IR schema and canonical digests (`README.md` inside)
@@ -283,6 +292,7 @@ earlier release stays inspectable but is never current.
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
+- `src/epinoic_logic/integration/` and `integration/` — the integration protocol's service side and the integration kit
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 
