@@ -547,3 +547,8 @@ Work in progress after it is labelled as such.
 
 - Overseer rebuild on the STEM-merged translator, fourth repair: 6,033 tests passed; every recorded round replays unchanged (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177); all eleven contained-run gates pass, with 269 of 269 injected faults (including the 15 STEM mutations) named and confirmed, 134 of 134 tamperings detected and 0 false alarms on genuine transfers. Its independent audit is running; STEM completion, the fast profile and the oversight planner follow before the commit.
 - Failure review: every earlier failed agent run had stopped on account usage limits, not on a code fault. The review lenses that never completed (STEM soundness, STEM precision, parser safety, correctness, translation fidelity, security, combinator faults, formal robustness, router and envelope, robustness and contracts) are being run again on the current verified code.
+
+### Progress, 04:00 UTC
+
+- Overseer rebuild: the independent audit after the fourth repair found three remaining problems (one medium: a numeric self-proving translation is only warned about when the request mentions the figure inside a negation or a question; two low: overseer dossiers built from recorded rounds do not yet carry STEM translations, and one knowledge-pack line describes model instructions for STEM translations as enforced rules). The fifth repair is in progress.
+- End-to-end fixes: both fix branches are complete and are being integrated and independently verified together.
