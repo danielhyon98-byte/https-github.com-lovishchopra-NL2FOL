@@ -1666,16 +1666,24 @@ _SELF_REPORT_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _SELF_REPORT_SENTENCE_CHARS = 4000
 
 
-def _self_report_sentences(text: str) -> list[str]:
+def _self_report_sentences(text: str, labels: Optional[list[str]] = None) -> list[str]:
     """The sentences of ``text`` that state a verification status of the answer itself ("VERIFIED: all claims checked and
     confirmed.", "checked by the formal verifier: every line holds"), read with the closed self-certification vocabulary
-    of the specialists' reports (:func:`~epinoic_logic.adapters.markdown.is_self_certification`). One linear split."""
-    from ..adapters.markdown import is_self_certification
+    of the specialists' reports (:func:`~epinoic_logic.adapters.markdown.is_self_certification`), or that carry a
+    verification label on their content ("Verified: ...", "... (verified).", "..., as formally verified.";
+    :func:`~epinoic_logic.adapters.markdown.verification_label`), which are also appended to ``labels``. One linear split."""
+    from ..adapters.markdown import is_self_certification, verification_label
     out: list[str] = []
     for sentence in _SELF_REPORT_SENTENCE_RE.split(text or ""):
         s = sentence.strip()
-        if s and is_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
+        if not s:
+            continue
+        if is_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
             out.append(s[:200])
+        elif verification_label(s[:_SELF_REPORT_SENTENCE_CHARS]) is not None:
+            out.append(s[:200])
+            if labels is not None:
+                labels.append(s[:200])
     return list(dict.fromkeys(out))
 
 
@@ -1683,17 +1691,23 @@ def _self_report_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
     """INT-LEDGER-029: a synthesized claim, or a sentence of the student-facing text, that states a verification status of
     the answer: a self-report of the combinator (or one it carried from a specialist's note), advisory only. No check in
     this process stands behind it, so it is never material content and never evidence that anything was checked (a
-    specialist's report with the same sentence is named CORE-SELF-001). Each sentence is named once."""
+    specialist's report with the same sentence is named CORE-SELF-001). A verification label on the content of a claim
+    ("Verified: ...", "... (verified).", "..., as formally verified.") is named the same way: the label is the
+    self-report, and the content stays accounted for like any other claim's. Each sentence is named once."""
     f: list[IntegrityFinding] = []
     named: set[str] = set()
     for sc in synthesis.claims:
-        found = _self_report_sentences(sc.text)
+        labels: list[str] = []
+        found = _self_report_sentences(sc.text, labels)
         if found:
             named.update(found)
-            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
-                f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
-                "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check"),
-                claim_ids=[sc.claim_id] + list(sc.source_claim_ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
+            what = (f"synthesized claim ('{sc.transformation}', {sc.materiality}) carries a verification-status label on its content: {found[:3]}: the "
+                    "label is a self-report, advisory only; no check in this process stands behind it, so it is no evidence that the claim was "
+                    "checked (its content is still accounted for like any other claim's)") if set(found) <= set(labels) else (
+                    f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
+                    "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check")
+            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=what,
+                                      claim_ids=[sc.claim_id] + list(sc.source_claim_ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
     rest = [s for s in _self_report_sentences(synthesis.text) if s not in named and not any(s in n or n in s for n in named)]
     if rest:
         f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(

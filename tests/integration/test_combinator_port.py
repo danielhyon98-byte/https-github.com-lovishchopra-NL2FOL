@@ -75,6 +75,8 @@ def test_inputs_out_of_contract_are_kit_cb_001(edit):
     (lambda o: o["claims"][0].update(transformation="joined"), "KIT-CB-003"),
     (lambda o: o["claims"][0].update(transformation="Merged"), "KIT-CB-003"),
     (lambda o: o["claims"][0].update(source_claim_ids=["x9"]), "KIT-CB-004"),
+    (lambda o: o["claims"][0].update(source_claim_ids=["h1", "h1"], transformation="merged"), "KIT-CB-002"),  # one source cited twice (L2)
+    (lambda o: o["claims"][0].update(source_claim_ids=["x9", "x9"]), "KIT-CB-002"),  # decided before the citations
     (lambda o: o["dropped"][0].update(source_claim_ids=["x9"]), "KIT-CB-004"),
     (lambda o: o.update(instruction_pack_sha256="0" * 64), "KIT-CB-005"),
     (lambda o: o["claims"].extend([{**o["claims"][0], "text": "z" * 4000} for _ in range(13)]), "KIT-CB-006"),

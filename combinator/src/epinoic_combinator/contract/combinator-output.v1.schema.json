@@ -120,6 +120,7 @@
     },
     "SynthClaim": {
       "additionalProperties": false,
+      "description": "A synthesized claim: its text, the source claims it was made from (each cited once: a claim citing one source twice\nwould pass for a 'merged' claim with one source), its certainty and its one transformation word.",
       "properties": {
         "certainty": {
           "enum": [

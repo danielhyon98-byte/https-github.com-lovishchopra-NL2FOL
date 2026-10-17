@@ -43,7 +43,8 @@ every case without an output in contract, including no output at all; the reason
 
 The runner decides in the order the translator's `check_output` does, so both sides name the same code for the same
 message: (1) not JSON or not an object; (2) a transformation outside the vocabulary, before anything else; (3) the
-schema, the agent format, a conflict naming a claim twice; (4) another request; (5) another pack; (6) a citation the
+schema, the agent format, a synthesized claim citing a source claim twice (one source cited twice would pass for a
+`merged` claim with one source), a conflict naming a claim twice; (4) another request; (5) another pack; (6) a citation the
 input does not hold; (7) a synthesis text over 49,152 UTF-8 bytes. The runner's own size guard (262,144 bytes of agent
 text, before parsing) comes first; the port never sees the agent's raw text.
 

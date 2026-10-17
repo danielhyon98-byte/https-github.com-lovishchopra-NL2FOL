@@ -27,7 +27,7 @@ from .jsonio import sha256_bytes, sha256_json
 __all__ = ["PACK_NAME", "PACK_VERSION", "PACK_FILES", "TIER", "PackUnavailable", "Pack", "pack_sha256", "load_pack"]
 
 PACK_NAME = "combinator-instructions"
-PACK_VERSION = "1.0"
+PACK_VERSION = "1.1"
 PACK_FILES: tuple[str, ...] = ("INSTRUCTIONS.md", "output-format.json")
 #: The only tier the combinator runs on.
 TIER = "cheapest"

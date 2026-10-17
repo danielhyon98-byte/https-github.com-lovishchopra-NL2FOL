@@ -2,7 +2,7 @@
   "schema": "epinoic.combinator.output-format.v1",
   "instruction_pack": {
     "name": "combinator-instructions",
-    "version": "1.0"
+    "version": "1.1"
   },
   "output": {
     "keys": [
@@ -25,7 +25,7 @@
       "transformation"
     ],
     "text": "1 to 4000 characters",
-    "source_claim_ids": "1 to 64 claim ids of the input",
+    "source_claim_ids": "1 to 64 claim ids of the input, each named once",
     "certainty": "one of the certainty words, never stronger than the weakest cited source claim",
     "transformation": "exactly one of the transformation words"
   },
@@ -43,12 +43,13 @@
   ],
   "rules": [
     "transformation is exactly one of the words above: a category, never a description of the edit; any other value (free text, an alias, another spelling) is refused before the synthesis leaves the combinator (KIT-CB-003), as the hub refuses it (INT-REQ-009, INT-SYNTH-014), and the synthesis is not delivered",
+    "a synthesized claim cites each source claim once: a citation repeated in one claim is refused before the synthesis leaves the combinator (KIT-CB-002)",
     "certainty is never stronger than the weakest cited source claim (INT-LEDGER-003)",
     "keep every figure, unit, mark, date and quotation exactly as the source states it (INT-LEDGER-023, INT-LEDGER-025)",
     "never add content no source claim states (INT-LEDGER-005, INT-LEDGER-023)",
     "keep the qualifiers and hedges of a source claim (INT-LEDGER-026, INT-LEDGER-027)",
     "credit a view or a quotation only to the specialist or the text it came from (INT-LEDGER-025, INT-LEDGER-026)",
-    "never carry a note, a self-certification, a decline or a question back as a claim: list it in dropped (INT-LEDGER-029)",
+    "never carry a note, a self-certification, a decline or a question back as a claim: list it in dropped; never put a verification label ('Verified:', 'Checked:', '(verified)') on a claim, and write a source claim that carries one without it, as 'narrowed' (INT-LEDGER-029)",
     "never merge or silently resolve contradicting source claims: keep each as its own claim and list the contradiction in conflicts (INT-CONFLICT-002)",
     "list every source claim left out in dropped, with its reason (INT-LEDGER-002, INT-LEDGER-006)",
     "write exactly one JSON object with the keys claims, dropped and conflicts, and nothing else"

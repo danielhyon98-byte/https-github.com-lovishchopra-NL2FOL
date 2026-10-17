@@ -7,8 +7,8 @@ PROTOCOL.md section 7; decision D33), and the hub as the independent checker of 
   port's message byte for byte (``dump(check_output(text))`` is its text);
 - every malformed output is refused with a named code, the port's own code for the same message;
 - a faithful synthesis passes the hub; each misrepresentation (a dropped qualifier, a stronger certainty, a merged
-  contradiction, an invented figure, a wrong attribution, a carried self-certification) is in contract, so the
-  combinator lets it out, and the hub names it on the synthesized claim;
+  contradiction, an invented figure, a wrong attribution, a carried self-certification, a self-certification label on a
+  content claim) is in contract, so the combinator lets it out, and the hub names it on the synthesized claim;
 - whatever its provider returns, the runner never lets out a message the port or the hub's synthesis contract refuses.
 
 The hub's agents here are named ``<subject>-specialist``, as the arena names them: the hub's credit rules recognise "the
@@ -167,6 +167,8 @@ def _malformed(inp: CB.CombinatorInput) -> list[tuple[str, str, str]]:
         ("a claim key besides the four", edit(lambda g: g["claims"][0].update(note="kept")), "KIT-CB-002"),
         ("empty claims", json.dumps({"claims": []}), "KIT-CB-002"),
         ("an unknown claim", edit(lambda g: g["claims"][0].update(source_claim_ids=["x9"])), "KIT-CB-004"),
+        ("a source claim cited twice, as a merge of one source", edit(lambda g: g["claims"][0].update(
+            source_claim_ids=g["claims"][0]["source_claim_ids"] * 2, transformation="merged")), "KIT-CB-002"),
         ("a conflict naming a claim twice", edit(lambda g: g.update(conflicts=[{"claim_ids": ["h1.1", "h1.1"], "description": "x"}])), "KIT-CB-002"),
         ("too large", edit(lambda g: g.update(claims=[{**g["claims"][0], "text": "z" * 4000}] * 13)), "KIT-CB-006"),
         ("prose around the object", "Synthesis: " + json.dumps(good), "KIT-CB-002"),
@@ -270,6 +272,50 @@ def test_a_carried_self_certification_is_caught_by_the_hub():
     assert "INT-LEDGER-029" in _codes_naming(receipt, f"s{len(agent['claims']) - 1}")
     [f] = [f for f in receipt.findings if f.code == "INT-LEDGER-029"]
     assert "self-report" in f.message and note in f.claim_ids
+
+
+#: A self-certification label the combinator attaches to a content claim (verification round 1, M1): before, the hub named
+#: only the whole-sentence note, so each of these left with an unchecked-paraphrase warning at most.
+LABEL_FORMS = {
+    "Verified: prefix": lambda t: "Verified: " + t,
+    "(verified) suffix": lambda t: t[:-1] + " (verified).",
+    "[verified] prefix": lambda t: "[verified] " + t,
+    "Checked: prefix": lambda t: "Checked: " + t,
+    "as formally verified suffix": lambda t: t[:-1] + ", as formally verified.",
+}
+
+
+@pytest.mark.parametrize("form", list(LABEL_FORMS))
+def test_a_self_certification_label_on_a_content_claim_is_caught_by_the_hub(form):
+    ch, inp = _history_and_economics()
+    faithful = _faithful(inp)
+    i = next(k for k, c in enumerate(faithful["claims"]) if "June 1919" in c["text"])
+
+    def change(a):
+        a["claims"][i].update(text=LABEL_FORMS[form](a["claims"][i]["text"]), transformation="paraphrased")
+    receipt = _through_combinator(ch, inp, _edited(inp, change), "syn-l")
+    assert "INT-LEDGER-029" in _codes_naming(receipt, f"s{i}"), [(f.code, f.claim_ids) for f in receipt.findings]
+    [f] = [f for f in receipt.findings if f.code == "INT-LEDGER-029"]
+    assert f.severity == "warning" and "self-report" in f.message and "label" in f.message
+    assert faithful["claims"][i]["source_claim_ids"][0] in f.claim_ids
+
+
+def test_a_label_the_specialist_wrote_is_named_at_delivery_and_again_when_the_combinator_carries_it():
+    ch = _channel({"history-specialist": "Verified: " + HISTORY, "economics-specialist": ECONOMICS},
+                  {"history-specialist": "History", "economics-specialist": "Economics"})
+    inp = _input(ch)
+    [labelled] = [cid for cid, c in _claims(inp).items() if c["text"].startswith("Verified: ")]
+    assert _claims(inp)[labelled]["role"] != "other", "the label never takes the content out of the answer"
+    [delivery] = [rc for rc in ch.receipts if rc.direction == "specialist_to_router" and rc.branch == "history"]
+    assert any(f.code == "CORE-SELF-001" and labelled in f.claim_ids for f in delivery.structural_findings)
+    receipt = _through_combinator(ch, inp, _faithful(inp), "syn-c2")
+    k = next(k for k, c in enumerate(_faithful(inp)["claims"]) if c["source_claim_ids"] == [labelled])
+    assert "INT-LEDGER-029" in _codes_naming(receipt, f"s{k}")
+    # what the instructions (pack 1.1, rule 6) ask for instead: the claim without the label, recorded as 'narrowed'
+    instructed = _faithful(inp)
+    instructed["claims"][k].update(text=instructed["claims"][k]["text"].removeprefix("Verified: "), transformation="narrowed")
+    receipt = _through_combinator(ch, inp, instructed, "syn-c3")
+    assert "INT-LEDGER-029" not in {f.code for f in receipt.findings}, [(f.code, f.message[:120]) for f in receipt.findings]
 
 
 POEM = ("Earth has not anything to show more fair:\nThis City now doth, like a garment, wear\n"

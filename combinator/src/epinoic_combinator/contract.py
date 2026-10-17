@@ -10,8 +10,8 @@ generator copies them into this package (``contract/``, byte for byte); never ed
 :class:`Contract` loads that copy and checks a message the way the translator's port does
 (``epinoic_logic.integration.combinator_port``), in the same order, with the same ``KIT-CB`` code: the schema first, then
 the rules a schema cannot state (an output's transformation outside the closed vocabulary before anything else, the
-request it answers, the instruction pack, the claims it cites, its size; a conflict naming a claim twice; a refusal's
-code being its reason's). The sub-project's conformance tests run the translator's own vectors and generated documents
+request it answers, the instruction pack, the claims it cites, its size; a synthesized claim citing a source claim
+twice and a conflict naming a claim twice; a refusal's code being its reason's). The sub-project's conformance tests run the translator's own vectors and generated documents
 through both and require the same outcome. A check returns a :class:`Problem` or ``None``; it never raises.
 """
 from __future__ import annotations
@@ -147,6 +147,9 @@ class Contract:
         errors = self.output.errors(data, limit=1)
         if errors:
             return Problem("KIT-CB-002", "output_invalid", self._detail(f"the output does not validate: {errors[0]}"))
+        for i, c in enumerate(data["claims"]):
+            if len(set(c["source_claim_ids"])) != len(c["source_claim_ids"]):
+                return Problem("KIT-CB-002", "output_invalid", f"claims[{i}]: cites a source claim twice (each source claim once)")
         for i, k in enumerate(data.get("conflicts", [])):
             if len(set(k["claim_ids"])) != len(k["claim_ids"]):
                 return Problem("KIT-CB-002", "output_invalid", f"conflicts[{i}]: names a source claim twice (two distinct claims at least)")

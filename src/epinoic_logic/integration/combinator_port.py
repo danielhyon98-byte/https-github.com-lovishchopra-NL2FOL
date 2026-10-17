@@ -139,11 +139,19 @@ class EvidenceRef(Frozen):
 
 
 class SynthClaim(Frozen):
+    """A synthesized claim: its text, the source claims it was made from (each cited once: a claim citing one source twice
+    would pass for a 'merged' claim with one source), its certainty and its one transformation word."""
     text: _Text
     source_claim_ids: list[ClaimId] = Field(min_length=1, max_length=64)
     certainty: _Certainty
     transformation: _Transformation
     evidence_refs: Optional[list[EvidenceRef]] = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def _distinct(self) -> "SynthClaim":
+        if len(set(self.source_claim_ids)) != len(self.source_claim_ids):
+            raise ValueError("a synthesized claim cites each source claim once")
+        return self
 
 
 class Dropped(Frozen):
@@ -410,7 +418,8 @@ def port_rules_document() -> dict:
         "ids_optional_reasons": sorted(_IDS_OPTIONAL_REASONS),
         "max_output_text_bytes": MAX_OUTPUT_TEXT_BYTES, "max_refusal_detail_chars": MAX_REFUSAL_DETAIL_CHARS,
         "output_check_order": ["not a JSON object: KIT-CB-002", "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
-                               "the schema, and a conflict naming a claim twice: KIT-CB-002", "another request: KIT-CB-002",
+                               "the schema, a synthesized claim citing a source claim twice and a conflict naming a claim twice: KIT-CB-002",
+                               "another request: KIT-CB-002",
                                "another instruction pack: KIT-CB-005", "a citation the input does not hold: KIT-CB-004",
                                f"a synthesis text over {MAX_OUTPUT_TEXT_BYTES} UTF-8 bytes: KIT-CB-006"],
     }

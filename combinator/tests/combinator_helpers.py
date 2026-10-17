@@ -91,6 +91,9 @@ MALFORMED = [
     ("a text over 4000 characters", text(_edit(lambda a: a["claims"][0].update(text="z" * 4001))), "KIT-CB-002", "output_invalid"),
     ("no source claim", text(_edit(lambda a: a["claims"][0].update(source_claim_ids=[]))), "KIT-CB-002", "output_invalid"),
     ("a source id outside the id pattern", text(_edit(lambda a: a["claims"][0].update(source_claim_ids=["h1 1"]))), "KIT-CB-002", "output_invalid"),
+    # one source cited twice would pass for a 'merged' claim with one source (the translator's verification round 1, L2)
+    ("a source claim cited twice", text(_edit(lambda a: a["claims"][0].update(source_claim_ids=["h1.1", "h1.1"], transformation="merged"))), "KIT-CB-002", "output_invalid"),
+    ("an unknown claim cited twice", text(_edit(lambda a: a["claims"][0].update(source_claim_ids=["h9.9", "h9.9"]))), "KIT-CB-002", "output_invalid"),
     ("a dropped entry without a reason", text(_edit(lambda a: a["dropped"][0].update(reason=""))), "KIT-CB-002", "output_invalid"),
     ("a dropped entry key besides the two", text(_edit(lambda a: a["dropped"][0].update(transformation="dropped"))), "KIT-CB-002", "output_invalid"),
     ("dropped not a list", text(_edit(lambda a: a.update(dropped=None))), "KIT-CB-002", "output_invalid"),

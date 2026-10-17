@@ -474,6 +474,9 @@ def combinator_vectors() -> dict[str, dict]:
         "empty-text": edited(claim0(text="")),
         "text-too-long": edited(claim0(text="z" * 4001)),
         "no-source-claim": edited(claim0(source_claim_ids=[])),
+        # one source cited twice would pass for a 'merged' claim with one source (verification round 1, L2)
+        "source-claim-cited-twice": edited(claim0(source_claim_ids=["h1.1", "h1.1"])),
+        "unknown-claim-cited-twice": edited(claim0(source_claim_ids=["x9", "x9"])),
         "dropped-without-reason": edited(lambda d: d["dropped"][0].update(reason="")),
         "conflict-naming-a-claim-twice": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1", "h1.1"], "description": "x"}])),
         "conflict-of-one-claim": edited(lambda d: d.update(conflicts=[{"claim_ids": ["h1.1"], "description": "x"}])),

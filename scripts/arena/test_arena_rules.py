@@ -803,7 +803,8 @@ def test_list_claims_prints_the_combinator_sub_projects_exported_instructions(tm
         assert got["instruction_pack"] == manifest["instruction_pack"] and got["combinator"] == manifest["combinator"]
         assert (got["transformation"], got["certainty"], got["rules"], got["shape"], got["claim"]) == (fmt["transformation"], fmt["certainty"], fmt["rules"], fmt["output"], fmt["claim"])
     plain = subprocess.run([sys.executable, str(script), str(spec), "--instructions", str(pack)], capture_output=True, text=True, env=env, timeout=120, check=True).stdout
-    assert f"pack combinator-instructions 1.0 sha256={manifest['instruction_pack']['sha256']}" in plain.rstrip().splitlines()[-2]
+    identity = manifest["instruction_pack"]
+    assert f"pack combinator-instructions {identity['version']} sha256={identity['sha256']}" in plain.rstrip().splitlines()[-2]
     (pack / "INSTRUCTIONS.md").write_text("Write whatever you like.\n", encoding="utf-8")
     bad = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(pack)], capture_output=True, text=True, env=env, timeout=120)
     assert bad.returncode == 2 and "does not match its manifest" in bad.stderr and bad.stdout == ""
@@ -819,3 +820,39 @@ def test_list_claims_prints_the_combinator_sub_projects_exported_instructions(tm
     (other / "MANIFEST.json").write_text(json.dumps(m), encoding="utf-8")
     drift = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(other)], capture_output=True, text=True, env=env, timeout=120)
     assert drift.returncode == 2 and "other transformation or certainty values" in drift.stderr
+
+
+def test_list_claims_refuses_a_rewritten_pack_that_is_not_this_repositorys_release_unless_allowed(tmp_path):
+    """A self-consistent rewrite of the instructions (INSTRUCTIONS.md edited, the manifest's file digests and the pack
+    digest recomputed) is not the pack this repository's combinator release writes: list_claims.py compares the export's
+    identity with an isolated export of the sub-project and refuses it (exit status 2) unless --allow-other-release
+    explicitly allows another release (combinator verification round 1, L1)."""
+    import hashlib
+    import subprocess
+    import epinoic_logic
+    from epinoic_logic.integration.canonical import sha256_json
+    spec = tmp_path / "specialists" / f"{TASK}.json"
+    spec.parent.mkdir()
+    spec.write_text(json.dumps(HISTORY_ITEM))
+    env = {"PYTHONPATH": str(Path(epinoic_logic.__file__).resolve().parents[1]), "PATH": "/usr/bin:/bin"}
+    script = Path(__file__).resolve().parent / "list_claims.py"
+    release = json.loads((_export(tmp_path / "release") / "MANIFEST.json").read_text(encoding="utf-8"))["instruction_pack"]
+    rewritten = _export(tmp_path / "rewritten")
+    text = (rewritten / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "exactly one of these words" in text
+    (rewritten / "INSTRUCTIONS.md").write_text(text.replace("exactly one of these words", "any word you like, for example one of these words"), encoding="utf-8")
+    m = json.loads((rewritten / "MANIFEST.json").read_text(encoding="utf-8"))
+    m["files"] = {n: hashlib.sha256((rewritten / n).read_bytes()).hexdigest() for n in ("INSTRUCTIONS.md", "output-format.json")}
+    m["instruction_pack"]["sha256"] = sha256_json({"name": m["instruction_pack"]["name"], "version": m["instruction_pack"]["version"], "files": m["files"]})
+    (rewritten / "MANIFEST.json").write_text(json.dumps(m), encoding="utf-8")
+    assert m["instruction_pack"]["sha256"] != release["sha256"]
+    refused = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(rewritten)], capture_output=True, text=True, env=env, timeout=120)
+    assert refused.returncode == 2 and refused.stdout == "" and "is not the instruction pack of this repository's combinator release" in refused.stderr
+    assert release["sha256"][:16] in refused.stderr and m["instruction_pack"]["sha256"][:16] in refused.stderr
+    allowed = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(rewritten), "--allow-other-release"],
+                             capture_output=True, text=True, env=env, timeout=120)
+    assert allowed.returncode == 0 and "allowed by --allow-other-release" in allowed.stderr
+    assert json.loads(allowed.stdout)["synthesis_format"]["instruction_pack"] == m["instruction_pack"]
+    same = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(_export(tmp_path / "again"))],
+                          capture_output=True, text=True, env=env, timeout=120, check=True)
+    assert json.loads(same.stdout)["synthesis_format"]["instruction_pack"] == release and same.stderr == ""

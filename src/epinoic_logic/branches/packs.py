@@ -20,7 +20,8 @@ from typing import Optional
 
 from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
-from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes
+from ..adapters.markdown import (MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes,
+                                 verification_label)
 from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
@@ -917,19 +918,34 @@ class CorePack:
 
     @staticmethod
     def _self_certification(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
-        """CORE-SELF-001: verification-status vocabulary in the response body. An agent's
-        statement about its own checking is advisory and ignored; status comes only from
-        signed engine results. The message never repeats the certifying words."""
+        """CORE-SELF-001: verification-status vocabulary in the response body, or a verification label on a sentence
+        (``markdown.verification_label``: "Verified: ...", "... (verified).", "..., as formally verified.", "Checked.").
+        An agent's statement about its own checking is advisory and ignored; status comes only from signed engine
+        results. A label attached to content leaves the content a claim like any other (the parsers keep its role), so
+        its message says so. The message never repeats the certifying words."""
         out: list[StructuralFinding] = []
         seen: set[str] = set()
         for pi, si, sent, _para in _sentences_for(report.original_response, reading):
-            if not SELF_CERT_RE.search(sent):
+            vocabulary = SELF_CERT_RE.search(sent) is not None
+            label = None if vocabulary else verification_label(sent)
+            if not vocabulary and label is None:
                 continue
             key = " ".join(sent.split())
             if key in seen:
                 continue
             seen.add(key)
-            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material", claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+            if vocabulary:
+                message = (f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel "
+                           "receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material")
+            elif label.position == "whole":
+                message = (f"paragraph {pi}, sentence {si} is nothing but a verification-status label (an agent certifying its own output); agent "
+                           "self-reports are advisory and ignored, and the label is no claim of the answer and no evidence of a check")
+            else:
+                where = {"before": "in front of", "after": "after"}.get(label.position, "inside")
+                message = (f"paragraph {pi}, sentence {si} carries a verification-status label {where} its content (an agent certifying its own output); "
+                           "agent self-reports are advisory and ignored: the label is no evidence that anything was checked, and the content it is "
+                           "attached to is a claim like any other")
+            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=message, claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epinoic-combinator"
-version = "0.1.0"
+version = "0.1.1"
 description = "Epinoic AI combinator: a separate agent that combines the specialists' answers to one request into one synthesis, run on the cheapest tier through a provider interface, its every output validated against the translator's published synthesis contract (epinoic.integration.combinator-port.v1) before it leaves. The translator's hub stays the independent checker of every synthesis."
 readme = "README.md"
 requires-python = ">=3.11"

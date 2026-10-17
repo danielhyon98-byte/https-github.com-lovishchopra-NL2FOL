@@ -34,7 +34,8 @@ synthesis vocabulary, the port rules) in `src/epinoic_combinator/contract/`, cop
    kept exactly; no note, self-certification, decline or question carried back as a claim; every dropped claim listed
    with its reason; no contradiction merged or hidden (`conflicts`); the exact output format and nothing else.
 4. **Named refusals**: every malformed output (prose or a code fence around it, not an object, a key outside the format,
-   a value outside a closed set, an unknown citation, too large) and every failure of the provider is a refusal with its
+   a value outside a closed set, a source claim cited twice by one synthesized claim, an unknown citation, too large) and
+   every failure of the provider is a refusal with its
    reason and its `KIT-CB` code, the same code the port gives the same message; nothing raises.
 5. **Never out of contract**: whatever the provider returns, nothing leaves that `check_output` or `check_refusal`
    refuses (generated provider texts), and on the combinator-port vectors and on generated outputs its own checks give
@@ -45,7 +46,8 @@ synthesis vocabulary, the port rules) in `src/epinoic_combinator/contract/`, cop
 The first release (`combinator/tests/`) shows all six. The kit runs that suite and shows the other side
 (`tests/integration/test_combinator_subproject.py`): a faithful synthesis passes the hub, and each misrepresentation the
 combinator lets out because it is in contract (a dropped qualifier, a stronger certainty, a merged contradiction, an
-invented figure, a wrong attribution, a carried self-certification) is named by the hub on the synthesized claim.
+invented figure, a wrong attribution, a carried self-certification, a self-certification label on a content claim) is
+named by the hub on the synthesized claim.
 
 ## What the service guarantees whatever the combinator does (phase 2 connects it)
 

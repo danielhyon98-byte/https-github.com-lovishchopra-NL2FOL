@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print the claim records the infrastructure extracts from a specialist output file,
 so a dummy combinator can cite them and a translation provider can formalize them.
-Usage: list_claims.py <specialist.json> [--eligible] [--json] [--instructions <dir>]
+Usage: list_claims.py <specialist.json> [--eligible] [--json] [--instructions <dir> [--allow-other-release]]
 
 A peer-dependent task (``peer_of``) is listed with the peer's report supplied as the document
 ``peer:<task>`` when <round>/relayed/<task_id>.json exists, as the hub supplies it. Every source
@@ -22,10 +22,15 @@ in the JSON), read from its exported instruction pack, the one ``python -m epino
 process, so this script never imports it). The pack is checked against its manifest, and its transformation
 values, what each records and the certainty words against the synthesis contract itself
 (``integrity.contracts.TRANSFORMATION_MEANINGS``), so they can never drift from what the hub accepts: a pack
-that names other values is refused (exit status 2). A transformation is one of those words, never a description
-of the edit: the hub refuses any other value (INT-REQ-009 with INT-SYNTH-014) and the synthesis is not
-delivered. Brief a combinator agent with the pack's ``INSTRUCTIONS.md`` and this script's ``--json`` output for each
-report (scripts/arena/README.md, "Synthesis format")."""
+that names other values is refused (exit status 2). While the combinator sub-project is in this repository, a given
+export must also be the instruction pack of this repository's release (its name, version and digest, read from an
+export the sub-project writes in its own isolated process): a rewritten ``INSTRUCTIONS.md`` with a recomputed
+manifest is refused (exit status 2) unless ``--allow-other-release`` explicitly allows another release's
+instructions (said on standard error). Without the sub-project here, only the manifest and the format file are
+checked. A transformation is one of those words, never a description of the edit: the hub refuses any other value
+(INT-REQ-009 with INT-SYNTH-014) and the synthesis is not delivered. Brief a combinator agent with the pack's
+``INSTRUCTIONS.md`` and this script's ``--json`` output for each report (scripts/arena/README.md, "Synthesis
+format")."""
 from __future__ import annotations
 
 import hashlib
@@ -53,26 +58,50 @@ def _refuse(message: str) -> None:
     sys.exit(2)
 
 
-def combinator_pack(instructions: Path | None) -> tuple[dict, dict]:
+def _isolated_export(tmp: str) -> Path:
+    """The instruction pack of this repository's combinator release, exported now by the sub-project's own exporter in
+    its own isolated process (``python -I``: this script never imports the sub-project)."""
+    proc = subprocess.run([sys.executable, "-I", "-c", _EXPORT, str(COMBINATOR_SRC), tmp], capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        _refuse("the combinator's exporter failed: " + (proc.stderr.strip().splitlines() or ["no message"])[-1][:200])
+    return Path(tmp)
+
+
+def _read_export(directory: Path) -> tuple[dict, dict[str, bytes]]:
+    try:
+        manifest = json.loads((directory / "MANIFEST.json").read_text(encoding="utf-8"))
+        files = {name: (directory / name).read_bytes() for name in PACK_FILES}
+    except (OSError, ValueError) as exc:
+        _refuse(f"{directory} holds no exported combinator pack ({type(exc).__name__})")
+    if not isinstance(manifest, dict):
+        _refuse(f"{directory} holds no exported combinator pack (its manifest is not an object)")
+    return manifest, files
+
+
+def _shown(pack: dict) -> str:
+    return f"{pack.get('name')} {pack.get('version')} sha256={str(pack.get('sha256'))[:16]}..."
+
+
+def combinator_pack(instructions: Path | None, *, allow_other_release: bool = False) -> tuple[dict, dict]:
     """The manifest and the output format of the combinator agent's exported instructions: the export in
     ``instructions``, else one the sub-project of this repository writes now in its own isolated process. Refused when
     the files are not the manifest's, the pack's digest is not theirs, or the format names other closed values than
-    the hub's synthesis contract."""
+    the hub's synthesis contract; and, while the combinator sub-project is in this repository, when a given export is
+    not the instruction pack of this repository's release (its identity, from an isolated export of the sub-project),
+    unless ``allow_other_release`` (``--allow-other-release``) explicitly allows another release's instructions. Without
+    the sub-project here, a given export is checked against its manifest and its format file against the contract only."""
     from epinoic_logic.integration.canonical import sha256_json
+    here = (COMBINATOR_SRC / "epinoic_combinator").is_dir()
+    release: dict | None = None
     with tempfile.TemporaryDirectory(prefix="combinator-pack-") as tmp:
-        directory = instructions
-        if directory is None:
-            if not (COMBINATOR_SRC / "epinoic_combinator").is_dir():
+        if instructions is None:
+            if not here:
                 _refuse("no combinator sub-project in this repository: pass --instructions <dir>, an export of epinoic_combinator")
-            proc = subprocess.run([sys.executable, "-I", "-c", _EXPORT, str(COMBINATOR_SRC), tmp], capture_output=True, text=True, timeout=120)
-            if proc.returncode != 0:
-                _refuse("the combinator's exporter failed: " + (proc.stderr.strip().splitlines() or ["no message"])[-1][:200])
-            directory = Path(tmp)
-        try:
-            manifest = json.loads((directory / "MANIFEST.json").read_text(encoding="utf-8"))
-            files = {name: (directory / name).read_bytes() for name in PACK_FILES}
-        except (OSError, ValueError) as exc:
-            _refuse(f"{directory} holds no exported combinator pack ({type(exc).__name__})")
+            manifest, files = _read_export(_isolated_export(tmp))
+        else:
+            manifest, files = _read_export(instructions)
+            if here:
+                release = _read_export(_isolated_export(tmp))[0].get("instruction_pack") or {}
     digests = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
     pack = manifest.get("instruction_pack") or {}
     if manifest.get("files") != digests or pack.get("sha256") != sha256_json({"name": pack.get("name"), "version": pack.get("version"), "files": digests}):
@@ -82,6 +111,16 @@ def combinator_pack(instructions: Path | None) -> tuple[dict, dict]:
     if list(fmt.get("transformation") or {}) != list(contract) or fmt["transformation"] != contract \
             or fmt.get("certainty") != sorted(CERTAINTY_RANK, key=CERTAINTY_RANK.get, reverse=True):
         _refuse("the combinator's exported instructions name other transformation or certainty values than the hub's synthesis contract")
+    if release is not None and {k: pack.get(k) for k in ("name", "version", "sha256")} != {k: release.get(k) for k in ("name", "version", "sha256")}:
+        if not allow_other_release:
+            _refuse(f"the exported pack {_shown(pack)} is not the instruction pack of this repository's combinator release ({_shown(release)}): "
+                    "export it again with python -m epinoic_combinator.export --out <dir>, or pass --allow-other-release to brief the agents with "
+                    "another release's instructions")
+        print(f"list_claims.py: the exported pack {_shown(pack)} is another release's than this repository's ({_shown(release)}); "
+              "allowed by --allow-other-release", file=sys.stderr)
+    elif instructions is not None and not here:
+        print("list_claims.py: no combinator sub-project in this repository: the export is checked against its manifest and its output format "
+              "against the synthesis contract only", file=sys.stderr)
     return manifest, fmt
 
 
@@ -104,7 +143,8 @@ if item.get("peer_of"):
 only_eligible = "--eligible" in sys.argv
 as_json = "--json" in sys.argv
 _instructions = sys.argv[sys.argv.index("--instructions") + 1] if "--instructions" in sys.argv[:-1] else None
-SYNTHESIS_FORMAT = synthesis_format(*combinator_pack(Path(_instructions).resolve() if _instructions else None))
+SYNTHESIS_FORMAT = synthesis_format(*combinator_pack(Path(_instructions).resolve() if _instructions else None,
+                                                     allow_other_release="--allow-other-release" in sys.argv))
 branch, profile = default_registry().for_subject(item["subject"])
 texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
 group = item.get("group") or spec_path.stem  # tasks of one group share one hub task and request, as in run_arena.py

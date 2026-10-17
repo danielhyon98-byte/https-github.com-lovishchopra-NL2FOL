@@ -97,8 +97,8 @@ def test_the_identity_is_stable_and_changes_with_any_byte_or_the_version():
     for name in PACK_FILES:
         changed = {**PACK.files, name: PACK.files[name] + b" "}
         assert pack_sha256(PACK.name, PACK.version, changed) != PACK.sha256
-    assert pack_sha256(PACK.name, "1.1", PACK.files) != PACK.sha256
-    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.0", "sha256": PACK.sha256}
+    assert pack_sha256(PACK.name, PACK.version + ".1", PACK.files) != PACK.sha256  # another version, whatever this release's is
+    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.1", "sha256": PACK.sha256}
 
 
 def test_export_writes_the_pack_and_a_manifest_read_export_accepts(tmp_path):

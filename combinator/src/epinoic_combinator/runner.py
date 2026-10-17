@@ -20,15 +20,16 @@ The steps, each of which can only refuse:
    ``{claim_ids, description}`` conflicts (prose or a code fence around it is ``output_not_json``; another key at any
    level, a missing key or a value of the wrong kind is ``output_invalid``; more than :data:`MAX_AGENT_OUTPUT_BYTES`
    is ``output_too_large``); a transformation outside the closed vocabulary is ``transformation_unknown``
-   (``KIT-CB-003``), decided first, as the port decides it; a citation of a claim the input does not hold is
+   (``KIT-CB-003``), decided first, as the port decides it; a synthesized claim citing a source claim twice is
+   ``output_invalid``; a citation of a claim the input does not hold is
    ``source_claim_unknown`` (``KIT-CB-004``); a synthesis text over the port's limit is ``output_too_large``
    (``KIT-CB-006``);
 4. the runner wraps it into the port message (the request's ids, the pack's digest; ``evidence_refs`` null, so the
    service attaches the references it keeps) and checks the whole message once more against the contract.
 
 Nothing here judges whether the synthesis is faithful: a dropped qualifier, an inflated certainty, a merged
-contradiction, an invented figure, a wrong attribution or a carried self-certification is in contract and leaves; the
-hub, the independent checker of every synthesis, names it. ``run`` never raises: an unexpected error is the refusal
+contradiction, an invented figure, a wrong attribution, a carried self-certification or a verification label on a
+claim is in contract and leaves; the hub, the independent checker of every synthesis, names it. ``run`` never raises: an unexpected error is the refusal
 ``internal_error``. No retry, no second call: one input, at most one provider call, one result.
 """
 from __future__ import annotations

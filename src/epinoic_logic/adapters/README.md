@@ -26,7 +26,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   counts, so hi-t13's closing "Note: Paper 2 essays are marked out of 15 ..." is no second body
   paragraph and counts toward no bound, while "Note that ..." with no colon stays the argument's own
   signpost), disclaimers told apart from
-  self-certifications (`is_self_certification`: a positive check only, so "should be checked
+  self-certifications (`is_self_certification`; a verification label, `verification_label`: "Verified: ...",
+  "... (verified).", "[verified] ...", "..., as formally verified.", a sentence that is nothing but the label being
+  a self-certification and a label on content leaving the content a claim; a positive check only, so "should be checked
   before they are cited", "have not been verified", "must be verified" and "unverified" are
   notes with no self-report; the semantic rule covers a sentence about the answer or its items,
   "every figure", "all of these figures", "the figures here", "every quotation above", with a

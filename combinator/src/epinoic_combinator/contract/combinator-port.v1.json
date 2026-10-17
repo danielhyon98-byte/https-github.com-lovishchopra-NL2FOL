@@ -7,7 +7,7 @@
   "output_check_order": [
     "not a JSON object: KIT-CB-002",
     "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
-    "the schema, and a conflict naming a claim twice: KIT-CB-002",
+    "the schema, a synthesized claim citing a source claim twice and a conflict naming a claim twice: KIT-CB-002",
     "another request: KIT-CB-002",
     "another instruction pack: KIT-CB-005",
     "a citation the input does not hold: KIT-CB-004",

@@ -36,6 +36,10 @@ helpers so that
   word limit.", "The answer meets every constraint in the request.", "Word count: 258."; the router or
   the Overseer passing the answer) is recognised by every branch the same way
   (:func:`is_self_certification`);
+* a verification label an agent writes on its own text ("Verified: ...", "[verified] ...", "... (verified).", "...,
+  as formally verified.", "Checked."), wherever it stands, is read the same way on every branch and in a synthesis
+  (:func:`verification_label`): a sentence that is nothing but the label is a self-certification, and a label attached
+  to content leaves the content a claim while the hub names the label (CORE-SELF-001, INT-LEDGER-029);
 * a note on how the answer was composed ("The historical setting is my own addition, not
   part of that paragraph.", "The English specialist's paragraph is from the hub"), on what a
   received report says of its own items ("That account marks its figures as "from memory", so
@@ -73,7 +77,7 @@ import functools
 import itertools
 import json
 import re
-from typing import Optional
+from typing import NamedTuple, Optional
 
 __all__ = [
     "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
@@ -84,7 +88,7 @@ __all__ = [
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
-    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE",
+    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "VerificationLabel", "verification_label",
 ]
 
 BOM = "\ufeff"
@@ -463,6 +467,53 @@ def _sourced_kind(subject: str) -> str:
     if _SOURCED_ANCHOR_RE.search(subject):
         return "anchored"
     return "quoted" if _SOURCED_QUOTING_RE.search(subject) else "weak"
+
+
+# ---- the verification-label rule (:func:`verification_label`): a bare verification-status label an agent writes on its
+# own text, standing for the whole sentence ("Verified.", "(checked)"), in front of its content ("Verified: ...",
+# "[verified] ...", "Fact-checked — ..."), after it ("... (verified).", "..., as formally verified.", "...; checked.") or
+# bracketed inside it. Decided by the label's shape, not by listed sentences.
+#: The label's checking participle. "proved" (a proof's closing word), accuracy adjectives ("correct") and a participle
+#: under negation or a modal ("unverified", "not checked", "to be verified") are never a label here.
+_LABEL_WORD = (r"(?:verified|checked|confirmed|validated|certified|corroborated|audited|proof-?read|fact[- ]?checked|double[- ]checked"
+               r"|triple[- ]checked|cross[- ]checked|re-?checked|re-?verified)")
+_LABEL_ADVERB = (r"(?:(?:all|fully|formally|independently|now|already|thoroughly|carefully|individually|externally|manually|automatically"
+                 r"|rigorously|duly|personally|each|both|also)\s+)*")
+#: Who checked, when the label names it: the infrastructure or the writer ("verified by Z3", "checked by me"); a label
+#: credited to anyone else ("confirmed by Engels") cites a source and is not a self-report.
+_LABEL_BY = (rf"(?:\s+by\s+(?:{_INFRASTRUCTURE}|(?:me|myself|us|ourselves|the\s+(?:writer|author|specialist)|this\s+specialist)\b))")
+_LABEL_AGAINST = (r"(?:\s+(?:against|with)\s+the\s+(?:supplied|original|source|given|provided)\s+"
+                  r"(?:texts?|extracts?|documents?|sources?|passages?|poems?|data|figures))")
+_LABEL_PHRASE = rf"{_LABEL_ADVERB}{_LABEL_WORD}(?:\s*(?:,|&|/|\band\b)\s*{_LABEL_ADVERB}{_LABEL_WORD})*{_LABEL_BY}?{_LABEL_AGAINST}?"
+#: A status written as a key and its value: "Verification: passed", "Check status: OK", "Fact-check: complete".
+_LABEL_STATUS = (r"(?:verification|checks?|fact[- ]?check(?:ing)?)(?:\s+status)?\s*:\s*"
+                 r"(?:passed|complete|completed|done|ok|okay|successful|clean|verified|confirmed|checked)\b")
+_LABEL = rf"(?:{_LABEL_STATUS}|{_LABEL_PHRASE})"
+_LABEL_PLACE = r"(?:\s+(?:above|here|below|earlier|throughout|in\s+full))?"
+#: Punctuation, brackets, quotation marks and emphasis around a label (never a question mark: "Verified?" asks).
+_LABEL_NON_WORD = r"(?:[^\w?]|_)"
+_LABEL_BRACKETED = rf"(?:\[\s*{_LABEL}\s*[.!]?\s*\]|\(\s*{_LABEL}\s*[.!]?\s*\))"
+_LABEL_WHOLE_RE = re.compile(rf"^{_LABEL_NON_WORD}*{_LABEL}{_LABEL_PLACE}{_LABEL_NON_WORD}*$", re.IGNORECASE)
+#: A label in front of the content: bracketed, or a capitalised label ("Verified:", "CHECKED —"; a lower-case "checked:"
+#: is more likely a name in code) closed by a colon or a dash.
+_LABEL_BEFORE_RE = re.compile(
+    rf"^{_LABEL_NON_WORD}*?(?:{_LABEL_BRACKETED}|(?=(?-i:[A-Z])){_LABEL}[*_`]*\s*(?::|[—–]|\s-\s))[\s*_`]*(?=\S)", re.IGNORECASE)
+_LABEL_AFTER_RE = re.compile(
+    rf"(?:{_LABEL_BRACKETED}|,\s*as\s+{_LABEL}{_LABEL_PLACE}|(?:;|:|[—–]|\s-)\s*(?:as\s+)?{_LABEL}{_LABEL_PLACE}){_LABEL_NON_WORD}*$",
+    re.IGNORECASE)
+_LABEL_INSIDE_RE = re.compile(_LABEL_BRACKETED, re.IGNORECASE)
+#: Cheap pre-filter for the label rule: a sentence with none of these stems carries no label.
+_LABEL_CUE_RE = re.compile(r"verif|check|confirm|validat|certif|corroborat|audit|proof", re.IGNORECASE)
+_LABEL_CONTENT_RE = re.compile(r"[^\W_]")
+
+
+class VerificationLabel(NamedTuple):
+    """A verification-status label a sentence carries (:func:`verification_label`): where it stands (``whole``: the
+    sentence is nothing but the label; ``before``, ``after`` or ``inside`` its content) and the label as written."""
+    position: str
+    label: str
+
+
 #: Cheap pre-filter for the structural rule: a sentence with none of these stems certifies nothing.
 _SELF_CUE_RE = re.compile(
     r"check|verif|confirm|validat|corroborat|audit|proof|compar|match|accura|correct|exact|reliab|sound|right|error|faithful|verbatim|trust"
@@ -632,6 +683,8 @@ def _self_certification(sentence: str) -> bool:
         return True
     if _FIRST_PERSON_CHECK_RE.search(sentence) or _SELF_LEAD_RE.match(sentence):
         return True
+    if _LABEL_CUE_RE.search(sentence) and _LABEL_WHOLE_RE.match(sentence):
+        return True  # nothing but a verification label ("Verified.", "(checked)", "Verification: passed.")
     cue = _SELF_CUE_RE.search(sentence) is not None
     if cue and (_positive(_NOTHING_NEEDS_CHECK_RE, sentence)
                 or (_SELF_SUBJECT_KINDS_RE.search(sentence) is not None and _positive(_NO_FURTHER_CHECK_RE, sentence))):
@@ -698,12 +751,64 @@ def is_self_certification(sentence: str) -> bool:
       against the supplied extract");
     * the infrastructure (Z3, the engine, solver, verifier, checker, hub, channel, router, translator, Overseer,
       combinator) as the agent of a certifying verb with the answer or its items as what it passed ("The router has
-      confirmed that every item is addressed", "The Overseer signed off on this answer").
+      confirmed that every item is addressed", "The Overseer signed off on this answer");
+    * a sentence that is nothing but a verification label ("Verified.", "(checked)", "Fact-checked and confirmed.",
+      "Verification: passed."; :func:`verification_label`, position ``whole``). A label attached to content ("Verified:
+      The constitution was adopted in August 1919.") is not a self-certification of the sentence: the content stays a
+      claim, and the hub names the label on its own (CORE-SELF-001, INT-LEDGER-029).
 
     Only a POSITIVE predicate counts: a check under negation or a deontic modal ("The dates in this paragraph have not
     been checked", "... are from memory and should be checked before they are cited", "must be verified") is a
     disclaimer, never a self-certification. Answers are cached per sentence (pure function of the text)."""
     return _self_certification(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _self_certification.__wrapped__(sentence)
+
+
+@functools.lru_cache(maxsize=8192)
+def _verification_label(sentence: str) -> Optional[VerificationLabel]:
+    if not _LABEL_CUE_RE.search(sentence):
+        return None
+    masked = mask_quotations(sentence.strip())  # a quoted label is the quoted text's, not the writer's
+    if not _LABEL_CUE_RE.search(masked):
+        return None
+    if _LABEL_WHOLE_RE.match(masked):
+        return VerificationLabel("whole", masked.strip()[:200])
+    m = _LABEL_BEFORE_RE.match(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked, m.end()):
+        return VerificationLabel("before", masked[:m.end()].strip()[:200])
+    m = _LABEL_AFTER_RE.search(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked[:m.start()]):
+        return VerificationLabel("after", masked[m.start():].strip()[:200])
+    m = _LABEL_INSIDE_RE.search(masked)
+    if m is not None:
+        return VerificationLabel("inside", m.group(0).strip()[:200])
+    return None
+
+
+def verification_label(sentence: str) -> Optional[VerificationLabel]:
+    """The verification-status label ``sentence`` carries, or ``None``: an agent's own checking participle written as a
+    label on its text, the same way on every branch and in a synthesis, read with the sentence's quotations masked:
+
+    * ``whole``: the sentence is nothing but the label ("Verified.", "(checked)", "[verified]", "Fact-checked and
+      confirmed.", "Verification: passed."), which :func:`is_self_certification` also reads as a self-certification;
+    * ``before`` its content: bracketed ("[verified] ...", "(Checked) ...") or a capitalised label closed by a colon or a
+      dash ("Verified: ...", "Checked: ...", "Formally verified — ...", "VERIFIED by the Z3 engine: ...");
+    * ``after`` its content: bracketed at the end ("... in August 1919 (verified).", "... [checked]"), after "as" and a
+      comma ("..., as formally verified.", "..., as checked above.", "..., as verified by the engine.") or after a
+      semicolon, a colon or a dash ("...; verified.", "... — checked.");
+    * ``inside`` it: a bracketed label within the sentence ("The figure (verified) is 6 million.").
+
+    The label's words are a checking participle ("verified", "checked", "confirmed", "validated", "certified",
+    "fact-checked", "cross-checked", ...), with adverbs ("formally", "independently"), joined ("checked and verified"),
+    credited to the infrastructure or the writer ("by Z3", "by the hub", "by me") or made "against the supplied text".
+    A participle under negation or a modal ("unverified", "(not checked)", "(to be verified)"), credited to another
+    agent ("..., as confirmed by Engels.", "(checked by the Registrar General)"), followed by more content ("..., as later
+    confirmed in 1921.", "Checked at the Marne, the advance stalled.", "The census figures were, in 1925, verified.") or
+    asked ("Verified?") is no label; "proved" and accuracy adjectives ("correct") are not labels here. A label is an
+    agent self-report: advisory, never evidence that anything was checked (CORE-SELF-001 on a specialist's sentence,
+    INT-LEDGER-029 on a synthesized claim). Cached per sentence (pure function of the text)."""
+    if not sentence:
+        return None
+    return _verification_label(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _verification_label.__wrapped__(sentence)
 
 
 def is_task_note(sentence: str) -> bool:

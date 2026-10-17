@@ -26,8 +26,10 @@ It combines the specialists' answers to this one request and nothing else; it wr
 of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized` (a category, never a description of the edit);
 certainty is never stronger than the weakest source; every figure, unit, mark, date and quotation is kept exactly as
 the source states it; qualifiers and attributions are kept; a note, a self-certification, a decline or a question is
-never carried back as a claim; a contradiction is never merged or hidden but listed in `conflicts`; every dropped claim
-is listed with its reason; it writes the exact output format and nothing else:
+never carried back as a claim, and no verification label ("Verified:", "(checked)") is put on one (a source claim
+that carries one is written without it, as `narrowed`); a synthesized claim cites each source claim once; a
+contradiction is never merged or hidden but listed in `conflicts`; every dropped claim is listed with its reason; it
+writes the exact output format and nothing else:
 
 ```
 {"claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "...", "transformation": "..."}],
@@ -50,7 +52,7 @@ document with a closed `reason` and its `KIT-CB` code; it never raises (only a `
 | `input_not_json`, `input_invalid` | `KIT-CB-001` | the service's input is out of contract (the refusal names no request) |
 | `pack_mismatch` | `KIT-CB-005` | the input pins another instruction pack than this release's |
 | `provider_unavailable`, `provider_failed`, `provider_no_text` | `KIT-CB-002` | no provider, a provider on another tier, a provider that raised or gave no text |
-| `output_not_json`, `output_not_object`, `output_invalid` | `KIT-CB-002` | the agent wrote anything but one JSON object in the exact format |
+| `output_not_json`, `output_not_object`, `output_invalid` | `KIT-CB-002` | the agent wrote anything but one JSON object in the exact format (a synthesized claim citing a source claim twice, or a conflict naming one twice, included) |
 | `transformation_unknown` | `KIT-CB-003` | a transformation outside the five words (decided first, as the port decides it) |
 | `source_claim_unknown` | `KIT-CB-004` | a citation of a claim the input does not hold |
 | `output_too_large` | `KIT-CB-006` | more than 262,144 bytes from the agent, or a synthesis text over 49,152 bytes |
@@ -59,8 +61,8 @@ document with a closed `reason` and its `KIT-CB` code; it never raises (only a `
 The agent is called once (no retry). Its output is validated against the published contract twice before it leaves:
 in the agent's own, stricter format, then as the port message. **The runner checks the contract, never the
 faithfulness**: an inflated certainty, a dropped qualifier, a merged contradiction, an invented figure, a wrong
-attribution or a carried self-certification is in contract and leaves, and the translator's hub, the independent
-checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`). Nothing the
+attribution, a carried self-certification or a verification label on a claim is in contract and leaves, and the
+translator's hub, the independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`). Nothing the
 combinator says about its own work is trusted.
 
 ## The published contract

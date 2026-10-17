@@ -7,7 +7,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
 | `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`) |
-| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export) |
+| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
@@ -43,12 +43,19 @@ agent writes the output object to `<round>/syntheses/<task_id>.json`:
 - `transformation` is exactly one of those five words, a category of what was done to the cited sources, never a
   description of the edit. What each records is `TRANSFORMATION_MEANINGS` in `src/epinoic_logic/integrity/contracts.py`,
   word for word in the exported format: `list_claims.py` refuses (exit status 2) an export whose values or meanings are
-  not the contract's, or whose files are not its manifest's, so the instructions cannot drift from what the hub accepts.
-  Without `--instructions` it exports the sub-project of this repository in the sub-project's own isolated process (it
-  never imports it).
+  not the contract's, or whose files are not its manifest's. While `combinator/` is in this repository it also refuses
+  an export that is not this repository's combinator release: the export's instruction pack (name, version, SHA-256)
+  must be the one an isolated export of the sub-project writes, so a rewritten `INSTRUCTIONS.md` with a recomputed
+  manifest is refused too, unless `--allow-other-release` explicitly allows another release's instructions (said on
+  standard error). Only then can neither file drift from what this repository's hub and combinator accept. Without
+  `combinator/` here (a split repository), only the manifest and `output-format.json` are checked against the
+  contract; `INSTRUCTIONS.md` is then checked against its manifest only. Without `--instructions` it exports the
+  sub-project of this repository in the sub-project's own isolated process (it never imports it).
 - `certainty` is never stronger than the weakest cited source (INT-LEDGER-003); figures, units, marks, dates and
   quotations are kept exactly as the source states them; a note, a self-certification, a decline or a question is never
-  carried back as a claim (INT-LEDGER-029); every source claim left out goes in `dropped` with a meaningful reason; a
+  carried back as a claim, and no verification label ("Verified:", "(checked)") is put on one (INT-LEDGER-029); a
+  synthesized claim cites each source claim once (the combinator's runner refuses a repeated citation, KIT-CB-002); every
+  source claim left out goes in `dropped` with a meaningful reason; a
   contradiction is disclosed in `conflicts`, never merged (INT-CONFLICT-002).
 - Any other value (free text, an alias such as "joined", another spelling) is refused by the hub: the synthesis is
   REJECTED with INT-REQ-009 and INT-SYNTH-014 naming each claim, and it is not delivered. So is a file that is not JSON,

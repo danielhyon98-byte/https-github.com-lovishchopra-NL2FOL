@@ -561,7 +561,12 @@ class HistorySpecialistAdapter:
                     assumptions.append(f"a quotation mark in this sentence cannot be paired; the span '{shown}' was not delimited, was attributed to no text and was not checked")
                 if not note:
                     for n in notes:
-                        assumptions.append(f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and its dated items are from memory")
+                        if is_self_report(n):  # a verification label or a self-certification written inline ("(verified)", "; checked"): never a from-memory label
+                            assumptions.append(f"the sentence carries a verification-status label or self-certification inline ('{n[:200]}'): an agent self-report, "
+                                               "advisory and ignored; it is kept out of the claim's role, is no evidence of a check, and the claim's certainty is "
+                                               "capped at 'probable' as under any inline label")
+                        else:
+                            assumptions.append(f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and its dated items are from memory")
                 if attributed:
                     assumptions.append("the sentence attributes this view to a peer specialist; it is the colleague's claim, not the History specialist's own, and its certainty is capped at 'probable'")
                 dated = has_dated_item(body)
