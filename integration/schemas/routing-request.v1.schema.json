@@ -1,0 +1,551 @@
+{
+  "$defs": {
+    "ClaimsFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible": {
+          "maximum": 512,
+          "minimum": 0,
+          "title": "Eligible",
+          "type": "integer"
+        },
+        "material": {
+          "maximum": 512,
+          "minimum": 0,
+          "title": "Material",
+          "type": "integer"
+        },
+        "total": {
+          "maximum": 512,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "translated": {
+          "maximum": 512,
+          "minimum": 0,
+          "title": "Translated",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "material",
+        "eligible",
+        "translated"
+      ],
+      "title": "ClaimsFeature",
+      "type": "object"
+    },
+    "ConstraintFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "constraint_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "max_words",
+            "min_words",
+            "max_paragraphs",
+            "min_paragraphs",
+            "must_cite_supplied_text",
+            "must_address_all_items",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]{1,9}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "constraint_id",
+        "kind"
+      ],
+      "title": "ConstraintFeature",
+      "type": "object"
+    },
+    "OutputFeatures": {
+      "additionalProperties": false,
+      "description": "One specialist output (or the combinator's output) as features: its size, its claims, the engine statuses of its\nclaims and branch checks, its receipt's finding codes, its named diagnostics, its unverified dependencies, the peer\nrelays and the repeated faults that concern it.",
+      "properties": {
+        "agent_id": {
+          "maxLength": 72,
+          "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "branch": {
+          "pattern": "^[a-z][a-z_]{0,63}$",
+          "title": "Branch",
+          "type": "string"
+        },
+        "claims": {
+          "$ref": "#/$defs/ClaimsFeature"
+        },
+        "diagnostics": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "engine_statuses": {
+          "additionalProperties": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Engine Statuses",
+          "type": "object"
+        },
+        "peer_relays": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Peer Relays",
+          "type": "integer"
+        },
+        "receipt": {
+          "$ref": "#/$defs/ReceiptFeature"
+        },
+        "repeated_faults": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Repeated Faults",
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "answer",
+            "synthesis"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/SizeFeature"
+        },
+        "stem": {
+          "title": "Stem",
+          "type": "boolean"
+        },
+        "subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "transfer_key": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Transfer Key",
+          "type": "string"
+        },
+        "unverified_dependencies": {
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Unverified Dependencies",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "transfer_key",
+        "role",
+        "agent_id",
+        "subject",
+        "branch",
+        "stem",
+        "size",
+        "claims",
+        "receipt",
+        "unverified_dependencies",
+        "peer_relays",
+        "repeated_faults"
+      ],
+      "title": "OutputFeatures",
+      "type": "object"
+    },
+    "ReceiptFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "error_codes": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4}(?:/[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4})?$",
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Error Codes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "ACCEPTED",
+            "ACCEPTED_WITH_FINDINGS",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "warning_codes": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4}(?:/[A-Z][A-Z0-9]{0,15}(?:-[A-Z0-9]{1,16}){1,4})?$",
+            "type": "string"
+          },
+          "maxItems": 128,
+          "title": "Warning Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ReceiptFeature",
+      "type": "object"
+    },
+    "RequestFeatures": {
+      "additionalProperties": false,
+      "description": "The user's request as features: subjects, STEM or not, the request items and constraints (ids, kinds, command\nterms; never their text) and the supplied texts by digest.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/ConstraintFeature"
+          },
+          "maxItems": 64,
+          "title": "Constraints",
+          "type": "array"
+        },
+        "course_level": {
+          "enum": [
+            "SL",
+            "HL",
+            "unknown"
+          ],
+          "title": "Course Level",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/RequestItemFeature"
+          },
+          "maxItems": 64,
+          "title": "Items",
+          "type": "array"
+        },
+        "stem": {
+          "title": "Stem",
+          "type": "boolean"
+        },
+        "subjects": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Subjects",
+          "type": "array"
+        },
+        "supplied_texts": {
+          "items": {
+            "$ref": "#/$defs/SuppliedTextFeature"
+          },
+          "maxItems": 16,
+          "title": "Supplied Texts",
+          "type": "array"
+        },
+        "task_type": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Task Type",
+          "type": "string"
+        },
+        "user_text_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "User Text Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subjects",
+        "stem",
+        "task_type",
+        "course_level",
+        "user_text_sha256"
+      ],
+      "title": "RequestFeatures",
+      "type": "object"
+    },
+    "RequestIds": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "RequestIds",
+      "type": "object"
+    },
+    "RequestItemFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "command_term": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z ]{0,39}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Term"
+        },
+        "item_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "instruction"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "kind",
+        "required"
+      ],
+      "title": "RequestItemFeature",
+      "type": "object"
+    },
+    "RoutingLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_instances": {
+          "maximum": 64,
+          "minimum": 2,
+          "title": "Max Instances",
+          "type": "integer"
+        },
+        "profiles": {
+          "items": {
+            "enum": [
+              "standard",
+              "fast"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Profiles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "max_instances",
+        "profiles"
+      ],
+      "title": "RoutingLimits",
+      "type": "object"
+    },
+    "SizeFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "chars": {
+          "maximum": 400000,
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "paragraphs": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Paragraphs",
+          "type": "integer"
+        },
+        "words": {
+          "maximum": 200000,
+          "minimum": 0,
+          "title": "Words",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chars",
+        "words",
+        "paragraphs"
+      ],
+      "title": "SizeFeature",
+      "type": "object"
+    },
+    "SuppliedTextFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "chars": {
+          "maximum": 400000,
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "document_id": {
+          "pattern": "^[A-Za-z0-9._:/-]{1,200}$",
+          "title": "Document Id",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "sha256",
+        "chars"
+      ],
+      "title": "SuppliedTextFeature",
+      "type": "object"
+    },
+    "Topology": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "single",
+            "duplicate",
+            "combined"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Sources",
+          "type": "array"
+        },
+        "synthesis": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synthesis"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Topology",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ids": {
+      "$ref": "#/$defs/RequestIds"
+    },
+    "limits": {
+      "$ref": "#/$defs/RoutingLimits"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/OutputFeatures"
+      },
+      "maxItems": 17,
+      "minItems": 1,
+      "title": "Outputs",
+      "type": "array"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/RequestFeatures"
+    },
+    "schema": {
+      "const": "epinoic.integration.routing-request.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "topology": {
+      "$ref": "#/$defs/Topology"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "ids",
+    "request",
+    "outputs",
+    "topology",
+    "limits"
+  ],
+  "title": "RoutingRequest",
+  "type": "object"
+}

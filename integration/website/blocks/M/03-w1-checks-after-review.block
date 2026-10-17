@@ -1,0 +1,7 @@
+kit-block: W1
+file: public/chat-contract.js
+anchor: if (!REVIEW_STATES.includes(result.review)) return "review";
+mode: after-line
+---
+  const checks = verifiedChecksProblem(result);
+  if (checks !== null) return checks;

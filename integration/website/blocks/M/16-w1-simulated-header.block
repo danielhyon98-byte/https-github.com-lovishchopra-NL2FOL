@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat.js
+anchor: outcome.mock = response.headers.get("X-Chat-Backend") === "mock";
+mode: after-line
+---
+    outcome.simulated = outcome.mock || response.headers.get("X-Chat-Simulated") === "1";

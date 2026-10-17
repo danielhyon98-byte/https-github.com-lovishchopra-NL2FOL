@@ -1,0 +1,292 @@
+{
+  "$defs": {
+    "Ids": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "Ids",
+      "type": "object"
+    },
+    "RuntimeRef": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "pattern": "^epinoic\\.[a-z0-9.-]{1,120}$",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "schema": {
+          "pattern": "^epinoic\\.[a-z0-9.-]{1,120}$",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "contract_version"
+      ],
+      "title": "RuntimeRef",
+      "type": "object"
+    },
+    "SpecialistAnswer": {
+      "additionalProperties": false,
+      "description": "``epinoic.integration.specialist-answer.v1``: the runtime's output wrapped, never changed (PROTOCOL.md section 4).\n\n``log`` is the runtime's own ``redactForLog(result)`` without its ``turn`` and ``usage`` members; its shape is checked\nper result schema by :func:`epinoic_logic.integration.specialist_port.check_answer`. ``result_sha256`` is the digest\nof the whole frozen result, computed in the Worker; the service echoes it and never recomputes it.",
+      "properties": {
+        "agent_id": {
+          "maxLength": 72,
+          "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "answer": {
+          "maxLength": 49152,
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "answer_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Answer Sha256",
+          "type": "string"
+        },
+        "log": {
+          "additionalProperties": true,
+          "title": "Log",
+          "type": "object"
+        },
+        "protocol": {
+          "const": "epinoic.integration.v1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "result_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Result Sha256",
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeRef"
+        },
+        "schema": {
+          "const": "epinoic.integration.specialist-answer.v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "protocol",
+        "agent_id",
+        "runtime",
+        "log",
+        "answer",
+        "answer_sha256",
+        "result_sha256"
+      ],
+      "title": "SpecialistAnswer",
+      "type": "object"
+    },
+    "SuppliedTextIn": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Document Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 49152,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "document_id",
+        "text"
+      ],
+      "title": "SuppliedTextIn",
+      "type": "object"
+    },
+    "TaskIn": {
+      "additionalProperties": false,
+      "properties": {
+        "course_level": {
+          "default": "unknown",
+          "enum": [
+            "SL",
+            "HL",
+            "unknown"
+          ],
+          "title": "Course Level",
+          "type": "string"
+        },
+        "route": {
+          "anyOf": [
+            {
+              "enum": [
+                "history",
+                "english"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Route"
+        },
+        "slug": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Slug",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "supplied_texts": {
+          "items": {
+            "$ref": "#/$defs/SuppliedTextIn"
+          },
+          "maxItems": 16,
+          "title": "Supplied Texts",
+          "type": "array"
+        },
+        "task_type": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Task Type",
+          "type": "string"
+        },
+        "user_text": {
+          "maxLength": 49152,
+          "minLength": 1,
+          "title": "User Text",
+          "type": "string"
+        },
+        "user_text_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "User Text Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "subject",
+        "task_type",
+        "user_text",
+        "user_text_sha256"
+      ],
+      "title": "TaskIn",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``POST /v1/turns/check`` (``epinoic.integration.turn-check.v1``, PROTOCOL.md section 5.1).",
+  "properties": {
+    "answers": {
+      "items": {
+        "$ref": "#/$defs/SpecialistAnswer"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Answers",
+      "type": "array"
+    },
+    "budget_ms": {
+      "minimum": 1,
+      "title": "Budget Ms",
+      "type": "integer"
+    },
+    "ids": {
+      "$ref": "#/$defs/Ids"
+    },
+    "mode": {
+      "enum": [
+        "single",
+        "duplicate",
+        "combined"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "policy": {
+      "enum": [
+        "verified-v1",
+        "verified-v1-qualify"
+      ],
+      "title": "Policy",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "revision_of": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision Of"
+    },
+    "schema": {
+      "const": "epinoic.integration.turn-check.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "task": {
+      "$ref": "#/$defs/TaskIn"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "mode",
+    "ids",
+    "task",
+    "answers",
+    "policy",
+    "budget_ms"
+  ],
+  "title": "TurnCheckRequest",
+  "type": "object"
+}

@@ -1,0 +1,135 @@
+{
+ "schema": "epinoic.integration.agents-patch.v1",
+ "note": "Agents changes A3 and A5 (integration/agents/PATCH-PLAN.md) as kit-authored replacements at short anchors of the agents repository's own files. Applied only to an archive copy by integration/agents/apply-agents.mjs, never to a checkout or branch of the agents repository without its owner's go (decision D20: a branch of that repository).",
+ "agents_commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+ "replacements": [
+  {
+   "id": "A3-1",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "    $Z3_PY -I integration/z3/check_answer.py [--mode dispatch|receive] INPUT.json > OUTPUT.json\n",
+   "replace": "    $Z3_PY -I integration/z3/check_answer.py [--simulation] [--mode dispatch|receive] INPUT.json > OUTPUT.json\n\n--simulation is the only mode, and the default: the hub signs with a public simulation key, so nothing this script\nprints is a signed result outside the simulation. Any other option is refused (exit 2, error \"simulation_only\").\n",
+   "why": "the hard-coded key stays behind the explicit simulation mode, and every other mode is refused"
+  },
+  {
+   "id": "A3-2",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "     \"formal\": bool}], \"counts\": {\"error\": n, \"warning\": n, \"info\": n}, \"engine_errors\": n, \"versions\": {...}}\n\"\"\"\n",
+   "replace": "     \"formal\": bool}], \"counts\": {\"error\": n, \"warning\": n, \"info\": n}, \"engine_errors\": n, \"versions\": {...},\n     \"reply\": {\"message_id\", \"payload_sha256\", \"signature_key_id\", \"signed\"} | null, \"simulation\": true}\n\nThe claim texts of the findings come from the reply the hub delivered (its signed payload), never from the hub's\ninternal state; \"reply\" names that delivery, and is null when the hub delivered nothing (a REJECTED receipt).\n\"\"\"\n",
+   "why": "the output names the signed reply it was read from"
+  },
+  {
+   "id": "A3-3",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "KEY = b\"simulation-only-signing-key-not-secret-0001\"\nAGENT = \"specialist\"\n",
+   "replace": "#: The simulation's public signing key, used only in the simulation mode (the only mode: see the usage above).\nKEY = b\"simulation-only-signing-key-not-secret-0001\"\nMODES = (\"--simulation\",)\n\n\ndef agent_for(slug: str) -> str:\n    \"\"\"The hub's name of a slug's specialist, as the arena and the translator's checks port name it (\"<slug>-specialist\"),\n    so the hub's credit rules read \"the <subject> specialist\" in an answer as this agent.\"\"\"\n    return slug if slug.endswith(\"-specialist\") else f\"{slug}-specialist\"\n",
+   "why": "the specialist is named as the hub's credit rules expect"
+  },
+  {
+   "id": "A3-4",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "    argv = sys.argv[1:]\n    mode = \"receive\"\n",
+   "replace": "    argv = [a for a in sys.argv[1:] if a not in MODES]\n    mode = \"receive\"\n    if any(a.startswith(\"--\") and a != \"--mode\" for a in argv):\n        print(json.dumps({\"schema\": \"epinoic.z3-answer-check.v1\", \"ok\": False, \"status\": \"ERROR\", \"error\": \"simulation_only\"}))\n        return 2\n",
+   "why": "refuse to run in any mode but the simulation"
+  },
+  {
+   "id": "A3-5",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "selected_agent_ids=[AGENT]))\n",
+   "replace": "selected_agent_ids=[agent_for(slug)]))\n",
+   "why": "the specialist is named as the hub's credit rules expect"
+  },
+  {
+   "id": "A3-6",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "hub.dispatch(\"t\", AGENT, data[\"request\"], supplied)\n",
+   "replace": "hub.dispatch(\"t\", agent_for(slug), data[\"request\"], supplied)\n",
+   "why": "the specialist is named as the hub's credit rules expect"
+  },
+  {
+   "id": "A3-7",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "        _reply, rc = hub.receive(\"t\", msg.message_id, data[\"answer\"], agent_id=AGENT, report_id=\"r1\")\n        claims = {}\n        for rep in hub.channels[\"t\"].transmitted_reports.values():\n            for c in rep.claims:\n                claims[c.claim_id] = c.claim_text\n",
+   "replace": "        reply, rc = hub.receive(\"t\", msg.message_id, data[\"answer\"], agent_id=agent_for(slug), report_id=\"r1\")\n        # The claim texts come from the reply the hub delivered (its signed payload), never from the hub's internals.\n        claims = {}\n        for c in (((reply.payload or {}).get(\"claims\") or []) if reply is not None else []):\n            if isinstance(c, dict) and isinstance(c.get(\"claim_id\"), str):\n                claims[c[\"claim_id\"]] = c.get(\"claim_text\", \"\")\n",
+   "why": "read the delivered reply, not the channel's private transmitted reports"
+  },
+  {
+   "id": "A3-8",
+   "file": "integration/z3/check_answer.py",
+   "mode": "text",
+   "anchor": "            versions={k: getattr(v, k) for k in dir(v) if k.endswith(\"VERSION\")},\n        )\n",
+   "replace": "            versions={k: getattr(v, k) for k in dir(v) if k.endswith(\"VERSION\")},\n            reply=None if reply is None else {\"message_id\": reply.message_id, \"payload_sha256\": reply.payload_sha256,\n                                              \"signature_key_id\": reply.signature_key_id, \"signed\": bool(reply.signature)},\n            simulation=True,\n        )\n",
+   "why": "forward the signed reply's id and digest"
+  },
+  {
+   "id": "A5-1",
+   "file": "simulation/workflows/real-agent-training-cycle.js",
+   "mode": "text",
+   "anchor": "const HV = A.harnessVersion || 3\n",
+   "replace": "const HV = A.harnessVersion || 3\n// Adjudicator mode (agents change A5; the translator kit's decision D18). \"advisory\", the default: the adjudicator's\n// rulings are recorded and shown, and every Z3 error finding still blocks, so no model ruling can clear a formal error.\n// \"authoritative\" reproduces the runs made before A5 (a checker_artefact ruling removed that finding's blocker).\nconst ADJUDICATOR = A.adjudicator || 'advisory'\nif (!['advisory', 'authoritative'].includes(ADJUDICATOR)) throw new Error('args.adjudicator must be \"advisory\" or \"authoritative\"')\n",
+   "why": "the adjudicator's power to clear a formal error is removed by default"
+  },
+  {
+   "id": "A5-2",
+   "file": "simulation/workflows/real-agent-training-cycle.js",
+   "mode": "text",
+   "anchor": "    const z3Confirmed = Math.max(0, z3Blocks.length - artefacts)\n",
+   "replace": "    const z3Confirmed = ADJUDICATOR === 'authoritative' ? Math.max(0, z3Blocks.length - artefacts) : z3Blocks.length\n",
+   "why": "in the advisory mode every Z3 error finding blocks"
+  },
+  {
+   "id": "A5-3",
+   "file": "simulation/workflows/real-agent-training-cycle.js",
+   "mode": "text",
+   "anchor": "      z3Adjudicated: adj ? { confirmed: z3Confirmed, artefacts } : null,\n",
+   "replace": "      z3Adjudicated: adj ? { confirmed: z3Confirmed, artefacts, mode: ADJUDICATOR } : null,\n",
+   "why": "the round records the mode its blockers were counted under"
+  },
+  {
+   "id": "A5-4",
+   "file": "simulation/tools/report.mjs",
+   "mode": "text",
+   "anchor": "//       [--runs-dir <dir> --roster <json> --slugs a,b --header \"<text>\"]\n",
+   "replace": "//       [--runs-dir <dir> --roster <json> --slugs a,b --header \"<text>\"] [--adjudicator advisory|authoritative]\n",
+   "why": "the report states the adjudicator mode it counts blockers under"
+  },
+  {
+   "id": "A5-5",
+   "file": "simulation/tools/report.mjs",
+   "mode": "text",
+   "anchor": "// Effective deterministic result. Z3 error findings (z3:INT-*) are ruled by an adjudicator\n// where the round has z3-adjudication.json; without one they all count (strict). Gate\n// failures and unsatisfied Z3 constraints always block.\n",
+   "replace": "// Effective deterministic result. Z3 error findings (z3:INT-*) are ruled by an adjudicator\n// where the round has z3-adjudication.json; without one they all count (strict). Gate\n// failures and unsatisfied Z3 constraints always block.\n// --adjudicator advisory (the default; agents change A5, the translator kit's decision D18): the rulings are listed,\n// and every Z3 error finding blocks. --adjudicator authoritative reproduces a report of a run made before A5.\nconst ADJUDICATOR = opt.adjudicator ?? \"advisory\";\nif (![\"advisory\", \"authoritative\"].includes(ADJUDICATOR)) throw new Error(\"--adjudicator must be advisory or authoritative\");\n",
+   "why": "the report counts blockers as the workflow does"
+  },
+  {
+   "id": "A5-6",
+   "file": "simulation/tools/report.mjs",
+   "mode": "text",
+   "anchor": "  const confirmed = z3.length - artefacts;\n",
+   "replace": "  const confirmed = ADJUDICATOR === \"authoritative\" ? z3.length - artefacts : z3.length;\n",
+   "why": "in the advisory mode every Z3 error finding blocks"
+  },
+  {
+   "id": "A5-7",
+   "file": "simulation/tools/report.mjs",
+   "mode": "text",
+   "anchor": "(adjudicated: ${confirmed} confirmed, ${artefacts} artefact${artefacts === 1 ? \"\" : \"s\"})",
+   "replace": "(adjudicated, ${ADJUDICATOR}: ${confirmed} blocking, ${artefacts} ruled artefact${artefacts === 1 ? \"\" : \"s\"})",
+   "why": "the round's line says which mode counted its blockers"
+  },
+  {
+   "id": "A5-8",
+   "file": "simulation/tools/report.mjs",
+   "mode": "text",
+   "anchor": "`- Deterministic blocking rounds (after Z3 adjudication where present): ${totals.detBlocking};",
+   "replace": "`- Deterministic blocking rounds (Z3 adjudication ${ADJUDICATOR}): ${totals.detBlocking};",
+   "why": "the totals say which mode counted the blockers"
+  }
+ ]
+}

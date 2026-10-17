@@ -1,0 +1,105 @@
+{
+  "agent_id": "history",
+  "expect": {
+    "code": "KIT-REQ-012",
+    "envelope": null
+  },
+  "log": {
+    "answerPresent": false,
+    "completion": {
+      "textUtf8Bytes": null
+    },
+    "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+    "dispatch": {
+      "authorization": "declined",
+      "callbackInvocations": 1
+    },
+    "failure": {
+      "code": "budget_unavailable",
+      "stage": "authorization"
+    },
+    "gate": {
+      "checks": [],
+      "configVersion": "history-gate-config/0.3.0",
+      "kind": "deterministic-format-policy",
+      "limitations": [],
+      "status": "not_run",
+      "version": "history-gate/0.3.0"
+    },
+    "generation": null,
+    "outcome": "declined",
+    "provenance": {
+      "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+      "claims": null,
+      "gateConfigVersion": "history-gate-config/0.3.0",
+      "gateVersion": "history-gate/0.3.0",
+      "kbVersion": "synthetic-kb-0",
+      "libraryManifestVersion": null,
+      "manifestVersion": "synthetic-offline-test.0",
+      "mode": "pilot-single-turn-no-tools",
+      "retrieval": null,
+      "runtimeNoticeVersion": null,
+      "slug": "history",
+      "sourceCommit": "synthetic-no-commit",
+      "sourceRepo": "synthetic/offline-fixture",
+      "toolsRun": []
+    },
+    "resultSchema": "epinoic.specialist-turn-result.v2",
+    "schema": "epinoic.specialist-turn-log.v2",
+    "turn": {
+      "attemptId": "a_00000000000000000000000000000001",
+      "turnId": "t_00000000000000000000000000000001",
+      "turnVersion": 1
+    }
+  },
+  "name": "v2-declined",
+  "result": {
+    "answer": null,
+    "completion": {
+      "textUtf8Bytes": null
+    },
+    "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+    "dispatch": {
+      "authorization": "declined",
+      "callbackInvocations": 1
+    },
+    "failure": {
+      "code": "budget_unavailable",
+      "stage": "authorization"
+    },
+    "gate": {
+      "checks": [],
+      "configVersion": "history-gate-config/0.3.0",
+      "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+      "kind": "deterministic-format-policy",
+      "limitations": [],
+      "status": "not_run",
+      "version": "history-gate/0.3.0"
+    },
+    "generation": null,
+    "outcome": "declined",
+    "provenance": {
+      "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+      "claims": null,
+      "gateConfigVersion": "history-gate-config/0.3.0",
+      "gateVersion": "history-gate/0.3.0",
+      "kbVersion": "synthetic-kb-0",
+      "libraryManifestVersion": null,
+      "manifestVersion": "synthetic-offline-test.0",
+      "mode": "pilot-single-turn-no-tools",
+      "retrieval": null,
+      "runtimeNoticeVersion": null,
+      "slug": "history",
+      "sourceCommit": "synthetic-no-commit",
+      "sourceRepo": "synthetic/offline-fixture",
+      "toolsRun": []
+    },
+    "schema": "epinoic.specialist-turn-result.v2",
+    "turn": {
+      "attemptId": "a_00000000000000000000000000000001",
+      "conversationId": "synthetic-conv-1",
+      "turnId": "t_00000000000000000000000000000001",
+      "turnVersion": 1
+    }
+  }
+}

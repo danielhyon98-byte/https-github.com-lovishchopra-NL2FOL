@@ -1,0 +1,257 @@
+{
+  "badge_cases": [
+    {
+      "badge": [
+        "Partly checked (encoding only)",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        }
+      ],
+      "name": "one-positive-of-eight-encoding-only",
+      "policy": "verified-v1",
+      "summary": "formal_only"
+    },
+    {
+      "badge": [
+        "Partly checked (encoding only)",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "AMBIGUOUS_TRANSLATION",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": false
+        }
+      ],
+      "name": "an-ambiguous-material-claim-and-a-positive-one",
+      "policy": "verified-v1",
+      "summary": "formal_only"
+    },
+    {
+      "badge": [
+        "Partly checked",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": true
+        },
+        {
+          "attempt": "attempted",
+          "formal": "INVALID_FORMALIZATION",
+          "materiality": "material",
+          "release_permitted": false
+        }
+      ],
+      "name": "a-permitted-positive-and-an-invalid-formalization",
+      "policy": "verified-v1",
+      "summary": "partly_checked"
+    },
+    {
+      "badge": [
+        "Partly checked (encoding only)",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "CONSISTENT",
+          "materiality": "material",
+          "release_permitted": false
+        }
+      ],
+      "name": "every-material-claim-positive-in-its-encoding-only",
+      "policy": "verified-v1",
+      "summary": "formal_only"
+    },
+    {
+      "badge": [
+        "Automatic checks passed",
+        "is-ok"
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": true
+        },
+        {
+          "attempt": "attempted",
+          "formal": "CONSISTENT",
+          "materiality": "material",
+          "release_permitted": true
+        },
+        {
+          "attempt": "not_eligible",
+          "formal": "NOT_ELIGIBLE",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "supporting",
+          "release_permitted": false
+        }
+      ],
+      "name": "every-material-claim-positive-and-permitted",
+      "policy": "verified-v1",
+      "summary": "formally_checked"
+    },
+    {
+      "badge": [
+        "Not formally checked",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "UNSUPPORTED",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "not_eligible",
+          "formal": "NOT_ELIGIBLE",
+          "materiality": "material",
+          "release_permitted": false
+        }
+      ],
+      "name": "no-positive-result",
+      "policy": "verified-v1",
+      "summary": "not_formally_checkable"
+    },
+    {
+      "badge": [
+        "Some checks unavailable",
+        null
+      ],
+      "claims": [
+        {
+          "attempt": "attempted",
+          "formal": "UNKNOWN",
+          "materiality": "material",
+          "release_permitted": false
+        },
+        {
+          "attempt": "attempted",
+          "formal": "ENTAILED",
+          "materiality": "material",
+          "release_permitted": true
+        }
+      ],
+      "name": "a-check-unavailable-under-the-qualify-policy",
+      "policy": "verified-v1-qualify",
+      "summary": "incomplete"
+    }
+  ],
+  "badges": {
+    "formal_only": [
+      "Partly checked (encoding only)",
+      null
+    ],
+    "formally_checked": [
+      "Automatic checks passed",
+      "is-ok"
+    ],
+    "incomplete": [
+      "Some checks unavailable",
+      null
+    ],
+    "not_formally_checkable": [
+      "Not formally checked",
+      null
+    ],
+    "partly_checked": [
+      "Partly checked",
+      null
+    ]
+  },
+  "forbidden_words": [
+    "verified",
+    "true",
+    "proven",
+    "Reviewed"
+  ],
+  "labels": {
+    "AMBIGUOUS_TRANSLATION": "Not formally checked: more than one reading.",
+    "INTERNAL_ERROR": "Check unavailable.",
+    "INVALID_FORMALIZATION": "Not formally checked.",
+    "NOT_ATTEMPTED": "Check unavailable.",
+    "NOT_ELIGIBLE": "Not eligible for a formal check.",
+    "TIMEOUT": "Check unavailable.",
+    "UNKNOWN": "Check unavailable.",
+    "UNSUPPORTED": "Not formally checked.",
+    "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",
+    "positive_other": "The logic encoding passed a formal check; the encoding and its premises were not independently established."
+  },
+  "unknown_summary_badge": [
+    "Not formally checked",
+    null
+  ]
+}

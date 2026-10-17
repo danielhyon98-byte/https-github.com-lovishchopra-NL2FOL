@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "InputIds": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "request_id"
+      ],
+      "title": "InputIds",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A combinator's named refusal: no output in contract left the sub-agent. ``detail`` names positions, rules and\nlengths, never the agent's prose.",
+  "properties": {
+    "code": {
+      "enum": [
+        "KIT-CB-001",
+        "KIT-CB-002",
+        "KIT-CB-003",
+        "KIT-CB-004",
+        "KIT-CB-005",
+        "KIT-CB-006"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Detail",
+      "type": "string"
+    },
+    "ids": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InputIds"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "instruction_pack_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Instruction Pack Sha256",
+      "type": "string"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "input_not_json",
+        "input_invalid",
+        "pack_mismatch",
+        "provider_unavailable",
+        "provider_failed",
+        "provider_no_text",
+        "output_not_json",
+        "output_not_object",
+        "output_invalid",
+        "transformation_unknown",
+        "source_claim_unknown",
+        "output_too_large",
+        "internal_error"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.combinator-refusal.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "instruction_pack_sha256",
+    "code",
+    "reason",
+    "detail"
+  ],
+  "title": "CombinatorRefusal",
+  "type": "object"
+}

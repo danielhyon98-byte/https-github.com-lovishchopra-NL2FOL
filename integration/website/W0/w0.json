@@ -1,0 +1,70 @@
+{
+ "schema": "epinoic.integration.website-w0.v1",
+ "base": "M",
+ "website_commit": "2cd318208980e5b236d16b4281dfc0560a7b9610",
+ "note": "W0, the website's docs change that records the 17 October 2026 requirement and lifts gate G0 (PATCH-PLAN.md, W0). Only Bruno merges it. A session writes it only as a patch file for Bruno (draft-w0.mjs --patch) and never applies it to a checkout or a branch. The anchors are short website phrases (as in ANCHORS.md); every replacement text is kit-authored.",
+ "modes": {
+  "text": "the anchor, an exact phrase that occurs once in the file, is replaced in place",
+  "line": "the one line that starts with the anchor is replaced whole",
+  "tail": "the anchor, which occurs once, and the rest of its line are replaced"
+ },
+ "g0_after": "lifted",
+ "replacements": [
+  {
+   "file": "docs/current-state.md",
+   "mode": "text",
+   "anchor": "Z3 remains deferred.",
+   "replace": "Z3 is required on the delivery path of real answers (decision recorded 17 October 2026, superseding the 12 October deferral); website integration follows the translator's protocol `epinoic.integration.v1` (kit tag `integration-kit-v1`) and is not yet applied or deployed.",
+   "count": 1
+  },
+  {
+   "file": "docs/current-state.md",
+   "mode": "line",
+   "anchor": "- **Deferred:** website integration of the Z3 logic translator.",
+   "replace": "- **Required, not yet integrated (17 October 2026):** website integration of the Z3 logic translator, through the translator's protocol `epinoic.integration.v1` (kit tag `integration-kit-v1`): a verified backend that releases a real answer only on a bound verdict of the checks service. Until its reviewed pull requests merge, the website has no translator client, no `/v1/outcomes` call and no formal-check badge, and labels no answer as checked. The translator parts of `docs/drafts/chat-architecture-design.md` and `docs/handoff/04-logic-translator.md` are superseded by the protocol and kept as reference; Daniel's repositories are unchanged by this record. The Flash-family fallback router is still deferred.",
+   "count": 1
+  },
+  {
+   "file": "docs/current-state.md",
+   "mode": "text",
+   "anchor": "Deferred: the Flash-family fallback router and website integration of the Z3 logic translator.",
+   "replace": "Deferred: the Flash-family fallback router. Required and not yet integrated: website integration of the Z3 logic translator (protocol `epinoic.integration.v1`).",
+   "count": 1
+  },
+  {
+   "file": "docs/architecture.md",
+   "mode": "line",
+   "anchor": "Formal verification of answers by the Z3 logic translator is **deferred**",
+   "replace": "Formal verification of answers by the Z3 logic translator is **required** on the delivery path of real answers (decision recorded 17 October 2026, superseding the deferral of October 12, 2026): a verified backend wraps the specialist orchestrator, calls the translator's checks service through protocol `epinoic.integration.v1` and releases an answer only on a verdict bound to that exact answer that says deliver; it is not integrated yet. The earlier design is kept as reference in `docs/drafts/chat-architecture-design.md`, superseded by the protocol.",
+   "count": 1
+  },
+  {
+   "file": "docs/handoff/05-integration-planning-brief.md",
+   "mode": "line",
+   "anchor": "| 25 | Website Z3 integration stays deferred",
+   "replace": "| 25 | Every released answer requires the checks port; integration follows `epinoic.integration.v1` (decision recorded 17 October 2026, superseding the 12 October deferral; the decisions it depends on are in §10). | `docs/current-state.md`; `docs/architecture.md` |",
+   "count": 1
+  },
+  {
+   "file": "docs/handoff/04-logic-translator.md",
+   "mode": "line",
+   "anchor": "> **Deferred by Bruno's decision of 12 October 2026.",
+   "replace": "> **Superseded (17 October 2026).** Website integration of the Z3 logic translator now follows the translator's protocol `epinoic.integration.v1` (kit tag `integration-kit-v1`), recorded in `docs/current-state.md`; it supersedes the design of this handoff, which is kept unchanged below as reference. It is not a work request, and nothing in it asks for changes to the translator repository.",
+   "count": 1
+  },
+  {
+   "file": "docs/drafts/chat-architecture-design.md",
+   "mode": "line",
+   "anchor": "> **Deferral notice (Bruno's decision, 12 October 2026).**",
+   "replace": "> **Superseded notice (17 October 2026).** Website integration of the Z3 logic translator follows the translator's protocol `epinoic.integration.v1` (kit tag `integration-kit-v1`), recorded in `docs/current-state.md`; it supersedes the translator parts below, which are kept unchanged as reference, not as a plan of record. Nothing in this notice changes Daniel's repositories.",
+   "count": 1
+  },
+  {
+   "file": "docs/drafts/chat-architecture-design.md",
+   "mode": "tail",
+   "anchor": "| **Deferred.** No translator client,",
+   "replace": "| **Superseded** by protocol `epinoic.integration.v1` (17 October 2026): kept as reference only; the website adds these parts only through its reviewed integration pull requests. |",
+   "count": 1
+  }
+ ]
+}

@@ -1,0 +1,708 @@
+{
+ "answer": {
+  "log": {
+   "answerPresent": true,
+   "completion": {
+    "textUtf8Bytes": 90
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": null,
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_absent",
+      "id": "sources-line",
+      "status": "pass"
+     }
+    ],
+    "configVersion": "history-gate-config/0.3.0",
+    "kind": "deterministic-format-policy",
+    "limitations": [
+     {
+      "check": "sources-line",
+      "element": "timed-exam-exception",
+      "status": "unsupported"
+     },
+     {
+      "check": "provisional-mark",
+      "element": "markscheme-exception",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "internal-code-leakage",
+      "element": "user-text-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "sources-line",
+      "element": "user-quote-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "url-policy",
+      "element": "mybib-not-evidence",
+      "status": "not-applicable-no-tools"
+     }
+    ],
+    "status": "passed",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": {
+    "clientRequestId": null,
+    "code": null,
+    "dispatch": "received",
+    "httpStatus": 200,
+    "incompleteReason": null,
+    "ms": 0,
+    "ok": true,
+    "provider": "anthropic",
+    "refusalCategory": null,
+    "requestId": "req_SYNTHETIC0001",
+    "state": "complete",
+    "usage": {
+     "cacheReadInputTokens": 0,
+     "cacheWrite1hInputTokens": 0,
+     "cacheWrite5mInputTokens": 0,
+     "cacheWriteInputTokens": 0,
+     "inferenceGeo": "global",
+     "inputTokens": 120,
+     "outputTokens": 48,
+     "reasoningOutputTokens": 0,
+     "serviceTier": "standard",
+     "status": "reported"
+    }
+   },
+   "outcome": "answer",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "resultSchema": "epinoic.specialist-turn-result.v2",
+   "schema": "epinoic.specialist-turn-log.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  },
+  "result": {
+   "answer": "SYNTHETIC answer: the Peace of Westphalia was signed in 1648, ending the Thirty Years War.",
+   "completion": {
+    "textUtf8Bytes": 90
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": null,
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_absent",
+      "id": "sources-line",
+      "status": "pass"
+     }
+    ],
+    "configVersion": "history-gate-config/0.3.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "limitations": [
+     {
+      "check": "sources-line",
+      "element": "timed-exam-exception",
+      "status": "unsupported"
+     },
+     {
+      "check": "provisional-mark",
+      "element": "markscheme-exception",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "internal-code-leakage",
+      "element": "user-text-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "sources-line",
+      "element": "user-quote-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "url-policy",
+      "element": "mybib-not-evidence",
+      "status": "not-applicable-no-tools"
+     }
+    ],
+    "status": "passed",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": {
+    "api": "anthropic.messages",
+    "clientRequestId": null,
+    "dispatch": "received",
+    "httpStatus": 200,
+    "incompleteReason": null,
+    "model": {
+     "reported": "synthetic-test-model",
+     "requested": "synthetic-test-model"
+    },
+    "ms": 0,
+    "ok": true,
+    "provider": "anthropic",
+    "refusal": null,
+    "requestId": "req_SYNTHETIC0001",
+    "responseId": "msg_SYNTHETIC0001",
+    "state": "complete",
+    "text": "SYNTHETIC answer: the Peace of Westphalia was signed in 1648, ending the Thirty Years War.",
+    "usage": {
+     "cacheReadInputTokens": 0,
+     "cacheWrite1hInputTokens": 0,
+     "cacheWrite5mInputTokens": 0,
+     "cacheWriteInputTokens": 0,
+     "inferenceGeo": "global",
+     "inputTokens": 120,
+     "outputTokens": 48,
+     "reasoningOutputTokens": 0,
+     "serviceTier": "standard",
+     "status": "reported"
+    }
+   },
+   "outcome": "answer",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "schema": "epinoic.specialist-turn-result.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  }
+ },
+ "declined": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "textUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "declined",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "budget_unavailable",
+    "stage": "authorization"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "history-gate-config/0.3.0",
+    "kind": "deterministic-format-policy",
+    "limitations": [],
+    "status": "not_run",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": null,
+   "outcome": "declined",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "resultSchema": "epinoic.specialist-turn-result.v2",
+   "schema": "epinoic.specialist-turn-log.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "textUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "declined",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "budget_unavailable",
+    "stage": "authorization"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "history-gate-config/0.3.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "limitations": [],
+    "status": "not_run",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": null,
+   "outcome": "declined",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "schema": "epinoic.specialist-turn-result.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  }
+ },
+ "gate_unverifiable": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "textUtf8Bytes": 122
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "sources_line_unclassified",
+    "stage": "gate"
+   },
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_unclassified",
+      "id": "sources-line",
+      "status": "unsupported"
+     }
+    ],
+    "configVersion": "history-gate-config/0.3.0",
+    "kind": "deterministic-format-policy",
+    "limitations": [
+     {
+      "check": "sources-line",
+      "element": "timed-exam-exception",
+      "status": "unsupported"
+     },
+     {
+      "check": "provisional-mark",
+      "element": "markscheme-exception",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "internal-code-leakage",
+      "element": "user-text-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "sources-line",
+      "element": "user-quote-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "url-policy",
+      "element": "mybib-not-evidence",
+      "status": "not-applicable-no-tools"
+     }
+    ],
+    "status": "unverifiable",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": {
+    "clientRequestId": null,
+    "code": null,
+    "dispatch": "received",
+    "httpStatus": 200,
+    "incompleteReason": null,
+    "ms": 0,
+    "ok": true,
+    "provider": "anthropic",
+    "refusalCategory": null,
+    "requestId": "req_SYNTHETIC0001",
+    "state": "complete",
+    "usage": {
+     "cacheReadInputTokens": 0,
+     "cacheWrite1hInputTokens": 0,
+     "cacheWrite5mInputTokens": 0,
+     "cacheWriteInputTokens": 0,
+     "inferenceGeo": "global",
+     "inputTokens": 120,
+     "outputTokens": 48,
+     "reasoningOutputTokens": 0,
+     "serviceTier": "standard",
+     "status": "reported"
+    }
+   },
+   "outcome": "gate_unverifiable",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "resultSchema": "epinoic.specialist-turn-result.v2",
+   "schema": "epinoic.specialist-turn-log.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "textUtf8Bytes": 122
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "admitted",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "sources_line_unclassified",
+    "stage": "gate"
+   },
+   "gate": {
+    "checks": [
+     {
+      "code": "complete",
+      "id": "completeness",
+      "status": "pass"
+     },
+     {
+      "code": "no_url",
+      "id": "url-policy",
+      "status": "pass"
+     },
+     {
+      "code": "no_internal_code",
+      "id": "internal-code-leakage",
+      "status": "pass"
+     },
+     {
+      "code": "no_awarded_marks",
+      "id": "provisional-mark",
+      "status": "pass"
+     },
+     {
+      "code": "sources_line_unclassified",
+      "id": "sources-line",
+      "status": "unsupported"
+     }
+    ],
+    "configVersion": "history-gate-config/0.3.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "limitations": [
+     {
+      "check": "sources-line",
+      "element": "timed-exam-exception",
+      "status": "unsupported"
+     },
+     {
+      "check": "provisional-mark",
+      "element": "markscheme-exception",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "internal-code-leakage",
+      "element": "user-text-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "sources-line",
+      "element": "user-quote-exemption",
+      "status": "deviation-awaiting-daniel"
+     },
+     {
+      "check": "url-policy",
+      "element": "mybib-not-evidence",
+      "status": "not-applicable-no-tools"
+     }
+    ],
+    "status": "unverifiable",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": {
+    "api": "anthropic.messages",
+    "clientRequestId": null,
+    "dispatch": "received",
+    "httpStatus": 200,
+    "incompleteReason": null,
+    "model": {
+     "reported": "synthetic-test-model",
+     "requested": "synthetic-test-model"
+    },
+    "ms": 0,
+    "ok": true,
+    "provider": "anthropic",
+    "refusal": null,
+    "requestId": "req_SYNTHETIC0001",
+    "responseId": "msg_SYNTHETIC0001",
+    "state": "complete",
+    "text": "SYNTHETIC answer: the Peace of Westphalia was signed in 1648, ending the Thirty Years War.\nSources: A. J. P. Taylor (1961)",
+    "usage": {
+     "cacheReadInputTokens": 0,
+     "cacheWrite1hInputTokens": 0,
+     "cacheWrite5mInputTokens": 0,
+     "cacheWriteInputTokens": 0,
+     "inferenceGeo": "global",
+     "inputTokens": 120,
+     "outputTokens": 48,
+     "reasoningOutputTokens": 0,
+     "serviceTier": "standard",
+     "status": "reported"
+    }
+   },
+   "outcome": "gate_unverifiable",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "schema": "epinoic.specialist-turn-result.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  }
+ },
+ "incomplete": {
+  "log": {
+   "answerPresent": false,
+   "completion": {
+    "textUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "unknown",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "callback_contract_violation",
+    "stage": "generation"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "history-gate-config/0.3.0",
+    "kind": "deterministic-format-policy",
+    "limitations": [],
+    "status": "not_run",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": null,
+   "outcome": "failed",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "resultSchema": "epinoic.specialist-turn-result.v2",
+   "schema": "epinoic.specialist-turn-log.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  },
+  "result": {
+   "answer": null,
+   "completion": {
+    "textUtf8Bytes": null
+   },
+   "contractVersion": "epinoic.specialist-runtime.v0.2.0",
+   "dispatch": {
+    "authorization": "unknown",
+    "callbackInvocations": 1
+   },
+   "failure": {
+    "code": "callback_contract_violation",
+    "stage": "generation"
+   },
+   "gate": {
+    "checks": [],
+    "configVersion": "history-gate-config/0.3.0",
+    "disclaimer": "Deterministic format and policy heuristics. Not factual, academic or formal verification.",
+    "kind": "deterministic-format-policy",
+    "limitations": [],
+    "status": "not_run",
+    "version": "history-gate/0.3.0"
+   },
+   "generation": null,
+   "outcome": "failed",
+   "provenance": {
+    "bundleSha256": "a8ec4dd5369633a03f91c735c3fca2365219a7e79e82f17d884db995d1322efe",
+    "claims": null,
+    "gateConfigVersion": "history-gate-config/0.3.0",
+    "gateVersion": "history-gate/0.3.0",
+    "kbVersion": "synthetic-kb-0",
+    "libraryManifestVersion": null,
+    "manifestVersion": "synthetic-offline-test.0",
+    "mode": "pilot-single-turn-no-tools",
+    "retrieval": null,
+    "runtimeNoticeVersion": null,
+    "slug": "history",
+    "sourceCommit": "synthetic-no-commit",
+    "sourceRepo": "synthetic/offline-fixture",
+    "toolsRun": []
+   },
+   "schema": "epinoic.specialist-turn-result.v2",
+   "turn": {
+    "attemptId": "a_00000000000000000000000000000001",
+    "conversationId": "synthetic-conv-1",
+    "turnId": "t_00000000000000000000000000000001",
+    "turnVersion": 1
+   }
+  }
+ }
+}

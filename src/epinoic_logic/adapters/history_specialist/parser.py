@@ -42,6 +42,10 @@ gold marks,") keeps its role and eligibility: ``markdown.split_note_clauses`` re
 label before the sentence is classified and the label is recorded once in the claim's
 assumptions; only a sentence whose core is empty is a note. Dated claims made under a
 from-memory label (anywhere in the answer or inline) are capped at certainty ``probable``.
+A claim the writer hedges is recorded with the hedge's certainty: this parser's own cues
+("suggests", "may have", "can be read as") and the hedges every parser reads outside
+quotations (``markdown.hedged_certainty``: "probably", "possibly", "might have", "most
+likely", ...), the weaker of the two.
 
 A sentence whose subject is a peer specialist's view ("The English specialist argues that
 ...", "The English specialist's phrase '...' fits that record") is roled ``perspective``:
@@ -74,8 +78,8 @@ from ...ir.schema import SourceRef
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, is_self_certification, split_list_items,  # noqa: F401
-                        split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
+from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, is_memory_label, is_self_certification,  # noqa: F401
+                        split_list_items, split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
 from ..sources import attribute_excerpt, check_excerpt  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
 from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
 from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
@@ -342,10 +346,11 @@ def is_note_paragraph(paragraph: str) -> bool:
 
 
 def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool = False) -> str:
-    """Agent-stated certainty from hedging cues; a claim made under a from-memory label
-    (``from_memory``: the sentence's own inline label, dated or not, or an answer-wide label for a
-    dated claim) or a view attributed to a peer (``attributed``) is capped at ``probable``, since the
-    specialist itself says the item is unverified recollection or a colleague's reading."""
+    """Agent-stated certainty from hedging cues (this parser's own, and the writer's hedges every parser reads outside
+    quotations, ``markdown.hedged_certainty``: "probably", "possibly", "might have", "most likely", ...; the weaker of the
+    two); a claim made under a from-memory label (``from_memory``: the sentence's own inline label, dated or not, or an
+    answer-wide label for a dated claim) or a view attributed to a peer (``attributed``) is capped at ``probable``, since
+    the specialist itself says the item is unverified recollection or a colleague's reading."""
     low = sentence.lower()
     if any(c in low for c in _POSSIBLE):
         level = "possible"
@@ -353,6 +358,9 @@ def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool =
         level = "probable"
     else:
         level = "established"
+    hedged = hedged_certainty(sentence)
+    if hedged is not None and _CERTAINTY_ORDER.index(hedged) > _CERTAINTY_ORDER.index(level):
+        level = hedged
     if (from_memory or attributed) and level == "established":
         level = "probable"
     return level
@@ -561,7 +569,12 @@ class HistorySpecialistAdapter:
                     assumptions.append(f"a quotation mark in this sentence cannot be paired; the span '{shown}' was not delimited, was attributed to no text and was not checked")
                 if not note:
                     for n in notes:
-                        assumptions.append(f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and its dated items are from memory")
+                        if is_self_report(n):  # a verification label or a self-certification written inline ("(verified)", "; checked"): never a from-memory label
+                            assumptions.append(f"the sentence carries a verification-status label or self-certification inline ('{n[:200]}'): an agent self-report, "
+                                               "advisory and ignored; it is kept out of the claim's role, is no evidence of a check, and the claim's certainty is "
+                                               "capped at 'probable' as under any inline label")
+                        else:
+                            assumptions.append(f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and its dated items are from memory")
                 if attributed:
                     assumptions.append("the sentence attributes this view to a peer specialist; it is the colleague's claim, not the History specialist's own, and its certainty is capped at 'probable'")
                 dated = has_dated_item(body)

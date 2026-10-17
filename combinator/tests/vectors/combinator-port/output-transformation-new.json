@@ -1,0 +1,127 @@
+{
+  "expect": {
+    "code": "KIT-CB-003",
+    "ok": false
+  },
+  "input": {
+    "ids": {
+      "request_id": "a_00000000000000000000000000000007",
+      "task_id": "t_00000000000000000000000000000007"
+    },
+    "instruction_pack": {
+      "name": "combinator-instructions",
+      "sha256": "9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a",
+      "version": "1.0"
+    },
+    "port_version": "1.0",
+    "protocol": "epinoic.integration.v1",
+    "schema": "epinoic.integration.combinator-input.v1",
+    "sources": [
+      {
+        "agent_id": "history",
+        "branch": "history",
+        "claims": [
+          {
+            "certainty": "established",
+            "claim_id": "h1.1",
+            "claim_text_sha256": "397d24894a15cdf0616fc46f030fefb3280dd4d95dcd3ad17668b28978b2da64",
+            "materiality": "material",
+            "role": "point",
+            "text": "SYNTHETIC: the treaty was signed in June 1919."
+          },
+          {
+            "certainty": "possible",
+            "claim_id": "h1.2",
+            "claim_text_sha256": "3e0edbf69c0af7423402a467765552ea6ea28107390d5000e19d2ad8cd5e1690",
+            "materiality": "supporting",
+            "role": "evidence",
+            "text": "SYNTHETIC: the reparations bill of 1921 may have weakened the finances."
+          },
+          {
+            "certainty": "established",
+            "claim_id": "h2.1",
+            "claim_text_sha256": "83fc06ad6b44d88a522bed2819c6a2e578ca097d8fc7eef34a323aee31cd363d",
+            "materiality": "supporting",
+            "role": "other",
+            "text": "SYNTHETIC: VERIFIED: all claims checked and confirmed."
+          }
+        ],
+        "report_id": "rep-h",
+        "subject": "History"
+      },
+      {
+        "agent_id": "economics",
+        "branch": "economics",
+        "claims": [
+          {
+            "certainty": "probable",
+            "claim_id": "g1.1@economics",
+            "claim_text_sha256": "7eb0c47f5918a8c1bfe2117cec3d9d05e3fc0a3199104a325882e141d640e4bc",
+            "materiality": "material",
+            "role": "point",
+            "text": "SYNTHETIC: hyperinflation peaked in November 1923."
+          }
+        ],
+        "report_id": "rep-e",
+        "subject": "Economics"
+      }
+    ],
+    "vocabulary": [
+      "carried",
+      "paraphrased",
+      "merged",
+      "narrowed",
+      "generalized"
+    ]
+  },
+  "kind": "output",
+  "message": {
+    "claims": [
+      {
+        "certainty": "established",
+        "evidence_refs": null,
+        "source_claim_ids": [
+          "h1.1"
+        ],
+        "text": "SYNTHETIC: the treaty was signed in June 1919.",
+        "transformation": "new"
+      },
+      {
+        "certainty": "possible",
+        "evidence_refs": null,
+        "source_claim_ids": [
+          "h1.2"
+        ],
+        "text": "SYNTHETIC: the reparations bill of 1921 may have weakened the finances.",
+        "transformation": "carried"
+      },
+      {
+        "certainty": "probable",
+        "evidence_refs": null,
+        "source_claim_ids": [
+          "g1.1@economics"
+        ],
+        "text": "SYNTHETIC: hyperinflation peaked in November 1923.",
+        "transformation": "carried"
+      }
+    ],
+    "conflicts": [],
+    "dropped": [
+      {
+        "reason": "a note of the specialist, not a claim of the answer",
+        "source_claim_ids": [
+          "h2.1"
+        ]
+      }
+    ],
+    "ids": {
+      "request_id": "a_00000000000000000000000000000007",
+      "task_id": "t_00000000000000000000000000000007"
+    },
+    "instruction_pack_sha256": "9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a",
+    "port_version": "1.0",
+    "protocol": "epinoic.integration.v1",
+    "schema": "epinoic.integration.combinator-output.v1"
+  },
+  "name": "output-transformation-new"
+}

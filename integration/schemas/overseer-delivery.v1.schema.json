@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "ConsolidationOut": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Basis",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "CONSOLIDATED",
+            "CONSOLIDATED_WITH_FINDINGS",
+            "CONFLICTING",
+            "NO_DELIVERABLE_OUTPUT"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "basis"
+      ],
+      "title": "ConsolidationOut",
+      "type": "object"
+    },
+    "DeliverableOut": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "maxLength": 72,
+          "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:@[ab])?|synthesis)$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "answer_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Answer Sha256",
+          "type": "string"
+        },
+        "message_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "message_id",
+        "answer_sha256"
+      ],
+      "title": "DeliverableOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed": {
+      "title": "Allowed",
+      "type": "boolean"
+    },
+    "consolidation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConsolidationOut"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "deliverable": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeliverableOut"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "final_audit_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Final Audit Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "consolidation",
+        "release"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "refusal": {
+      "anyOf": [
+        {
+          "enum": [
+            "clearance_failed",
+            "clearance_pending",
+            "final_audit_not_passed",
+            "signature_invalid",
+            "custody_failed",
+            "stale",
+            "consolidation_conflicting",
+            "no_deliverable_output",
+            "receipt_error_findings",
+            "not_deliverable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refusal"
+    },
+    "schema": {
+      "const": "epinoic.integration.overseer-delivery.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "task_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Task Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "task_id",
+    "kind",
+    "allowed",
+    "final_audit_id"
+  ],
+  "title": "DeliveryDecision",
+  "type": "object"
+}

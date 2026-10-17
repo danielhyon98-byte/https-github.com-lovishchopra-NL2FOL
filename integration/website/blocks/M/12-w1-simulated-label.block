@@ -1,0 +1,6 @@
+kit-block: W1
+file: public/chat.js
+anchor:   const simulated = outcome.mock ? " (simulated)" : "";
+mode: replace
+---
+  const simulated = outcome.mock || outcome.simulated ? " (simulated)" : "";

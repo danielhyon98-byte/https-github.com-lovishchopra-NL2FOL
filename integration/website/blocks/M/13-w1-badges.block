@@ -1,0 +1,9 @@
+kit-block: W1
+file: public/chat.js
+anchor: const badges = [outcome.review === "passed"
+mode: replace-line
+---
+  // Kit W1: a verified answer's badge follows its checks summary (decision D13/D27; chat-contract.js checksBadge): it
+  // says "passed" only when every material eligible claim has a permitted positive result, and never "Reviewed".
+  const badges = [outcome.review === "checks:integration.v1" ? checksBadge(outcome.checksSummary, simulated)
+    : outcome.review === "passed" ? [`Reviewed${simulated}`, "is-ok"] : [`Review not required${simulated}`, null]];

@@ -1,0 +1,45 @@
+{
+  "expect": {
+    "decision": "refuse_integrity",
+    "reasons": [
+      "KIT-DL-006"
+    ],
+    "summary": null
+  },
+  "fields": {
+    "claims": [
+      {
+        "attempt": "attempted",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": false
+      }
+    ],
+    "consolidation_status": "CONSOLIDATED",
+    "counts": {
+      "attempted": 1,
+      "blocking": 0,
+      "budget_skipped": 0,
+      "claims_total": 1,
+      "definitive": 1,
+      "eligible": 1,
+      "material": 1,
+      "not_eligible": 0,
+      "permitted": 0,
+      "positive": 1,
+      "unavailable": 0
+    },
+    "overseer": {
+      "delivery_allowed": false,
+      "refusal": null,
+      "state": "AUDIT_PASSED"
+    },
+    "policy": "verified-v1",
+    "receipt": {
+      "error_codes": [],
+      "status": "ACCEPTED"
+    },
+    "revision_of": null
+  },
+  "name": "row2-unlabelled-refusal"
+}

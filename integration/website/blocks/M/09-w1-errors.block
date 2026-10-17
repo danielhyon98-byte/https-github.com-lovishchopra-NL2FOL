@@ -1,0 +1,8 @@
+kit-block: W1
+file: src/chat/contract.js
+anchor:   internal_error: [500, false, "The server hit an error while preparing the reply."],
+mode: after-line
+---
+  // Kit W1 (copy proposed under decision D13): final refusals of the verified backend, after the specialist call.
+  review_unresolved: [422, false, "This answer didn't pass its automatic checks, so it isn't shown. Ask again in a new conversation."],
+  checks_incomplete: [503, false, "This answer's automatic checks couldn't be completed, so it isn't shown. Ask again in a new conversation."],

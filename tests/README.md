@@ -69,6 +69,17 @@ harness rates of the second layer have not dropped.
    `scripts/arena/test_arena_rules.py`, which the default suite does not collect
    (`python -m pytest -q scripts/arena/test_arena_rules.py`).
 
+   The two sub-projects have suites of their own, which the default suite runs and requires to pass:
+   `flash-router/tests/` (`tests/integration/test_flash_router_subproject.py`) and `combinator/tests/`
+   (`tests/integration/test_combinator_subproject.py`, which also shows that a faithful synthesis of the combinator passes
+   the hub and that the hub names each misrepresentation it lets out: a dropped qualifier, a stronger certainty, a merged
+   contradiction of formalized claims, an invented figure, a wrong attribution, a carried self-certification, a
+   verification label, a self-certification of the synthesis itself, a note carried back as a claim, a figure in another
+   unit or era, a dropped bound or frequency, a credit to both specialists for one specialist's claim, and an invented
+   conflict, INT-CONFLICT-006 for information; `tests/integrity/test_synthesis_round3_readers.py` pins the readers behind
+   them). Run one alone from its directory
+   (`cd combinator && python -m pytest -q`), or install it into a separate environment (`pip install -e "combinator[dev]"`).
+
    The external review of 12 October 2026 is covered by `tests/engine/test_review_engine_fixes.py`,
    `tests/service/test_review_service_fixes.py`, `tests/translate/test_review_2026_10_12_translate.py`
    and `tests/channel/test_task_record_through_the_channel.py`: each of its nine findings has
@@ -639,3 +650,10 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: all four independent checks of round 1 reported (detection accuracy 25 issues, safety and invariants 6, adversarial probes 14, re-run review findings 21; 66 in total, 11 of them high, including two regular-expression slowdowns on hostile input and one loosened contradiction check). Repair round 1 of at most five now works on all 66. A second hold-out corpus of 136 cases (70 defects, 66 controls), written and audited without sight of the fixes and sealed by checksum, will be the final generalisation check: on it the committed code names 23 defects and flags 31 controls; the staged changes before repair name 41 and flag 22. Nothing is committed until every check passes.
 - Sub-projects: the flash router is published as a standalone branch (its own history; 19 tests pass on the split tree alone, with the translator's port definitions from the same commit for the conformance tests). The combinator follows when its verification is clean; its second check found 3 medium and 5 low items, now being repaired.
 - Overseer rebuild: the second STEM repair is in progress.
+
+### Integration protocol, kit and combinator: measured results (19:00 UTC)
+
+- 28bca5c merged the integration protocol and kit (specialist, checks, overseer, combinator and flash-router ports; Z3 and STEM required) and the combinator sub-project into the translator. Independent check: 6,832 tests passed, every recorded round unchanged (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177), hygiene scan clean.
+- The pre-upload simulation of 28bca5c found one environment-dependent false failure in a readiness test (it required the caller's EPINOIC_ variables to reach the service, the opposite of the kit's documented behaviour). 0aaa20e corrected the test to check that nothing of the caller's leaks in and that the service sees exactly the kit's own variables; an independent check confirmed the correction is stricter. Suite on a clean export: 6,832 passed, 0 failed, with and without EPINOIC_ARENA_ROUNDS set.
+- Known open items, carried into the integration gate before round 8: in the combinator, a source claim already marked as a note can be carried into a synthesis without a finding (high), plus three medium items (short or irregular dropped hedges, a unit or prefix rescaling, some crediting forms); in the kit contract, two medium items (a material claim skipped by the budget outside the listed claims; a BaseException escaping the turn checker).
+- Pre-upload simulation of 90d395c (the merge above with the readiness-test correction, on a clean export): suite 6,832 passed, 45 deselected, 4 xfailed; every recorded round replayed with its recorded count (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177).

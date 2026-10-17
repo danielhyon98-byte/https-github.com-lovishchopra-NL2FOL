@@ -1,0 +1,11 @@
+{
+  "canonical": "{\"max-safe\":9007199254740991,\"min-safe\":-9007199254740991,\"negative\":-42,\"zero\":0}",
+  "name": "integers",
+  "sha256": "bcefbec8b162230d200afb102231b8c45357c7c1dbcbbe6779432b1f2c6abdcb",
+  "value": {
+    "max-safe": 9007199254740991,
+    "min-safe": -9007199254740991,
+    "negative": -42,
+    "zero": 0
+  }
+}

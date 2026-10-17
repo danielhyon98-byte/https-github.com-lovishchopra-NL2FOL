@@ -59,6 +59,7 @@ __all__ = [
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
     "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
+    "UnquotedCredit", "unquoted_credits",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -249,8 +250,11 @@ def specialist_names(author: str) -> list[str]:
     a qualifier after the subject's first word ("mathematics-aa-specialist", "english-a-lang-lit-specialist"), that first
     word with "specialist" ("mathematics specialist"): the name the router's own hand-off gives the colleague ("attribute
     them to the Mathematics specialist"); a mathematics specialist also as "maths specialist" and "math specialist".
-    Nothing for any other author."""
+    A duplicate-mode instance of the checks port (``history-specialist@a``, ``history-specialist@b``: two instances of
+    one specialist) is named as that specialist. Nothing for any other author."""
     author = (author or "").strip()
+    if author.endswith(("-specialist@a", "-specialist@b")):
+        author = author[:-2]
     if not author.endswith("-specialist"):
         return []
     names = [author.replace("-", " ")]
@@ -508,22 +512,109 @@ def peer_prose_span(excerpt: str, doc: SuppliedText) -> bool:
     return not any(a <= match.start and match.end <= b for a, b, _inner in find_quotation_spans(doc.text))
 
 
+#: A credit that names the specialist after the words that introduce it: "According to the History specialist, ...", "In the
+#: view of the History specialist, ...", "..., as noted by the History specialist", "per the History specialist".
+_LEADING_VIEW_CREDIT_RE = re.compile(
+    r"\b(?:according\s+to|in\s+the\s+(?:view|words|opinion|judge?ment|account|reading|analysis|estimate|estimation|assessment|terms)\s+of"
+    r"|as\s+(?:noted|argued|stated|reported|shown|suggested|claimed|recorded|explained|observed|pointed\s+out|put|given|maintained|concluded|described)\s+by"
+    r"|(?:noted|argued|stated|reported|claimed|suggested|recorded|maintained|concluded)\s+by|per)\s+(?:the\s+)?$",
+    re.IGNORECASE)
+#: "For the History specialist, ...": a view credit only at the start of a clause, with the comma right after the name ("a
+#: question for the History specialist" credits nothing).
+_CLAUSE_FOR_RE = re.compile(r"(?:^|[.;:!?]\s*|,\s*)\W*for\s+(?:the\s+)?$", re.IGNORECASE)
+#: Verbs that credit a view to their subject besides the crediting verbs of a quotation (:data:`_CREDIT_VERBS`): "The
+#: History specialist believes / considers / emphasises / rejects ...".
+_VIEW_VERBS = (r"(?:believes?|believed|considers?|considered|regards?|regarded|emphasi[sz]es|emphasi[sz]ed|stresses|stressed|highlights?|highlighted"
+               r"|underlines?|underlined|accepts?|accepted|rejects?|rejected|doubts?|doubted|agrees?|agreed|disagrees?|disagreed|denies|denied|questions?"
+               r"|questioned|prefers?|preferred|favou?rs?|favou?red|weighs?|weighed|blames?|blamed|credits?|credited|ranks?|ranked|views?|viewed|deems?"
+               r"|deemed|characteri[sz]es|characteri[sz]ed|warns?|warned|predicts?|predicted|assumes?|assumed|infers?|inferred|proposes?|proposed)")
+
+
 def credited_agents(text: str, agent_ids: Sequence[str]) -> list[str]:
     """The agents ``text`` credits with a view: a specialist named (as "the English specialist" for the agent id
-    "english-specialist") with a possessive or as the subject of a crediting verb, outside quotations."""
+    "english-specialist") with a possessive ("In the History specialist's view, ..."), as the subject of a crediting verb
+    ("As the History specialist notes, ...", "The History specialist believes ..."), or after the words that introduce a
+    credit ("According to the History specialist, ...", "In the view of the History specialist, ...", "..., as noted by the
+    History specialist", a clause-initial "For the History specialist, ..."), outside quotations."""
     from .markdown import find_quotation_spans
     masked = text
     for a, b, _inner in reversed(find_quotation_spans(text)):
         masked = masked[:a] + " " * (b - a) + masked[b:]
     out: list[str] = []
+    verb = re.compile(r"\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*(?:" + _CREDIT_VERBS + "|" + _VIEW_VERBS + r")\b", re.IGNORECASE)
     for agent in agent_ids:
         doc = SuppliedText(document_id=f"agent:{agent}", title=None, author=agent, text=" ")
-        for _a, b in _mentions(masked, doc):
+        for a, b in _mentions(masked, doc):
             rest = masked[b:b + 200]
-            if re.match(r"['’]s?\b", rest) or re.match(r"\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b", rest, re.IGNORECASE):
+            # a bounded window before the name; one cut inside the text starts with a word character, so neither "^" nor "\b"
+            # can match at the cut ("paper the History specialist" is no "per the History specialist")
+            lead = masked[:a] if a <= 120 else "x" + masked[a - 120:a]
+            if (re.match(r"['’]s?\b", rest) or verb.match(rest) or _LEADING_VIEW_CREDIT_RE.search(lead)
+                    or (_CLAUSE_FOR_RE.search(lead) and re.match(r"\s*,", rest))):
                 out.append(agent)
                 break
     return out
+
+
+#: Statements a sentence credits, without quotation marks, to a named source: "According to the Treaty of Versailles, ...",
+#: "..., according to Keynes.", "In Keynes's view, ...", "In the words of the treaty, ...", "As Keynes notes, ...", "The
+#: Treaty of Versailles states that ...". The source is read up to the comma or the reporting verb; what it is credited
+#: with is the rest of the clause.
+_NAMED_SOURCE = r"(?P<x>[^\W\d_][\w'’.-]*(?:\s+[\w'’.-]+){0,7}?)"
+#: Where a credit may open: the start of the text or of a sentence, after a bounded run of marks (a bracket, emphasis), read
+#: possessively so a long run of marks is read once.
+_CREDIT_OPENING = r"(?:^|(?<=[.;:!?]\s)|(?<=\n))\W{0,8}+"
+_UNQUOTED_CREDIT_RES = (
+    re.compile(rf"{_CREDIT_OPENING}(?:According\s+to|In\s+the\s+words\s+of|In\s+the\s+view\s+of|As\s+(?:stated|recorded|reported|noted|set\s+out|laid\s+down"
+               rf"|written|given)\s+(?:in|by))\s+{_NAMED_SOURCE}\s*,\s*(?P<content>[^;.!?]{{8,600}})", re.IGNORECASE),
+    re.compile(rf"{_CREDIT_OPENING}In\s+{_NAMED_SOURCE}['’]s?\s+(?:view|opinion|words|account|judge?ment|reading)\s*,\s*(?P<content>[^;.!?]{{8,600}})",
+               re.IGNORECASE),
+    re.compile(rf"{_CREDIT_OPENING}As\s+{_NAMED_SOURCE}\s+(?:notes|noted|says|said|states|stated|argues|argued|records|recorded|writes|wrote|observes"
+               rf"|observed|puts\s+it|put\s+it|reports|reported|shows|showed|explains|explained|maintains|maintained|insists|insisted)\s*,\s*(?P<content>[^;.!?]{{8,600}})",
+               re.IGNORECASE),
+    re.compile(rf"{_CREDIT_OPENING}{_NAMED_SOURCE}\s+(?:states?|stated|says?|said|records?|recorded|declares?|declared|stipulates?|stipulated"
+               rf"|provides?|provided|specifies|specified|writes?|wrote|notes?|noted|reports?|reported|argues?|argued|claims?|claimed|maintains?|maintained|shows?"
+               rf"|showed|shown|confirms?|confirmed|establishes|established|holds?|held|insists?|insisted|believes?|believed)\s+that\s+(?P<content>[^;.!?]{{8,600}})",
+               re.IGNORECASE),
+)
+#: A credit that closes its clause ("..., according to Keynes."): found by its comma, the clause before it read in code (so
+#: a long clause is read once, never re-split by the engine).
+_TRAILING_CREDIT_RE = re.compile(rf",\s*(?:according\s+to|as\s+(?:stated|recorded|reported|noted|set\s+out|laid\s+down)\s+(?:in|by))\s+{_NAMED_SOURCE}\s*(?=[.;!?]|$)",
+                                 re.IGNORECASE)
+_SENTENCE_STOP_RE = re.compile(r"[.;!?](?=\s)|\n")
+
+
+@dataclass(frozen=True)
+class UnquotedCredit:
+    """A statement a sentence credits to a named source without quoting it: the ``source`` as written and what it is
+    credited with (``content``)."""
+    source: str
+    content: str
+
+
+def unquoted_credits(text: str) -> list[UnquotedCredit]:
+    """Every statement ``text`` credits, without quotation marks, to a named source (:data:`_UNQUOTED_CREDIT_RES`), read
+    with its quotations masked (a quoted credit is the quoted text's). Whether the source holds the statement, or the
+    statement's own sources give that credit, is the hub's to decide (INT-LEDGER-026)."""
+    from .markdown import mask_quotations
+    masked = mask_quotations(text or "")
+    out: list[UnquotedCredit] = []
+    for rx in _UNQUOTED_CREDIT_RES:
+        for m in rx.finditer(masked):
+            source = " ".join(text[m.start("x"):m.end("x")].split()).strip(" ,;:")
+            content = " ".join(text[m.start("content"):m.end("content")].split()).strip(" ,;:")
+            if source and content:
+                out.append(UnquotedCredit(source, content))
+    from bisect import bisect_right
+    stops = [m.end() for m in _SENTENCE_STOP_RE.finditer(masked)]
+    for m in _TRAILING_CREDIT_RE.finditer(masked):
+        k = bisect_right(stops, m.start())
+        start = stops[k - 1] if k else 0
+        source = " ".join(text[m.start("x"):m.end("x")].split()).strip(" ,;:")
+        content = " ".join(text[start:m.start()].split()).strip(" ,;:")
+        if source and len(content) >= 8:
+            out.append(UnquotedCredit(source, content[-600:]))
+    return list(dict.fromkeys(out))
 
 
 #: A capitalised name a colleague's report uses as a possessive ("Hardy's dramatic monologue"): the author it discusses.

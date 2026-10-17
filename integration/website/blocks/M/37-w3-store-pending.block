@@ -1,0 +1,13 @@
+kit-block: W3
+file: src/state/store.js
+anchor: return { admitTurn, recordRoute, completeTurn, failTurn, cancelTurn, listConversations, getConversation, renameConversation, deleteConversation };
+mode: replace
+---
+// Kit W3: true only while this attempt is still the turn's pending attempt (one owner-scoped statement).
+  async function attemptPending(principal, admitted) {
+    const out = await db.batch([bind(SQL.readAttempt, base(principal, admitted, now()))]);
+    const row = out[0].results[0];
+    return row?.state === "pending" && row?.attempt_id === admitted.attemptId;
+  }
+
+  return { admitTurn, recordRoute, completeTurn, failTurn, cancelTurn, listConversations, getConversation, renameConversation, deleteConversation, attemptPending };

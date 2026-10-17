@@ -1,0 +1,123 @@
+{
+  "report_id": "rep-en-s1-0",
+  "claims": {
+    "p1-point": {
+      "problem": {
+        "ir_version": "1.0",
+        "problem_id": "en-s1-p1-point",
+        "request_id": "req-en-s1",
+        "claim_id": "p1-point",
+        "query": "entailment",
+        "symbols": [
+          {
+            "name": "hollow",
+            "sort": "Bool",
+            "meaning": "the empty sands make the ruler's boast sound hollow",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            }
+          },
+          {
+            "name": "remains",
+            "sort": "Bool",
+            "meaning": "the reader judges the ruler by what remains",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            }
+          },
+          {
+            "name": "transient",
+            "sort": "Bool",
+            "meaning": "the final image suggests that power does not last",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            }
+          }
+        ],
+        "premises": [
+          {
+            "id": "e_hollow",
+            "expr": {
+              "op": "var",
+              "name": "hollow"
+            },
+            "label": "the empty sands make the boast sound hollow",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            },
+            "materiality": "supporting"
+          },
+          {
+            "id": "e_remains",
+            "expr": {
+              "op": "var",
+              "name": "remains"
+            },
+            "label": "the ruler is judged by what remains",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            },
+            "materiality": "supporting"
+          },
+          {
+            "id": "l_transient",
+            "expr": {
+              "op": "implies",
+              "left": {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "var",
+                    "name": "hollow"
+                  },
+                  {
+                    "op": "var",
+                    "name": "remains"
+                  }
+                ]
+              },
+              "right": {
+                "op": "var",
+                "name": "transient"
+              }
+            },
+            "label": "a hollow boast judged by its ruins means power does not last (the stated link)",
+            "grounding": {
+              "kind": "specialist_inference",
+              "certainty": "established"
+            },
+            "materiality": "material"
+          }
+        ],
+        "conclusion": {
+          "id": "claim",
+          "expr": {
+            "op": "var",
+            "name": "transient"
+          },
+          "label": "The final image suggests that power does not last.",
+          "grounding": {
+            "kind": "specialist_inference",
+            "certainty": "established"
+          },
+          "materiality": "material"
+        }
+      },
+      "interpretation": {
+        "reading": "SYNTHETIC: the interpretive point follows from the two interpretations and the stated link; every premise is the specialist's.",
+        "glossary": [],
+        "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+    }
+  },
+  "claim_text_sha256": {
+    "p1-point": "b4427b5bd170fca00b043b9736ff64da342e55ea9fb0bf199d1f0a33367967f1"
+  }
+}

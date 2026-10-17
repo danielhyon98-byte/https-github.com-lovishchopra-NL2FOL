@@ -1,0 +1,6 @@
+kit-block: W3
+file: src/chat/handler.js
+anchor: const turn = runPersistentTurn({
+mode: after-line
+---
+      verification,

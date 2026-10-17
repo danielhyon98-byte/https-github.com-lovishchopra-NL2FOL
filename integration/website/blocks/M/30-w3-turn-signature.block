@@ -1,0 +1,6 @@
+kit-block: W3
+file: src/chat/turn.js
+anchor: store, principal, request, requestId, scenario, routing, orchestrator, deadlineMs = TURN_DEADLINE_MS,
+mode: replace
+---
+store, principal, request, requestId, scenario, routing, orchestrator, deadlineMs = TURN_DEADLINE_MS, verification = null,

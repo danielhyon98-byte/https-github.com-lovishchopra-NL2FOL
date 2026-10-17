@@ -11,7 +11,10 @@ Inputs (one round directory):
                                sentence is prepended), and the channel independently rejects an outcome bound to another text
                                (INT-STALE-011). Such a refusal is recorded per claim as STALE_FIXTURE_REFUSED: no verdict, and not an
                                infrastructure error.
-  <round>/syntheses/*.json     optional: {report_id, claims:[{text, source_claim_ids, certainty, transformation, evidence_refs?}], dropped:[{source_claim_ids, reason}]}
+  <round>/syntheses/*.json     optional: {report_id?, claims:[{text, source_claim_ids, certainty, transformation, evidence_refs?}], dropped:[{source_claim_ids, reason}],
+                               conflicts?:[{claim_ids, description}]}: the combinator sub-project's output format (its exported
+                               instructions; list_claims.py prints it as synthesis_format). A disclosed conflict is relayed as an
+                               unresolved conflict record of the synthesis (its id k<n>, the group's prefix before it in a peer group).
                                transformation is one of carried, paraphrased, merged, narrowed, generalized (integrity.contracts
                                TRANSFORMATION_MEANINGS says what each records; list_claims.py --json prints them as synthesis_format):
                                a category, never a description of the edit. The merged synthesis is relayed as the JSON the router
@@ -625,7 +628,9 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     file that is not JSON (``UnreadableSynthesis``) is what the router would receive for the group: its text is
     returned as the payload. Synthesized claim ids, the cited ids a delivered report holds and the merged student-facing
     text are the harness's (the format leaves them to it); a missing certainty or transformation keeps the defaults it
-    always had ("established", "paraphrased").
+    always had ("established", "paraphrased"). A member's disclosed ``conflicts`` (the combinator sub-project's format)
+    become the synthesis's conflict records, ``unresolved`` with the id ``<prefix>k<n>`` unless the file says otherwise;
+    a round whose syntheses disclose none relays exactly the mapping it always did.
 
     Evidence references: a synthesized claim of the syntheses format may carry ``evidence_refs`` ([{document_id,
     locator?, excerpt?}]), passed on as written. When it carries none, the claim keeps the references of its cited
@@ -640,6 +645,7 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
         return str(unreadable)
     s_claims: list = []
     ledger: list = []
+    conflicts: list = []
     source_ids: list[str] = []
     copied: dict[str, list[dict]] = {}
     for it in members:
@@ -667,13 +673,18 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
             s_claims.append(claim)
         for d in _as_list(syn.get("dropped")):  # the 'dropped' list's entries are ledger entries whose transformation is 'dropped'
             ledger.append({**d, "transformation": "dropped"} if isinstance(d, dict) else d)
+        for k_i, k in enumerate(_as_list(syn.get("conflicts"))):  # a disclosed contradiction: an unresolved conflict record
+            conflicts.append({"conflict_id": f"{prefix}k{k_i}", "status": "unresolved", **k} if isinstance(k, dict) else k)
         source_ids.append(reply.payload["report_id"])
     if notes is not None:
         notes["evidence_refs_copied"] = copied
     s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
-    return {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
-            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
-            "created_at": "2026-10-11T15:00:00Z"}
+    out = {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
+           "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
+           "created_at": "2026-10-11T15:00:00Z"}
+    if conflicts:  # a round whose combinator disclosed none relays exactly the mapping it always did
+        out["conflicts"] = conflicts
+    return out
 
 
 def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:

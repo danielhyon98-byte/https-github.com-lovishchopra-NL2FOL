@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "TicketPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "enum": [
+            "router",
+            "floor"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "plan_id": {
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "refusal": {
+          "anyOf": [
+            {
+              "pattern": "^KIT-RT-[0-9]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal"
+        }
+      },
+      "required": [
+        "origin",
+        "plan_id"
+      ],
+      "title": "TicketPlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "dropped": {
+      "title": "Dropped",
+      "type": "boolean"
+    },
+    "plan": {
+      "$ref": "#/$defs/TicketPlan"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "queued": {
+      "title": "Queued",
+      "type": "boolean"
+    },
+    "schema": {
+      "const": "epinoic.integration.overseer-review-ticket.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "task_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "ticket_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Ticket Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "ticket_id",
+    "task_id",
+    "queued",
+    "dropped",
+    "plan"
+  ],
+  "title": "ReviewTicket",
+  "type": "object"
+}

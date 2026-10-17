@@ -1,0 +1,7 @@
+kit-block: W1
+file: public/chat-logic.js
+anchor: const ERROR_COPY = Object.freeze({
+mode: after-line
+---
+  review_unresolved: "This answer didn't pass its automatic checks, so it isn't shown. Ask again in a new conversation.",
+  checks_incomplete: "This answer's automatic checks couldn't be completed, so it isn't shown. Ask again in a new conversation.",

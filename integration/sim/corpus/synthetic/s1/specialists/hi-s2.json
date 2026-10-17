@@ -1,0 +1,9 @@
+{
+  "task_id": "hi-s2",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "short_answer",
+  "question": "SYNTHETIC: How far did the Treaty of Versailles destabilise the Weimar Republic? Answer briefly, with dates.",
+  "supplied_texts": [],
+  "response_text": "The Treaty of Versailles weakened the Weimar Republic, though it does not explain its instability alone. The treaty was signed in 1919 and imposed reparations on Germany. The hyperinflation peaked in 1923, two years after the treaty was signed. Historians still debate how far the treaty, rather than the hyperinflation, explains the later instability of the republic.\nSources: none consulted (no retrieval in this session)\n"
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "epinoic.integration.subject-map.v1",
+  "version": "2026-10-17.2",
+  "note": "Website route, agents slug, translator subject and branch. A route of null means no website route exists yet (W7). Environments name where the row may be used: the website environments development, staging and production, the simulation environment sim, and service for the checks service and the agents driver only. Provisional rows wait on decisions D9 and D10.",
+  "entries": [
+    {"route": "history", "slug": "history", "subject": "History", "branch": "history", "environments": ["development", "sim", "staging"], "provisional": false},
+    {"route": "english", "slug": "english-a-literature", "subject": "English A: Literature", "branch": "english", "environments": ["sim"], "provisional": true},
+    {"route": null, "slug": "english-a-lang-lit", "subject": "English A: Language and Literature", "branch": "english", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "physics", "subject": "Physics", "branch": "sciences", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "chemistry", "subject": "Chemistry", "branch": "sciences", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "biology", "subject": "Biology", "branch": "sciences", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "ess", "subject": "Environmental Systems and Societies", "branch": "sciences", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "mathematics-aa", "subject": "Mathematics: Analysis and Approaches", "branch": "mathematics", "environments": ["service"], "provisional": false},
+    {"route": null, "slug": "mathematics-ai", "subject": "Mathematics: Applications and Interpretation", "branch": "mathematics", "environments": ["service"], "provisional": false},
+    {"route": null, "slug": "computer-science", "subject": "Computer Science", "branch": "computer_science", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "economics", "subject": "Economics", "branch": "economics", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "business-management", "subject": "Business Management", "branch": "business_management", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "psychology", "subject": "Psychology", "branch": "psychology", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "geography", "subject": "Geography", "branch": "generic", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "spanish-b", "subject": "Language B: Spanish", "branch": "generic", "environments": ["service"], "provisional": true},
+    {"route": null, "slug": "language-b-spanish", "subject": "Language B: Spanish", "branch": "generic", "environments": ["service"], "provisional": true}
+  ]
+}

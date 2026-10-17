@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "CombinatorIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "CombinatorIdentity",
+      "type": "object"
+    },
+    "PackRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9A-Za-z.+-]{1,40}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "sha256"
+      ],
+      "title": "PackRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a combinator says about itself when it is attached: its release, the instruction pack it runs (pinned by\ndigest), the digest of the published contract it validates its output against, its tier and its vocabulary.",
+  "properties": {
+    "combinator": {
+      "$ref": "#/$defs/CombinatorIdentity"
+    },
+    "contract_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Contract Sha256",
+      "type": "string"
+    },
+    "instruction_pack": {
+      "$ref": "#/$defs/PackRef"
+    },
+    "port_version": {
+      "const": "1.0",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.combinator-hello.v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "tier": {
+      "const": "cheapest",
+      "title": "Tier",
+      "type": "string"
+    },
+    "vocabulary": {
+      "items": {
+        "enum": [
+          "carried",
+          "paraphrased",
+          "merged",
+          "narrowed",
+          "generalized"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 5,
+      "title": "Vocabulary",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "combinator",
+    "instruction_pack",
+    "contract_sha256",
+    "tier",
+    "vocabulary"
+  ],
+  "title": "CombinatorHello",
+  "type": "object"
+}

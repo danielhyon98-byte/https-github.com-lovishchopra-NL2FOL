@@ -27,9 +27,16 @@ Commands
 
 ``serve [--host H] [--port P]``
     Run the HTTP service with uvicorn using settings from the environment.
-    Untested live in this repository.
+    Untested live in this repository. With ``EPINOIC_PROFILE=integration`` or ``integration-sim`` it runs the
+    integration checks service instead (``python -m epinoic_logic.integration serve``): the standard-library
+    bootstrap first (``KIT-HS-003 z3_unavailable``, exit status 2, when Z3 is missing), then the preflight and the
+    self-test. The default profile, ``engine``, is today's service exactly.
 
 Output is JSON on stdout; errors are one-line JSON objects on stderr, never stack traces.
+
+The engine (and with it Z3) is imported inside the commands that need it, never at module import, so
+``import epinoic_logic.cli`` and ``epinoic-logic serve`` under an integration profile reach the bootstrap even when Z3
+is missing.
 """
 from __future__ import annotations
 
@@ -41,13 +48,13 @@ import sys
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from .engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
-from .engine.provenance import z3_version
-from .engine.results import SolverConfig
-from .engine.runner import verify
 from .version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 
 __all__ = ["build_parser", "main", "ADAPTER_IDS"]
+
+#: The named engine policies ``verify --policy`` accepts (``engine.policies.NAMED_POLICIES``), for the help text only:
+#: the command itself resolves the name with ``engine.policies.named_policy`` (an unknown name is a usage error).
+POLICY_NAMES_HELP = "joint|linear|nonlinear"
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -99,7 +106,9 @@ def _signing(args: argparse.Namespace) -> tuple[Optional[bytes], Optional[str]]:
     return key, args.key_id or "default"
 
 
-def _solver_config(args: argparse.Namespace) -> SolverConfig:
+def _solver_config(args: argparse.Namespace) -> Any:
+    from .engine.results import SolverConfig
+
     values: dict[str, Any] = {}
     if args.timeout_ms is not None:
         values["timeout_ms"] = args.timeout_ms
@@ -114,6 +123,8 @@ def _solver_config(args: argparse.Namespace) -> SolverConfig:
 # --- commands ------------------------------------------------------------------------
 
 def cmd_version(_: argparse.Namespace) -> int:
+    from .engine.provenance import z3_version
+
     _emit({
         "ir_version": IR_VERSION,
         "engine_version": ENGINE_VERSION,
@@ -125,9 +136,12 @@ def cmd_version(_: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    from .engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
+    from .engine.runner import verify
+
     raw = _read_bytes(args.problem)
     try:
-        limits, config = named_policy(args.policy, _solver_config(args))
+        limits, config = named_policy(LINEAR if args.policy is None else args.policy, _solver_config(args))
     except UnknownPolicyError:
         raise CliError(f"--policy must be one of: {', '.join(sorted(NAMED_POLICIES))}") from None
     key, key_id = _signing(args)
@@ -233,7 +247,23 @@ def cmd_check_report(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Run the HTTP service. Untested live in this repository."""
+    """Run the HTTP service. Untested live in this repository. Under an integration profile, the integration checks
+    service (its bootstrap checks for Z3 before any engine import); with ``EPINOIC_PROFILE`` unset, empty or
+    ``engine``, the engine service, unchanged. Any other value (a misspelling such as ``Integration``) is refused with
+    one line, ``KIT-HS-012 environment_mismatch``, and exit status 2, before anything is imported or bound: it never
+    starts the plain service in place of the checks service."""
+    import os
+
+    profile = os.environ.get("EPINOIC_PROFILE", "engine").strip() or "engine"
+    if profile in ("integration", "integration-sim"):
+        from .integration.__main__ import main as integration_main
+
+        return integration_main(["serve", "--host", args.host, "--port", str(args.port)])
+    if profile != "engine":
+        from .integration.errors import code_line  # standard library only
+
+        sys.stderr.write(code_line("KIT-HS-012") + ": EPINOIC_PROFILE is not engine, integration or integration-sim\n")
+        return 2
     try:
         uvicorn = importlib.import_module("uvicorn")
     except ImportError:
@@ -264,7 +294,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser("verify", help="verify an IR problem file and print the result JSON")
     p_verify.add_argument("problem", help="path to a problem JSON file")
     _add_solver_options(p_verify)
-    p_verify.add_argument("--policy", default=LINEAR, help=f"named engine policy ({'|'.join(sorted(NAMED_POLICIES))}; default {LINEAR})")
+    # The names are written out here because the parser is built before any engine import (the bootstrap of an
+    # integration profile runs first); tests/service/test_cli.py pins them to engine.policies.NAMED_POLICIES and LINEAR.
+    p_verify.add_argument("--policy", default=None, metavar="NAME", help=f"named engine policy ({POLICY_NAMES_HELP}; default linear)")
     p_verify.set_defaults(func=cmd_verify)
 
     p_check = sub.add_parser("check-report", help="translate and verify the claims of a specialist report")

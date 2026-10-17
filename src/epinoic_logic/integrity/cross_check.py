@@ -785,3 +785,29 @@ def check_conflict_disclosure(synthesis: Synthesis, conflicting_sets: list[tuple
         if not disclosed:
             findings.append(IntegrityFinding(code="INT-CONFLICT-002", severity="error", message=f"a formal contradiction between specialist claims {sorted(conflicting)} is not disclosed in the synthesis conflict records (a record counts only if it names at least two of the conflicting claims, and together the records must name them all)", claim_ids=sorted(conflicting), formal_result_id=rid, agent_ids=[synthesis.combinator_agent_id], deterministic=False))
     return findings
+
+
+def check_conflict_records(synthesis: Synthesis, conflicting_sets: list[tuple[frozenset[str], Optional[str]]]) -> list[IntegrityFinding]:
+    """INT-CONFLICT-006 (info): an unresolved conflict record of the synthesis over claims between which the hub found no
+    contradiction (no claim set of ``conflicting_sets``, the INT-CONFLICT-001 sets, shares two claims with the record; a
+    synthesized id in a record stands for its ``source_claim_ids``). The hub decides contradictions between formalized
+    claims only, so the record may still be right (two dates in prose); it is the combinator's own statement, not a
+    check, and the router is told so. A conflict the hub did find is the disclosure rule's (:func:`check_conflict_disclosure`).
+    Shared by ``run_integrity_checks`` and the channel."""
+    by_id = {c.claim_id: c for c in synthesis.claims}
+    found = [s for s, _rid in conflicting_sets if len(s) >= 2]
+    findings: list[IntegrityFinding] = []
+    for record in synthesis.conflicts:
+        if record.status != "unresolved":
+            continue
+        ids: set[str] = set()
+        for i in record.claim_ids:
+            sc = by_id.get(i)
+            ids.update(sc.source_claim_ids if sc is not None and sc.source_claim_ids else [i])
+        if any(len(ids & s) >= 2 for s in found):
+            continue
+        findings.append(IntegrityFinding(code="INT-CONFLICT-006", severity="info", message=(
+            f"conflict record {record.conflict_id} names claims {sorted(ids)[:16]} between which the hub found no contradiction (it decides "
+            "contradictions between formalized claims only): the record is the combinator's own statement, not a check, so the router must not "
+            "read it as an established disagreement"), claim_ids=sorted(ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
+    return findings

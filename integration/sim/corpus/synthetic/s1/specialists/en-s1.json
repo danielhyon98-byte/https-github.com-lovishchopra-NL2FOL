@@ -1,0 +1,9 @@
+{
+  "task_id": "en-s1",
+  "subject": "English A: Literature",
+  "agent_id": "english-a-literature-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "SYNTHETIC: In one short paragraph, how does the poem's final image comment on power?",
+  "supplied_texts": [],
+  "response_text": "The final image suggests that power does not last. The empty sands that stretch away from the broken statue make the ruler's boast sound hollow. The reader is left to judge the ruler by what remains, which is almost nothing."
+}

@@ -1,0 +1,49 @@
+{
+  "expect": {
+    "decision": "deliver",
+    "reasons": [],
+    "summary": "incomplete"
+  },
+  "fields": {
+    "claims": [
+      {
+        "attempt": "attempted",
+        "formal": "UNKNOWN",
+        "materiality": "material",
+        "release_permitted": false
+      },
+      {
+        "attempt": "attempted",
+        "formal": "ENTAILED",
+        "materiality": "material",
+        "release_permitted": true
+      }
+    ],
+    "consolidation_status": "CONSOLIDATED",
+    "counts": {
+      "attempted": 2,
+      "blocking": 0,
+      "budget_skipped": 0,
+      "claims_total": 2,
+      "definitive": 1,
+      "eligible": 2,
+      "material": 2,
+      "not_eligible": 0,
+      "permitted": 1,
+      "positive": 1,
+      "unavailable": 1
+    },
+    "overseer": {
+      "delivery_allowed": true,
+      "refusal": null,
+      "state": "AUDIT_PASSED"
+    },
+    "policy": "verified-v1-qualify",
+    "receipt": {
+      "error_codes": [],
+      "status": "ACCEPTED"
+    },
+    "revision_of": null
+  },
+  "name": "row5-qualify-policy-continues"
+}

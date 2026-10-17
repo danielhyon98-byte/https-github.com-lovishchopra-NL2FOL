@@ -1,0 +1,9 @@
+kit-block: W1
+file: src/chat/history.js
+anchor:   return { kind: "answer", specialist: result.specialist, text: result.text, references: result.references, review: result.review };
+mode: replace
+---
+  const answer = { kind: "answer", specialist: result.specialist, text: result.text, references: result.references, review: result.review };
+  // Kit W1: a verified answer's checks are part of what history replays.
+  if (Object.hasOwn(result, "checks")) Object.assign(answer, { checks: result.checks, checksSummary: result.checksSummary });
+  return answer;

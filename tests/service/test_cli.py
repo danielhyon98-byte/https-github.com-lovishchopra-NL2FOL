@@ -130,3 +130,13 @@ def test_verify_refuses_an_unknown_policy_with_a_json_error(tmp_path, capsys, na
     rc, out, err = run(capsys, "verify", str(path), "--policy", name)
     assert rc == cli.EXIT_USAGE and out == ""
     assert json.loads(err) == {"error": "--policy must be one of: joint, linear, nonlinear"}
+
+
+def test_the_policy_help_names_exactly_the_named_policies_and_the_default():
+    """The parser is built before any engine import (an integration profile's bootstrap runs first, and
+    ``import epinoic_logic.cli`` needs no Z3), so the help writes the names out; they must be the engine's."""
+    from epinoic_logic.engine.policies import LINEAR, NAMED_POLICIES
+    assert cli.POLICY_NAMES_HELP == "|".join(sorted(NAMED_POLICIES)) and LINEAR == "linear"
+    p_verify = cli.build_parser()._subparsers._group_actions[0].choices["verify"]
+    policy = next(a for a in p_verify._actions if a.dest == "policy")
+    assert policy.default is None and f"({cli.POLICY_NAMES_HELP}; default {LINEAR})" in policy.help

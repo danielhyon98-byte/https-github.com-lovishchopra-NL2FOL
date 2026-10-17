@@ -1,0 +1,38 @@
+{
+  "expect": {
+    "decision": "refuse_incomplete",
+    "reasons": [
+      "KIT-DL-900"
+    ],
+    "summary": null
+  },
+  "fields": {
+    "claims": [],
+    "consolidation_status": "CONSOLIDATED",
+    "counts": {
+      "attempted": 0,
+      "blocking": 0,
+      "budget_skipped": 0,
+      "claims_total": 0,
+      "definitive": 0,
+      "eligible": 0,
+      "material": 0,
+      "not_eligible": 0,
+      "permitted": 0,
+      "positive": 0,
+      "unavailable": 0
+    },
+    "overseer": {
+      "delivery_allowed": false,
+      "refusal": "internal_error",
+      "state": "AUDIT_PENDING"
+    },
+    "policy": "verified-v1",
+    "receipt": {
+      "error_codes": [],
+      "status": "REJECTED"
+    },
+    "revision_of": null
+  },
+  "name": "internal-error-verdict"
+}

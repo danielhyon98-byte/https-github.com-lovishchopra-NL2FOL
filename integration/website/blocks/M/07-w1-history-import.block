@@ -1,0 +1,6 @@
+kit-block: W1
+file: src/chat/history.js
+anchor: import { ERROR_CODES, errorResult, statusForError } from "./contract.js";
+mode: after-line
+---
+import { publicCodeFor } from "../verify/codes.js";

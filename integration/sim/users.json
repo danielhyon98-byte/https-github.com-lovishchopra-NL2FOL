@@ -1,0 +1,351 @@
+{
+ "schema": "epinoic.integration.sim-users.v1",
+ "note": "SYNTHETIC simulated users; each turn names a corpus item of corpus/synthetic/s1 and an action.",
+ "question": {
+  "History": "SYNTHETIC: How far did the Treaty of Versailles destabilise the Weimar Republic? Answer briefly, with dates."
+ },
+ "users": [
+  {
+   "user": "sim-user-01",
+   "path": "website",
+   "note": "History with consistent dates: delivered",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "send"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-02",
+   "path": "website",
+   "note": "History with a planted chronology error: review_unresolved",
+   "turns": [
+    {
+     "item": "hi-s2",
+     "action": "send"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-03",
+   "path": "website",
+   "note": "English interpretive answer: its interpretations are not eligible",
+   "turns": [
+    {
+     "item": "en-s1",
+     "action": "send"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-04",
+   "path": "website",
+   "note": "a follow-up stays with its subject (sticky)",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "send"
+    },
+    {
+     "item": "hi-s3",
+     "action": "follow_up"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-05",
+   "path": "website",
+   "note": "an unchanged retry is a replay: no service call",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "send"
+    },
+    {
+     "item": "hi-s1",
+     "action": "retry"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-06",
+   "path": "website",
+   "note": "a cancel before the checks call: no checks call, turn_cancelled",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "cancel"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-07",
+   "path": "website",
+   "note": "two concurrent sends: one pending submission",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "concurrent"
+    },
+    {
+     "item": "hi-s3",
+     "action": "concurrent"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-08",
+   "path": "website",
+   "note": "the service stopped mid-run: service_unavailable, re-armed retry",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "service_stopped"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-09",
+   "path": "website",
+   "note": "a service slower than the budget: checks_incomplete",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "service_slow"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-10",
+   "path": "website",
+   "note": "a fake clock past the cache age: exactly one refresh",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "send"
+    },
+    {
+     "item": "hi-s3",
+     "action": "clock_past_cache"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-11",
+   "path": "website",
+   "note": "a handshake mismatch: service_unavailable, nothing paid",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "handshake_mismatch"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-12",
+   "path": "website",
+   "note": "a subject unavailable after routing: chat_unavailable",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "subject_unavailable"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-13",
+   "path": "website",
+   "note": "a mixed subject: clarification, no specialist call",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "mixed_subject"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-14",
+   "path": "agents",
+   "note": "STEM correct: the STEM check holds",
+   "turns": [
+    {
+     "item": "ph-s1",
+     "action": "stem"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-15",
+   "path": "agents",
+   "note": "STEM wrong: the STEM check refutes the written step",
+   "turns": [
+    {
+     "item": "ph-s2",
+     "action": "stem"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-16",
+   "path": "agents",
+   "note": "duplicate, clean",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "duplicate_clean",
+     "second": "hi-s1"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-17",
+   "path": "agents",
+   "note": "duplicate, conflicting",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "duplicate_conflicting",
+     "second": "hi-s3"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-18",
+   "path": "agents",
+   "note": "combined (needs the combinator: phase 2)",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "combined",
+     "second": "en-s1"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-19",
+   "path": "website",
+   "note": "a three-turn session",
+   "turns": [
+    {
+     "item": "hi-s3",
+     "action": "send"
+    },
+    {
+     "item": "hi-s2",
+     "action": "follow_up"
+    },
+    {
+     "item": "hi-s1",
+     "action": "follow_up"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-20",
+   "path": "website",
+   "note": "a refusal is final; an unchanged resend on base M re-arms",
+   "turns": [
+    {
+     "item": "hi-s2",
+     "action": "send"
+    },
+    {
+     "item": "hi-s2",
+     "action": "retry"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-21",
+   "path": "website",
+   "note": "an English replay",
+   "turns": [
+    {
+     "item": "en-s1",
+     "action": "send"
+    },
+    {
+     "item": "en-s1",
+     "action": "retry"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-22",
+   "path": "website",
+   "note": "a four-turn session",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "send"
+    },
+    {
+     "item": "hi-s3",
+     "action": "follow_up"
+    },
+    {
+     "item": "hi-s2",
+     "action": "follow_up"
+    },
+    {
+     "item": "hi-s1",
+     "action": "follow_up"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-23",
+   "path": "agents",
+   "note": "two STEM turns",
+   "turns": [
+    {
+     "item": "ph-s1",
+     "action": "stem"
+    },
+    {
+     "item": "ph-s2",
+     "action": "stem"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-24",
+   "path": "website",
+   "note": "a tampered verdict (G-TAMPER runs W-T1 to W-T8)",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "tamper",
+     "case": "W-T1-tampered-decision"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-25",
+   "path": "website",
+   "note": "concurrent sends with a refusal",
+   "turns": [
+    {
+     "item": "hi-s2",
+     "action": "concurrent"
+    },
+    {
+     "item": "hi-s1",
+     "action": "concurrent"
+    }
+   ]
+  },
+  {
+   "user": "sim-user-26",
+   "path": "agents",
+   "note": "the agents router asks for clarification: no fan-out",
+   "turns": [
+    {
+     "item": "hi-s1",
+     "action": "clarify"
+    }
+   ]
+  }
+ ]
+}
