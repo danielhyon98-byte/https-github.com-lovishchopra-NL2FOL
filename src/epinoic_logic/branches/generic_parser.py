@@ -44,6 +44,11 @@ changes nothing. A disclaimer ("should be checked", "have not been verified") is
 self-certifications every branch recognises (``markdown.is_self_certification``) carry the advisory status, and a note on
 how the answer was composed or on what a received report says of its own figures is a note.
 
+A claim's agent-stated certainty is the writer's own hedge, read outside quotations (``markdown.hedged_certainty``):
+``possible`` for "may have", "might have", "could have", "may be", "possibly", "perhaps"; ``probable`` for "probably",
+"most likely", "presumably", "arguably", "appears to", "suggests"; ``established`` otherwise. A synthesis that states a
+hedged claim as established is then named by the hub (INT-LEDGER-003).
+
 Materiality follows the answer, not the layout:
 
 * in a prose paragraph (one logical line, or lines that are all plain sentences) the first sentence that is not a note,
@@ -92,8 +97,8 @@ from typing import Optional
 from ..adapters.base import AdapterError
 from ..adapters.english_specialist.parser import documents_named
 from ..adapters.markdown import (
-    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, mask_quotations, split_json_spans,
-    split_note_clauses, strip_markup, truncate_claim_text,
+    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, is_note_sentence, is_self_certification, mask_quotations,
+    split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
 from ..adapters.sources import attribute_excerpt
 from ..ir.schema import SourceRef
@@ -491,6 +496,7 @@ class GenericTextParser:
             kind = "arithmetic" if role == "quantitative" else ("factual" if role == "evidence" and not refs_of[i] else "unknown")
             pending.append(dict(claim_id=cid, claim_text=truncate_claim_text(u.text), claim_role=role, proposed_claim_kind=kind,
                                 source_refs=refs_of[i], assumptions=assumptions_of[i][:32], materiality="material" if mat and role != "other" else "supporting",
+                                certainty=hedged_certainty(u.text) or "established",
                                 advisory_verification_status=_SELF_REPORT if is_self_certification(u.text) else None))
         ids = [p["claim_id"] for p in pending]
         support_ids = {ids[i]: [ids[s] for s in sorted(set(ss)) if s != i] for i, ss in supports.items() if roles[i] != "other"}

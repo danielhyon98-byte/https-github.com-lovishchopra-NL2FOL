@@ -49,7 +49,7 @@ document with a closed `reason` and its `KIT-CB` code; it never raises (only a `
 
 | Reason | Code | When |
 |---|---|---|
-| `input_not_json`, `input_invalid` | `KIT-CB-001` | the service's input is out of contract (the refusal names no request) |
+| `input_not_json`, `input_invalid` | `KIT-CB-001` | the service's input is out of contract (the refusal names no request); an input passed already parsed is held to the same JSON rules as text (a lone surrogate, a float or a non-string key is `input_not_json`) |
 | `pack_mismatch` | `KIT-CB-005` | the input pins another instruction pack than this release's |
 | `provider_unavailable`, `provider_failed`, `provider_no_text` | `KIT-CB-002` | no provider, a provider on another tier, a provider that raised or gave no text |
 | `output_not_json`, `output_not_object`, `output_invalid` | `KIT-CB-002` | the agent wrote anything but one JSON object in the exact format (a synthesized claim citing a source claim twice, or a conflict naming one twice, included) |
@@ -62,8 +62,11 @@ The agent is called once (no retry). Its output is validated against the publish
 in the agent's own, stricter format, then as the port message. **The runner checks the contract, never the
 faithfulness**: an inflated certainty, a dropped qualifier, a merged contradiction, an invented figure, a wrong
 attribution, a carried self-certification or a verification label on a claim is in contract and leaves, and the
-translator's hub, the independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`). Nothing the
-combinator says about its own work is trusted.
+translator's hub, the independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`;
+the forms each check reads are in the translator's `src/epinoic_logic/integrity/README.md`). One limit: a contradiction is
+named as undisclosed (`INT-CONFLICT-002`) only between claims the hub formalized; one between claims in prose ("signed
+in June 1919" against "signed in July 1919") is named only through the figures a synthesis changes or leaves out
+(`INT-LEDGER-023`, `INT-LEDGER-024`). Nothing the combinator says about its own work is trusted.
 
 ## The published contract
 

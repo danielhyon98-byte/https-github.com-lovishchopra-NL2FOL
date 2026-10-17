@@ -2,6 +2,13 @@
 """Print the claim records the infrastructure extracts from a specialist output file,
 so a dummy combinator can cite them and a translation provider can formalize them.
 Usage: list_claims.py <specialist.json> [--eligible] [--json] [--instructions <dir> [--allow-other-release]]
+       list_claims.py --agent-view <specialist.json> <specialist.json> ... [--instructions <dir> [--allow-other-release]]
+
+With ``--agent-view`` it prints, for the two to sixteen reports of one group, the one JSON document the combinator's
+runner gives its agent (``{"request": ..., "sources": [...]}``, what the pack's INSTRUCTIONS.md calls "What you
+receive"): the combinator input the service builds from the delivered reports, rendered by the combinator sub-project's
+own code in its own isolated process. A single report is no combinator input (the runner combines two reports or more);
+scripts/arena/README.md says how its ``--json`` listing maps onto that document.
 
 A peer-dependent task (``peer_of``) is listed with the peer's report supplied as the document
 ``peer:<task>`` when <round>/relayed/<task_id>.json exists, as the hub supplies it. Every source
@@ -132,24 +139,73 @@ def synthesis_format(manifest: dict, fmt: dict) -> dict:
             "instructions": "INSTRUCTIONS.md of the exported pack (python -m epinoic_combinator.export --out <dir>)"}
 
 
-spec_path = Path(sys.argv[1]).resolve()
-item = json.loads(spec_path.read_text())
-if item.get("peer_of"):
-    relayed = spec_path.parent.parent / "relayed" / f"{item['task_id']}.json"
-    if relayed.exists():
-        rel = json.loads(relayed.read_text())
-        if rel.get("delivered") and rel.get("payload"):
-            item["supplied_texts"] = [*item.get("supplied_texts", []), {"document_id": rel.get("document_id", f"peer:{item['peer_of']}"), "title": "peer report relayed through the hub", "author": rel["payload"].get("agent_id"), "text": rel["payload"]["original_response"]}]
+def specialist_report(spec_path: Path):
+    """``(item, branch, profile, texts, group, report)``: a specialist output file parsed as run_arena.py parses it (a
+    peer-dependent task with the peer's relayed report supplied as ``peer:<task>``)."""
+    item = json.loads(spec_path.read_text())
+    if item.get("peer_of"):
+        relayed = spec_path.parent.parent / "relayed" / f"{item['task_id']}.json"
+        if relayed.exists():
+            rel = json.loads(relayed.read_text())
+            if rel.get("delivered") and rel.get("payload"):
+                item["supplied_texts"] = [*item.get("supplied_texts", []), {"document_id": rel.get("document_id", f"peer:{item['peer_of']}"), "title": "peer report relayed through the hub", "author": rel["payload"].get("agent_id"), "text": rel["payload"]["original_response"]}]
+    branch, profile = default_registry().for_subject(item["subject"])
+    texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
+    group = item.get("group") or spec_path.stem  # tasks of one group share one hub task and request, as in run_arena.py
+    report = branch.parser().parse_response(item["response_text"], request_id=f"req-{group}", task_id=group, report_id=f"rep-{item['task_id']}-0",
+                                            subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"), supplied_texts=texts, agent_id=item["agent_id"])
+    return item, branch, profile, texts, group, report
+
+
+#: The combinator's own rendering of what its agent reads (``epinoic_combinator.prompt.render`` of a checked input), run in
+#: the sub-project's own isolated process: this script never imports the sub-project.
+_AGENT_VIEW = ("import sys; sys.path.insert(0, sys.argv[1]); from epinoic_combinator.contract import load_contract; "
+               "from epinoic_combinator.prompt import render; inp, p = load_contract().check_input(sys.stdin.buffer.read()); "
+               "sys.stdout.buffer.write(render(inp).encode('utf-8') + b'\\n') if p is None else "
+               "(sys.stderr.write(p.code + ' ' + p.reason + ': ' + p.detail + '\\n'), sys.exit(2))")
+
+
+def agent_view(spec_paths: list[Path], manifest: dict) -> str:
+    """The document the combinator's runner gives its agent for the reports of one group (``--agent-view``): the
+    combinator input the service builds from the delivered reports (``integration.combinator_port.source_report`` and
+    ``build_input``, under the exported pack's identity), rendered by the combinator sub-project's own code. The runner
+    combines two to sixteen reports of one request, so fewer, more, or files of different groups are refused (exit 2)."""
+    from epinoic_logic.integration import combinator_port as CB
+    from epinoic_logic.integration.canonical import canonical_json
+    from epinoic_logic.integration.errors import IntegrationError
+    from epinoic_logic.integration.protocol import dump
+    if not (COMBINATOR_SRC / "epinoic_combinator").is_dir():
+        _refuse("no combinator sub-project in this repository: the agent's view is rendered by the combinator's own code")
+    parsed = [specialist_report(p) for p in spec_paths]
+    groups = sorted({g for _i, _b, _p, _t, g, _r in parsed})
+    if len(groups) != 1:
+        _refuse(f"--agent-view takes the reports of one group (one request); these belong to {groups}")
+    if not 2 <= len(parsed) <= 16:
+        _refuse(f"the combinator's runner combines two to sixteen reports of one request (the port's combined answer); {len(parsed)} given: brief the "
+                "agent with this script's --json listing, mapped onto the runner's input as scripts/arena/README.md says")
+    sources = [CB.source_report(report.model_dump(mode="json"), branch.key) for _i, branch, _p, _t, _g, report in parsed]
+    try:
+        inp = CB.build_input({"task_id": groups[0], "request_id": f"req-{groups[0]}"}, sources, manifest["instruction_pack"])
+    except IntegrationError as exc:
+        _refuse(f"the reports make no combinator input ({exc.code}: {exc})")
+    proc = subprocess.run([sys.executable, "-I", "-c", _AGENT_VIEW, str(COMBINATOR_SRC)], input=canonical_json(dump(inp)).encode("utf-8"), capture_output=True, timeout=120)
+    if proc.returncode != 0:
+        _refuse("the combinator refused the input: " + (proc.stderr.decode("utf-8", "replace").strip().splitlines() or ["no message"])[-1][:300])
+    return proc.stdout.decode("utf-8")
+
+
+_flags = {"--eligible", "--json", "--allow-other-release", "--agent-view"}
+_instructions = sys.argv[sys.argv.index("--instructions") + 1] if "--instructions" in sys.argv[:-1] else None
+_positional = [a for k, a in enumerate(sys.argv[1:], start=1) if a not in _flags and a != "--instructions" and sys.argv[k - 1] != "--instructions"]
+_manifest, _fmt = combinator_pack(Path(_instructions).resolve() if _instructions else None, allow_other_release="--allow-other-release" in sys.argv)
+if "--agent-view" in sys.argv:
+    sys.stdout.write(agent_view([Path(p).resolve() for p in _positional], _manifest))
+    sys.exit(0)
+spec_path = Path(_positional[0] if _positional else sys.argv[1]).resolve()
 only_eligible = "--eligible" in sys.argv
 as_json = "--json" in sys.argv
-_instructions = sys.argv[sys.argv.index("--instructions") + 1] if "--instructions" in sys.argv[:-1] else None
-SYNTHESIS_FORMAT = synthesis_format(*combinator_pack(Path(_instructions).resolve() if _instructions else None,
-                                                     allow_other_release="--allow-other-release" in sys.argv))
-branch, profile = default_registry().for_subject(item["subject"])
-texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
-group = item.get("group") or spec_path.stem  # tasks of one group share one hub task and request, as in run_arena.py
-report = branch.parser().parse_response(item["response_text"], request_id=f"req-{group}", task_id=group, report_id=f"rep-{item['task_id']}-0",
-                                        subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"), supplied_texts=texts, agent_id=item["agent_id"])
+SYNTHESIS_FORMAT = synthesis_format(_manifest, _fmt)
+item, branch, profile, texts, group, report = specialist_report(spec_path)
 rows = []
 for c in report.claims:
     e = decide_eligibility(c)

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import Any, Mapping, Optional
 
-from .jsonio import JsonError, loads_strict, sha256_json, sha256_text
+from .jsonio import JsonError, check_value, loads_strict, sha256_json, sha256_text
 from .schema import SchemaUnsupported, Validator, shown
 
 __all__ = ["CONTRACT_FILES", "ContractUnavailable", "Problem", "Contract", "load_contract"]
@@ -88,11 +88,19 @@ class Contract:
 
     @staticmethod
     def _parsed(raw: Any) -> tuple[Any, Optional[str]]:
+        """``(value, None)`` for a protocol JSON document or value, ``(None, why)`` otherwise. Text and bytes are parsed
+        strictly; an object passed already parsed is held to the same rules (``jsonio.check_value``: no lone surrogate, no
+        float, no non-string key, no value that is not JSON), so it is refused here, as text holding it would be, before
+        anything reads it."""
         if isinstance(raw, (str, bytes, bytearray)):
             try:
                 return loads_strict(raw), None
             except JsonError as exc:
                 return None, str(exc)
+        try:
+            check_value(raw)
+        except JsonError as exc:
+            return None, str(exc)
         return raw, None
 
     @staticmethod

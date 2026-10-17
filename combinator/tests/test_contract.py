@@ -136,3 +136,48 @@ def test_the_output_rules_come_in_the_ports_order():
     m, _ = _message()
     m["claims"] = [{**m["claims"][0], "text": "z" * 4000} for _ in range(13)]
     assert CONTRACT.check_output(m, inp).code == "KIT-CB-006"
+
+
+#: Messages passed already parsed that no protocol JSON text could be (verification round 2, V2-L2): before, a dict input
+#: whose claim text held a lone surrogate made the digest check raise, and the runner refused it as its own internal error.
+def _non_json_values():
+    def lone_surrogate_in_text(d):
+        d["sources"][0]["claims"][0]["text"] = "\ud800"
+    def lone_surrogate_in_a_key(d):
+        d["x\ud800"] = 1
+    def a_float(d):
+        d["port_version"] = 1.0
+    def a_non_string_key(d):
+        d["sources"][0]["claims"][0][1] = "x"
+    def bytes_as_a_value(d):
+        d["sources"][0]["claims"][0]["text"] = b"bytes"
+    def an_unsafe_integer(d):
+        d["n"] = 2 ** 60
+    return [lone_surrogate_in_text, lone_surrogate_in_a_key, a_float, a_non_string_key, bytes_as_a_value, an_unsafe_integer]
+
+
+@pytest.mark.parametrize("change", _non_json_values(), ids=lambda f: f.__name__)
+def test_an_input_passed_already_parsed_is_held_to_the_json_rules_and_never_raises(change):
+    from epinoic_combinator import runner
+    from epinoic_combinator.providers import FaithfulFakeProvider
+    doc = input_doc()
+    change(doc)
+    inp, problem = CONTRACT.check_input(doc)
+    assert inp is None and (problem.code, problem.reason) == ("KIT-CB-001", "input_not_json"), problem
+    result = runner.run(doc, FaithfulFakeProvider())
+    refusal = loads_strict(result.text)
+    assert not result.ok and (refusal["reason"], refusal["code"], refusal["ids"]) == ("input_not_json", "KIT-CB-001", None)
+
+
+def test_an_output_or_a_refusal_passed_already_parsed_is_held_to_the_json_rules():
+    from epinoic_combinator import runner
+    from epinoic_combinator.providers import FaithfulFakeProvider
+    inp = CONTRACT.check_input(input_doc())[0]
+    out = loads_strict(runner.run(input_doc(), FaithfulFakeProvider()).text)
+    bad = copy.deepcopy(out)
+    bad["claims"][0]["text"] = "\ud800"
+    bad["claims"][-1]["transformation"] = "joined"  # the JSON rules come first, before the transformation
+    problem = CONTRACT.check_output(bad, inp)
+    assert (problem.code, problem.reason) == ("KIT-CB-002", "output_not_json"), problem
+    refusal = loads_strict(runner.run({"x": 1.5}, FaithfulFakeProvider()).text)
+    assert CONTRACT.check_refusal({**refusal, "detail": "\ud800"}).code == "KIT-CB-002"

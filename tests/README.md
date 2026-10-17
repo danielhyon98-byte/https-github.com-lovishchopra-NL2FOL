@@ -73,7 +73,8 @@ harness rates of the second layer have not dropped.
    `flash-router/tests/` (`tests/integration/test_flash_router_subproject.py`) and `combinator/tests/`
    (`tests/integration/test_combinator_subproject.py`, which also shows that a faithful synthesis of the combinator passes
    the hub and that the hub names each misrepresentation it lets out: a dropped qualifier, a stronger certainty, a merged
-   contradiction, an invented figure, a wrong attribution, a carried self-certification). Run one alone from its directory
+   contradiction of formalized claims, an invented figure, a wrong attribution, a carried self-certification, a
+   verification label, a self-certification of the synthesis itself). Run one alone from its directory
    (`cd combinator && python -m pytest -q`), or install it into a separate environment (`pip install -e "combinator[dev]"`).
 
    The external review of 12 October 2026 is covered by `tests/engine/test_review_engine_fixes.py`,

@@ -27,9 +27,22 @@ PYTHONPATH=combinator/src python -m epinoic_combinator.export --out <round>/comb
 python scripts/arena/list_claims.py <round>/specialists/<task>.json --json --instructions <round>/combinator
 ```
 
-Give the agent `INSTRUCTIONS.md` and, for each report, the `--json` output of `list_claims.py`: its claims (ids, roles,
-materiality, certainty, texts) and `synthesis_format`, the exported `output-format.json` under the pack's identity. The
-agent writes the output object to `<round>/syntheses/<task_id>.json`:
+Give the agent `INSTRUCTIONS.md` and the one JSON document its "What you receive" describes, the one the combinator's
+runner gives its agent. For a group of two to sixteen reports (a peer group of one request, the port's combined answer)
+`list_claims.py` prints it, rendered by the sub-project's own code in its own isolated process:
+
+```
+python scripts/arena/list_claims.py --agent-view <round>/specialists/<task>.json <round>/specialists/<peer>.json --instructions <round>/combinator
+```
+
+A task of a single report is no combinator input (the runner combines two reports or more), so its agent is briefed with
+the `--json` listing, which maps onto that document as follows: `request` is `{"task_id": <group>, "request_id":
+"req-<group>"}` (`request_id` of the listing; the group is the task id unless the task names one); the listing is one entry
+of `sources`, with its `report_id` and `branch`, the specialist's `agent_id` and `subject` from the specialist file, and per
+claim only `claim_id`, `role`, `materiality`, `certainty` and `text`. The listing's other fields (`eligible`,
+`eligibility_class`, `supporting_claim_ids`, `source_refs`, `assumptions`, `advisory_verification_status`,
+`claim_text_sha256`) and `synthesis_format` (the exported `output-format.json` under the pack's identity) are the arena's,
+not part of what the runner shows its agent. The agent writes the output object to `<round>/syntheses/<task_id>.json`:
 
 ```
 {"claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
@@ -38,7 +51,9 @@ agent writes the output object to `<round>/syntheses/<task_id>.json`:
  "conflicts": [{"claim_ids": ["...", "..."], "description": "..."}]}          (conflicts only when sources contradict)
 ```
 
-(recorded rounds also carry `report_id`, which the harness does not read).
+and nothing else: no `report_id` (the runner refuses any key besides these three as `output_invalid`, `KIT-CB-002`). Recorded
+rounds also carry `report_id`, written by the tooling before the combinator sub-project existed; the harness does not read
+it.
 
 - `transformation` is exactly one of those five words, a category of what was done to the cited sources, never a
   description of the edit. What each records is `TRANSFORMATION_MEANINGS` in `src/epinoic_logic/integrity/contracts.py`,
@@ -56,7 +71,8 @@ agent writes the output object to `<round>/syntheses/<task_id>.json`:
   carried back as a claim, and no verification label ("Verified:", "(checked)") is put on one (INT-LEDGER-029); a
   synthesized claim cites each source claim once (the combinator's runner refuses a repeated citation, KIT-CB-002); every
   source claim left out goes in `dropped` with a meaningful reason; a
-  contradiction is disclosed in `conflicts`, never merged (INT-CONFLICT-002).
+  contradiction is disclosed in `conflicts`, never merged (INT-CONFLICT-002 for formalized claims; a contradiction between
+  claims in prose is named only through the figures a synthesis changes or drops, INT-LEDGER-023 and INT-LEDGER-024).
 - Any other value (free text, an alias such as "joined", another spelling) is refused by the hub: the synthesis is
   REJECTED with INT-REQ-009 and INT-SYNTH-014 naming each claim, and it is not delivered. So is a file that is not JSON,
   a claim that is not an object, a missing field or a field the synthesis contract does not have.

@@ -13,7 +13,9 @@ release, reached by the translator's service only through the combinator port. T
 | the translator's hub | every check of faithfulness (ledger, conflicts, entailment) | its own checks and signed engine results only |
 
 The runner's gate answers one question: is this a message of the published contract? It never answers whether the
-synthesis is faithful. That division is deliberate: if the combinator also judged faithfulness, a fault the gate let
+synthesis is faithful. (What the hub reads is the translator's: a contradiction it names as undisclosed, `INT-CONFLICT-002`,
+only between claims it formalized; between claims in prose, only through the figures a synthesis changes or drops,
+`INT-LEDGER-023` and `INT-LEDGER-024`.) That division is deliberate: if the combinator also judged faithfulness, a fault the gate let
 through would look checked twice, and an agent's self-report would gain weight. The hub checks every synthesis as if
 the runner did not exist.
 
@@ -42,7 +44,9 @@ every case without an output in contract, including no output at all; the reason
 ## Order of the rules
 
 The runner decides in the order the translator's `check_output` does, so both sides name the same code for the same
-message: (1) not JSON or not an object; (2) a transformation outside the vocabulary, before anything else; (3) the
+message: (1) not JSON or not an object (a message passed already parsed is held to the same JSON rules as text, so a
+lone surrogate, a float or a non-string key in it is "not JSON" here, before anything reads it); (2) a transformation
+outside the vocabulary, before anything else; (3) the
 schema, the agent format, a synthesized claim citing a source claim twice (one source cited twice would pass for a
 `merged` claim with one source), a conflict naming a claim twice; (4) another request; (5) another pack; (6) a citation the
 input does not hold; (7) a synthesis text over 49,152 UTF-8 bytes. The runner's own size guard (262,144 bytes of agent

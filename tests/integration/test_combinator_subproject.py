@@ -9,7 +9,15 @@ PROTOCOL.md section 7; decision D33), and the hub as the independent checker of 
 - a faithful synthesis passes the hub; each misrepresentation (a dropped qualifier, a stronger certainty, a merged
   contradiction, an invented figure, a wrong attribution, a carried self-certification, a self-certification label on a
   content claim) is in contract, so the combinator lets it out, and the hub names it on the synthesized claim;
-- whatever its provider returns, the runner never lets out a message the port or the hub's synthesis contract refuses.
+- verification round 2: every qualifier of the instructions' rule 4 ("only", "to a limited extent", "about" in front of a
+  figure; a minority made a majority), every crediting form of rule 5 ("According to the History specialist, ...", "In
+  the History specialist's view, ...", a claim credited to a text without a quotation), the synthesis certifying itself
+  ("The synthesis has been verified.", "This synthesis is correct.", "Formally proven correct.") and the label forms (check
+  marks, "(checked against the sources)", "(source-checked)", "(accuracy confirmed)") are named, with clean controls; a
+  stronger certainty over a "probably" (History) or "may have" (generic) source is named;
+- whatever its provider returns, the runner never lets out a message the port or the hub's synthesis contract refuses;
+- the arena briefs a combinator agent with the runner's own view of the input (``list_claims.py --agent-view``), and the
+  sub-projects' split trees ignore what a test run leaves.
 
 The hub's agents here are named ``<subject>-specialist``, as the arena names them: the hub's credit rules recognise "the
 History specialist" only for such an id (NOTES for phase 2: the checks port names hub agents by protocol slug).
@@ -282,6 +290,13 @@ LABEL_FORMS = {
     "[verified] prefix": lambda t: "[verified] " + t,
     "Checked: prefix": lambda t: "Checked: " + t,
     "as formally verified suffix": lambda t: t[:-1] + ", as formally verified.",
+    # verification round 2 (V2-M1): before, each of these left with an unchecked-paraphrase warning only
+    "check mark suffix": lambda t: t[:-1] + " ✓",
+    "check mark prefix": lambda t: "✔ " + t,
+    "check mark and label suffix": lambda t: t[:-1] + " ✓ verified.",
+    "(checked against the sources) suffix": lambda t: t[:-1] + " (checked against the sources).",
+    "(source-checked) suffix": lambda t: t[:-1] + " (source-checked).",
+    "(accuracy confirmed) suffix": lambda t: t[:-1] + " (accuracy confirmed).",
 }
 
 
@@ -316,6 +331,127 @@ def test_a_label_the_specialist_wrote_is_named_at_delivery_and_again_when_the_co
     instructed["claims"][k].update(text=instructed["claims"][k]["text"].removeprefix("Verified: "), transformation="narrowed")
     receipt = _through_combinator(ch, inp, instructed, "syn-c3")
     assert "INT-LEDGER-029" not in {f.code for f in receipt.findings}, [(f.code, f.message[:120]) for f in receipt.findings]
+
+
+#: The synthesis certifying itself (verification round 2, V2-M1): the hub read a synthesis with the specialists' rules only,
+#: whose answer is "this answer", so none of these was named.
+SYNTHESIS_SELF_REPORTS = ["The synthesis has been verified.", "This synthesis is correct.", "Formally proven correct.",
+                          "Every synthesized claim was checked against the sources."]
+
+
+@pytest.mark.parametrize("text", SYNTHESIS_SELF_REPORTS)
+def test_a_synthesis_certifying_itself_is_caught_by_the_hub(text):
+    ch, inp = _history_and_economics()
+
+    def change(a):
+        a["claims"].append({"text": text, "source_claim_ids": ["h1.1"], "certainty": "established", "transformation": "generalized"})
+    agent = _edited(inp, change)
+    receipt = _through_combinator(ch, inp, agent, "syn-v")
+    assert "INT-LEDGER-029" in _codes_naming(receipt, f"s{len(agent['claims']) - 1}"), [(f.code, f.claim_ids) for f in receipt.findings]
+
+
+def test_a_self_certification_written_beside_a_claims_content_is_caught_and_a_check_credited_elsewhere_is_not():
+    ch, inp = _history_and_economics()
+    i = next(k for k, c in enumerate(_faithful(inp)["claims"]) if "June 1919" in c["text"])
+
+    def appended(a):
+        a["claims"][i].update(text=a["claims"][i]["text"] + " The synthesis has been verified.", transformation="paraphrased")
+    receipt = _through_combinator(ch, inp, _edited(inp, appended), "syn-w")
+    [f] = [f for f in receipt.findings if f.code == "INT-LEDGER-029"]
+    assert f"s{i}" in f.claim_ids and "beside its content" in f.message and "still accounted for" in f.message
+
+    def credited(a):
+        a["claims"][i].update(text=a["claims"][i]["text"][:-1] + " (verified by the History specialist).", transformation="paraphrased")
+    receipt = _through_combinator(ch, inp, _edited(inp, credited), "syn-x")
+    assert "INT-LEDGER-029" not in {f.code for f in receipt.findings}, [(f.code, f.message[:120]) for f in receipt.findings]
+
+
+QUALIFIED_HISTORY = ("Only a minority of voters supported the Nazi party in 1928. "
+                     "Article 48 probably allowed the president to rule by decree in emergencies.")
+QUALIFIED_ECONOMICS = ("Unemployment reached about 6 million in 1932. "
+                       "The Wall Street Crash of October 1929 may have ended the American loans to a limited extent.")
+
+
+def _qualified() -> tuple[TranslatorChannel, CB.CombinatorInput]:
+    ch = _channel({"history-specialist": QUALIFIED_HISTORY, "economics-specialist": QUALIFIED_ECONOMICS},
+                  {"history-specialist": "History", "economics-specialist": "Economics"})
+    return ch, _input(ch)
+
+
+def _rewritten(inp: CB.CombinatorInput, cue: str, new_text: str, transformation: str = "paraphrased") -> tuple[dict, str]:
+    agent = _faithful(inp)
+    i = next(k for k, c in enumerate(agent["claims"]) if cue in c["text"])
+    agent["claims"][i].update(text=new_text, transformation=transformation)
+    return agent, f"s{i}"
+
+
+#: Each qualifier of the instructions' rule 4 dropped (verification round 2, V2-M2), and a minority made a majority.
+QUALIFIERS = {
+    "only": ("Only a minority", "A minority of voters supported the Nazi party in 1928.", "drops the qualifier 'Only'"),
+    "to a limited extent": ("limited extent", "The Wall Street Crash of October 1929 may have ended the American loans.", "drops the limit"),
+    "about": ("about 6 million", "Unemployment reached 6 million in 1932.", "the approximation is dropped"),
+    "minority to majority": ("Only a minority", "A majority of voters supported the Nazi party in 1928.", "reverses a minority or a majority"),
+}
+
+
+@pytest.mark.parametrize("form", list(QUALIFIERS))
+def test_each_dropped_qualifier_of_the_instructions_is_caught_by_the_hub(form):
+    ch, inp = _qualified()
+    cue, text, said = QUALIFIERS[form]
+    agent, sid = _rewritten(inp, cue, text)
+    receipt = _through_combinator(ch, inp, agent, "syn-q2")
+    [f] = [f for f in receipt.findings if f.code == "INT-LEDGER-026" and sid in f.claim_ids]
+    assert f.severity == "warning" and said in f.message, f.message
+
+
+def test_a_qualifier_kept_in_other_words_is_not_named():
+    ch, inp = _qualified()
+    for n, (cue, text) in enumerate((("Only a minority", "Merely a minority of voters supported the Nazi party in 1928."),
+                                     ("about 6 million", "Unemployment reached roughly 6 million in 1932."))):
+        agent, sid = _rewritten(inp, cue, text)
+        receipt = _through_combinator(ch, inp, agent, f"syn-q3-{n}")
+        assert "INT-LEDGER-026" not in _codes_naming(receipt, sid), [(f.code, f.message[:160]) for f in receipt.findings]
+
+
+#: Each crediting form the instructions' rule 5 forbids, with the claim of another agent or of no text (V2-M3).
+ATTRIBUTIONS = {
+    "according to the other specialist": ("about 6 million", "According to the History specialist, unemployment reached about 6 million in 1932.",
+                                          "credits the view to ['history-specialist']"),
+    "in the other specialist's view": ("about 6 million", "In the History specialist's view, unemployment reached about 6 million in 1932.",
+                                       "credits the view to ['history-specialist']"),
+    "credited to a text without a quotation": ("Article 48", "The Treaty of Versailles states that Article 48 probably allowed the president to rule "
+                                               "by decree in emergencies.", "credits the statement"),
+}
+
+
+@pytest.mark.parametrize("form", list(ATTRIBUTIONS))
+def test_each_wrong_attribution_form_is_caught_by_the_hub(form):
+    ch, inp = _qualified()
+    cue, text, said = ATTRIBUTIONS[form]
+    agent, sid = _rewritten(inp, cue, text)
+    receipt = _through_combinator(ch, inp, agent, "syn-a2")
+    [f] = [f for f in receipt.findings if f.code == "INT-LEDGER-026" and sid in f.claim_ids]
+    assert said in f.message, f.message
+
+
+def test_a_credit_the_sources_give_is_not_named():
+    ch, inp = _qualified()
+    agent, sid = _rewritten(inp, "about 6 million", "According to the Economics specialist, unemployment reached about 6 million in 1932.")
+    receipt = _through_combinator(ch, inp, agent, "syn-a3")
+    assert "INT-LEDGER-026" not in _codes_naming(receipt, sid), [(f.code, f.message[:160]) for f in receipt.findings]
+
+
+@pytest.mark.parametrize("cue,certainty", [("probably", "probable"), ("may have", "possible")])
+def test_a_stronger_certainty_over_a_hedged_source_of_either_parser_is_caught_by_the_hub(cue, certainty):
+    """The History parser records "probably" and the generic parser "may have" with their certainty (V2-L1), so a
+    synthesis that keeps the text and states it as established is named (INT-LEDGER-003)."""
+    ch, inp = _qualified()
+    agent = _faithful(inp)
+    i = next(k for k, c in enumerate(agent["claims"]) if cue in c["text"])
+    assert agent["claims"][i]["certainty"] == certainty
+    agent["claims"][i].update(certainty="established")
+    receipt = _through_combinator(ch, inp, agent, "syn-c4")
+    assert "INT-LEDGER-003" in _codes_naming(receipt, f"s{i}")
 
 
 POEM = ("Earth has not anything to show more fair:\nThis City now doth, like a garment, wear\n"
@@ -422,3 +558,45 @@ def test_the_runner_never_lets_out_what_the_port_or_the_hubs_contract_refuses(ed
     Synthesis.model_validate(payload)
     _relayed, receipt = ch.relay(SYNTHESIS, AgentRole.COMBINATOR, "router", AgentRole.ROUTER, payload)
     assert not {"INT-REQ-009", "INT-SYNTH-014"} & {f.code for f in receipt.findings}, "the hub's contract never refuses what left the combinator"
+
+
+# ----------------------------------------------------------------------------------------------- the arena's briefing
+
+
+def test_the_arenas_agent_view_is_the_runners_and_a_single_report_is_refused(tmp_path):
+    """The arena briefs a combinator agent with the document the runner gives it (V2-L3): list_claims.py --agent-view
+    renders, with the combinator's own code in its own process, exactly what ``prompt.agent_view`` makes of the input the
+    service builds from the group's reports; a single report is no combinator input and is refused."""
+    from epinoic_combinator.prompt import agent_view
+    specs = tmp_path / "specialists"
+    specs.mkdir()
+    for task, agent, subject, text in (("hi-p9", "history-specialist", "History", QUALIFIED_HISTORY),
+                                       ("ec-p9", "economics-specialist", "Economics", QUALIFIED_ECONOMICS)):
+        (specs / f"{task}.json").write_text(json.dumps({"task_id": task, "group": "p9", "subject": subject, "agent_id": agent, "task_type": "short_answer",
+                                                        "question": QUESTION, "supplied_texts": [], "response_text": text}), encoding="utf-8")
+    script = ROOT / "scripts" / "arena" / "list_claims.py"
+    environ = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    proc = subprocess.run([sys.executable, str(script), "--agent-view", str(specs / "hi-p9.json"), str(specs / "ec-p9.json")], capture_output=True,
+                          text=True, env=environ, timeout=300)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    shown = json.loads(proc.stdout)
+    from epinoic_logic.branches import default_registry
+    sources = []
+    for task, subject, agent, text in (("hi-p9", "History", "history-specialist", QUALIFIED_HISTORY), ("ec-p9", "Economics", "economics-specialist", QUALIFIED_ECONOMICS)):
+        branch, _profile = default_registry().for_subject(subject)
+        report = branch.parser().parse_response(text, request_id="req-p9", task_id="p9", report_id=f"rep-{task}-0", subject=subject, task_type="short_answer",
+                                                agent_id=agent)
+        sources.append(CB.source_report(report.model_dump(mode="json"), branch.key))
+    inp = CB.build_input({"task_id": "p9", "request_id": "req-p9"}, sources, PACK)
+    assert shown == agent_view(dump(inp)) and set(shown) == {"request", "sources"}
+    assert all(set(c) == {"claim_id", "role", "materiality", "certainty", "text"} for s in shown["sources"] for c in s["claims"])
+    single = subprocess.run([sys.executable, str(script), "--agent-view", str(specs / "hi-p9.json")], capture_output=True, text=True, env=environ, timeout=300)
+    assert single.returncode == 2 and single.stdout == "" and "two to sixteen reports" in single.stderr
+
+
+def test_the_split_ready_trees_ignore_what_a_test_run_leaves():
+    """The combinator's and the flash router's own repositories (git subtree split) ignore the caches a test run or a
+    build leaves (V2-L5)."""
+    for project in (PROJECT, ROOT / "flash-router"):
+        rules = (project / ".gitignore").read_text(encoding="utf-8").split()
+        assert {"__pycache__/", ".hypothesis/", ".pytest_cache/", "*.egg-info/", "build/", "dist/"} <= set(rules), project

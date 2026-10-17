@@ -45,9 +45,13 @@ synthesis vocabulary, the port rules) in `src/epinoic_combinator/contract/`, cop
 
 The first release (`combinator/tests/`) shows all six. The kit runs that suite and shows the other side
 (`tests/integration/test_combinator_subproject.py`): a faithful synthesis passes the hub, and each misrepresentation the
-combinator lets out because it is in contract (a dropped qualifier, a stronger certainty, a merged contradiction, an
-invented figure, a wrong attribution, a carried self-certification, a self-certification label on a content claim) is
-named by the hub on the synthesized claim.
+combinator lets out because it is in contract (a dropped qualifier, a stronger certainty, a merged contradiction of
+formalized claims, an invented figure, a wrong attribution, a carried self-certification, a self-certification label
+on a content claim, a self-certification of the synthesis itself) is named by the hub on the synthesized claim. A
+contradiction between claims in prose is not formalized, so the hub names it only through the figures a synthesis
+changes or drops (INT-LEDGER-023, INT-LEDGER-024), never as INT-CONFLICT-002. Both sides hold a message passed already
+parsed to the same JSON rules as text (a lone surrogate, a float or a non-string key is not protocol JSON, decided
+first).
 
 ## What the service guarantees whatever the combinator does (phase 2 connects it)
 

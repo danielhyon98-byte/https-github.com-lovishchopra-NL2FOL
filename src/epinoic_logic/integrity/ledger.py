@@ -702,6 +702,7 @@ _OPPOSED: tuple[tuple[frozenset[str], frozenset[str], str], ...] = (
     (_stems("only just merely solely exactly precisely") | {"atmost", "nomorethan"}, _stems("upwards") | {"atleast", "nofewerthan", "nolessthan"},
      "a quantity qualifier"),
     (_stems("all every each universal"), _stems("some few several"), "the scope of a quantity"),
+    (_stems("minority minorities"), _stems("majority majorities"), "a minority or a majority"),
     (_stems("positive optimistic favourable favorable"), _stems("negative pessimistic unfavourable unfavorable"), "an evaluation"),
     (_stems("legal lawful legally lawfully constitutional constitutionally peaceful peacefully nonviolent parliamentary electoral"),
      _stems("violent violently illegal unlawful unconstitutional forceful forcibly coercive coercion terror intimidation"), "lawful or violent means"),
@@ -1052,6 +1053,7 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     out += reversed_comparisons(synthesized_text, source_texts)
     out += reversed_voices(synthesized_text, source_texts)
     out += dropped_hedges(synthesized_text, source_texts)
+    out += dropped_qualifiers(synthesized_text, source_texts)
     # Figures in words are read as digits first, so "roughly fifteen" is an approximate 15 and "exactly fifteen" an exact one.
     approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_THOUSANDS_RE.sub("", t)))}
     syn_plain = _THOUSANDS_RE.sub("", synthesized_text)
@@ -1094,6 +1096,173 @@ def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
             if len(keys) >= 3 and len(keys & syn_keys) >= 3 and len(keys & syn_keys) * 2 >= len(keys):
                 out.append(f"it drops the hedge its cited sources state ({', '.join(repr(h) for h in dict.fromkeys(hedges))} in '{' '.join(sentence.split())[:160]}'), so the statement reads as established")
     return list(dict.fromkeys(out))
+
+
+#: A restricting qualifier (the combinator's instructions, rule 4: "only"): "only", "merely", "solely", "exclusively", and
+#: "just" before a quantity or an article ("just one victim", "just a few", "just 5 per cent"; never "just after", "just
+#: over", "a just war"). "not only ... but also" adds rather than restricts, and "if only" wishes.
+_RESTRICTOR_RE = re.compile(r"\b(?:only|merely|solely|exclusively)\b|\bjust\s+(?=(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b)",
+                            re.IGNORECASE)
+_RESTRICTOR_LEAD_RE = re.compile(r"\b(?:not|if)\s+$", re.IGNORECASE)
+#: A degree limit (rule 4: "to a limited extent"): "to a limited / certain / small / lesser extent", "to some extent",
+#: "to a degree", "in part", "partly", "partially", "somewhat", "up to a point", "in some respects". "in part (a)" names a
+#: part of a question and is none.
+_DEGREE_LIMIT_RE = re.compile(
+    r"\bto\s+(?:a|an|some)\s+(?:[\w-]+\s+){0,3}?(?:limited|certain|small|smaller|lesser|minor|modest|partial|restricted|slight|moderate)\s+(?:extent|degree)\b"
+    r"|\bto\s+(?:some|a)\s+(?:extent|degree)\b|\bin\s+(?:some|certain)\s+(?:measure|respects?|ways)\b|\bup\s+to\s+a\s+point\b"
+    r"|\bpartly\b|\bpartially\b|\bsomewhat\b|\bin\s+part\b(?!\s*(?:\(|[a-z]\b|\d|[ivx]+\b))",
+    re.IGNORECASE)
+#: An approximation in front of a figure (rule 4; "about 6 million", "roughly a third", "c. 1963", "some 9,000 banks", "just
+#: over 6 million"). A comparison or a bound ("far fewer than 1,000", "more than", "at least", "over", "up to") is not one:
+#: its figure may be exact ("20 comparisons, far fewer than the 1,000 of linear search"), so dropping it is no dropped
+#: approximation; a comparison turned round is the comparison readers' (`reversed_comparisons`, the quantity qualifiers of
+#: `aligned_changes`).
+_APPROXIMATOR = (r"(?:about|around|roughly|approximately|approx\.|nearly|almost|some|close\s+to|c\.|circa|ca\.|just\s+(?:over|under)"
+                 r"|in\s+the\s+region\s+of|of\s+the\s+order\s+of|an\s+estimated|estimated)")
+_APPROX_FIGURE_RE = re.compile(rf"(?<![\w.])(?P<q>{_APPROXIMATOR})\s+(?:[$£€¥]\s?)?(?P<v>\d+(?:\.\d+)?)(?![\w]|\.\d)", re.IGNORECASE)
+_APPROX_BEFORE_RE = re.compile(rf"(?:^|(?<=[\s(]))(?:{_APPROXIMATOR})\s+(?:[$£€¥]\s?)?$", re.IGNORECASE)
+_EXACT_BEFORE_RE = re.compile(r"\b(?:exactly|precisely|fully|a\s+full|an\s+exact)\s+(?:[$£€¥]\s?)?$", re.IGNORECASE)
+_DURATION_AFTER_RE = re.compile(r"\s+(?:years?|months?|weeks?|days?|decades?|centuries|century|hours?|minutes?|seconds?)\b", re.IGNORECASE)
+#: The unit or scale word a figure is stated with ("6 million", "25 per cent", "40%", "3.5 km"): two figures are the same
+#: figure only with the same one ("about 6 million" is not "6 parties"). Any other word after a figure is no unit.
+_FIGURE_UNIT_RE = re.compile(r"\s*(%|per\s?cent\b|percent\b|thousand\b|million\b|billion\b|trillion\b|°\s?[CF]\b|(?:km|cm|mm|kg|mg|ml|kPa|Pa|Hz|mol|m|g|l|s|h|min"
+                             r"|K|V|A|W|J|N)\b|(?:marks?|points?|seats?|votes?|dollars?|pounds?|euros?|francs?|people|workers|members|deaths|casualties)\b)?")
+
+
+def _figure_unit(text: str, end: int) -> Optional[str]:
+    """The unit or scale word right after the figure that ends at ``end`` in ``text`` ("%" for "%", "per cent" and
+    "percent"), or None."""
+    m = _FIGURE_UNIT_RE.match(text, end)
+    word = " ".join((m.group(1) or "").split()).casefold() if m else ""
+    if word in ("%", "per cent", "percent", "percent"):
+        return "%"
+    return word or None
+
+
+def _shown_figure(value: str, unit: Optional[str]) -> str:
+    return value + ("%" if unit == "%" else (f" {unit}" if unit else ""))
+
+
+def _restates(keys: set[str], text: str) -> bool:
+    """``text`` restates a statement whose content keys are ``keys``: half of them or more, three at least (the rule of
+    :func:`dropped_hedges`)."""
+    shared = keys & _content_keys(text)
+    return len(keys) >= 3 and len(shared) >= 3 and len(shared) * 2 >= len(keys)
+
+
+def _scope_key(text: str, start: int) -> Optional[str]:
+    """What a qualifier at ``start`` restricts: the first figure or word after it that is no function word ("Only a
+    minority" -> "minority", "only after the crisis" -> "after", "only on official figures" -> "official", "only 37 per
+    cent" -> "37"), or None when that is a variable or a symbol ("Checking only t = 0 and t = 8": a restriction over a
+    formula is the working's, which no lexical reading can scope)."""
+    for key, surface in _align_tokens(text[start:start + 80])[:6]:  # six tokens at most: a bounded window, read once per qualifier
+        if key[:1].isdecimal():
+            return key
+        low = surface.casefold()
+        if low in _ALIGN_STOP or key in _ALIGN_STOP:
+            continue
+        return key if surface.isalpha() and len(surface) >= 3 else None
+    return None
+
+
+def dropped_qualifiers(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """A qualifier of a cited source dropped (the combinator's instructions, rule 4, beyond the hedges of
+    :func:`dropped_hedges`), each read against the clause of the synthesized claim that restates the source's clause (half
+    or more of its content words, three at least, the qualifier aside):
+
+    * a restricting qualifier ("Only a minority of voters supported the Nazi party" -> "A minority of voters ..."; "only",
+      "merely", "solely", "exclusively", "just one"): the restating clause keeps the word the qualifier restricts and carries
+      no restricting qualifier, so the statement reads wider than its sources (a qualifier in front of a formula, "checking
+      only t = 0 and t = 8", restricts the working and is not read);
+    * a degree limit ("... ended the American loans to a limited extent" with the limit removed; "partly", "in part",
+      "to some extent"): the restating clause carries no degree limit, so the statement reads stronger;
+    * an approximation in front of a figure ("about 6 million" -> "6 million", "some 9,000 banks", "c. 1963", "roughly
+      six million"): the synthesis states the figure (the same value with the same unit or scale word) with no
+      approximation in front of it, and no cited source states it exactly, so an approximate figure reads as exact. A
+      comparison or a bound ("far fewer than 1,000", "more than", "at least") is not read here (its figure may be exact);
+      a figure stated as "exactly" is the existing approximate-made-exact rule's.
+
+    Quotations are the quoted text's words and are not read for qualifiers. Lexical, not a proof (INT-LEDGER-026)."""
+    from ..adapters.markdown import mask_quotations
+    out: list[str] = []
+    syn_clauses = [c for c in _ALIGN_SENTENCE_RE.split(synthesized_text or "") if c.strip()]
+    for t in source_texts:
+        for clause in _ALIGN_SENTENCE_RE.split(t or ""):
+            if not clause.strip():
+                continue
+            masked = mask_quotations(clause)
+            shown = " ".join(clause.split())[:160]
+            # "not only", "if only": the word before, read in a bounded window that starts with a word character where it cuts
+            # the text, so a cut never makes "cannot" read as "not"
+            restrictors = [m for m in _RESTRICTOR_RE.finditer(masked)
+                           if not _RESTRICTOR_LEAD_RE.search(masked[:m.start()] if m.start() <= 16 else "x" + masked[m.start() - 16:m.start()])]
+            if restrictors:
+                keys = _content_keys(_RESTRICTOR_RE.sub(" ", clause))
+                scopes = {k for k in (_scope_key(clause, m.end()) for m in restrictors) if k}
+                restating = [y for y in syn_clauses if _restates(keys, y)]
+                kept = [y for y in restating if _RESTRICTOR_RE.search(y)]
+                lost = [y for y in restating if not _RESTRICTOR_RE.search(y) and scopes & {k for k, _s in _align_tokens(y)}]
+                if lost and not kept:
+                    words = ", ".join(repr(m.group(0).strip()) for m in restrictors[:3])
+                    out.append(f"it drops the qualifier {words} its cited sources state (in '{shown}'), so the statement reads wider than its sources")
+            limits = list(_DEGREE_LIMIT_RE.finditer(masked))
+            if limits:
+                keys = _content_keys(_DEGREE_LIMIT_RE.sub(" ", clause))
+                restating = [y for y in syn_clauses if _restates(keys, y)]
+                if restating and not any(_DEGREE_LIMIT_RE.search(y) for y in restating):
+                    words = ", ".join(repr(" ".join(m.group(0).split())) for m in limits[:3])
+                    out.append(f"it drops the limit {words} its cited sources state (in '{shown}'), so the statement reads stronger than its sources")
+    out += _dropped_approximations(synthesized_text, source_texts)
+    return list(dict.fromkeys(out))
+
+
+def _approximated_figures(text: str) -> tuple[dict[tuple[str, Optional[str]], str], set[tuple[str, Optional[str]]]]:
+    """``(approximated, exact)`` figures of ``text`` (figures in words read as digits, thousands separators removed): the
+    figures stated with an approximation in front, each with its phrase as the reader sees it, and the figures stated with
+    none. A figure is ``(value, unit or scale word)``."""
+    plain = _words_as_digits(_THOUSANDS_RE.sub("", text or ""))
+    approximated: dict[tuple[str, Optional[str]], str] = {}
+    exact: set[tuple[str, Optional[str]]] = set()
+    for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
+        key = (m.group(0), _figure_unit(plain, m.end()))
+        q = _APPROX_BEFORE_RE.search(plain[max(0, m.start() - 40):m.start()])
+        if q is not None and q.group(0).split()[0].casefold() in ("over", "under") and _DURATION_AFTER_RE.match(plain, m.end()):
+            q = None  # "over 3 years": a duration
+        if q is not None:
+            lead = " ".join(q.group(0).split())
+            approximated.setdefault(key, lead + ("" if lead.endswith(("$", "£", "€", "¥")) else " ") + _shown_figure(*key))
+        else:
+            exact.add(key)
+    return approximated, exact
+
+
+def _dropped_approximations(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """The approximations of :func:`dropped_qualifiers` that the synthesis drops in front of a figure it keeps."""
+    approximated: dict[tuple[str, Optional[str]], str] = {}
+    exact: set[tuple[str, Optional[str]]] = set()
+    for t in source_texts:
+        a, e = _approximated_figures(t)
+        for k, v in a.items():
+            approximated.setdefault(k, v)
+        exact |= e
+    if not approximated:
+        return []
+    plain = _words_as_digits(_THOUSANDS_RE.sub("", synthesized_text or ""))
+    stated: dict[tuple[str, Optional[str]], list[bool]] = {}
+    for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
+        key = (m.group(0), _figure_unit(plain, m.end()))
+        before = plain[max(0, m.start() - 40):m.start()]
+        if _EXACT_BEFORE_RE.search(before):
+            stated.setdefault(key, []).append(True)  # "exactly 60": the approximate-made-exact rule names it
+            continue
+        stated.setdefault(key, []).append(_APPROX_BEFORE_RE.search(before) is not None)
+    out = []
+    for key, phrase in sorted(approximated.items(), key=lambda kv: (kv[0][0], kv[0][1] or "")):
+        if key in exact or key not in stated or any(stated[key]):
+            continue
+        out.append(f"it states '{_shown_figure(*key)}' where its cited sources give '{phrase}': the approximation is dropped, so an approximate figure "
+                   "reads as exact")
+    return out
 
 
 def _approx_phrases(text: str) -> list[tuple[str, str]]:
@@ -1592,6 +1761,69 @@ def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list
     return [f"it credits the view to {credited} but its cited source claims {[c.claim_id for c in known]} state the view of {sorted(holders)} (a view credited to another agent)"]
 
 
+#: Words that open a credited source without naming one: pronouns, articles, the words of a credit, groups ("historians").
+_NOT_A_NAME = frozenset(("the this that these those it its he she they we i you a an his her their our my your in as according of to and or for "
+                         "historians scholars critics economists commentators observers contemporaries researchers analysts experts some many most "
+                         "both each all one data evidence figures sources table chart graph").split())
+#: A source named by its kind: the one literary text in scope, when there is exactly one ("the poem", "the speaker").
+_LITERARY_KIND_RE = re.compile(r"^(?:the|this)\s+(?:poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story|text|author)$", re.IGNORECASE)
+_LITERARY_MENTION_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story|text|author)\b", re.IGNORECASE)
+#: A credited "source" that is a specialist's contribution, the request or the infrastructure: the view-credit and
+#: self-report rules read those (:func:`_view_credit`, INT-LEDGER-029).
+_NOT_A_TEXT_RE = re.compile(r"\b(?:specialists?|report|answer|account|paragraph|response|analysis|reply|colleague|peer|question|request|task|router|hub"
+                            r"|combinator|engine|solver|verifier|z3|translator|overseer|synthesis)\W*$", re.IGNORECASE)
+
+
+def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistReport], agents: list[str]) -> list[str]:
+    """A statement a synthesized claim credits, without quotation marks, to a named source ("The Treaty of Versailles
+    states that Article 48 probably allowed ...", "According to Keynes, ...", "In the words of the treaty, ...";
+    :func:`~epinoic_logic.adapters.sources.unquoted_credits`) that its cited source claims do not credit to it: none of
+    them names the source and, for a text in scope (a supplied text named by its author, its title, a word of its title
+    such as "the treaty", or its kind such as "the poem" when it is the one literary text), the text does not hold the
+    statement either (half of the statement's content words or more, three at least). A source named only by pronouns or
+    groups ("It", "Historians") is not read; a specialist, a specialist's report, the request or the infrastructure named
+    as the source is the view-credit rule's (:func:`_view_credit`) or the self-report rule's."""
+    from ..adapters.sources import document_mentions, is_peer_text, specialist_names, unquoted_credits
+    credits = unquoted_credits(text)
+    if not credits:
+        return []
+    docs: dict[str, "SuppliedText"] = {}
+    for r in reports:
+        for t in r.supplied_texts:
+            if not is_peer_text(t):
+                docs.setdefault(t.document_id, t)
+    specialist_words = {n.casefold() for a in agents for n in specialist_names(a)}
+    out: list[str] = []
+    for cr in credits:
+        source = cr.source
+        if _NOT_A_TEXT_RE.search(source) or source.casefold() in specialist_words:
+            continue
+        names = {w.casefold() for w in re.findall(r"[^\W\d_][\w'’-]*", source) if w[:1].isupper() and w.casefold() not in _NOT_A_NAME}
+        head = (re.findall(r"[^\W\d_][\w'’-]*", source) or [""])[-1].casefold()
+        doc = next((d for d in docs.values() if document_mentions(source, d)), None)
+        if doc is None and _LITERARY_KIND_RE.match(source) and len(docs) == 1:
+            doc = next(iter(docs.values()))
+        if doc is None and len(head) >= 4 and head not in _NOT_A_NAME:
+            titled = [d for d in docs.values() if d.title and head in {w.casefold() for w in re.findall(r"[^\W\d_]+", d.title)}]
+            doc = titled[0] if len(titled) == 1 else None
+        if doc is None and not names:
+            continue
+        keys = _content_keys(cr.content)
+        if doc is not None and len(keys) >= 3 and len(keys & _content_keys(doc.text)) * 2 >= len(keys):
+            continue  # the text in scope holds what it is credited with
+        def names_it(claim_text: str) -> bool:
+            words = {w.casefold() for w in re.findall(r"[^\W\d_][\w'’-]*", claim_text)}
+            return bool(names & words) or (doc is not None and (bool(document_mentions(claim_text, doc)) or bool(_LITERARY_MENTION_RE.search(claim_text))
+                                                                  or (len(head) >= 4 and head in words)))
+        if any(names_it(c.claim_text) for c in known):
+            continue  # a cited source claim names the source: the credit is the specialist's own
+        where = f" ({doc.document_id}), which does not hold it," if doc is not None else ""
+        out.append(f"it credits the statement '{cr.content[:100]}' to '{source[:80]}'{where} but none of its cited source claims "
+                   f"{[c.claim_id for c in known][:8]} names that source: a credit its sources do not give (a specialist's claim presented as "
+                   "another source's)")
+    return out
+
+
 #: A from-memory label or qualification in a text.
 _MEMORY_LABEL_RE = re.compile(r"\bfrom memory\b|\bmemory\b|\b(?:check|verify)\b[^.;]{0,40}\bnotes?\b|\bunverified\b|\bnot (?:been )?(?:verified|checked)\b|\bto be (?:checked|verified)\b", re.IGNORECASE)
 _MEMORY_PAREN_RE = re.compile(r"\(([^()]*\bmemory\b[^()]*)\)", re.IGNORECASE)
@@ -1666,24 +1898,29 @@ _SELF_REPORT_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _SELF_REPORT_SENTENCE_CHARS = 4000
 
 
-def _self_report_sentences(text: str, labels: Optional[list[str]] = None) -> list[str]:
+def _self_report_sentences(text: str, labels: Optional[list[str]] = None, content: Optional[list[str]] = None) -> list[str]:
     """The sentences of ``text`` that state a verification status of the answer itself ("VERIFIED: all claims checked and
-    confirmed.", "checked by the formal verifier: every line holds"), read with the closed self-certification vocabulary
-    of the specialists' reports (:func:`~epinoic_logic.adapters.markdown.is_self_certification`), or that carry a
-    verification label on their content ("Verified: ...", "... (verified).", "..., as formally verified.";
-    :func:`~epinoic_logic.adapters.markdown.verification_label`), which are also appended to ``labels``. One linear split."""
-    from ..adapters.markdown import is_self_certification, verification_label
+    confirmed.", "checked by the formal verifier: every line holds", "The synthesis has been verified.", "This synthesis is
+    correct."), read as the combinator's own words: the closed self-certification vocabulary of the specialists' reports
+    with the combined answer itself as the thing certified
+    (:func:`~epinoic_logic.adapters.markdown.is_synthesis_self_certification`), or that carry a verification label on
+    their content ("Verified: ...", "... (verified).", "..., as formally verified.", "... ✓", "... (checked against the
+    sources).", "Formally proven correct."; :func:`~epinoic_logic.adapters.markdown.verification_label`), which are also
+    appended to ``labels``. The other sentences, the content beside them, are appended to ``content``. One linear split."""
+    from ..adapters.markdown import is_synthesis_self_certification, verification_label
     out: list[str] = []
     for sentence in _SELF_REPORT_SENTENCE_RE.split(text or ""):
         s = sentence.strip()
         if not s:
             continue
-        if is_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
+        if is_synthesis_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
             out.append(s[:200])
         elif verification_label(s[:_SELF_REPORT_SENTENCE_CHARS]) is not None:
             out.append(s[:200])
             if labels is not None:
                 labels.append(s[:200])
+        elif content is not None and re.search(r"[^\W_]", s):
+            content.append(s[:200])
     return list(dict.fromkeys(out))
 
 
@@ -1692,20 +1929,28 @@ def _self_report_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
     the answer: a self-report of the combinator (or one it carried from a specialist's note), advisory only. No check in
     this process stands behind it, so it is never material content and never evidence that anything was checked (a
     specialist's report with the same sentence is named CORE-SELF-001). A verification label on the content of a claim
-    ("Verified: ...", "... (verified).", "..., as formally verified.") is named the same way: the label is the
-    self-report, and the content stays accounted for like any other claim's. Each sentence is named once."""
+    ("Verified: ...", "... (verified).", "..., as formally verified.", "... ✓") is named the same way: the label is the
+    self-report, and the content stays accounted for like any other claim's; so does a self-report sentence written beside
+    the claim's content ("<content>. The synthesis has been verified."). Each sentence is named once."""
     f: list[IntegrityFinding] = []
     named: set[str] = set()
     for sc in synthesis.claims:
         labels: list[str] = []
-        found = _self_report_sentences(sc.text, labels)
+        content: list[str] = []
+        found = _self_report_sentences(sc.text, labels, content)
         if found:
             named.update(found)
-            what = (f"synthesized claim ('{sc.transformation}', {sc.materiality}) carries a verification-status label on its content: {found[:3]}: the "
-                    "label is a self-report, advisory only; no check in this process stands behind it, so it is no evidence that the claim was "
-                    "checked (its content is still accounted for like any other claim's)") if set(found) <= set(labels) else (
-                    f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
-                    "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check")
+            if set(found) <= set(labels):
+                what = (f"synthesized claim ('{sc.transformation}', {sc.materiality}) carries a verification-status label on its content: {found[:3]}: the "
+                        "label is a self-report, advisory only; no check in this process stands behind it, so it is no evidence that the claim was "
+                        "checked (its content is still accounted for like any other claim's)")
+            elif content or labels:
+                what = (f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer beside its content: "
+                        f"{found[:3]}: a self-report, advisory only; no check in this process stands behind it, so it is no evidence that the claim "
+                        "was checked (its content is still accounted for like any other claim's)")
+            else:
+                what = (f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
+                        "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check")
             f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=what,
                                       claim_ids=[sc.claim_id] + list(sc.source_claim_ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
     rest = [s for s in _self_report_sentences(synthesis.text) if s not in named and not any(s in n or n in s for n in named)]
@@ -1809,6 +2054,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
                                       claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({d for d in credit_docs if any(d in m for m in miscredited)})))
         changed_meaning = meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
         changed_meaning += _view_credit(sc.text, known, agents)
+        changed_meaning += _text_credit(sc.text, known, reports, agents)
         if changed_meaning:
             f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):

@@ -5,7 +5,7 @@
   "max_output_text_bytes": 49152,
   "max_refusal_detail_chars": 300,
   "output_check_order": [
-    "not a JSON object: KIT-CB-002",
+    "not protocol JSON (text that does not parse strictly, or an object passed already parsed that holds a lone surrogate, a float, a non-string key or a value that is not JSON) or not a JSON object: KIT-CB-002",
     "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
     "the schema, a synthesized claim citing a source claim twice and a conflict naming a claim twice: KIT-CB-002",
     "another request: KIT-CB-002",

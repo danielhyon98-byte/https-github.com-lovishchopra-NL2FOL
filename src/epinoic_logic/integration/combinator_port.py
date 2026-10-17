@@ -34,7 +34,7 @@ from typing import Annotated, Any, Literal, Mapping, Optional, Sequence
 
 from pydantic import Field, StringConstraints, ValidationError, model_validator
 
-from .canonical import CanonicalError, loads_strict, sha256_json, sha256_text
+from .canonical import CanonicalError, check_value, loads_strict, sha256_json, sha256_text
 from .errors import IntegrationError
 from .protocol import Frozen, Id, PackRef, Sha256
 
@@ -230,9 +230,17 @@ class CombinatorRefusal(Frozen):
 
 
 def _data(raw: Any, code: str) -> dict:
+    """The message as a protocol JSON object (``code`` otherwise). An object passed already parsed is held to the same rules
+    as text (``canonical.check_value``: no lone surrogate, no float, no non-string key), before any other rule reads it,
+    the order the combinator's own contract check follows."""
     if isinstance(raw, (str, bytes, bytearray)):
         try:
             raw = loads_strict(raw)
+        except CanonicalError as exc:
+            raise IntegrationError(code, f"not protocol JSON: {exc}") from None
+    else:
+        try:
+            check_value(raw)
         except CanonicalError as exc:
             raise IntegrationError(code, f"not protocol JSON: {exc}") from None
     if not isinstance(raw, dict):
@@ -417,7 +425,9 @@ def port_rules_document() -> dict:
         "refusal_reasons": dict(REFUSAL_REASONS), "unread_input_reasons": sorted(_UNREAD_INPUT_REASONS),
         "ids_optional_reasons": sorted(_IDS_OPTIONAL_REASONS),
         "max_output_text_bytes": MAX_OUTPUT_TEXT_BYTES, "max_refusal_detail_chars": MAX_REFUSAL_DETAIL_CHARS,
-        "output_check_order": ["not a JSON object: KIT-CB-002", "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
+        "output_check_order": ["not protocol JSON (text that does not parse strictly, or an object passed already parsed that holds a lone surrogate, "
+                               "a float, a non-string key or a value that is not JSON) or not a JSON object: KIT-CB-002",
+                               "a synthesized claim's transformation outside the vocabulary: KIT-CB-003",
                                "the schema, a synthesized claim citing a source claim twice and a conflict naming a claim twice: KIT-CB-002",
                                "another request: KIT-CB-002",
                                "another instruction pack: KIT-CB-005", "a citation the input does not hold: KIT-CB-004",

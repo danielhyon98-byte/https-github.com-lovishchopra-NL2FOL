@@ -48,6 +48,34 @@ LABELLED = [
     ("Checked and verified.", "whole"),
     ("Verification: passed.", "whole"),
     ("Check status: OK.", "whole"),
+    # combinator verification round 2 (V2-M1): check marks, compound participles, "against the sources", status nouns,
+    # verdicts and the accuracy status key, each the writer's label on its own text
+    (BARE + " ✓", "after"),
+    ("✔ " + FACT, "before"),
+    ("✔️ " + FACT, "before"),
+    ("[✓] " + FACT, "before"),
+    (BARE + " ✓ verified.", "after"),
+    (BARE + "✓✓✓", "after"),
+    ("The treaty ✓ was signed in 1919.", "inside"),
+    ("✓", "whole"),
+    ("✅ Verified", "whole"),
+    ("✓ Verified ✓", "whole"),
+    (BARE + " (source-checked).", "after"),
+    (BARE + " (Z3-verified).", "after"),
+    (BARE + " (checked against the sources).", "after"),
+    (BARE + " (checked against the original).", "after"),
+    (BARE + " (verified with the specialists' reports).", "after"),
+    (BARE + ", checked against the sources.", "after"),
+    (BARE + ", verified by Z3.", "after"),
+    (BARE + " (accuracy confirmed).", "after"),
+    (BARE + " — figures verified.", "after"),
+    (BARE + " (confirmed).", "after"),
+    ("Formally proven correct.", "whole"),
+    ("Checked and correct.", "whole"),
+    (BARE + " (verified correct).", "after"),
+    (BARE + " (shown to be accurate).", "after"),
+    ("Proven correct: " + FACT, "before"),
+    ("Accuracy: confirmed.", "whole"),
 ]
 
 #: Sentences that carry no label: disclaimers, checks credited to a source, historical checking, code, questions.
@@ -80,6 +108,22 @@ UNLABELLED = [
     "Proved.",
     'The stamp on the file read "Verified: approved for release".',
     "The History specialist checks the date against the treaty's text, and the dossier confirms it.",
+    # round 2 controls: negation, a check credited to another agent or against a record the writer names, a cross, a
+    # bare comma before a participle, accuracy words that state content, a quoted check mark
+    BARE + " (not source-checked).",
+    BARE + " (accuracy not confirmed).",
+    "✗ " + FACT,
+    BARE + " (verified by the History specialist).",
+    BARE + " (checked against the sources by the History specialist).",
+    BARE + " (checked against the Registrar General's returns).",
+    BARE + ", checked.",
+    "Keynes was proven correct by events.",
+    "The figures were checked against the reports of the statistical office.",
+    "It was found to be correct that the treaty was signed.",
+    "The correct date is August 1919.",
+    "Accuracy matters: the figure was 6 million.",
+    "The answer is exact to the nearest tenth.",
+    'The poster read "✓ approved".',
 ]
 
 
@@ -114,3 +158,35 @@ def test_an_inline_bracketed_label_is_set_apart_as_a_note_clause():
     assert core == FACT and notes == ["verified"]
     core, notes = split_note_clauses(BARE + "; checked.")
     assert core == FACT and notes == ["checked"]
+
+
+def test_a_long_run_of_check_marks_is_read_in_linear_time():
+    """A check mark is a label of its own and no part of the punctuation around one, and a run of marks is one possessive
+    unit, so an answer made of marks cannot make the reading quadratic (round 2: 20,000 marks took minutes before)."""
+    import time
+    from epinoic_logic.adapters import markdown
+    for text in ("✓" * 20000 + " x", "✓ " * 10000 + "x", "✓️" * 10000 + " x", "(✓" * 10000 + " x"):
+        start = time.perf_counter()
+        markdown._verification_label.__wrapped__(text)
+        markdown._self_certification.__wrapped__(text)
+        assert time.perf_counter() - start < 2.0, text[:20]
+
+
+@pytest.mark.parametrize("sentence", ["(source-checked)", "(accuracy confirmed)", "(checked against the sources)", "✓", "Formally proven correct.",
+                                      "Accuracy: confirmed."])
+def test_a_new_label_form_standing_alone_is_a_self_certification_and_a_note(sentence):
+    assert is_self_certification(sentence) and is_note_sentence(sentence)
+
+
+@pytest.mark.parametrize("label", ["(source-checked)", "(accuracy confirmed)", "(checked against the sources)"])
+def test_a_bracketed_label_on_content_is_set_apart_and_the_content_stays_a_claim(label):
+    sentence = BARE + " " + label + "."
+    assert not is_self_certification(sentence) and not is_note_sentence(sentence)
+    core, notes = split_note_clauses(sentence)
+    assert core == FACT and notes == [label.strip("()")]
+
+
+@pytest.mark.parametrize("sentence", [BARE + " ✓", "✔ " + FACT, BARE + " ✓ verified."])
+def test_a_check_mark_on_content_leaves_the_content_a_claim(sentence):
+    assert not is_self_certification(sentence) and not is_note_sentence(sentence)
+    assert "Weimar" in split_note_clauses(sentence)[0]

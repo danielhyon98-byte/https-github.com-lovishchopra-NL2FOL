@@ -304,8 +304,9 @@ port's rules (`schemas/combinator-port.v1.json`: the refusal reasons and codes, 
 (`combinator/src/epinoic_combinator/contract/`, drift-tested); `combinator_port.contract_digest()` is their digest. Claim
 ids use the hub's claim id alphabet (`[A-Za-z0-9._:@-]`, so the generic parser's `g4.2@economics-specialist` is carried).
 
-**Checks** (`check_input`, `check_output`, `check_hello`, `check_refusal`), in this order for an output: not a JSON
-object (002); a synthesized claim's transformation outside the vocabulary (003), before anything else; the schema, a
+**Checks** (`check_input`, `check_output`, `check_hello`, `check_refusal`), in this order for an output: not protocol
+JSON or not a JSON object (002; a message passed already parsed is held to the same JSON rules as text: a lone
+surrogate, a float or a non-string key is not protocol JSON); a synthesized claim's transformation outside the vocabulary (003), before anything else; the schema, a
 synthesized claim citing a source claim twice (one source cited twice would pass for a `merged` claim) and a conflict
 naming a claim twice (002); another request (002); another instruction pack (005); a citation of a claim the
 input does not hold, by a synthesized claim, a dropped entry or a conflict (004); a synthesis text over 49,152 UTF-8
@@ -318,7 +319,8 @@ does not hold, 005 an instruction pack other than the pinned one, 006 too large.
 claims `s0`, `s1`, ... never reusing a source claim id; dropped entries as ledger entries `dropped`; disclosed conflicts
 as `unresolved` conflict records; the student-facing text the claims' texts joined) and relays it through the hub, whose
 contract validation (`INT-REQ-009`, `INT-SYNTH-014`), ledger (`INT-LEDGER-*`, the carried self-report or verification label `INT-LEDGER-029`
-included), conflict disclosure (`INT-CONFLICT-002`) and entailment checks decide it as untrusted data.
+included), conflict disclosure (`INT-CONFLICT-002`, between formalized claims; a contradiction in prose is named only
+through the figures it changes, `INT-LEDGER-023`/`024`) and entailment checks decide it as untrusted data.
 
 v1: a cheapest-tier provider call with the versioned instruction pack pinned by digest, run by the sub-project's runner.
 **Until the combinator is connected (phase 2: `EPINOIC_COMBINATOR` names `epinoic_combinator.port`, its process and

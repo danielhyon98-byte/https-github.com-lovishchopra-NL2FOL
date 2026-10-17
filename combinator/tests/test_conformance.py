@@ -7,7 +7,8 @@ published contract is generated from. Inside the translator repository these tes
 4. everything the runner lets out passes the port: an output round-trips exactly (``dump(check_output(...))`` is the
    runner's text), a refusal is in contract and names the request it refuses;
 5. on generated outputs both sides give the same verdict, so the runner's last gate is the port's own rule;
-6. the vocabulary and the limits it restates are the port's and the hub's.
+6. the vocabulary and the limits it restates are the port's and the hub's;
+7. a message passed already parsed is held to the protocol's JSON rules first, on both sides, so both give one code.
 """
 from __future__ import annotations
 
@@ -143,3 +144,22 @@ def test_6_the_hub_accepts_the_payload_of_every_output_the_runner_lets_out(kit):
         syn = Synthesis.model_validate(payload)
         assert [c.claim_id for c in syn.claims] == [f"s{i}" for i in range(len(out.claims))]
         assert {e.transformation for e in syn.ledger} <= {"dropped"} and all(k.status == "unresolved" for k in syn.conflicts)
+
+
+def test_7_a_message_passed_already_parsed_gets_the_ports_code_from_both_sides(kit):
+    """Both sides hold a message passed already parsed to the protocol's JSON rules before any other rule (verification
+    round 2, V2-L2): a lone surrogate, a float or a non-string key is "not protocol JSON", so even an output that also
+    carries an unknown transformation gets the same code on both sides."""
+    from combinator_helpers import input_doc as fresh
+    inp_k, inp_c = kit.check_input(input_doc()), CONTRACT.check_input(input_doc())[0]
+    for change in (lambda d: d["sources"][0]["claims"][0].update(text="\ud800"), lambda d: d.update(port_version=1.0),
+                   lambda d: d["sources"][0]["claims"][0].update({1: "x"})):
+        doc = fresh()
+        change(doc)
+        assert CONTRACT.check_input(doc)[1].code == _kit_code(lambda: kit.check_input(doc)) == "KIT-CB-001"
+    out = json.loads(R.run(input_doc(), FaithfulFakeProvider()).text)
+    for change in (lambda o: o["claims"][0].update(text="\ud800"), lambda o: o["claims"][0].update(certainty=1.5)):
+        msg = copy.deepcopy(out)
+        change(msg)
+        msg["claims"][-1]["transformation"] = "joined"
+        assert CONTRACT.check_output(msg, inp_c).code == _kit_code(lambda: kit.check_output(msg, inp_k)) == "KIT-CB-002"
