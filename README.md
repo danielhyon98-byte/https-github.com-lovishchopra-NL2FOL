@@ -19,8 +19,14 @@ through the router port `epinoic.integration.router-port.v1` (the translator's `
 - **Attached only when named**: `EPINOIC_FLASH_ROUTER=epinoic_flash_router.port`. Unset or `none` (the default):
   detached, and the service runs its minimum-oversight floor for every review. The router is never required.
 - **In its own process**: the service runs each call with `python -I`, its own import path and an environment that holds
-  no `EPINOIC_` variable (no key, secret or token), for at most 10 s for the hello and at most `min(3 s, what is left of
-  the call's budget)` for a plan. Whatever this code does stays in that process.
+  no `EPINOIC_` variable (no key, secret or token in this process's own environment), for at most 10 s for the hello and
+  at most `min(3 s, what is left of the call's budget)` for a plan. Whatever this code raises, prints or patches stays in
+  that process.
+- **A fault boundary, not a sandbox**: that process runs as the service's user. On Linux the service marks itself
+  non-dumpable before it starts the router, so the router cannot read the service's environment or memory unless it
+  runs as root or with `CAP_SYS_PTRACE`; the service's hosted profile attaches the router only where that holds. Install
+  this router only as code trusted with the service's user (the translator's `integration/PROTOCOL.md` section 7a,
+  decision D28).
 - **Advisory, under the floor**: everything it answers is validated as untrusted data; a plan out of contract is refused
   with its `KIT-RT` code, a plan below the floor with `KIT-RT-020`, a failing router with `KIT-RT-016`, and the floor
   runs. A plan can add oversight, never remove it, and it never changes a clearance, a delivery or a decision: the

@@ -7,9 +7,11 @@
   ``epinoic.integration.routing-plan.v1`` document (JSON text).
 
 The service attaches this module with ``EPINOIC_FLASH_ROUTER=epinoic_flash_router.port`` and calls it in a process of
-its own, with a time limit and an environment that holds no key, secret or token. Everything returned is validated
-there as untrusted data, and a plan below the service's minimum-oversight floor is refused (``KIT-RT-020``) while the
-floor runs. Standard library only.
+its own, with a time limit and an environment that holds no key, secret or token (the process runs as the service's
+user; on Linux the service makes itself non-dumpable first, so this process cannot read the service's environment
+unless it runs as root or with ``CAP_SYS_PTRACE``). Everything returned is validated there as untrusted data, and a
+plan below the service's minimum-oversight floor is refused (``KIT-RT-020``) while the floor runs. Standard library
+only.
 """
 from __future__ import annotations
 
