@@ -8,7 +8,7 @@
 + e2e-fix-channel                           0d28eba (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel) Fix the channel and service bugs of the end-to-end simulation
 + e2e-fix-detect                            dae3265 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect) Name the run1 STEM and quotation injections the arena missed
 + import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
-+ integ-prebuild                            d5ca8ef (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Testing README: progress, 04:00 UTC
++ integ-prebuild                            3dcee98 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Integration: integration protocol and integration kit (pre-build)
 + overseer-build                            ef4ba9f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer: circular-translation severity, adjudicated genuine faults and STEM-ready checks
   preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
   preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
