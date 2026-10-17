@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epinoic-flash-router"
+version = "0.1.0"
+description = "Epinoic AI flash router: a separate, independent agent that plans how the overseer reviews each specialist output (IN_DEPTH, SPLIT, DUPLICATE, N_FOLD) over the router port epinoic.integration.router-port.v1. Advisory: the translator's service enforces its minimum-oversight floor whatever this router plans."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+# Standard library only at run time: the router never imports the Z3 infrastructure, the engine or the translator.
+dependencies = []
+
+[project.optional-dependencies]
+# The conformance tests validate the router's output with the translator's epinoic_logic.integration.router_port
+# (pydantic and the standard library; no engine, no Z3): install the translator from the same repository first.
+dev = ["pytest>=8", "hypothesis>=6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
