@@ -11,7 +11,9 @@ What is pinned here:
   and signature are byte-identical to the result model before the record existed (golden
   digests computed with the committed code);
 * a nonlinear result records its Limits under the signature, so tampering with or stripping
-  the record fails ``verify_signature``; the hand-off binding check is unaffected;
+  the record fails ``verify_signature``; since the external review of 2026-10-12 the binding
+  also covers them (``Binding.limits_digest``), and the hand-off binding check compares them
+  with the policy the receiver requires;
 * every runner path records non-default Limits, and a non-Limits argument is an
   INTERNAL_ERROR, never a run under guessed bounds;
 * under the nonlinear policy, an assertion above the degree bound is UNSUPPORTED before it
@@ -67,7 +69,7 @@ from epinoic_logic.engine.results import (
 from epinoic_logic.engine.runner import verify
 from epinoic_logic.engine.statuses import VerificationStatus as S, is_definitive
 from epinoic_logic.integrity.handoff import check_result_binding
-from epinoic_logic.ir.canonical import sha256_hex
+from epinoic_logic.ir.canonical import canonical_json, sha256_hex
 from epinoic_logic.ir.schema import DEFAULT_LIMITS, Limits, Neg, Problem, Var
 
 from .conftest import I, R, V, cmp, make_problem
@@ -444,33 +446,49 @@ def test_results_round_trip_through_json_with_their_signatures():
     assert verify_signature(with_null, KEY) and "limits" not in with_null.model_dump(mode="json")
 
 
-def test_the_binding_formula_is_unchanged_by_the_record():
+def test_the_binding_covers_non_default_limits():
+    """Rewritten for the external review of 2026-10-12 (effective limits absent from the binding). This test used to be
+    ``test_the_binding_formula_is_unchanged_by_the_record`` and pinned that a default and a nonlinear result of one
+    problem share every binding digest, which let a permissive result pass a default-policy check. The stricter rule:
+    the binding covers the non-default limits (``limits_digest``, appended to the binding digest), the default formula
+    is unchanged, and every other digest still agrees."""
     p = linear_problem()
     a = verify(p, CFG, DEFAULT_LIMITS)
     b = verify(p, CFG, NONLINEAR_LIMITS)
     assert a.limits is None and b.limits == NONLINEAR_LIMITS
-    for field in ("problem_digest", "config_digest", "versions_digest", "binding_digest", "smt2"):
+    for field in ("problem_digest", "config_digest", "versions_digest", "smt2"):
         assert getattr(a.binding, field) == getattr(b.binding, field)
-    pd, cd, vd = b.binding.problem_digest, b.binding.config_digest, b.binding.versions_digest
-    assert b.binding.binding_digest == sha256_hex("|".join((pd, cd, vd)))
+    assert a.binding.binding_digest != b.binding.binding_digest
+    pd, cd, vd = a.binding.problem_digest, a.binding.config_digest, a.binding.versions_digest
+    assert a.binding.limits_digest is None and a.binding.binding_digest == sha256_hex("|".join((pd, cd, vd)))
+    ld = b.binding.limits_digest
+    assert ld == sha256_hex(canonical_json(NONLINEAR_LIMITS.model_dump())) and b.binding.binding_digest == sha256_hex("|".join((pd, cd, vd, ld)))
 
 
 @pytest.mark.parametrize("name", [LINEAR, NONLINEAR])
 def test_the_hand_off_binding_check_accepts_policy_results(name: str):
+    """Rewritten for the external review of 2026-10-12: the receiver now names the validation policy it requires
+    (``limits``). Under that policy the check still accepts the result (the same assertion as before); a default-policy
+    receiver refuses a nonlinear result (the stricter rule)."""
     p = nonlinear_problem() if name == NONLINEAR else linear_problem()
     config = policy_config(name, CFG)
     r = verify(p, config, policy_limits(name), KEY, "k1")
     assert r.status is S.ENTAILED
-    assert check_result_binding(r, p, KEY, config=config) == []
+    assert check_result_binding(r, p, KEY, config=config, limits=policy_limits(name)) == []
+    default_receiver = check_result_binding(r, p, KEY, config=config)
+    assert [f.code for f in default_receiver] == ([] if name == LINEAR else ["INT-STALE-005"])
 
 
 def test_the_hand_off_check_sees_the_policy_rlimit_and_a_forged_record():
+    """Rewritten for the external review of 2026-10-12: the receiver names the policy it requires (``limits``), and a
+    stripped record is now also inconsistent with the limits digest the binding carries (INT-STALE-007 beside the
+    broken signature, a superset of the codes asserted before)."""
     p = nonlinear_problem()
     r = run_policy(p, NONLINEAR, signing_key=KEY, key_id="k1")
-    stale = {f.code for f in check_result_binding(r, p, KEY, config=CFG)}
+    stale = {f.code for f in check_result_binding(r, p, KEY, config=CFG, limits=NONLINEAR_LIMITS)}
     assert "INT-STALE-005" in stale  # the nonlinear rlimit is part of the bound configuration
-    forged = {f.code for f in check_result_binding(r.model_copy(update={"limits": None}), p, KEY, config=policy_config(NONLINEAR, CFG))}
-    assert forged == {"INT-STALE-002"}
+    forged = {f.code for f in check_result_binding(r.model_copy(update={"limits": None}), p, KEY, config=policy_config(NONLINEAR, CFG), limits=NONLINEAR_LIMITS)}
+    assert forged == {"INT-STALE-002", "INT-STALE-007"}
 
 
 # =========================================================================== every runner path records the Limits

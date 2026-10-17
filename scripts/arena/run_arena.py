@@ -32,7 +32,34 @@ Inputs (one round directory):
   current parse (created_at aside) and, when it does not, the payload fields and the claims that differ, with both
   values. results.json (``recorded_relay_checks``) and summary.md list every check, so a receipt that differs from the
   recorded relay is never read as the receipt the agent was shown.
-Outputs: <round>/results.json and <round>/summary.md
+  <round>/adjudications/translation_fidelity.json  optional: an adjudicator's judgments of translation fidelity, one per translation
+                               ({file or task_id, claim_id, verdict faithful|unfaithful, translation_sha256?, claim_text_sha256?};
+                               load_adjudications). A judgment counts only for a translation this run served whose digests match.
+Outputs: <round>/results.json and <round>/summary.md. ``python run_arena.py <round> [--fail-on-qualification]``: with the flag
+the exit status is 1 when the run is qualified (below), so a translation-regression run that lost expected translations fails.
+
+Measures. The harness reports separate measures, each with its own numerator and denominator, and never combines two into
+one rate (results.json ``metrics``; summary.md 'Measures', under the headline):
+  - transport: the functional count defined below (genuine traffic delivered and decided; injected faults named). It does
+    not judge whether a finding is true, whether a translation is faithful or whether an answer is better;
+  - fixture coverage: of the recorded translations (translations/*.json), how many this run served (the pipeline
+    translated their claims with them) and how many it lost, by reason (``LOST_REASONS``: report not delivered, claim id
+    no longer delivered, refused as stale, claim not eligible, dropped by the channel, verification failed); a served
+    translation without a recorded claim-text digest is counted as bound by claim id only;
+  - translation fidelity: faithful translations of those an adjudicator judged and that apply to this run (``adjudicate``);
+    without an adjudication file it is 'not adjudicated' and no figure is given. The engine never decides fidelity;
+  - claim counts of the genuine pass: extracted, eligible, attempted, completed (a definitive verdict displayed), faithful
+    (where adjudicated) and approved (displayed ENTAILED with no error-level finding on the claim: what the receipt presents
+    as verified, not a release decision), each a count of its own (``claim_measures``); beside them, the approved claims
+    whose proof rests on an unresolved dependency (an ungrounded premise, or one whose task or source authority no check
+    validated) and the claims whose release assessment permits releasing the answer (``ClaimVerificationOutcome.release``,
+    the application's rule, kept apart from the formal status; a replay calls no fidelity reviewer, so it permits none);
+  - latency of the hub per transmission in this run (a description of the run, not a stress measurement), and cost (no
+    provider is called).
+A run is qualified, in the summary's title and in results.json (``qualified``, ``qualifications``), when it lost recorded
+translations (TRANSLATIONS_LOST), served translations bound by claim id only (FIXTURES_UNBOUND), or holds adjudications
+that do not apply to it (ADJUDICATIONS_NOT_APPLIED): its translation figures then describe a different set of translations
+from the recorded round's.
 
 Fault mutations applied to every specialist text: invented_quotation (double marks), invented_quotation_single (the same
 invented words in single marks), altered_quotation (a real quotation changed by one word; skipped when the text has none),
@@ -52,7 +79,7 @@ stem_substitution (a value the request gives, substituted into a calculation, wr
 Each is skipped when the answer has no site for it. The injection is named when a finding of its code names a claim
 that carries the mutated text. Every other subject's round is unchanged.
 
-Functional-rate definition (deterministic): a transmission counts as functional when the
+Functional-rate definition (deterministic; this is the transport measure): a transmission counts as functional when the
 hub produced a receipt without raising, the receipt status is consistent with the input
 (a genuine response is not REJECTED; a response carrying an injected fault shows the
 expected finding), and any translator output was either validated and decided by the
@@ -113,15 +140,21 @@ summary.md lists each one under the translation outcomes, as it names the ENTAIL
 ungrounded premises (``entailed_dependencies.resting_only_on_ungrounded_premises_claims``). Beside them it counts, by
 rule, the genuine claims whose encoding got no verdict (displayed INVALID_FORMALIZATION), with each claim id
 (``withheld_verdicts``): a definitive engine status withheld (E108 vacuous result, E110 unasserted figure, E111 unencoded
-reason, E112 circular encoding) or an encoding the translation pipeline rejected before the engine ran (E112 circular,
-'stated precision': an exact equality to a rounded figure). A translation fixture recorded under a claim id the current parse does not deliver is never served; each
+reason, E112 circular encoding; E110 and E111 only with source-linked evidence) or an encoding the translation pipeline
+rejected before the engine ran (E112 circular, 'stated precision': a rounded figure at another precision than the source
+states, 'exactness': an exact or given figure widened). The genuine verdicts that stand with an advisory coverage
+warning (W110, W111: the encoding leaves open a figure no source asserts) are counted apart
+(``advisory_coverage_warnings``). A translation fixture recorded under a claim id the current parse does not deliver is never served; each
 genuine record names such fixtures (``fixtures_matching_no_delivered_claim``) and results.json and summary.md total them
 (``translation_fixtures_matching_no_delivered_claim``), so a smaller outcome count is not read as fewer eligible claims.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import math
 import re
+import statistics
 import sys
 import time
 import traceback
@@ -138,10 +171,12 @@ from epinoic_logic.engine import SolverConfig
 from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
-from epinoic_logic.translate.contracts import ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
+from epinoic_logic.translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
+from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.outcome import verify_claim
-from epinoic_logic.translate.pipeline import Translator
+from epinoic_logic.translate.pipeline import Translator, apply_subject_policy
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
+from epinoic_logic.translate.subjects import resolve_profile
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
@@ -699,7 +734,12 @@ def outcome_record(o: ClaimVerificationOutcome) -> dict:
     flags = t.interpretation.ambiguity_flags if t.interpretation is not None else []
     rec = {"claim_id": o.claim_id, "display_status": o.display_status.value, "translation_status": t.status.value,
            "ambiguity_flags": [{"code": f.code, "message": f.message[:300], "alternatives": [a[:200] for a in f.alternatives]} for f in flags],
-           "translation_diagnostics": [d[:300] for d in t.diagnostics][:8], "stale_fixture_refused": stale_fixture(o)}
+           "translation_diagnostics": [d[:300] for d in t.diagnostics][:8], "stale_fixture_refused": stale_fixture(o),
+           # the pipeline's own eligibility decision for the claim (the claim counts compare it with the harness's)
+           "eligible": t.eligibility.eligible}
+    if o.release is not None:
+        # the release assessment (permission to release the answer on this claim's checks), kept apart from the formal status
+        rec.update(release_permitted=o.release.permitted, release_unresolved=[u[:200] for u in o.release.unresolved][:6])
     if v is not None:
         rec.update(engine_status=v.status.value, premises_relied_on=len(v.premises_relied_on), ungrounded_dependencies=len(v.ungrounded_dependencies),
                    unverified_dependencies=len(v.unverified_dependencies), ungrounded_dependency_ids=list(v.ungrounded_dependencies)[:16],
@@ -784,15 +824,23 @@ def error_receipt_line(s: dict) -> str:
 
 
 #: Rules under which a claim's encoding gets no verdict (displayed INVALID_FORMALIZATION): the encoding, not the claim,
-#: decided the result. The E-codes are the engine's (a definitive status withheld) and the translation pipeline's (an
-#: encoding rejected before it is verified, ``E112: circular`` among its diagnostics); 'stated precision' is the
-#: pipeline's rejection of an exact equality to a figure the specialist rounded.
+#: decided the result. The E-codes are the engine's (a definitive status withheld; E110 and E111 only with source-linked
+#: evidence that a source asserts what the encoding left open) and the translation pipeline's (an encoding rejected
+#: before it is verified, ``E112: circular`` among its diagnostics); 'stated precision' is the pipeline's rejection of an
+#: encoding that reads a rounded figure at another precision than the source states, and 'exactness' its rejection of an
+#: exact or task-given figure widened into an interval (a weakening of the claim).
 WITHHELD_VERDICT_CODES = {"E108": "vacuous result (no premise used, or a counterexample over zero premises)",
-                          "E110": "unasserted figure (a counterexample that only reassigns a figure no premise asserts)",
-                          "E111": "unencoded reason (a counterexample that only reassigns conclusion symbols no premise mentions)",
+                          "E110": "unasserted figure (a counterexample that only reassigns a figure a source asserts and no premise asserts)",
+                          "E111": "unencoded reason (a counterexample that only reassigns conclusion symbols a source states and no premise mentions)",
                           "E112": "circular encoding (ENTAILED from premises that restate the conclusion: assumed, not derived)",
-                          "stated precision": "stated precision (COUNTEREXAMPLE only because a rounded figure was encoded as an exact equality)"}
-_WITHHELD_DIAG_RE = re.compile(r"\b(E108|E110|E111|E112)\b|\b(stated precision):")
+                          "stated precision": "stated precision (a rounded figure encoded at another precision than the source states)",
+                          "exactness": "exactness (an exact or task-given figure widened into an interval: a weakening of the claim)"}
+_WITHHELD_DIAG_RE = re.compile(r"\b(E108|E110|E111|E112)\b|\b(stated precision|exactness):")
+#: The engine's advisory coverage warnings: a COUNTEREXAMPLE that only reassigns a figure the problem defines but never
+#: asserts (W110) or conclusion symbols no premise mentions (W111), with no source-linked evidence that a source asserts
+#: them. The verdict on the encoding stands (the question may leave the figure open); the count is a coverage measure.
+ADVISORY_COVERAGE_CODES = {"W110": "unasserted figure, advisory (the counterexample stands; no source asserts the defined figure)",
+                           "W111": "unconstrained symbol, advisory (the counterexample stands; no source states the free symbols)"}
 
 
 def withheld_verdicts(records: list[dict]) -> dict:
@@ -815,6 +863,30 @@ def withheld_verdicts(records: list[dict]) -> dict:
                 out[code]["count"] += 1
                 out[code]["claims"].append(f"{r['file']} {o['claim_id']} ({o.get('engine_status') or 'rejected at translation'})")
     return out
+
+
+def advisory_coverage(records: list[dict]) -> dict:
+    """Genuine claims (genuine transmission, peer relay or synthesis records) shown with a definitive verdict that carries
+    an advisory coverage warning (ADVISORY_COVERAGE_CODES): per code, how many and which ('<file> <claim id> (<displayed
+    status>)'). These verdicts stand; the count says how many rest on a figure or symbol the encoding leaves open."""
+    out = {code: {"meaning": meaning, "count": 0, "claims": []} for code, meaning in ADVISORY_COVERAGE_CODES.items()}
+    for r in records:
+        if r["variant"] not in GENUINE_VARIANTS:
+            continue
+        for o in r.get("outcomes", []):
+            if o.get("stale_fixture_refused"):
+                continue
+            for code in sorted(set(o.get("engine_diagnostic_codes") or []) & set(ADVISORY_COVERAGE_CODES)):
+                out[code]["count"] += 1
+                out[code]["claims"].append(f"{r['file']} {o['claim_id']} ({o['display_status']})")
+    return out
+
+
+def advisory_coverage_line(a: dict) -> str:
+    """summary.md's line counting the genuine verdicts that carry an advisory coverage warning, by code."""
+    parts = [f"{code} {v['meaning'].split(' (')[0]}: {v['count']}" + (f" ({', '.join(v['claims'])})" if v["claims"] else "") for code, v in a.items()]
+    return ("- advisory coverage warnings on genuine claims (the verdict on the encoding stands; the encoding leaves a figure or symbol open that no "
+            f"source asserts; a coverage measure, not a verdict): {len({c for v in a.values() for c in v['claims']})}; " + "; ".join(parts))
 
 
 def withheld_verdict_line(w: dict) -> str:
@@ -920,10 +992,434 @@ def unexplained_summary(records: list[dict]) -> list[dict]:
     return out
 
 
+# --- separate measures: transport, fixture coverage, translation fidelity and claim counts ---------------------------
+#
+# Each measure has its own numerator and denominator and is reported on its own line; none is combined with another
+# into one rate. Transport (the functional count) says the hub delivered and decided every transmission and named every
+# injected fault; it never says that a translation is faithful or that an answer is better. Fixture coverage says how
+# many recorded translations this run could still use; translation fidelity says how many of the translations used were
+# judged faithful by an adjudicator; the claim counts say how far each genuine claim went.
+
+#: Display statuses that are a definitive engine verdict on the claim's encoding: a claim shown with one is 'completed'.
+DEFINITIVE_DISPLAY = frozenset(s.value for s in DEFINITIVE)
+#: Where a round keeps its adjudications of translation fidelity (format in ``load_adjudications``).
+ADJUDICATIONS_FILE = Path("adjudications") / "translation_fidelity.json"
+#: The two verdicts an adjudication records, and the spellings accepted for each.
+FAITHFUL, UNFAITHFUL = "faithful", "unfaithful"
+VERDICT_SPELLINGS = {"faithful": FAITHFUL, "f": FAITHFUL, "unfaithful": UNFAITHFUL, "u": UNFAITHFUL}
+#: Why a recorded translation was not used in a run, in the order a fixture is tested for them.
+LOST_REASONS = {
+    "report_not_delivered": "the task's report was not delivered through the hub (a crash, a rejection, or a peer report never relayed)",
+    "matching_no_delivered_claim": "its claim id matches no claim the current parse delivers",
+    "refused_stale": "the fixture provider refused it: the claim's text differs from the text it was produced for",
+    "not_eligible": "its claim is delivered but not eligible for translation under the current policy (the provider is never asked)",
+    "dropped_by_channel": "the channel dropped its outcome as stale (INT-STALE-011)",
+    "failed_internally": "the claim's verification raised (INT-REQ-006)",
+    "no_outcome": "its claim is delivered and eligible but no outcome came back and no finding says why",
+}
+#: The same reasons as summary.md counts them.
+LOST_LABELS = {
+    "report_not_delivered": "report not delivered",
+    "matching_no_delivered_claim": "match no delivered claim id",
+    "refused_stale": "refused as stale (the claim's text changed)",
+    "not_eligible": "claim not eligible under the current policy",
+    "dropped_by_channel": "dropped by the channel as stale (INT-STALE-011)",
+    "failed_internally": "verification failed internally (INT-REQ-006)",
+    "no_outcome": "no outcome and no finding saying why",
+}
+#: Record variants that are injected faults (the transport measure counts them apart from genuine traffic).
+INJECTED_VARIANTS = frozenset(MUTATIONS) | frozenset(STEM_MUTATIONS)
+
+
+def fixture_sha256(value) -> str:
+    """Digest of a recorded translation fixture as the translations file holds it: the text itself, or the canonical JSON
+    of an object (sorted keys, no spacing). An adjudication names the translation it judged by this digest."""
+    if isinstance(value, str):
+        return sha256_text(value)
+    return sha256_text(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
+
+
+def translation_eligible(claim: ClaimRecord) -> bool:
+    """Whether the translation pipeline translates ``claim``: the deterministic eligibility rule narrowed by the claim's
+    subject profile, as ``Translator.translate`` decides before it asks any provider. The claim counts use it for claims
+    no fixture was recorded for, and compare it with the pipeline's own decision wherever an outcome carries one."""
+    return apply_subject_policy(decide_eligibility(claim), resolve_profile(claim.subject)).eligible
+
+
+def _claims_named(findings: list[dict], code: str) -> set[str]:
+    return {cid for f in findings if f["code"] == code for cid in f["claim_ids"]}
+
+
+def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict]) -> dict:
+    """A genuine record's claims by how far each went, every stage a list of claim ids of its own:
+
+    - ``extracted``: every claim the current parse delivered;
+    - ``eligible``: those the translation pipeline would translate (its own decision where an outcome carries one,
+      otherwise ``translation_eligible``; where both exist and disagree the claim is listed under
+      ``eligibility_disagreements``);
+    - ``attempted``: eligible claims the pipeline ran on (a recorded translation was offered: an outcome other than
+      NOT_ELIGIBLE, or an outcome the channel dropped as stale, or a verification that raised);
+    - ``completed``: attempted claims shown with a definitive engine verdict on their encoding (ENTAILED,
+      COUNTEREXAMPLE, INCONSISTENT_PREMISES, CONSISTENT, SATISFIABLE, UNSATISFIABLE); an ambiguous, rejected, withheld,
+      unsupported, undecided, refused or failed translation is not completed;
+    - ``approved``: completed claims displayed ENTAILED, the one status that reads as success, with no error-level
+      finding naming the claim on the receipt. This is the harness's count of what the receipt presents as verified, not
+      an application's release decision; ``approved_resting_on_ungrounded_premises`` names those whose proof relies on
+      an assumption, a specialist inference or an unverified quotation, and
+      ``approved_resting_on_unresolved_dependencies`` those whose proof relies on any unresolved dependency: an ungrounded
+      premise, or one whose task or source authority no check validated (the engine's ``unverified_dependencies``);
+    - ``release_permitted``: completed claims whose release assessment (``ClaimVerificationOutcome.release``) permits
+      releasing the answer on the claim's checks, with no error-level finding naming the claim on the receipt. It is the
+      application's rule, kept apart from the formal status: it needs established premises and a current, faithful
+      fidelity review made with the evidence, so a replay of recorded translations (no reviewer is called) permits none.
+
+    'faithful' is not decided here: it comes from adjudications (``adjudicate``)."""
+    by_id = {o["claim_id"]: o for o in outcomes}
+    dropped, failed = _claims_named(findings, "INT-STALE-011"), _claims_named(findings, "INT-REQ-006")
+    eligible: list[str] = []
+    disagreements: list[str] = []
+    for c in claims:
+        harness = translation_eligible(c)
+        decided = by_id[c.claim_id].get("eligible") if c.claim_id in by_id else None
+        if decided is not None and decided != harness:
+            disagreements.append(c.claim_id)
+        if harness if decided is None else decided:
+            eligible.append(c.claim_id)
+    attempted = [cid for cid in eligible
+                 if (cid in by_id and by_id[cid]["translation_status"] != TranslationStatus.NOT_ELIGIBLE.value) or cid in dropped or cid in failed]
+    completed = [cid for cid in attempted if cid in by_id and not by_id[cid].get("stale_fixture_refused") and by_id[cid]["display_status"] in DEFINITIVE_DISPLAY]
+    errors = {cid for f in findings if f["severity"] == "error" for cid in f["claim_ids"]}
+    approved = [cid for cid in completed if by_id[cid]["display_status"] == VerificationStatus.ENTAILED.value and cid not in errors]
+    return {"extracted": [c.claim_id for c in claims], "eligible": eligible, "attempted": attempted, "completed": completed, "approved": approved,
+            "approved_resting_on_ungrounded_premises": [cid for cid in approved if by_id[cid].get("ungrounded_dependencies")],
+            "approved_resting_on_unresolved_dependencies": [cid for cid in approved
+                                                            if by_id[cid].get("ungrounded_dependencies") or by_id[cid].get("unverified_dependencies")],
+            "release_permitted": [cid for cid in completed if by_id[cid].get("release_permitted") is True and cid not in errors],
+            "eligible_not_attempted": [cid for cid in eligible if cid not in set(attempted)], "eligibility_disagreements": disagreements}
+
+
+def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict]) -> dict:
+    """What became of each translation recorded for a task (``recorded``: the translations file's claims) in this run:
+    ``served`` (the pipeline translated its claim with it and an outcome came back) or lost under one of LOST_REASONS.
+    A served fixture is bound to its claim's text by the digest the translations file recorded
+    (``served_with_recorded_digest``) or, when none was recorded, by claim id only (``served_by_claim_id_only``: the
+    harness binds it to whatever text that id carries in this run, which may not be the sentence it was produced for).
+    ``translation_sha256`` gives each recorded fixture's digest, by which an adjudication names what it judged."""
+    delivered = {c.claim_id for c in claims}
+    by_id = {o["claim_id"]: o for o in outcomes}
+    dropped, failed = _claims_named(findings, "INT-STALE-011"), _claims_named(findings, "INT-REQ-006")
+    served: list[str] = []
+    lost: dict[str, list[str]] = {k: [] for k in LOST_REASONS}
+    for cid in sorted(recorded):
+        o = by_id.get(cid)
+        if cid not in delivered:
+            lost["matching_no_delivered_claim"].append(cid)
+        elif o is not None and o.get("stale_fixture_refused"):
+            lost["refused_stale"].append(cid)
+        elif o is not None and o["translation_status"] == TranslationStatus.NOT_ELIGIBLE.value:
+            lost["not_eligible"].append(cid)
+        elif o is not None:
+            served.append(cid)
+        elif cid in dropped:
+            lost["dropped_by_channel"].append(cid)
+        elif cid in failed:
+            lost["failed_internally"].append(cid)
+        else:
+            lost["no_outcome"].append(cid)
+    return {"recorded": len(recorded), "served": served, "lost": {k: v for k, v in lost.items() if v}, "lost_count": sum(len(v) for v in lost.values()),
+            "served_with_recorded_digest": [cid for cid in served if cid in recorded_digests],
+            "served_by_claim_id_only": [cid for cid in served if cid not in recorded_digests],
+            "translation_sha256": {cid: fixture_sha256(v) for cid, v in sorted(recorded.items())}}
+
+
+def round_fixture_coverage(records: list[dict], translations: dict[str, dict]) -> dict:
+    """Fixture coverage of the round: every translations file's fixtures, from its genuine record's coverage; a file
+    whose report was not delivered (no coverage on its genuine record, or no genuine record) loses every fixture under
+    ``report_not_delivered``."""
+    covered = {r["file"]: r["fixture_coverage"] for r in records if r["variant"] == "genuine" and r.get("fixture_coverage")}
+    out = {"recorded": 0, "served": 0, "lost": 0, "lost_by_reason": {k: 0 for k in LOST_REASONS}, "served_with_recorded_digest": 0, "served_by_claim_id_only": 0,
+           "by_file": {}}
+    for stem, tr in sorted(translations.items()):
+        n = len(tr.get("claims") or {})
+        cov = covered.get(f"{stem}.json")
+        if cov is None:
+            cov = {"recorded": n, "served": [], "lost": {"report_not_delivered": sorted(tr.get("claims") or {})}, "lost_count": n,
+                   "served_with_recorded_digest": [], "served_by_claim_id_only": []}
+        out["recorded"] += cov["recorded"]
+        out["served"] += len(cov["served"])
+        out["lost"] += cov["lost_count"]
+        for k, ids in cov["lost"].items():
+            out["lost_by_reason"][k] += len(ids)
+        out["served_with_recorded_digest"] += len(cov["served_with_recorded_digest"])
+        out["served_by_claim_id_only"] += len(cov["served_by_claim_id_only"])
+        out["by_file"][f"{stem}.json"] = {"recorded": cov["recorded"], "served": len(cov["served"]), "lost": {k: v for k, v in cov["lost"].items() if v}}
+    out["lost_by_reason"] = {k: v for k, v in out["lost_by_reason"].items() if v}
+    out["definition"] = ("recorded translations (translations/*.json) this run served, i.e. the pipeline translated their claims with them, against "
+                         "those it could not use, by reason; a served translation without a recorded claim-text digest is bound by claim id only")
+    return out
+
+
+def load_adjudications(round_dir: Path) -> dict | None:
+    """The round's adjudications of translation fidelity (``<round>/adjudications/translation_fidelity.json``), or None.
+
+    The file is a list of judgments, or ``{"adjudicator": "...", "judgments": [...]}``. A judgment names the translation
+    it judged and says whether it is faithful to the claim:
+    ``{"file": "hi-t13.json" (or "task_id"/"task": the task id), "claim_id": "h1.4", "verdict": "faithful" | "unfaithful"
+    ('F'/'U' are accepted), "cause": optional, "translation_sha256": optional digest of the fixture judged (``fixture_sha256``),
+    "claim_text_sha256": optional digest of the claim text judged}``. A judgment is applied to this run's outcome only when
+    the same recorded translation was served for that claim and every digest it carries matches (``adjudicate``)."""
+    path = round_dir / ADJUDICATIONS_FILE
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    judgments = data.get("judgments", []) if isinstance(data, dict) else data
+    return {"source": str(ADJUDICATIONS_FILE), "adjudicator": data.get("adjudicator") if isinstance(data, dict) else None, "judgments": list(judgments)}
+
+
+def adjudicate(adjudications: dict | None, records: list[dict], translations: dict[str, dict]) -> dict:
+    """Translation fidelity: the round's adjudications applied to the translations this run served.
+
+    A judgment applies to a genuine record's outcome when it names that record's file (or a task id only that record
+    carries) and claim, the recorded translation for the claim was served in this run, and the digests it carries match
+    the recorded fixture (``translation_sha256``) and the claim text it was served for (``claim_text_sha256``). Its
+    binding says which of those it was checked against; one with neither digest is matched by file and claim id only.
+    Anything else is listed under ``not_applied`` with the reason, never counted. ``faithful`` of ``adjudicated`` is the
+    measure; with no adjudications the status is 'not adjudicated' and no figure is given. ``verdicts`` maps
+    'file claim_id' to the verdict applied, for the claim counts."""
+    base = {"definition": "translations this run served that an adjudicator judged faithful to their claim, of those judged and applicable to this run; "
+                          "the adjudicator, not the engine, decides fidelity"}
+    if adjudications is None:
+        return {**base, "status": "not adjudicated", "source": None, "adjudicator": None, "recorded": 0, "adjudicated": 0, "faithful": 0, "unfaithful": 0,
+                "rate": None, "bindings": {}, "applied": [], "not_applied": [], "verdicts": {}}
+    genuine = [r for r in records if r["variant"] == "genuine"]
+    by_file = {r["file"]: r for r in genuine}
+    applied: list[dict] = []
+    not_applied: list[dict] = []
+    candidates: dict[tuple[str, str], list[tuple[dict, str]]] = {}
+    for j in adjudications["judgments"]:
+        claim_id = j.get("claim_id") if isinstance(j, dict) else None
+        verdict = VERDICT_SPELLINGS.get(str(j.get("verdict", "")).strip().lower()) if isinstance(j, dict) else None
+        name = (j.get("file") or j.get("task_id") or j.get("task")) if isinstance(j, dict) else None
+        if not claim_id or verdict is None or not name:
+            not_applied.append({"judgment": j, "reason": "malformed: a judgment needs a file or task id, a claim id and a verdict 'faithful' or 'unfaithful'"})
+            continue
+        if j.get("file"):
+            file = j["file"] if str(j["file"]).endswith(".json") else f"{j['file']}.json"
+            files = [file] if file in by_file else []
+        else:
+            files = [r["file"] for r in genuine if r.get("task_id") == name]
+        if len(files) != 1:
+            not_applied.append({"judgment": j, "reason": "no genuine record of this run carries that file or task" if not files else f"the task id names {len(files)} records: {files}"})
+            continue
+        candidates.setdefault((files[0], claim_id), []).append((j, verdict))
+    verdicts: dict[str, str] = {}
+    bindings = {"translation_and_claim_text": 0, "translation_only": 0, "claim_text_only": 0, "claim_id_only": 0}
+    for (file, claim_id), entries in sorted(candidates.items()):
+        if len({v for _j, v in entries}) > 1:
+            not_applied += [{"judgment": j, "reason": "conflicting verdicts on one translation"} for j, _v in entries]
+            continue
+        j, verdict = entries[0]
+        rec = by_file[file]
+        cov = rec.get("fixture_coverage") or {}
+        stem = file[:-5] if file.endswith(".json") else file
+        recorded = (translations.get(stem) or {}).get("claims") or {}
+        if claim_id not in recorded:
+            not_applied.append({"judgment": j, "reason": "no translation is recorded for this claim"})
+            continue
+        if claim_id not in cov.get("served", []):
+            why = next((k for k, ids in (cov.get("lost") or {}).items() if claim_id in ids), "report_not_delivered")
+            not_applied.append({"judgment": j, "reason": f"the recorded translation was not served in this run ({why}: {LOST_REASONS[why]})"})
+            continue
+        t_ok = j.get("translation_sha256") in (None, fixture_sha256(recorded[claim_id]))
+        c_ok = j.get("claim_text_sha256") in (None, (rec.get("fixture_claim_text_sha256") or {}).get(claim_id))
+        if not t_ok or not c_ok:
+            not_applied.append({"judgment": j, "reason": "the " + " and ".join(x for x, ok in (("translation", t_ok), ("claim text", c_ok)) if not ok)
+                                + " served in this run differ from what was judged (digest mismatch)"})
+            continue
+        binding = {(True, True): "translation_and_claim_text", (True, False): "translation_only", (False, True): "claim_text_only",
+                   (False, False): "claim_id_only"}[(j.get("translation_sha256") is not None, j.get("claim_text_sha256") is not None)]
+        bindings[binding] += 1
+        verdicts[f"{file} {claim_id}"] = verdict
+        applied.append({"file": file, "claim_id": claim_id, "verdict": verdict, "binding": binding, **({"cause": j["cause"]} if j.get("cause") else {})})
+    faithful = sum(1 for a in applied if a["verdict"] == FAITHFUL)
+    return {**base, "status": "adjudicated" if applied else "no adjudication applies to this run", "source": adjudications.get("source"),
+            "adjudicator": adjudications.get("adjudicator"), "recorded": len(adjudications["judgments"]), "adjudicated": len(applied), "faithful": faithful,
+            "unfaithful": len(applied) - faithful, "rate": (faithful / len(applied)) if applied else None, "bindings": {k: v for k, v in bindings.items() if v},
+            "applied": applied, "not_applied": not_applied, "verdicts": verdicts}
+
+
+def round_claim_measures(records: list[dict], fidelity: dict) -> dict:
+    """The claim counts of the round's genuine pass (each specialist's delivered report once; peer relays, syntheses and
+    the mutation repeats are not counted), each stage a count of its own, with 'faithful' from the adjudications."""
+    stages = ("extracted", "eligible", "attempted", "completed", "approved", "approved_resting_on_ungrounded_premises",
+              "approved_resting_on_unresolved_dependencies", "release_permitted", "eligible_not_attempted")
+    out: dict = {k: 0 for k in stages}
+    disagreements: list[str] = []
+    for r in records:
+        cm = r.get("claim_measures") if r["variant"] == "genuine" else None
+        if cm is None:
+            continue
+        for k in stages:
+            out[k] += len(cm.get(k, []))
+        disagreements += [f"{r['file']} {cid}" for cid in cm["eligibility_disagreements"]]
+    verdicts = fidelity.get("verdicts") or {}
+    attempted = {f"{r['file']} {cid}" for r in records if r["variant"] == "genuine" and r.get("claim_measures") for cid in r["claim_measures"]["attempted"]}
+    approved = {f"{r['file']} {cid}" for r in records if r["variant"] == "genuine" and r.get("claim_measures") for cid in r["claim_measures"]["approved"]}
+    judged = {k: v for k, v in verdicts.items() if k in attempted}
+    out["faithful"] = {"faithful": sum(1 for v in judged.values() if v == FAITHFUL), "adjudicated": len(judged)} if fidelity.get("status") != "not adjudicated" else None
+    out["approved_adjudicated"] = sum(1 for k in approved if k in verdicts) if out["faithful"] is not None else None
+    out["approved_adjudicated_unfaithful"] = sorted(k for k in approved if verdicts.get(k) == UNFAITHFUL) if out["faithful"] is not None else None
+    out["eligibility_disagreements"] = disagreements
+    out["scope"] = "genuine pass: each specialist's delivered report once; peer relays, syntheses and the mutation repeats are not counted"
+    out["definitions"] = {
+        "extracted": "claims the current parse delivered",
+        "eligible": "extracted claims the translation pipeline would translate (deterministic eligibility and the subject profile)",
+        "attempted": "eligible claims the pipeline ran on with a recorded translation",
+        "completed": "attempted claims shown with a definitive engine verdict on their encoding",
+        "faithful": "attempted claims whose translation an adjudicator judged faithful (only where adjudicated)",
+        "approved": "completed claims displayed ENTAILED with no error-level finding on the claim: what the receipt presents as verified, not a release decision",
+        "approved_resting_on_unresolved_dependencies": ("approved claims whose proof relies on an ungrounded premise or on one whose task or source "
+                                                        "authority no check validated"),
+        "release_permitted": ("completed claims whose release assessment (release-v1) permits releasing the answer on the claim's checks, with no "
+                              "error-level finding on the claim: the application's rule, kept apart from the formal status"),
+    }
+    return out
+
+
+def _percentile(values: list[float], q: float) -> float:
+    """Nearest-rank percentile of ``values`` (non-empty): the smallest value with at least ``q`` of the values at or below it."""
+    s = sorted(values)
+    return s[min(len(s) - 1, max(0, math.ceil(q * len(s)) - 1))]
+
+
+def latency_measures(records: list[dict]) -> dict:
+    """Hub processing time per transmission in this run, on this machine (genuine traffic and injected faults apart): a
+    description of the run, not a stress measurement."""
+    out = {}
+    for name, keep in (("genuine_traffic", lambda r: r["variant"] in GENUINE_VARIANTS), ("injected_faults", lambda r: r["variant"] in INJECTED_VARIANTS)):
+        ms = [r["latency_ms"] for r in records if keep(r) and isinstance(r.get("latency_ms"), (int, float))]
+        out[name] = {"n": len(ms), "median_ms": statistics.median(ms), "p95_ms": _percentile(ms, 0.95), "max_ms": max(ms)} if ms else {"n": 0}
+    return out
+
+
+def transport_measure(records: list[dict]) -> dict:
+    """The functional count, labelled for what it is: transport. Genuine traffic (genuine replies, peer relays,
+    syntheses) delivered and decided, and injected faults named, each with its own count beside the total."""
+    total = len(records)
+    functional = sum(1 for r in records if r.get("functional"))
+    gen = [r for r in records if r["variant"] in GENUINE_VARIANTS]
+    inj = [r for r in records if r["variant"] in INJECTED_VARIANTS]
+    return {"definition": ("a transmission is functional when the hub produced a receipt without raising, its status is consistent with the input "
+                           "(genuine traffic is delivered; an injected fault is named by a finding of the expected code on the injected claim) and every "
+                           "translator output was decided or rejected with diagnostics; it does not judge whether a finding is true, whether a "
+                           "translation is faithful or whether an answer is better"),
+            "functional": functional, "transmissions": total, "rate": (functional / total) if total else 0.0,
+            "genuine_traffic": {"functional": sum(1 for r in gen if r.get("functional")), "total": len(gen),
+                                "by_variant": {v: sum(1 for r in gen if r["variant"] == v) for v in GENUINE_VARIANTS}},
+            "injected_faults": {"functional": sum(1 for r in inj if r.get("functional")), "total": len(inj)}}
+
+
+def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
+    """Why this run's translation figures cannot stand for the recorded round: expected translations lost, served
+    translations bound by claim id only, adjudications that could not be applied. Empty when none applies."""
+    out = []
+    if coverage["lost"]:
+        reasons = "; ".join(f"{n} {LOST_LABELS[k]}" for k, n in coverage["lost_by_reason"].items())
+        out.append({"code": "TRANSLATIONS_LOST", "message": (f"{coverage['lost']} of {coverage['recorded']} recorded translations were not served in this run ({reasons}); "
+                                                             f"translation outcomes cover the {coverage['served']} served, so this run is not a translation "
+                                                             "regression over the recorded round")})
+    if coverage["served_by_claim_id_only"]:
+        out.append({"code": "FIXTURES_UNBOUND", "message": (f"{coverage['served_by_claim_id_only']} of the {coverage['served']} served translations carry no recorded "
+                                                            "claim-text digest: each is bound to the text its claim id carries in this run, which may not be the "
+                                                            "sentence it was produced for")})
+    if fidelity.get("not_applied"):
+        out.append({"code": "ADJUDICATIONS_NOT_APPLIED", "message": (f"{len(fidelity['not_applied'])} of {fidelity['recorded']} adjudications do not apply to this "
+                                                                     f"run (see translation_fidelity.not_applied); fidelity is measured on the {fidelity['adjudicated']} applied")})
+    return out
+
+
+def round_measures(records: list[dict], translations: dict[str, dict], adjudications: dict | None) -> dict:
+    """results.json ``metrics``: transport, fixture coverage, translation fidelity, the claim counts and latency, each
+    with its own definition and denominator, and the qualifications they raise."""
+    coverage = round_fixture_coverage(records, translations)
+    fidelity = adjudicate(adjudications, records, translations)
+    return {"note": "separate measures, each with its own denominator; none is combined with another into one rate",
+            "transport": transport_measure(records), "fixture_coverage": coverage, "translation_fidelity": fidelity,
+            "claims": round_claim_measures(records, fidelity), "latency": latency_measures(records),
+            "cost": "no translation provider was called (recorded fixtures only)", "qualifications": run_qualifications(coverage, fidelity)}
+
+
+def _pct(n: int, d: int) -> str:
+    return f"{n / d:.1%}" if d else "n/a"
+
+
+def measure_lines(m: dict) -> list[str]:
+    """summary.md's Measures section: one line per measure, each with its own denominator."""
+    t, cov, fid, cl, lat = m["transport"], m["fixture_coverage"], m["translation_fidelity"], m["claims"], m["latency"]
+    gv = t["genuine_traffic"]["by_variant"]
+    lines = ["## Measures (each on its own denominator; none is combined with another into one rate)", ""]
+    lines.append(f"- Transport (functional transmissions): {t['functional']} of {t['transmissions']} ({_pct(t['functional'], t['transmissions'])}). "
+                 f"Genuine traffic delivered and decided: {t['genuine_traffic']['functional']} of {t['genuine_traffic']['total']} "
+                 f"(genuine replies {gv['genuine']}, peer relays {gv['peer_relay']}, syntheses {gv['synthesis']}); injected faults named: "
+                 f"{t['injected_faults']['functional']} of {t['injected_faults']['total']} mutation records. Transport says the hub delivered and decided "
+                 "every transmission; it does not judge whether a finding is true, whether a translation is faithful or whether an answer is better.")
+    if cov["recorded"]:
+        lost = "; ".join(f"{n} {LOST_LABELS[k]}" for k, n in cov["lost_by_reason"].items())
+        lines.append(f"- Fixture coverage (recorded translations served in this run): {cov['served']} of {cov['recorded']} served; "
+                     f"NOT SERVED: {cov['lost']}{' (' + lost + ')' if lost else ''}. Of the {cov['served']} served, {cov['served_with_recorded_digest']} "
+                     f"were bound to a recorded claim-text digest and {cov['served_by_claim_id_only']} by claim id only.")
+    else:
+        lines.append("- Fixture coverage (recorded translations served in this run): no translation is recorded for this round (no translations/*.json); "
+                     "no translation outcome is expected.")
+    if fid["status"] == "not adjudicated":
+        lines.append(f"- Translation fidelity (faithful translations where adjudicated): not adjudicated; the round has no {ADJUDICATIONS_FILE.as_posix()}, "
+                     "so no fidelity figure applies to this run.")
+    else:
+        by = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in fid["bindings"].items()) or "none"
+        lines.append(f"- Translation fidelity (faithful translations where adjudicated): {fid['faithful']} of {fid['adjudicated']} adjudicated translations "
+                     f"served in this run were judged faithful ({_pct(fid['faithful'], fid['adjudicated'])}); {fid['recorded']} adjudications recorded"
+                     f"{' by ' + str(fid['adjudicator']) if fid.get('adjudicator') else ''}, {len(fid['not_applied'])} not applicable to this run; "
+                     f"bound by: {by}.")
+    faithful = ": not adjudicated" if cl["faithful"] is None else f" {cl['faithful']['faithful']} of {cl['faithful']['adjudicated']} adjudicated"
+    false_approvals = "" if cl["faithful"] is None else (f"; {len(cl['approved_adjudicated_unfaithful'])} of the {cl['approved_adjudicated']} adjudicated approved "
+                                                         f"claims were judged unfaithful{': ' + ', '.join(cl['approved_adjudicated_unfaithful']) if cl['approved_adjudicated_unfaithful'] else ''}")
+    lines.append(f"- Claims (genuine pass, each delivered claim once): extracted {cl['extracted']}; eligible for translation {cl['eligible']}; "
+                 f"attempted {cl['attempted']}; completed (a definitive verdict displayed) {cl['completed']}; faithful{faithful}; approved (displayed ENTAILED "
+                 f"with no error-level finding on the claim; not a release decision) {cl['approved']}, of which {cl['approved_resting_on_ungrounded_premises']} "
+                 f"rest on at least one ungrounded premise and {cl.get('approved_resting_on_unresolved_dependencies', 0)} on at least one unresolved "
+                 f"dependency (ungrounded, or authority no check validated){false_approvals}; release permitted by the release assessment (the "
+                 f"application's rule, apart from the formal status) {cl.get('release_permitted', 0)}. Eligible claims with no translation attempted: "
+                 f"{cl['eligible_not_attempted']}.")
+    if cl["eligibility_disagreements"]:
+        lines.append(f"  - the harness's eligibility rule disagrees with the pipeline's decision on: {', '.join(cl['eligibility_disagreements'])}")
+    g, i = lat["genuine_traffic"], lat["injected_faults"]
+    lat_text = "; ".join(f"{name} median {v['median_ms']:.0f} ms, 95th percentile {v['p95_ms']:.0f} ms, max {v['max_ms']:.0f} ms over {v['n']}"
+                         for name, v in (("genuine traffic", g), ("injected faults", i)) if v["n"])
+    lines.append(f"- Latency (hub processing per transmission in this run, on this machine; not a stress measurement): {lat_text or 'none recorded'}.")
+    lines.append(f"- Cost: {m['cost']}.")
+    for q in m["qualifications"]:
+        lines.append(f"- QUALIFIED ({q['code']}): {q['message']}.")
+    return lines
+
+
+def title_line(round_name: str, m: dict) -> str:
+    """summary.md's title, qualified when the run lost expected translations or serves them unbound."""
+    cov = m["fixture_coverage"]
+    parts = []
+    if cov["lost"]:
+        parts.append(f"{cov['lost']} of {cov['recorded']} recorded translations not served")
+    if cov["served_by_claim_id_only"]:
+        parts.append(f"{cov['served_by_claim_id_only']} served by claim id only")
+    if m["translation_fidelity"].get("not_applied"):
+        parts.append(f"{len(m['translation_fidelity']['not_applied'])} adjudications not applicable")
+    return f"# Arena {round_name}" + (f" (QUALIFIED: {'; '.join(parts)})" if parts else "")
+
+
 def run_round(round_dir: Path) -> dict:
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
     syntheses = {p.stem: json.loads(p.read_text()) for p in syn_dir.glob("*.json")} if syn_dir.exists() else {}
+    adjudications = load_adjudications(round_dir)
     hub = RouterHub(signing_key=KEY, config=CFG)
     records: list[dict] = []
     t_all = time.perf_counter()
@@ -1088,10 +1584,16 @@ def run_round(round_dir: Path) -> dict:
                            formal_checks=[(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks],
                            constraints=[(c.constraint_id, c.satisfied) for c in rc.constraint_results], constraint_details={c.constraint_id: c.detail[:300] for c in rc.constraint_results}, coverage=[(c.item_id, c.addressed) for c in rc.coverage], claims=len(reply.payload["claims"]) if reply else None,
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
+                if kind == "genuine":
+                    # how far each delivered claim went (extracted, eligible, attempted, completed, approved), each a list of its own
+                    delivered_claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
+                    rec["claim_measures"] = claim_measures(delivered_claims, outcomes, found)
                 if kind == "genuine" and tr:
                     rec["fixture_claim_text_sha256"] = dict(fixture_digests.get(sp.stem, {}))
                     # fixtures recorded under claim ids this parse does not deliver are never served: say which
                     rec["fixtures_matching_no_delivered_claim"] = sorted(set(tr["claims"]) - {c["claim_id"] for c in (reply.payload["claims"] if reply else [])})
+                    # what became of every recorded translation: served, or lost and why
+                    rec["fixture_coverage"] = fixture_coverage(tr["claims"], tr.get("claim_text_sha256") or {}, delivered_claims, outcomes, found)
             except Exception as exc:  # a crash is a translator bug
                 rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
             records.append(rec)
@@ -1147,15 +1649,24 @@ def run_round(round_dir: Path) -> dict:
            "translation_outcomes_by_variant": by_variant_outcomes, "translation_outcomes_all_variants": all_variants,
            "displayed_non_entailed_definitive_outcomes": displayed_non_entailed_definitive(records),
            "withheld_verdicts": withheld_verdicts(records),
+           "advisory_coverage_warnings": advisory_coverage(records),
            "translation_fixtures_matching_no_delivered_claim": unserved_fixtures(records),
            "genuine_receipts_with_errors": genuine_error_receipts(records),
            "genuine_with_errors": genuine_findings_summary(records),
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "failures": [r for r in records if not r.get("functional")], "records": records}
+    # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
+    out["metrics"] = round_measures(records, translations, adjudications)
+    out["qualifications"] = out["metrics"]["qualifications"]
+    out["qualified"] = bool(out["qualifications"])
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
-    lines = [f"# Arena {round_dir.name}", "", f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%})", "",
-             error_receipt_line(out["genuine_receipts_with_errors"]), "", "| variant | functional | total |", "| --- | --- | --- |"]
+    lines = [title_line(round_dir.name, out["metrics"]), "",
+             f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%}). This is the transport measure only: fixture coverage, "
+             "translation fidelity and the claim counts are separate measures (below), never combined with it into one rate.", "",
+             error_receipt_line(out["genuine_receipts_with_errors"]), ""]
+    lines += measure_lines(out["metrics"])
+    lines += ["", "| variant | functional | total |", "| --- | --- | --- |"]
     lines += [f"| {k} | {v['functional']} | {v['total']} |" for k, v in out["by_variant"].items()]
     lines += ["", "## Translation outcomes (provider-dependent; genuine pass, one outcome per eligible claim with a fixture)", ""]
     lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["- (no outcome)"]
@@ -1163,6 +1674,7 @@ def run_round(round_dir: Path) -> dict:
     lines += [f"- ENTAILED verdicts resting only on ungrounded premises: {ungrounded_entailed['resting_only_on_ungrounded_premises']} of {ungrounded_entailed['entailed']}"
               + (f": {', '.join(only_ungrounded)}" if only_ungrounded else "")]
     lines += [withheld_verdict_line(out["withheld_verdicts"])]
+    lines += [advisory_coverage_line(out["advisory_coverage_warnings"])]
     lines += definitive_outcome_lines(out["displayed_non_entailed_definitive_outcomes"])
     unserved = out["translation_fixtures_matching_no_delivered_claim"]
     if unserved["count"]:
@@ -1194,8 +1706,16 @@ def run_round(round_dir: Path) -> dict:
     return out
 
 
-if __name__ == "__main__":
-    rd = Path(sys.argv[1]).resolve()
+def main(argv: list[str] | None = None) -> int:
+    """Run one round and print its measures. Exit status 0, or 1 with ``--fail-on-qualification`` when the run is
+    qualified (expected translations lost, served translations bound by claim id only, or adjudications that do not
+    apply), so a translation-regression run fails instead of reporting figures for a different set of translations."""
+    ap = argparse.ArgumentParser(description="Feed a recorded arena round through the hub and write results.json and summary.md.")
+    ap.add_argument("round_dir", type=Path, help="the round directory (specialists/, translations/, syntheses/, relayed/, adjudications/)")
+    ap.add_argument("--fail-on-qualification", action="store_true",
+                    help="exit with status 1 when the run is qualified, for a translation-regression run that must use every recorded translation")
+    args = ap.parse_args(argv)
+    rd = args.round_dir.resolve()
     res = run_round(rd)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
@@ -1204,4 +1724,13 @@ if __name__ == "__main__":
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",
           "| definitive verdicts other than ENTAILED displayed on genuine claims:", len(res["displayed_non_entailed_definitive_outcomes"]))
     print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]))
+    print("\n".join(line for line in measure_lines(res["metrics"]) if line))
     print("results written to", rd / "results.json", "and", rd / "summary.md")
+    if res["qualified"] and args.fail_on_qualification:
+        print("FAILED: the run is qualified (--fail-on-qualification):", ", ".join(q["code"] for q in res["qualifications"]))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

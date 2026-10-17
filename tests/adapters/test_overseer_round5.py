@@ -35,6 +35,8 @@ from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
 
+from ..timing import measure
+
 DATA = json.loads((Path(__file__).parent / "data" / "r5_specialists.json").read_text(encoding="utf-8"))
 EN_T9, EN_T10, EN_P4, HI_T10 = (DATA[k] for k in ("en-t9", "en-t10", "en-p4", "hi-t10"))
 KEY = b"round5-english-fixer-key-0123456789ab"
@@ -227,11 +229,9 @@ def test_argument_sentences_and_disclaimers_of_the_same_shapes_are_not_self_cert
     "Nothing in this answer " * 900 + "needs",
 ])
 def test_the_structural_rule_reads_pathological_text_in_linear_time(text):
-    import time
-    start = time.perf_counter()
-    md.is_self_certification(text)
-    md.is_note_sentence(text)
-    assert time.perf_counter() - start < 2.0
+    # the 2 s bound, measured as in tests/timing.py (warm-up, median of five first runs, earlier heap frozen)
+    timing = measure(lambda: (md.is_self_certification(text), md.is_note_sentence(text)), bound=2.0, label=text[:24])
+    assert timing.holds, timing
 
 
 def test_argument_sentences_of_the_same_shapes_keep_their_roles_on_the_english_branch():

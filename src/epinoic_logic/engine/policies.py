@@ -42,6 +42,7 @@ __all__ = [
     "NONLINEAR",
     "LINEAR_LIMITS",
     "NONLINEAR_LIMITS",
+    "JOINT_LIMITS",
     "PACK_POLICIES",
     "NONLINEAR_RLIMIT",
     "NONLINEAR_MAX_DEGREE",
@@ -63,6 +64,10 @@ NONLINEAR_LIMITS: Limits = Limits(allow_nonlinear=True)
 
 #: Read-only name -> Limits table. A pack can name an entry; it cannot add, replace or edit one.
 PACK_POLICIES: Mapping[str, Limits] = MappingProxyType({LINEAR: LINEAR_LIMITS, NONLINEAR: NONLINEAR_LIMITS})
+#: Bounds of the integrity layer's joint problems (cross-agent consistency, synthesis entailment and their re-checks): a
+#: union of many claims would exceed the per-claim shape limits, so joint checks run under these larger bounds. Never a
+#: pack policy. A joint result records them and binds their digest, so a receiver must name them as its required policy.
+JOINT_LIMITS: Limits = Limits(max_symbols=1024, max_premises=4096, max_nodes=200_000, max_depth=40, max_nary_args=64)
 
 #: Deterministic Z3 resource limit for nonlinear checks (per solver call). Calibrated in
 #: ``engine/README.md``: the costliest STEM shape still decides at a tenth of this value,

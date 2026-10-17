@@ -59,6 +59,94 @@ harness rates of the second layer have not dropped.
    (`test_overseer_round*.py`, `test_round*_*.py`, `test_r*_*.py`). Each blocker or major
    finding that was fixed has at least one test that reproduces it.
 
+   Wall-clock bounds ("this answer crosses the hub in under 2 s") are measured under the fixed
+   conditions of `tests/timing.py`, never relaxed: a warm-up run, then the median of up to five
+   runs, each a first crossing (the package's memoisation caches emptied) with the heap the earlier
+   tests left behind frozen, and process CPU time recorded beside wall-clock time so a contended
+   machine can be told from a slow path. `tests/test_timing.py` checks those conditions. The
+   arena harness's separate measures (transport, fixture coverage, translation fidelity and claim
+   counts) are tested in `tests/e2e/test_arena_measures.py`; its counting rules are in
+   `scripts/arena/test_arena_rules.py`, which the default suite does not collect
+   (`python -m pytest -q scripts/arena/test_arena_rules.py`).
+
+   The external review of 12 October 2026 is covered by `tests/engine/test_review_engine_fixes.py`,
+   `tests/service/test_review_service_fixes.py`, `tests/translate/test_review_2026_10_12_translate.py`
+   and `tests/channel/test_task_record_through_the_channel.py`: each of its nine findings has
+   regression tests with negative controls in which the rejected conclusion really is wrong, and
+   genuine signed results of earlier releases (`tests/engine/data/`) test the upgrade path.
+   `tests/translate/test_quantities_linear_time.py` holds the figure reader the fixes added to
+   linear time on long untrusted texts, and `tests/e2e/test_arena_measures.py` counts the claims
+   whose release assessment permits release apart from the approvals. Finding 6 as repaired after
+   the independent verification is in `tests/translate/test_coverage_assertion.py`: whether a
+   source asserts a figure is read from its grammar (the verifier's paraphrases, a condition, a
+   question, a possibility, a biconditional, a negation, "for any y", keep their counterexample;
+   paired sources that do assert the figure are still no verdict), what a figure states must
+   establish the encoding's comparison, a figure that counts something else is no evidence, the
+   retry an E110 asks for may add only what the source asserts, and the reader stays linear.
+
+   The second verification left findings 2 and 6 open; their repairs are tested at the cause, for
+   the whole class. `tests/translate/test_whole_content_authority.py` (finding 2): a check confers
+   task or source authority only on a premise's whole content, so a relation whose figures all
+   occur in the task or in a located excerpt (`speed = d / 8` from "120 km in 8 hours") stays an
+   unverified dependency and blocks release whatever its grounding label, while the same relation
+   stated in the task as a given is validated (`relation_in_source`) and an assignment is validated
+   only by a figure stated so that it establishes the comparison; negative controls cover a
+   formula in a question, a claim to prove, a condition, a negation, a report or a hypothesis, and
+   a rule given only in words; a located excerpt is read where it stands in its document, every
+   reference's span counting and an elided excerpt's span only for what it quotes.
+   `tests/translate/test_positive_assertion_reader.py`
+   (finding 6): a sentence asserts a figure only when the reader positively recognises it as the
+   writer's own statement, so every phrasing the verifier listed (hedges, hypotheses, reported
+   speech, claims to test, quantified and symbolic conditionals and biconditionals, Unicode arrows
+   included) keeps W110/W111 advisory and the valid counterexample, while plain statements, given
+   frames, factual subordinate clauses and raising verbs of fact ("n turned out to be 17", against
+   "n seems to be 17" and "n is believed to be 17") are still asserted (the paired E110/E111
+   controls); the
+   unchanged timing tests of `tests/translate/test_coverage_assertion.py` and
+   `tests/translate/test_quantities_linear_time.py` hold the positive reader to their bounds on
+   long untrusted texts. Five tests of the first
+   repair that pinned a relation validated by its figures were rewritten to the stricter rule
+   (the relation is stated in the task, or it is listed as unverified).
+
+   The third verification found finding 6 closed only for the claim and its supporting claims,
+   and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`
+   tests both at the cause. Finding 6: a figure that a supporting claim, a supplied text or the
+   task record asserts about a free conclusion symbol, and the encoding omits, is no verdict
+   (E111) in every source, while the reviewer's own question, a possibility, a condition, a
+   question, a negation, reported speech and a hypothesis keep W111 and the counterexample; a
+   record's figure counts only in a clause about the symbol; a sentence that opens with a
+   lower-case symbol ("Define b. n = 17.") is a sentence of its own, while a lower-case word
+   that continues the sentence ("then", after "i.e.") is not; a question opened by a given
+   does not govern the given ("Given n = 17, does b hold?"); a frame naming the task ("In this
+   problem") presents its given, a hypothetical frame does not. Finding 1/9: a rounded given
+   ("x is 0.33 to 2 decimal places", seven phrasings) grounds transcribed exactly and at exactly
+   its stated tolerance, with the claim ENTAILED and released, while a wider, narrower or shifted
+   interval, an interval for an exact or given figure, and one end from each of two figures do
+   not; a rounded percentage states its interval in the symbol's declared reading; the stated-
+   precision retry grounds and keeps its counterexample. Found while measuring (and present before this repair): a
+   record that negates a figure in its own predicate ("x is not 0.33") established it; it establishes nothing now,
+   while a negation of another figure and a bound phrase ("not more than") keep their readings. Two timing tests hold the new reading of
+   long records (E111 over every figure, and the tolerance derivation) to the suite's 2 s bound.
+
+   The fourth verification found finding 1 open in a cue-less wording of the reviewer's probe:
+   in "If x = 1/3 then x = 0.33." the figure 0.33 was read as the rounded result of the written
+   calculation "1/3 then x", so the faithful exact encoding was rejected for its stated precision
+   and the widened retry was released. `tests/translate/test_calculation_result_and_cue_scope.py`
+   tests the cause for the whole class: a figure is the result of a written calculation only when
+   the calculation ends at its '=' (a word before the sign is no unit of the calculation unless the
+   unit table, a currency or a scale word reads it; the calculation starts with an operand; the
+   figure ends the expression), so every phrasing the verifier listed and their siblings (a
+   connective, an arrow, a symbol, an identifier, an operator after a variable, a function symbol,
+   an equation, a figure that starts the next expression) read the figure as unstated, and through
+   the pipeline the faithful encoding is AMBIGUOUS_TRANSLATION after one provider call, never
+   rejected for precision, never ENTAILED and never released, even under a review that calls it
+   faithful; an approximation word or sign governs only the figure it is written against ("think
+   about it", "almost certain", "about 2 people think that ...", "x ≈ 1/3 so x = 0.33" state
+   nothing about 0.33; "without approximation" states exactness). Negative controls: calculations
+   that end at the sign keep their readings (rounded, exact, or rounded by convention, LaTeX,
+   exponents, count nouns, per cent words and function values inside a calculation included), the
+   exactness cue keeps the counterexample, and a genuinely rounded claim uses its stated tolerance.
+
 2. **Contained arena (bug testing with real agents).** Isolated specialist agents answer
    router tasks: the English and History specialists, configured only from their
    knowledge documents. Every output crosses the hub exactly as in production. The harness

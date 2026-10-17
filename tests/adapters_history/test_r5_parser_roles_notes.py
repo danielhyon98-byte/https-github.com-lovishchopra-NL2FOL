@@ -9,8 +9,6 @@ naming the claim); HI-STR-003 reads a year range as a claim's scope; HI-STR-004 
 word; durations, containment and same-year relations are decided; the JSON stripper is linear."""
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from epinoic_logic.adapters.history_specialist.chronology import chronology_relations
@@ -22,6 +20,8 @@ from epinoic_logic.branches.packs import CorePack
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+
+from ..timing import measure
 
 KEY = b"history-r5-roles-key-0123456789abcd"
 CFG = SolverConfig(timeout_ms=3000, memory_max_mb=None)
@@ -283,9 +283,9 @@ def test_an_interval_against_an_event_the_sentence_never_dates_is_undecided():
     "[" * 8000 + '{"status": "ACCEPTED"}' + "]" * 8000,
 ], ids=["5000-nested-braces", "20000-deep-array", "2000-unclosed-fragments", "deep-array-around-a-receipt"])
 def test_strip_json_spans_is_linear_and_agrees_with_a_stack_scan(text):
-    t0 = time.perf_counter()
-    out, removed = strip_json_spans(text)
-    assert time.perf_counter() - t0 < 1.0
+    # the 1 s bound, measured as in tests/timing.py (warm-up, median of five first runs, earlier heap frozen)
+    timing = measure(lambda: strip_json_spans(text), bound=1.0, label="strip_json_spans")
+    assert timing.holds, timing
     small = text[:200] + text[-200:]
     reference = []
     i = 0
@@ -305,7 +305,9 @@ def test_strip_json_spans_is_linear_and_agrees_with_a_stack_scan(text):
     " ".join('{"a": 1, "b": [' for _ in range(2000)) + " The turning point was 1930.",
 ], ids=["5000-nested-braces", "20000-deep-array", "2000-unclosed-fragments"])
 def test_bracket_heavy_answers_cross_the_history_branch_quickly(text):
-    # round 5 measured 11.5 s, 166 s and 23.5 s for these on the History branch; each now takes well under a second
-    t0 = time.perf_counter()
-    _ch, _reply, rc = hub_reply(text, HI_T10_Q)
-    assert time.perf_counter() - t0 < 2.0 and rc.status is not None
+    # round 5 measured 11.5 s, 166 s and 23.5 s for these on the History branch; each now takes well under a second.
+    # The 2 s bound is unchanged and measured as in tests/timing.py: a warm-up run, then the median of five runs, each a
+    # first crossing (caches emptied) with the earlier heap frozen.
+    timing = measure(lambda: hub_reply(text, HI_T10_Q), bound=2.0, label="History branch")
+    assert timing.holds, timing
+    assert all(rc.status is not None for _ch, _reply, rc in timing.results)

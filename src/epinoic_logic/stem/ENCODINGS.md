@@ -85,7 +85,7 @@ Angles:
 | a value located in the request | `task_setting`, `verified` |
 | `PREV` (the preceding relation of a step), `FORMULA` (a stated law) | `specialist_inference` |
 | `GUARD_*`, `SIDE_ROOT` (principal root), a booklet value for an unstated symbol | `assumption` (the engine lists them in `ungrounded_dependencies`) |
-| `Q_DEF`, `S_SQ`, `P_DEF`, tallies, step definitions, `ENC_*`, a written constant widened to its booklet value | `arithmetic_fact` (encoding devices; the note says so) |
+| `Q_DEF`, `S_SQ`, `P_DEF`, tallies, step definitions, `ENC_*`, a written constant widened to its booklet value | `arithmetic_fact` (encoding devices; the note says so; no check verifies them, so since engine 0.4.0 the engine lists them in `unverified_dependencies`, which no STEM decision reads) |
 
 Every problem's `notes` starts with the STEM scope statement (`tolerance.STEM_SCOPE`). Notes
 also record:

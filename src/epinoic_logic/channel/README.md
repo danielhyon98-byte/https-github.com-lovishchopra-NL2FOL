@@ -189,4 +189,12 @@ one document.
 Coverage of request items is a lexical heuristic until adapters tag claims with the
 items they address; the receipt says so. Only material claims (not roled `other`) can
 address an item. The translator and adapter are injected (`verify_claim_fn`), so the
-channel runs with fixtures today and with the live pipeline when configured.
+channel runs with fixtures today and with the live pipeline when configured. A verifier that
+declares a `task` parameter is called `fn(claim, report, task=...)` with the task record of the
+request the report answers (`translate.contracts.TaskRecord`: the router's request text as issued),
+so a premise that claims the task's authority (`arithmetic_fact`, `task_setting`, `rubric_rule`) can be
+validated against the task's own wording and a fidelity reviewer is shown the original task; a
+verifier with the two-argument signature is called as before, and its task-authority premises stay
+unvalidated (listed as unverified dependencies; release never permitted on them). The channel
+releases no answer itself: each outcome carries its release assessment (`ClaimVerificationOutcome.release`)
+for the application that does.

@@ -1,0 +1,69 @@
+{
+  "result_id": "543476e97af0416aa444cda60b11053a",
+  "request_id": "r1",
+  "claim_id": "c1",
+  "problem_id": "p1",
+  "query": "entailment",
+  "status": "ENTAILED",
+  "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+  "binding": {
+    "problem_digest": "d4e5da30f8726730dc44371f7082d8876e3af481d835df2f0c797beaee542aaa",
+    "config_digest": "a45a778b83242637b1c251b44e4243412f2dca3d24694ef219cff5cc13a79b02",
+    "versions_digest": "80b1b888b782ad58980d5f98befa4d7c6b77446218de8aa2b65ccc6f267047ea",
+    "binding_digest": "a3ff8690ec27fb4effa560a62eca060f5cde9bfa534646f3133437b9e0fe9858",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun p () Bool)\n(assert\n p)\n(assert\n (not p))\n(check-sat)\n"
+  },
+  "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.2.0",
+    "policy_version": "2026.10-v2",
+    "z3_version": "5.1.0"
+  },
+  "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+  },
+  "counterexample": null,
+  "unsat_core": {
+    "premise_ids": [
+      "P"
+    ],
+    "includes_negated_conclusion": true
+  },
+  "premises_relied_on": [
+    "P"
+  ],
+  "ungrounded_dependencies": [
+    "P"
+  ],
+  "unverified_dependencies": [],
+  "witness_model": null,
+  "diagnostics": [],
+  "timings": [
+    {
+      "stage": "validate",
+      "ms": 0.065250089392066
+    },
+    {
+      "stage": "compile",
+      "ms": 16.80358301382512
+    },
+    {
+      "stage": "consistency",
+      "ms": 8.521041017957032
+    },
+    {
+      "stage": "entailment",
+      "ms": 1.483249943703413
+    }
+  ],
+  "reason_unknown": null,
+  "issued_at": "2026-10-12T18:43:28Z",
+  "signature": "29ed3f90075d6c3554d0ceaac033e2cd700d63776ed2f221e8cc741776476295",
+  "signature_key_id": "probe"
+}

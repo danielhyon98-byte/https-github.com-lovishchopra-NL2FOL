@@ -4,11 +4,59 @@
 | --- | --- |
 | `validator.py` | Parses untrusted JSON into a `Problem` (size and depth guards) and checks identifiers, strict sorts (no Int/Real mixing without `to_real`), policy (constant non-zero divisors; nonlinear terms off by default) and limits. Collects every diagnostic; maps E1xx/E3xx to INVALID_FORMALIZATION and E2xx to UNSUPPORTED. |
 | `compiler.py` | Maps each validated node to exactly one Z3 call in a fresh `Context`; numerals from text so `0.1` is the rational 1/10; `idiv`/`mod` follow Z3 integer semantics; exports exact SMT-LIB text for audit. |
-| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. Models are extracted exactly (`a/b`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. |
-| `provenance.py` | Version capture, binding digests over (problem, config, versions), HMAC-SHA256 signing and constant-time verification. |
-| `runner.py` | `verify(...)`: validate → compile → decide → bind → sign. Never raises; every failure is a bound non-success result. Also lists `ungrounded_dependencies`: relied-on premises with missing, inferential, assumed or failed grounding. A definitive status that used no premise carries `E108` (vacuous), and so does a COUNTEREXAMPLE over zero premises (it says only that the conclusion is no tautology: nothing the claim rests on was encoded). A COUNTEREXAMPLE over at least one premise that falsifies the conclusion only through numeric symbols no premise mentions carries `E111` (unencoded reason: Z3 decides `premises AND forall free. NOT conclusion` unsat, so every premise assignment leaves a value of those figures that makes the conclusion true; the claim's own reason was not encoded); a Bool point no premise links to stays the non sequitur COUNTEREXAMPLE. An ENTAILED proof whose relied-on premises restate the conclusion (it, or each of its "and" conjuncts, is syntactically a relied-on premise or a conjunct of one: `circular_premises`) carries `E112` (circular) when every restating premise is the writer's own (`assumed_grounding`: an ungrounded kind or an unverified `arithmetic_fact`); restating a task setting, a rubric rule or a text is a transcription check, not a circle. A COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts carries `E110` (unasserted figure): a premise `b <-> (n = 17)` (a Bool atom defined by a comparison of numeric symbols) whose numeric symbols no other premise mentions asserts nothing, so when the entailment, re-run with each such atom asserted, is ENTAILED, the counterexample merely sets the stated figure to another value; the diagnostic names the premise, its label, the atom and the values the counterexample chose. The status stays COUNTEREXAMPLE (the solver's answer about the encoding, as it stays ENTAILED under `E112`); the outcome layer never displays any of `E108`, `E110`, `E111`, `E112` as a verdict. `unasserted_figure_definitions(problem)` is the syntactic test (no solver) the translator shares. Records non-default `Limits` on every result path, and refuses over-degree polynomials under the nonlinear gate (see below). |
-| `policies.py` | Named pack policies: `PACK_POLICIES` (`linear`, `nonlinear`), `policy_limits`, `policy_config`, `required_policy`, `NONLINEAR_RLIMIT`, `NONLINEAR_MAX_DEGREE` and the polynomial-degree walk. |
-| `statuses.py`, `errors.py`, `results.py` | Closed status taxonomy with `is_definitive`, stable diagnostic codes, and result models including the scope statement and the `limits` record. |
+| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. The core is always extracted, whatever `produce_unsat_core` says (see "Policy evidence" below). Models are extracted exactly (`a/b`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. |
+| `authority.py` | Premise authority: `is_ungrounded`, `is_unverified`, `has_authority`, the dependency lists and `assumed_grounding`. Only a grounding a check in this process verified establishes a premise; every other grounding is a dependency, whatever kind it claims (see "Premise authority" below). |
+| `identity.py` | The immutable identity bound into every result: `build_id` (digest of the engine, IR and version source), `schema_id` (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest of `policy_manifest()`, the decision policy as data). |
+| `provenance.py` | Version and identity capture, binding digests over (problem, config, versions with identity, non-default limits), HMAC-SHA256 signing and constant-time verification, `binding_inconsistencies`, and `stale_reasons` (why a result is not current-policy evidence). |
+| `release.py` | `release_check(result, problem, signing_key=..., required_limits=...)`: the current-policy release check (authentic, bound, current, a positive verdict on the claim, its evidence computed, resting on established premises only). Formal entailment and permission to release stay separate. |
+| `runner.py` | `verify(...)`: validate → compile → decide → bind → sign. Never raises; every failure is a bound non-success result. Also lists `ungrounded_dependencies` (relied-on premises with missing, inferential, assumed or failed grounding) and `unverified_dependencies` (relied-on premises whose task or source authority no check validated, any kind). A definitive status that used no premise carries `E108` (vacuous), and so does a COUNTEREXAMPLE over zero premises (it says only that the conclusion is no tautology: nothing the claim rests on was encoded). A COUNTEREXAMPLE over at least one premise that falsifies the conclusion only through numeric symbols no premise mentions (Z3 decides `premises AND forall free. NOT conclusion` unsat, so every premise assignment leaves a value of those figures that makes the conclusion true) carries the advisory `W111` and stands as the verdict on the encoding: the question may leave them unconstrained. It carries `E111` (unencoded reason: no verdict) only with source-linked evidence, a grounding on one of those symbols that a check in this process verified; a Bool point no premise links to stays the non sequitur COUNTEREXAMPLE. An ENTAILED proof whose relied-on premises restate the conclusion (it, or each of its "and" conjuncts, is syntactically a relied-on premise or a conjunct of one: `circular_premises`) carries `E112` (circular) when every restating premise is the writer's own (`assumed_grounding`: an ungrounded kind or an unverified `arithmetic_fact`); restating a task setting, a rubric rule or a text is a transcription check, not a circle. A COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts (a premise `b <-> (n = 17)`, a Bool atom defined by a comparison of numeric symbols that no other premise mentions, and the entailment re-run with each such atom asserted is ENTAILED) carries the advisory `W110`: a definition is not an assertion, and "define b iff n = 17; does b necessarily hold?" is answered by exactly that counterexample, so it stands. It carries `E110` (unasserted figure: no verdict) only with source-linked evidence that a source asserts the figure, a grounding on the figure or the atom that a check in this process verified (the translation layer creates that record from the source clauses that assert the figure, read from their grammar by `translate.assertion`, `translate.coverage.apply_coverage_evidence`, so its coverage note and this code are one decision; a payload cannot carry it, E505). Both name the premise, its label, the atom and the values the counterexample chose; neither ever instructs adding a premise because it produces entailment unless a source states it. The status stays COUNTEREXAMPLE (the solver's answer about the encoding, as it stays ENTAILED under `E112`); the outcome layer never displays any of `E108`, `E110`, `E111`, `E112` as a verdict, and shows `W110`/`W111` beside the verdict as advisory coverage warnings. `unasserted_figure_definitions(problem)` is the syntactic test (no solver) the translator shares; `source_stated_symbols(problem, names)` is the evidence test. Records and binds non-default `Limits` on every result path, and refuses over-degree polynomials under the nonlinear gate (see below). |
+| `policies.py` | Named pack policies: `PACK_POLICIES` (`linear`, `nonlinear`), `policy_limits`, `policy_config`, `required_policy`, `NONLINEAR_RLIMIT`, `NONLINEAR_MAX_DEGREE` and the polynomial-degree walk; `JOINT_LIMITS`, the integrity layer's bounds for joint problems. |
+| `statuses.py`, `errors.py`, `results.py` | Closed status taxonomy with `is_definitive`, stable diagnostic codes (`NO_VERDICT_CODES`, `ADVISORY_CODES`), and result models including the scope statement, the `limits` record, the identity in `Versions` and `Binding.limits_digest`. |
+
+## Premise authority (`authority.py`)
+
+A grounding kind is the proposer's claim about where a premise comes from. Only an
+application-created record confers task or source authority: `grounding.verified = True`, set in
+this process by a deterministic check against an immutable task field (the parsed request), a
+source span (a supplied text) or an independently computed derivation. The check must verify the
+premise's whole content: the translation layer's checks (`translate.relations`) validate a premise
+that relates symbols (`speed = d / 8`) only when a record states that relation, never because its
+figures occur in a record, so a model-invented relation stays in `unverified_dependencies` whatever
+its kind. A payload that arrives as data cannot set it (`E505`; the service refuses it outright).
+
+| Grounding of a relied-on premise | Listed in |
+| --- | --- |
+| none, `assumption`, `specialist_inference`, `general_knowledge`, `verified = False`, an unverified `quotation` | `ungrounded_dependencies` |
+| any other kind with `verified` unset, `arithmetic_fact`, `task_setting` and `rubric_rule` included | `unverified_dependencies` |
+| any kind except the writer's own steps, with `verified = True` from a check in this process | neither: established |
+
+Until the external review of 2026-10-12 an unchecked `arithmetic_fact`, `task_setting` or
+`rubric_rule` was listed nowhere, so a translation could hide an invented premise (160 km for a
+supplied 120 km) by choosing that label. The lists never change a status: formal entailment from
+an unverified premise is still ENTAILED, and `release.release_check` refuses it.
+
+## Policy evidence is computed, not optional
+
+The unsat core is always extracted (the tracking literals are assumptions, so Z3 has it at no
+extra cost). `premises_relied_on`, the dependency lists, `E108` and `E112` rest on it.
+`SolverConfig.produce_unsat_core` only decides whether the raw `unsat_core` record is serialised.
+Before 0.4.0 the flag also emptied the dependency lists and skipped `E108`, so a premise-free
+tautology became a displayed ENTAILED with the flag off: "not computed" read as "no
+dependencies". Toggling the flag now changes no dependency, no diagnostic and no release check,
+through the engine and through the HTTP service.
+
+## Current-policy identity, staleness and the release check
+
+Every result binds `Versions.build_id`, `schema_id` and `policy_id` (`identity.py`) beside the
+component versions, so a result issued by another build is never current, even when someone
+forgot to bump a version string. `provenance.stale_reasons(result, required_limits=...)` says why
+a result is not current-policy evidence: other versions or identity (or none: a result issued
+before identities were bound), or validation limits other than those the receiver requires.
+Such a result stays inspectable: it parses, re-serialises byte-identically and its signature
+still verifies. It cannot satisfy a current-policy check (`release.release_check`,
+`integrity.handoff.check_result_binding`, the outcome composer) until the problem is verified
+again. `tests/engine/data/` holds genuine signed results of releases 0.2.0 and 0.3.0 for the
+upgrade tests.
 
 Resource bounds come from `SolverConfig` (per-check timeout, optional `rlimit`,
 seed, optional memory budget). The memory budget is per verification while Z3's
@@ -39,17 +87,23 @@ and the engine maps the name to a fixed value:
 - `required_policy(problem)` returns `"nonlinear"` exactly when the linear policy refuses the
   problem with `E201`. A pack can use it to choose the least permissive policy.
 
-**Signed record.** When the `Limits` a problem was validated under differ from
+**Signed and bound record.** When the `Limits` a problem was validated under differ from
 `DEFAULT_LIMITS`, `VerificationResult.limits` records them on every result path, before
 signing. That includes the nonlinear policy, and other callers too (the cross-report pool's
-`JOINT_LIMITS`). The signature therefore covers the record:
+`JOINT_LIMITS`). The signature covers the record, and since 0.4.0 the binding does too:
 - changing it, stripping it, or adding one to a default result fails `verify_signature`;
-- the binding formula (`sha256(problem|config|versions)`) and the hand-off binding check are
-  unchanged.
+- `Binding.limits_digest` is the digest of the non-default limits, appended to the binding
+  digest (`sha256(problem|config|versions|limits)`), so a permissive result never shares a
+  binding with a default one; the default formula (`sha256(problem|config|versions)`) is
+  unchanged, and the default limits themselves are part of the bound policy identity;
+- the hand-off binding check and the release check compare the bound limits with the policy
+  the receiver requires (`limits=` / `required_limits=`, default `DEFAULT_LIMITS`); a joint
+  result is checked against `JOINT_LIMITS`. This is separate from the version identity: two
+  policies used within one build are told apart by the limits digest alone.
 
-With the default `Limits` the field is `None` and a wrap serializer leaves it out of every
-dump. Default results, their signable text and their signatures are byte-identical to the
-committed model (golden digests in `tests/engine/test_pack_policies.py`). A `limits` argument
+With the default `Limits` the record and the digest are `None` and wrap serializers leave them
+out of every dump, so a result of the old shape (and its signature) still serialises
+byte-identically (golden digests in `tests/engine/test_pack_policies.py`). A `limits` argument
 that is not a `Limits` instance is an INTERNAL_ERROR result. The engine never guesses bounds.
 
 **Degree bound under the nonlinear gate.** With nonlinear terms allowed, the runner refuses any

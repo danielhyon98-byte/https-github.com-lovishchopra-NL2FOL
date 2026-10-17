@@ -44,9 +44,62 @@ An excerpt that differs from the text only in how its accented letters are encod
 (precomposed ``é`` against ``e`` plus a combining accent) has the same letters: the
 normalized tier finds it (``QuotationMatch.note`` says so), never the diacritics tier.
 
-Every grounding whose ``source_refs`` carry an excerpt is checked against the named
-document whatever its ``kind``; only groundings without an excerpt are
-``not_checkable``.
+Every reference of a grounding is checked, whatever its ``kind``: an excerpt is located in the
+named document, and a reference without an excerpt has its document (and the plausibility of
+its locator) checked. Each reference keeps its own outcome (``GroundingCheck.ref_index``), and
+the references together give the target's support (:func:`grounding_support`): ``complete``,
+``partial``, ``failed`` or ``uncheckable``. Only complete support verifies a grounding: a
+reference to a document that was never supplied is surfaced and never hidden behind another
+reference that was found. A grounding with no reference is ``not_checkable``.
+
+Figures are typed (:mod:`.quantities`): a located excerpt verifies a premise only when it
+states the premise's figures, compared as exact values with one recorded derivation where the
+spelling differs (``20%`` for ``0.2`` or ``1/5`` is ``20 x 1/100 = 1/5``), and in the reading
+the compared symbol's meaning declares (a dimensionless fraction, a percentage, a unit). A figure
+the record states as ROUNDED ("x is 0.33 to 2 decimal places", "about 0.33", "0.33 (3 s.f.)")
+states every value within its stated tolerance, so it also establishes an assignment's bounds at
+the two ends of that interval (``x >= 0.325 and x < 0.335``: one recorded derivation,
+:func:`.quantities.stated_intervals`); a symbol bounded on both sides takes both ends from one
+stated interval. A wider, narrower or shifted interval is not what the record states, and an
+exact or given figure (no rounding cue) states no interval at all, so an interval in its place
+stays unestablished. The numeral of a precision cue is no end of a range: "0.33 to 2 decimal
+places" states 0.33.
+
+Whole content. A check confers task or source authority on a premise (``verified=True``) only when it
+verifies the premise's WHOLE content (:mod:`.relations`). For a premise with numeric content that is
+one of two shapes. An **assignment** (each conjunct compares one symbol with one literal: ``d = 120``,
+``n >= 5``) is verified by a record that states the figure, typed, in a way that establishes the
+comparison (:func:`.assertion.stated_as`: "more than 17" establishes no ``n = 17``; "at most 350
+words" establishes ``limit = 350`` and ``words <= 350``; a figure negated or excluded where it stands
+or in its own predicate, "x is not 17", or one option of a disjunction or one end of a range, establishes
+nothing). A **relation** (arithmetic
+over symbols or figures, a comparison of two terms, an inequation, a comparison inside a logical
+formula) is never verified by its figures occurring in a record: the ``8`` of "120 km in 8 hours" is
+no evidence for ``speed = d * 8``. Only a record that STATES the same relation as a formula, as a
+given, verifies it (:func:`.relations.stated_relation`, method ``relation_in_source``); otherwise the
+relation is the translation's own and stays unverified (``verified=None``: an unverified dependency
+that blocks release), whatever its grounding kind, and even when its excerpt was located. A premise
+with no numeric content (a proposition) keeps the span rule: located excerpts are its reference.
+
+Authority. The kinds ``arithmetic_fact``, ``task_setting`` and ``rubric_rule`` claim the task's
+authority, which only application-created records confer: the supplied texts and the task
+record (:class:`~.contracts.TaskRecord`). The kind is the translator's proposal and stays
+unchecked until code validates it (:func:`check_problem_grounding`, methods ``numeric_in_task``
+and ``relation_in_source``):
+
+* **validated** (``verified=True``): an excerpt of those records is located and states the
+  premise's whole content, or the records state it (an assignment: every figure, typed, with spans
+  and derivations, stated so that it establishes the comparison; a relation: the formula itself,
+  stated as a given);
+* **refuted** (``verified=False``, an evidence failure the engine reports as an ungrounded
+  dependency): the task record was given and neither it nor a supplied text states the figure,
+  or the records state another figure of the same unit and none of the premise's (the supplied
+  text says 120 km where the premise says 160 km);
+* **unvalidated** (``verified=None``, recorded with a ``numeric_in_task`` or ``relation_in_source``
+  check whose ``verified`` is None): no record available to this layer states it or contradicts it
+  (the task's own wording was not given), or the records state a relation's figures but not the
+  relation. It is never trusted by this layer: the outcome lists it as unvalidated task authority
+  and does not permit release on it.
 
 Offsets returned always refer to the ORIGINAL text.
 
@@ -68,10 +121,15 @@ import unicodedata
 from array import array
 from collections import OrderedDict
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Callable, Hashable, Literal, Optional, Sequence
 
 from ..ir.schema import Assertion, Grounding, Problem, SourceRef, Symbol
-from .contracts import ClaimRecord, GroundingCheck, SuppliedText
+from .contracts import ClaimRecord, GroundingCheck, GroundingSupport, SuppliedText, TaskRecord
+from .assertion import stated_as
+from .quantities import (TRIVIAL_VALUES, DeclaredReading, SourceText, declared_reading, figure_stated_plainly, figures_in, interval_derivation,
+                         literal_matches, rounded_intervals)
+from .relations import assignment_parts, numeric_shape, stated_relation, writes_relation
 
 MatchMethod = Literal["verbatim_match", "normalized_match"]
 #: Largest distance (characters of the original text, beyond the excerpt's own length)
@@ -842,17 +900,17 @@ def find_quotation(excerpt: str, text: str, *, document_id: Optional[str] = None
     return match.start, match.end, match.matched
 
 
-def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, SuppliedText], kind: str = "quotation") -> GroundingCheck:
+def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, SuppliedText], kind: str = "quotation", ref_index: Optional[int] = None) -> GroundingCheck:
     doc = docs.get(ref.document_id)
     if doc is None:
         return GroundingCheck(
             target_id=target_id, kind=kind, method="verbatim_match", verified=False,  # type: ignore[arg-type]
-            document_id=ref.document_id, detail="document_id is not among the supplied texts",
+            document_id=ref.document_id, detail="document_id is not among the supplied texts", ref_index=ref_index,
         )
     if not ref.excerpt or not ref.excerpt.strip():
         return GroundingCheck(
             target_id=target_id, kind=kind, method="verbatim_match", verified=False,  # type: ignore[arg-type]
-            document_id=ref.document_id, detail="quotation grounding carries no excerpt",
+            document_id=ref.document_id, detail="quotation grounding carries no excerpt", ref_index=ref_index,
         )
     match = locate_quotation(ref.excerpt, doc.text, document_id=doc.document_id)
     if match is None:
@@ -861,12 +919,12 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
             near, difference = inexact
             return GroundingCheck(
                 target_id=target_id, kind=kind, method="normalized_match", verified=False,  # type: ignore[arg-type]
-                document_id=ref.document_id,
+                document_id=ref.document_id, ref_index=ref_index,
                 detail=f"quotation {FORM_DIFFERS} from the document: the words occur at characters {near.start}-{near.end} but the quotation {difference}",
             )
         return GroundingCheck(
             target_id=target_id, kind=kind, method="normalized_match", verified=False,  # type: ignore[arg-type]
-            document_id=ref.document_id, detail="excerpt not found in the document (verbatim or normalized)",
+            document_id=ref.document_id, detail="excerpt not found in the document (verbatim or normalized)", ref_index=ref_index,
         )
     how = {"verbatim_match": "verbatim", "normalized_match": "after typographic normalization"}[match.method]
     if match.elided:
@@ -875,17 +933,66 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
         how += f" ({match.note})"
     return GroundingCheck(
         target_id=target_id, kind=kind, method=match.method, verified=True,  # type: ignore[arg-type]
-        document_id=ref.document_id, detail=f"found {how} at characters {match.start}-{match.end}",
+        document_id=ref.document_id, detail=f"found {how} at characters {match.start}-{match.end}", ref_index=ref_index,
     )
+
+
+def _check_document_ref(target_id: str, ref: SourceRef, docs: dict[str, SuppliedText], kind: str, ref_index: int) -> GroundingCheck:
+    """A reference without an excerpt: its document must be supplied, and a locator needs a locator scheme. A document
+    that exists locates nothing, so the reference is unchecked (``verified=None``), never a verification."""
+    doc = docs.get(ref.document_id)
+    if doc is None:
+        return GroundingCheck(target_id=target_id, kind=kind, method="locator_exists", verified=False, document_id=ref.document_id,  # type: ignore[arg-type]
+                              detail="document_id is not among the supplied texts: the reference names a document that was never supplied", ref_index=ref_index)
+    if ref.locator and doc.locator_scheme == "none":
+        return GroundingCheck(target_id=target_id, kind=kind, method="locator_exists", verified=False, document_id=ref.document_id,  # type: ignore[arg-type]
+                              detail="a locator was given but the supplied text has no locator scheme", ref_index=ref_index)
+    return GroundingCheck(target_id=target_id, kind=kind, method="locator_exists", verified=None, document_id=ref.document_id,  # type: ignore[arg-type]
+                          detail="document exists; the reference carries no excerpt, so it locates nothing" + ("; locator form not checked" if ref.locator else ""),
+                          ref_index=ref_index)
+
+
+def support_of(target_id: str, checks: Sequence[GroundingCheck]) -> Optional[GroundingSupport]:
+    """The support a target's per-reference checks give together (see :class:`~.contracts.GroundingSupport`); None when
+    the target has no per-reference check."""
+    per_ref = [c for c in checks if c.target_id == target_id and c.ref_index is not None]
+    if not per_ref:
+        return None
+    located = sum(1 for c in per_ref if c.verified is True)
+    refuted = sum(1 for c in per_ref if c.verified is False)
+    unchecked = len(per_ref) - located - refuted
+    if located == len(per_ref):
+        level = "complete"
+    elif located:
+        level = "partial"
+    elif refuted:
+        level = "failed"
+    else:
+        level = "uncheckable"
+    return GroundingSupport(target_id=target_id, references=len(per_ref), located=located, refuted=refuted, unchecked=unchecked, support=level)  # type: ignore[arg-type]
+
+
+def grounding_support(checks: Sequence[GroundingCheck]) -> list[GroundingSupport]:
+    """:func:`support_of` for every target that has per-reference checks, in order of first appearance."""
+    seen = list(dict.fromkeys(c.target_id for c in checks if c.ref_index is not None))
+    return [s for s in (support_of(t, checks) for t in seen) if s is not None]
+
+
+def _verified_for(support: GroundingSupport) -> Optional[bool]:
+    """Only complete support verifies; a refuted reference refutes the grounding; anything else stays unchecked."""
+    if support.support == "complete":
+        return True
+    return False if support.refuted else None
 
 
 def check_grounding(target_id: str, grounding: Grounding, docs: dict[str, SuppliedText]) -> tuple[Grounding, list[GroundingCheck]]:
     """Check one grounding; return the grounding with ``verified`` set and the checks.
 
-    A quotation grounding is verified against every source_ref. Any other kind whose
-    source_refs carry an excerpt is checked the same way (an excerpt is checkable
-    whatever label the translator put on it); a kind without an excerpt is
-    ``not_checkable`` and gets ``verified=None``.
+    Every source_ref is checked and keeps its own check (``ref_index``): an excerpt is located in its document, a
+    reference without an excerpt has its document and locator checked. A quotation needs an excerpt in every reference.
+    ``verified`` is True only when every reference was located (complete support), False when any reference was
+    refuted (an excerpt not found, a document never supplied, a locator the text cannot have), and None otherwise; a
+    grounding with no reference is ``not_checkable``. Any ``verified`` value the model wrote is discarded.
     """
     if grounding.kind == "quotation":
         if not grounding.source_refs:
@@ -894,21 +1001,18 @@ def check_grounding(target_id: str, grounding: Grounding, docs: dict[str, Suppli
                 detail="quotation grounding has no source_refs",
             )
             return grounding.model_copy(update={"verified": False}), [check]
-        checks = [_check_quotation_ref(target_id, ref, docs) for ref in grounding.source_refs]
+        checks = [_check_quotation_ref(target_id, ref, docs, ref_index=i) for i, ref in enumerate(grounding.source_refs)]
         verified = all(c.verified is True for c in checks)
         return grounding.model_copy(update={"verified": verified}), checks
-    with_excerpt = [r for r in grounding.source_refs if r.excerpt and r.excerpt.strip()]
-    if with_excerpt:
-        checks = [_check_quotation_ref(target_id, ref, docs, kind=grounding.kind) for ref in with_excerpt]
-        verified = all(c.verified is True for c in checks)
-        return grounding.model_copy(update={"verified": verified}), checks
-    unknown = [r.document_id for r in grounding.source_refs if r.document_id not in docs]
-    detail = f"grounding kind {grounding.kind} is not deterministically checkable"
-    if unknown:
-        detail += "; document_id not among the supplied texts: " + ", ".join(sorted(set(unknown)))
+    if grounding.source_refs:
+        checks = [_check_quotation_ref(target_id, ref, docs, kind=grounding.kind, ref_index=i) if ref.excerpt and ref.excerpt.strip()
+                  else _check_document_ref(target_id, ref, docs, grounding.kind, i) for i, ref in enumerate(grounding.source_refs)]
+        support = support_of(target_id, checks)
+        assert support is not None
+        return grounding.model_copy(update={"verified": _verified_for(support)}), checks
     check = GroundingCheck(
         target_id=target_id, kind=grounding.kind, method="not_checkable", verified=None,
-        document_id=grounding.source_refs[0].document_id if grounding.source_refs else None, detail=detail,
+        document_id=None, detail=f"grounding kind {grounding.kind} is not deterministically checkable",
     )
     # Any 'verified' value the model wrote is discarded: only checks set it.
     return grounding.model_copy(update={"verified": None}), [check]
@@ -922,73 +1026,443 @@ def _check_symbol(symbol: Symbol, docs: dict[str, SuppliedText], checks: list[Gr
     return symbol.model_copy(update={"grounding": grounding})
 
 
-#: Literals that are no stated figure of an excerpt: a zero, a one, and the powers of ten a percentage or a unit
-#: conversion brings in.
-_TRIVIAL_LITERALS = frozenset({"0", "1", "-1", "10", "100", "1000"})
-_EXCERPT_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+#: Kinds that claim the task's authority (a figure, setting or rubric rule given with the task). The translator
+#: proposes the kind; code validates it against the supplied texts and the task record.
+TASK_AUTHORITY_KINDS = frozenset({"arithmetic_fact", "task_setting", "rubric_rule"})
+#: The document ids a reference may use to cite the task record itself (besides the record's own task_id).
+TASK_DOCUMENT_IDS = frozenset({"task", "the request", "request"})
 
 
-def _literal_figures(expr) -> list[str]:
-    """The numeric literals of an expression (integers and decimals as written; fractions and trivial constants aside)."""
-    out: list[str] = []
-    stack = [expr]
+@dataclass(frozen=True)
+class _Literal:
+    """A numeric literal of an expression with the reading its compared symbol declares. ``required`` is the comparison an
+    assignment conjunct states about its symbol (``eq``, ``lt``, ``le``, ``gt``, ``ge``, read from the symbol's side), which
+    the stated figure must establish (:func:`.assertion.stated_as`); None for a literal of a relation."""
+    written: str
+    value: Fraction
+    declared: DeclaredReading
+    symbol: Optional[str]
+    required: Optional[str] = None
+
+
+def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
+    """The non-trivial numeric literals of ``expr`` (integers, decimals and fractions alike: one value, one figure), each
+    with the reading the symbol it is directly compared with declares (``tax_rate = 0.2`` with ``tax_rate`` declared
+    dimensionless). Zero, one and the powers of ten a percentage or conversion brings in are no figures of a relation. For an
+    assignment (:func:`.relations.assignment_parts`) every literal is the figure itself (``k = 10`` for "10 km"), and
+    carries the comparison its conjunct states about its symbol."""
+    parts = assignment_parts(expr)
+    if parts is not None:
+        out_a: list[_Literal] = []
+        for name, required, node in parts:
+            lit = node.arg if getattr(node, "op", None) == "neg" else node  # type: ignore[attr-defined]
+            try:
+                value = Fraction(lit.value)  # type: ignore[attr-defined]
+            except (ValueError, ZeroDivisionError):
+                continue
+            if getattr(node, "op", None) == "neg":
+                value = -value
+            # a literal an assignment compares directly with its symbol is the figure itself, trivial or not ("10 km": k = 10)
+            sym = symbols.get(name)
+            written = lit.value if getattr(node, "op", None) != "neg" else f"-{lit.value}"  # type: ignore[attr-defined]
+            out_a.append(_Literal(written, value, declared_reading(sym.meaning if sym is not None else None), name, required))
+        return out_a
+    out: list[_Literal] = []
+    stack: list[tuple[object, Optional[str]]] = [(expr, None)]
     while stack:
-        node = stack.pop()
+        node, compared = stack.pop()
         op = getattr(node, "op", None)
         if op in ("int", "real"):
-            value = node.value.lstrip("-")
-            if "/" not in value and value not in _TRIVIAL_LITERALS:
-                out.append(value)
+            try:
+                value = Fraction(node.value)  # type: ignore[attr-defined]
+            except (ValueError, ZeroDivisionError):
+                continue
+            if abs(value) in TRIVIAL_VALUES:
+                continue
+            sym = symbols.get(compared) if compared else None
+            out.append(_Literal(node.value, value, declared_reading(sym.meaning if sym is not None else None), compared))  # type: ignore[attr-defined]
+            continue
+        if op in ("eq", "ne", "lt", "le", "gt", "ge"):
+            left, right = node.left, node.right  # type: ignore[attr-defined]
+            lname = left.name if getattr(left, "op", None) == "var" else None
+            rname = right.name if getattr(right, "op", None) == "var" else None
+            stack.append((left, rname))
+            stack.append((right, lname))
             continue
         for key in ("arg", "left", "right", "cond", "then", "otherwise"):
             child = getattr(node, key, None)
             if child is not None:
-                stack.append(child)
-        stack.extend(getattr(node, "args", None) or ())
+                stack.append((child, None))
+        stack.extend((a, None) for a in (getattr(node, "args", None) or ()))
     return out
 
 
-def _same_figure(a: str, b: str) -> bool:
-    from decimal import Decimal, InvalidOperation
-    try:
-        return Decimal(a.replace(",", "")) == Decimal(b.replace(",", ""))
-    except InvalidOperation:
-        return False
+def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources: list[SourceText], document_id: Optional[str], method: str,
+                   what: str, within: Optional[dict[tuple[str, str], list[tuple[int, int, Optional[frozenset[Fraction]]]]]] = None
+                   ) -> tuple[Optional[bool], Optional[GroundingCheck], list[_Literal]]:
+    """Whether ``sources`` state every literal (typed, see :func:`.quantities.literal_matches`), each literal of an
+    assignment so that the stated figure establishes its comparison (:func:`.assertion.stated_as`): ``(True, check naming
+    the derivations, or None when every figure is stated as written, [])``, ``(False, check naming what is missing, the
+    missing literals)``. With ``within`` only the figures inside one of a source's spans count (the located excerpts,
+    read where they stand in their document; one document may hold several), and inside an elided excerpt's span only
+    the figures the excerpt itself quotes (``allowed`` values: what an elision leaves out is not quoted)."""
+    def inside(src: SourceText, f) -> bool:
+        spans = within.get((src.kind, src.ident)) if within is not None else None
+        return spans is None or any(a <= f.start and f.end <= b and (allowed is None or f.value in allowed) for a, b, allowed in spans)
+
+    figures = [f for src in sources for f in figures_in(src) if inside(src, f)]
+    texts = {(src.kind, src.ident): src.text for src in sources}
+    missing: list[_Literal] = []
+    conflicts: list[str] = []
+    found: list[str] = []
+    unmatched: list[tuple[_Literal, list[str]]] = []
+    for lit in literals:
+        matches, why = literal_matches(lit.value, figures, lit.declared)
+        if matches and lit.required is not None:
+            kept = []
+            for m in matches:
+                text = texts.get((m.figure.source_kind, m.figure.source_id))
+                reason = stated_as(text, m.figure.start, m.figure.end, lit.required) if text is not None else "its text is not at hand"
+                if reason is None:
+                    kept.append(m)
+                else:
+                    why = [*why, f"{m.figure.where()} is {reason}, so it does not state {lit.symbol} {_OP_WORDS.get(lit.required, lit.required)} {lit.written}"]
+            matches = kept
+        if matches:
+            m = matches[0]
+            if not m.derivation.startswith("as written") or method == "numeric_in_task":
+                found.append(f"{lit.written} ({m.figure.where()}: {m.derivation})")
+        else:
+            unmatched.append((lit, why))
+    tolerance = _tolerance_ends([lit for lit, _why in unmatched], figures, texts) if unmatched else {}
+    for k, (lit, why) in enumerate(unmatched):
+        if k in tolerance:
+            found.append(f"{lit.written} ({tolerance[k]})")
+        else:
+            missing.append(lit)
+            conflicts.extend(why[:2])
+    if missing:
+        detail = f"{what} does not state the premise's figures {list(dict.fromkeys(m.written for m in missing))[:8]}"
+        if conflicts:
+            detail += "; " + "; ".join(dict.fromkeys(conflicts))
+        return False, GroundingCheck(target_id=target_id, kind=kind, method=method, verified=False, document_id=document_id, detail=detail[:2000]), missing  # type: ignore[arg-type]
+    if found:
+        return True, GroundingCheck(target_id=target_id, kind=kind, method=method, verified=True, document_id=document_id,  # type: ignore[arg-type]
+                                    detail=(f"{what} states the premise's figures: " + "; ".join(found))[:2000]), []
+    return True, None, []
 
 
-def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks: list[GroundingCheck]) -> Assertion:
-    """Check an assertion's grounding. A premise whose excerpt is located but does not state the premise's figures (a
-    premise 'items[1] is 3' grounded by the excerpt 'scores = [12, 19, 23, ...]') is not verified by that excerpt:
-    ``verified=False`` with a ``figures_in_excerpt`` check naming the figures the excerpt lacks."""
+#: How a comparison reads in a check's detail.
+_OP_WORDS = {"eq": "=", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
+_LOWER_BOUNDS = ("ge", "gt")
+_UPPER_BOUNDS = ("le", "lt")
+
+
+def _end_establishes(bounds: tuple[Fraction, Fraction, bool, bool], lit: _Literal) -> bool:
+    """Whether the interval ``bounds`` that a rounded figure states establishes the assignment conjunct ``lit`` at one of
+    its ends: ``symbol >= lower`` always and ``symbol > lower`` only when the lower end is excluded; ``symbol <= upper``
+    always and ``symbol < upper`` only when the upper end is excluded. A bound at any other value is not what it states."""
+    lo, hi, lo_incl, hi_incl = bounds
+    if lit.required in _LOWER_BOUNDS:
+        return lit.value == lo and (lit.required == "ge" or not lo_incl)
+    if lit.required in _UPPER_BOUNDS:
+        return lit.value == hi and (lit.required == "le" or not hi_incl)
+    return False
+
+
+def _tolerance_ends(literals: list[_Literal], figures: Sequence[Any], texts: dict[tuple[str, str], str]) -> dict[int, str]:
+    """``{index of a literal: derivation}`` for the bounds of an assignment that are the ends of the interval a figure
+    STATED AS ROUNDED states (:func:`.quantities.stated_intervals`: "x is 0.33 to 2 decimal places" states
+    ``x >= 0.325 and x < 0.335``), read where the figure stands in its record. A symbol bounded on both sides takes both
+    ends from ONE stated interval, never one end from each of two figures; a symbol with one bound takes the end of any.
+    An exact or given figure states no interval, so an interval in its place stays unestablished (a weakening)."""
+    by_symbol: dict[str, list[int]] = {}
+    for k, lit in enumerate(literals):
+        if lit.symbol is not None and lit.required in _LOWER_BOUNDS + _UPPER_BOUNDS:
+            by_symbol.setdefault(lit.symbol, []).append(k)
+    # what each symbol needs: both ends of one interval (a lower and an upper bound), or the end of any (one bound); a
+    # symbol with more bounds than that takes none from a tolerance
+    pending: dict[str, tuple[int, ...]] = {}
+    for name, indices in by_symbol.items():
+        lowers = [k for k in indices if literals[k].required in _LOWER_BOUNDS]
+        uppers = [k for k in indices if literals[k].required in _UPPER_BOUNDS]
+        if len(lowers) == 1 and len(uppers) == 1:
+            pending[name] = (lowers[0], uppers[0])
+        elif len(indices) == 1:
+            pending[name] = (indices[0],)
+    out: dict[int, str] = {}
+    plain: dict[int, bool] = {}  # how a figure's own words state it, read once (only for a figure whose interval ends at a wanted bound)
+    for declared in dict.fromkeys(literals[ks[0]].declared for ks in pending.values()):
+        mine = {name: ks for name, ks in pending.items() if literals[ks[0]].declared == declared}
+        wanted = {literals[k].value for ks in mine.values() for k in ks}
+        for f in figures:  # in order: the first interval that establishes what a symbol needs decides, and the scan stops when none is left
+            if not mine:
+                break
+            text = texts.get((f.source_kind, f.source_id))
+            if text is None:
+                continue
+            for bounds, m, ex in rounded_intervals(f, text, declared):
+                if bounds[0] not in wanted and bounds[1] not in wanted:
+                    continue
+                if id(f) not in plain:
+                    plain[id(f)] = figure_stated_plainly(f, text)
+                if not plain[id(f)]:
+                    break
+                for name, ks in list(mine.items()):
+                    if all(_end_establishes(bounds, literals[k]) for k in ks):
+                        derivation = interval_derivation(bounds, m, ex)
+                        for k in ks:
+                            out[k] = derivation
+                        del mine[name]
+    return out
+
+
+def _expr_text(expr) -> str:
+    """A short rendering of an IR expression for a check's detail (data, never evaluated)."""
+    op = getattr(expr, "op", None)
+    if op == "var":
+        return expr.name  # type: ignore[attr-defined]
+    if op in ("int", "real"):
+        return expr.value  # type: ignore[attr-defined]
+    if op in ("eq", "ne", "lt", "le", "gt", "ge"):
+        sign = {"eq": "=", "ne": "!=", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}[op]
+        return f"{_expr_text(expr.left)} {sign} {_expr_text(expr.right)}"  # type: ignore[attr-defined]
+    if op in ("add", "mul", "and", "or"):
+        sign = {"add": " + ", "mul": " * ", "and": " and ", "or": " or "}[op]
+        return "(" + sign.join(_expr_text(a) for a in expr.args) + ")"  # type: ignore[attr-defined]
+    if op in ("sub", "div", "idiv", "mod", "implies", "iff"):
+        sign = {"sub": " - ", "div": " / ", "idiv": " div ", "mod": " mod ", "implies": " -> ", "iff": " <-> "}[op]
+        return f"({_expr_text(expr.left)}{sign}{_expr_text(expr.right)})"  # type: ignore[attr-defined]
+    if op == "neg":
+        return f"-{_expr_text(expr.arg)}"  # type: ignore[attr-defined]
+    if op in ("not", "to_real"):
+        return f"{op}({_expr_text(expr.arg)})"  # type: ignore[attr-defined]
+    return op or "?"
+
+
+def _relation_text(assertion: Assertion) -> str:
+    return truncate_detail(_expr_text(assertion.expr), 160)
+
+
+def truncate_detail(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _conflicting_figures(assertion: Assertion, missing: list[_Literal], sources: list[SourceText]) -> list[str]:
+    """Figures the records state for the same kind of quantity as a premise figure they do not state: the same unit
+    dimension, taken from the compared symbol's declared reading or from the premise's own label ("Distance is 160 km"
+    against a text's "120 km"). Evidence that the premise substituted a figure, not merely that it is unstated."""
+    label_figures = figures_in(SourceText("claim", assertion.id, assertion.label)) if assertion.label else ()
+    out: list[str] = []
+    for lit in missing:
+        dims: set[str] = set()
+        if lit.declared.kind == "unit" and lit.declared.dim:
+            dims.add(lit.declared.dim)
+        dims |= {f.unit_dim for f in label_figures if f.unit_dim and f.unit_dim not in ("dimensionless", "currency") and abs(f.value) == abs(lit.value)}
+        if not dims:
+            continue
+        stated = [f for src in sources for f in figures_in(src) if f.unit_dim in dims]
+        if stated:
+            out.append(f"{lit.written} is stated nowhere, while " + ", ".join(f.where() for f in stated[:3]) + f" state(s) a {'/'.join(sorted(dims))} figure")
+    return out
+
+
+def _task_doc(task: Optional[TaskRecord]) -> Optional[SuppliedText]:
+    if task is None:
+        return None
+    return SuppliedText(document_id=task.task_id, title="the task as issued", text=task.text, provenance=f"task record issued by {task.issued_by}")
+
+
+def _ref_docs(docs: dict[str, SuppliedText], task: Optional[TaskRecord]) -> dict[str, SuppliedText]:
+    """The documents a reference may name: the supplied texts and, when given, the task record (by its task_id or as
+    'task')."""
+    tdoc = _task_doc(task)
+    if tdoc is None:
+        return docs
+    out = dict(docs)
+    for ident in (task.task_id, *TASK_DOCUMENT_IDS):  # type: ignore[union-attr]
+        out.setdefault(ident, tdoc.model_copy(update={"document_id": ident}))
+    return out
+
+
+def _authority_sources(grounding: Grounding, docs: dict[str, SuppliedText], supplied: Sequence[SuppliedText], task: Optional[TaskRecord]) -> tuple[list[SourceText], list[str]]:
+    """The records a task-authority premise may rest on: the documents its references name, else every supplied text and
+    the task record. ``(sources, the named document ids)``."""
+    named = [r.document_id for r in grounding.source_refs if r.document_id in docs]
+    if named:
+        sources = [SourceText("task" if task is not None and docs[d].text == task.text and d not in {t.document_id for t in supplied} else "supplied_text",  # type: ignore[arg-type]
+                              d, docs[d].text) for d in dict.fromkeys(named)]
+        return sources, named
+    sources = [SourceText("supplied_text", t.document_id, t.text) for t in supplied]
+    if task is not None:
+        sources.append(SourceText("task", task.task_id, task.text))
+    return sources, []
+
+
+def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[_Literal], docs: dict[str, SuppliedText], supplied: Sequence[SuppliedText],
+                     task: Optional[TaskRecord], checks: list[GroundingCheck]) -> Grounding:
+    """Validate the task authority a kind claims (see the module docstring). Called only for an unchecked grounding of a
+    task-authority kind (no reference verified its whole content, none refuted it). A relation is validated only by a
+    record that states it (:func:`.relations.stated_relation`); its figures occurring in a record leave it unvalidated."""
+    kind = grounding.kind
+    sources, named = _authority_sources(grounding, docs, supplied, task)
+    searched = ", ".join(dict.fromkeys(s.ident for s in sources)) or "no supplied text and no task record"
+    doc_id = named[0] if named else None
+    no_task = "" if task is not None else "; no task record was given, so the task's own wording could not be checked"
+    relation = numeric_shape(assertion.expr) == "relation"
+    if relation:
+        stated = stated_relation(assertion.expr, sources)
+        if stated is not None:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=True, document_id=stated.source.ident[:200],  # type: ignore[arg-type]
+                                         detail=(f"the kind {kind} claims the task's authority, and the task material states the premise's relation "
+                                                 f"{_relation_text(assertion)} as a given: {stated.where()}")[:2000]))
+            return grounding.model_copy(update={"verified": True})
+    if not literals:
+        verified = False if task is not None else None
+        if relation:
+            detail = (f"the kind {kind} claims the task's authority, but no record states the premise's relation {_relation_text(assertion)} (searched: "
+                      f"{searched}) and it states no figure a record could hold: "
+                      + ("no record validates it" if verified is False else f"its authority is unvalidated{no_task}"))
+        else:
+            detail = (f"the kind {kind} claims the task's authority, but the premise states no figure and no excerpt of a supplied text "
+                      f"or of the task locates it (searched: {searched}): " + ("no record validates it" if verified is False else f"its authority is unvalidated{no_task}"))
+        checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source" if relation else "numeric_in_task",  # type: ignore[arg-type]
+                                     verified=verified, document_id=doc_id, detail=detail[:2000]))
+        return grounding.model_copy(update={"verified": verified})
+    verified, check, missing = _figures_check(assertion.id, kind, literals, sources, doc_id, "numeric_in_task", f"the task material ({searched})")
+    if verified is True:
+        if relation:
+            # the figures are the records', the relation is not: a figure says nothing about the relation it enters
+            stated_figures = (check.detail if check is not None else "the task material states every figure as written") or ""
+            checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=None, document_id=doc_id,  # type: ignore[arg-type]
+                                         detail=(f"the kind {kind} claims the task's authority, but no record states the premise's relation "
+                                                 f"{_relation_text(assertion)} (searched: {searched}): {stated_figures}; figures occurring in a record are "
+                                                 "no evidence for the relation that combines them, so the relation is the translation's own and stays "
+                                                 "unverified until a record states it")[:2000]))
+            return grounding.model_copy(update={"verified": None})
+        if check is not None:
+            checks.append(check)
+        return grounding.model_copy(update={"verified": True})
+    assert check is not None
+    conflicts = _conflicting_figures(assertion, missing, sources)
+    if task is not None or conflicts:
+        detail = f"the kind {kind} claims the task's authority, but {check.detail}" + (f"; {'; '.join(conflicts)}" if conflicts else "")
+        checks.append(check.model_copy(update={"detail": (detail + ": the premise is the translation's own figure, an evidence failure, so its "
+                                                          "dependency is unresolved")[:2000]}))
+        return grounding.model_copy(update={"verified": False})
+    checks.append(check.model_copy(update={"verified": None, "detail": (f"the kind {kind} claims the task's authority, which is unvalidated: {check.detail}"
+                                                                       f"{no_task}; until a record validates it the premise is not a task fact")[:2000]}))
+    return grounding.model_copy(update={"verified": None})
+
+
+def _located_spans(grounding: Grounding, docs: dict[str, SuppliedText], task: Optional[TaskRecord]) -> list[tuple[SourceText, tuple[int, int], Optional[str]]]:
+    """``(the document a reference names, the characters its excerpt occupies, the excerpt as written when it was located
+    as an elided quotation, else None)`` for every reference whose excerpt the verbatim or normalised tiers locate (the
+    tiers that verify a reference). An elided excerpt's span also holds what the elision left out, which it does not
+    quote."""
+    out: list[tuple[SourceText, tuple[int, int], Optional[str]]] = []
+    for ref in grounding.source_refs:
+        if not ref.excerpt or not ref.excerpt.strip():
+            continue
+        doc = docs.get(ref.document_id)
+        if doc is None:
+            continue
+        match = locate_quotation(ref.excerpt, doc.text, document_id=doc.document_id)
+        if match is None:
+            continue
+        is_task = task is not None and doc.text == task.text and ref.document_id in (TASK_DOCUMENT_IDS | {task.task_id})
+        out.append((SourceText("task" if is_task else "supplied_text", ref.document_id, doc.text), (match.start, match.end),  # type: ignore[arg-type]
+                    ref.excerpt if match.elided else None))
+    return out
+
+
+def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks: list[GroundingCheck], symbols: Optional[dict[str, Symbol]] = None,
+                     task: Optional[TaskRecord] = None, authority: bool = False, supplied: Sequence[SuppliedText] = ()) -> Assertion:
+    """Check an assertion's grounding (whole content, see the module docstring). Every reference is located first; a
+    located excerpt then verifies the premise only when it states the premise's whole content, read where it stands in its
+    document:
+
+    * an assignment's figures (typed: ``0.2`` and ``1/5`` are both stated by "20%", one recorded derivation; a symbol's
+      declared reading is respected), each stated so that it establishes its comparison: otherwise ``verified=False`` with
+      a ``figures_in_excerpt`` check naming what the excerpt lacks (a premise 'items[1] is 3' grounded by the excerpt
+      'scores = [12, 19, 23, ...]');
+    * a relation itself, as a given (``relation_in_source``): otherwise ``verified=None`` (the span is located, the
+      relation is the translation's own), whatever the kind.
+
+    With ``authority`` a premise of a task-authority kind that no reference verified is validated against the supplied
+    texts and the task record (:func:`_check_authority`)."""
     if assertion.grounding is None:
         return assertion
     grounding, found = check_grounding(assertion.id, assertion.grounding, docs)
+    if authority and grounding.kind in TASK_AUTHORITY_KINDS and not grounding.source_refs:
+        found = [c for c in found if c.method != "not_checkable"]  # the authority check below reports on it instead
     checks.extend(found)
-    excerpts = [r.excerpt for r in grounding.source_refs if r.excerpt and r.excerpt.strip()]
-    if grounding.verified is True and excerpts:
-        stated = [m.group(0).rstrip(",") for e in excerpts for m in _EXCERPT_NUMBER_RE.finditer(e)]
-        missing = [f for f in dict.fromkeys(_literal_figures(assertion.expr)) if not any(_same_figure(f, x) for x in stated)]
-        if missing:
-            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="figures_in_excerpt", verified=False,
-                                         document_id=grounding.source_refs[0].document_id if grounding.source_refs else None,
-                                         detail=f"the excerpt is located but does not state the premise's figures {missing[:8]}: it does not ground this premise"))
+    literals = _literals(assertion.expr, symbols or {})
+    relation = numeric_shape(assertion.expr) == "relation"
+    spans = _located_spans(grounding, docs, task) if grounding.verified is True else []
+    if grounding.verified is True and spans and literals:
+        within: dict[tuple[str, str], list[tuple[int, int, Optional[frozenset[Fraction]]]]] = {}
+        located: list[SourceText] = []
+        for src, span, elided in spans:  # one document named by several references is one source with several located spans
+            key = (src.kind, src.ident)
+            if key not in within:
+                within[key] = []
+                located.append(src)
+            allowed = None if elided is None else frozenset(f.value for f in figures_in(SourceText(src.kind, src.ident, elided)))
+            within[key].append((span[0], span[1], allowed))
+        verified, check, _missing = _figures_check(assertion.id, grounding.kind, literals, located, spans[0][0].ident, "figures_in_excerpt",
+                                                   "the excerpt is located but", within=within)
+        if check is not None:
+            if verified is True:
+                check = check.model_copy(update={"detail": (check.detail or "").replace("the excerpt is located but states", "the located excerpt states")})
+            else:
+                check = check.model_copy(update={"detail": f"{check.detail}: it does not ground this premise"[:2000]})
+            checks.append(check)
+        if verified is False:
             grounding = grounding.model_copy(update={"verified": False})
+    if grounding.verified is True and relation:
+        stated = None
+        for src, span, elided in spans:
+            if elided is not None and not writes_relation(assertion.expr, elided):
+                continue  # an elided excerpt quotes only its fragments: the relation must be among them
+            stated = stated_relation(assertion.expr, [src], within=span)
+            if stated is not None:
+                break
+        if stated is not None:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="relation_in_source", verified=True,
+                                         document_id=stated.source.ident[:200],
+                                         detail=(f"the located excerpt states the premise's relation {_relation_text(assertion)} as a given: "
+                                                 f"{stated.where()}")[:2000]))
+        else:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="relation_in_source", verified=None,
+                                         document_id=spans[0][0].ident[:200] if spans else None,
+                                         detail=(f"the references are located, but none states the premise's relation {_relation_text(assertion)} as "
+                                                 "a given: a located span that holds the relation's figures or words about them does not state the "
+                                                 "relation, so the relation is the translation's own and is not verified by the span")[:2000]))
+            grounding = grounding.model_copy(update={"verified": None})
+    if authority and grounding.kind in TASK_AUTHORITY_KINDS and grounding.verified is None:
+        grounding = _check_authority(assertion, grounding, literals, docs, supplied, task, checks)
     return assertion.model_copy(update={"grounding": grounding})
 
 
-def check_problem_grounding(problem: Problem, supplied_texts: list[SuppliedText]) -> tuple[Problem, list[GroundingCheck]]:
+def check_problem_grounding(problem: Problem, supplied_texts: list[SuppliedText], task: Optional[TaskRecord] = None) -> tuple[Problem, list[GroundingCheck]]:
     """Return a copy of ``problem`` with every ``grounding.verified`` set, plus the checks.
 
-    Quotation groundings, and any grounding whose source_refs carry an excerpt, are
-    verified True/False against the supplied text named by ``document_id``; kinds
-    without an excerpt are ``not_checkable`` and get ``verified=None``. The input
-    problem is not modified.
+    Every reference is checked (an excerpt located, a document and locator checked) against the supplied text named by
+    ``document_id`` or, when ``task`` is given, the task record (cited by its task_id or as 'task'); a grounding is
+    verified only by complete support. A premise of a task-authority kind (``arithmetic_fact``, ``task_setting``,
+    ``rubric_rule``) that no reference verified is validated against the supplied texts and the task record (see the
+    module docstring): True when they state every figure it states; False when the task record was given and they do
+    not, or when they state a conflicting figure of the same unit (the engine then reports it as an ungrounded
+    dependency); otherwise None with an ``unvalidated`` ``numeric_in_task`` check. Other kinds with no reference stay
+    ``not_checkable`` (``verified=None``). The input problem is not modified.
     """
-    docs = {t.document_id: t for t in supplied_texts}
+    docs = _ref_docs({t.document_id: t for t in supplied_texts}, task)
+    by_name = {s.name: s for s in problem.symbols}
     checks: list[GroundingCheck] = []
     symbols = [_check_symbol(s, docs, checks) for s in problem.symbols]
-    premises = [_check_assertion(p, docs, checks) for p in problem.premises]
-    conclusion = _check_assertion(problem.conclusion, docs, checks) if problem.conclusion is not None else None
+    premises = [_check_assertion(p, docs, checks, by_name, task, authority=True, supplied=supplied_texts) for p in problem.premises]
+    conclusion = _check_assertion(problem.conclusion, docs, checks, by_name, task) if problem.conclusion is not None else None
     checked = problem.model_copy(update={"symbols": symbols, "premises": premises, "conclusion": conclusion})
     return checked, checks
 

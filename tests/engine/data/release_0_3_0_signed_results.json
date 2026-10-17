@@ -1,0 +1,694 @@
+{
+ "assumption_self": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "u1",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "p",
+     "sort": "Bool"
+    }
+   ],
+   "premises": [
+    {
+     "id": "P",
+     "expr": {
+      "op": "var",
+      "name": "p"
+     },
+     "grounding": {
+      "kind": "assumption",
+      "source_refs": [],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "var",
+     "name": "p"
+    },
+    "materiality": "material"
+   }
+  },
+  "config": {
+   "timeout_ms": 2000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "5b2c4cea1a4345eba85d6cabbe49aaa7",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "problem_id": "u1",
+   "query": "entailment",
+   "status": "ENTAILED",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "dcb20cd30ca1025e85a5b83a455524329efb69087ccf8304aadcb30aae157995",
+    "config_digest": "a45a778b83242637b1c251b44e4243412f2dca3d24694ef219cff5cc13a79b02",
+    "versions_digest": "6108cfeb7be82096d5a588a32a962ce8ff15066c62b35bcd96d99315843fdf10",
+    "binding_digest": "a85c95710a65a1a7121aca45bf7885c6aead1d29c7ccf6da5f9a04411e88bab3",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun p () Bool)\n(assert\n p)\n(assert\n (not p))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.3.0",
+    "policy_version": "2026.10-v3",
+    "z3_version": "5.1.0"
+   },
+   "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": {
+    "premise_ids": [
+     "P"
+    ],
+    "includes_negated_conclusion": true
+   },
+   "premises_relied_on": [
+    "P"
+   ],
+   "ungrounded_dependencies": [
+    "P"
+   ],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [
+    {
+     "code": "E112",
+     "message": "circular: the premise(s) P restate the conclusion (it, or each of its conjuncts, is asserted as a premise), so the claim is assumed, not derived; this ENTAILED is no verdict on the claim",
+     "path": "premises.P"
+    }
+   ],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.05346200123312883
+    },
+    {
+     "stage": "compile",
+     "ms": 9.29263699981675
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.6202269996720133
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.3329820010549156
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-12T21:52:59Z",
+   "signature": "0c23d176a494bf2dac4d56ea315f8f623f06bbce0c8ddf093dd93d7250ce0cf3",
+   "signature_key_id": "upgrade"
+  }
+ },
+ "tautology_without_core_output": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "u2",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "p",
+     "sort": "Bool"
+    }
+   ],
+   "premises": [],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "or",
+     "args": [
+      {
+       "op": "var",
+       "name": "p"
+      },
+      {
+       "op": "not",
+       "arg": {
+        "op": "var",
+        "name": "p"
+       }
+      }
+     ]
+    },
+    "materiality": "material"
+   }
+  },
+  "config": {
+   "timeout_ms": 2000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": false,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "9a2ce1fdf8294f7a9d26db9f4313391c",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "problem_id": "u2",
+   "query": "entailment",
+   "status": "ENTAILED",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "bf72f8345204b2df46ddd1e4e20ee8044035e1f800db4c34d0433f51a630f869",
+    "config_digest": "0f38a222447799a668c495a6a654132db21e51805e2e793231e001056de2964e",
+    "versions_digest": "6108cfeb7be82096d5a588a32a962ce8ff15066c62b35bcd96d99315843fdf10",
+    "binding_digest": "abd39d90561999c890e76f434e13c7205a85abf4c38eb6b059266587a838dcc4",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun p () Bool)\n(assert\n (let (($x7 (or p (not p))))\n(not $x7)))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.3.0",
+    "policy_version": "2026.10-v3",
+    "z3_version": "5.1.0"
+   },
+   "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": false,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": null,
+   "premises_relied_on": [],
+   "ungrounded_dependencies": [],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.1031320007314207
+    },
+    {
+     "stage": "compile",
+     "ms": 7.670681001400226
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.41890499960572924
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.2188279995607445
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-12T21:52:59Z",
+   "signature": "25e7ecdf12a269b87960c3bba3f12e765318bc0279a39d3789b1ce377854bc67",
+   "signature_key_id": "upgrade"
+  }
+ },
+ "trusted_kind_chain": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "u3",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "p",
+     "sort": "Bool"
+    },
+    {
+     "name": "q",
+     "sort": "Bool"
+    }
+   ],
+   "premises": [
+    {
+     "id": "P",
+     "expr": {
+      "op": "var",
+      "name": "p"
+     },
+     "grounding": {
+      "kind": "arithmetic_fact",
+      "source_refs": [],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "L",
+     "expr": {
+      "op": "implies",
+      "left": {
+       "op": "var",
+       "name": "p"
+      },
+      "right": {
+       "op": "var",
+       "name": "q"
+      }
+     },
+     "grounding": {
+      "kind": "arithmetic_fact",
+      "source_refs": [],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "var",
+     "name": "q"
+    },
+    "materiality": "material"
+   }
+  },
+  "config": {
+   "timeout_ms": 2000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "330532cc758c496e8437c786e783fb74",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "problem_id": "u3",
+   "query": "entailment",
+   "status": "ENTAILED",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "3ee98ba00aaef9ba6c32d1cd5ac2006be96903e625b3c497b5f8cc74b5bfca77",
+    "config_digest": "a45a778b83242637b1c251b44e4243412f2dca3d24694ef219cff5cc13a79b02",
+    "versions_digest": "6108cfeb7be82096d5a588a32a962ce8ff15066c62b35bcd96d99315843fdf10",
+    "binding_digest": "5f45269e908cfe3b86cdf060515a47dc81cc44abbe4ec97e1c780d0dd3cf5e4d",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun p () Bool)\n(declare-fun q () Bool)\n(assert\n p)\n(assert\n (=> p q))\n(assert\n (not q))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.3.0",
+    "policy_version": "2026.10-v3",
+    "z3_version": "5.1.0"
+   },
+   "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": {
+    "premise_ids": [
+     "P",
+     "L"
+    ],
+    "includes_negated_conclusion": true
+   },
+   "premises_relied_on": [
+    "P",
+    "L"
+   ],
+   "ungrounded_dependencies": [],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.05451200013339985
+    },
+    {
+     "stage": "compile",
+     "ms": 7.16355599979579
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.2852870002243435
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.29318000088096596
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-12T21:52:59Z",
+   "signature": "cd5507449ce718eda07e827a97d3e82cd0597136e13975d97aec2e41d0638a49",
+   "signature_key_id": "upgrade"
+  }
+ },
+ "nonlinear_permissive": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "u4",
+   "request_id": "r2",
+   "claim_id": "c2",
+   "query": "satisfiability",
+   "symbols": [
+    {
+     "name": "x",
+     "sort": "Int"
+    }
+   ],
+   "premises": [
+    {
+     "id": "P",
+     "expr": {
+      "op": "eq",
+      "left": {
+       "op": "mul",
+       "args": [
+        {
+         "op": "var",
+         "name": "x"
+        },
+        {
+         "op": "var",
+         "name": "x"
+        }
+       ]
+      },
+      "right": {
+       "op": "int",
+       "value": "4"
+      }
+     },
+     "materiality": "material"
+    }
+   ]
+  },
+  "config": {
+   "timeout_ms": 2000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": true,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "466cb50d39c54a6a833efa6d4792dd70",
+   "request_id": "r2",
+   "claim_id": "c2",
+   "problem_id": "u4",
+   "query": "satisfiability",
+   "status": "SATISFIABLE",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "48573318c6e9fff5efe2ce48a8c3cf0f1ee042f58c8dc989db60c1be72be1905",
+    "config_digest": "a45a778b83242637b1c251b44e4243412f2dca3d24694ef219cff5cc13a79b02",
+    "versions_digest": "6108cfeb7be82096d5a588a32a962ce8ff15066c62b35bcd96d99315843fdf10",
+    "binding_digest": "0e0a5c832bb8dc98bf219d501a8233422b40b6a848c02ea5bc4ed4131c0e4883",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun x () Int)\n(assert\n (let ((?x6 (* x x)))\n(= 4 ?x6)))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.3.0",
+    "policy_version": "2026.10-v3",
+    "z3_version": "5.1.0"
+   },
+   "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": null,
+   "premises_relied_on": [],
+   "ungrounded_dependencies": [],
+   "unverified_dependencies": [],
+   "witness_model": [
+    {
+     "symbol": "x",
+     "sort": "Int",
+     "value": "2"
+    }
+   ],
+   "diagnostics": [],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.10708700028772
+    },
+    {
+     "stage": "compile",
+     "ms": 2.808301000186475
+    },
+    {
+     "stage": "satisfiability",
+     "ms": 0.45837799916625954
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-12T21:52:59Z",
+   "signature": "01eb79a663d08fdb0257d19962bb5ff420a4698a95479be197aea12ef06d7c59",
+   "signature_key_id": "upgrade",
+   "limits": {
+    "max_symbols": 64,
+    "max_premises": 128,
+    "max_nodes": 2000,
+    "max_depth": 40,
+    "max_nary_args": 32,
+    "max_const_digits": 40,
+    "allow_nonlinear": true,
+    "allow_real_division": true,
+    "allow_int_division": true
+   }
+  }
+ },
+ "definition_counterexample": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "u5",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "b",
+     "sort": "Bool"
+    },
+    {
+     "name": "n",
+     "sort": "Int"
+    }
+   ],
+   "premises": [
+    {
+     "id": "D",
+     "expr": {
+      "op": "iff",
+      "left": {
+       "op": "var",
+       "name": "b"
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "n"
+       },
+       "right": {
+        "op": "int",
+        "value": "17"
+       }
+      }
+     },
+     "label": "Define b to hold iff n equals 17; this definition does not assert b.",
+     "grounding": {
+      "kind": "task_setting",
+      "source_refs": [],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "var",
+     "name": "b"
+    },
+    "label": "b necessarily holds",
+    "materiality": "material"
+   }
+  },
+  "config": {
+   "timeout_ms": 2000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "fe292182ed794f63bd53fdc787a21d30",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "problem_id": "u5",
+   "query": "entailment",
+   "status": "COUNTEREXAMPLE",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "25f93e0e56e15b6772c7a8c37ea071b5c258580a9f1ae8d6f118ed9d0d120afe",
+    "config_digest": "a45a778b83242637b1c251b44e4243412f2dca3d24694ef219cff5cc13a79b02",
+    "versions_digest": "6108cfeb7be82096d5a588a32a962ce8ff15066c62b35bcd96d99315843fdf10",
+    "binding_digest": "e6583e11c85338f68443b067231aac95fb59b4b81739670b666691190a685428",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun n () Int)\n(declare-fun b () Bool)\n(assert\n (= b (= 17 n)))\n(assert\n (not b))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.3.0",
+    "policy_version": "2026.10-v3",
+    "z3_version": "5.1.0"
+   },
+   "solver_config": {
+    "timeout_ms": 2000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": {
+    "assignments": [
+     {
+      "symbol": "b",
+      "sort": "Bool",
+      "value": "false"
+     },
+     {
+      "symbol": "n",
+      "sort": "Int",
+      "value": "2"
+     }
+    ],
+    "note": "An assignment to the declared symbols under which every premise holds and the conclusion fails. Values are exact; rationals are written a/b."
+   },
+   "unsat_core": null,
+   "premises_relied_on": [],
+   "ungrounded_dependencies": [],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [
+    {
+     "code": "E110",
+     "message": "unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: premise D ('Define b to hold iff n equals 17; this definition does not assert b.') defines b by a comparison of n, which no premise asserts or constrains (the counterexample sets n=2, b=false); with the defined atom(s) asserted as the labels state them the conclusion is ENTAILED, so this COUNTEREXAMPLE is no verdict on the claim (the translation must assert the stated figure: the atom, or the comparison itself, as a premise)",
+     "path": "premises.D"
+    }
+   ],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.10143300096387975
+    },
+    {
+     "stage": "compile",
+     "ms": 1.941804999660235
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.3814709998550825
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.41081299968936946
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-12T21:52:59Z",
+   "signature": "1df39a9307153fddf9115874c9e1cdd681763b33d5056d413dc098572b55e9f3",
+   "signature_key_id": "upgrade"
+  }
+ }
+}

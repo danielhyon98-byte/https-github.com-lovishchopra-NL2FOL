@@ -15,6 +15,7 @@ import pytest
 from epinoic_logic.translate import Translator, TranslationStatus
 from epinoic_logic.translate.contracts import Interpretation
 from epinoic_logic.translate.eligibility import decide_eligibility
+from epinoic_logic.translate import prompts
 from epinoic_logic.translate.prompts import load_prompt
 from epinoic_logic.translate.providers import (
     AnthropicReviewProvider,
@@ -193,9 +194,11 @@ def test_anthropic_explicit_model_id_overrides_env(monkeypatch, translation_requ
 def test_anthropic_review_provider(anthropic_env, review_request):
     client = FakeAnthropicClient(message('{"verdict": "faithful", "issues": []}'))
     response = AnthropicReviewProvider(client=client).review(review_request)
-    assert json.loads(response.raw_text)["verdict"] == "faithful" and response.info.prompt_version == "review_v1"
+    # rewritten (12 Oct 2026 review fixes): the review prompt changed, so its version did (review_v2); same rule: the
+    # provider sends the review prompt in use and records its version
+    assert json.loads(response.raw_text)["verdict"] == "faithful" and response.info.prompt_version == prompts.REVIEW_PROMPT_VERSION == "review_v2"
     params = client.calls[0]
-    assert params["system"] == load_prompt("review_v1") and params["max_tokens"] == 2000
+    assert params["system"] == load_prompt(prompts.REVIEW_PROMPT_VERSION) and params["max_tokens"] == 2000
     assert "<<<DATA problem>>>" in params["messages"][0]["content"]
 
 
@@ -333,9 +336,10 @@ def test_openai_content_parts_are_joined_and_usage_optional(openai_env, translat
 def test_openai_review_provider(openai_env, review_request):
     client = mock_client((200, completion('{"verdict": "uncertain", "issues": ["vague"]}')))
     response = OpenAICompatibleReviewProvider(client=client).review(review_request)
-    assert response.info.prompt_version == "review_v1"
+    # rewritten (12 Oct 2026 review fixes): same rule for the version in use (review_v2)
+    assert response.info.prompt_version == prompts.REVIEW_PROMPT_VERSION == "review_v2"
     body = json.loads(client.seen[0].content)
-    assert body["messages"][0]["content"] == load_prompt("review_v1") and "<<<DATA problem>>>" in body["messages"][1]["content"]
+    assert body["messages"][0]["content"] == load_prompt(prompts.REVIEW_PROMPT_VERSION) and "<<<DATA problem>>>" in body["messages"][1]["content"]
 
 
 def test_openai_through_translator(openai_env, english_claims, english_report):

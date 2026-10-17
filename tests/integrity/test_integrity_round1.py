@@ -15,7 +15,7 @@ import pytest
 
 import epinoic_logic.integrity as integrity
 from epinoic_logic.engine import SolverConfig, sign_result, verify
-from epinoic_logic.engine.provenance import sha256_hex, versions_digest
+from epinoic_logic.engine.provenance import binding_digest_of, sha256_hex, versions_digest
 from epinoic_logic.engine.statuses import VerificationStatus as S
 from epinoic_logic.integrity import (
     AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, LedgerEntry, MessageLog, Synthesis, SynthesizedClaim, WorkPlan,
@@ -322,8 +322,19 @@ def test_pooled_source_conclusion_is_never_silent_evidence():
     good = phys("ph-1", 15)
     prior = verify(good, CFG, signing_key=KEY, key_id="k")
     concl_only = Problem.model_validate({**good.model_dump(mode="json", exclude_none=True), "premises": [], "claim_id": "ph-1"})
-    _, f2 = check_synthesis_entailment([concl_only], Assertion(id="S", expr=cmp("eq", V("v"), R(15))), request_id=REQ, synthesized_claim_id="s-1", config=CFG, prior_results={"ph-1": prior.model_copy(update={"binding": prior.binding.model_copy(update={"problem_digest": __import__("epinoic_logic.ir.canonical", fromlist=["problem_digest"]).problem_digest(concl_only)})})})
+    # Rewritten for the external review of 2026-10-12 (stale results): a prior result counts only as current-policy
+    # evidence, so it must be bound consistently to the pooled source. The prior is re-bound to that source with its
+    # binding digest recomputed and re-signed, and the check now also verifies the signature (the same assertion, under
+    # the stricter rule); the old shortcut, a swapped problem digest under a stale binding digest, is refused.
+    pd = __import__("epinoic_logic.ir.canonical", fromlist=["problem_digest"]).problem_digest(concl_only)
+    b = prior.binding
+    rebound = sign_result(prior.model_copy(update={"binding": b.model_copy(update={
+        "problem_digest": pd, "binding_digest": binding_digest_of(pd, b.config_digest, b.versions_digest, b.limits_digest)})}), KEY, "k")
+    _, f2 = check_synthesis_entailment([concl_only], Assertion(id="S", expr=cmp("eq", V("v"), R(15))), request_id=REQ, synthesized_claim_id="s-1", config=CFG, signing_key=KEY, prior_results={"ph-1": rebound})
     assert codes(f2) == []
+    inconsistent = prior.model_copy(update={"binding": b.model_copy(update={"problem_digest": pd})})
+    _, f3 = check_synthesis_entailment([concl_only], Assertion(id="S", expr=cmp("eq", V("v"), R(15))), request_id=REQ, synthesized_claim_id="s-1", config=CFG, prior_results={"ph-1": inconsistent})
+    assert "INT-SYNTH-008" in codes(f3)
 
 
 def test_partial_formalization_is_named_and_refutation_stays_an_error():

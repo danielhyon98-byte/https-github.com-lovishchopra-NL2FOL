@@ -228,14 +228,18 @@ arena that merges this branch.
 | Claim-record input | Works on structured claims from a specialist report (ids, role, subject, source refs, assumptions), not on raw student text. | `contracts.py` |
 | Deterministic eligibility | Code, not the model, decides whether a claim may be formalized: argument structure (point + supporting claims), structural counts, exact numeric claims. Interpretive, factual and rubric judgements are routed elsewhere. | `eligibility.py` |
 | IB subject policy | Per-subject profiles say which claim classes are allowed (quantitative claims in Mathematics, Sciences, Economics, Business; argument structure only in Literature, History, Arts, TOK). The profile text is injected into the prompt so the model knows what cannot be established in that subject. | `subjects.py` |
-| Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. | `prompts/translate_v1.md` |
-| Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization, and through stated form-difference tiers such as a long elision or different accents) against the supplied text; `verified` is set only by this code. Each text's normalised forms and each located excerpt are cached in bounded caches keyed by the text's digest, so an answer never depends on the cache. | `grounding.py` |
+| Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. The prompt in use is `translate_v2` (exactness, task authority, definitions); `translate_v1` stays packaged unchanged. | `prompts/translate_v2.md` |
+| Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization, and through stated form-difference tiers such as a long elision or different accents) against the supplied text; `verified` is set only by this code. Every reference of a grounding is checked and keeps its own outcome; only complete support verifies it, so a matching excerpt beside an unknown document is `partial`, never verified. Each text's normalised forms and each located excerpt are cached in bounded caches keyed by the text's digest, so an answer never depends on the cache. | `grounding.py` |
+| Task authority | `arithmetic_fact`, `task_setting` and `rubric_rule` are the translator's proposal, never a validation: a premise of such a kind is validated, refuted (an invented 160 km where the source says 120 km is an evidence failure) or left unvalidated against the supplied texts and the task record as the router issued it (`TaskRecord`). The engine lists every unvalidated or refuted premise the proof relies on. | `grounding.py`, `contracts.py` |
+| Typed quantities | Figures are exact values with unit, scale and written precision; `20%` states `0.2` and `1/5` alike through one recorded derivation, and a symbol's declared reading is respected. A figure stated as rounded ("x is 0.33 to 2 decimal places") states the interval of its tolerance, so its exact transcription and the interval at exactly that tolerance both ground, and no wider or narrower interval does. | `quantities.py` |
+| Exactness from the wording | A figure stated exactly or given by the task is never widened (an interval in its place is rejected as a weakening); a rounded figure uses exactly its stated tolerance; an unstated decimal whose reading decides the verdict is AMBIGUOUS_TRANSLATION. A figure is the result of a written calculation only when the calculation ends at its '=' ("If x = 1/3 then x = 0.33" states 0.33 as the value of x, unstated), and an approximation cue governs only the figure it is written against. The solver never decides that a figure was rounded, and every accepted retry is recorded, a semantic change apart from a syntax repair: a retry that weakens the claim cannot inherit its approval. | `precision.py`, `pipeline.py` |
+| Coverage | A definition that asserts nothing, or a conclusion symbol no premise mentions, leaves a figure open. The counterexample is withheld (E110/E111) only when a source clause asserts the figure (the claim, its supporting claims, the supplied texts or the task record; a record's figure only in a clause about the symbol): read from the source's grammar, a figure in a question, a condition ("if n equals 17", "when n is 17"), a supposition, a definition ("exactly when"), a possibility ("could"), an attribution, a negation, a quantification ("for any y") or a disjunction is not asserted, a bound ("more than 17") establishes no equality, and a figure that counts something else ("I checked 3 values") is about no symbol. Otherwise the counterexample stands with the advisory W110/W111. The translation layer hands that decision to the engine as an application record, so the signed result and the display agree; the retry an E110 asks for may add only what the source asserts, or the translation is AMBIGUOUS_TRANSLATION. | `assertion.py`, `coverage.py` |
 | Strict parsing | Model output is parsed with a plain JSON parser only (code fences stripped); anything else is a failed attempt. | `parsing.py` |
 | Bounded retries | Validation diagnostics are fed back for at most one retry; the status then becomes INVALID_FORMALIZATION rather than looping. | `pipeline.py` |
 | Ambiguity flags | The model must declare materially different readings; the result becomes AMBIGUOUS_TRANSLATION and is never shown as verified. | `pipeline.py` |
 | Replaceable providers | Fixture provider for tests; Anthropic and OpenAI-compatible adapters behind one interface (untested live here). | `providers/` |
-| Advisory semantic review | An independent reviewer rates translation fidelity; the verdict is labelled advisory and never changes the formal status. | `review.py` |
-| Outcome for the Overseer | One record per claim: translation, signed engine result, structural findings, review, a derived display status and a plain-language summary ending with the scope statement. | `outcome.py` |
+| Advisory semantic review | An independent reviewer rates translation fidelity with the evidence: the original task, the supporting claims, the supplied texts, their identities and the premise-to-source mapping. The review is bound to those inputs, so a changed source or supporting claim makes it stale; the verdict is labelled advisory and never changes the formal status. | `review.py` |
+| Outcome for the Overseer | One record per claim: translation, signed engine result, structural findings, review, a derived display status, a release assessment kept apart from the formal status (release needs the engine's release check, established premises and a current, faithful review made with the evidence), and a plain-language summary ending with the scope statement. A result of an earlier release is displayed INTERNAL_ERROR until verified again. | `outcome.py` |
 
 ## Communication between agents (`src/epinoic_logic/integrity/`)
 
@@ -257,10 +261,16 @@ combinator stated more than its sources support. See `integrity/README.md`.
 Restricted IR 1.0 (Bool, Int, Real; 24 allowlisted operators; exact numerals as
 text) → validator (sorts, identifiers, limits, policy; collects all diagnostics) →
 compiler (one Z3 call per node, fresh context) → procedures (consistency first,
-then entailment with tracked unsat cores; exact models) → result bound to a digest of
-the exact problem, solver configuration and component versions, and HMAC-signed so
-the Overseer can reject anything an agent fabricates. Statuses form a closed set;
-only six are definitive and none means "the claim is true".
+then entailment with tracked unsat cores, always computed; exact models) → result bound
+to a digest of the exact problem, solver configuration, component versions, the immutable
+identity of the build (engine and IR source, schemas, decision policy) and any non-default
+validation limits, and HMAC-signed so the Overseer can reject anything an agent fabricates.
+Statuses form a closed set; only six are definitive and none means "the claim is true".
+Only a check run in this process confers a premise's authority: an unchecked task or source
+kind is an unverified dependency, never hidden. Formal entailment is not permission to
+release: `engine.release.release_check` (HTTP `POST /v1/results/release-check`) also requires
+an authentic, current result resting on established premises only, and a result of an
+earlier release stays inspectable but is never current.
 
 ## Repository layout
 
@@ -312,7 +322,13 @@ finding is true. Its summary therefore states, under the headline, how many genu
 carry error-level findings and are still counted functional, and names every definitive
 verdict other than ENTAILED shown on a genuine claim with what it rests on, beside the
 number of genuine claims whose encoding got no verdict (vacuous, circular, an unasserted
-figure, an unencoded reason, a rounded figure encoded as exact). Every group of a round
+figure or an unencoded reason a source states, a figure encoded at another precision than the
+source states, an exact figure widened) and, apart, the verdicts that stand with an advisory
+coverage warning. The harness reports transport (the functional count), fixture coverage,
+translation fidelity (only where adjudicated) and claim counts (extracted, eligible,
+attempted, completed, faithful, approved, and apart from them the claims whose release
+assessment permits releasing the answer) as separate measures, never combined into one rate,
+and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). Every group of a round
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
 so the number of transmissions never depends on what crashed. Whether the receipts are
 right is judged by the overseers.

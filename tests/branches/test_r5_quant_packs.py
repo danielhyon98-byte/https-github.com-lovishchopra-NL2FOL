@@ -7,8 +7,6 @@ whether or not the poem was supplied; a structured claim whose quotation disagre
 reference is CORE-SRC-006; bracket-heavy answers cross the English branch quickly."""
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from epinoic_logic.adapters.history_specialist.parser import HistorySpecialistAdapter
@@ -18,6 +16,8 @@ from epinoic_logic.branches.quant import extract_quant_checks, undecided_quant_s
 from epinoic_logic.engine import SolverConfig, verify
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+
+from ..timing import measure
 
 KEY = b"branches-r5-quant-key-0123456789ab"
 CFG = SolverConfig(timeout_ms=3000, memory_max_mb=None)
@@ -257,8 +257,11 @@ def test_a_structured_claim_quoting_words_its_reference_does_not_carry_is_core_s
     " ".join('{"a": 1, "b": [' for _ in range(2000)) + " The turning point was 1930.",
 ], ids=["5000-nested-braces", "20000-deep-array", "2000-unclosed-fragments"])
 def test_bracket_heavy_answers_cross_the_english_branch_quickly(text):
-    # round 5 measured 13.3 s, 172.7 s and 23.7 s for these on the English branch; each now takes well under a second
-    t0 = time.perf_counter()
-    _reply, rc = through_hub(text, "Write one analytical paragraph on the son's quest. Quote exactly from the poem.", subject="English A: Literature",
-                             agent="english-specialist", texts=[POEM], task_type="analytical_paragraph")
-    assert time.perf_counter() - t0 < 2.0 and rc.status is not None
+    # round 5 measured 13.3 s, 172.7 s and 23.7 s for these on the English branch; each now takes well under a second.
+    # The 2 s bound is unchanged; it is measured under fixed conditions (tests/timing.py): a warm-up run, then the median
+    # of five runs, each a first crossing (caches emptied) with the earlier heap frozen. One full-suite run of the single
+    # sample this replaces measured 2.49 s on a machine where the test alone met the bound.
+    timing = measure(lambda: through_hub(text, "Write one analytical paragraph on the son's quest. Quote exactly from the poem.", subject="English A: Literature",
+                                         agent="english-specialist", texts=[POEM], task_type="analytical_paragraph"), bound=2.0, label="English branch")
+    assert timing.holds, timing
+    assert all(rc.status is not None for _reply, rc in timing.results)

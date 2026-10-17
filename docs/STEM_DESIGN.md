@@ -812,6 +812,11 @@ factoring.
 
 The engine then lists laws, guards, side conditions and supplied constants in
 `ungrounded_dependencies`. A passing check therefore never hides what it relied on.
+Since engine 0.4.0 (policy 2026.10-v4) a premise of a task or source kind that no check in
+this process verified is an unverified dependency whatever its kind, so the encoding devices
+grounded `arithmetic_fact` above are listed in `unverified_dependencies` of the STEM results that
+rely on them. No STEM decision reads the dependency lists: a STEM check's finding rests on the
+engine status of its own encoding, under the tolerance rule.
 
 ### 7.7 Problem fields
 
@@ -1336,9 +1341,12 @@ unchanged.
     namespace symbols per claim, but no glossary rule changes.
 12. Quotation-grounding normalisation of minus, en dash and × in `translate/grounding.py`.
     It is deferred; STEM answers rarely quote supplied texts.
-13. Adding the Limits digest into `Binding.binding_digest`. The engine records non-default
-    Limits on the signed result instead, which keeps the hand-off binding formula unchanged. A
-    later provenance change may bind them.
+13. Adding the Limits digest into `Binding.binding_digest`. At the STEM merge the engine recorded
+    non-default Limits on the signed result only, which kept the hand-off binding formula unchanged.
+    Done since engine 0.4.0 (external review of 12 October 2026): the binding carries
+    `limits_digest` for non-default limits (appended to the binding digest; the default formula is
+    unchanged), and `check_result_binding(..., limits=...)` compares them with the policy the
+    receiver requires, so a nonlinear STEM result passes only a receiver that names `nonlinear`.
 14. Non-SI conventions beyond the table (imperial units except °F and the inch mark), and
     locale number formats beyond the decimal-comma rule.
 
@@ -1656,6 +1664,13 @@ All version bumps are made in stage `branch`, in `version.py`:
 - **TRANSLATOR_VERSION 0.2.0 → 0.3.0:** the STEM profile text.
 
 IR_VERSION stays 1.0.
+
+The fixes of the external review of 12 October 2026 bumped all three again (ENGINE_VERSION 0.4.0,
+POLICY_VERSION 2026.10-v4, TRANSLATOR_VERSION 0.4.0; history in `version.py`), and every result now
+also binds the build, schema and policy identity (`engine/identity.py`), so a STEM result of an
+earlier release is never taken as current. For the STEM checks: the unsat core is always computed,
+the binding covers non-default limits (item 13 of section 15), and the encoding devices grounded
+`arithmetic_fact` are listed as unverified dependencies (section 7.6). No STEM decision changed.
 
 Recorded behaviour changes, for the overseer audit and the user's sign-off:
 1. STEM subjects route to the `sciences`, `mathematics` and `computer_science` branches

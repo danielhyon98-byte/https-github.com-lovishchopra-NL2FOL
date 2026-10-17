@@ -23,7 +23,6 @@ The texts are the genuine round-6 specialist answers and the recorded p5 synthes
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -37,6 +36,8 @@ from epinoic_logic.channel.request_parser import count_answer_words, count_parag
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+
+from ..timing import measure
 
 DATA = json.loads((Path(__file__).parent / "data" / "r6_specialists.json").read_text(encoding="utf-8"))
 EN_P5, HI_P5, EN_T11, EN_T12, HI_T11 = (DATA[k] for k in ("en-p5", "hi-p5", "en-t11", "en-t12", "hi-t11"))
@@ -364,11 +365,9 @@ def test_argument_sentences_of_the_same_shapes_are_not_self_reports(sentence):
     "Word count: " + "1" * 5000 + " words words",
 ])
 def test_the_new_rules_read_pathological_text_in_linear_time(text):
-    start = time.perf_counter()
-    md.is_self_certification(text)
-    md.is_note_sentence(text)
-    md.is_provenance_note(text)
-    assert time.perf_counter() - start < 2.0
+    # the 2 s bound, measured as in tests/timing.py (warm-up, median of five first runs, earlier heap frozen)
+    timing = measure(lambda: (md.is_self_certification(text), md.is_note_sentence(text), md.is_provenance_note(text)), bound=2.0, label=text[:24])
+    assert timing.holds, timing
 
 
 # ------------------------------------------------------------ communication-fidelity minor: "?", "!" and the pronoun "I" end a sentence

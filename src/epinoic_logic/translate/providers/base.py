@@ -12,7 +12,9 @@ from typing import Optional, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...ir.schema import Problem
-from ..contracts import ClaimRecord, EligibilityDecision, Interpretation, ProviderInfo, SuppliedText
+from ..contracts import (
+    ClaimRecord, EligibilityDecision, FigureReading, Interpretation, PremiseSource, ProviderInfo, ReviewBinding, SourceIdentity, SuppliedText, TaskRecord,
+)
 
 
 class ProviderError(RuntimeError):
@@ -49,6 +51,7 @@ class TranslationRequest(BaseModel):
             "'subject_profile' data block"
         ),
     )
+    task: Optional[TaskRecord] = Field(default=None, description="the task as the router issued it, when the caller holds it; rendered as the 'task' data block")
 
 
 class ProviderResponse(BaseModel):
@@ -67,11 +70,25 @@ class TranslationProvider(Protocol):
 
 
 class ReviewRequest(BaseModel):
-    """Input to an independent semantic-fidelity reviewer."""
+    """Input to an independent semantic-fidelity reviewer: the claim, the proposed problem and interpretation, and the
+    evidence their fidelity is judged against: the original task (when known), the supporting claims' contents, the
+    supplied texts, the identity and digest of every input (``sources``), the premise-to-source mapping with the
+    deterministic checks, and how each compared figure is stated. ``binding`` ties the review to exactly these inputs
+    and their versions; a request without the evidence (only the first three fields) is recorded as such and cannot
+    count as an approval."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     claim: ClaimRecord
     problem: Problem
     interpretation: Interpretation
+    task: Optional[TaskRecord] = None
+    supporting_claims: list[ClaimRecord] = Field(default_factory=list)
+    supplied_texts: list[SuppliedText] = Field(default_factory=list)
+    sources: list[SourceIdentity] = Field(default_factory=list)
+    premise_sources: list[PremiseSource] = Field(default_factory=list)
+    figure_readings: list[FigureReading] = Field(default_factory=list)
+    translation_diagnostics: list[str] = Field(default_factory=list, max_length=64)
+    binding: Optional[ReviewBinding] = None
+    prompt_version: Optional[str] = Field(default=None, description="the review prompt the request is rendered for")
 
 
 @runtime_checkable
