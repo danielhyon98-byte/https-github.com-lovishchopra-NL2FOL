@@ -1,7 +1,7 @@
 # Agents change plan (A0 to A5)
 
 **Owner: Daniel.** Work in the agents repository is authorized only by his own messages in the session's
-conversation, after decision D20 (playbook step 13), on a new local branch in a worktree under `<scratch>`. The
+conversation, after decision D20 (playbook step 13), on a new local branch in a worktree under `<workdir>`. The
 runtime and the router do not change.
 
 - **A0. `specialist-runtime/` and `specialist-routing/`: no change.** Their suites must keep passing; the counts are

@@ -657,3 +657,16 @@ Work in progress after it is labelled as such.
 - The pre-upload simulation of 28bca5c found one environment-dependent false failure in a readiness test (it required the caller's EPINOIC_ variables to reach the service, the opposite of the kit's documented behaviour). 0aaa20e corrected the test to check that nothing of the caller's leaks in and that the service sees exactly the kit's own variables; an independent check confirmed the correction is stricter. Suite on a clean export: 6,832 passed, 0 failed, with and without EPINOIC_ARENA_ROUNDS set.
 - Known open items, carried into the integration gate before round 8: in the combinator, a source claim already marked as a note can be carried into a synthesis without a finding (high), plus three medium items (short or irregular dropped hedges, a unit or prefix rescaling, some crediting forms); in the kit contract, two medium items (a material claim skipped by the budget outside the listed claims; a BaseException escaping the turn checker).
 - Pre-upload simulation of 90d395c (the merge above with the readiness-test correction, on a clean export): suite 6,832 passed, 45 deselected, 4 xfailed; every recorded round replayed with its recorded count (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177).
+
+### Progress, 20:00 UTC
+
+- Integration kit: the work-directory placeholder is now `<workdir>` (86ab0ba). Independent check: every change is the
+  rename or its manifest digest; the playbook tests assert the same things; suite 6,832 passed, 45 deselected,
+  4 xfailed, with and without the recorded rounds.
+- Overseer rebuild: the fourth STEM repair is in progress. Its last audit reported 8 issues (3 high); 41 of 57 planted
+  STEM faults were caught and 34 of 41 clean controls stayed clean.
+- Argument diagnostics: verification round 2 is in progress (corpus check 17 issues, 4 high; invariants 5, 1 high; the
+  adversarial and re-run checks are still running). After the first repair, on the sealed hold-out set: 58 of 70 faults
+  caught, 44 of 70 named, 47 of 66 clean items left clean.
+- Phase 2 waits for the overseer rebuild commit; round 8 follows the merges, the delivery rule, the argument-diagnostics
+  merge and the integration gate.

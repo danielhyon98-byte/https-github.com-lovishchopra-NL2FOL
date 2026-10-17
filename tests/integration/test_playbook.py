@@ -21,7 +21,7 @@ def _step(title_start: str) -> str:
 
 def test_the_rollback_rehearsal_is_a_step_with_the_commands_its_scripts_take():
     step = _step("Step 11a.")
-    assert "apply.mjs --base M --target <scratch>/website-reader --steps W1" in step
+    assert "apply.mjs --base M --target <workdir>/website-reader --steps W1" in step
     assert re.search(r"rehearse\.mjs --full \S+ --reader \S+ \\\n\s+--base \S+ --work \S+", step), step
     usage = (ROOT / "integration" / "rollback" / "rehearse.mjs").read_text(encoding="utf-8")
     assert "--full <export> --reader <export> --base <export> --work <dir>" in usage
@@ -61,7 +61,7 @@ def test_a_pre_build_commit_is_rehearsed_only_on_request_and_reported_as_blocked
     connected in phase 2 and stops at any other BLOCKER, and reports the rehearsal as blocked by G1."""
     intro = PLAYBOOK.split("## Step 0.", 1)[0]
     rule = intro[intro.index("**A pre-build commit is not a published kit.**"):]
-    for phrase in ("names that commit and asks for a rehearsal", "worktree add --detach <scratch>/translator-kit", "<commit>`, never a branch",
+    for phrase in ("names that commit and asks for a rehearsal", "worktree add --detach <workdir>/translator-kit", "<commit>`, never a branch",
                    '"not a published kit: <commit>"', "never skipped or", '"(connected in phase 2: ...)"', "stops the rehearsal",
                    '"rehearsal of an unpublished commit, blocked by G1"', "a commit without the tag stops at step 2"):
         assert phrase in rule.replace("\n> ", " "), phrase
@@ -83,14 +83,14 @@ def test_step_7a_names_the_router_release_apart_from_the_kit_tag_and_step_7_star
     assert "released by its own version, not by the kit tag" in step7a and "Record the" in step7a and "router release" in step7a
     assert "a fault boundary, not a sandbox" in step7a
     step7 = _step("Step 7.")
-    assert "EPINOIC_FLASH_ROUTER=epinoic_flash_router.port <scratch>/venv/bin/python integration/readiness/check.py" in step7
+    assert "EPINOIC_FLASH_ROUTER=epinoic_flash_router.port <workdir>/venv/bin/python integration/readiness/check.py" in step7
     assert "--start-service --profile integration-sim" in step7 and "<kit>/flash-router/src" in step7
 
 
 def test_step_10_applies_the_patch_set_once_on_a_fresh_export_and_verifies_it():
     """Pre-build finding PB3-01: the exact command, run once, with the digest check of the result."""
     step = _step("Step 10.")
-    assert "node <kit>/integration/website/apply.mjs --base M --target <scratch>/website-sim --verify" in step
+    assert "node <kit>/integration/website/apply.mjs --base M --target <workdir>/website-sim --verify" in step
     assert "once, on the fresh export of step 9" in step and "`exact`" in step and "`drift`" in step
     usage = (ROOT / "integration" / "website" / "apply.mjs").read_text(encoding="utf-8")
     assert '"--verify"' in usage and "RESULT.sha256" in usage
@@ -101,8 +101,8 @@ def test_step_4_records_the_fetch_date_and_checks_the_w0_draft_without_applying_
     export, read back by the G0 check (lifted) and checked against the website with git apply --check only."""
     step = _step("Step 4.")
     assert "rev-parse --git-path FETCH_HEAD" in step and "no FETCH_HEAD: the date of the last fetch is unknown" in step
-    assert "W0/draft-w0.mjs --target <scratch>/w0-export --patch <scratch>/report/W0-docs.patch" in step
-    assert "check-website.mjs --g0-export <scratch>/w0-export" in step and "apply --check <scratch>/report/W0-docs.patch" in step
+    assert "W0/draft-w0.mjs --target <workdir>/w0-export --patch <workdir>/report/W0-docs.patch" in step
+    assert "check-website.mjs --g0-export <workdir>/w0-export" in step and "apply --check <workdir>/report/W0-docs.patch" in step
     assert "never applied" in step
     drafter = (ROOT / "integration" / "website" / "W0" / "draft-w0.mjs").read_text(encoding="utf-8")
     assert "--target <disposable export> [--patch <file>]" in drafter
@@ -118,6 +118,6 @@ def test_the_agents_checkout_and_copy_are_fixed_by_the_kit_and_the_install_has_a
     assert "refs/remotes/origin/HEAD" in step8 and ".kit-archive-commit" in step8 and "agents/TESTED.json" in step8
     assert "--no-index --find-links <wheelhouse>" in _step("Step 6.")
     step13 = _step("Step 13.")
-    assert "apply-agents.mjs --target <scratch>/agents-a35 --patch" in step13 and "never re-anchor" in step13
+    assert "apply-agents.mjs --target <workdir>/agents-a35 --patch" in step13 and "never re-anchor" in step13
     assert "--target <archive copy of the agents repository> [--check] [--patch <file>]" in (
         ROOT / "integration" / "agents" / "apply-agents.mjs").read_text(encoding="utf-8")

@@ -6,10 +6,10 @@
  "date": "2026-10-17",
  "commands": [
   "node integration/readiness/check-website.mjs --g0-export <export>   -> in force (deferrals [1,1,1,1], positive 0)",
-  "node integration/website/W0/draft-w0.mjs --target <export> --patch <scratch>/report/W0-docs.patch   -> 8 replacements in 5 files",
+  "node integration/website/W0/draft-w0.mjs --target <export> --patch <workdir>/report/W0-docs.patch   -> 8 replacements in 5 files",
   "node integration/readiness/check-website.mjs --g0-export <export>   -> lifted (deferrals [0,0,0,0], positive 3)",
   "node integration/readiness/check-website.mjs --g0 <website checkout>   -> in force (origin/main unchanged)",
-  "git -C <website checkout> apply --check <scratch>/report/W0-docs.patch   -> applies (check only)",
+  "git -C <website checkout> apply --check <workdir>/report/W0-docs.patch   -> applies (check only)",
   "node integration/website/W0/draft-w0.mjs --target <export>   (a second run)   -> anchor not found, exit 1, nothing written"
  ],
  "patch_lines": 76,

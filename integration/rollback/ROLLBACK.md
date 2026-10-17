@@ -37,7 +37,7 @@ every verdict's review names the version that planned it); the translator and th
 
 A published tag is never moved or deleted. A bad kit is withdrawn by updating `INTEGRATION_KIT.md` to name the
 previous or the next tag, and by listing the bad tag in `DECISIONS.md`. Scratch exports and worktrees disappear with
-`<scratch>`; afterwards run `git worktree prune` in the translator checkout. The engine and its existing routes never
+`<workdir>`; afterwards run `git worktree prune` in the translator checkout. The engine and its existing routes never
 changed, because the default profile is `engine`.
 
 ## Rollback rehearsal (PROTOCOL.md section 14.7)

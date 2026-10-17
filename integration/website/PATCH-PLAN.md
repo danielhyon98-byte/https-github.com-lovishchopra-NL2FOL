@@ -27,7 +27,7 @@ translator repository is public (decision D20); `apply.mjs` applies the same blo
 
 ## The steps
 
-- **W0. Docs** (Bruno only; the session writes `<scratch>/report/W0-docs.patch` against `origin/main`, never applied:
+- **W0. Docs** (Bruno only; the session writes `<workdir>/report/W0-docs.patch` against `origin/main`, never applied:
   `W0/draft-w0.mjs` makes the edits of `W0/w0.json` in a disposable export, each at an anchor found exactly once, and
   writes the patch; `check-website.mjs --g0-export` then reads the draft as lifted, and `git apply --check` checks the
   patch against the website without applying it; tested on `2cd3182`, `W0/TESTED.json`):
