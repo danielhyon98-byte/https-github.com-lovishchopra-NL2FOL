@@ -670,3 +670,12 @@ Work in progress after it is labelled as such.
   caught, 44 of 70 named, 47 of 66 clean items left clean.
 - Phase 2 waits for the overseer rebuild commit; round 8 follows the merges, the delivery rule, the argument-diagnostics
   merge and the integration gate.
+
+### Progress, 22:00 UTC
+
+- Overseer rebuild: the fourth STEM repair is still running (its input: 8 audit issues, 3 high: two false errors on correct
+  Boolean and physics working, and an unchecked "± %" uncertainty). Last measured tree: 6,580 tests passed, 13 of 13
+  contained-run gates, 15 of 15 STEM mutations named.
+- Argument diagnostics: the second repair is running on the 46 issues of verification round 2 (7 high; 17 from the
+  corpus check, 5 invariants, 12 adversarial, 12 from the re-run review).
+- Phase 2 waits for the overseer rebuild commit. Nothing new was published since 3ecb88e (20:04).
