@@ -72,8 +72,8 @@ then finds the kit by its tag.
 |---|---|---|---|---|
 | Translator and Z3 engine with STEM support | yes (`86ab0ba`) | full suite 6,832 passed (45 stress tests deselected, 4 expected failures); every recorded arena round at its recorded count (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177) | independent reviews per change (commit messages, `tests/README.md`) | no |
 | Integration kit (`integration/`): protocol, ports, website patch set with W0, agents patches A1 to A5, readiness checks, container image, rollback, simulation | yes | kit tests in `tests/integration/`; kit manifest checks | independently checked, twice for the decisions D1 to D33 | not published: no tag `integration-kit-v1` (decision D20) |
-| Overseer (logic-checking agents) | prototype published at `9547fc9`; the rebuild on the STEM translator is staged on `overseer-build` and not committed | last measured on the staged rebuild: 6,731 passed, 13 of 13 contained-run gates, 0 false alarms on genuine transfers, 15 of 15 STEM mutations and 269 of 269 arena faults named and confirmed | the last independent audit found 4 issues (1 high: false errors on four shapes of correct physics and computer-science working); a fifth repair was in progress | no |
-| Argument diagnostics (translator fixes) | integrated and staged, not committed; a second repair was in progress | sealed hold-out set before that repair: 58 of 70 faults caught, 44 of 70 named, 47 of 66 clean items left clean | 46 open issues (7 high) before the second repair | no |
+| Overseer (logic-checking agents) | prototype published at `9547fc9`; the rebuild on the STEM translator is staged on `overseer-build` and not committed | last measured on the staged rebuild: 6,731 passed, 13 of 13 contained-run gates, 0 false alarms on genuine transfers, 15 of 15 STEM mutations and 269 of 269 arena faults named and confirmed | the last independent audit found 4 issues (1 high: false errors on four shapes of correct physics and computer-science working); a fifth repair was stopped part-way at the handoff (18 October, about 00:00 UTC): its partial edits are staged, preserved and not measured | no |
+| Argument diagnostics (translator fixes) | integrated and staged, not committed; a second repair was stopped part-way at the handoff (partial edits staged, preserved, not measured) | sealed hold-out set before that repair: 58 of 70 faults caught, 44 of 70 named, 47 of 66 clean items left clean | 46 open issues (7 high) before the second repair | no |
 | Delivery rule (four-minute formal path, overseer fallback above 90%) | designed in the phase-2 pipeline; not implemented | — | — | no |
 | Arena round 8 (integrated, sixteen v4 specialists) | not run | — | — | — |
 | Website History staging prototype (no Z3) | in progress on a website branch; see section 6 | — | — | no |
@@ -155,6 +155,14 @@ Full detail is in `integration/DECISIONS.md`, "Owner actions, in M2 order". None
 - **Argument diagnostics:** the integrated tree is staged in its own worktree, preserved in the checkpoint. The local
   branches `argdiag-a` to `argdiag-e` hold the five fixers.
 - **Phase 2 pipeline:** paused before the overseer merge. Its protocol step is committed.
+- **Workflows stopped at the handoff (18 October, about 00:00 UTC, Daniel's order):**
+  - the overseer rebuild, during STEM repair 5;
+  - the argument diagnostics, during repair 2.
+
+  Both stopped part-way. Their staged trees are preserved in `checkpoint/2026-10-12`, and neither was committed.
+- **Completion report for the main repository:** `docs/handoff/final/08-logic-translator.md` on the branch
+  `docs/final-z3-handoff` of Epinoic-AI/Epinoic-Logic-Translator. That branch also carries a copy of this file as
+  `docs/handoff/final/08-logic-translator-website-launch.md`.
 - **Website History staging prototype:** branch `feature/history-staging-release`, from `a18ad80`, with two docs-only commits
   (`63ebca5`, `be4137a`). Its bundle and local-execution step was interrupted, with uncommitted files that are not part of any
   commit.
