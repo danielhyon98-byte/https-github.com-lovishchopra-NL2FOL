@@ -688,3 +688,11 @@ Work in progress after it is labelled as such.
   computer-science working; down from 8 issues, 3 high). The fifth STEM repair is running.
 - Argument diagnostics: the second repair is running (46 issues from verification round 2, 7 high).
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 01:00 UTC (18 October)
+
+- The final handoff report and the website launch package are on the main repository's `docs/final-z3-handoff` branch
+  (`9c4f463`); the source pin there is unchanged (`verified-updates` code `3ecb88e`, from `86ab0ba`).
+- Overseer rebuild and argument diagnostics resumed at 00:36 UTC from the work staged when they were stopped: the fifth
+  STEM repair and the second argument-diagnostics repair are running. Their loops now end when the independent checks
+  report no high-severity issue; medium and low findings are recorded as known defects.
