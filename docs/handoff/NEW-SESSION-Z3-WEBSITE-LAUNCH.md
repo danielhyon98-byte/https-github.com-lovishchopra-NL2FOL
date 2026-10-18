@@ -160,6 +160,10 @@ Full detail is in `integration/DECISIONS.md`, "Owner actions, in M2 order". None
   - the argument diagnostics, during repair 2.
 
   Both stopped part-way. Their staged trees are preserved in `checkpoint/2026-10-12`, and neither was committed.
+  They were resumed at 00:36 UTC under the faster loop rule Daniel chose (repair loops end when no high-severity issue
+  remains). They were stopped again at 01:32 UTC, when the session's weekly usage reached 99%. By then STEM repair 5 had
+  finished its fixes and was regenerating and measuring, and argument-diagnostics repair 2 had not returned. The
+  newest commit of `checkpoint/2026-10-12` holds both trees.
 - **Completion report for the main repository:** `docs/handoff/final/08-logic-translator.md` on the branch
   `docs/final-z3-handoff` of Epinoic-AI/Epinoic-Logic-Translator. That branch also carries a copy of this file as
   `docs/handoff/final/08-logic-translator-website-launch.md`.
