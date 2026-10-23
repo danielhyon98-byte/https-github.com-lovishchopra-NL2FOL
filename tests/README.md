@@ -706,3 +706,11 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: repair round 2 is running on the 46 issues from verification round 2 (7 high, 25 medium, 14 low).
 - Deployment package: the two surveys are finished; the retarget design step is running.
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 18:00 UTC (23 October)
+
+- Overseer rebuild: the sixth STEM repair has finished its measurements and is writing the results (still running).
+- Argument diagnostics: repair round 2 on the 46 round-2 issues (7 high) is still running.
+- Deployment package: the kit retarget is implemented; its independent checks (diff review and a cold-start rehearsal of
+  the playbook) are running.
+- Phase 2 waits for the overseer rebuild commit.
