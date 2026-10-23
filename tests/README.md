@@ -696,3 +696,13 @@ Work in progress after it is labelled as such.
 - Overseer rebuild and argument diagnostics resumed at 00:36 UTC from the work staged when they were stopped: the fifth
   STEM repair and the second argument-diagnostics repair are running. Their loops now end when the independent checks
   report no high-severity issue; medium and low findings are recorded as known defects.
+
+### Progress, 17:00 UTC (23 October)
+
+- Work stopped at the weekly usage limit on 18 October (about 22:55 UTC) and resumed after its reset on 23 October at
+  16:15 UTC; nothing was committed or pushed in between.
+- Overseer rebuild: the sixth STEM repair is running against the last audit's 4 issues (1 high: false errors on four
+  shapes of correct physics and computer-science working).
+- Argument diagnostics: repair round 2 is running on the 46 issues from verification round 2 (7 high, 25 medium, 14 low).
+- Deployment package: the two surveys are finished; the retarget design step is running.
+- Phase 2 waits for the overseer rebuild commit.
