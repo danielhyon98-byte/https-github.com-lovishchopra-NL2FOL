@@ -1,0 +1,215 @@
+{
+  "schema": "epinoic.z3-deployment.pins.v1",
+  "as_of": "2026-10-23",
+  "placeholder_rule": "Three values are set when the package is published: KIT_COMMIT, SOURCE_COMMIT and SOURCE_BRANCH_SHA. The programme fills them only in the copy handed to Daniel, outside the repository, from commits already on origin's branch; a copy committed to a repository keeps the placeholders. A value still matching grep -E '@@[A-Z_]+@@' in any file of the package means it is not published: stop.",
+  "roles_note": "The roles are the keys of integration/COMPATIBILITY.json repositories. Its translator_mirror is the former path of translator, recorded here as repositories.translator.former_path.",
+  "evidence": "pins are read from integration/COMPATIBILITY.json of the kit; 'observed' values were read with git ls-remote and the GitHub API on 2026-10-23 and move without notice: the session re-reads them",
+  "repositories": {
+    "translator_development": {
+      "url": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
+      "owner": "Daniel",
+      "visibility_observed": "public (GitHub API, 2026-10-23)",
+      "default_branch": "claude/z3-verification-engine-plan-nk3luq",
+      "use": "the Z3 engine and the kit; read only except worktrees under <workdir>"
+    },
+    "translator": {
+      "url": "https://github.com/Epinoic-AI/Epinoic-Logic-Translator",
+      "former_path": "https://github.com/Bruno-ios/Epinoic-Logic-Translator",
+      "owner": "Daniel (programme record; the organization line's 18 October amendments await Daniel, OWNER-ACTIONS.md A1)",
+      "visibility_observed": "not readable from the preparing session (GitHub API refused access)",
+      "use": "receives verified updates; carries no kit tag; read only; if the canonical URL refuses a read-only fetch, the former path may serve (it did for the preparing session)"
+    },
+    "agents": {
+      "url": "https://github.com/Epinoic-AI/Epinoic-Agent-Training",
+      "owner": "Daniel",
+      "visibility_observed": "private (GitHub API, 2026-10-23)",
+      "default_branch": "main",
+      "use": "retrained specialists: runtime, exporter, knowledge bases, routing; archives under <workdir>"
+    },
+    "agents_harness": {
+      "url": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector",
+      "owner": "Daniel",
+      "visibility_observed": "not observed (GitHub API refused access to the preparing session); DECISIONS.md's D20 summary row refers to 'the public agents repository' without naming the role",
+      "default_branch": "claude/eloquent-euler-1kuwtf",
+      "use": "training and simulation harness; archives under <workdir>"
+    },
+    "website": {
+      "url": "https://github.com/Epinoic-AI/epinoic-ai-website",
+      "github_full_name": "Epinoic-AI/Epinoic-Ai-Website",
+      "owner": "Bruno",
+      "visibility_observed": "private (GitHub API, 2026-10-23)",
+      "default_branch": "main",
+      "use": "read only; disposable exports only"
+    }
+  },
+  "kit": {
+    "repository": "translator_development",
+    "branch": "claude/z3-verification-engine-plan-nk3luq",
+    "kit_commit": "@@KIT_COMMIT@@",
+    "source_commit": "@@SOURCE_COMMIT@@",
+    "source_branch_sha": "@@SOURCE_BRANCH_SHA@@",
+    "tag": {
+      "name": "integration-kit-v1",
+      "repository": "translator_development",
+      "exists": false,
+      "checked": "2026-10-23, git ls-remote of both translator remotes"
+    }
+  },
+  "versions": {
+    "read_from": "the code of the kit tree that becomes kit_commit",
+    "ir": "1.0",
+    "engine": "0.4.0",
+    "translator": "0.4.0",
+    "policy": "2026.10-v4",
+    "integration_contract": "0.4",
+    "protocol": "epinoic.integration.v1",
+    "accepted_specialist_pairs": [
+      {
+        "result": "epinoic.specialist-turn-result.v1",
+        "runtime": "epinoic.specialist-runtime.v0.1.0",
+        "log": "epinoic.specialist-turn-log.v1"
+      },
+      {
+        "result": "epinoic.specialist-turn-result.v2",
+        "runtime": "epinoic.specialist-runtime.v0.2.0",
+        "log": "epinoic.specialist-turn-log.v2"
+      }
+    ],
+    "routing_contract": "epinoic.specialist-routing.v0.1.0"
+  },
+  "agents_pins": {
+    "runtime": {
+      "repository": "agents",
+      "branch": "feature/history-specialist-integration",
+      "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+      "package": "@epinoic/specialist-runtime",
+      "version": "0.2.0",
+      "contract": "epinoic.specialist-runtime.v0.2.0",
+      "src_tree": "7c48eac9496f26a385de2ced55d7f58e0adada8b"
+    },
+    "exporter": {
+      "repository": "agents",
+      "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+      "path": "specialist-runtime/tools/export-bundle.mjs"
+    },
+    "knowledge_bases": {
+      "repository": "agents",
+      "branch": "main",
+      "commit": "651d71ded41d4a3b8a106fe23b4198e7fc292146",
+      "history_bundle": {
+        "path": "knowledge-bases/_bundles/history.full-context.txt",
+        "sha256": "a5b8a2da6feb447ea06d9e38946ba50f71b14495e517169b5b3a418530119240",
+        "bytes": 300563
+      }
+    },
+    "routing": {
+      "repository": "agents",
+      "branch": "feature/specialist-routing",
+      "commit": "f47c964df6f3a9ad93d3e8ff9a18a442b2820fbd"
+    },
+    "harness": {
+      "repository": "agents_harness",
+      "branch": "claude/eloquent-euler-1kuwtf",
+      "commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+      "contract": "epinoic.specialist-runtime.v0.1.0"
+    }
+  },
+  "website": {
+    "base_M_tested": "2cd318208980e5b236d16b4281dfc0560a7b9610",
+    "patch_set_M": "integration/website/patches/M",
+    "base_P": "not built in this kit"
+  },
+  "observed": {
+    "date": "2026-10-23",
+    "translator_development": {
+      "branch_tip": "7a38eeb1b6d3b811476654a4854c5170a15b4ed0",
+      "note": "hourly progress-note commits move the tip; no commit after 86ab0ba75228bd44b7b1af5de495547ead8efb0b changes a file under integration/ (tree 8cc7e44d227706cfb145cab7f29b527f5c6f9161); 993de0ed5f8efd9ea1335d37c93e0d1bd1645968 is the launch-handoff commit"
+    },
+    "translator": {
+      "verified-updates": "109a0e6ed20725498259e8b668f4b8ef35b8f21f",
+      "verified_update_of_86ab0ba": "3ecb88e351be8784d90da6ea97e66d710fc5af2d",
+      "integration/z3-pilot-kit": {
+        "commit": "404365c54231a2ab399df045fe253352e2737801",
+        "integration_tree": "a4f74f9382292af13451bc3f0273f20c48cf5219",
+        "pull_request": 2,
+        "base": "verified-updates",
+        "state": "open (head and merge refs present; base not moved to it)",
+        "commits_on_top_of_3ecb88e": 50
+      }
+    },
+    "agents": {
+      "main": "651d71ded41d4a3b8a106fe23b4198e7fc292146",
+      "feature/history-specialist-integration": "937403a0c9259380b42e8f1875ab0da50663e4ba",
+      "feature/specialist-routing": "f47c964df6f3a9ad93d3e8ff9a18a442b2820fbd",
+      "integration/runtime-pilot-fixes": {
+        "commit": "46a67079ec3133a5f7bedefb416857379c4f2eb6",
+        "pull_request": 2,
+        "state": "open draft, do not merge before review",
+        "runtime_version": "0.3.0",
+        "contract": "epinoic.specialist-runtime.v0.2.0",
+        "src_tree": "16926ff62b0ae5c3b8340d81ecdbac76b8a6bf8a"
+      },
+      "training/overseer-loop": {
+        "commit": "80448d7b7cf9ddded088a295127bb8fa3c5723b3",
+        "packages": "proposals on the training branch; not reviewed by the owner, not merged to main, not pinned"
+      }
+    },
+    "agents_harness": {
+      "claude/eloquent-euler-1kuwtf": "f6d9fdc8158f5a538ab61e62939fe3f1e6814eb5",
+      "a3_a5_anchors_found_once": 16,
+      "anchors_note": "count only; the applier refuses this commit (anchored for the pin)"
+    },
+    "website": {
+      "main": "6c12674ab1ac1d39f847f416d111c70ed6d56c27",
+      "g0": "in force",
+      "base": "M",
+      "patch_set_M_verify": "drift: wrangler.jsonc",
+      "pull_requests": {
+        "18": {
+          "head": "b83e3420fe56a2f81cf3316f47890f4531c8f7d7",
+          "what": "staging tracing"
+        },
+        "23": {
+          "head": "d6b1d45784e8b2a69c708fa1b6542cee150c4963",
+          "what": "History pilot (mocked)"
+        },
+        "24": {
+          "head": "f928ad6cd94d6fb8534da64353be214af794bf51",
+          "what": "History pilot on runtime 0.2.0",
+          "vendored_runtime": "dfb81442b0cb712c3905b5025094fbdb9c019802 (src tree 7c48eac9496f26a385de2ced55d7f58e0adada8b)"
+        },
+        "25": {
+          "head": "a16b85d4003e3a3651e8f07533106e23ddc4928b",
+          "what": "offline integration, Z3 kit adapter",
+          "vendored_runtime": "8ceba43f576b49ea754a8994dbc130a6549a4699 (src tree 7c48eac9496f26a385de2ced55d7f58e0adada8b)",
+          "vendored_kit": "3ecb88e351be8784d90da6ea97e66d710fc5af2d (integration tree 8cc7e44d227706cfb145cab7f29b527f5c6f9161)"
+        },
+        "26": {
+          "head": "4d8a4357b923cd06f324e037f76fd3d3ae7daa46",
+          "what": "W0, regenerated from kit 404365c",
+          "g0_on_its_head": "lifted"
+        },
+        "27": {
+          "head": "7f6a9bcc5910899ee928013f98125f8950b9dde2",
+          "what": "History pilot with Z3 required",
+          "vendored_runtime": "46a67079ec3133a5f7bedefb416857379c4f2eb6 (runtime 0.3.0, src tree 16926ff62b0ae5c3b8340d81ecdbac76b8a6bf8a)",
+          "vendored_kit": "404365c54231a2ab399df045fe253352e2737801 (integration tree a4f74f9382292af13451bc3f0273f20c48cf5219)"
+        },
+        "28": {
+          "head": "8f88f312b06808abd1fae14971000aecfd706ee4",
+          "what": "release target: pilot activation, never merge before release review",
+          "vendored_runtime": "46a67079ec3133a5f7bedefb416857379c4f2eb6 (runtime 0.3.0, src tree 16926ff62b0ae5c3b8340d81ecdbac76b8a6bf8a)",
+          "vendored_kit": "404365c54231a2ab399df045fe253352e2737801 (integration tree a4f74f9382292af13451bc3f0273f20c48cf5219)"
+        }
+      },
+      "pull_requests_state": "all open drafts by Bruno",
+      "history_staging_prototype": {
+        "branch": "feature/history-staging-release",
+        "commit": "be4137a0fbedac4952bd605ecd2da8f0bb428161",
+        "on_github": false,
+        "z3": false,
+        "vendored_runtime": "dfb81442b0cb712c3905b5025094fbdb9c019802 (src tree 7c48eac9496f26a385de2ced55d7f58e0adada8b)"
+      }
+    }
+  }
+}
