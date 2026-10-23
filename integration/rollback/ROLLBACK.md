@@ -23,7 +23,9 @@ configuration), never an unchecked answer.
 
 ## Agents (Daniel)
 
-Nothing to roll back in the runtime or the router. Revert the docs, port and test changes (A1 to A5) if needed.
+Nothing to roll back in the runtime or the router. Revert the docs, port and test changes (A1 to A5) if needed, in the
+repository each one went to (`agents/PATCH-PLAN.md`: A2 and A1's prose in the retrained repository,
+`repositories.agents`; A1 to A5 in the harness, `repositories.agents_harness`).
 
 ## Flash router (its sub-project's owner)
 

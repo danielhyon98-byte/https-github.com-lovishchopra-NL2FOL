@@ -10,8 +10,9 @@
 //   count differs from ANCHORS.md: "anchor not found: <file>: <anchor>" or "anchor not unique: <file>: <anchor>";
 // - it runs only on a disposable export (UNREVIEWED-SIMULATION-COPY.txt) unless --work-branch says the target is the
 //   local website work branch a lifted G0 and the user's request allow;
-// - with --verify it compares every file it touched with patches/<base>/RESULT.sha256 and prints "exact" or
-//   "drift" with the drifted files (the website tests then decide).
+// - with --verify it compares every file it touched with patches/<base>/RESULT.sha256 and prints "exact" (exit status
+//   0) or "drift" with the drifted files (exit status 3: the files written are not the tested patch set, so playbook
+//   step 10 stops; a refusal, with nothing written, is exit status 1).
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -173,5 +174,6 @@ if (verify) {
   else {
     console.log("drift");
     for (const f of [...drift, ...missing]) console.log(`  ${f}`);
+    process.exitCode = 3; // not the tested patch set: a caller that reads only the exit status stops too
   }
 }

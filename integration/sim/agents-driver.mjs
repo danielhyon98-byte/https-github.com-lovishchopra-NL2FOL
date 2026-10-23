@@ -1,12 +1,14 @@
 // The simulation's agents driver (PROTOCOL.md section 14.5): without the website, the agents repository's router
 // (specialist-routing's selectSpecialist over its synthetic catalogue and fixtures) -> the kit's router-port.js (one
 // slug, a clarification, or unavailable: never a fan-out) -> the agents repository's offline runtime
-// (createOfflineTestRuntime over its synthetic bundle; authorizedGenerate returns each corpus item's recorded answer) ->
+// (createOfflineTestRuntime over its synthetic bundle; authorizedGenerate returns each corpus item's recorded answer, in
+// the shape the copy's own runtime contract takes: runtime-reply.mjs) ->
 // the specialist port (the kit's A2 envelope builder, integration/agents/checks-port/src/envelope.js) -> the checks
 // service on loopback, for the STEM, duplicate, combined and clarify turns of users.json (path "agents"), and for the STEM
 // fault cases.
 //
-// Invariants: it runs on a COPY of the agents repository (git archive), never a checkout, and never writes into it;
+// Invariants: it runs on a COPY of the harness (git archive of `repositories.agents_harness`: the runtime and its router
+// in one tree), never a checkout, and never writes into it;
 // fetch is limited to loopback; the runtime and the router are the copy's own code, unchanged; a mixed request is a
 // clarification and makes no specialist or checks call; every verdict it records is the service's own answer. Without
 // the service (--service) or the copy it exits 3 and names what is missing.
@@ -20,13 +22,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { replyFor } from "./runtime-reply.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const args = {};
 for (let i = 0; i < argv.length; i += 1) if (argv[i].startsWith("--")) args[argv[i].slice(2)] = argv[i + 1];
 
-const AGENTS_FILES = ["specialist-runtime/src/index.js", "specialist-runtime/fixtures/synthetic/harness.js", "specialist-runtime/fixtures/synthetic/gate-config.js",
-  "specialist-runtime/fixtures/synthetic/manifest.js", "specialist-runtime/fixtures/synthetic/synthetic-bundle.txt", "specialist-routing/package.json",
+const AGENTS_FILES = ["specialist-runtime/src/index.js", "specialist-runtime/src/constants.js", "specialist-runtime/fixtures/synthetic/harness.js",
+  "specialist-runtime/fixtures/synthetic/gate-config.js", "specialist-runtime/fixtures/synthetic/manifest.js", "specialist-runtime/fixtures/synthetic/callbacks.js",
+  "specialist-runtime/fixtures/synthetic/synthetic-bundle.txt", "specialist-routing/package.json",
   "specialist-routing/src/index.js", "specialist-routing/fixtures/catalogue.synthetic.json", "specialist-routing/fixtures/policy.synthetic.json",
   "specialist-routing/fixtures/harness.synthetic.json"];
 const missing = [];
@@ -59,6 +64,14 @@ const harness = await fromAgents("specialist-runtime/fixtures/synthetic/harness.
 const gates = await fromAgents("specialist-runtime/fixtures/synthetic/gate-config.js");
 const manifests = await fromAgents("specialist-runtime/fixtures/synthetic/manifest.js");
 const routing = await fromAgents("specialist-routing/src/index.js");
+const { RUNTIME_CONTRACT_VERSION } = await fromAgents("specialist-runtime/src/constants.js");
+let reply;
+try {
+  reply = replyFor(RUNTIME_CONTRACT_VERSION, await fromAgents("specialist-runtime/fixtures/synthetic/callbacks.js"));
+} catch (e) {
+  console.error(`not runnable: ${e.message}`);
+  process.exit(3);
+}
 const { buildEnvelope } = await import(pathToFileURL(join(HERE, "..", "agents", "checks-port", "src", "envelope.js")).href);
 const { decideSpecialist } = await import(pathToFileURL(join(HERE, "..", "website", "src", "verify", "router-port.js")).href);
 
@@ -131,7 +144,7 @@ async function specialistAnswer(slug, text, ids) {
   const result = await runtime.runSpecialistTurn({
     slug, mode: "pilot-single-turn-no-tools", environment: "offline-test", bundle: bundles.get(slug), message: ids.message, priorTurns: [],
     limits: harness.SYNTHETIC_LIMITS, turn: { conversationId: ids.conversationId, turnId: ids.taskId, turnVersion: 1, attemptId: ids.requestId },
-    authorizedGenerate: async () => ({ status: "completed", output: { text, finishReason: "stop" }, usage: null, providerEvidence: null }),
+    authorizedGenerate: async () => reply.generated(text),
   });
   return { result, redacted: runtimePackage.redactForLog(result) };
 }
@@ -154,6 +167,7 @@ async function check(request) {
 
 const records = { schema: "epinoic.integration.sim-agents-records.v1", status: "ran", round: args.round,
   agents_commit: existsSync(join(AGENTS, ".kit-archive-commit")) ? readFileSync(join(AGENTS, ".kit-archive-commit"), "utf8").trim() : null,
+  runtime_contract: RUNTIME_CONTRACT_VERSION,
   turns: [], faults: [], verdicts: [], fetch: fetchLog, not_run: [] };
 
 /** One checks call for `items` (one answer each) in `mode`, after routing `subjects`. */

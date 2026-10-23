@@ -7,22 +7,41 @@ never fetches, never deploys and never calls a provider; services it starts bind
     check.py --start-service [--profile integration-sim] [--kit <kit>]
                                               start the service on loopback with ephemeral keys, read the capabilities
     check.py --router <module> [--kit <kit>]  the flash router's hello and its plans over the router-port vectors
-    check.py --all --website <checkout> --website-copy <export> --agents <copy> --sim-out <dir> [--kit <kit>]
+    check.py --all --website <checkout> --website-copy <export> --agents-runtime <copy> --agents-routing <copy> \
+                   --agents-harness <copy> --sim-out <dir> [--kit <kit>]
+                                              (the earlier one-copy form --agents <copy> still runs, unchanged)
 
 Every row is PASS, BLOCKER, NOT RUN (with its reason) or REPORTED (the flash router: reported, never required).
-Exit status 1 when a row is a BLOCKER. Three kinds of BLOCKER rows, each named as such:
+The agents copies are archive copies by role (``COMPATIBILITY.json`` ``agents_pins``; playbook step 8): the retrained
+repository at the runtime pin and at the routing pin, and the harness. They make one row, "agents contracts", from
+``check-agents.mjs --runtime --routing --harness`` (BLOCKER when it exits 1; its REPORTED rows are named in the
+detail), and one NOT RUN row for each role whose copy is missing: "agents runtime" (the runtime pin, its contract,
+``claims: null`` and the knowledge-base pin are not checked), "agents routing" (the routing pin and the routing contract
+are not checked), "agents harness" (the agents path, A3 and A5 are not checked). The earlier one-copy form checks the
+contracts of one copy, never the pins, so with it alone the three rows are NOT RUN too. A role that was not checked is
+never part of a PASS: every NOT RUN row keeps "Integration ready (local)" at NO. The simulation adds the row
+"simulation runtime copy": PASS only when the simulation's website path ran, and ran the runtime pin (``results.json``:
+no ``not_run.website_path``, the website driver's own line ``subchecks.website_driver``, and ``specialist_commit`` and
+``specialist_contract`` equal to the pin), else NOT RUN (the pinned runtime was not simulated).
+Exit status 1 when a row is a BLOCKER. Four kinds of BLOCKER rows, each named as such:
 
 * **kit rows** (G1, the translator section, the service start-up): on a commit where a part phase 2 connects is absent,
   a BLOCKER row that only that part causes says "(connected in phase 2: ...)"; a kit BLOCKER row without that mark is a
   defect of the commit;
 * **owner gates** (the website's G0): a decision only its owner records; the row says "(owner gate: ...)". It blocks
   website work, never the rehearsal, and is never a defect of the kit;
+* **website rows** (``--website-copy``, playbook steps 9 and 10): the export is not a disposable one, its base has no
+  tested patch set in this kit, the patch set is not applied, or it drifted (a file the patch set writes is not as
+  ``RESULT.sha256`` records: the website changed since the patch set was tested). Each is a stop of those steps, and the
+  website tests of step 11 decide nothing on a patch set that is not the tested one. A rehearsal records it and goes on
+  with steps 13 and 14; re-recording the patch set for a newer website is a kit change, never the session's;
 * **simulation gates**: the gates of ``run_sim.py``; when every gate is NOT RUN because the service refused for a part
   phase 2 connects, the row carries that part's "(connected in phase 2: ...)" mark too.
 
-``--website-copy`` checks the patched disposable export against the tested patch set (``RESULT.sha256``: exact, or drift
-with the drifted files, read-only); ``--sim-out`` reads the simulation's own output as written there (``results.json``,
-which ``run_sim.py`` writes into the session's scratch directory; it is evidence of that run, not re-derived here).
+``--website-copy`` checks the patched disposable export against the tested patch set (``RESULT.sha256``, read-only:
+``exact`` is PASS, drift is a BLOCKER that names the drifted files); ``--sim-out`` reads the simulation's own output as
+written there (``results.json``, which ``run_sim.py`` writes into the session's scratch directory; it is evidence of
+that run, not re-derived here).
 """
 from __future__ import annotations
 
@@ -217,8 +236,10 @@ def router(kit: Path, rows: list, module: str) -> None:
 
 def website_copy(kit: Path, rows: list, export: str | None) -> None:
     """The patched disposable export against the tested patch set (read-only): every file ``RESULT.sha256`` lists, as it
-    is in the export. ``exact`` (PASS), ``drift`` with the drifted files (REPORTED: the website tests of playbook step 11
-    decide), or the patch set not applied at all (BLOCKER)."""
+    is in the export. ``exact`` is the only PASS. The patch set not applied at all, and ``drift`` (a listed file missing
+    or with another digest, each named), are BLOCKERs, as playbook step 10 stops on both: the patch set on the export is
+    not the tested one, so the website tests of step 11 decide nothing on their own, and the row never counts toward
+    "Integration ready (local)". Without an export the row is NOT RUN."""
     import hashlib
     if not export:
         row(rows, "website patch set (export)", NOT_RUN, "no --website-copy")
@@ -243,8 +264,10 @@ def website_copy(kit: Path, rows: list, export: str | None) -> None:
     if missing and not (root / "src" / "verify" / "with-verification.js").exists():
         row(rows, "website patch set (export)", BLOCKER, f"base {base}: the patch set is not applied (no src/verify/)")
     elif missing or drifted:
-        row(rows, "website patch set (export)", REPORTED, f"base {base}: drift in {len(missing) + len(drifted)} file(s): "
-            + ", ".join((missing + drifted)[:6]) + (" ..." if len(missing) + len(drifted) > 6 else ""))
+        changed = missing + drifted
+        row(rows, "website patch set (export)", BLOCKER, f"base {base}: drift in {len(changed)} file(s): " + ", ".join(changed[:6])
+            + (" ..." if len(changed) > 6 else "") + " (not the tested patch set: playbook step 10 stops; re-recording the patch set "
+            "for this website is a kit change)")
     else:
         row(rows, "website patch set (export)", PASS, f"base {base}: exact (every file RESULT.sha256 lists)")
 
@@ -263,12 +286,61 @@ def everything(args, rows: list) -> None:
     else:
         row(rows, "website G0 (owner gate, origin/main)", NOT_RUN, "no Node.js or no --website")
     website_copy(kit, rows, args.website_copy)
-    if node and args.agents:
-        p = subprocess.run([node, str(kit / "integration" / "readiness" / "check-agents.mjs"), args.agents], capture_output=True, text=True, timeout=120)
-        row(rows, "agents contracts", PASS if p.returncode == 0 else BLOCKER, (p.stdout.strip().splitlines() or [p.stderr.strip()])[-1][:160])
-    else:
-        row(rows, "agents contracts", NOT_RUN, "no Node.js or no --agents")
+    agents_rows(kit, rows, node, runtime=args.agents_runtime, routing=args.agents_routing, harness=args.agents_harness, one_copy=args.agents)
     simulation(kit, rows, args.sim_out)
+    simulation_copies(kit, rows, args.sim_out)
+
+
+#: The agents roles checked by archive copy (playbook step 8): the row each missing copy leaves NOT RUN, and what it
+#: leaves unchecked.
+AGENTS_ROLES = (
+    ("runtime", "agents runtime", "the runtime pin, its contract, `claims: null` and the knowledge-base pin are not checked"),
+    ("routing", "agents routing", "the routing pin and the routing contract are not checked"),
+    ("harness", "agents harness", "the agents path, A3 and A5 are not checked"),
+)
+
+
+def _unchecked_roles(rows: list, copies: dict) -> None:
+    """One NOT RUN row per role without a copy: a role that was not checked never counts toward a PASS."""
+    for role, name, unchecked in AGENTS_ROLES:
+        if not copies.get(role):
+            row(rows, name, NOT_RUN, f"no --agents-{role}: {unchecked}")
+
+
+def agents_rows(kit: Path, rows: list, node: str | None, *, runtime: str | None = None, routing: str | None = None,
+                harness: str | None = None, one_copy: str | None = None) -> None:
+    """Playbook step 14's agents rows: by role (``agents``), and the earlier one-copy form (``--agents``), which checks
+    the contracts of one copy and none of the pins, so on its own it leaves every role's row NOT RUN."""
+    copies = {"runtime": runtime, "routing": routing, "harness": harness}
+    by_role = any(copies.values())
+    if not node or not (by_role or one_copy):
+        row(rows, "agents contracts", NOT_RUN, "no Node.js" if not node else "no agents copy (--agents-runtime, --agents-routing, --agents-harness, or --agents)")
+        return
+    if by_role:
+        agents(kit, rows, node, **copies)
+    if one_copy:
+        p = subprocess.run([node, str(kit / "integration" / "readiness" / "check-agents.mjs"), one_copy], capture_output=True, text=True, timeout=120)
+        row(rows, "agents contracts (one copy)" if by_role else "agents contracts", PASS if p.returncode == 0 else BLOCKER,
+            (p.stdout.strip().splitlines() or [p.stderr.strip()])[-1][:160])
+        if not by_role:
+            _unchecked_roles(rows, copies)
+
+
+def agents(kit: Path, rows: list, node: str, *, runtime: str | None = None, routing: str | None = None, harness: str | None = None) -> None:
+    """Playbook steps 8 and 14: the agents contracts by role, as one row "agents contracts" from ``check-agents.mjs``
+    (BLOCKER when it exits 1, else PASS; the rows it REPORTED are named in the detail, never hidden), and one NOT RUN row
+    for each role whose copy is not given ("agents runtime", "agents routing", "agents harness"): check-agents checks only
+    the roles it is given, so its PASS says nothing of the others, and a NOT RUN row keeps readiness at NO."""
+    argv = [node, str(kit / "integration" / "readiness" / "check-agents.mjs")]
+    for flag, copy in (("--runtime", runtime), ("--routing", routing), ("--harness", harness)):
+        if copy:
+            argv += [flag, copy]
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    lines = p.stdout.strip().splitlines()
+    reported = [line[len("REPORTED"):].strip().split(":", 1)[0] for line in lines if line.startswith("REPORTED")]
+    detail = (lines or [p.stderr.strip()])[-1][:160] + (f" ({len(reported)} REPORTED: {', '.join(reported)})" if reported else "")
+    row(rows, "agents contracts", PASS if p.returncode == 0 else BLOCKER, detail)
+    _unchecked_roles(rows, {"runtime": runtime, "routing": routing, "harness": harness})
 
 
 def simulation(kit: Path, rows: list, sim_out: str | None) -> None:
@@ -291,6 +363,48 @@ def simulation(kit: Path, rows: list, sim_out: str | None) -> None:
         row(rows, "simulation gates", NOT_RUN, "no simulation output (--sim-out)")
 
 
+def simulation_copies(kit: Path, rows: list, sim_out: str | None) -> None:
+    """Playbook step 14: the runtime copy the simulation's website path ran, read from its own output (``results.json``).
+    ``specialist_commit`` and ``specialist_contract`` name the copy ``run_sim.py`` gave the website path (its
+    ``.kit-archive-commit`` and ``RUNTIME_CONTRACT_VERSION``), whether or not that path then ran. The path ran only when the
+    output records no ``not_run.website_path`` and holds the website driver's own line (``subchecks.website_driver``,
+    written only when the driver finished). The simulation is evidence for the runtime pin (``COMPATIBILITY.json``
+    ``agents_pins.runtime``) only when its website path ran that pin: PASS then. NOT RUN when the website path did not run
+    (the service refused to start, or the driver stopped: the reason the output gives), when it ran another copy (the
+    harness, without ``--specialist``, or another commit or contract) or when the output does not name the copy (a run of
+    an earlier ``run_sim.py``), so readiness stays NO. The agents path's copy (the harness) is named in the detail, with
+    its own not-run reason. No row without a simulation output: the gates row is NOT RUN then."""
+    results = Path(sim_out) / "results.json" if sim_out else None
+    if results is None or not results.exists():
+        return
+    res = json.loads(results.read_text(encoding="utf-8"))
+    pin = json.loads((kit / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))["agents_pins"]["runtime"]
+    name = "simulation runtime copy"
+    if "specialist_commit" not in res:
+        row(rows, name, NOT_RUN, "the simulation output does not name the runtime copy its website path ran (an earlier run_sim.py): "
+            "the runtime pin was not simulated")
+        return
+    commit, contract = res.get("specialist_commit"), res.get("specialist_contract")
+    not_run = res.get("not_run") or {}
+    driver = (res.get("subchecks") or {}).get("website_driver")
+    given = f"{res.get('specialist_copy') or 'no runtime copy'} {commit or '(no .kit-archive-commit)'} ({contract})"
+    agents = f"; agents path: {res.get('agents_commit') or 'no harness copy'} ({res.get('agents_contract')})" + (
+        f", not run: {not_run['agents_path']}" if not_run.get("agents_path") else "")
+    if not_run.get("website_path") or not driver:
+        reason = not_run.get("website_path") or "the output holds no website driver line (subchecks.website_driver)"
+        row(rows, name, NOT_RUN, f"the website path did not run ({reason}): the runtime pin was not simulated (the copy given: {given}){agents}")
+    elif commit == pin["commit"] and contract == pin["contract"]:
+        row(rows, name, PASS, f"website path ran the runtime pin {commit} ({contract}, {res.get('specialist_copy')}; {driver}){agents}")
+    else:
+        row(rows, name, NOT_RUN, f"the website path ran {given}, not the runtime pin {pin['commit']} ({pin['contract']}): "
+            f"the pinned runtime was not simulated{agents}")
+
+
+def local_ready(rows: list) -> bool:
+    """"Integration ready (local)": no BLOCKER and no NOT RUN row (REPORTED rows are recorded, never a stop)."""
+    return not any(s in (BLOCKER, NOT_RUN) for _n, s, _d in rows)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="integration readiness (read-only)")
     ap.add_argument("--g1", metavar="KIT")
@@ -302,7 +416,10 @@ def main(argv=None) -> int:
     ap.add_argument("--kit", default=str(KIT))
     ap.add_argument("--website")
     ap.add_argument("--website-copy")
-    ap.add_argument("--agents")
+    ap.add_argument("--agents", help="one agents copy (the earlier form; check-agents.mjs <copy>)")
+    ap.add_argument("--agents-runtime", help="an archive copy of the retrained repository at the runtime pin")
+    ap.add_argument("--agents-routing", help="an archive copy of the retrained repository at the routing pin")
+    ap.add_argument("--agents-harness", help="an archive copy of the harness (the agents path, A3 and A5)")
     ap.add_argument("--sim-out")
     ap.add_argument("--keys-dir", help="ignored: keys are ephemeral and stay in the service's environment")
     args = ap.parse_args(argv)
@@ -321,8 +438,7 @@ def main(argv=None) -> int:
     for name, status, detail in rows:
         print(f"{name:<{width}}  {status:<8}  {detail}")
     if args.all:
-        local = not any(s == BLOCKER for _n, s, _d in rows) and not any(s == NOT_RUN for _n, s, _d in rows)
-        print(f"Integration ready (local): {'YES' if local else 'NO'}")
+        print(f"Integration ready (local): {'YES' if local_ready(rows) else 'NO'}")
         print("Live ready: NO (owner actions: W0, base P, D25 timing, D7 hosting, secrets, D14 caps, D23 models, D15 data terms)")
     return 1 if any(s == BLOCKER for _n, s, _d in rows) else 0
 

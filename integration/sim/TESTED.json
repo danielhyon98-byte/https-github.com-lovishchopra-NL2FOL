@@ -76,15 +76,16 @@
   "skipped": []
  },
  "files": {
-  "integration/sim/agents-driver.mjs": "cba1b439ff8326a5df28a242467fbdfc942bbf72915f1f38d0d85c9c02b496c2",
+  "integration/sim/agents-driver.mjs": "9a69bc25502bdfa4586f3cc797fa3ed21124a4551b4e5f5f19c585cd31d5eda2",
   "integration/sim/compare.py": "e005ce1b1ae0518edf3221d76023c2c9a2064eb5f132063c18cf3c0a33ff5147",
   "integration/sim/corpus/MANIFEST.sha256": "18fe07ce28e42152007bfbfaa6a040550d62757385137497feecb45a6ac1d091",
   "integration/sim/faults.py": "930741fc011efde3a3be7322dd97064ca951674c178cecfbaba1cb7e441234aa",
   "integration/sim/gates.py": "a97cd4577909e2cb0978712d54f254f2b9ec72f4a7cb1ea092a3c412a4628b01",
   "integration/sim/reference.py": "0bba0657b28e166e769fd73aec7b0f918477584afde1705bf9acb5b56ef9db1a",
-  "integration/sim/run_sim.py": "d917bde03eb07390deaf6180078d1c421383e2b581cf50bbf211dc847b002ec8",
+  "integration/sim/run_sim.py": "73a449ac75e5cf8cd391c8b9e300ed729ce4ad0f38e25f284dd26ffd56ff34f5",
+  "integration/sim/runtime-reply.mjs": "d70a9aff4c1fabc94aeddaddc4e8fa09926a6888786d80c94aa093cf5d610ef6",
   "integration/sim/users.json": "de1d04606000f5b5d2289f248c5db4c98d2723ee3ed545d975d6fc938eb5c247",
-  "integration/sim/website-driver.mjs": "425cfac9092150994f17780e5c22b880bb62944df0e7f40e01b49d0af1876696",
+  "integration/sim/website-driver.mjs": "470e0dcc22c7aa39cc177de73985f59b629ae528db2f3869309f042dafaef97a",
   "tests/integration/sim_double/kit_overseer_test_double.py": "e600c93f2c5b7652f25fbffed7622f68fd56652029a8c8b57b8940a22c8e465f"
  },
  "not_run": {
@@ -92,5 +93,7 @@
  },
  "note": "A wiring run of integration/sim/run_sim.py with the TEST DOUBLE of the overseer port (tests/integration/sim_double/): every gate is reported NOT RUN; 'computed' is what each gate computed, information only.",
  "schema": "epinoic.integration.sim-wiring-record.v1",
+ "specialist_commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+ "specialist_contract": "epinoic.specialist-runtime.v0.2.0",
  "website_export": "UNREVIEWED SIMULATION COPY of origin/main 2cd318208980e5b236d16b4281dfc0560a7b9610."
 }

@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """The local end-to-end simulation of the integration kit (PROTOCOL.md section 14.5; playbook step 12).
 
-    python integration/sim/run_sim.py --website <export> --agents <agents copy> --translator <kit> \
-        --corpus <kit>/integration/sim/corpus --out <dir> [--rounds <dir>]
+    python integration/sim/run_sim.py --website <export> --specialist <runtime copy> --agents <harness copy> \
+        --translator <kit> --corpus <kit>/integration/sim/corpus --out <dir> [--rounds <dir>]
+
+Two copies (README.md, "The two copies"): ``--specialist`` is the runtime the website path runs (an archive copy of the
+retrained repository at ``COMPATIBILITY.json`` ``agents_pins.runtime``); ``--agents`` is the harness the agents path
+runs (an archive copy of ``repositories.agents_harness``: its runtime and its router in one tree). Without
+``--specialist`` the website path runs the ``--agents`` copy, as before. Each driver replies to its runtime in the shape
+that copy's own contract takes (``runtime-reply.mjs``).
 
 Order: copy the corpus (the kit and any supplied rounds are never written to) -> the fault cases, built by the arena's
 own functions on the reference copy, indexed to their items' fixtures in a round only the service loads (faults.py)
@@ -11,8 +17,11 @@ provider and the evidence tap -> the website driver (users.json and the website-
 export) -> the agents driver (STEM, duplicate, combined, clarify and the STEM fault cases) -> the reference harnesses on
 another copy (reference.py) -> the tampering cases at the adapter (tamper_web.py, a sub-check) -> the gates (gates.py).
 Writes ``<out>/summary.md`` (one line per gate: PASS, FAIL or NOT RUN with its reason) and ``<out>/results.json``
-(denominators, case ids, sub-checks, what was not run and why). Exit 0 only when no gate FAILs and all eight gates
-PASS; every part that is missing makes its gates NOT RUN with the reason that part gave, never PASS.
+(denominators, case ids, sub-checks, what was not run and why, and the copy each path was given: ``specialist_copy``,
+``specialist_commit``, ``specialist_contract``, ``agents_copy``, ``agents_commit``, ``agents_contract``; the summary's
+"Copies" lines say the same, and a path that did not run says so there and in ``not_run``: a copy given to a path that
+did not run was not simulated). Exit 0 only when no gate FAILs and all eight gates PASS; every part that is missing makes
+its gates NOT RUN with the reason that part gave, never PASS.
 
 ``--test-overseer-port MODULE --test-pythonpath DIRS`` (TEST ONLY: tests/integration/sim_double/) starts the service
 with a test double of the overseer port so the drivers and the gates can be exercised before the overseer's adapter
@@ -200,23 +209,66 @@ def with_test_double(gate_results: list, module: str, subchecks: dict, gates: An
 #: The files whose wiring the record names (integration/sim/TESTED.json): a change to any of them needs a new wiring run.
 WIRING_FILES = ("integration/sim/run_sim.py", "integration/sim/gates.py", "integration/sim/compare.py", "integration/sim/faults.py",
                 "integration/sim/reference.py", "integration/sim/website-driver.mjs", "integration/sim/agents-driver.mjs",
-                "integration/sim/users.json", "integration/sim/corpus/MANIFEST.sha256", "tests/integration/sim_double/kit_overseer_test_double.py")
+                "integration/sim/runtime-reply.mjs", "integration/sim/users.json", "integration/sim/corpus/MANIFEST.sha256",
+                "tests/integration/sim_double/kit_overseer_test_double.py")
 
 
-def wiring_record(results: dict, translator: Path, website: Optional[str], agents: Optional[str]) -> dict:
+def _archive_commit(copy: Optional[str]) -> Optional[str]:
+    marker = Path(copy) / ".kit-archive-commit" if copy else None
+    return marker.read_text(encoding="utf-8").strip() if marker and marker.exists() else None
+
+
+def _runtime_contract(copy: Optional[str]) -> Optional[str]:
+    import re
+    constants = Path(copy) / "specialist-runtime" / "src" / "constants.js" if copy else None
+    m = re.search(r'RUNTIME_CONTRACT_VERSION\s*=\s*"([^"]+)"', constants.read_text(encoding="utf-8")) if constants and constants.exists() else None
+    return m.group(1) if m else None
+
+
+def copies(specialist: Optional[str], agents: Optional[str]) -> dict:
+    """The archive copy each path is given, for ``results.json`` and ``summary.md`` of every run: the website path's
+    runtime (``--specialist``, else ``--agents``) and the agents path's harness (``--agents``), each by its
+    ``.kit-archive-commit`` and its ``RUNTIME_CONTRACT_VERSION`` (None when absent). They are recorded before the service
+    starts, so they say which copy a path was given, not that it ran (``not_run`` says which path did not). The readiness
+    check compares ``specialist_commit`` and ``specialist_contract`` with ``COMPATIBILITY.json`` ``agents_pins.runtime``
+    only when the website path ran (check.py, "simulation runtime copy")."""
+    website_copy = specialist or agents
+    return {"specialist_copy": "--specialist" if specialist else ("--agents" if agents else None),
+            "specialist_commit": _archive_commit(website_copy), "specialist_contract": _runtime_contract(website_copy),
+            "agents_copy": "--agents" if agents else None,
+            "agents_commit": _archive_commit(agents), "agents_contract": _runtime_contract(agents)}
+
+
+def copy_lines(results: dict) -> list[str]:
+    """The summary's lines naming the copy each path was given (``copies``), each followed by its own not-run reason when
+    that path did not run (``results["not_run"]``): a copy given to a path that did not run was not simulated."""
+    not_run = results.get("not_run") or {}
+
+    def one(flag, commit, contract, path) -> str:
+        given = f"{flag} {commit or '(no .kit-archive-commit)'} ({contract or 'no RUNTIME_CONTRACT_VERSION'})" if flag else "no copy"
+        return given + (f", not run: {not_run[path]}" if not_run.get(path) else "")
+    return ["", "Copies (the archive copy each path was given: its .kit-archive-commit and RUNTIME_CONTRACT_VERSION):",
+            f"- website path: {one(results.get('specialist_copy'), results.get('specialist_commit'), results.get('specialist_contract'), 'website_path')}",
+            f"- agents path: {one(results.get('agents_copy'), results.get('agents_commit'), results.get('agents_contract'), 'agents_path')}"]
+
+
+def wiring_record(results: dict, translator: Path, website: Optional[str], agents: Optional[str], specialist: Optional[str] = None) -> dict:
     """The record of one wiring run with the test double (``--record-wiring``): the digests of the files it ran, the
-    website export's and the agents copy's provenance lines, what every gate computed, and the counts. It is evidence
-    about the drivers and the gates' wiring only: no gate is PASS under a double."""
+    website export's provenance line, the commits of the two copies (the website path's runtime, ``--specialist`` or
+    else ``--agents``, with its contract; the agents path's harness), what every gate computed, and the counts. It is
+    evidence about the drivers and the gates' wiring only: no gate is PASS under a double."""
     import hashlib
     marker = Path(website) / "UNREVIEWED-SIMULATION-COPY.txt" if website else None
-    commit = Path(agents) / ".kit-archive-commit" if agents else None
+    runtime_copy = specialist or agents
     return {
         "schema": "epinoic.integration.sim-wiring-record.v1",
         "note": "A wiring run of integration/sim/run_sim.py with the TEST DOUBLE of the overseer port (tests/integration/sim_double/): "
                 "every gate is reported NOT RUN; 'computed' is what each gate computed, information only.",
         "files": {f: hashlib.sha256((translator / f).read_bytes()).hexdigest() for f in WIRING_FILES},
         "website_export": marker.read_text(encoding="utf-8").splitlines()[0] if marker and marker.exists() else None,
-        "agents_commit": commit.read_text(encoding="utf-8").strip() if commit and commit.exists() else None,
+        "agents_commit": _archive_commit(agents),
+        "specialist_commit": _archive_commit(runtime_copy),
+        "specialist_contract": _runtime_contract(runtime_copy),
         "computed": results["subchecks"].get("gates_with_test_double"),
         "computed_fail_cases": results["subchecks"].get("gate_cases_with_test_double"),
         "fault_cases": results["subchecks"].get("fault_cases"),
@@ -236,7 +288,8 @@ def run(args) -> int:
     if args.rounds:
         rounds += [p for p in sorted(Path(args.rounds).iterdir()) if (p / "specialists").is_dir()]
     test_double = args.test_overseer_port or None
-    results: dict = {"rounds": [r.name for r in rounds], "not_run": {}, "subchecks": {}, "test_double": test_double}
+    results: dict = {"rounds": [r.name for r in rounds], "not_run": {}, "subchecks": {}, "test_double": test_double,
+                     **copies(args.specialist, args.agents)}
     work = out / "work"
     if work.exists():
         shutil.rmtree(work)
@@ -285,8 +338,9 @@ def run(args) -> int:
             results["not_run"]["website_path"] = reason
             results["not_run"]["agents_path"] = reason
         else:
-            if args.website and args.agents:
-                ok, msg = _driver(node, "website-driver.mjs", ["--website", args.website, "--agents", args.agents, "--out", str(work / "website"),
+            specialist = args.specialist or args.agents  # the website path's runtime copy
+            if args.website and specialist:
+                ok, msg = _driver(node, "website-driver.mjs", ["--website", args.website, "--agents", specialist, "--out", str(work / "website"),
                                                                "--vectors", str(translator / "integration" / "vectors"), *common])
                 if ok:
                     website = json.loads((work / "website" / "website-driver.json").read_text(encoding="utf-8"))
@@ -294,7 +348,7 @@ def run(args) -> int:
                 else:
                     results["not_run"]["website_path"] = msg
             else:
-                results["not_run"]["website_path"] = "no website export (--website)" if not args.website else "no agents copy (--agents)"
+                results["not_run"]["website_path"] = "no website export (--website)" if not args.website else "no runtime copy (--specialist or --agents)"
             if args.agents:
                 ok, msg = _driver(node, "agents-driver.mjs", ["--agents", args.agents, "--out", str(work / "agents"), *common])
                 if ok:
@@ -362,6 +416,7 @@ def run(args) -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
     lines = gates.summary_lines(results["gates"])
+    lines += copy_lines(results)
     lines += ["", "Not run, and why:"] + [f"- {k}: {v}" for k, v in sorted(results["not_run"].items())]
     lines += ["", "Sub-checks (information, never a gate):"] + [f"- {k}: {json.dumps(v)}" for k, v in sorted(results["subchecks"].items())]
     (out / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -370,8 +425,8 @@ def run(args) -> int:
         if not test_double:
             print("--record-wiring records a wiring run with the test double only (--test-overseer-port)", file=sys.stderr)
             return 2
-        Path(args.record_wiring).write_text(json.dumps(wiring_record(results, translator, args.website, args.agents), indent=1, sort_keys=True) + "\n",
-                                            encoding="utf-8")
+        Path(args.record_wiring).write_text(json.dumps(wiring_record(results, translator, args.website, args.agents, args.specialist), indent=1,
+                                                       sort_keys=True) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return gates.exit_status(results["gates"])
 
@@ -379,7 +434,8 @@ def run(args) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="the integration kit's local simulation")
     ap.add_argument("--website", default=None)
-    ap.add_argument("--agents", default=None)
+    ap.add_argument("--agents", default=None, help="the harness copy: the agents path (and the website path without --specialist)")
+    ap.add_argument("--specialist", default=None, help="the runtime copy the website path runs (the retrained repository at the runtime pin)")
     ap.add_argument("--translator", required=True)
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--out", required=True)

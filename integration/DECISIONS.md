@@ -179,9 +179,9 @@ How to read this record:
 | D15 | The service keeps no request or response bodies, and its metadata logs are kept at most 30 days. The provider must not train on inputs and must keep them at most 30 days. Only Access-protected testers use staging. The licensed corpus ships only once the repository is private | Daniel (provider terms), Bruno (website notice) (last task) |
 | D16 | Synchronous delivery for M2. Asynchronous delivery (protocol 1.1) is the M3 target that carries the four-minute budget | nobody now; Bruno designs the website side at M3 |
 | D17 | Daniel's rule is confirmed. The four-minute formal budget applies in asynchronous delivery. An answer whose formal checks did not complete may be shown only when the overseer selects it with accuracy above 0.90, on two validated reviews; it is never labelled checked, and otherwise it is withheld. The fallback is specified, not built, and stays off on hosted environments until its 95% Wilson lower bound is at least 0.90; its 120 s overseer deadline and the 420 s job ceiling are provisional until standard-profile latency is measured. Synchronous delivery withholds within the checks budget (at most 65 s) | the kit implements it at M3; Daniel enables the fallback after measurement |
-| D18 | The overseer is embedded in v1. A sidecar replaces it only after passing the conformance suite. Overseer agents run asynchronously and are advisory. The simulation adjudicator's power to clear formal errors is removed | the kit implements it; Daniel applies A5 in the agents repository (last task) |
+| D18 | The overseer is embedded in v1. A sidecar replaces it only after passing the conformance suite. Overseer agents run asynchronously and are advisory. The simulation adjudicator's power to clear formal errors is removed | the kit implements it; Daniel applies A5 in the harness (`repositories.agents_harness`) (last task) |
 | D19 | The website uses single mode only. Duplicate mode never runs on the website. Combined mode only from M3, with the student's consent, W8, a connected combinator and the N_FOLD floor | nobody now |
-| D20 | No new repositories. Sub-projects live on `subproject/<name>` branches of the development repository. The tag and the pointer go on `origin`, and the mirror gets no pointer. The development repository becomes private. Agents changes go on a branch of the agents repository | Daniel (visibility, tag) (last task) |
+| D20 | No new repositories. Sub-projects live on `subproject/<name>` branches of the development repository. The tag and the pointer go on `origin`, the development repository (`kit_tag_repository`), and the organization's translator repository gets no pointer. The development repository becomes private. Agents changes go on a branch of the repository each one names: the retrained repository (`repositories.agents`) or the harness (`repositories.agents_harness`) | Daniel (visibility, tag) (last task) |
 | D21 | `verified` is the only hosted path to real specialist answers. Decided; the pins are pending in patch set P, which is not built yet | Bruno merges the pins with patch set P (last task) |
 | D22 | Overseer-agent findings after delivery are recorded as metadata with a weekly summary. Nothing retracts a delivered answer automatically. No per-item human queue in v1 | nobody: the kit implements it; Daniel reads the summary |
 | D23 | Approve the `policy.defaultPrimary` entry (cheapest tier) of `model-assignment.json` version 2026-10-13.1 for every deployed role. The comparison entry is not approved. There is no runtime fallback | Daniel sets the service's model id; Bruno sets the specialist's model id (last task) |
@@ -322,7 +322,12 @@ the service host (an external auditor, or a sidecar overseer on another host).
   verified version is published, by a fast-forward-only subtree split, to the branch `subproject/<name>` of the
   development repository (`origin`).
 - `subproject/flash-router` already exists (`fcf2381`, a split of `flash-router/` at `af10b4a`).
-- The kit tag and its pointer go on `origin` only.
+- The kit tag and its pointer go on `origin` only: the development repository, the role `COMPATIBILITY.json`
+  `kit_tag_repository` names (`translator_development`). The organization's translator repository
+  (`repositories.translator`) receives the verified updates and no tag.
+- The agents repositories are named by role: `repositories.agents` is the retrained repository (the runtime the website
+  is to deploy, its exporter, the knowledge bases and the routing, pinned in `agents_pins`),
+  `repositories.agents_harness` the harness (the training and simulation harness).
 - The development repository becomes private, matching its LICENSE. Only after that may the website patch files and the
   licensed corpus be published there.
 
@@ -626,8 +631,9 @@ the service host (an external auditor, or a sidecar overseer on another host).
       the simulation.
     - When Bruno schedules W7, the programme recommends an additive migration that keeps the legacy `route_id` CHECK and
       adds no table rebuild. That migration is Bruno's design.
-  - **Spanish:** `spanish-b` is the canonical slug. `language-b-spanish` stays a service-only alias, as the subject map
-    already has it.
+  - **Spanish:** `language-b-spanish` is the retrained repository's slug (its knowledge-base folder and its routing
+    catalogue, `repositories.agents`); `spanish-b` is the harness's (`repositories.agents_harness`, its `agents/`
+    roster). Both stay service-only rows of the subject map, which is unchanged.
 - **Why:**
   - The agents repository's runtime manifest has one entry, `history` (inspected 17 October).
   - The website's subjects are a closed pair (`CHECK (route_id IN ('english','history'))` in
@@ -1044,7 +1050,7 @@ the service host (an external auditor, or a sidecar overseer on another host).
 - **Who acts, when:**
   - The programme connects the embedded adapter (phase 2).
   - At the last task, Daniel sets `EPINOIC_OVERSEER_AGENTS=async` on the staging host and gives his go for agents
-    changes A1 to A5 on a branch of the agents repository.
+    changes A1 to A5 on a branch of the harness (`repositories.agents_harness`), where A5 applies (owner action 3b).
 - **How to reverse:** set `EPINOIC_OVERSEER_AGENTS=off`. Deliveries do not change, because the agents never gate them in
   v1.
 - **Authority:** the kit named the founder and Daniel. Decided under his delegation.
@@ -1084,11 +1090,18 @@ the service host (an external auditor, or a sidecar overseer on another host).
   3. **The kit's base commit:** the overseer rebuild commit, plus `0d28eba` (contract 0.3, the named policies), plus the end-to-end
      fixes (`8a78efe`), the argument-diagnostics commit when it lands, and this pre-build branch. Contract 0.3 or later
      must win the merge.
-  4. **Canonical translator remote:** `origin` (the danielhyon98-byte development repository) carries the annotated tag
-     `integration-kit-v1` and `INTEGRATION_KIT.md` on its default branch. The mirror gets no pointer: its default
-     branch is never touched, and it only receives the publishers' `verified-updates`.
-  5. **Canonical agents repository:** the public connector (runtime v0.1.0). Website PR #24's vendored v0.2.0 is accepted
-     through the v2 pair. Agents changes A1 to A5 go on a branch of the agents repository, never a new repository. A2
+  4. **The kit tag's repository:** the development repository (`repositories.translator_development`, `origin`;
+     `COMPATIBILITY.json` `kit_tag_repository`) carries the annotated tag `integration-kit-v1` and `INTEGRATION_KIT.md`
+     on its default branch. The organization's translator repository (`repositories.translator`; `translator_mirror`
+     is its former path) gets no tag and no pointer: its default branch is never touched, and it receives the
+     publishers' verified updates.
+  5. **Agents repositories, by role:** `repositories.agents` is the retrained repository
+     (Epinoic-AI/Epinoic-Agent-Training, private): the deployable runtime (the one the website is to deploy; nothing is
+     deployed), its exporter, the knowledge bases, the routing and the retraining, pinned in `agents_pins`;
+     `repositories.agents_harness` is the API connector, the training and simulation harness (runtime v0.1.0 and its
+     routing in one tree; A1, A3, A4 and A5's targets). The website's
+     vendored runtime is accepted when its src tree is the runtime pin's. A2 and A1's prose go on a branch of the
+     retrained repository, A1 to A5 on a branch of the harness, each only on Daniel's go; never a new repository. A2
      holds only envelope code and synthetic vectors, no translator code or prompt text.
   6. **Visibility:** the translator development repository becomes **private**, consistent with its LICENSE. Only after
      that may the `W*.patch` files and the licensed corpus be published in it. Until then only `apply.mjs`, the
@@ -1104,7 +1117,12 @@ the service host (an external auditor, or a sidecar overseer on another host).
     `subproject/<name>` branches, and record how to split one.
   - `COMPATIBILITY.json` gains `repositories.translator_visibility` (`public` until changed) and
     `repositories.subproject_branches`.
-  - The playbook's step 2 is unchanged.
+  - Made (the retarget, 23 October 2026): `COMPATIBILITY.json` names the repositories by role (`translator`, the
+    organization's repository; `translator_development`; `translator_mirror`, the former path, kept; `website`;
+    `agents`, the retrained repository; `agents_harness`, the harness), `kit_tag_repository`
+    (`translator_development`) and `agents_pins` (runtime, exporter, knowledge bases, routing, harness). The playbook
+    finds the tag on the remote of that role (step 2), names the checkouts by role (`readiness/roles.mjs`) and archives
+    the agents repositories at their pins (step 8); `readiness/check-agents.mjs` checks them by role.
   - `DECISIONS.md` marks D20 decided, along with D28 and D33's repository form.
 - **Who acts, when:**
   - The programme pushes the verified `subproject/*` branches to `origin` (Daniel's 17 October instruction).
@@ -1427,13 +1445,21 @@ owner's own go, in this order.
 
 **Programme, before the last task (Daniel's repository, already authorized by his instructions):** implement the kit
 changes above in phase 2's protocol step. This includes the kit's base commit, with contract 0.3 or later winning the
-merge (D20), and patch set P with the D21 pins. Then publish the verified `subproject/*` branches (D20).
+merge (D20), and patch set P with the D21 pins. Then publish the verified `subproject/*` branches (D20). Before the
+tag, Daniel approves the deployable runtime pin (`agents_pins.runtime`: `8ceba43`, as tested; another commit only after
+its review, re-measured by the programme) and the History knowledge base it carries (`agents_pins.knowledge_bases`: the
+v4 baseline `651d71d`, or a retrained package once it is adopted in the retrained repository and re-pinned there and in
+the kit).
 
 1. **Daniel:** make the translator development repository private (D20, D15).
-2. **Daniel:** publish the kit: the annotated tag `integration-kit-v1` on the kit commit, pushed to `origin` only, plus
-   `INTEGRATION_KIT.md` and the one-line README pointer on `origin`'s default branch (D20).
-3. **Daniel:** give his go for agents changes A1 to A5 on a branch of the agents repository, with `--adjudicator advisory`
-   as the integrated default (D18, D20).
+2. **Daniel:** publish the kit: the annotated tag `integration-kit-v1` on the kit commit, pushed only to the repository
+   `kit_tag_repository` names (`origin`, the development repository), plus `INTEGRATION_KIT.md` and the one-line README
+   pointer on `origin`'s default branch (D20).
+3. **Daniel:** give his go for the agents changes, by repository (D18, D20):
+   - **3a.** A2, with A1's prose, on a branch of the retrained repository (`repositories.agents`), from the runtime pin;
+   - **3b.** A1 to A5 on a branch of the harness (`repositories.agents_harness`) at the harness commit he names, with
+     `--adjudicator advisory` as the integrated default; for a commit other than the harness pin, the programme
+     re-anchors A3 and A5 and re-measures them first (`agents/PATCH-PLAN.md`).
 4. **Bruno:** merge W0, a docs-only pull request of its own, on the website's `main`, recording "Z3 is required" and
    lifting G0 (D1). This redeploys staging with the mock unchanged.
 5. **Bruno:** review and merge PR S (#17): the staging `CHAT_DB` binding, `CHAT_STATE=d1`, and the migrations applied by

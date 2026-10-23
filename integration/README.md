@@ -23,8 +23,8 @@ require, which are not made yet: until they are, the kit's fail-closed defaults 
 | overseer port adapter (`epinoic_overseer.port`) | **connected in phase 2** (the overseer is not on this branch) |
 | combinator (`combinator/`, package `epinoic_combinator` 0.1.0) | a separate agent in a sub-project of its own (its own `pyproject.toml`, instructions pinned by digest with an exporter, a runner on the cheapest tier through a provider interface with deterministic fakes and no live provider, its output validated against the published contract before it leaves); built and tested, the hub catching what it lets out (`combinator-port/CONFORMANCE.md`); **connected to the service in phase 2** (decision D33); until then `combined` is not offered |
 | website adapter (`website/src/verify/`) and its `node:test` tests | built and tested in the kit; the website patch set is described in `website/PATCH-PLAN.md`; W0 (Bruno's docs change) is drafted into an export by `website/W0/draft-w0.mjs`, never applied |
-| agents material (`agents/`) | A2 (`checks-port/`) built; A3 and A5 built as anchored replacements (`patches/agents-A3-A5.json`, applied to an archive copy by `apply-agents.mjs`); all tested on an archive copy of the agents repository (`TESTED.json`); applied there only on Daniel's go, on a branch of that repository (D20) |
-| simulation (`sim/`) | gates, comparison, reference harness, fixture verifier, corpus, users, the website driver and the agents driver built and tested; the service needs the rebuilt overseer's port adapter, so on this branch every gate is NOT RUN with that refusal as its reason; the drivers' wiring is checked with a test double of the overseer port (`sim/TESTED.json`), under which every gate is NOT RUN too |
+| agents material (`agents/`) | two agents repositories by role (`COMPATIBILITY.json`: `repositories.agents`, the retrained repository, and `repositories.agents_harness`, the harness; their commits in `agents_pins`): A2 (`checks-port/`) built for both and tested on archive copies of the runtime pin (runtime v0.2.0) and the harness pin (runtime v0.1.0) (`TESTED.json`, `A2`); A3 and A5, harness only, built as anchored replacements for the harness pin (`patches/agents-A3-A5.json`, applied to an archive copy by `apply-agents.mjs`) and tested on an archive copy of it (`TESTED.json`); applied only on Daniel's go, on a branch of the repository each change names (D20) |
+| simulation (`sim/`) | gates, comparison, reference harness, fixture verifier, corpus, users, the website driver (over the retrained runtime, `--specialist`) and the agents driver (over the harness and its router, `--agents`) built and tested; the service needs the rebuilt overseer's port adapter, so on this branch every gate is NOT RUN with that refusal as its reason; the drivers' wiring is checked with a test double of the overseer port (`sim/TESTED.json`), under which every gate is NOT RUN too |
 | readiness (`readiness/`), rollback (`rollback/`), container (`deploy/container/`, PROPOSED) | written |
 
 Nothing is deployed, no provider is called, and no live integration is claimed anywhere in the kit.
@@ -49,8 +49,9 @@ integration/
     tests/                      node:test files (kit-vectors.js finds the vectors in the kit or in tests/fixtures/kit/)
     PATCH-PLAN.md  ANCHORS.md   the website change plan (W0 to W8) and its anchors
   agents/                       PATCH-PLAN.md (A0 to A5), checks-port/ (A2), patches/ and apply-agents.mjs (A3, A5), TESTED.json
-  sim/                          the local end-to-end simulation (sim/README.md)
-  readiness/                    locate.sh, check.py, check-website.mjs, check-agents.mjs
+  sim/                          the local end-to-end simulation (sim/README.md); runtime-reply.mjs, the drivers' reply in
+                                each runtime copy's own contract
+  readiness/                    locate.sh, roles.mjs (checkouts by role), check.py, check-website.mjs, check-agents.mjs
   overseer-port/CONFORMANCE.md  what an overseer adapter (embedded or sidecar) must reproduce
   router-port/CONFORMANCE.md    what the flash-router sub-project must reproduce
   deploy/container/             PROPOSED container files; built and deployed only on the owners' go-ahead
@@ -91,6 +92,7 @@ python integration/tools/manifest.py        # MANIFEST.sha256 files, last       
   faults, the fixture verifier, the tampering cases, the drivers, the readiness scripts.
 - **T9.** Docs: `integration/*.md`, the integration contract 0.4, the README pointer. Engine and policy semantics do
   not change. The manifest is generated last.
-- **T10. Publishing** is Daniel's action after D20: an annotated tag `integration-kit-v1` on the kit commit, pushed to
-  the canonical remote only, and `INTEGRATION_KIT.md` on that remote's default branch naming the tag. A tag is never
-  moved; a corrected kit gets a new tag.
+- **T10. Publishing** is Daniel's action after D20: an annotated tag `integration-kit-v1` on the kit commit, pushed only
+  to the repository `COMPATIBILITY.json` `kit_tag_repository` names (`translator_development`: the development
+  repository, D20; the organization's translator repository gets no tag), and `INTEGRATION_KIT.md` on that
+  repository's default branch naming the tag. A tag is never moved; a corrected kit gets a new tag.
