@@ -743,3 +743,9 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the audit after the seventh STEM repair found 3 problems; the next repair is running. The repair loop now
   also clears medium-severity findings before the rebuild is committed.
 - Argument diagnostics: repair round 3 is running.
+
+### Progress, 22:00 UTC (23 October)
+
+- Overseer rebuild: the eighth STEM repair is fixing the 3 problems of the last audit (1 high: a false alarm on correct STEM
+  working with equations; 1 medium: derivative relations neither checked nor named; 1 low).
+- Argument diagnostics: repair round 3 is still running.
