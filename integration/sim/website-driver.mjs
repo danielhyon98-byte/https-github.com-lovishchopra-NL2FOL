@@ -4,7 +4,8 @@
 // subject router, synthetic loopback principals, and the checks service on loopback. The specialist is the agents
 // repository's own offline runtime (createOfflineTestRuntime) over its synthetic bundle, behind the export's
 // createSpecialistOrchestrator; its authorizedGenerate returns each corpus item's recorded answer (or a fault case's
-// mutated answer), so no model is called.
+// mutated answer), so no model is called, in the shape the copy's own runtime contract takes (runtime-reply.mjs: v0.1.0
+// for the harness, v0.2.0 for the retrained repository's runtime, run_sim.py --specialist).
 //
 // Invariants:
 // - it runs only on a directory that carries UNREVIEWED-SIMULATION-COPY.txt (an export, never a checkout or a branch),
@@ -16,7 +17,7 @@
 // - without the verified backend or the runtime copy it exits 3 and names what is missing, and run_sim.py reports the
 //   website-path gates NOT RUN with that reason, never PASS.
 //
-// Usage: node website-driver.mjs --website <export> --agents <agents copy> --service <http://127.0.0.1:port>
+// Usage: node website-driver.mjs --website <export> --agents <runtime copy> --service <http://127.0.0.1:port>
 //        --token-file <file> --users <users.json> --corpus <service corpus copy> --round <round> --out <dir>
 //        [--faults <faults.json>] [--vectors <kit>/integration/vectors]
 //
@@ -26,15 +27,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { replyFor } from "./runtime-reply.mjs";
+
 const argv = process.argv.slice(2);
 const args = {};
 for (let i = 0; i < argv.length; i += 1) if (argv[i].startsWith("--")) args[argv[i].slice(2)] = argv[i + 1];
 
 const WEBSITE_FILES = ["src/index.js", "src/verify/with-verification.js", "src/verify/release-gate.js", "src/verify/specialist-orchestrator.js",
   "src/chat/contract.js", "public/chat-contract.js", "tests/helpers/d1.js"];
-const AGENTS_FILES = ["specialist-runtime/src/index.js", "specialist-runtime/fixtures/synthetic/harness.js",
+const AGENTS_FILES = ["specialist-runtime/src/index.js", "specialist-runtime/src/constants.js", "specialist-runtime/fixtures/synthetic/harness.js",
   "specialist-runtime/fixtures/synthetic/gate-config.js", "specialist-runtime/fixtures/synthetic/manifest.js",
-  "specialist-runtime/fixtures/synthetic/synthetic-bundle.txt"];
+  "specialist-runtime/fixtures/synthetic/callbacks.js", "specialist-runtime/fixtures/synthetic/synthetic-bundle.txt"];
 const missing = [];
 if (!args.website || !existsSync(join(args.website, "UNREVIEWED-SIMULATION-COPY.txt"))) missing.push("a disposable website export (UNREVIEWED-SIMULATION-COPY.txt)");
 for (const f of WEBSITE_FILES) if (!args.website || !existsSync(join(args.website, f))) missing.push(f);
@@ -75,6 +78,14 @@ const runtimePackage = await agentsModule("specialist-runtime/src/index.js");
 const harness = await agentsModule("specialist-runtime/fixtures/synthetic/harness.js");
 const gates = await agentsModule("specialist-runtime/fixtures/synthetic/gate-config.js");
 const manifests = await agentsModule("specialist-runtime/fixtures/synthetic/manifest.js");
+const { RUNTIME_CONTRACT_VERSION } = await agentsModule("specialist-runtime/src/constants.js");
+let reply;
+try {
+  reply = replyFor(RUNTIME_CONTRACT_VERSION, await agentsModule("specialist-runtime/fixtures/synthetic/callbacks.js"));
+} catch (e) {
+  console.error(`not runnable: ${e.message}`);
+  process.exit(3);
+}
 
 const SERVICE = new URL(args.service);
 if (!LOOPBACK.has(SERVICE.hostname)) {
@@ -212,8 +223,8 @@ function newWorld(user) {
         const hook = w.hooks.get(request.clientTurnId);
         if (hook) await hook();
         const text = w.answers.get(request.clientTurnId);
-        if (typeof text !== "string") return { status: "failed", error: { code: "sim_no_answer" }, usage: null, providerEvidence: null };
-        return { status: "completed", output: { text, finishReason: "stop" }, usage: null, providerEvidence: null };
+        if (typeof text !== "string") return reply.notGenerated("sim_no_answer");
+        return reply.generated(text);
       },
     }),
     failure: (rid, code) => ({ status: statusForError(code), result: errorResult(rid, code) }),
@@ -309,6 +320,7 @@ function tamper(name, verdict) {
 const records = { schema: "epinoic.integration.sim-website-records.v1", status: "ran", round: ROUND,
   website: readFileSync(join(WEBSITE, "UNREVIEWED-SIMULATION-COPY.txt"), "utf8").trim().split("\n")[0],
   agents_commit: existsSync(join(AGENTS, ".kit-archive-commit")) ? readFileSync(join(AGENTS, ".kit-archive-commit"), "utf8").trim() : null,
+  runtime_contract: RUNTIME_CONTRACT_VERSION,
   turns: [], tamper: {}, faults: [], displays: [], verdicts: [], invariants: {}, fetch: fetchLog, not_run: [] };
 
 let seq = 0;

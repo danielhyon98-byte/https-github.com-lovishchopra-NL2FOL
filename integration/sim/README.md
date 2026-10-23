@@ -6,13 +6,43 @@ provider is called, nothing is deployed, and no repository is written to: the co
 copied first.
 
 ```
-python integration/sim/run_sim.py --website <disposable export> --agents <agents copy> --translator <kit> \
-    --corpus integration/sim/corpus --out <dir> [--rounds <dir>]
+python integration/sim/run_sim.py --website <disposable export> --specialist <runtime copy> --agents <harness copy> \
+    --translator <kit> --corpus integration/sim/corpus --out <dir> [--rounds <dir>]
 ```
 
 `<dir>/summary.md` has one line per gate (PASS, FAIL or NOT RUN with its reason); `<dir>/results.json` has the
-denominators, the case ids, what was not run and why, and the sub-checks. Exit status 0 only when no gate FAILs and
-all eight gates PASS.
+denominators, the case ids, what was not run and why, and the sub-checks. Both name the copy each path was given, and a
+path that did not run says so (below, "The two copies"). Exit status 0 only when no gate FAILs and all eight gates PASS.
+
+## The two copies
+
+The simulation runs two archive copies of the agents repositories (`git archive` with `.kit-archive-commit`; playbook
+step 8), by role (`COMPATIBILITY.json` `repositories`, pins in `agents_pins`):
+
+- `--specialist`: the runtime the **website path** runs, the retrained repository at the runtime pin
+  (`agents_pins.runtime`: runtime 0.2.0, contract `epinoic.specialist-runtime.v0.2.0`, the History knowledge base of
+  `agents_pins.knowledge_bases`). It is the runtime the website path is to deploy (the deployable runtime pin); the
+  website's History pull requests, unmerged, vendor runtime copies that playbook step 9a compares with this pin, and the
+  kit deploys nothing.
+- `--agents`: the **harness** (`repositories.agents_harness`, at its pin or, in a session, at origin's default branch):
+  runtime 0.1.0 and its router in one tree, which the **agents path** needs (the retrained repository holds its
+  runtime and its routing on different branches, and its routing accepts runtime v0.1.0 only). Without
+  `--specialist`, the website path runs this copy too, as before.
+
+Each driver replies to its runtime in the shape that copy's own contract takes (`runtime-reply.mjs`): v0.1.0 the
+completed or failed objects the drivers always returned; v0.2.0 the website's generation result, built by the copy's own
+synthetic callbacks module (`generationResult`, `failureResult`); any other contract stops the driver ("not runnable",
+exit 3), so its gates are NOT RUN with that reason. Nothing of the agents repositories is copied into the kit. Every
+run names the copy each path was given by its `.kit-archive-commit` and its `RUNTIME_CONTRACT_VERSION`: `results.json`
+(`specialist_copy`, `specialist_commit`, `specialist_contract`, `agents_copy`, `agents_commit`, `agents_contract`,
+recorded before the service starts) and the "Copies" lines of `summary.md` (each with its path's not-run reason when
+that path did not run: `not_run.website_path`, `not_run.agents_path`); each driver's records (`runtime_contract`); and
+the wiring record (`specialist_commit`, `specialist_contract` and `agents_commit` in `TESTED.json`). The readiness
+check's row "simulation runtime copy" (playbook step 14) is PASS only when the website path ran the runtime pin
+(`agents_pins.runtime`: its commit and contract; the path ran when `results.json` has no `not_run.website_path` and holds
+the website driver's own line, `subchecks.website_driver`). A run whose website path did not run (the service refused
+to start, as on a pre-build commit, or the driver stopped), a run without `--specialist`, or one with another commit
+leaves it NOT RUN: the pinned runtime was not simulated.
 
 ## Parts
 
@@ -26,7 +56,8 @@ all eight gates PASS.
 | `faults.py` | the arena's own mutations and the STEM mutations, applied by the arena's own functions, and the fault round only the service loads |
 | `tamper_web.py` | the tampering cases W-T1 to W-T8 through the Worker's release-gate module alone (a sub-check) |
 | `website-driver.mjs` | replays the website users of `users.json`, the tampering cases and the website-path fault cases through the disposable export |
-| `agents-driver.mjs` | the agents router, the kit's router port, the offline runtime and the specialist port, without the website |
+| `agents-driver.mjs` | the harness's router, the kit's router port, the harness's offline runtime and the specialist port, without the website |
+| `runtime-reply.mjs` | the reply both drivers give their runtime copy, in the shape that copy's contract takes (above) |
 | `users.json` | 26 simulated users, sessions of one to four turns, each turn naming a corpus item and an action |
 | `corpus/synthetic/s1/` | the synthetic corpus in the arena round format (`integration/tools/build_corpus.py`) |
 | `corpus/DATA-TERMS.md`, `corpus/MANIFEST.sha256` | the corpus's terms and digests |
@@ -47,17 +78,18 @@ all eight gates PASS.
 4. **The website driver** (`website-driver.mjs`): one fresh world per simulated user (the export's `tests/helpers/d1.js`
    D1 with its migrations, `APP_ENV=development`, `CHAT_BACKEND=verified`, `KIT_SIMULATION=1`, the mock subject router,
    a loopback principal), `POST /api/chat` through the export's `handleRequest` with `options.verified.inner` = the
-   export's `createSpecialistOrchestrator` over the agents copy's `createOfflineTestRuntime` (the synthetic History
-   bundle and gate configuration unchanged; the simulation's synthetic English specialist is the same entry under its
-   slug with the sources line optional). The runtime's `authorizedGenerate` returns the turn's corpus answer (or a
-   fault case's mutated answer); no model is called. The actions: send, follow-up, retry, cancel (during the
-   specialist's generation), two concurrent sends into one conversation, the service stopped (then a retry with it
-   back), a service slower than the budget (a fake clock leaves just over `checks_min_ms`; the service never answers),
+   export's `createSpecialistOrchestrator` over the runtime copy's `createOfflineTestRuntime` (`--specialist`, else
+   `--agents`; the synthetic History bundle and gate configuration unchanged; the simulation's synthetic English
+   specialist is the same entry under its slug with the sources line optional). The runtime's `authorizedGenerate`
+   returns the turn's corpus answer (or a fault case's mutated answer) in the copy's own contract; no model is
+   called. The actions: send, follow-up, retry, cancel (during the specialist's generation), two concurrent sends into
+   one conversation, the service stopped (then a retry with it back), a service slower than the budget (a fake clock
+   leaves just over `checks_min_ms`; the service never answers),
    a fake clock past the handshake cache age, a handshake mismatch, a subject unavailable after routing, a mixed
    subject, and the tampering cases W-T1 to W-T8 (the service's real verdict for the turn, changed on its way back as the
    case's vector changes the bound deliver vector). It records each response, the D1 row, the calls made, the verdicts,
    what the page would display (`checksBadge`, `checkLabel`, the scope statement) and the invariants of G-INV.
-5. **The agents driver** (`agents-driver.mjs`): the agents copy's `selectSpecialist` over its synthetic catalogue (the
+5. **The agents driver** (`agents-driver.mjs`): the harness copy's `selectSpecialist` over its synthetic catalogue (the
    availability of the runtime it routes to), the kit's `router-port.js` (one slug, a clarification or unavailable,
    rows of the `sim` environment and the service rows), the offline runtime (History, English and Physics synthetic
    specialists), the kit's A2 envelope (`integration/agents/checks-port/`) and `POST /v1/turns/check`: STEM, duplicate
@@ -82,8 +114,8 @@ review for G-OVS.
 ## The wiring check with a test double (tests only)
 
 ```
-python integration/sim/run_sim.py --website <patched export> --agents <agents copy> --translator <kit> \
-    --corpus <kit>/integration/sim/corpus --out <dir> \
+python integration/sim/run_sim.py --website <patched export> --specialist <runtime copy> --agents <harness copy> \
+    --translator <kit> --corpus <kit>/integration/sim/corpus --out <dir> \
     --test-overseer-port kit_overseer_test_double --test-pythonpath <kit>/tests/integration/sim_double:<kit> \
     [--record-wiring <kit>/integration/sim/TESTED.json]
 ```
@@ -93,8 +125,8 @@ python integration/sim/run_sim.py --website <patched export> --agents <agents co
 of the call's first reply. It audits nothing, so under it **every gate is NOT RUN** ("the overseer port is a test
 double") and the exit status is 1; what each gate computed is kept only as the sub-checks `gates_with_test_double` and
 `gate_cases_with_test_double`. `--record-wiring` writes `TESTED.json`: the digests of the files the run used, the
-export's and the copy's provenance, and what each gate computed. `tests/integration/test_sim_wiring.py` fails when one
-of those files changes after the record was written.
+export's provenance, the commits of both copies with the runtime copy's contract, and what each gate computed.
+`tests/integration/test_sim_wiring.py` fails when one of those files changes after the record was written.
 
 The last wiring run (`TESTED.json`; information only, under the double) computed PASS for G-EQ-ARENA, G-INV, G-HON,
 G-DEL and G-TAMPER, NOT RUN for G-EQ-CONTAINED and G-OVS, and FAIL for G-FAULT on the cases it names: mutations the arena names only by a warning-level finding (an unverifiable

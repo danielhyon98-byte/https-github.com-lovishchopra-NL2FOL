@@ -734,3 +734,12 @@ Work in progress after it is labelled as such.
   before the rebuild is committed, within a bound of 12 repairs; low findings stay known defects.
 - Argument diagnostics: repair round 3 is running on the round-3 findings.
 - Deployment package: the kit retarget passed its independent checks; the package is written and in its second review.
+
+### Progress, 21:00 UTC (23 October)
+
+- The kit retarget to the retrained agents repository is committed (f34ff1d: suite 6866 passed, integration tests 796
+  passed, every recorded round unchanged) and uploaded to verified-updates after its simulation passed. The deployment
+  package for a new session is committed under docs/handoff/z3-deployment (99e647f).
+- Overseer rebuild: the audit after the seventh STEM repair found 3 problems; the next repair is running. The repair loop now
+  also clears medium-severity findings before the rebuild is committed.
+- Argument diagnostics: repair round 3 is running.

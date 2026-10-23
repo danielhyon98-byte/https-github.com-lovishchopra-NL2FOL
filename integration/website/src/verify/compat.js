@@ -11,6 +11,43 @@ const deepFreeze = (value) => {
 };
 
 export const COMPATIBILITY = deepFreeze({
+  "agents_pins": {
+    "exporter": {
+      "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+      "path": "specialist-runtime/tools/export-bundle.mjs",
+      "repository": "agents"
+    },
+    "harness": {
+      "branch": "claude/eloquent-euler-1kuwtf",
+      "commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+      "contract": "epinoic.specialist-runtime.v0.1.0",
+      "repository": "agents_harness"
+    },
+    "knowledge_bases": {
+      "branch": "main",
+      "commit": "651d71ded41d4a3b8a106fe23b4198e7fc292146",
+      "history_bundle": {
+        "bytes": 300563,
+        "path": "knowledge-bases/_bundles/history.full-context.txt",
+        "sha256": "a5b8a2da6feb447ea06d9e38946ba50f71b14495e517169b5b3a418530119240"
+      },
+      "repository": "agents"
+    },
+    "routing": {
+      "branch": "feature/specialist-routing",
+      "commit": "f47c964df6f3a9ad93d3e8ff9a18a442b2820fbd",
+      "repository": "agents"
+    },
+    "runtime": {
+      "branch": "feature/history-specialist-integration",
+      "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+      "contract": "epinoic.specialist-runtime.v0.2.0",
+      "package": "@epinoic/specialist-runtime",
+      "repository": "agents",
+      "src_tree": "7c48eac9496f26a385de2ced55d7f58e0adada8b",
+      "version": "0.2.0"
+    }
+  },
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
   "components": {
     "contract": [
@@ -35,6 +72,7 @@ export const COMPATIBILITY = deepFreeze({
   },
   "header": "integration.v1",
   "kit_tag": "integration-kit-v1",
+  "kit_tag_repository": "translator_development",
   "limits": {
     "checks_max_ms": 65000,
     "checks_min_ms": 3000,
@@ -77,8 +115,10 @@ export const COMPATIBILITY = deepFreeze({
     "minor": 0
   },
   "repositories": {
-    "agents": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector",
-    "translator": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
+    "agents": "https://github.com/Epinoic-AI/Epinoic-Agent-Training",
+    "agents_harness": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector",
+    "translator": "https://github.com/Epinoic-AI/Epinoic-Logic-Translator",
+    "translator_development": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
     "translator_mirror": "https://github.com/Bruno-ios/Epinoic-Logic-Translator",
     "website": "https://github.com/Epinoic-AI/epinoic-ai-website"
   },
@@ -151,4 +191,4 @@ export const COMPATIBILITY = deepFreeze({
   }
 });
 
-export const COMPATIBILITY_SHA256 = "8ff260c7c319bafe0f4af5c0781e5e8d67e1a831d2d13b36f50aa981fecd5023";
+export const COMPATIBILITY_SHA256 = "ec62b3c7b2a3b4a757adff6616e1ade8fa6fd3e6775bf94392a07949ed1324ca";

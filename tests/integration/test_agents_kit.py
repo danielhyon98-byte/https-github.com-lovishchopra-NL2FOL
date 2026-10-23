@@ -110,3 +110,28 @@ def test_the_record_of_the_test_on_the_archive_copy_names_the_current_patch_and_
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest, (
             f"{path} changed after the test on the archive copy: re-run it (PATCH-PLAN.md, 'Applying A3 and A5') and update TESTED.json")
     assert set(rec["files"]) == {"integration/agents/patches/agents-A3-A5.json", "integration/agents/apply-agents.mjs"}
+
+
+def test_the_patch_plan_names_each_changes_repository_and_the_harness_commit():
+    """Each change of the plan names its repository by role (COMPATIBILITY.json repositories) and the commit it was
+    built or tested for (agents_pins): A2 in both repositories at both pins; A3 to A5 in the harness only, anchored for
+    the harness pin; a deploying session never re-anchors, a re-anchor is a kit change."""
+    compat = json.loads((ROOT / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
+    pins = compat["agents_pins"]
+    runtime, routing, harness = (pins[k]["commit"][:7] for k in ("runtime", "routing", "harness"))
+    plan = (AGENTS / "PATCH-PLAN.md").read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", plan)
+    assert "`repositories.agents`" in plan and "`repositories.agents_harness`" in plan
+    items = {m.group(1): m.group(2) for m in re.finditer(r"^- \*\*(A\d)\. (.*?)(?=^- \*\*A\d\. |^\*\*Applying)", plan, re.M | re.S)}
+    assert sorted(items) == ["A0", "A1", "A2", "A3", "A4", "A5"], sorted(items)
+    items = {k: re.sub(r"\s+", " ", v) for k, v in items.items()}
+    assert "in both repositories" in items["A0"] and runtime in items["A0"] and routing in items["A0"] and harness in items["A0"]
+    assert "in both repositories" in items["A1"]
+    assert "in both repositories" in items["A2"] and f"runtime pin `{runtime}`" in items["A2"] and f"its pin `{harness}`" in items["A2"]
+    for change in ("A3", "A4", "A5"):
+        assert "harness only" in items[change].lower(), change
+    for change in ("A3", "A5"):
+        assert f"harness pin `{harness}`" in items[change], change
+    assert DOC["agents_commit"].startswith(harness), "the anchors were written for the harness pin"
+    assert "A deploying session never re-anchors." in flat and "A re-anchor is a kit change" in flat
+    assert f"names `{harness}` (`agents_pins.harness.commit`" in flat

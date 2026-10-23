@@ -1,6 +1,8 @@
 {
  "schema": "epinoic.integration.agents-tested.v1",
  "agents_commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+ "repository": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector",
+ "role": "agents_harness",
  "tested_on": "an archive copy of the agents repository at agents_commit (git archive; .kit-archive-commit), 17 October 2026; Node.js v22.22.0",
  "files": {
   "integration/agents/patches/agents-A3-A5.json": "20b1ae47638fbc9d40ec070c9f10ab92018d9a7dba2f82b8322c5f97f209696c",
@@ -16,5 +18,90 @@
   "runtime_suite": "specialist-runtime: 120 tests, 120 pass, 0 fail (unchanged files)",
   "routing_suite": "specialist-routing: 175 tests, 175 pass, 0 fail (unchanged files)",
   "readiness": "tools/readiness-check.mjs --json with the translator installed: 20 blockers before and after; the Z3 rows (wrong step caught, right step passes) unchanged"
+ },
+ "A2": {
+  "note": "A2 (integration/agents/checks-port/) on archive copies of the pins of both agents repositories (COMPATIBILITY.json agents_pins), 23 October 2026: each copy a git archive of its commit with .kit-archive-commit, the kit's checks-port copied to integration/checks-port/. The top level of this file is the harness's record of A3 and A5 (17 October 2026), unchanged",
+  "files": {
+   "integration/agents/checks-port/package.json": "d9f53a602f5e0a1a7e9f7036eb31f3a428f43fe56157af4e061e40393a23bb80",
+   "integration/agents/checks-port/src/envelope.js": "a2d007c3516d28bb4422ace0ccf121d3a6ecc4b959ef93167d53a0180b5a48f5",
+   "integration/agents/checks-port/test/envelope.test.js": "82112a5b107485205cb5097885e5a18acae72718c7ebe56e5646d08bdec30c29",
+   "integration/agents/checks-port/test/check-portable.mjs": "ac7f390e6f38a48e4537fe5596bd16b8c0003708e2e5fed607b8320d66bd6e42",
+   "integration/agents/checks-port/vectors/v1-answer.json": "95c4a16375fafae47fe5e0ea2cae60be5825677050f64b6dc07a9aeb4cb1b365",
+   "integration/agents/checks-port/vectors/v2-answer.json": "67e510f695c93dc54d925211b430314f7fe59483b0f654ad39fd58cd1758c966"
+  },
+  "commands": [
+   "node --test integration/checks-port/test/*.test.js   (in the copy)",
+   "node integration/checks-port/test/check-portable.mjs   (in the copy)"
+  ],
+  "runs": [
+   {
+    "role": "agents",
+    "pin": "runtime",
+    "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+    "contract": "epinoic.specialist-runtime.v0.2.0",
+    "node": "v22.22.0",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "portable": true
+   },
+   {
+    "role": "agents_harness",
+    "pin": "harness",
+    "commit": "5b60229b6f08bea88f7cf28316282469942ce46d",
+    "contract": "epinoic.specialist-runtime.v0.1.0",
+    "node": "v22.22.0",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "portable": true
+   }
+  ],
+  "information": [
+   {
+    "role": "agents",
+    "commit": "937403a0c9259380b42e8f1875ab0da50663e4ba",
+    "contract": "epinoic.specialist-runtime.v0.2.0",
+    "ref": "feature/history-specialist-integration tip (two docs-only commits after the runtime pin)",
+    "node": "v22.22.0",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "portable": true
+   },
+   {
+    "role": "agents",
+    "commit": "46a67079ec3133a5f7bedefb416857379c4f2eb6",
+    "contract": "epinoic.specialist-runtime.v0.2.0",
+    "ref": "integration/runtime-pilot-fixes (an open draft pull request: package 0.3.0, not pinned)",
+    "node": "v22.22.0",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "portable": true
+   },
+   {
+    "role": "agents_harness",
+    "commit": "f6d9fdc8158f5a538ab61e62939fe3f1e6814eb5",
+    "contract": "epinoic.specialist-runtime.v0.1.0",
+    "ref": "claude/eloquent-euler-1kuwtf tip (only simulation/ changed since the harness pin)",
+    "node": "v22.22.0",
+    "tests": 4,
+    "pass": 4,
+    "fail": 0,
+    "portable": true
+   }
+  ],
+  "a0_suites": {
+   "note": "A0 (no change), the same day, on fresh archive copies of the pins: counts recorded, never pinned",
+   "runtime 8ceba43f576b49ea754a8994dbc130a6549a4699": "specialist-runtime npm test: 154 tests, 153 pass, 0 fail, 1 skipped (the real-bundle test: the pinned knowledge-base commit is not in an archive's object store); check:portable OK (30 files)",
+   "routing f47c964df6f3a9ad93d3e8ff9a18a442b2820fbd": "specialist-routing npm test: 203 tests, 199 pass, 0 fail, 4 skipped (the real-catalogue tests: the pinned knowledge-base commit is not in an archive's object store); evaluate: PASS, 260 items, no model called; check:portable OK (14 files)",
+   "harness 5b60229b6f08bea88f7cf28316282469942ce46d": "specialist-runtime npm test: 120 tests, 120 pass, 0 fail; check:portable OK (28 files); specialist-routing npm test: 175 tests, 175 pass, 0 fail; evaluate: PASS, 260 items, no model called; check:portable OK (14 files); tools/cross-check.mjs passed"
+  },
+  "also_run": {
+   "check_agents_by_role": "integration/readiness/check-agents.mjs --runtime <8ceba43 copy> --routing <f47c964 copy> --harness <5b60229 copy>: every row PASS except REPORTED 'routing accepts runtime' (the routing accepts runtime v0.1.0 only); agents contracts: accepted, exit 0",
+   "check_agents_one_copy": "integration/readiness/check-agents.mjs <5b60229 copy>: three PASS rows, agents contracts: accepted, exit 0",
+   "apply_agents_check": "integration/agents/apply-agents.mjs --check: on 5b60229, 16 anchors found exactly once in 3 files, nothing written, exit 0; on f6d9fdc, refused (the copy is of f6d9fdc, the replacements were written for 5b60229), exit 1, as designed; at f6d9fdc each of the 16 anchors is still found once (counted by a read-only probe, not re-tested)"
+  }
  }
 }

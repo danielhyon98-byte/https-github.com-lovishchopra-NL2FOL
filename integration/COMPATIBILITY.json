@@ -60,10 +60,29 @@
     "P": {"commit": null, "patch_set": null, "status": "not built: no tested patch set for base P in this kit"}
   },
   "repositories": {
-    "translator": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
+    "translator": "https://github.com/Epinoic-AI/Epinoic-Logic-Translator",
+    "translator_development": "https://github.com/danielhyon98-byte/https-github.com-lovishchopra-NL2FOL",
     "translator_mirror": "https://github.com/Bruno-ios/Epinoic-Logic-Translator",
     "website": "https://github.com/Epinoic-AI/epinoic-ai-website",
-    "agents": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector"
+    "agents": "https://github.com/Epinoic-AI/Epinoic-Agent-Training",
+    "agents_harness": "https://github.com/danielhyon98-byte/epinoic-agent-training-api-connector"
   },
-  "kit_tag": "integration-kit-v1"
+  "kit_tag": "integration-kit-v1",
+  "kit_tag_repository": "translator_development",
+  "agents_pins": {
+    "runtime": {"repository": "agents", "branch": "feature/history-specialist-integration",
+                "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699", "package": "@epinoic/specialist-runtime",
+                "version": "0.2.0", "contract": "epinoic.specialist-runtime.v0.2.0",
+                "src_tree": "7c48eac9496f26a385de2ced55d7f58e0adada8b"},
+    "exporter": {"repository": "agents", "commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
+                 "path": "specialist-runtime/tools/export-bundle.mjs"},
+    "knowledge_bases": {"repository": "agents", "branch": "main", "commit": "651d71ded41d4a3b8a106fe23b4198e7fc292146",
+                        "history_bundle": {"path": "knowledge-bases/_bundles/history.full-context.txt",
+                                           "sha256": "a5b8a2da6feb447ea06d9e38946ba50f71b14495e517169b5b3a418530119240",
+                                           "bytes": 300563}},
+    "routing": {"repository": "agents", "branch": "feature/specialist-routing",
+                "commit": "f47c964df6f3a9ad93d3e8ff9a18a442b2820fbd"},
+    "harness": {"repository": "agents_harness", "branch": "claude/eloquent-euler-1kuwtf",
+                "commit": "5b60229b6f08bea88f7cf28316282469942ce46d", "contract": "epinoic.specialist-runtime.v0.1.0"}
+  }
 }

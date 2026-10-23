@@ -613,10 +613,19 @@ rate_limited, capacity, rejected, error, malformed, binding_mismatch); decisions
 2026.10-v4, translator 0.4.0, contract 0.4) and the `z3-solver` range, the specialist pairs, the routing contract, the
 subject-map digest, the named and verdict policies, the STEM branches, the overseer's replay mode, the router's
 non-required status and floor, the limits, the timing figures per website base, the website bases with tested patch
-sets, and the canonical repository URLs. It records the build identity without requiring it to match. One generated
-copy per side (`integration/compat.py`, `website/src/verify/compat.js`, `subject-map.js`, the schemas) is drift-tested
-against it (`integration/tools/generate.py --check`). Changing a status's meaning or removing a field needs a new major
-version and the receiving owner's agreement. Adding these endpoints raises the translator's integration contract to
+sets, and the repositories by role (`repositories`): `translator` the organization's translator repository, which
+receives the verified updates; `translator_development` the development repository, which carries the kit, the
+`subproject/*` branches and the kit tag; `translator_mirror` the former path of `translator`, kept so that a remote
+still using it is recognized; `website`; `agents` the retrained agents repository (the specialist runtime the website
+is to deploy, its exporter, the knowledge bases, the routing); `agents_harness` the training and simulation harness.
+`kit_tag_repository` names the role whose repository carries the kit tag, and `agents_pins` the commits of the agents
+repositories the kit was tested on (the runtime with its contract and src tree, the exporter, the knowledge bases with
+the History bundle's digest, the routing, the harness); each pin's `repository` is a key of `repositories`. No service
+or Worker code reads the repositories, `kit_tag_repository` or `agents_pins`: the readiness scripts and the playbook do.
+It records the build identity without requiring it to match. One generated copy per side (`integration/compat.py`,
+`website/src/verify/compat.js`, `subject-map.js`, the schemas) is drift-tested against it
+(`integration/tools/generate.py --check`). Changing a status's meaning or removing a field needs a new major version
+and the receiving owner's agreement. Adding these endpoints raises the translator's integration contract to
 0.4; the engine and policy versions do not change.
 
 ## 14. Acceptance (tests, vectors, simulation, rollback rehearsal)

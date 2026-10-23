@@ -1,4 +1,4 @@
-/home/user/https-github.com-lovishchopra-NL2FOL                                                               542935e [claude/z3-verification-engine-plan-nk3luq]
+/home/user/https-github.com-lovishchopra-NL2FOL                                                               18dbc7b [claude/z3-verification-engine-plan-nk3luq]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a                                          72173b9 [argdiag-a]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b                                          b3c66f3 [argdiag-b]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base                                       be6723c [argdiag-base]
@@ -10,7 +10,8 @@
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect                                     dae3265 [e2e-fix-detect]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import                                             650d1d3 [import/translator-baseline]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild                                     5697a62 [integ-prebuild]
-/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-retarget                                       86ab0ba [kit-agents-retarget]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-publish                                        f34ff1d [kit-publish]
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-retarget                                       c853ecb [kit-agents-retarget]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer                                           ef4ba9f [overseer-build]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/probe                                              3147d08 (detached HEAD)
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine                                      f902edd [review-engine]

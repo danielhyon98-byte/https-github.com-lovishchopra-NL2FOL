@@ -4,7 +4,7 @@
  "website_commit": "2cd318208980e5b236d16b4281dfc0560a7b9610",
  "tested_on": "a disposable export of the website's main at the commit above, marked with UNREVIEWED-SIMULATION-COPY.txt; no website branch, commit or deployment",
  "node": "v22.22.0",
- "date": "2026-10-17",
+ "date": "2026-10-23",
  "commands": [
   "node integration/website/apply.mjs --base M --target <export> --write-result",
   "node --test --test-timeout=30000 tests/*.test.js   (in the export)",
@@ -40,5 +40,5 @@
   "base P (no base-P website)"
  ],
  "patch_files": "W1.patch to W6.patch are not published while the translator repository is public (decision D20); apply.mjs applies the same kit-authored blocks",
- "note": "re-run after the protocol step's changes (the router port reads the runtime's own capabilities, entries; the release gate and the handshake cache wording; three new kit tests): every file the patch set touches has the digest RESULT.sha256 records"
+ "note": "re-run after COMPATIBILITY.json's repositories and agents pins changed src/verify/compat.js (data only: no code reads those fields): only the src/verify/compat.js line of RESULT.sha256 changed; the counts, the anchors, the verify result and the rollback rehearsal are as before. Earlier re-run: after the protocol step's changes (the router port reads the runtime's own capabilities, entries; the release gate and the handshake cache wording; three new kit tests)"
 }

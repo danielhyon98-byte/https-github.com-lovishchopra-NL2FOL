@@ -103,6 +103,53 @@ def test_the_applier_refuses_missing_anchors_and_writes_nothing(tmp_path):
     assert (tmp_path / "src" / "chat" / "turn.js").read_text() == "// 1. Route renamed\n"
 
 
+def _anchored_export(root: Path) -> Path:
+    """A synthetic disposable export that holds each anchor of ANCHORS.md as many times as the table counts it, one per
+    line between filler lines: the applier counts and edits anchors only, so the website's own text is not needed."""
+    root.mkdir(parents=True)
+    (root / "UNREVIEWED-SIMULATION-COPY.txt").write_text("UNREVIEWED SIMULATION COPY (test)\n", encoding="utf-8")
+    by_file: dict[str, list[str]] = {}
+    for (file, anchor), count in _anchors().items():
+        lines = by_file.setdefault(file, ["synthetic first line"])
+        for _ in range(count):
+            lines += [f"synthetic filler line {len(lines)}", anchor]
+    for file, lines in by_file.items():
+        p = root / file
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("\n".join(lines + ["synthetic last line"]) + "\n", encoding="utf-8")
+    return root
+
+
+@pytest.mark.skipif(NODE is None, reason="needs Node.js")
+def test_the_applier_verify_exits_0_on_exact_and_3_on_drift(tmp_path):
+    """Repair 1 (rehearsal finding): with --verify the outcome is the printed word and the exit status together, so a
+    session that reads only the exit status stops on drift too: exact exits 0, drift exits 3 with the drifted files (a
+    refusal exits 1 with nothing written). Run on a copy of the kit's website material and vectors, so --write-result
+    writes the copy's RESULT.sha256, never the kit's."""
+    kit = tmp_path / "kit"
+    shutil.copytree(WEBSITE, kit / "integration" / "website")
+    shutil.copytree(ROOT / "integration" / "vectors", kit / "integration" / "vectors")
+    tested = (WEBSITE / "patches" / "M" / "RESULT.sha256").read_bytes()
+
+    def apply(*argv: str) -> subprocess.CompletedProcess:
+        return subprocess.run([NODE, str(kit / "integration" / "website" / "apply.mjs"), "--base", "M", *argv], capture_output=True, text=True, timeout=120)
+    written = apply("--target", str(_anchored_export(tmp_path / "e1")), "--write-result")
+    assert written.returncode == 0 and written.stdout.strip().splitlines()[-1].startswith("wrote integration/website/patches/M/RESULT.sha256"), written.stdout + written.stderr
+    exact = apply("--target", str(_anchored_export(tmp_path / "e2")), "--verify")
+    assert exact.returncode == 0 and exact.stdout.strip().splitlines()[-1] == "exact", exact.stdout + exact.stderr
+    drifted = _anchored_export(tmp_path / "e3")
+    changed = _blocks()[0]["file"]
+    (drifted / changed).write_text((drifted / changed).read_text(encoding="utf-8") + "a line the tested patch set did not see\n", encoding="utf-8")
+    drift = apply("--target", str(drifted), "--verify")
+    lines = drift.stdout.strip().splitlines()
+    assert drift.returncode == 3 and lines[-2:] == ["drift", f"  {changed}"], drift.stdout + drift.stderr
+    refused = apply("--target", str(tmp_path / "e4-not-an-export"), "--verify")
+    assert refused.returncode == 1 and "not a disposable export" in refused.stderr
+    assert (WEBSITE / "patches" / "M" / "RESULT.sha256").read_bytes() == tested, "the kit's own tested result is never written by this test"
+    source = (WEBSITE / "apply.mjs").read_text(encoding="utf-8")
+    assert "process.exitCode = 3" in source and '"drift" with the drifted files (exit status 3' in source
+
+
 # ----------------------------------------------------------------------------------------------- W0 (the docs change, Bruno's)
 
 W0 = WEBSITE / "W0"

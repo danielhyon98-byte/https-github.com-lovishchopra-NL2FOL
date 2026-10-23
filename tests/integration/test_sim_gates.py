@@ -152,3 +152,10 @@ def test_the_simulation_on_this_tree_reports_every_missing_part_as_not_run(tmp_p
         assert all(v["got"] == v["expected"] for v in tamper.values())
     summary = (tmp_path / "out" / "summary.md").read_text(encoding="utf-8")
     assert summary.count("| NOT RUN |") == 8 and "Not run, and why:" in summary
+    # Repair 1: every run names the copy each path ran (no copy was given here)
+    assert all(results[k] is None for k in ("specialist_copy", "specialist_commit", "specialist_contract", "agents_copy", "agents_commit",
+                                            "agents_contract"))
+    assert "- website path: no copy" in summary and "- agents path: no copy" in summary
+    # Repair 2: a path that did not run says so on its "Copies" line, with its own reason (here the service's refusal)
+    assert f"- website path: no copy, not run: {results['not_run']['website_path']}" in summary.splitlines()
+    assert f"- agents path: no copy, not run: {results['not_run']['agents_path']}" in summary.splitlines()

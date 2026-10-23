@@ -583,7 +583,12 @@ GENERATORS = {
 #: Copies of vectors that travel with material maintained apart from the kit: the agents checks port's own tests, the
 #: flash-router sub-project's conformance suite (``flash-router/tests/vectors/router-port/``) and the combinator
 #: sub-project's (``combinator/tests/vectors/combinator-port/`` and ``canonical/``), while those sub-projects are here.
-COPIES = {ROOT / "integration" / "agents" / "checks-port" / "vectors" / "v1-answer.json": OUT / "specialist-port" / "v1" / "answer.json"}
+#: The checks port carries one answer vector per accepted result schema (v1: the harness's runtime v0.1.0; v2: the
+#: retrained repository's runtime v0.2.0).
+COPIES = {
+    ROOT / "integration" / "agents" / "checks-port" / "vectors" / "v1-answer.json": OUT / "specialist-port" / "v1" / "answer.json",
+    ROOT / "integration" / "agents" / "checks-port" / "vectors" / "v2-answer.json": OUT / "specialist-port" / "v2" / "answer.json",
+}
 COPY_DIRS = {target: folder for target, folder in (
     (ROOT / "flash-router" / "tests" / "vectors" / "router-port", "router-port"),
     (ROOT / "combinator" / "tests" / "vectors" / "combinator-port", "combinator-port"),
