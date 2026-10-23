@@ -714,3 +714,15 @@ Work in progress after it is labelled as such.
 - Deployment package: the kit retarget is implemented; its independent checks (diff review and a cold-start rehearsal of
   the playbook) are running.
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 19:00 UTC (23 October)
+
+- Overseer rebuild: the sixth STEM repair measured 6965 tests passed, 152/152 probe answers named and 130/130 controls
+  clean, all 13 contained-run gates passed and 15/15 STEM mutations named; the independent audit then found 1 high issue
+  (givens written without "=" or in a colon list get no check, while the pack says every given has one). The seventh STEM
+  repair is running.
+- Argument diagnostics: repair round 2 measured 8062 tests passed, 44/44 development defects named with 57/57 controls clean,
+  and 65/66 hold-out defects named with 68/68 controls clean. Verification round 3 found new high-severity issues (corpus 3,
+  invariants 2, re-run findings 1; adversarial 13 issues); repair round 3 follows.
+- Deployment package: the cold-start rehearsal passed on its second check; the diff review has one medium issue left and its
+  second repair is running.
