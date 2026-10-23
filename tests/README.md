@@ -726,3 +726,11 @@ Work in progress after it is labelled as such.
   invariants 2, re-run findings 1; adversarial 13 issues); repair round 3 follows.
 - Deployment package: the cold-start rehearsal passed on its second check; the diff review has one medium issue left and its
   second repair is running.
+
+### Progress, 20:00 UTC (23 October)
+
+- Overseer rebuild: the seventh STEM repair is regenerating the pack schemas and docs after its fixes. From now on its repair
+  loop also repairs medium-severity audit findings (false alarms on correct work, pack text that disagrees with the code)
+  before the rebuild is committed, within a bound of 12 repairs; low findings stay known defects.
+- Argument diagnostics: repair round 3 is running on the round-3 findings.
+- Deployment package: the kit retarget passed its independent checks; the package is written and in its second review.
