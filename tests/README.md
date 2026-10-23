@@ -749,3 +749,11 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the eighth STEM repair is fixing the 3 problems of the last audit (1 high: a false alarm on correct STEM
   working with equations; 1 medium: derivative relations neither checked nor named; 1 low).
 - Argument diagnostics: repair round 3 is still running.
+
+### Progress, 23:00 UTC (23 October)
+
+- Argument diagnostics: repair round 3 measured 8249 tests passed (round 2: 8062), every recorded round functional,
+  44/44 development defects named with 57/57 controls clean, and 65/66 hold-out defects named with 67/68 controls clean
+  (1 new false alarm). Verification round 4 is running; it also covers a regression the repair reported (a unit given in
+  brackets after a single-letter name, read as amperes).
+- Overseer rebuild: the eighth STEM repair finished its fixes and measurement; the independent audit follows.
