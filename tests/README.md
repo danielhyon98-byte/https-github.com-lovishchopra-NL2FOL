@@ -906,3 +906,13 @@ Work in progress after it is labelled as such.
   word elsewhere in a sentence refutes a plainly stated rule; relays carry a source's false finding; 'about 300' for 260 is
   held back; one answer group of the latest round takes about 11 times the committed code's time). The final independent
   check is running; nothing is committed.
+
+### Progress, 18:00 UTC (24 October)
+
+- Overseer rebuild: the twelfth and last allowed STEM repair round is running.
+- Argument diagnostics: the regression closure ended after three fix rounds. Measured against the committed code: development
+  corpus 0 false alarms with 44/44 defects named (committed code: 41 false alarms, 9 named); second hold-out set 11 false
+  alarms (committed code: 31); recorded rounds unchanged; suite 8946 passed. Its last independent check still found six kinds
+  of correct answer that now get a warning the committed code does not give, and one reading of space-grouped thousands whose
+  time grows with the square of the input. A security round now makes every pattern the changes add linear, with outcomes
+  kept identical. Nothing is committed.
