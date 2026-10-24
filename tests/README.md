@@ -879,3 +879,11 @@ Work in progress after it is labelled as such.
   cases the committed code catches only through false alarms that the changes removed, so it flags the matching correct
   answers too. The last fix round counts a committed-code detection only when the committed code tells the defect apart
   from its matching correct answer. Its verification is running; nothing is committed.
+
+### Progress, 15:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair round is still running.
+- Argument diagnostics: the second verification found 7 more high-severity places where the changes are worse than the
+  committed code. Two are speed: single answers of the latest recorded round take 11 to 13 times as long, and the round as a
+  whole 3.1 times. The others are readings that turn a forecast, a supposition or a hedge in the task into a stated fact, or
+  refute a plainly stated rule. The last fix round is running; nothing is committed.
