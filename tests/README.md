@@ -778,3 +778,10 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the ninth STEM repair measured 7235 tests passed, all 13 contained-run gates passing with no false alarm
   on genuine transfers, 15/15 STEM mutations named and 269/269 arena faults named; the independent audit is running.
 - Argument diagnostics: repair round 4 is still running.
+
+### Progress, 03:00 UTC (24 October)
+
+- Overseer rebuild: the audit after the ninth STEM repair found 9 issues (none rated plainly high; 1 medium-high false alarm
+  on correct physics working, 3 medium, 5 low or low-medium); the tenth STEM repair is running.
+- Argument diagnostics: repair round 4 measured 8565 tests passed (round 3: 8249), 44/44 development defects named with 57/57
+  controls clean, and 65/66 hold-out defects named with 67/68 controls clean. Verification round 5 is running.

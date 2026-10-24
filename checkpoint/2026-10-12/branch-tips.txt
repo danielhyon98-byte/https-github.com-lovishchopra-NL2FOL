@@ -1,13 +1,13 @@
-refs/checkpoint/2026-10-12/argdiag-integ-staged c316fa7a7ce538bf813d892915926b1918b2d7ca
-refs/checkpoint/2026-10-12/overseer-staged 979e55e950d76590fefe58a0d0348d1cc8823d4d
-refs/checkpoint/2026-10-12/probe-staged 771f8560362e94dd70801724c2f674cb0822c0dd
+refs/checkpoint/2026-10-12/argdiag-integ-staged 539376ec4d2f119efc6634760406f00263210b73
+refs/checkpoint/2026-10-12/overseer-staged 164e37784cb61ed91cb94839fb3a1f3f3d91dca9
+refs/checkpoint/2026-10-12/probe-staged 93bfec74bbb4827cdc2608ec1f5b223edcebb376
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
 refs/heads/argdiag-base be6723c868d3a8a3a35143bfdd6fb11b2988e76d
 refs/heads/argdiag-c 542d345a996dea5f713eaabc6792db080457e2f2
 refs/heads/argdiag-d 1f4f0f14518d7586b7e32f573fd1e77fe2eacaa8
 refs/heads/argdiag-e 1e6103fea236e139db94e1192ea82311e1e081de
-refs/heads/claude/z3-verification-engine-plan-nk3luq 6a2bf3f21a3cb6cf3b7132cbf309f10e63700600
+refs/heads/claude/z3-verification-engine-plan-nk3luq 3c4264b1c52f9376eb1d653381090a5e69719672
 refs/heads/docs/final-z3-handoff e88a7934ceaeea1bc355621365ea7ea96efdf534
 refs/heads/e2e-fix-channel 0d28ebad1a9b70416de69428ada2b1da4fbc2aa9
 refs/heads/e2e-fix-detect dae3265aff7b7b1443addc332d471caf7147f762
