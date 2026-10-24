@@ -831,3 +831,12 @@ Work in progress after it is labelled as such.
   and are kept as known defects for round 8. On the recorded rounds the changes give 403 better receipts and 29 worse ones,
   most of the worse ones coming from four causes (one error on a correct summary, three warnings). A fix round for those
   causes is running; nothing is committed.
+
+### Progress, 10:00 UTC (24 October)
+
+- Correction to the 09:00 note: the review issues where the argument-diagnostics changes are worse than the committed code
+  number 7, not 6 (plus 2 security issues).
+- Overseer rebuild: the last allowed STEM repair round measured 7583 tests passed (11 skipped, 4 expected failures that were
+  already there), every recorded round unchanged (r7 177/177), and every contained gate passing (0 false alarms on genuine
+  transfers, 269 of 269 faults named and confirmed, 15 of 15 STEM mutations). Its final independent audit is running.
+- Argument diagnostics: the fix round for the regressions against the committed code is still running; nothing is committed.
