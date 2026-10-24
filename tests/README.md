@@ -813,3 +813,12 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: the last repair round measured 8728 tests passed, 0 failed. In the final verification round the
   fixed corpora give development 44/44 named with 57/57 controls clean, and hold-out 65/66 named with 68/68 controls clean
   (no false alarm; the earlier one is gone). The adversarial and re-run reviews of this round are running.
+
+### Progress, 08:00 UTC (24 October)
+
+- Overseer rebuild: the last allowed STEM repair round is still running.
+- Argument diagnostics: the repair loop ended after its last allowed round with high-severity issues still open (adversarial
+  review 6, re-run findings 5, invariants 1; corpus none). The fixed corpora meet their gates: development 44/44 named with
+  57/57 controls clean, hold-out 65/66 named with 68/68 controls clean. Nothing is committed. A closing round now compares
+  every open issue with the committed code and fixes only the places where the changes are worse than it; the issues the
+  committed code shares are recorded as known defects for round 8.
