@@ -926,3 +926,10 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: a security round makes every reading the changes add linear in the input, keeping every outcome
   identical; independent checks follow, then the commit.
 - Phase 2 is running again and waits for the overseer rebuild commit.
+
+### Progress, 20:00 UTC (24 October)
+
+- Overseer rebuild: the twelfth and last STEM repair round is still in its documentation step.
+- Argument diagnostics: the security round is timing every reading the changes add on adversarial inputs at several sizes;
+  independent checks and the commit follow.
+- Phase 2 waits for the overseer rebuild commit.
