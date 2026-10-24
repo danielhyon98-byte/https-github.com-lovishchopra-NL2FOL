@@ -822,3 +822,12 @@ Work in progress after it is labelled as such.
   57/57 controls clean, hold-out 65/66 named with 68/68 controls clean. Nothing is committed. A closing round now compares
   every open issue with the committed code and fixes only the places where the changes are worse than it; the issues the
   committed code shares are recorded as known defects for round 8.
+
+### Progress, 09:00 UTC (24 October)
+
+- Overseer rebuild: the last allowed STEM repair round is still running.
+- Argument diagnostics: every open issue was run on the committed code and on the changed code. Of the review issues, 6
+  (plus 2 security issues) are places where the changes are worse than the committed code; 20 fail the same way on both
+  and are kept as known defects for round 8. On the recorded rounds the changes give 403 better receipts and 29 worse ones,
+  most of the worse ones coming from four causes (one error on a correct summary, three warnings). A fix round for those
+  causes is running; nothing is committed.
