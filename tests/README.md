@@ -757,3 +757,10 @@ Work in progress after it is labelled as such.
   (1 new false alarm). Verification round 4 is running; it also covers a regression the repair reported (a unit given in
   brackets after a single-letter name, read as amperes).
 - Overseer rebuild: the eighth STEM repair finished its fixes and measurement; the independent audit follows.
+
+### Progress, 00:00 UTC (24 October)
+
+- Overseer rebuild: the eighth STEM repair measured 7149 tests passed, every recorded round unchanged, all 13 contained-run
+  gates passing with no false alarm on genuine transfers, and 15/15 STEM mutations named. Its audit then found 4 issues
+  (1 high: a false alarm on correct STEM working; 2 medium; 1 low), so the ninth STEM repair is running.
+- Argument diagnostics: verification round 4 found 6 high-severity issues (round 3: 9); repair round 4 is running.
