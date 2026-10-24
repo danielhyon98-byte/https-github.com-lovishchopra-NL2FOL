@@ -952,3 +952,14 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: the independent outcome check of the security round found every outcome identical (suite 9014 passed,
   both corpora case by case, every recorded round answer by answer); the independent security check is running.
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 23:00 UTC (24 October)
+
+- Overseer rebuild: committed on its build branch. Evaluation: suite 7956 passed (11 skipped, 4 expected failures that were
+  already there), 358 of 358 tamperings detected, 0 false alarms on 138 genuine transfers, every contained gate passing, the
+  knowledge pack exported. The last independent audit's 5 open issues (3 medium STEM readings not yet covered, 2 low) are
+  recorded as known defects. Its upload waits: the upload gate requires every development test name, and one test was
+  renamed when its assertion became stricter.
+- Phase 2 is merging the overseer rebuild into the integrated line.
+- Argument diagnostics: the second security round is running; an accuracy round follows for the false alarms on correct
+  answers and three common STEM misses, then the commit.
