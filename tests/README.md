@@ -893,3 +893,16 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the eleventh STEM repair round is still running.
 - Argument diagnostics: the last fix round for the places where the changes are worse than the committed code is still
   running. Nothing is committed.
+
+### Progress, 17:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair measured 7787 tests passed, every recorded round unchanged (r7 177/177) and
+  every contained gate passing (0 false alarms on genuine transfers, 15 of 15 STEM mutations). Its audit found 1 high-severity
+  issue (the STEM derivative check fixes the variable at the request's value, so it compares the derivative at one point only)
+  and 3 medium. The twelfth and last allowed repair is running.
+- Argument diagnostics: the last fix round measured 8946 tests passed, 0 failed, with both corpora unchanged (development
+  44/44 named, 57/57 controls clean; hold-out 64/66, 68/68). It made the ledger readers linear, removed one more reading, and
+  bumped the translator and rule versions. Four places remain where the changes are worse than the committed code (a hedge
+  word elsewhere in a sentence refutes a plainly stated rule; relays carry a source's false finding; 'about 300' for 260 is
+  held back; one answer group of the latest round takes about 11 times the committed code's time). The final independent
+  check is running; nothing is committed.
