@@ -916,3 +916,13 @@ Work in progress after it is labelled as such.
   of correct answer that now get a warning the committed code does not give, and one reading of space-grouped thousands whose
   time grows with the square of the input. A security round now makes every pattern the changes add linear, with outcomes
   kept identical. Nothing is committed.
+
+### Progress, 19:00 UTC (24 October)
+
+- Decision recorded: the overseer rebuild and the argument diagnostics are to be committed with their remaining open issues
+  listed as known defects, and published through the usual simulated uploads; phase 2 then runs round 8.
+- Overseer rebuild: the twelfth and last STEM repair round is in its documentation step; its measurement and the last
+  independent audit follow.
+- Argument diagnostics: a security round makes every reading the changes add linear in the input, keeping every outcome
+  identical; independent checks follow, then the commit.
+- Phase 2 is running again and waits for the overseer rebuild commit.
