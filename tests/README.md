@@ -863,3 +863,9 @@ Work in progress after it is labelled as such.
   the changes are worse than the committed code (2 from the safety review, among them a quotation reader that is quadratic in
   the number of quoted spans; 4 from the differential review), plus 3 medium. The second fix round is running; from now on a
   reading already narrowed once is reverted to the committed behaviour rather than narrowed again. Nothing is committed.
+
+### Progress, 13:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair round is still running.
+- Argument diagnostics: the second fix round for the places where the changes are worse than the committed code is still
+  running. Nothing is committed.
