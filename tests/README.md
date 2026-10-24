@@ -806,3 +806,10 @@ Work in progress after it is labelled as such.
   1 high-severity issue (a unit conversion is flagged only when it is the last statement) and 4 medium; the last allowed
   repair round is running. The commit stays blocked while any high-severity issue is open.
 - Argument diagnostics: the last allowed repair round is still running.
+
+### Progress, 07:00 UTC (24 October)
+
+- Overseer rebuild: the last allowed STEM repair round is still running.
+- Argument diagnostics: the last repair round measured 8728 tests passed, 0 failed. In the final verification round the
+  fixed corpora give development 44/44 named with 57/57 controls clean, and hold-out 65/66 named with 68/68 controls clean
+  (no false alarm; the earlier one is gone). The adversarial and re-run reviews of this round are running.
