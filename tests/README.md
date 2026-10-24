@@ -799,3 +799,10 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the tenth STEM repair measured 7343 tests passed; its independent audit is running. Severities the audit
   writes in between ("medium-high") now count as high for the loop and the commit gate.
 - Argument diagnostics: the last allowed repair round is still running.
+
+### Progress, 06:00 UTC (24 October)
+
+- Overseer rebuild: the independent audit after the last measured repair (7343 tests passed, 13/13 contained gates) found
+  1 high-severity issue (a unit conversion is flagged only when it is the last statement) and 4 medium; the last allowed
+  repair round is running. The commit stays blocked while any high-severity issue is open.
+- Argument diagnostics: the last allowed repair round is still running.
