@@ -840,3 +840,17 @@ Work in progress after it is labelled as such.
   already there), every recorded round unchanged (r7 177/177), and every contained gate passing (0 false alarms on genuine
   transfers, 269 of 269 faults named and confirmed, 15 of 15 STEM mutations). Its final independent audit is running.
 - Argument diagnostics: the fix round for the regressions against the committed code is still running; nothing is committed.
+
+### Progress, 11:00 UTC (24 October)
+
+- Correction to the 06:00 to 10:00 notes: the overseer STEM repair rounds were numbered two too high. The round measured at
+  7583 tests passed with every contained gate passing was the tenth repair, not the last. Its independent audit found 2
+  high-severity issues (a correct whole-number rounded quotient written with '=' read as an error; a given value one unit
+  off in its last digit accepted as matching), 4 medium and 1 low. The eleventh repair is running; at most one more repair
+  and audit follow. The commit stays blocked while a high-severity issue is open.
+- Argument diagnostics: the fix round closed all 16 places where the changes were worse than the committed code (3 of them
+  by narrowing a new reading and giving up part of it). On the recorded rounds it adds no difference from the committed code.
+  Development corpus: 44/44 defects named, 57/57 controls clean (committed code: 9 named, 41 false alarms). Hold-out
+  corpus: 64/66 named, 68/68 controls clean (committed code: 13 named, 23 false alarms). Suite: 8847 passed; one timing test
+  went over its 50 ms bound under load and passes when run alone. Independent differential and safety checks are running;
+  nothing is committed.
