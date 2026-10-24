@@ -943,3 +943,12 @@ Work in progress after it is labelled as such.
   answer by answer. The independent outcome check passed; the independent security check is running. Nothing is committed.
 - Overseer rebuild: the last STEM repair round is in its measurement step; the last independent audit follows.
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 22:00 UTC (24 October)
+
+- Overseer rebuild: the twelfth and last STEM repair measured 7956 tests passed (11 skipped, 4 expected failures that were
+  already there), every recorded round unchanged (r7 177/177) and every contained gate passing (0 false alarms on genuine
+  transfers). Its last independent audit is running; the evaluation and the commit follow.
+- Argument diagnostics: the independent outcome check of the security round found every outcome identical (suite 9014 passed,
+  both corpora case by case, every recorded round answer by answer); the independent security check is running.
+- Phase 2 waits for the overseer rebuild commit.
