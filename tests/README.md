@@ -764,3 +764,11 @@ Work in progress after it is labelled as such.
   gates passing with no false alarm on genuine transfers, and 15/15 STEM mutations named. Its audit then found 4 issues
   (1 high: a false alarm on correct STEM working; 2 medium; 1 low), so the ninth STEM repair is running.
 - Argument diagnostics: verification round 4 found 6 high-severity issues (round 3: 9); repair round 4 is running.
+
+### Progress, 01:00 UTC (24 October)
+
+- Overseer rebuild: the ninth STEM repair finished its fixes and is regenerating its schemas and docs; measurement and the
+  independent audit follow.
+- Argument diagnostics: repair round 4 restarted after a transient server error stopped it (its finished work is kept).
+  Verification round 4 measured 44/44 development defects named with 0 false alarms and 65/66 hold-out defects named with
+  1 false alarm (a two-way choice the task states word for word is refuted as the translator's own; being repaired).
