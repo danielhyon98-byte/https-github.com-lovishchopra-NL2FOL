@@ -933,3 +933,13 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: the security round is timing every reading the changes add on adversarial inputs at several sizes;
   independent checks and the commit follow.
 - Phase 2 waits for the overseer rebuild commit.
+
+### Progress, 21:00 UTC (24 October)
+
+- Argument diagnostics: the security round made 17 readings that the changes add linear in their input. The worst of them
+  took 28.7 s on a 20,000-character input and now takes 0.004 s; the space-grouped figure reading took 3.2 s on 16,000
+  characters and now takes 0.07 s. Measured after the change: suite 9014 passed (68 new tests, each fix with an equality
+  test against the old pattern and a growth test), both corpora identical case by case, every recorded round identical
+  answer by answer. The independent outcome check passed; the independent security check is running. Nothing is committed.
+- Overseer rebuild: the last STEM repair round is in its measurement step; the last independent audit follows.
+- Phase 2 waits for the overseer rebuild commit.
