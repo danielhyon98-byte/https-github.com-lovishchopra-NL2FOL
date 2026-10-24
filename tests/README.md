@@ -785,3 +785,11 @@ Work in progress after it is labelled as such.
   on correct physics working, 3 medium, 5 low or low-medium); the tenth STEM repair is running.
 - Argument diagnostics: repair round 4 measured 8565 tests passed (round 3: 8249), 44/44 development defects named with 57/57
   controls clean, and 65/66 hold-out defects named with 67/68 controls clean. Verification round 5 is running.
+
+### Progress, 04:00 UTC (24 October)
+
+- Overseer rebuild: the tenth STEM repair has made its fixes, including the pack's STEM rules split into short paragraphs
+  for the cheapest-tier agents; it is regenerating schemas and docs before measuring.
+- Argument diagnostics: verification round 5 found new high-severity issues (adversarial 8, re-run findings 2, corpus 1;
+  invariants none); the last allowed repair round is running. The fixed corpora still meet their gates (development 44/44
+  with no false alarm; hold-out 65/66 with 1 false alarm).
