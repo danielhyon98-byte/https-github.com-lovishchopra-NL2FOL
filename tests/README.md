@@ -869,3 +869,13 @@ Work in progress after it is labelled as such.
 - Overseer rebuild: the eleventh STEM repair round is still running.
 - Argument diagnostics: the second fix round for the places where the changes are worse than the committed code is still
   running. Nothing is committed.
+
+### Progress, 14:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair round is still running.
+- Argument diagnostics: the second fix round measured 8912 tests passed, 0 failed; development 44/44 named with 57/57
+  controls clean and hold-out 64/66 named with 68/68 controls clean, both unchanged. It closed 6 places where the changes
+  were worse than the committed code (4 by reverting a reading to the committed behaviour) and left 8. Three of those are
+  cases the committed code catches only through false alarms that the changes removed, so it flags the matching correct
+  answers too. The last fix round counts a committed-code detection only when the committed code tells the defect apart
+  from its matching correct answer. Its verification is running; nothing is committed.
