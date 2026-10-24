@@ -13,22 +13,51 @@ Trust rules enforced here:
   dependency; other asserted-but-unchecked groundings are listed separately as
   ``unverified_dependencies`` so a summary can never call them established;
 * a definitive status that used no premise at all carries ``E108`` (vacuous) so the
-  outcome layer never displays a tautology as a verified claim.
+  outcome layer never displays a tautology as a verified claim;
+* a COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts
+  (a premise ``b <-> (n = 17)`` whose numeric symbol no other premise mentions, and with
+  ``b`` asserted the conclusion is ENTAILED) carries ``E110`` (unasserted figure), so the
+  outcome layer never displays such a counterexample as a verdict on the claim;
+* a COUNTEREXAMPLE over zero premises carries ``E108`` (it says only that the conclusion
+  is not a tautology), and one whose falsification needs nothing but conclusion symbols
+  that no premise mentions, a figure among them (for every assignment of the premises some
+  value of those symbols makes the conclusion true: the figures the conclusion compares, or
+  the claim's own reason, were not encoded) carries ``E111`` (unencoded reason). A Bool
+  point that no premise links to stays a COUNTEREXAMPLE: that is the non sequitur verdict;
+* an ENTAILED proof whose relied-on premises restate the conclusion (the conclusion, or
+  each of its "and" conjuncts, is one of them or one of their conjuncts) carries ``E112``
+  (circular) when those premises are the writer's own (an assumption, a specialist
+  inference, general knowledge, an unchecked arithmetic_fact): the claim was assumed, not
+  derived. A restated premise grounded in the task or a text is a transcription check.
+
+Limits and policies:
+
+* ``limits`` must be a :class:`~epinoic_logic.ir.schema.Limits`. Anything else is an
+  INTERNAL_ERROR result, never a run under guessed bounds;
+* every result path records ``limits`` on the result when they differ from
+  ``DEFAULT_LIMITS``, before signing. Default runs record nothing, so their results and
+  signatures are byte-identical to results from before the record existed;
+* when nonlinear terms are allowed, an assertion whose polynomial degree exceeds
+  :data:`~epinoic_logic.engine.policies.NONLINEAR_MAX_DEGREE` is UNSUPPORTED (``E201``)
+  before compilation, because Z3 cannot be interrupted inside some high-degree polynomial
+  operations and would overrun its timeout.
 """
 from __future__ import annotations
 
 import hashlib
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Union
 
 import z3
 
-from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol
+from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol, Var
 from . import sink as _sink
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
+from .policies import NONLINEAR_MAX_DEGREE, max_degree
 from .procedures import (
     ProcedureOutcome,
     apply_global_memory_limit,
@@ -41,7 +70,7 @@ from .procedures import (
 from .provenance import binding_for_unparsed, compute_binding, compute_versions, sign_result
 from .results import Counterexample, Diagnostic, ModelAssignment, SolverConfig, StageTiming, VerificationResult
 from .statuses import VerificationStatus
-from .validator import parse_and_validate, validate_problem
+from .validator import ValidationOutcome, parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
 #: Grounding kinds that never establish a premise: they are the specialist's own steps.
@@ -150,7 +179,275 @@ def _vacuous_diagnostic(problem: Problem, proc: ProcedureOutcome, config: Solver
             message=f"vacuous: the {problem.query} query has no premises, so {proc.status.value} asserts nothing",
             path="premises",
         )
+    if proc.status is VerificationStatus.COUNTEREXAMPLE and not problem.premises:
+        return Diagnostic(
+            code=DiagnosticCode.VACUOUS_RESULT.value,
+            message="vacuous: the entailment query has no premises, so its COUNTEREXAMPLE says only that the conclusion is not a "
+                    "tautology (nothing the claim rests on was encoded)",
+            path="premises",
+        )
     return None
+
+
+def _assertion_vars(problem: Problem) -> tuple[set[str], set[str]]:
+    """``(symbols the premises mention, symbols the conclusion mentions)``."""
+    premise_vars: set[str] = set()
+    for pr in problem.premises:
+        _expr_vars(pr.expr, premise_vars)
+    concl_vars = _expr_vars(problem.conclusion.expr, set()) if problem.conclusion is not None else set()
+    return premise_vars, concl_vars
+
+
+def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig) -> Optional[Diagnostic]:
+    """``E111`` when a COUNTEREXAMPLE (over at least one premise) falsifies the conclusion only through symbols no premise
+    mentions: for every assignment that satisfies the premises, some value of those free symbols makes the conclusion
+    true (decided by Z3 over ``premises AND forall free. NOT conclusion``, unsat). The claim's own reason ("..., so
+    demand shifts right") was not encoded, so the counterexample is no verdict on the claim. Undecided probes leave the
+    counterexample as it is."""
+    if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None or not problem.premises or compiled.conclusion is None:
+        return None
+    premise_vars, concl_vars = _assertion_vars(problem)
+    sorts = {sym.name: sym.sort for sym in problem.symbols}
+    free = sorted(v for v in concl_vars - premise_vars if v in compiled.symbols)
+    # A Bool point no premise links to is the classic non sequitur: "the evidence holds and the point fails" is a verdict
+    # on the claim. A figure the conclusion compares that no premise states is not: any value refutes it.
+    if not free or not any(sorts.get(v) in _NUMERIC_SORTS for v in free):
+        return None
+    try:
+        solver = z3.Solver(ctx=compiled.ctx)
+        solver.set("timeout", int(config.timeout_ms))
+        if config.rlimit is not None:
+            solver.set("rlimit", int(config.rlimit))
+        for term in compiled.premises.values():
+            solver.add(term)
+        solver.add(z3.ForAll([compiled.symbols[v] for v in free], z3.Not(compiled.conclusion)))
+        answer = solver.check()
+    except z3.Z3Exception:
+        return None
+    if answer != z3.unsat:
+        return None
+    model = proc.model or {}
+    shown = ", ".join(f"{v}={model[v]}" for v in free if v in model) or ", ".join(free)
+    return Diagnostic(
+        code=DiagnosticCode.UNENCODED_REASON.value,
+        message=(f"unencoded reason: the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
+                 f"mentions ({shown}); for every assignment of the premises some value of them makes the conclusion true, so the claim's own "
+                 "reason or link was not encoded and this COUNTEREXAMPLE is no verdict on the claim"),
+        path="conclusion",
+    )
+
+
+def _conjuncts(expr) -> list:
+    """The "and" conjuncts of ``expr`` (nested conjunctions flattened); ``[expr]`` for anything else."""
+    out, stack = [], [expr]
+    while stack:
+        node = stack.pop()
+        if getattr(node, "op", None) == "and":
+            stack.extend(reversed(node.args))
+        else:
+            out.append(node)
+    return out
+
+
+def _canonical(expr) -> str:
+    import json
+    return json.dumps(expr.model_dump(mode="json", exclude_none=True), sort_keys=True, separators=(",", ":"))
+
+
+def circular_premises(problem: Problem, relied_on: Optional[list[str]] = None) -> list[str]:
+    """The premises (among ``relied_on`` when given) that restate the conclusion: the conclusion, or each of its "and"
+    conjuncts, is syntactically one of these premises or one of their conjuncts. Empty when the conclusion is derived
+    from something else. Purely syntactic, no solver."""
+    if problem.conclusion is None:
+        return []
+    pool = [pr for pr in problem.premises if relied_on is None or pr.id in relied_on]
+    if not pool:
+        return []
+    owner: dict[str, str] = {}
+    for pr in pool:
+        owner.setdefault(_canonical(pr.expr), pr.id)
+        for c in _conjuncts(pr.expr):
+            owner.setdefault(_canonical(c), pr.id)
+    needed = [_canonical(c) for c in _conjuncts(problem.conclusion.expr)]
+    if not needed or not all(n in owner for n in needed):
+        return []
+    return list(dict.fromkeys(owner[n] for n in needed))
+
+
+def assumed_grounding(grounding: Optional[Grounding]) -> bool:
+    """A premise the claim's writer (or the translator) supplies itself: an ungrounded kind (:func:`is_ungrounded`) or an
+    ``arithmetic_fact`` no check verified (a figure the report states, asserted as a fact). A premise grounded in the task
+    (``task_setting``, ``rubric_rule``) or a text (``supplied_text``, ``knowledge_document``, ``library_source``, a
+    verified quotation) is a transcription: restating it is a check of the claim against that source, not a circle."""
+    return is_ungrounded(grounding) or (grounding is not None and grounding.kind == "arithmetic_fact" and grounding.verified is not True)
+
+
+def _circular_diagnostic(problem: Problem, proc: ProcedureOutcome) -> Optional[Diagnostic]:
+    """``E112`` when an ENTAILED proof's relied-on premises restate the conclusion (:func:`circular_premises`) and every
+    restating premise is the writer's own (:func:`assumed_grounding`): the claim is assumed, not derived."""
+    if proc.status is not VerificationStatus.ENTAILED or problem.conclusion is None:
+        return None
+    restating = circular_premises(problem, list(proc.core) or None)
+    by_id = {pr.id: pr for pr in problem.premises}
+    if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
+        return None
+    labels = {pr.id: pr.label for pr in problem.premises}
+    shown = "; ".join(f"{pid}" + (f" ({labels[pid][:100]!r})" if labels.get(pid) else "") for pid in restating[:6])
+    return Diagnostic(
+        code=DiagnosticCode.CIRCULAR_PREMISES.value,
+        message=(f"circular: the premise(s) {shown} restate the conclusion (it, or each of its conjuncts, is asserted as a premise), so "
+                 "the claim is assumed, not derived; this ENTAILED is no verdict on the claim"),
+        path=f"premises.{restating[0]}",
+    )
+
+
+_COMPARE_OPS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
+_NUMERIC_SORTS = frozenset({"Int", "Real"})
+
+
+@dataclass(frozen=True)
+class FigureDefinition:
+    """A premise that only DEFINES a Bool ``atom`` as a comparison over numeric ``figures`` that no other premise
+    mentions (``b <-> (n = 17)`` with ``n`` free): it asserts nothing, so the figure its label states is never stated."""
+    premise_id: str
+    atom: str
+    figures: tuple[str, ...]
+    label: Optional[str]
+
+
+def _expr_vars(expr, out: set[str]) -> set[str]:
+    """Every symbol name ``expr`` mentions (an iterative walk: the validator bounds depth, this never recurses)."""
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        if getattr(node, "op", None) == "var":
+            out.add(node.name)
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or ())
+    return out
+
+
+def _is_figure_comparison(expr) -> bool:
+    """A comparison of numeric terms, or a conjunction, disjunction or negation of such comparisons."""
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op in _COMPARE_OPS:
+            continue
+        if op in ("and", "or"):
+            stack.extend(node.args)
+        elif op == "not":
+            stack.append(node.arg)
+        else:
+            return False
+    return True
+
+
+def unasserted_figure_definitions(problem: Problem) -> list[FigureDefinition]:
+    """The premises of ``problem`` that define a Bool atom by a comparison of numeric symbols (``iff`` with the atom on
+    one side) while every numeric symbol of that comparison occurs in no premise other than such definitions. Each
+    asserts nothing: whatever value the figure takes, the atom can be chosen to match. Purely syntactic, no solver."""
+    sorts = {s.name: s.sort for s in problem.symbols}
+    defs: list[tuple[str, str, set[str], Optional[str]]] = []
+    for pr in problem.premises:
+        e = pr.expr
+        if getattr(e, "op", None) != "iff":
+            continue
+        for atom, other in ((e.left, e.right), (e.right, e.left)):
+            if getattr(atom, "op", None) == "var" and sorts.get(atom.name) == "Bool" and _is_figure_comparison(other):
+                figures = {v for v in _expr_vars(other, set()) if sorts.get(v) in _NUMERIC_SORTS}
+                if figures:
+                    defs.append((pr.id, atom.name, figures, pr.label))
+                break
+    if not defs:
+        return []
+    def_ids = {d[0] for d in defs}
+    mentioned: set[str] = set()
+    for pr in problem.premises:
+        if pr.id not in def_ids:
+            _expr_vars(pr.expr, mentioned)
+    return [FigureDefinition(premise_id=pid, atom=atom, figures=tuple(sorted(figs)), label=label)
+            for pid, atom, figs, label in defs if not (figs & mentioned)]
+
+
+def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig) -> Optional[Diagnostic]:
+    """``E110`` when a COUNTEREXAMPLE only reassigns figures the problem defines but never asserts: the entailment is
+    re-run with each such defined atom asserted (as the premise's label states it) and is then ENTAILED. The
+    counterexample is still the solver's answer about the encoding, but it is no verdict on the claim, so the outcome
+    layer displays it as INVALID_FORMALIZATION. A re-run that is not ENTAILED leaves the counterexample as it is."""
+    if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None:
+        return None
+    defs = unasserted_figure_definitions(problem)
+    if not defs:
+        return None
+    taken = {p.id for p in problem.premises} | {problem.conclusion.id}
+    extra: list[Assertion] = []
+    by_id: dict[str, FigureDefinition] = {}
+    for i, d in enumerate(defs):
+        aid = f"asserted_figure_{i}"
+        while aid in taken:
+            aid += "_"
+        taken.add(aid)
+        by_id[aid] = d
+        extra.append(Assertion(id=aid, expr=Var(op="var", name=d.atom)))
+    probe = problem.model_copy(update={"premises": list(problem.premises) + extra})
+    try:
+        again = _PROCEDURES["entailment"](compile_problem(probe), config.model_copy(update={"produce_smt2": False, "produce_unsat_core": True}))
+    except Exception:  # a probe that cannot run leaves the counterexample as the solver gave it
+        return None
+    if again.status is not VerificationStatus.ENTAILED:
+        return None
+    model = proc.model or {}
+    # The figures the conclusion needs are the asserted atoms the re-run's proof used (its unsat core).
+    reassigned = [by_id[pid] for pid in again.core if pid in by_id] or [d for d in defs if model.get(d.atom) == "false"] or defs
+    parts = []
+    for d in reassigned:
+        values = ", ".join(f"{f}={model[f]}" for f in d.figures if f in model)
+        label = f" ({d.label[:120]!r})" if d.label else ""
+        parts.append(f"premise {d.premise_id}{label} defines {d.atom} by a comparison of {', '.join(d.figures)}, which no premise asserts or constrains"
+                     + (f" (the counterexample sets {values}, {d.atom}={model.get(d.atom, '?')})" if values else ""))
+    return Diagnostic(
+        code=DiagnosticCode.UNASSERTED_FIGURE.value,
+        message=("unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
+                 + "; with the defined atom(s) asserted as the labels state them the conclusion is ENTAILED, so this COUNTEREXAMPLE is "
+                 "no verdict on the claim (the translation must assert the stated figure: the atom, or the comparison itself, as a premise)"),
+        path=f"premises.{reassigned[0].premise_id}",
+    )
+
+
+def _limits_record(limits: Limits) -> Optional[Limits]:
+    """What a result records about the Limits it was decided under: ``None`` for the default
+    values (so default results stay byte-identical), else a plain ``Limits`` copy of the values
+    that were enforced. Raises ``TypeError`` for anything that is not a ``Limits``."""
+    if not isinstance(limits, Limits):
+        raise TypeError("limits must be an epinoic_logic.ir.schema.Limits instance")
+    values = {name: getattr(limits, name) for name in Limits.model_fields}
+    if values == DEFAULT_LIMITS.model_dump():
+        return None
+    return Limits.model_validate(values)
+
+
+def _degree_diagnostic(problem: Problem, limits: Limits) -> Optional[Diagnostic]:
+    """``E201`` when nonlinear terms are allowed and an assertion's polynomial degree exceeds the
+    engine bound. Under the linear gate every degree is at most 1, so nothing is checked."""
+    if not limits.allow_nonlinear:
+        return None
+    degree, where = max_degree(problem)
+    if degree <= NONLINEAR_MAX_DEGREE:
+        return None
+    return Diagnostic(
+        code=DiagnosticCode.NONLINEAR_TERM.value,
+        message=(
+            f"polynomial degree {degree} exceeds the nonlinear policy bound {NONLINEAR_MAX_DEGREE}: "
+            "the solver cannot be interrupted reliably on higher degrees"
+        ),
+        path=where,
+    )
 
 
 def _assignments(problem: Problem, model: dict[str, str]) -> list[ModelAssignment]:
@@ -180,9 +477,12 @@ def verify(
     result_id = uuid.uuid4().hex
     base = dict(result_id=result_id, versions=versions, solver_config=config, issued_at=_now())
     problem: Optional[Problem] = None  # the problem actually validated and compiled; the result sink records it
+    record: Optional[Limits] = None
 
     def finish(result: VerificationResult) -> VerificationResult:
         result.timings = timings + result.timings
+        if record is not None:
+            result.limits = record  # before signing: the record is covered by the signature
         if signing_key:
             result = sign_result(result, signing_key, key_id or "default")
         try:  # the Overseer's result sink: a no-op unless a capture is active; it never changes or blocks the result
@@ -192,16 +492,23 @@ def verify(
         return result
 
     try:
+        record = _limits_record(limits)
+        enforced = record if record is not None else DEFAULT_LIMITS
         t0 = time.perf_counter()
         trust_notes: list[Diagnostic] = []
         if isinstance(problem_or_raw, Problem):
             problem = problem_or_raw
-            outcome = validate_problem(problem, limits)
+            outcome = validate_problem(problem, enforced)
         else:
-            problem, outcome = parse_and_validate(problem_or_raw, limits)
+            problem, outcome = parse_and_validate(problem_or_raw, enforced)
             if problem is not None:
                 # Untrusted payload: nothing in this process checked its groundings.
                 problem, trust_notes = _demote_asserted_verification(problem)
+        if problem is not None and outcome.ok:
+            too_high = _degree_diagnostic(problem, enforced)
+            if too_high is not None:
+                outcome = ValidationOutcome(ok=False, status=VerificationStatus.UNSUPPORTED, diagnostics=[too_high],
+                                            node_count=outcome.node_count, max_depth=outcome.max_depth, sorts=outcome.sorts)
         timings.append(StageTiming(stage="validate", ms=(time.perf_counter() - t0) * 1000.0))
 
         if problem is None:
@@ -231,8 +538,13 @@ def verify(
         timings.append(StageTiming(stage="compile", ms=(time.perf_counter() - t1) * 1000.0))
 
         apply_global_memory_limit(config)
+        figure_note: Optional[Diagnostic] = None
+        reason_note: Optional[Diagnostic] = None
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
+            figure_note = _unasserted_figure_diagnostic(problem, proc, config)
+            if figure_note is None:
+                reason_note = _unencoded_reason_diagnostic(problem, proc, compiled, config)
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
             # verifications can work within so later calls are not left under the exhausted one.
@@ -250,6 +562,13 @@ def verify(
         vacuous = _vacuous_diagnostic(problem, proc, config)
         if vacuous is not None:
             diagnostics.append(vacuous)
+        if figure_note is not None:
+            diagnostics.append(figure_note)
+        if reason_note is not None and vacuous is None:
+            diagnostics.append(reason_note)
+        circular = _circular_diagnostic(problem, proc) if vacuous is None else None
+        if circular is not None:
+            diagnostics.append(circular)
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2),

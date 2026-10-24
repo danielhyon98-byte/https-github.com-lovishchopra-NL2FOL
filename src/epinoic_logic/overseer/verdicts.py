@@ -114,7 +114,7 @@ KIND_CHECKS: dict[str, tuple[str, ...]] = {
     "result_from_other_problem": ("OVS-RES-004", "OVS-RES-010"),
     "result_out_of_task": ("OVS-RES-001", "OVS-RES-005", "OVS-RES-006", "OVS-RCPT-006"),
     "replay_differs": ("OVS-RES-007",),
-    "formal_status_wrong": ("OVS-FORM-001", "OVS-FORM-002", "OVS-FORM-003", "OVS-FORM-004"),
+    "formal_status_wrong": ("OVS-FORM-001", "OVS-FORM-002", "OVS-FORM-003", "OVS-FORM-004", "OVS-FORM-005"),
     "claim_not_in_response": ("OVS-FID-001",),
     "quotation_absent": ("OVS-FID-002", "OVS-FID-004"),
     "figure_changed": ("OVS-FID-003", "OVS-SYN-002"),

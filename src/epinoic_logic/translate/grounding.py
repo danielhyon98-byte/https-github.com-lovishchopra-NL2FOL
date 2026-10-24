@@ -9,8 +9,9 @@ Matching is attempted in three tiers, reported through ``GroundingCheck.method``
 
 1. ``verbatim_match``: the excerpt occurs character for character.
 2. ``normalized_match``: the excerpt occurs after typographic normalization of both
-   sides (curly/straight quotes, dash variants, whitespace runs, ellipsis forms,
-   invisible characters). Case is NOT folded: a changed word is a changed quotation.
+   sides (curly/straight quotes, dash variants and the spaces around a dash, whitespace
+   runs, ellipsis forms, invisible characters): ``like - just as I -`` typed for the
+   text's ``like—just as I—`` is the same quotation. Case is NOT folded: a changed word is a changed quotation.
    Two further normalizations belong to this tier because they are the conventions
    of quoting itself, not changes to the words: the quotation marks INSIDE an excerpt
    are folded to one class (a quotation that nests the text's double marks as single
@@ -26,7 +27,10 @@ Matching is attempted in three tiers, reported through ``GroundingCheck.method``
 
 A fourth, *inexact* tier (:func:`locate_quotation_inexact`) finds the words after a
 conventional adjustment of written analysis: a changed initial capital (a sentence
-opening quoted mid-sentence) or omitted or added verse line-break marks (``/``);
+opening quoted mid-sentence), omitted or added verse line-break marks (``/``), or the
+text's own double speech mark at a line or stanza start or end left out of a quotation that
+runs across the break (:data:`NOTE_EDGE_MARKS`; every stanza of a dramatic monologue that
+opens with a speech mark);
 :func:`locate_long_elision` finds an elision whose fragments all occur in order but span
 more than the elision window. The inexact tier also folds diacritics on both sides (each
 character decomposed with NFKD and its combining marks, Unicode category Mn, dropped, the
@@ -142,7 +146,24 @@ def _normalize_indexed(text: str, *, newline_as_slash: bool = False) -> tuple[st
                 continue  # collapse dash runs ("--" and "---" both become "-")
             out.append(mapped)
             idx.append(pos)
+    if "-" in out:
+        out, idx = _close_dash_spaces(out, idx)
     return _collapse_spaced_ellipsis(out, idx)
+
+
+def _close_dash_spaces(chars: list[str], idx: list[int]) -> tuple[list[str], list[int]]:
+    """Drop the spaces on both sides of a dash (every dash variant is already ``-``), so a spaced dash typed for the
+    text's em dash (``like - just``, ``like – just``) compares equal to ``like—just`` and to ``like — just``: the
+    spacing of a dash is typography, not words. Applied to the text and the excerpt alike."""
+    out: list[str] = []
+    out_idx: list[int] = []
+    n = len(chars)
+    for i, ch in enumerate(chars):
+        if ch == " " and ((i + 1 < n and chars[i + 1] == "-") or (out and out[-1] == "-")):
+            continue
+        out.append(ch)
+        out_idx.append(idx[i])
+    return out, out_idx
 
 
 def _collapse_spaced_ellipsis(chars: list[str], idx: list[int]) -> tuple[str, list[int]]:
@@ -394,7 +415,7 @@ class TextForms:
     form twice in two threads is harmless (the same value is assigned)."""
 
     __slots__ = ("text", "_norm", "_quotes_folded", "_slash", "_slash_quotes_folded", "_no_marks", "_no_marks_casefold", "_has_newline", "_has_slash",
-                 "_is_ascii", "_diacritics")
+                 "_is_ascii", "_diacritics", "_edge", "_edge_slash", "_has_edge_marks")
 
     def __init__(self, text: str) -> None:
         self.text = text
@@ -408,6 +429,9 @@ class TextForms:
         self._has_slash: Optional[bool] = None
         self._is_ascii: Optional[bool] = None
         self._diacritics: Optional[tuple[str, Sequence[int]]] = None
+        self._edge: Optional[tuple[str, Sequence[int]]] = None
+        self._edge_slash: Optional[tuple[str, Sequence[int]]] = None
+        self._has_edge_marks: Optional[bool] = None
 
     @property
     def is_ascii(self) -> bool:
@@ -464,12 +488,71 @@ class TextForms:
             self._no_marks_casefold = self.no_marks()[0].casefold()
         return self._no_marks_casefold
 
+    @property
+    def has_edge_marks(self) -> bool:
+        """The text opens or closes a line with its own double quotation mark (verse dialogue: every stanza of a
+        dramatic monologue opening with a speech mark)."""
+        if self._has_edge_marks is None:
+            self._has_edge_marks = self.has_newline and _EDGE_MARK_RE.search(self.text) is not None
+        return self._has_edge_marks
+
+    def edge(self) -> tuple[str, Sequence[int]]:
+        """The normalised text with the double quotation marks that open or close a line removed, and the offset map."""
+        if self._edge is None:
+            filtered, fmap = _drop_edge_marks(self.text)
+            chars, idx = _normalize_indexed(filtered)
+            self._edge = (chars, _offsets([fmap[i] for i in idx]))
+        return self._edge
+
+    def edge_slash(self) -> tuple[str, Sequence[int]]:
+        """As :meth:`edge`, with line breaks rendered ``" / "`` (a blank line ``" // "``) and slash runs folded."""
+        if self._edge_slash is None:
+            filtered, fmap = _drop_edge_marks(self.text)
+            chars, idx = _fold_slash_runs(*_normalize_indexed(filtered, newline_as_slash=True))
+            self._edge_slash = (chars, _offsets([fmap[i] for i in idx]))
+        return self._edge_slash
+
     def diacritics(self) -> tuple[str, Sequence[int]]:
         """The normalised text with its diacritics folded (NFKD, combining marks dropped), and the offset map."""
         if self._diacritics is None:
             chars, idx = _fold_diacritics_indexed(*self.norm())
             self._diacritics = (chars, _offsets(idx))
         return self._diacritics
+
+
+#: A double quotation mark (any typographic form) at the start of a line (after indentation) or at its end.
+_DOUBLE_MARKS = '"“”„‟″«»'
+_EDGE_MARK_RE = re.compile(r"(?m)^[ \t]*[" + _DOUBLE_MARKS + r"]|[" + _DOUBLE_MARKS + r"][ \t]*$")
+NOTE_EDGE_MARKS = "omits the text's own speech mark at a line or stanza start or end"
+
+
+def _drop_edge_marks(text: str) -> tuple[str, list[int]]:
+    """``text`` without the double quotation marks that open or close a line, and per kept character its offset in
+    ``text``: the forms in which a quotation that runs across a line or stanza break and leaves out the text's own
+    speech mark at the break is located."""
+    drop: set[int] = set()
+    line_start = 0
+    for line in text.split("\n"):
+        stripped = line.strip(" \t\r")
+        if stripped:
+            first = line_start + (len(line) - len(line.lstrip(" \t\r")))
+            last = line_start + len(line.rstrip(" \t\r")) - 1
+            if text[first] in _DOUBLE_MARKS:
+                drop.add(first)
+            if last != first and text[last] in _DOUBLE_MARKS:
+                drop.add(last)
+        line_start += len(line) + 1
+    keep = [i for i in range(len(text)) if i not in drop]
+    return "".join(text[i] for i in keep), keep
+
+
+def _excerpt_without_edge_marks(norm_ex: str) -> str:
+    """A normalised excerpt with the double marks beside its own line-break marks removed ("nipperkin!" / "But" ->
+    "nipperkin! / But"), so a quoter who kept one of the text's speech marks at a break and dropped the other compares
+    equal to the text without its edge marks."""
+    out = re.sub(r'"(?=\s*/)', "", norm_ex)
+    out = re.sub(r'(?<=/)(\s*)"', r"\1", out)
+    return " ".join(out.split())
 
 
 def _text_key(text: str, document_id: Optional[str]) -> tuple[str, str]:
@@ -695,7 +778,38 @@ def _locate_quotation_inexact(excerpt: str, forms: TextForms) -> Optional[tuple[
             if pos >= 0:
                 start, end = _span(idx2, pos, len(stripped_ex))
                 return QuotationMatch(start, end, text[start:end], "normalized_match"), how
+    if forms.has_edge_marks:
+        found = _edge_marks_match(ex, forms)
+        if found is not None:
+            return found
     return _diacritics_match(ex, forms)
+
+
+def _edge_marks_match(ex: str, forms: TextForms) -> Optional[tuple[QuotationMatch, str]]:
+    """The excerpt located once the text's own double quotation marks at line and stanza edges are set aside: a
+    quotation that runs across a stanza break of verse dialogue (every stanza of 'The Man He Killed' opens with a speech
+    mark) and leaves that mark out, with ``" / "``, ``" // "`` or no break mark. ``(match, difference)``, or None."""
+    text = forms.text
+    norm_ex = normalize_quote(ex)
+    if not norm_ex:
+        return None
+    if "/" in norm_ex:
+        slash_text, slash_idx = forms.edge_slash()
+        for cand in dict.fromkeys((_fold_slash_runs(norm_ex)[0], _fold_slash_runs(_excerpt_without_edge_marks(norm_ex))[0])):
+            pos = slash_text.find(cand)
+            if pos >= 0 and cand:
+                start, end = _span(slash_idx, pos, len(cand))
+                return QuotationMatch(start, end, text[start:end], "normalized_match"), f"{NOTE_EDGE_MARKS} (its line breaks written ' / ')"
+        stripped_ex = _drop_linebreak_marks(*_normalize_indexed(_excerpt_without_edge_marks(norm_ex)))[0]
+    else:
+        stripped_ex = norm_ex
+    edge_text, edge_idx = forms.edge()
+    pos = edge_text.find(stripped_ex) if stripped_ex else -1
+    if pos >= 0:
+        start, end = _span(edge_idx, pos, len(stripped_ex))
+        how = NOTE_EDGE_MARKS + (" and its line-break marks" if "/" in norm_ex else " (and marks no line break)")
+        return QuotationMatch(start, end, text[start:end], "normalized_match"), how
+    return None
 
 
 def locate_long_elision(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[tuple[QuotationMatch, str]]:
@@ -808,11 +922,57 @@ def _check_symbol(symbol: Symbol, docs: dict[str, SuppliedText], checks: list[Gr
     return symbol.model_copy(update={"grounding": grounding})
 
 
+#: Literals that are no stated figure of an excerpt: a zero, a one, and the powers of ten a percentage or a unit
+#: conversion brings in.
+_TRIVIAL_LITERALS = frozenset({"0", "1", "-1", "10", "100", "1000"})
+_EXCERPT_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _literal_figures(expr) -> list[str]:
+    """The numeric literals of an expression (integers and decimals as written; fractions and trivial constants aside)."""
+    out: list[str] = []
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op in ("int", "real"):
+            value = node.value.lstrip("-")
+            if "/" not in value and value not in _TRIVIAL_LITERALS:
+                out.append(value)
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or ())
+    return out
+
+
+def _same_figure(a: str, b: str) -> bool:
+    from decimal import Decimal, InvalidOperation
+    try:
+        return Decimal(a.replace(",", "")) == Decimal(b.replace(",", ""))
+    except InvalidOperation:
+        return False
+
+
 def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks: list[GroundingCheck]) -> Assertion:
+    """Check an assertion's grounding. A premise whose excerpt is located but does not state the premise's figures (a
+    premise 'items[1] is 3' grounded by the excerpt 'scores = [12, 19, 23, ...]') is not verified by that excerpt:
+    ``verified=False`` with a ``figures_in_excerpt`` check naming the figures the excerpt lacks."""
     if assertion.grounding is None:
         return assertion
     grounding, found = check_grounding(assertion.id, assertion.grounding, docs)
     checks.extend(found)
+    excerpts = [r.excerpt for r in grounding.source_refs if r.excerpt and r.excerpt.strip()]
+    if grounding.verified is True and excerpts:
+        stated = [m.group(0).rstrip(",") for e in excerpts for m in _EXCERPT_NUMBER_RE.finditer(e)]
+        missing = [f for f in dict.fromkeys(_literal_figures(assertion.expr)) if not any(_same_figure(f, x) for x in stated)]
+        if missing:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="figures_in_excerpt", verified=False,
+                                         document_id=grounding.source_refs[0].document_id if grounding.source_refs else None,
+                                         detail=f"the excerpt is located but does not state the premise's figures {missing[:8]}: it does not ground this premise"))
+            grounding = grounding.model_copy(update={"verified": False})
     return assertion.model_copy(update={"grounding": grounding})
 
 

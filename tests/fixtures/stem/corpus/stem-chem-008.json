@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-008",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "50.0 cm³ of 1.00 mol dm⁻³ HCl is mixed with 50.0 cm³ of 1.00 mol dm⁻³ NaOH. The temperature rises by 6.8 °C. Calculate the enthalpy change of neutralisation. Assume the solution has density 1.00 g cm⁻³ and specific heat capacity 4.18 J g⁻¹ K⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Mass of solution: m = 100.0 g (100.0 cm³ × 1.00 g cm⁻³)\nHeat released: q = mcΔT = 100.0 × 4.18 × 6.8 = 2842 J = 2.84 kJ\nAmount of water formed: n = 1.00 × 0.0500 = 0.0500 mol\nΔH = −q/n = −2.84 kJ / 0.0500 mol = −56.8 kJ mol⁻¹\n\nThe reaction is exothermic, so ΔH is negative: about −57 kJ mol⁻¹, close to the data-book value.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "units_prefix",
+    "signed_values",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "m = 100.0 g (100.0 cm³ × 1.00 g cm⁻³)",
+      "q = mcΔT = 100.0 × 4.18 × 6.8 = 2842 J",
+      "2842 J = 2.84 kJ",
+      "n = 1.00 × 0.0500 = 0.0500 mol",
+      "ΔH = −q/n = −2.84 kJ / 0.0500 mol = −56.8 kJ mol⁻¹",
+      "about −57 kJ mol⁻¹"
+    ]
+  }
+}

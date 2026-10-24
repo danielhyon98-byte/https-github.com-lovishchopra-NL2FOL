@@ -417,11 +417,11 @@ def test_conflicts_over_an_ambiguous_pooled_claim_say_so_and_a_synthesis_must_di
     assert conflict and "AMBIGUOUS_TRANSLATION" in conflict[0].message and "['b-1']" in conflict[0].message and "assumed reading" in conflict[0].message
     assert ch.ambiguous_pooled == {"b-1"}
 
-    def syn(conflicts=()):
+    def syn(conflicts=(), synthesis_id="syn-c"):
         claims = [SynthesizedClaim(claim_id="s-a", text="The speed is 15 m/s.", certainty="probable", source_claim_ids=["a-1"], transformation="carried"),
                   SynthesizedClaim(claim_id="s-b", text="The speed is 16 m/s.", certainty="probable", source_claim_ids=["b-1"], transformation="carried")]
         text = "The speed is 15 m/s. The speed is 16 m/s."
-        return Synthesis(synthesis_id="syn-c", request_id="req-s", task_id=TASK, combinator_agent_id="combinator", source_report_ids=["rep-a", "rep-b"],
+        return Synthesis(synthesis_id=synthesis_id, request_id="req-s", task_id=TASK, combinator_agent_id="combinator", source_report_ids=["rep-a", "rep-b"],
                          claims=claims, conflicts=list(conflicts), text=text, text_sha256=sha256_text(text), created_at="2026-10-11T12:00:00Z")
 
     relayed, rr = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, syn())
@@ -430,6 +430,10 @@ def test_conflicts_over_an_ambiguous_pooled_claim_say_so_and_a_synthesis_must_di
     assert undisclosed and undisclosed[0].severity == "error" and set(undisclosed[0].claim_ids) == {"a-1", "b-1"}
     assert undisclosed[0].formal_result_id in rr.formal_result_ids and set(undisclosed[0].report_ids) == {"rep-a", "rep-b"}
     assert "assumed reading" in undisclosed[0].message
-    disclosed = syn(conflicts=[ConflictRecord(conflict_id="cf-1", claim_ids=["a-1", "b-1"], description="the specialists disagree on the speed")])
+    record = [ConflictRecord(conflict_id="cf-1", claim_ids=["a-1", "b-1"], description="the specialists disagree on the speed")]
+    # (round 5: the revised synthesis needs its own id; the same id with the conflict record added is refused, INT-HANDOFF-015)
+    reused, rr_reused = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, syn(conflicts=record))
+    assert reused is None and any(f.code == "INT-HANDOFF-015" and "conflicts" in f.message for f in rr_reused.findings)
+    disclosed = syn(conflicts=record, synthesis_id="syn-c2")
     _, rr2 = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, disclosed)
     assert not [f for f in rr2.findings if f.code == "INT-CONFLICT-002"] and any(f.code == "INT-CONFLICT-001" for f in rr2.findings)

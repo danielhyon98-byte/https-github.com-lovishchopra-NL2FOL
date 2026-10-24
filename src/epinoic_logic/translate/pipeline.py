@@ -17,6 +17,23 @@ Order of operations (each step is deterministic code except the provider call):
    policy (``UNSUPPORTED``) and identity failures are not retried.
 4. **Grounding** (``grounding``): quotation groundings are checked verbatim against
    the supplied texts and ``verified`` is set by code only.
+4b. **Stated figures** (``engine.runner.unasserted_figure_definitions``): a premise that
+   only defines an atom by a comparison of a figure no other premise mentions
+   (``b <-> (n = 17)`` with ``n`` free) asserts nothing. When the conclusion fails only
+   because of such a figure (the engine's COUNTEREXAMPLE turns ENTAILED once the defined
+   atoms are asserted: ``E110``), the output is INVALID_FORMALIZATION with that diagnostic
+   (fed back once); otherwise the unasserted definitions are recorded as a note.
+4c. **Stated precision**: a figure written to n decimal places states its value to half a
+   unit of its last place. When the problem is INCONSISTENT_PREMISES or a COUNTEREXAMPLE
+   as encoded but ENTAILED (or CONSISTENT) once every equality with such a literal is
+   widened to that interval, the rounded figures were encoded as exact equalities: the
+   output is INVALID_FORMALIZATION with that diagnostic (fed back once), never a verdict
+   or an inconsistency charged to the specialist.
+4d. **Circularity** (``engine.runner.circular_premises``): a conclusion that is itself a
+   premise, or each of whose conjuncts is one, where those premises are the writer's own
+   (an assumption, a specialist inference, general knowledge, an unchecked
+   arithmetic_fact), is assumed, not derived: INVALID_FORMALIZATION with that diagnostic
+   (fed back once). A restated premise grounded in the task or a text is a transcription.
 5. **Status**: ``TRANSLATED``, or ``AMBIGUOUS_TRANSLATION`` when the provider
    flagged ambiguity, ``UNSUPPORTED`` when it declined or the validator rejected a
    construct by policy, ``INVALID_FORMALIZATION`` when no valid encoding was
@@ -29,11 +46,16 @@ to the engine. Logs carry identifiers and statuses only, never claim or student 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Optional
 
 from pydantic import ValidationError
 
+from ..engine.errors import DiagnosticCode
+from ..engine.results import SolverConfig
+from ..engine.runner import assumed_grounding, circular_premises, unasserted_figure_definitions, verify as engine_verify
 from ..engine.statuses import VerificationStatus
 from ..engine.validator import validate_problem
 from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
@@ -64,6 +86,8 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_OUTPUT_KEYS: tuple[str, ...] = ("problem", "interpretation", "ambiguous", "unsupported_reason")
 _MAX_DIAGNOSTIC_CHARS = 500
+#: An ambiguity flag's statement that a figure is encoded as stated ("literal equality to 15 is encoded").
+_ENCODED_CLAIM_RE = re.compile(r"\b(?:literal\s+)?equalit(?:y|ies)\b[^.;]*\b(?:is|are)\s+encoded\b|\bencoded\s+as\s+(?:a\s+)?literal\s+equalit", re.IGNORECASE)
 _MAX_SCHEMA_ERRORS = 12
 
 
@@ -109,6 +133,111 @@ class _Accepted:
     notes: list[str] = field(default_factory=list)
 
 
+def _half_unit(value: str) -> Optional[tuple[str, str]]:
+    """``(lower, upper)`` bounds of a decimal literal written to n places: within half a unit of its last place."""
+    from decimal import Decimal
+    if "." not in value or "/" in value:
+        return None
+    places = len(value.split(".", 1)[1])
+    d = Decimal(value)
+    half = Decimal(5).scaleb(-(places + 1))
+    return format(d - half, "f"), format(d + half, "f")
+
+
+_LABEL_FIGURE_RE = re.compile(r"(?<![\w.])[-\u2212]?\d(?:[\d,]*\d)?(?:\.\d+)?(?![\w])")
+
+
+def _fraction(text: str) -> Optional[Fraction]:
+    try:
+        return Fraction(text.replace(",", "").replace("\u2212", "-"))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def label_beyond_expression(problem: Problem) -> list[str]:
+    """A note when the conclusion's label states a figure that its expression does not check: neither a literal of the
+    conclusion (to its stated precision, or as a percentage of it) nor a figure of the glosses of the symbols it uses. The
+    receipt shows the label beside the verdict, so a label that states more than the expression checks is named; the
+    verdict is unchanged (the label is not compiled)."""
+    concl = problem.conclusion
+    if concl is None or not concl.label:
+        return []
+    expr = concl.expr.model_dump(mode="json", exclude_none=True)
+    literals: list[Fraction] = []
+    names: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+        elif isinstance(node, dict):
+            if node.get("op") in ("int", "real") and isinstance(node.get("value"), str):
+                v = _fraction(node["value"])
+                if v is not None:
+                    literals.append(abs(v))
+            if node.get("op") == "var" and isinstance(node.get("name"), str):
+                names.add(node["name"])
+            for x in node.values():
+                walk(x)
+    walk(expr)
+    glossed = " ".join(sym.meaning or "" for sym in problem.symbols if sym.name in names)
+    gloss_values = {abs(v) for v in (_fraction(m) for m in _LABEL_FIGURE_RE.findall(glossed)) if v is not None}
+
+    def checked(text: str) -> bool:
+        v = _fraction(text)
+        if v is None:
+            return True
+        v = abs(v)
+        if v in gloss_values:
+            return True
+        bounds = _half_unit(text.replace(",", "").replace("\u2212", "-").lstrip("-"))
+        for lit in literals:
+            for scaled in (lit, lit * 100, lit / 100):
+                if scaled == v or (bounds is not None and Fraction(bounds[0]) <= scaled < Fraction(bounds[1])):
+                    return True
+        return False
+    missing = [f for f in dict.fromkeys(_LABEL_FIGURE_RE.findall(concl.label)) if not checked(f)]
+    if not missing:
+        return []
+    return [truncate(f"conclusion label states figure(s) {missing[:6]} that its expression does not check (no literal of the conclusion "
+                     "and no gloss of its symbols states them): the label may say more than the verdict shows", _MAX_DIAGNOSTIC_CHARS)]
+
+
+def widen_rounded_literals(problem: Problem) -> tuple[Optional[Problem], list[str]]:
+    """``(problem with every equality to a decimal literal widened to its stated precision, the literals widened)``; ``(None,
+    [])`` when the problem has no such equality. ``x = 0.67`` becomes ``x >= 0.665 and x < 0.675``."""
+    data = problem.model_dump(mode="json", exclude_none=True)
+    found: list[str] = []
+
+    def lit(node) -> Optional[str]:
+        return node.get("value") if isinstance(node, dict) and node.get("op") == "real" and isinstance(node.get("value"), str) and "." in node["value"] else None
+
+    def walk(node):
+        if isinstance(node, list):
+            return [walk(x) for x in node]
+        if not isinstance(node, dict):
+            return node
+        node = {k: walk(v) for k, v in node.items()}
+        if node.get("op") == "eq":
+            left, right = node.get("left"), node.get("right")
+            value, other = (lit(right), left) if lit(right) is not None and lit(left) is None else ((lit(left), right) if lit(left) is not None and lit(right) is None else (None, None))
+            bounds = _half_unit(value) if value is not None else None
+            if bounds is not None:
+                found.append(value)
+                return {"op": "and", "args": [{"op": "ge", "left": other, "right": {"op": "real", "value": bounds[0]}},
+                                              {"op": "lt", "left": other, "right": {"op": "real", "value": bounds[1]}}]}
+        return node
+    data["premises"] = walk(data.get("premises", []))
+    if data.get("conclusion") is not None:
+        data["conclusion"] = walk(data["conclusion"])
+    if not found:
+        return None, []
+    try:
+        return Problem.model_validate(data), list(dict.fromkeys(found))
+    except (ValidationError, ValueError):
+        return None, []
+
+
 def _format_validation_error(exc: ValidationError, what: str) -> str:
     lines = []
     for err in exc.errors()[:_MAX_SCHEMA_ERRORS]:
@@ -128,7 +257,9 @@ class Translator:
     ``provider`` is any :class:`~epinoic_logic.translate.providers.base.TranslationProvider`.
     ``max_attempts`` bounds provider calls per claim (default 2: one retry with the
     previous attempt's diagnostics). ``limits`` are the IR shape limits enforced by
-    the engine validator before anything is accepted.
+    the engine validator before anything is accepted. ``config`` bounds the solver run
+    that decides whether a conclusion fails only on a figure the problem defines but
+    never asserts (run only when such a definition is present).
     """
 
     def __init__(
@@ -138,6 +269,7 @@ class Translator:
         max_attempts: int = 2,
         prompt_version: str = prompts.TRANSLATE_PROMPT_VERSION,
         limits: Limits = DEFAULT_LIMITS,
+        config: SolverConfig = SolverConfig(),
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
@@ -146,6 +278,7 @@ class Translator:
         self.max_attempts = max_attempts
         self.prompt_version = prompt_version
         self.limits = limits
+        self.config = config
 
     # ------------------------------------------------------------------ public
 
@@ -301,10 +434,75 @@ class Translator:
             notes.append(
                 f"{len(failed)} grounding check(s) failed: " + ", ".join(sorted({c.target_id for c in failed}))
             )
+        notes += self._stated_figures(grounded, tag, interpretation)
+        notes += label_beyond_expression(grounded)
+        self._circularity(grounded, tag)
+        self._stated_precision(grounded, tag)
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")
         return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes)
+
+    def _stated_figures(self, problem: Problem, tag: str, interpretation: Optional[Interpretation] = None) -> list[str]:
+        """A premise that only defines an atom by a comparison of a figure no other premise mentions asserts nothing.
+        When the conclusion fails only on such a figure (the engine's ``E110``: COUNTEREXAMPLE as encoded, ENTAILED once
+        the defined atoms are asserted), the output is rejected as INVALID_FORMALIZATION with the diagnostic, which is
+        fed back once, so a counterexample that merely sets the stated figure to another value is never a verdict
+        (ambiguous or not). Otherwise each unasserted definition is recorded as a note: the verdict does not rest on it.
+        An ambiguity flag that says a figure "is encoded" (a literal equality) while the premise stating it only defines
+        it is named in the note too: the flag does not match the IR."""
+        defs = unasserted_figure_definitions(problem)
+        if not defs:
+            return []
+        if problem.query == "entailment" and problem.conclusion is not None:
+            probe = engine_verify(problem, self.config)
+            diag = next((d for d in probe.diagnostics if d.code == DiagnosticCode.UNASSERTED_FIGURE.value), None)
+            if diag is not None:
+                raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {diag.code}: {truncate(diag.message, _MAX_DIAGNOSTIC_CHARS * 3)}" + (f" at {diag.path}" if diag.path else "")], retryable=True)
+        named = ", ".join(f"{d.premise_id} ({d.atom} over {', '.join(d.figures)})" for d in defs[:8]) + (f" and {len(defs) - 8} more" if len(defs) > 8 else "")
+        notes = [truncate(f"unasserted figure definition(s): premise(s) {named} define an atom by a figure that no premise asserts or constrains, "
+                          "so the figure their labels state is not encoded as stated; the engine verdict does not rest on them", _MAX_DIAGNOSTIC_CHARS * 2)]
+        flags = [f for f in (interpretation.ambiguity_flags if interpretation is not None else ()) if _ENCODED_CLAIM_RE.search(f.message)]
+        if flags:
+            notes.append(truncate(f"ambiguity flag(s) {sorted({f.code for f in flags})} say a stated figure is encoded (a literal equality), but premise(s) "
+                                  f"{', '.join(d.premise_id for d in defs[:8])} only define it: no premise asserts it, so the flag does not match the IR", _MAX_DIAGNOSTIC_CHARS * 2))
+        return notes
+
+    @staticmethod
+    def _circularity(problem: Problem, tag: str) -> None:
+        """Reject a problem whose conclusion (or each of its conjuncts) is asserted by premises the writer supplies itself:
+        the solver would prove the claim from the claim (the engine's ``E112``)."""
+        if problem.query != "entailment" or problem.conclusion is None:
+            return
+        restating = circular_premises(problem)
+        by_id = {pr.id: pr for pr in problem.premises}
+        if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
+            return
+        raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
+            f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {', '.join(restating[:8])} restate the conclusion "
+            "(it, or each of its conjuncts) with no grounding of their own (assumption, specialist_inference, general_knowledge or an "
+            "unchecked arithmetic_fact), so the claim would be proved from itself; encode what the claim rests on (its evidence and its "
+            "stated links), or return problem null when it states a bare fact with no relation to check"], retryable=True)
+
+    def _stated_precision(self, problem: Problem, tag: str) -> None:
+        """Reject a problem that fails only because rounded figures were encoded as exact equalities: INCONSISTENT_PREMISES
+        or a COUNTEREXAMPLE as encoded, ENTAILED (or CONSISTENT) once every equality with a literal written to n decimal
+        places is widened to half a unit of its last place."""
+        widened, rounded = widen_rounded_literals(problem)
+        if widened is None or problem.query not in ("entailment", "consistency"):
+            return
+        probe = engine_verify(problem, self.config)
+        if probe.status not in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.COUNTEREXAMPLE):
+            return
+        again = engine_verify(widened, self.config)
+        good = VerificationStatus.ENTAILED if problem.query == "entailment" else VerificationStatus.CONSISTENT
+        if again.status is not good:
+            return
+        shown = ", ".join(rounded[:8]) + (f" and {len(rounded) - 8} more" if len(rounded) > 8 else "")
+        raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
+            f"{tag}: stated precision: the problem is {probe.status.value} as encoded, but {good.value} once each figure written to n "
+            f"decimal places ({shown}) is read to half a unit of its last place: the rounded figures were encoded as exact equalities; "
+            "encode each at its stated precision (a 'ge' and an 'lt' bound) and keep 'eq' for exact values"], retryable=True)
 
     def _result(
         self,

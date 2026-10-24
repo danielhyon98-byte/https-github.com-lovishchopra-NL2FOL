@@ -19,8 +19,11 @@ It is a token-level rule, not a regular expression over raw text. A sentence is 
 
 A predicate under negation or a deontic modal ("have not been checked", "should be verified", "must be confirmed")
 is a disclaimer, not a certification. A check credited to another agent ("checked by the registrar") or dated ("in
-1851") is a historical statement about a past check, not a certification of the answer. The rule is a heuristic: it
-only ever yields a warning (FID-009), never an error.
+1851") is a historical statement about a past check, not a certification of the answer. A first-person check offered
+for later ("I will check them against each criterion", "we can verify your table": ``will``, ``shall`` or ``can``
+between the subject and the checking act) is an offer to check the reader's work, not a certification of the answer
+(named rule ``offered-check``, the translator merge: the merged STEM parser delivers such an offer as a point). The rule
+is a heuristic: it only ever yields a warning (FID-009), never an error.
 """
 from __future__ import annotations
 
@@ -54,6 +57,8 @@ _ACCURACY = frozenset({"accurate", "correct", "reliable", "exact", "verbatim", "
 _FIRST_PERSON_OBJECTS = frozenset({"me", "us", "myself", "ourselves", "hand"})
 _MAX_MODIFIERS = 2
 _MAX_GAP = 6
+#: Rule ``offered-check``: auxiliaries that make a first-person checking act an offer for later, not a check done.
+_OFFER = frozenset({"will", "shall", "can"})
 
 
 def sentences(text: str) -> list[str]:
@@ -180,6 +185,8 @@ def flags_self_certification(sentence: str) -> bool:
             continue
         if toks[i] in ("i", "we") and not (_is_check(toks[k]) or toks[k] in ("need", "needs", "no")):
             continue  # "I am correct to say ..." is not a check
+        if toks[i] in ("i", "we") and _OFFER & set(toks[end:k]):
+            continue  # rule offered-check: "I will check them" offers a check of the reader's work; it certifies nothing done
         if _historical(toks, k):
             continue
         return True

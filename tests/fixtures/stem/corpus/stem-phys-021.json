@@ -1,0 +1,27 @@
+{
+  "id": "stem-phys-021",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Monochromatic light of wavelength 630 nm passes through two slits 0.50 mm apart. The fringes are observed on a screen 2.0 m away. Calculate the fringe spacing.",
+  "supplied_texts": [],
+  "response_text": "Given: $\\lambda = 630\\ \\text{nm} = 6.3 \\times 10^{-7}\\ \\text{m}$, $d = 0.50\\ \\text{mm} = 5.0 \\times 10^{-4}\\ \\text{m}$, $D = 2.0\\ \\text{m}$.\n\n$$s = \\frac{\\lambda D}{d} = \\frac{6.3 \\times 10^{-7} \\times 2.0}{5.0 \\times 10^{-4}} = 2.52 \\times 10^{-3}\\ \\text{m}$$\n\nThe bright fringes are about 2.5 mm apart, which is large enough to measure with a ruler if several fringe spacings are measured together.",
+  "notation": [
+    "latex_inline",
+    "latex_display",
+    "sci_latex",
+    "units_latex",
+    "units_prefix",
+    "greek_symbols"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "\\lambda = 630\\ \\text{nm} = 6.3 \\times 10^{-7}\\ \\text{m}",
+      "d = 0.50\\ \\text{mm} = 5.0 \\times 10^{-4}\\ \\text{m}",
+      "D = 2.0\\ \\text{m}",
+      "s = \\frac{\\lambda D}{d} = \\frac{6.3 \\times 10^{-7} \\times 2.0}{5.0 \\times 10^{-4}}",
+      "\\frac{6.3 \\times 10^{-7} \\times 2.0}{5.0 \\times 10^{-4}} = 2.52 \\times 10^{-3}\\ \\text{m}",
+      "about 2.5 mm apart"
+    ]
+  }
+}

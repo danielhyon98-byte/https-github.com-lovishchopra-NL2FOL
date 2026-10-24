@@ -8,7 +8,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   (`register`, `get_adapter`, `registered_ids`).
 - `markdown.py` — the pre-segmentation rules every text parser shares: markdown furniture,
   code fences and pasted JSON blocks removed before segmentation (`strip_markup`; CRLF and a
-  lone CR are line breaks), a JSON span glued to prose located wherever it stands
+  lone CR are line breaks; a fence with no language or a text or markdown tag whose body is prose,
+  at least 20 words and two sentence ends with no JSON shape, keeps its body, so an answer wrapped
+  in a fence is counted as the answer by the channel as the English parser reads it, while code, a
+  receipt in a fence tagged `json` and a short decoration are removed whole), a JSON span glued to prose located wherever it stands
   (`find_json_spans`, `mask_json_spans`, `split_json_spans`: parsers cut sentences at it and its
   strings are never quotations; brackets are matched in one linear pass per text and the answer
   is cached, so thousands of braces cost milliseconds, and `bracket_match_ends` gives the
@@ -17,7 +20,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   once its labels are set aside, read with its quotations masked by `mask_quotations`, so a
   colleague's from-memory label quoted by the writer is quotation and counts toward a word
   bound; a label word inside a substantive sentence, "recalls the scene from memory, which
-  ...", "is illustrative of how ...", never makes it a note), disclaimers told apart from
+  ...", "is illustrative of how ...", never makes it a note; a sentence opened by a note lead,
+  `NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "NB:", "Next step:", "Confidence:", is a note as a
+  whole on the English, History and generic branches and outside the channel's word and paragraph
+  counts, so hi-t13's closing "Note: Paper 2 essays are marked out of 15 ..." is no second body
+  paragraph and counts toward no bound, while "Note that ..." with no colon stays the argument's own
+  signpost), disclaimers told apart from
   self-certifications (`is_self_certification`: a positive check only, so "should be checked
   before they are cited", "have not been verified", "must be verified" and "unverified" are
   notes with no self-report; the semantic rule covers a sentence about the answer or its items,
@@ -25,7 +33,64 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   checking predicate, "can be relied upon", "appears verbatim", "no errors were found" or an
   accuracy adjective right after that subject, the writer narrating a check, "I have checked",
   "I verified each figure", on every branch, and the infrastructure, "Z3 proved", "the hub has
-  accepted", passing the answer), inline labels separated from a substantive sentence
+  accepted", passing the answer; the structural rule decides by the clause's shape, not by listed
+  phrases: a subject that refers to the answer's own items, a determiner, "every", "each of the",
+  "all of the", "these", "my", "the", with up to two modifiers before an item noun ("every mileage
+  figure above", "each of the mileage figures given above", "these quotations", "every quoted line
+  above"), or the answer itself ("my reading"), followed by a copula and a checking participle
+  ("has been verified", "has been formally verified") or an accuracy or reliability adjective ("are
+  exact", "are reliable"), or by "need no further checking", "need not be checked"; "Nothing in this
+  answer needs checking"; items "matched word for word" or checked "against the supplied" text; a
+  certifying lead, "As verified,", "As checked above,"; items named with the source they were taken
+  from, "each quotation of the History specialist above", "all quotations from the History specialist
+  above", "the quotations of the poem above", "my quotations of both texts", "the quotations from the
+  History report", "every figure taken from the History specialist" (a source is a colleague, a
+  qualified report, "the History report", or, for quotations only, the supplied text), with a checking
+  participle, an accuracy adjective (anchored items, quotations, or items taken by a quoting participle:
+  "the figures of the History report are accurate" may be the writer vouching for a source and is not
+  one) or a reproduction-fidelity predicate ("reproduced exactly", "quoted verbatim", "copied word for
+  word", and "The History specialist's words are quoted above exactly", the predicate closing the clause
+  or saying how the words stand, so "The speaker's words are quoted exactly by Love." is the poem's own
+  quoting and "... reproduced exactly in the final line" a repetition in the text); compliance self-reports, a
+  sentence that opens on the answer, its quotations or the request's items and says nothing but that
+  the answer satisfies the request ("The paragraph is under the word limit.", "This paragraph stays
+  within the 300-word limit and answers every part of the question.", "The answer meets every
+  constraint in the request.", "This response complies with the router's instructions.", "Both request
+  items are addressed above.", "All quotations follow the 1633 spelling of the supplied text."), decided
+  before the dated-item guard since such numbers date nothing, and word-count lines ("Word count: 258.",
+  "258 words.", "(about 250 words)", "The paragraph has 320 words."); and the router, Overseer, verifier, checker
+  or any other piece of the infrastructure as the agent that passed the answer or "every item". The
+  limits that keep arguments arguments: a check credited to another agent ("my reading is confirmed
+  by the final stanza", "checked by the Registrar General") or one that goes on to argue ("verified in
+  later scholarship") is not a self-report, an adjective must close the clause unless the items are
+  anchored in the answer ("these figures are reliable because ..." and "the census figures are
+  reliable" weigh a source), items in general need a checking verb ("every figure in the sculpture is
+  exact"), a definite subject needs the present or perfect ("the figures were checked" narrates), and
+  a dated item keeps the semantic and structural rules off ("Every date given above was checked against
+  the 1929 census"), though not a certifying lead or "need no further checking"; answers are cached per
+  sentence, and the structural patterns read a pathological sentence in linear time),
+  notes on how the answer was composed (`is_provenance_note`: the answer, its setting, its judgement
+  or a received report as subject and authorship or provenance as the whole predicate, "The
+  historical setting is my own addition, not part of that paragraph.", "The English specialist's
+  paragraph is from the hub"; a received report named anaphorically and labelling its items, "That
+  account marks its figures as "from memory", so they are reported unverified." (a quotation whose
+  words are nothing but a label, "from memory", "unverified", "approximate", is read as the label it
+  is: `is_label_quotation`), "That account labels its figures from memory"; a report's items or the
+  answer's located items with a verification status, "The History specialist's figures are from memory",
+  "Its figures are marked "from memory""; where the answer's items come from, the supplied text, a
+  received report, the hub or memory, "Quotations are from the supplied extract", "The figures above
+  come from the History specialist's paragraph, not from the poem."; and "The word count is
+  approximate."; closing clauses that are notes themselves, ", not from the poem", ", so they are
+  reported unverified", "I have not checked them", are set aside first; read on what is left once
+  label clauses are set aside, so a note on every branch and outside the channel's word count; "The
+  judgement is my own, and it shows that ...", "The census figures are approximate" and "The figures are
+  from the 1851 census" stay substantive), a colleague's reported view (`is_peer_attribution`: a
+  sentence whose subject is a colleague's view, "The History specialist states that ...", "The History
+  specialist's reading ...", the same shape as the History parser's attribution rule, or the colleague as the
+  subject of a verb reporting what it gave, "The History specialist gives about 8 million arrivals", "... dates
+  the sonnet to 1886", "... also puts the figure at ..." (verbs that are also nouns, "dates", "counts", "quotes",
+  are read only without the possessive, so "The History specialist's dates are from memory" stays a note); a colleague cited
+  mid-way, "..., bearing out the History specialist's claim", is the writer's own), inline labels separated from a substantive sentence
   (`split_note_clauses`: parentheticals, clauses before or after a semicolon or dash, a
   sentence-initial "From memory,", a comma-bounded ", from memory" with the figure that follows
   kept, a trailing appositive or concessive label, ", a figure I give from memory", ", though
@@ -50,11 +115,18 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   adapter's source-integrity findings, and the one attribution rule every parser applies
   (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text is
   credited to the one text its sentence names, whether or not that text holds the words; when
-  the sentence names several texts, the English and generic parsers pass the sentence and the
+  the sentence names several texts, the English, History and generic parsers pass the sentence and the
   quotation is credited to the text whose possessive governs it, else the speaker of the
   nearest reporting clause, else the text named nearest before it (`governing_document`), never
   to none; otherwise it is credited to no text and the assumption `quotation with no supplied
   text to check it against: "..."` is recorded, which the core pack reports as `CORE-SRC-003`.
+  A quotation whose sentence credits a source that is not a supplied text while its words are a
+  relayed colleague's own prose ("Hardy's speaker himself admits that ...", "The poem says ...")
+  keeps the colleague's report as its source and records the credit as an assumption (`CORE-SRC-005`;
+  the channel's `INT-REQ-015`); `quotation_credit` names who a sentence credits a quotation to,
+  `credited_agents` the specialists a text credits with a view, `peer_prose_span` whether an excerpt
+  is a colleague's own prose rather than a quotation the colleague makes, and `is_peer_text` a
+  relayed report.
   A text is never credited for being supplied first. Answers are cached per excerpt and document
   text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
 - `generic_structured.py` — the integration contract for every specialist being
@@ -66,8 +138,25 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   analytical paragraphs (point, evidence quotations, device, interpretation, link),
   structural checks derived from the agent's own knowledge documents (quotation not
   in text, invented citation, from-memory quote, misattributed quotation, strand count,
-  length, first person, spelling variety), and fixtures from its model essay including
+  length, first person, spelling variety; a misattribution, `ES-SRC-008`, is read per quotation:
+  each quotation is credited by the phrase that governs it in its own clause, the nearest possessive
+  or crediting verb before it, "the History specialist's "..."", "The History specialist calls the
+  street "two streets"", or the one text the sentence names with no other quotation, colon or
+  semicolon between, so the poem's lines after "... consistent with the History specialist's "...":"
+  are credited to no one by the colleague's possessive, and a text the sentence also names before the
+  quotation and that holds its words makes the credit ambiguous, left to `CORE-SRC-005`), and fixtures from its model essay including
   deliberately corrupted variants (`example1_texts.py` holds the verbatim Example 1 texts).
+  The parser reads a marking-feedback layout as feedback: a line break before a label-led line
+  ("Biggest gap: ...", "Fix it: ...", "Model: ...") or a bullet ends a sentence (outside a quotation
+  spanning the lines), an inline list number ("Fix it: 1. Choose ...", "... explanation. 2. Add ...")
+  opens its item instead of being cut off as a sentence ("The total was 12." still ends one), the
+  layout's furniture (`FEEDBACK_LABEL_RE`: the task heading "Task — Paper 1, SL — ...?", the restated
+  task "What the task wants: ...", the "Provisional marks: ..." line, a bare label "Why these marks:")
+  is roled `other`, and the judgement and the fixes ("Biggest gap: ...", "Fix it: 1. ...", the numbered
+  fixes after it until another labelled line) are roled `judgement` and material, so a synthesis that
+  drops a requested fix is named (`INT-LEDGER-002`) while dropping a label is not (`INT-LEDGER-019`);
+  a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so
+  ...") is notes throughout without being meta-text (no `ES-META-001`).
   The parser carries the hub-stated `agent_id` into the report unchanged, roles a
   self-certifying, narrated or JSON-shaped sentence `other` with no source reference
   wherever it stands, roles a quotation-free sentence that is nothing but a note about the
@@ -75,9 +164,32 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   notes of any length is meta), keeps a substantive sentence that carries the label inline
   and records the label as an assumption, roles a sentence that opens with a link signpost
   or lead (`Thus`, `Ultimately`, `Read together`, `Taken together`, `Together`, `In this
-  light`, `Read against`: `LINK_LEADS`) and, in a single-paragraph answer, the closing claim
-  drawn over the evidence ("... suggest that ...") as the material `link`, reads a CR-only
-  paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
+  light`, `Read against`: `LINK_LEADS`) and, in a single-paragraph answer, the closing sentence
+  that draws the conclusion, quoting or not, as the material `link`: a claim drawn over the
+  evidence ("... suggest that ..."), a conclusion marker anywhere in it ("Direct speech thus
+  supplies ...", "..., so that admiration and laughter remain held together", "..., so the
+  argument moves from persuasion to urgency"; ", so much" is a degree word) or a restatement of
+  the point's terms (three shared content words, half the sentence's own); after a signposted link
+  only the quotation-free claim over the evidence is a second link, so a closing caveat ("The poem
+  never mentions the war, so this reading rests on ...") stays supporting; ends a sentence at a
+  sentence-final possessive or contraction ("... matches the enemy's. The key word ..."), which is
+  not a one-letter initial, and after "?" or "!" and the pronoun "I" ("... "Who made the eyes but I?"
+  The modal ...", "No one speaks but I.", her "I".), a run of initials ("I. A. Richards") aside, and
+  before a figure ("... dissent. 258 words."; "l. 4", "p. 12", "c. 1900" stay abbreviations);
+  roles a note `other` and never the link, notes relaying a received report's label included ("That
+  account marks its figures as "from memory", so they are reported unverified.": its quoted label is
+  still delivered as an evidence claim the hub checks, supporting nothing); in choosing the closing
+  link, skips notes, a caveat on the reading's grounds ("The reading stays plausible: ... comes from
+  context, not the poem.", "... rests on context", "the link cannot be proved") and a colleague's
+  reported view and considers the argued sentence before them, so en-p5's conclusion is its link (a
+  conclusion drawn from what the poem leaves unsaid, "The sonnet never names an origin, so its
+  welcome ...", or a possessive "not the poem's" is not a caveat and stays the link); roles a sentence whose subject is a
+  colleague's view ("The History specialist states that ...", "The History specialist gives about 8 million
+  arrivals in the 1880s.", "The History specialist dates the sonnet to 1886.") `perspective`, never the point
+  and passed over by the closing-link rule like a caveat, so an answer closing on the colleague's figure keeps
+  its conclusion as the link, with
+  certainty `probable` and the attribution assumption the History parser records;
+  reads a CR-only paragraph break as a paragraph break, raises `ES-SRC-003` only for a disclosure (an
   unlocated quotation, a quotation word in the writer's own words, or the method's own
   label), not for "from memory" used in the argument, segments the prose before and after a pasted JSON
   span as prose (the span is one `other` sentence, and the quotations after it are grounded),
@@ -93,6 +205,33 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   interpretation before evidence and evidence before material claims, carrying the source
   references of folded evidence on the tail claim so the hub still checks those quotations and
   naming in an unresolved issue how many claims and quotations were merged.
+- `stem_specialist/` — `StemTextParser`, the parser of the three STEM branches (`sciences`,
+  `mathematics`, `computer_science`; docs/STEM_DESIGN.md, section 9). It reads the same memoised
+  `stem.document.StemDocument` as `branches/stem_pack.StemPack` (the channel passes it the request
+  text: `accepts_request_text`), so claim ids and planned check ids cannot diverge. Claims are the
+  document's statements (a sentence, a derivation line, a display row, a list item, a code block,
+  a table row, a data line), cut by the round-7 layout rules (`stem/layout.py`: part labels,
+  label-only lines and mark annotations are furniture; an equation continued on lines opening
+  with `=` is one claim), each the statement's stretch of the original answer with interior
+  markup left out, cut to the contract's 4,000 characters, with ids `s<paragraph>.<n>` (`m<paragraph>.<n>` in mathematics,
+  `c<paragraph>.<n>` in Computer Science, so two STEM branches never share a claim id on one
+  task); `original_response` is verbatim and nothing vanishes (statements beyond 512 merge into
+  `s.tail` with the unresolved-issue text the channel turns into INT-REQ-013). Roles, materiality
+  and supports are the generic parser's round-7 reading (`generic_parser.assign_roles`, run on
+  units built from the STEM statements), so a STEM answer keeps the claims round 7 verified
+  (design section 20.2), with the STEM refinements of design section 9.2 where round 7 did not
+  rule and no new role: notes and self-certifications `other` (the shared
+  `is_note_sentence` / `is_self_certification`; a statement that carries maths is never a note for
+  having no words), "Given:"/"Working:" headings `structural`, Given lines and bindings or laws the
+  answer presents as given `evidence`, steps `quantitative`
+  (supporting), the last chain-bearing statement of each part and a prose value after a result cue
+  `quantitative` and material, code blocks material `point`s, and in an explanation paragraph the
+  point, `link`s and `analysis`; assumptions ("neglecting air resistance") are copied to the
+  report. Quotations are read on the quotation view (code masked; an inch mark `12"` is no
+  quotation mark) and credited by the shared `attribute_excerpt`, exactly as the generic parser
+  credits them. A claim whose relations the STEM pack decides records "numeric relations of this
+  statement are decided by the STEM pack checks <ids>". An empty answer raises `AdapterError`; a
+  code-only answer yields claims; adversarial input never raises out of the parser.
 - `fixtures_multi_subject.py` — Mathematics, Physics, Economics, Computer Science,
   History and English fixtures with expected statuses.
 

@@ -190,8 +190,10 @@ def test_a_derived_figure_that_cannot_be_bound_is_reported_undecided_not_skipped
 
 def test_hi_t8_relations_across_sentences_are_read_against_the_paragraphs_dated_series():
     genuine = extract_quant_checks(HI_T8, request_id="r", claim_id="c")
-    assert [(c.kind, status(c.problem)) for c in genuine] == [("series_monotonic", "ENTAILED"), ("percent_change", "ENTAILED"), ("series_extreme", "ENTAILED")]
-    pct = genuine[1]
+    # round 5: the pair 'climbed from about 1.9 million in 1929 to ... 5.6 million in 1932' is also checked for its stated direction
+    # (the overseers asked that a from/to pair under 'rose'/'fell' be decided); the three round-4 checks keep their order and verdicts
+    assert [(c.kind, status(c.problem)) for c in genuine] == [("pair_direction", "ENTAILED"), ("series_monotonic", "ENTAILED"), ("percent_change", "ENTAILED"), ("series_extreme", "ENTAILED")]
+    pct = genuine[2]
     assert "'that year' read as 1930" in pct.basis and "sentence 2" in pct.basis and "1.9 million in 1929" in pct.basis
     assert not undecided_quant_statements(HI_T8)
     cases = {
@@ -208,7 +210,9 @@ def test_hi_t8_relations_across_sentences_are_read_against_the_paragraphs_dated_
 def test_hi_t8_through_the_hub_cross_sentence_arithmetic_is_decided_and_a_wrong_figure_is_an_error():
     _, ok = through_hub(HI_T8, HI_T8_Q, "short_answer")
     quant = [fc for fc in ok.formal_checks if fc.constraint_id.startswith("core-quant")]
-    assert len(quant) == 3 and all(fc.satisfied for fc in quant) and not [f for f in ok.findings if f.code == "INT-SUBJ-001"]
+    # round 5: four checks, the pair's stated direction among them, all holding (round 4 pinned the three cross-sentence checks)
+    assert len(quant) == 4 and all(fc.satisfied for fc in quant) and not [f for f in ok.findings if f.code == "INT-SUBJ-001"]
+    assert sorted(fc.detail.split(" ")[0].split(":")[0] for fc in quant) == ["pair_direction", "percent_change", "series_extreme", "series_monotonic"]
     _, bad = through_hub(HI_T8.replace("grew by roughly 60 per cent that year", "grew by roughly 90 per cent that year"), HI_T8_Q, "short_answer")
     errors = [f for f in bad.findings if f.code == "INT-SUBJ-001"]
     assert errors and "90 per cent" in errors[0].message and "stated across sentences" in errors[0].message

@@ -28,7 +28,13 @@ def test_body1_roles_follow_the_claim_evidence_analysis_judgement_link_operation
     roles = [c.claim_role for c in rep.claims]
     assert roles[0] == "point" and roles.count("evidence") >= 2 and "counter_evidence" in roles and "judgement" in roles
     point = rep.claims[0]
-    assert set(point.supporting_claim_ids) == {c.claim_id for c in rep.claims[1:]}
+    # r6 overseers reversed the old rule (the point supported by every other claim, judgements and links included, which made every
+    # report circular): the point rests on exactly the evidence, analysis and counter-case; judgements and links rest on it
+    assert set(point.supporting_claim_ids) == {c.claim_id for c in rep.claims[1:] if c.claim_role in ("evidence", "analysis", "counter_evidence", "perspective")}
+    assert not {c.claim_id for c in rep.claims if c.claim_role in ("judgement", "link")} & set(point.supporting_claim_ids)
+    assert all(point.claim_id in c.supporting_claim_ids for c in rep.claims if c.claim_role in ("judgement", "link"))
+    from epinoic_logic.adapters.generic_structured import generic_cycle_findings
+    assert generic_cycle_findings(rep) == []
     assert all(c.certainty in ("established", "probable", "possible") for c in rep.claims)
 
 

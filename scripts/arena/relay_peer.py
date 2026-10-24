@@ -14,6 +14,11 @@ uses, so the relay and the measured round agree on the selected agents, each age
 subject branch and each agent's own task type (WorkPlan.agent_task_types: the History
 peer's request, report and forward carry its short_answer, not the deliverable's
 analytical_paragraph). The plan as used is recorded in the output file.
+
+run_arena.py never delivers the recorded payload in place of the peer's reply: a re-run parses
+the peer's raw response_text with the code as it stands, uses the recording only for the
+document the peer-dependent agent read (its original_response), and reports in results.json and
+summary.md whether the recorded payload equals the current parse (recorded_relay_checks).
 """
 from __future__ import annotations
 

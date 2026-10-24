@@ -1,0 +1,30 @@
+{
+  "id": "stem-chem-020",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Write a balanced equation for the complete combustion of methane and calculate the volume of oxygen, measured at STP, needed to burn 0.50 mol of methane. Molar volume at STP = 22.7 dm³ mol⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Ch₄ + 2O₂ → CO₂ + 2H₂O\n\nFrom the equation, 1 mol of methane needs 2 mol of oxygen, so\nn(O₂) = 2 × 0.50 = 1.0 mol\nV(O₂) = 1.0 × 22.7 = 22.7 dm³\n\nAbout 22.7 dm³ of oxygen is needed, which is roughly the volume of a 23-litre box.",
+  "notation": [
+    "unicode",
+    "chemical_equation"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "unreadable_equation",
+        "step": "Ch₄ + 2O₂ → CO₂ + 2H₂O",
+        "expected_codes": [
+          "ST-CHEM-001"
+        ],
+        "note": "The formula of methane is written 'Ch₄': Ch is not an element symbol, so the equation cannot be read and its balance is not checked (ST-CHEM-001, warning, the symbol named). Written correctly as CH₄ + 2O₂ → CO₂ + 2H₂O it balances. [computed: 'Ch' is not an element symbol; balanced (elements and charge)]"
+      }
+    ],
+    "correct_steps": [
+      "1 mol of methane needs 2 mol of oxygen",
+      "n(O₂) = 2 × 0.50 = 1.0 mol",
+      "V(O₂) = 1.0 × 22.7 = 22.7 dm³",
+      "About 22.7 dm³ of oxygen is needed"
+    ]
+  }
+}

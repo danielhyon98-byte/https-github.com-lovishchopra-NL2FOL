@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-011",
+  "subject": "Chemistry",
+  "task_type": "structured_answer",
+  "question": "Calculate the pH of 0.020 mol dm⁻³ hydrochloric acid, and the hydrogen ion concentration of a solution of pH 3.00.",
+  "supplied_texts": [],
+  "response_text": "HCl is a strong acid and dissociates completely, so [H⁺] = 0.020 mol dm⁻³.\n\npH = −log[H⁺] = −log(0.020) = 1.70\n\nFor a solution of pH 3.00, [H⁺] = 10^(−3) = 1.0 × 10⁻³ mol dm⁻³.\n\nDiluting the acid tenfold would raise the pH by one unit, to 2.70.",
+  "notation": [
+    "unicode",
+    "ascii",
+    "concentration_brackets",
+    "logarithm",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "ionic_charges"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "[H⁺] = 0.020 mol dm⁻³",
+      "pH = −log[H⁺] = −log(0.020) = 1.70",
+      "[H⁺] = 10^(−3) = 1.0 × 10⁻³ mol dm⁻³",
+      "raise the pH by one unit, to 2.70"
+    ]
+  }
+}

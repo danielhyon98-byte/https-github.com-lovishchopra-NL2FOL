@@ -1,0 +1,31 @@
+{
+  "id": "stem-phys-022",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Calculate the energy needed to raise the temperature of 0.50 kg of water from 20 °C to 40 °C. The specific heat capacity of water is 4200 J kg⁻¹ K⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Given: m = 0.50 kg, c = 4200 J kg⁻¹ K⁻¹, ΔT = 40 °C − 20 °C = 20 K.\n\nQ = mcΔT = 0.50 kg × 4200 J kg⁻¹ K⁻¹ × 20 K = 4.2 × 10⁴ J kg⁻¹\n\nSo 42 kJ of energy must be supplied to the water.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "units_unicode_exponent",
+    "temperature_celsius_kelvin",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "dimension_error",
+        "step": "0.50 kg × 4200 J kg⁻¹ K⁻¹ × 20 K = 4.2 × 10⁴ J kg⁻¹",
+        "expected_codes": [
+          "ST-DIM-001"
+        ],
+        "note": "Dimension check (warning): kg × J kg⁻¹ K⁻¹ × K is J, but the result is written in J kg⁻¹. The number is right (0.50 × 4200 × 20 = 42 000), so the arithmetic check holds and only the dimension finding names the fault. [computed: dimensions (2, 1, -2, 0, 0, 0, 0) vs (2, 0, -2, 0, 0, 0, 0) -> differ; C=42000 S=4.2e4 h=500 tau=1/100 -> holds]"
+      }
+    ],
+    "correct_steps": [
+      "ΔT = 40 °C − 20 °C = 20 K",
+      "42 kJ of energy must be supplied to the water"
+    ]
+  }
+}

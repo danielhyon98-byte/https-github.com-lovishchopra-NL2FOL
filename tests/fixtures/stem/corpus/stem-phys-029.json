@@ -1,0 +1,28 @@
+{
+  "id": "stem-phys-029",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Light of frequency 5.0 × 10¹⁴ Hz falls on a metal surface. Calculate the energy of one photon.",
+  "supplied_texts": [],
+  "response_text": "The energy of a photon is E = hf, where h is the Planck constant and f = 5.0 × 10¹⁴ Hz.\nE = hf = 4.0 × 10⁻¹⁹ J\nSo each photon carries 4.0 × 10⁻¹⁹ J, which is about 2.5 eV.",
+  "notation": [
+    "unicode",
+    "sci_unicode",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "booklet_value_unstated",
+        "step": "E = hf = 4.0 × 10⁻¹⁹ J",
+        "expected_codes": [
+          "INT-SUBJ-004"
+        ],
+        "note": "h is never stated. With the data-booklet value h = 6.63 × 10⁻³⁴ J s (D3b; J s × Hz = J confirms the reading) hf = 3.3 × 10⁻¹⁹ J; stated 4.0 × 10⁻¹⁹ J. The check relies on a reading the report did not state, so a failure is a warning. [computed: C=[3.313000e-19, 3.315000e-19] S=4.0e-19 h=5.000000e-21 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "f = 5.0 × 10¹⁴ Hz"
+    ]
+  }
+}

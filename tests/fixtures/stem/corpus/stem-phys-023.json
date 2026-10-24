@@ -1,0 +1,27 @@
+{
+  "id": "stem-phys-023",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "An ice cube of mass 25 g at 0 °C is placed in a drink. Calculate the energy needed to melt it completely and then warm the meltwater to 10 °C. Specific latent heat of fusion of ice = 3.34 × 10⁵ J kg⁻¹; specific heat capacity of water = 4.18 × 10³ J kg⁻¹ K⁻¹.",
+  "supplied_texts": [],
+  "response_text": "m = 25 g = 0.025 kg\nMelting: Q1 = mL = 0.025 * 3.34 x 10^5 = 8350 J\nWarming: Q2 = mcΔT = 0.025 * 4.18 x 10^3 * 10 = 1045 J\nTotal: Q = Q1 + Q2 = 8350 + 1045 = 9395 J ≈ 9.4 kJ\n\nMelting needs about eight times as much energy as the warming, because breaking the bonds in the ice lattice requires far more energy than raising the temperature by 10 K.",
+  "notation": [
+    "ascii",
+    "sci_ascii",
+    "unicode",
+    "units_prefix",
+    "temperature_celsius_kelvin",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "m = 25 g = 0.025 kg",
+      "Q1 = mL = 0.025 * 3.34 x 10^5 = 8350 J",
+      "Q2 = mcΔT = 0.025 * 4.18 x 10^3 * 10 = 1045 J",
+      "Q = Q1 + Q2 = 8350 + 1045 = 9395 J",
+      "9395 J ≈ 9.4 kJ",
+      "about eight times as much energy as the warming"
+    ]
+  }
+}

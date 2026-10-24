@@ -1,0 +1,27 @@
+{
+  "id": "stem-phys-013",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A point on the rim of a wheel of radius 0.40 m completes one revolution every 0.50 s. Calculate the angular velocity of the wheel and the speed of the point in km h⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Given: r = 0.40 m, T = 0.50 s.\n\nAngular velocity: ω = 2π/T = 2π/0.50 = 4π ≈ 12.6 rad s⁻¹\nLinear speed: v = ωr = 12.6 × 0.40 = 5.03 m s⁻¹ ≈ 5.0 m s⁻¹\nIn km h⁻¹: 5.03 m s⁻¹ × 3.6 = 18.1 km h⁻¹\n\nEvery point on the rim moves at about 18 km h⁻¹, but the angular velocity is the same for every point on the wheel.",
+  "notation": [
+    "unicode",
+    "greek_symbols",
+    "implicit_multiplication",
+    "units_unicode_exponent",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "r = 0.40 m, T = 0.50 s",
+      "ω = 2π/T = 2π/0.50 = 4π",
+      "4π ≈ 12.6 rad s⁻¹",
+      "v = ωr = 12.6 × 0.40 = 5.03 m s⁻¹",
+      "5.03 m s⁻¹ ≈ 5.0 m s⁻¹",
+      "5.03 m s⁻¹ × 3.6 = 18.1 km h⁻¹",
+      "Every point on the rim moves at about 18 km h⁻¹"
+    ]
+  }
+}

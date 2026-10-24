@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import subprocess
 import sys
@@ -86,10 +87,30 @@ def test_the_exported_pack_is_self_contained_and_verifiable_without_the_package(
         assert len(data) == f["bytes"] and hashlib.sha256(data).hexdigest() == f["sha256"]
     body = {k: v for k, v in manifest.items() if k != "pack_sha256"}
     assert hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest() == manifest["pack_sha256"]
-    parts = [manifest["system_separator"].replace("{path}", p) + "\n" + (target / p).read_text(encoding="utf-8").rstrip("\n") + "\n"
-             for p in manifest["system_order"]]
-    system = "\n".join(parts)
+    # the README's rule (STEM repair 11: marker lines removed, a module's spans kept only when it is chosen), without the package
+    def as_sent(text, modules):
+        out, current = [], None
+        for line in text.split("\n"):
+            opening, closing = re.fullmatch(r"<!-- module: ([a-z]+) -->", line), re.fullmatch(r"<!-- end module: ([a-z]+) -->", line)
+            if opening:
+                current = opening.group(1)
+            elif closing:
+                current = None
+            elif current is None or current in modules:
+                out.append(line)
+        return "\n".join(out)
+
+    def composed(modules):
+        parts = [manifest["system_separator"].replace("{path}", p) + "\n" + as_sent((target / p).read_text(encoding="utf-8"), modules).rstrip("\n") + "\n"
+                 for p in manifest["system_order"]]
+        return "\n".join(parts)
+    system = composed(manifest["system_modules"])
     assert hashlib.sha256(system.encode()).hexdigest() == manifest["system_sha256"] and system == installed_pack().system_text()
+    assert manifest["system_modules"] == ["stem", "translations"] and len(manifest["system_compositions"]) == 4
+    for key, digest in manifest["system_compositions"].items():
+        modules = key.split("+")[1:]
+        assert key.split("+")[0] == "core" and hashlib.sha256(composed(modules).encode()).hexdigest() == digest, key
+        assert composed(modules) == installed_pack().system_text(modules), key
     readme = (target / "README.md").read_text(encoding="utf-8")
     for needle in ("--verify", "system_sha256", "<<<DATA dossier>>>", "<<<END dossier>>>", "8,000 tokens", "temperature 0", "unchanged",
                    'separators `,` and `:`', "\\u2028", '{"no_dossier": true}', "never** sent to a model"):
@@ -201,8 +222,8 @@ def _t20(d: Path, variant: str) -> None:
     elif variant == "c_file_added":
         (d / "10-more.md").write_text("# More\n")
     elif variant == "d_version_changed":
-        edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.3")
-        remanifest(d, version="1.3")
+        edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.4")
+        remanifest(d, version="1.4")
 
 
 T20 = {"a_document_edited": "file_digest", "b_edited_and_manifest_recomputed": "digest_mismatch", "c_file_added": "file_unlisted",
@@ -263,16 +284,16 @@ def test_refresh_regenerates_after_an_edit_and_the_new_digest_is_not_pinned(tmp_
 
 
 def test_refresh_of_a_new_version_loads_only_when_trusted(tmp_path):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.3")
-    edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.3")
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.4")
+    edit(d, "master_prompt.txt", PACK_LINE, "PACK: overseer-knowledge-docs 1.4")
     res = refresh_source(d)
-    assert res.identity.version == "1.3" and not res.pinned
+    assert res.identity.version == "1.4" and not res.pinned
     refused(d, "unknown_pack")
     assert load_pack(d, trusted=[res.identity]).identity == res.identity
 
 
 def test_refresh_refuses_an_inconsistent_pack(tmp_path, capsys):
-    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.3")  # the master prompt still names the installed version
+    d = copy_pack(tmp_path, "overseer-knowledge-docs-1.4")  # the master prompt still names the installed version
     code, summary = run_main(capsys, "--refresh-source", "--source", str(d))
     assert code == 2 and summary["reason"] == "header_mismatch"
 

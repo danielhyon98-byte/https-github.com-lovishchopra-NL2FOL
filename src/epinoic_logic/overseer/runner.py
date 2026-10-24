@@ -2,9 +2,10 @@
 
 An overseer agent is built only from exportable parts: this code and a loaded knowledge pack
 (:class:`~epinoic_logic.overseer.pack.KnowledgePack`). The runner adds no instruction text of its own: the system text is
-the pack's (built by the fixed rule of design section 17.8, checked against the manifest's ``system_sha256``), and the
-user text is the dossier alone inside one data block. Its only text of its own is that block's delimiter pair, which the
-master prompt describes.
+the pack's (built by the fixed rule of design section 17.8, checked against the manifest's ``system_sha256``; since STEM
+repair 11 the composition of the core and the modules the dossier's content needs, :meth:`KnowledgePack.system_text_for`,
+whose digest the manifest's ``system_compositions`` records), and the user text is the dossier alone inside one data block.
+Its only text of its own is that block's delimiter pair, which the master prompt describes.
 
 :meth:`OverseerAgentRunner.run` takes these steps (section 17.9):
 
@@ -12,7 +13,8 @@ master prompt describes.
    must recompute, its ``agent_id``, ``lens`` and ``pack`` must be the runner's, and the intake must hold the issue of
    exactly this dossier for this agent under this pack. Otherwise the run is ``refused_input`` and the provider is never
    called (T21); nothing reaches the intake.
-2. **Build the input**: the pack's system text, and :func:`render_dossier_block` of the dossier.
+2. **Build the input**: the pack's system text for the dossier (the core and the modules its content needs), and
+   :func:`render_dossier_block` of the dossier.
 3. **Call the provider once** through the completion entry point
    (:class:`~epinoic_logic.translate.providers.base.CompletionProvider`) with ``prompt_version =
    "<pack name>/<version>+<first 16 hex of the pack digest>"``, so every ``ProviderInfo`` names the pack. A provider
@@ -108,7 +110,10 @@ class AgentRun(BaseModel):
     task_id: Optional[str] = None
     dossier_sha256: Optional[str] = None
     prompt_version: str
-    system_sha256: str
+    system_sha256: str = Field(description="the digest of the system text sent (the composition for the dossier), or of the whole text when "
+                                           "nothing was sent")
+    #: STEM repair 11: the pack modules the system text sent holds (the dossier's content decides them)
+    system_modules: tuple[str, ...] = ()
     user_sha256: Optional[str] = None
     provider_name: Optional[str] = None
     provider_info: Optional[dict[str, Any]] = None
@@ -167,13 +172,23 @@ class OverseerAgentRunner:
         return self._pack.prompt_version
 
     def build_input(self, dossier: Mapping[str, Any]) -> tuple[str, str]:
-        """``(system, user)`` exactly as :meth:`run` sends them (no input check)."""
-        return self._system, render_dossier_block(dossier)
+        """``(system, user)`` exactly as :meth:`run` sends them (no input check): the pack's composition for the dossier's content."""
+        return self._pack.system_text_for(dossier), render_dossier_block(dossier)
+
+    def _system_for(self, dossier: Mapping[str, Any]) -> tuple[str, tuple[str, ...], str]:
+        """``(system text, modules, digest)`` for ``dossier``; the digest must be the manifest's for that composition."""
+        modules = self._pack.modules_for(dossier)
+        system = self._pack.system_text(modules)
+        digest = sha256_hex(system)
+        if digest != self._pack.composition_sha256(modules):
+            raise PackError("system_digest", "the pack's composition for the dossier does not match its manifest")
+        return system, modules, digest
 
     # ------------------------------------------------------------------ run
     def _run(self, status: str, started: str, **kw: Any) -> AgentRun:
+        kw.setdefault("system_sha256", self._pack.system_sha256)
         return AgentRun(agent_id=self._agent_id, lens=self._lens, pack=self._pack.identity, status=status, prompt_version=self.prompt_version,
-                        system_sha256=self._pack.system_sha256, provider_name=getattr(self._provider, "name", None) if isinstance(
+                        provider_name=getattr(self._provider, "name", None) if isinstance(
                             getattr(self._provider, "name", None), str) else None, started_at=started, finished_at=_now(), **kw)
 
     def _check(self, dossier: Any, intake: Any) -> tuple[Optional[dict], str, str]:
@@ -218,8 +233,9 @@ class OverseerAgentRunner:
                 ident = {"task_id": tid[:128] if isinstance(tid, str) else None, "dossier_sha256": dsha if isinstance(dsha, str) and len(dsha) == 64 else None}
             return self._run("refused_input", started, reason=reason, detail=detail, **ident)
         task_id, dsha = d["task"]["task_id"], d["dossier_sha256"]
-        system, user = self._system, render_dossier_block(d)
-        common = dict(task_id=task_id, dossier_sha256=dsha, user_sha256=sha256_hex(user))
+        system, modules, system_digest = self._system_for(d)
+        user = render_dossier_block(d)
+        common = dict(task_id=task_id, dossier_sha256=dsha, user_sha256=sha256_hex(user), system_sha256=system_digest, system_modules=modules)
         try:
             resp = self._provider.complete(system, user, prompt_version=self.prompt_version)
         except ProviderError as exc:

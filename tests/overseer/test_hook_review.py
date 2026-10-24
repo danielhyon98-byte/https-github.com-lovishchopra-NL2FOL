@@ -151,7 +151,8 @@ def test_review_end_to_end_with_four_agents(hub, pack):
     for a in agents:
         system, user, version = a._provider.calls[0]
         issued = hub.intake.dossier(a.agent_id, task.key)
-        assert len(a._provider.calls) == 1 and system == pack.system_text() and version == pack.prompt_version
+        # STEM repair 11: the system text is the pack's composition for the dossier's content (the core and the modules it needs)
+        assert len(a._provider.calls) == 1 and system == pack.system_text_for(issued) and version == pack.prompt_version
         assert user == render_dossier_block(issued) and issued["agent_id"] == a.agent_id and issued["lens"] == a.lens
         assert hub.intake.issue_record(a.agent_id, task.key).pack == pack.identity == a.identity
     outcomes = {(x.agent_id, y.accusation_id): y.outcome for x in r.assessments for y in x.accusations}
@@ -286,7 +287,9 @@ def test_an_agent_following_an_instruction_planted_in_a_response_changes_nothing
     obeying = runner(pack, "overseer-obeying", "content_fidelity", follows_injection)
     r = hub.review(task.key, [obeying])
     system, user, _v = obeying._provider.calls[0]
-    assert INJECTION in user and INJECTION not in system and system == pack.system_text()  # data in the dossier, never configuration
+    issued = hub.intake.dossier("overseer-obeying", task.key)
+    # data in the dossier, never configuration; STEM repair 11: the system text is the composition the dossier's content needs
+    assert INJECTION in user and INJECTION not in system and system == pack.system_text_for(issued)
     assert r.assessments[0].valid and r.assessments[0].accusations == [] and r.audit.report.findings == []
     assert r.audit.state == "AUDIT_FAILED" and clearances(hub, task) == before
 

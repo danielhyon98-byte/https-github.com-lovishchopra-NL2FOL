@@ -46,6 +46,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from ...channel.bus import _BLOCKING_PREFIXES, _SCOPE_TAIL, TranslatorChannel, _fit_summary
@@ -69,21 +70,25 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-GLOSSARY-007", "INT-HANDOFF-001", "INT-HANDOFF-002", "INT-HANDOFF-003", "INT-HANDOFF-004", "INT-HANDOFF-007", "INT-HANDOFF-008",
         "INT-HANDOFF-011", "INT-HANDOFF-012", "INT-HANDOFF-013", "INT-HANDOFF-015", "INT-INTERNAL-001", "INT-LEDGER-000", "INT-LEDGER-001",
         "INT-LEDGER-002", "INT-LEDGER-003", "INT-LEDGER-004", "INT-LEDGER-005", "INT-LEDGER-006", "INT-LEDGER-008", "INT-LEDGER-009",
-        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-027", "INT-LEDGER-028", "INT-LEDGER-029",
-        "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-003", "INT-REQ-007", "INT-REQ-009", "INT-REQ-011", "INT-REQ-012",
+        "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-029", "INT-LEDGER-030", "INT-LEDGER-031",
+        "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-003", "INT-REQ-009", "INT-REQ-011", "INT-REQ-012", "INT-REQ-015",
         "INT-STALE-001", "INT-STALE-002", "INT-STALE-003", "INT-STALE-004", "INT-STALE-005", "INT-STALE-006", "INT-STALE-007", "INT-STALE-008",
         "INT-STALE-009", "INT-STALE-010", "INT-STALE-011", "INT-SUBJ-001", "INT-SUBJ-003", "INT-SYNTH-001", "INT-SYNTH-006", "INT-SYNTH-010")},
     **{c: "warning" for c in (
         "INT-CONFLICT-004", "INT-ENV-001", "INT-ENV-005", "INT-GLOSSARY-005", "INT-HANDOFF-005", "INT-HANDOFF-009", "INT-HANDOFF-010",
         "INT-HANDOFF-014", "INT-HANDOFF-016", "INT-HANDOFF-017", "INT-LEDGER-010", "INT-LEDGER-016", "INT-LEDGER-017", "INT-LEDGER-018", "INT-LEDGER-019",
-        "INT-LEDGER-020", "INT-LEDGER-021", "INT-LEDGER-024", "INT-LEDGER-026", "INT-REQ-006", "INT-REQ-008", "INT-REQ-010", "INT-REQ-013",
-        "INT-REQ-014", "INT-SUBJ-002", "INT-SYNTH-003", "INT-SYNTH-004", "INT-SYNTH-005", "INT-SYNTH-007", "INT-SYNTH-008", "INT-SYNTH-009",
+        "INT-LEDGER-020", "INT-LEDGER-021", "INT-LEDGER-024", "INT-LEDGER-026", "INT-LEDGER-027", "INT-LEDGER-028", "INT-REQ-006", "INT-REQ-008",
+        "INT-REQ-010", "INT-REQ-013", "INT-REQ-014", "INT-REQ-016", "INT-SUBJ-002", "INT-SUBJ-004", "INT-SYNTH-003", "INT-SYNTH-004", "INT-SYNTH-005", "INT-SYNTH-007", "INT-SYNTH-008", "INT-SYNTH-009",
         "INT-SYNTH-012", "INT-SYNTH-013")},
     **{c: "info" for c in ("INT-GLOSSARY-002", "INT-HANDOFF-006", "INT-LEDGER-011", "INT-LEDGER-022", "INT-SYNTH-002", "INT-SYNTH-011")},
 }
 #: Codes raised at a severity that depends on the case (INT-REQ-004: required item or not; INT-REQ-005: word or
-#: paragraph bound, checked by the constraint rule; INT-CONFLICT-005: a fixed or an assumed reading).
-VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-CONFLICT-005"})
+#: paragraph bound, checked by the constraint rule; INT-CONFLICT-005: a fixed or an assumed reading; INT-REQ-007: an error
+#: for a TRANSLATED claim, a warning when its translation is AMBIGUOUS_TRANSLATION, checked by the rule
+#: ``ambiguous-reading``). INT-LEDGER-027 and INT-LEDGER-028 are the development branch's warnings (a from-memory label
+#: dropped; a misspelt quotation); the Overseer's review-round ledger errors raised under those numbers before the
+#: translator merge are INT-LEDGER-030 (comparison turned, negation added) and INT-LEDGER-031 (text-composition).
+VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-REQ-007", "INT-CONFLICT-005"})
 #: The channel's own rules the implied findings re-run, bound when this module is imported: a channel whose class is
 #: patched later (a rule replaced at run time) is re-derived with the rule as shipped, not with the patch.
 _CHANNEL_COVERAGE = TranslatorChannel._coverage
@@ -395,6 +400,16 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
             cr = next((c for c in rc.constraint_results if c.formal_result_id == f.formal_result_id), None)
             if cr is not None and f.severity != "error" and not kinds.get(cr.constraint_id, "paragraphs").endswith("paragraphs"):
                 out.append((f.code, f.severity, f"constraint {cr.constraint_id} is a {kinds.get(cr.constraint_id)} bound, which the channel reports at severity error"))
+        if f.code == "INT-REQ-007" and f.severity != "error":
+            # rule ambiguous-reading: the channel lowers INT-REQ-007 to a warning only for a claim whose translation is
+            # AMBIGUOUS_TRANSLATION (the inconsistency belongs to the translator's assumed reading); for any other claim it
+            # is an error, and the finding names the claim's outcome by its result id
+            o = next((x for x in rc.outcomes if f.formal_result_id and x.verification is not None and x.verification.result_id == f.formal_result_id), None)
+            ambiguous = o is not None and getattr(o.translation.status, "value", o.translation.status) == "AMBIGUOUS_TRANSLATION"
+            if not ambiguous:
+                out.append((f.code, f.severity, "the channel raises INT-REQ-007 at severity error except for a claim whose translation is "
+                            "AMBIGUOUS_TRANSLATION (rule ambiguous-reading); "
+                            + ("this one names no outcome of the receipt" if o is None else f"claim {o.claim_id}'s translation is {getattr(o.translation.status, 'value', o.translation.status)}")))
     if t.kind in ("response", "response_text") and t.receipt.status is not TransmissionStatus.REJECTED and req is not None and t.report is not None:
         out.extend(_identity_implied(ctx, t, req))
         out.extend(_coverage_implied(ctx, t, req))
@@ -411,6 +426,24 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
     return out
 
 
+def _branch_hooks(ctx: CheckContext, t: Transfer, rep) -> tuple[Any, str]:
+    """``(hub hooks, profile key)`` of the branch that served ``rep``'s agent on this channel (its subject in the first
+    journaled plan, else the plan's subject, resolved by the channel's registry): what the merged channel lends its
+    heuristics. ``(None, "")`` when the branch lends none."""
+    plan = ctx.view.plan_at(t.seq)
+    registry = ctx.registry
+    if registry is None:
+        from ...branches import default_registry
+        registry = default_registry()
+    subject = plan.agent_subjects.get(rep.agent_id, plan.subject) if plan is not None else rep.subject
+    try:
+        branch, profile = registry.for_subject(subject)
+    except Exception:
+        return None, ""
+    hooks = getattr(branch, "hub_hooks", None)
+    return (hooks or None), (getattr(profile, "key", "") if hooks else "")
+
+
 def _coverage_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, str, str]]:
     """The channel's coverage rule (``TranslatorChannel._coverage``, a deterministic lexical rule: called, not copied)
     re-run on the journaled request and report: the receipt's coverage records must be its image, and every item it
@@ -419,9 +452,16 @@ def _coverage_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, st
     rc = t.receipt
     rep = t.report
     echoed = any(f.code == "INT-REQ-011" for f in rc.findings)
+    # rule merged-coverage (the translator merge): the merged channel lends the coverage rule the branch's hub hooks (the
+    # STEM branches give each claim the dimensions of its quantities as extra words), so the re-run is given the hooks of
+    # the branch serving the report's agent and that branch's profile key, read from the first journaled plan and the
+    # registry, and the channel's own hook guard; a branch with no hooks is re-run exactly as before
+    hooks, profile_key = _branch_hooks(ctx, t, rep)
     try:
-        expected = _CHANNEL_COVERAGE(None, req, rep, echoed=echoed)  # the rule reads no channel state
-    except Exception:
+        expected = _CHANNEL_COVERAGE(SimpleNamespace(_hook=TranslatorChannel._hook), req, rep, echoed=echoed, hooks=hooks, profile_key=profile_key)
+    except Exception as exc:
+        ctx.note(f"{t.kind} {t.message_id}: the channel's coverage rule could not be re-run on the journaled request and report ({type(exc).__name__}); "
+                 "its coverage records and INT-REQ-004 are not re-derived")
         return []
     out: list[tuple[str, str, str]] = []
     exp = sorted((c.item_id, c.addressed, tuple(sorted(c.addressed_by_claim_ids))) for c in expected)
@@ -476,6 +516,18 @@ def _request_constraints_implied(ctx: CheckContext, t: Transfer) -> list[tuple[s
     return out
 
 
+def _router_ids_before(ctx: CheckContext, seq: int) -> set[str]:
+    """The senders of the requests the channel accepted before ``seq`` (the merged channel's ``router_ids``)."""
+    out: set[str] = set()
+    for x in ctx.view.transfers:
+        if x.seq >= seq or x.kind != "request" or x.receipt is None or x.receipt.status is TransmissionStatus.REJECTED:
+            continue
+        sender = x.call.get("from_agent_id") if isinstance(x.call.get("from_agent_id"), str) else x.sender_agent_id
+        if sender:
+            out.add(sender)
+    return out
+
+
 def _relay_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
     """The relay path's blocking rules re-run on the journaled call, envelope and the FIRST journaled plan: the sender
     and the recipient are parties the plan selected unless they act in an infrastructure role, and a synthesis names a
@@ -501,9 +553,12 @@ def _relay_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]
     to_agent = t.call.get("to_agent_id") if isinstance(t.call.get("to_agent_id"), str) else env.get("recipient_agent_id")
     expected = []
     try:
-        expected += _CHANNEL_RELAY_PARTIES(SimpleNamespace(plan=plan), msg, from_role, to_agent or "", to_role, obj)
-    except Exception:
-        pass
+        # the merged channel holds the router's identity as the senders of its accepted requests (``router_ids``, read by
+        # the INT-ENV-007 rule of ``_relay_parties``): re-derived from the requests journaled before this relay
+        expected += _CHANNEL_RELAY_PARTIES(SimpleNamespace(plan=plan, router_ids=_router_ids_before(ctx, t.seq)), msg, from_role, to_agent or "", to_role, obj)
+    except Exception as exc:  # never silent: the coverage notes say which rules were not re-derived
+        ctx.note(f"relay {t.message_id}: the channel's relay-party rule could not be re-run on the journaled relay ({type(exc).__name__}); "
+                 "its INT-HANDOFF-002 and INT-ENV-007 are not re-derived")
     out: list[tuple[str, str, str]] = []
     for f in expected:
         how = _present(rc.findings, f.code, "error")

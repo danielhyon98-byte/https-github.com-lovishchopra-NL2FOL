@@ -1,0 +1,24 @@
+{
+  "id": "stem-chem-002",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Calculate the mass of calcium carbonate needed to produce 0.150 mol of carbon dioxide by thermal decomposition. Use Ar values Ca = 40.08, C = 12.01, O = 16.00.",
+  "supplied_texts": [],
+  "response_text": "CaCO₃(s) → CaO(s) + CO₂(g)\n\nThe mole ratio CaCO₃ : CO₂ is 1 : 1, so n(CaCO₃) = 0.150 mol.\n\nMr(CaCO₃) = 40.08 + 12.01 + 3 × 16.00 = 100.09\nm = n × M = 0.150 mol × 100.09 g mol⁻¹ = 15.0 g\n\nSo 15.0 g of calcium carbonate must be heated.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent",
+    "ratio"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "CaCO₃(s) → CaO(s) + CO₂(g)",
+      "n(CaCO₃) = 0.150 mol",
+      "Mr(CaCO₃) = 40.08 + 12.01 + 3 × 16.00 = 100.09",
+      "m = n × M = 0.150 mol × 100.09 g mol⁻¹ = 15.0 g",
+      "So 15.0 g of calcium carbonate must be heated."
+    ]
+  }
+}

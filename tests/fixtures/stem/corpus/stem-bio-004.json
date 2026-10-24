@@ -1,0 +1,24 @@
+{
+  "id": "stem-bio-004",
+  "subject": "Biology",
+  "task_type": "short_answer",
+  "question": "In a population, 16% of individuals show the recessive phenotype. Use the Hardy–Weinberg equation to estimate the percentage of heterozygous carriers.",
+  "supplied_texts": [],
+  "response_text": "q² = 0.16, so q = √0.16 = 0.4\np = 1 − q = 1 − 0.4 = 0.6\nCarriers: 2pq = 2 × 0.6 × 0.4 = 0.48\n\nSo about 48% of the population are heterozygous carriers.",
+  "notation": [
+    "unicode",
+    "implicit_multiplication",
+    "percent",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "q² = 0.16",
+      "q = √0.16 = 0.4",
+      "p = 1 − q = 1 − 0.4 = 0.6",
+      "2pq = 2 × 0.6 × 0.4 = 0.48",
+      "about 48% of the population"
+    ]
+  }
+}

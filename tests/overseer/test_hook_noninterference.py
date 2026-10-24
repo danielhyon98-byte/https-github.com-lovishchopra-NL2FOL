@@ -311,19 +311,23 @@ def test_an_observer_must_be_callable():
 
 @pytest.mark.parametrize("observed", [False, True])
 def test_a_call_that_raises_reraises_the_same_exception_and_emits_a_raised_event(observed):
+    # Rewritten for the merge of the development branch's translator, whose relay refuses a payload that is no contract
+    # (REJECTED, INT-REQ-009) instead of raising out of it: the payload that raises is now a report object whose
+    # serialisation fails, which the channel reaches only after accepting it as a contract, so the hook's raised path is
+    # exercised exactly as before; the refused non-contract payload is asserted on its own below (it emits an ordinary
+    # event and raises nothing).
     boom = RuntimeError("payload cannot be serialised")
 
-    class NotAContract:
-        request_id, task_id = "req-ovs", "task-ovs"
-
+    class Unserialisable(SpecialistReport):
         def model_dump(self, **kw):
             raise boom
 
+    bad = Unserialisable.model_validate(english_report().model_dump())
     c = Collector()
     ch = new_channel([c] if observed else [])
     before = Normaliser()(channel_state(ch))
     with pytest.raises(RuntimeError) as excinfo:
-        ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, NotAContract())
+        ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, bad)
     assert excinfo.value is boom
     assert Normaliser()(channel_state(ch)) == before
     if observed:
@@ -333,6 +337,32 @@ def test_a_call_that_raises_reraises_the_same_exception_and_emits_a_raised_event
         assert c.events[-1].seq == 2 and c.events[-1].receipt_id == rq.receipt_id
     else:
         assert c.events == []
+
+
+@pytest.mark.parametrize("observed", [False, True])
+def test_a_payload_that_is_no_contract_is_rejected_and_raises_nothing(observed):
+    """The merged translator's relay: a payload that is neither a report nor a synthesis (nor a mapping of one) is
+    REJECTED with INT-REQ-009 and nothing raises; observed, the call emits one ordinary event with its receipt."""
+
+    class NotAContract:
+        request_id, task_id = "req-ovs", "task-ovs"
+
+        def model_dump(self, **kw):
+            raise RuntimeError("payload cannot be serialised")
+
+    c = Collector()
+    ch = new_channel([c] if observed else [])
+    msg, rc = ch.relay("combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, NotAContract())
+    assert msg is None and rc.status.value == "REJECTED" and "INT-REQ-009" in codes_of_receipt(rc)
+    if observed:
+        assert len(c.events) == 1 and c.events[0].raised is None and c.events[0].receipt_id == rc.receipt_id
+        assert ch._observation.depth == 0
+    else:
+        assert c.events == []
+
+
+def codes_of_receipt(rc) -> set[str]:
+    return {f.code for f in rc.findings}
 
 
 def test_channel_uids_are_distinct_per_instance():

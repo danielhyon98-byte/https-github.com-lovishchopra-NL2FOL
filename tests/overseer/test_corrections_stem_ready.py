@@ -16,9 +16,11 @@ the generic scheme is pinned here on STEM-shaped transfers built in this file (t
 * branch checks: FORM-002 is the channel's own mapping read from the re-derived check (rule ``branch-image/2``), and a
   failed check needs INT-SUBJ-001, or INT-SUBJ-004 when its pack declares warning severity (rule ``failure-severity``).
 
-The merged channel's mapping is simulated where the pre-merge channel differs (a patched ``_branch_checks``, marked as
-such); nothing here copies STEM code. No model is called; translations come from the translator's own pipeline with the
-fixture provider.
+Since the translator merge the channel in this tree is the merged one, so the branch-check mapping under test is the
+channel's own (the earlier simulation of it, a patched ``_branch_checks``, is gone); where a test needs the pre-merge
+channel's mapping (a channel version that ignores the checks' declarations), a patched ``_branch_checks`` gives it,
+marked as such. Nothing here copies STEM code. No model is called; translations come from the translator's own pipeline
+with the fixture provider.
 """
 from __future__ import annotations
 
@@ -33,7 +35,6 @@ from epinoic_logic.branches.base import BranchRegistry, FormalCheck, SubjectBran
 from epinoic_logic.branches.generic_parser import GenericTextParser
 from epinoic_logic.branches.registry import BRANCHES, CORE
 from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.engine import verify
 from epinoic_logic.integrity import IntegrityFinding
 from epinoic_logic.ir.schema import Problem
 from epinoic_logic.overseer.checks import formal as F
@@ -45,7 +46,8 @@ from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
-from .conftest import CFG, KEY, findings, make_auditor, make_plan, new_channel, ovs_errors
+from .conftest import (CFG, KEY, findings, make_auditor, make_plan, new_channel, ovs_errors, withheld_as_circular_by_the_translator,
+                       without_the_translators_circularity_gate)
 from .test_protocol_validate import acc, review
 from .test_translation_oversight import INFER, V, proposal, trn
 
@@ -188,12 +190,20 @@ def test_a_premise_names_a_claim_in_every_id_scheme(text, claim_id, named):
     assert T._names_claim(text, claim_id) is named
 
 
-def _sibling_task(auditor, *, subject: str, agent: str, cid_support: str, cid_point: str, premise_id: str):
+#: The supporting claim's premises: a genuine refutation (the premise that bounds the rise mentions it, so the engine's
+#: COUNTEREXAMPLE is a verdict on the encoding), or the encoding whose conclusion no premise mentions (the merged engine's
+#: E111, unencoded reason: the COUNTEREXAMPLE is displayed INVALID_FORMALIZATION, no verdict).
+SUPPORT_REFUTED = [{"id": "P_cut", "expr": {"op": "eq", "left": V("cut"), "right": I("5")}, "grounding": INFER},
+                   {"id": "P_bound", "expr": {"op": "le", "left": V("rise"), "right": V("cut")}, "label": "the rise is at most the cut", "grounding": INFER}]
+SUPPORT_UNENCODED = [{"id": "P_cut", "expr": {"op": "eq", "left": V("cut"), "right": I("5")}, "grounding": INFER}]
+
+
+def _sibling_task(auditor, *, subject: str, agent: str, cid_support: str, cid_point: str, premise_id: str, support_premises=None):
     """A report whose point rests on a premise asserting its supporting claim, while that claim's own outcome is a
-    COUNTEREXAMPLE (OVS-TRN-008)."""
+    COUNTEREXAMPLE (OVS-TRN-008); ``support_premises`` replaces the supporting claim's premises (default: the refutation)."""
     support_p = {"problem_id": "p-sup", "request_id": "req-ovs", "claim_id": cid_support, "query": "entailment",
                  "symbols": [{"name": "rise", "sort": "Int", "meaning": "the rise in demand, per cent"}, {"name": "cut", "sort": "Int", "meaning": "the price cut, per cent"}],
-                 "premises": [{"id": "P_cut", "expr": {"op": "eq", "left": V("cut"), "right": I("5")}, "grounding": INFER}],
+                 "premises": list(support_premises if support_premises is not None else SUPPORT_REFUTED),
                  "conclusion": {"id": "C", "expr": {"op": "eq", "left": V("rise"), "right": I("10")}, "grounding": INFER}}
     point_p = {"problem_id": "p-pt", "request_id": "req-ovs", "claim_id": cid_point, "query": "entailment",
                "symbols": [{"name": "rise", "sort": "Bool", "meaning": "demand rose"}, {"name": "elastic", "sort": "Bool", "meaning": "demand is elastic"}],
@@ -225,6 +235,25 @@ def test_trn008_names_a_failed_supporting_claim_in_every_id_scheme(aud, subject,
     assert statuses[point] == "ENTAILED" and statuses[support] == "COUNTEREXAMPLE"
     f = trn(a, "OVS-TRN-008")
     assert f and f[0].severity == "warning" and f[0].claim_ids == [point, support] and support in f[0].message
+    assert f"{support} (COUNTEREXAMPLE)" in f[0].message
+
+
+@pytest.mark.parametrize("subject, agent, support, point, premise", [
+    ("Economics", "economics-specialist", "g1.1@economics-specialist", "g1.2@economics-specialist", "P_g1_1"),
+    ("Physics", "physics-specialist", "s1.1", "s1.2", "P_s1_1"),
+    ("Mathematics: Analysis and Approaches", "maths-specialist", "m1.1", "m1.2", "P_m1_1"),
+])
+def test_trn008_names_a_supporting_claim_the_merged_engine_shows_as_no_verdict(aud, subject, agent, support, point, premise):
+    """The merged translator's engine reads a COUNTEREXAMPLE that falsifies the conclusion only through a symbol no premise
+    mentions as no verdict (E111, unencoded reason) and displays it INVALID_FORMALIZATION: still not a success, so a
+    definitive display resting on it is TRN-008, naming the status the receipt shows."""
+    a, rc = _sibling_task(aud, subject=subject, agent=agent, cid_support=support, cid_point=point, premise_id=premise, support_premises=SUPPORT_UNENCODED)
+    o = next(o for o in rc.outcomes if o.claim_id == support)
+    assert o.verification is not None and o.verification.status.value == "COUNTEREXAMPLE" and any(d.code == "E111" for d in o.verification.diagnostics)
+    statuses = {o.claim_id: o.display_status.value for o in rc.outcomes}
+    assert statuses[point] == "ENTAILED" and statuses[support] == "INVALID_FORMALIZATION"
+    f = trn(a, "OVS-TRN-008")
+    assert f and f[0].severity == "warning" and f[0].claim_ids == [point, support] and f"{support} (INVALID_FORMALIZATION)" in f[0].message
 
 
 def test_the_stem_parsers_folded_tail_is_read_in_every_branch():
@@ -252,12 +281,9 @@ def test_stem_roles_give_the_material_claims_consolidation_compares():
 
 
 # ============================================================================================ colliding ids: validation
-def test_an_accusation_is_confirmed_only_on_the_report_it_names_when_claim_ids_collide(aud):
-    ch, rcs = physics_task(aud, second={"s2.1": g_problem(circular=True)})
-    a = aud.audit(ch.uid)
-    (f,) = [x for x in a.report.findings if x.code == "OVS-TRN-006"]
-    assert f.claim_ids == ["s2.1"] and f.report_ids == ["rep-ph-2"] and f.message_ids == [rcs["rep-ph-2"].message_id]
-    r = review(aud, ch.uid, agent="overseer-translation-1", lens="translation_fidelity", audit=a)
+def _collision_review(auditor, ch, rcs, a):
+    """The translation-fidelity review of the physics task and an accusation builder naming one report's ``s2.1``."""
+    r = review(auditor, ch.uid, agent="overseer-translation-1", lens="translation_fidelity", audit=a)
     d = r.dossier
     claims = [e for e in d["index"] if e["type"] == "claim" and e["id"] == "s2.1"]
     assert sorted(e["report_id"] for e in claims) == ["rep-ph-1", "rep-ph-2"]  # one claim id, two reports: the index keeps both
@@ -267,6 +293,36 @@ def test_an_accusation_is_confirmed_only_on_the_report_it_names_when_claim_ids_c
         ptr = next(e["pointer"] for e in claims if e["report_id"] == rid)
         return acc(aid, "translation_circular", [{"pointer": ptr + "/claim_text"}], statement="The translation assumes its conclusion.",
                    message_ids=[t["message_id"]], claim_ids=["s2.1"], report_ids=[rid])
+    return r, accuse
+
+
+def test_an_accusation_is_confirmed_only_on_the_report_it_names_when_claim_ids_collide(aud, monkeypatch):
+    """Rewritten for the translator merge (rule ``circularity-agreement``, every assertion kept): the merged translator
+    withholds the circular encoding of the second report's s2.1 itself (E112 at translation time), asserted first: no
+    OVS-TRN finding, and an accusation of it is unresolved with the reason (the translator withheld it), while the same
+    accusation of the first report's faithful s2.1 is refuted, each on the report it names. The original assertions run
+    on the same encoding delivered past the translator's gate."""
+    a0 = make_auditor(shadow="off")
+    try:
+        ch0, rcs0 = physics_task(a0, second={"s2.1": g_problem(circular=True)})
+        assert withheld_as_circular_by_the_translator(next(o for o in rcs0["rep-ph-2"].outcomes if o.claim_id == "s2.1"))
+        assert not withheld_as_circular_by_the_translator(next(o for o in rcs0["rep-ph-1"].outcomes if o.claim_id == "s2.1"))
+        audit0 = a0.audit(ch0.uid)
+        assert not [x for x in audit0.report.findings if x.code in ("OVS-TRN-006", "OVS-TRN-010")]
+        r0, accuse0 = _collision_review(a0, ch0, rcs0, audit0)
+        out0 = r0.run([accuse0("a-right", "rep-ph-2"), accuse0("a-wrong", "rep-ph-1")])
+        right0, wrong0 = out0.outcome_of("a-right"), out0.outcome_of("a-wrong")
+        assert right0.outcome == "unresolved" and right0.claim_report_ids == {"s2.1": ["rep-ph-2"]}
+        assert "withheld the encoding of claim s2.1 as circular itself (E112" in right0.reasons[0]
+        assert wrong0.outcome == "refuted" and wrong0.refuted_by == "deterministic_check" and wrong0.claim_report_ids == {"s2.1": ["rep-ph-1"]}
+    finally:
+        a0.close()
+    without_the_translators_circularity_gate(monkeypatch)
+    ch, rcs = physics_task(aud, second={"s2.1": g_problem(circular=True)})
+    a = aud.audit(ch.uid)
+    (f,) = [x for x in a.report.findings if x.code == "OVS-TRN-006"]
+    assert f.claim_ids == ["s2.1"] and f.report_ids == ["rep-ph-2"] and f.message_ids == [rcs["rep-ph-2"].message_id]
+    r, accuse = _collision_review(aud, ch, rcs, a)
     out = r.run([accuse("a-right", "rep-ph-2"), accuse("a-wrong", "rep-ph-1")])
     right, wrong = out.outcome_of("a-right"), out.outcome_of("a-wrong")
     assert right.outcome == "confirmed" and right.claim_report_ids == {"s2.1": ["rep-ph-2"]}
@@ -393,33 +449,29 @@ def _check(pid: str, problem: Problem, expected: str = "ENTAILED", **decl) -> St
                          expected_if_sound=expected, claim_ids=("c2.1",), **decl)
 
 
-def merged_mapping(orig):
-    """The merged channel's decision for the stand-in checks (simulated; read from the merged ``_decide_branch_check``): a
-    vacuous run (E108) whose status is the expected one is undecided; INCONSISTENT_PREMISES is undecided for a check that
-    declares ``inconsistent_is_failure`` false; a definitive failure of a check declaring warning severity is INT-SUBJ-004."""
+def premerge_mapping(orig):
+    """The pre-merge channel's decision, simulated on the merged channel's own signed runs (marked as such; the channel
+    in this tree is the merged one): satisfied when the status is the expected one, a vacuous proof included; a failure
+    for COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE whatever the check declares, always INT-SUBJ-001 (error);
+    undecided (INT-SUBJ-002) otherwise."""
     def patched(self, report, req, fnd, *a, **kw):
         structural, results, ids = orig(self, report, req, fnd, *a, **kw)
         checks = {fc.check_id: fc for fc in self._branch_for(report.agent_id)[0].run_packs(report, req.user_input if req else None)[1]}
         out = []
         for c in results:
             fc = checks.get(c.constraint_id)
-            if fc is None:
+            if fc is None or c.formal_status is None:
                 out.append(c)
                 continue
-            run = verify(fc.problem, self.config)
-            vacuous = any(d.code == "E108" for d in run.diagnostics)
-            undecided = (c.formal_status == fc.expected_if_sound and vacuous) or (
-                c.formal_status == "INCONSISTENT_PREMISES" and getattr(fc, "inconsistent_is_failure", True) is False)
-            if undecided:
-                fnd[:] = [f for f in fnd if f.formal_result_id != c.formal_result_id]
+            sat = True if c.formal_status == fc.expected_if_sound else (False if c.formal_status in ("COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "UNSATISFIABLE") else None)
+            fnd[:] = [f for f in fnd if f.formal_result_id != c.formal_result_id]
+            if sat is False:
+                fnd.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement does not hold: {fc.description}",
+                                            formal_result_id=c.formal_result_id, deterministic=False))
+            elif sat is None:
                 fnd.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check undecided ({c.formal_status}): {fc.description}",
                                             formal_result_id=c.formal_result_id, deterministic=False))
-                c = c.model_copy(update={"satisfied": None})
-            elif c.satisfied is False and getattr(fc, "failure_severity", "error") == "warning":
-                fnd[:] = [f for f in fnd if not (f.code == "INT-SUBJ-001" and f.formal_result_id == c.formal_result_id)]
-                fnd.append(IntegrityFinding(code="INT-SUBJ-004", severity="warning", message=f"the report's own {fc.kind} statement does not hold under a reading "
-                                            f"the report did not state (a warning, not an error): {fc.description}", formal_result_id=c.formal_result_id, deterministic=False))
-            out.append(c)
+            out.append(c.model_copy(update={"satisfied": sat}))
         return structural, out, ids
     return patched
 
@@ -485,16 +537,19 @@ def test_a_boolean_identity_written_as_failed_is_form_002_from_r2(aud, monkeypat
     assert f and "stem-bool-1" in f[0].message and "expected_if_sound UNSATISFIABLE gives True" in f[0].message
 
 
-def test_inconsistent_premises_declared_undecided_follow_the_check_s_declaration(aud, monkeypatch):
+def test_inconsistent_premises_declared_undecided_follow_the_check_s_declaration(aud):
     checks = [_check("eq-1", INCONSISTENT, inconsistent_is_failure=False)]
-    ch, rc = cs_task(aud, checks, patch=merged_mapping(TranslatorChannel._branch_checks), monkeypatch=monkeypatch)
+    ch, rc = cs_task(aud, checks)  # the merged channel's own mapping (simulated before the merge)
     assert (_fc(rc, "stem-eq-1").formal_status, _fc(rc, "stem-eq-1").satisfied) == ("INCONSISTENT_PREMISES", None)
+    assert {f.code for f in rc.findings if f.formal_result_id == _fc(rc, "stem-eq-1").formal_result_id} == {"INT-SUBJ-002"}
     audit = aud.audit(ch.uid)
     assert not findings(audit, "OVS-FORM-002") and not findings(audit, "OVS-RCPT-004") and not ovs_errors(audit)
 
 
-def test_inconsistent_premises_written_as_a_failure_against_the_declaration_is_form_002(aud):
-    ch, rc = cs_task(aud, [_check("eq-1", INCONSISTENT, inconsistent_is_failure=False)])  # the pre-merge channel ignores the declaration
+def test_inconsistent_premises_written_as_a_failure_against_the_declaration_is_form_002(aud, monkeypatch):
+    # the pre-merge channel ignores the declaration (simulated: the merged channel in this tree honours it, pinned above)
+    ch, rc = cs_task(aud, [_check("eq-1", INCONSISTENT, inconsistent_is_failure=False)], patch=premerge_mapping(TranslatorChannel._branch_checks),
+                     monkeypatch=monkeypatch)
     assert _fc(rc, "stem-eq-1").satisfied is False
     f = findings(aud.audit(ch.uid), "OVS-FORM-002")
     assert f and "stem-eq-1" in f[0].message and "gives None" in f[0].message
@@ -510,19 +565,19 @@ def test_a_pre_stem_check_counts_inconsistent_premises_as_a_failure_as_before(au
 def test_a_vacuous_run_may_be_written_satisfied_or_undecided(aud, monkeypatch, merged):
     checks = [_check("taut-1", VACUOUS)]
     if merged:
-        ch, rc = cs_task(aud, checks, patch=merged_mapping(TranslatorChannel._branch_checks), monkeypatch=monkeypatch)
+        ch, rc = cs_task(aud, checks)  # the merged channel's own mapping: a vacuous proof is undecided
+        assert {f.code for f in rc.findings if f.formal_result_id == _fc(rc, "stem-taut-1").formal_result_id} == {"INT-SUBJ-002"}
     else:
-        ch, rc = cs_task(aud, checks)
+        ch, rc = cs_task(aud, checks, patch=premerge_mapping(TranslatorChannel._branch_checks), monkeypatch=monkeypatch)  # simulated pre-merge channel
     assert _fc(rc, "stem-taut-1").satisfied is (None if merged else True)
     audit = aud.audit(ch.uid)
     assert not findings(audit, "OVS-FORM-002") and not ovs_errors(audit)
 
 
-def test_a_failure_its_pack_declares_at_warning_severity_carries_int_subj_004(aud, monkeypatch):
-    ch, rc = cs_task(aud, [_check("cnv-1", FAILING, failure_severity="warning")], patch=merged_mapping(TranslatorChannel._branch_checks),
-                     monkeypatch=monkeypatch)
+def test_a_failure_its_pack_declares_at_warning_severity_carries_int_subj_004(aud):
+    ch, rc = cs_task(aud, [_check("cnv-1", FAILING, failure_severity="warning")])  # the merged channel's own mapping
     assert _fc(rc, "stem-cnv-1").satisfied is False
-    assert {f.code for f in rc.findings if f.formal_result_id == _fc(rc, "stem-cnv-1").formal_result_id} == {"INT-SUBJ-004"}
+    assert [f.code for f in rc.findings if f.formal_result_id == _fc(rc, "stem-cnv-1").formal_result_id] == ["INT-SUBJ-004"]
     audit = aud.audit(ch.uid)
     assert not findings(audit, "OVS-RCPT-004") and not ovs_errors(audit)
 
@@ -540,10 +595,10 @@ def test_a_failure_its_pack_declares_at_error_severity_needs_int_subj_001(aud, m
 
 
 def test_a_failure_with_no_failure_finding_is_rcpt_004_live_as_before(aud, monkeypatch):
-    def drop(orig):
+    def drop(orig):  # no failure finding at all: the merged channel writes INT-SUBJ-004 for this check, the pre-merge one INT-SUBJ-001
         def patched(self, report, req, fnd, *a, **kw):
             out = orig(self, report, req, fnd, *a, **kw)
-            fnd[:] = [f for f in fnd if f.code != "INT-SUBJ-001"]
+            fnd[:] = [f for f in fnd if f.code not in ("INT-SUBJ-001", "INT-SUBJ-004")]
             return out
         return patched
     ch, rc = cs_task(aud, [_check("cnv-1", FAILING, failure_severity="warning")], patch=drop(TranslatorChannel._branch_checks), monkeypatch=monkeypatch)

@@ -1,0 +1,20 @@
+{
+  "id": "stem-bio-003",
+  "subject": "Biology",
+  "task_type": "short_answer",
+  "question": "In a mark–release–recapture study, 40 snails were marked and released. A week later 36 snails were captured, of which 12 were marked. Estimate the population size.",
+  "supplied_texts": [],
+  "response_text": "Lincoln index: N = (n₁ × n₂) / m₂\nwhere n₁ = 40 (first capture, marked), n₂ = 36 (second capture) and m₂ = 12 (marked in second capture).\n\nN = (40 × 36) / 12 = 1440 / 12 = 120\n\nThe estimated population is 120 snails. This assumes the marked snails mixed randomly back into the population and that no births, deaths or migration occurred between samples.",
+  "notation": [
+    "unicode",
+    "subscripted_symbols"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "n₁ = 40 (first capture, marked), n₂ = 36 (second capture) and m₂ = 12",
+      "N = (40 × 36) / 12 = 1440 / 12 = 120",
+      "The estimated population is 120 snails"
+    ]
+  }
+}

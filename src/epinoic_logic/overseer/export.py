@@ -18,7 +18,8 @@ maintainers) regenerates the pack's generated files in a source checkout.
   back in place and prints its SHA-256.
 * ``--verify PATH`` loads a pack directory or zip and prints its identity, or the refusal reason with exit status 2.
 * ``--refresh-source`` regenerates ``verdict.schema.json`` and ``dossier.schema.json`` from the contracts and
-  ``manifest.json`` from the files, refuses documents whose rule ids are out of ascending order
+  ``manifest.json`` from the files (STEM repair 11: with the modules the documents mark and the digest of every composition,
+  refusing malformed module markers), refuses documents whose rule ids are out of ascending order (checked first)
   (``pack.rule_order_faults``), runs every loader check except the pin, and prints the new pack digest, which the
   maintainer pins in ``pack.PACK_DIGESTS``. Without ``--source`` it works on the package's own pack and refuses to run
   outside a source checkout (an installed copy is never rewritten); ``--source`` names another pack directory of a
@@ -239,12 +240,16 @@ def refresh_source(pack_dir: Any = None, *, version: str = PACK_VERSION) -> Refr
             raise ExportError("source_invalid", "the pack directory holds a symlink or a directory", path=e.name)
         files[e.name] = Path(e.path).read_bytes()
     try:
+        texts = {p: data.decode("utf-8") for p, data in files.items() if p.endswith(".md")}
+    except UnicodeDecodeError:
+        texts = None  # the manifest builder names the file
+    disorder = rule_order_faults(texts) if texts is not None else []
+    if disorder:  # the generator refuses rule ids out of order (a reader looks a rule up where the sequence predicts it), first of all
+        raise ExportError("source_invalid", "rule ids out of ascending order: " + "; ".join(disorder[:6]))
+    try:
         manifest = build_manifest(files, name=name, version=ver)
     except (ValueError, UnicodeDecodeError) as exc:
         raise ExportError("source_invalid", f"the pack's files cannot be listed in a manifest: {exc}") from None
-    disorder = rule_order_faults({p: data.decode("utf-8") for p, data in files.items() if p.endswith(".md")})
-    if disorder:  # the generator refuses rule ids out of order (a reader looks a rule up where the sequence predicts it)
-        raise ExportError("source_invalid", "rule ids out of ascending order: " + "; ".join(disorder[:6]))
     if _write_replace(pack_dir / MANIFEST_FILE, render_manifest(manifest).encode("utf-8")):
         changed.append(MANIFEST_FILE)
     pack = _load_unpinned(pack_dir)  # every check but the pin: a refreshed pack must load once its digest is pinned

@@ -150,7 +150,26 @@ def test_a_synthesis_rule_divergence_names_only_the_synthesis_never_the_genuine_
     assert audit.transfer_states[task.mids["syn"]] == "AUDIT_FAILED"
 
 
+def _borrowing_finish(monkeypatch, donor: dict):
+    """The synthesis receipt's INT-LEDGER-011 cites a result borrowed from the English report's delivery (installed after
+    that delivery): an id alone, of an earlier event, claiming a check nobody ran on the synthesis."""
+    orig = TranslatorChannel._finish
+
+    def fin(self, msg, direction, findings_, *a, **kw):
+        findings_ = [f.model_copy(update={"formal_result_id": donor["rid"]}) if f.code == "INT-LEDGER-011" and not f.formal_result_id and donor else f for f in findings_]
+        return orig(self, msg, direction, findings_, *a, **kw)
+
+    def before(task):
+        donor["rid"] = next(o.verification.result_id for o in task.receipts["rep_en"].outcomes if o.verification is not None)
+        monkeypatch.setattr(TranslatorChannel, "_finish", fin)
+    return before
+
+
 def test_a_borrowed_result_id_on_int_ledger_011_is_not_evidence_that_the_entailment_check_ran(auditor, monkeypatch):
+    # the translator merge: the merged channel also states a merged claim's content change unchecked (INT-SYNTH-012, a
+    # disclosure, so the divergence is DIV-002: the next test). Here the channel states nothing beyond INT-LEDGER-011, as
+    # the pre-merge channel did for a merged claim, so the undisclosed divergence is DIV-001 as before
+    monkeypatch.setattr(TranslatorChannel, "_unchecked_paraphrases", staticmethod(lambda *a, **k: []))
     donor = {}
     orig = TranslatorChannel._finish
 
@@ -163,9 +182,28 @@ def test_a_borrowed_result_id_on_int_ledger_011_is_not_evidence_that_the_entailm
         monkeypatch.setattr(TranslatorChannel, "_finish", fin)
     task = run_task(auditor, synthesis_obj=_merged_synthesis(), before_synthesis=before)
     assert any(f.code == "INT-LEDGER-011" and f.formal_result_id == donor["rid"] for f in task.receipts["syn"].findings)
+    assert not any(f.code == "INT-SYNTH-012" for f in task.receipts["syn"].findings)
     audit = task.audit()
     assert [x for x in findings(audit, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]  # not taken as performed
     assert [x for x in findings(audit, "OVS-RES-005") if x.formal_result_id == donor["rid"] and task.mids["syn"] in x.message_ids]
+
+
+def test_a_borrowed_result_id_beside_the_merged_channel_s_own_disclosure_is_still_not_evidence(auditor, monkeypatch):
+    """The translator merge: the merged channel's receipt states the merged claim's content change NOT checked
+    (INT-SYNTH-012, citing no result), so the router was told and the divergence is DIV-002, never silence: the borrowed
+    id on INT-LEDGER-011 is still not taken as the check performed (a performed check removes the divergence), and the
+    borrowing itself is RES-005."""
+    donor: dict = {}
+    task = run_task(auditor, synthesis_obj=_merged_synthesis(), before_synthesis=_borrowing_finish(monkeypatch, donor))
+    syn = task.receipts["syn"].findings
+    assert any(f.code == "INT-LEDGER-011" and f.formal_result_id == donor["rid"] for f in syn)
+    assert any(f.code == "INT-SYNTH-012" and not f.formal_result_id and f.claim_ids[0] == "s1" for f in syn)
+    audit = task.audit()
+    assert not [x for x in findings(audit, "OVS-DIV-001") if "INT-SYNTH-006" in x.message]
+    d = [x for x in findings(audit, "OVS-DIV-002") if "INT-SYNTH-006" in x.message]
+    assert d and "states the check as NOT performed" in d[0].message and d[0].message_ids == [task.mids["syn"]]
+    assert [x for x in findings(audit, "OVS-RES-005") if x.formal_result_id == donor["rid"] and task.mids["syn"] in x.message_ids]
+    assert audit.transfer_states[task.mids["syn"]] == "AUDIT_FAILED"  # the borrowed citation fails the synthesis
 
 
 # ============================================================================================ fidelity
@@ -295,7 +333,8 @@ def test_an_external_result_issued_before_the_request_is_res_005_live_and_final(
 
 
 # ============================================================================================ TRN-006 grounded transcription
-def test_a_verified_quotation_premise_identical_to_the_conclusion_is_a_transcription_not_circular():
+def test_a_verified_quotation_premise_identical_to_the_conclusion_is_a_transcription_not_circular(monkeypatch):
+    from .conftest import withheld_as_circular_by_the_translator, without_the_translators_circularity_gate
     from .test_translation_oversight import POINT, V, genuine_problem, proposal, quoted, run, trn
     aud = make_auditor(shadow="off")
     try:
@@ -311,6 +350,17 @@ def test_a_verified_quotation_premise_identical_to_the_conclusion_is_a_transcrip
         # (OVS-TRN-010, a warning: test_corrections_trn_necessity.py)
         p2["premises"] = [x for x in p2["premises"] if x["id"] != "P_link"]
         p2["premises"].append({"id": "P_assumed", "expr": V("endless"), "grounding": {"kind": "specialist_inference"}})
+        # the translator merge (rule circularity-agreement; the assertion kept): the merged translator withholds the assumed
+        # inference itself (E112), with no OVS-TRN finding; delivered past its gate, it stays circular
+        aud1 = make_auditor(shadow="off")
+        try:
+            aud1, ch1, rc1 = run({POINT: proposal(p2)}, auditor=aud1)
+            assert withheld_as_circular_by_the_translator(next(o for o in rc1.outcomes if o.claim_id == POINT))
+            a1 = aud1.audit(ch1.uid)
+            assert trn(a1, "OVS-TRN-006") == [] and trn(a1, "OVS-TRN-010") == []
+        finally:
+            aud1.close()
+        without_the_translators_circularity_gate(monkeypatch)
         aud2 = make_auditor(shadow="off")
         try:
             aud2, ch2, _rc2 = run({POINT: proposal(p2)}, auditor=aud2)

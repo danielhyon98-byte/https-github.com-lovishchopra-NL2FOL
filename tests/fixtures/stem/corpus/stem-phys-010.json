@@ -1,0 +1,32 @@
+{
+  "id": "stem-phys-010",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A 2.0 kg trolley moving at 3.0 m s⁻¹ to the right collides with a 1.0 kg trolley moving at 4.0 m s⁻¹ to the left. They stick together. Calculate their common velocity after the collision.",
+  "supplied_texts": [],
+  "response_text": "Take velocities to the right as positive, so u₁ = +3.0 m s⁻¹ and u₂ = −4.0 m s⁻¹.\n\nTotal momentum before: p = m₁u₁ + m₂u₂ = 2.0 × 3.0 + 1.0 × (−4.0) = 10 kg m s⁻¹\nMomentum is conserved, so (m₁ + m₂)v = p:\nv = p/(m₁ + m₂) = 10 / 3.0 = 3.3 m s⁻¹\n\nThe trolleys move off together at 3.3 m s⁻¹ to the right.",
+  "notation": [
+    "unicode",
+    "subscripted_symbols",
+    "implicit_multiplication",
+    "units_unicode_exponent",
+    "signed_values"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "sign_error",
+        "step": "2.0 × 3.0 + 1.0 × (−4.0) = 10 kg m s⁻¹",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq: 2.0 × 3.0 + 1.0 × (−4.0) = 2.0 exactly; stated 10 (the −4.0 term was added as +4.0). True common velocity 2.0/3.0 = 0.67 m s⁻¹. The division 10 / 3.0 = 3.3 holds as written but carries the slip. [computed: C=2 S=10 h=0.5 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "u₁ = +3.0 m s⁻¹ and u₂ = −4.0 m s⁻¹",
+      "m₁u₁ + m₂u₂ = 2.0 × 3.0 + 1.0 × (−4.0)",
+      "10 / 3.0 = 3.3"
+    ]
+  }
+}

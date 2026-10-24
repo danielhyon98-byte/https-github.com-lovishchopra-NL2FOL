@@ -37,7 +37,7 @@ from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import check_claim_sources
 from ..markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE
 from .chronology import chronology_relations
-from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, opens_with_fact, split_sentences
+from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, is_source_caveat, opens_with_fact, split_sentences
 
 # Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
 _NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
@@ -111,9 +111,14 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
         if _HISTORIAN_RE.search(c.claim_text) and not c.source_refs:
             f.append(StructuralFinding(code="HI-SRC-003", severity="warning", message="a named historian is attributed a position without knowledge-document or library grounding", claim_ids=[c.claim_id], rule_source=_RULE.format("application.md §8.2; master prompt resolved conflict 5")))
 
-    dated_claims = [c for c in report.claims if has_dated_item(c.claim_text)]
+    dated_claims = [c for c in report.claims if has_dated_item(c.claim_text) and c.claim_role != "other"]
     if dated_claims and not _MEMORY_LABEL_RE.search(text) and not any(c.source_refs for c in dated_claims):
-        f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label", claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
+        # a note's caveat about the answer's own sources ('my sources do not confirm the exact emigration total') is said, not ignored
+        caveats = [c.claim_text for c in report.claims if c.claim_role == "other" and any(is_source_caveat(x) for x in re.split(r";\s*", c.claim_text))]
+        said = (f"; the answer's own note says its sources do not confirm some of them ('{' '.join(caveats[0].split())[:160]}'), and the figure it names "
+                f"is recorded as unverified on the claims that state it") if caveats else ""
+        f.append(StructuralFinding(code="HI-SRC-004", severity="info", message="dates and figures appear without source references or a from-memory label" + said,
+                                   claim_ids=[c.claim_id for c in dated_claims][:8], rule_source=_RULE.format("application.md §5; sources.md L5")))
 
     for pi, kind, para in prose:
         if kind != "body":
@@ -132,9 +137,16 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
             # The same extractor decides the core pack's formal chronology check, so the proxy and the engine agree.
             for rel in chronology_relations(s, para):
                 if rel.violated:
-                    f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message=f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}" + (f" ({rel.reason})" if rel.reason else ""), claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
+                    if rel.kind == "order":
+                        what = f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}"
+                    elif rel.kind in ("within", "overlaps"):
+                        what = f"a sentence places a dated event within a dated period ('{rel.cue}'), but the dates it gives do not agree: {rel.later_text} does not fall within {rel.earlier_text}"
+                    else:
+                        what = f"a sentence places a date at a point of a dated period ('{rel.cue}'), but the years differ: {rel.statement} does not hold"
+                    f.append(StructuralFinding(code="HI-CHR-001", severity="warning", message=what + (f" ({rel.reason})" if rel.reason else ""), claim_ids=[c.claim_id for c in report.claims if c.claim_text == s], rule_source=_RULE.format("application.md EV2 (exact, dated items)")))
 
-    words = len(re.findall(r"\b[\w'’-]+\b", " ".join(para for _, _, para in prose)))
+    from ...channel.request_parser import count_words  # local: the channel package imports the branches, which import this module lazily
+    words = count_words(" ".join(para for _, _, para in prose))  # the channel's word: '1.9', '100,000' and '63.2%' are one word each
     if multi and report.task_type == "essay" and not (800 <= words <= 1100):
         f.append(StructuralFinding(code="HI-STR-004", severity="info", message=f"essay length {words} words is outside the pack's exam-length guide (800-1,000 for Paper 2)", rule_source=_RULE.format("structures.md P15")))
     return f

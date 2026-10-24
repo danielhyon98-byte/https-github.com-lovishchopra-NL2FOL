@@ -611,9 +611,25 @@ def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ct
             return f"no checked translation of claim {c} is on the named transfers (not translated, not delivered, or not named there)"
         for r in recs:
             missing = [x for x in need if x not in r.checks_run]
+            if missing and "circular" in missing and r.problem_json is None and r.translation_status == "INVALID_FORMALIZATION" and any("E112" in d for d in r.diagnostics):
+                # rule circularity-agreement: the translator withheld this encoding as circular itself (E112), so no encoding was
+                # delivered: the accusation agrees with the translator's own verdict and is neither confirmed nor refuted
+                return (f"the translator withheld the encoding of claim {c} as circular itself (E112: INVALID_FORMALIZATION, no problem "
+                        "delivered), so there is no delivered encoding for the circular check to examine; the receipt already shows no verdict")
             if missing:
                 return (f"the {', '.join(missing)} check(s) did not run on the translation of claim {c} (recorded under another policy version, "
                         "no problem, or its result not retained), so the translation checks could not decide")
+    if kind == "translation_circular":
+        # rule engine-shown (decision 55): the circular check that ran left the restatement UNDECIDED (OVS-TRN-011: premises
+        # whose whole content rule same-quantity reads as their source's data, which no deterministic check verifies or
+        # refutes, carry the result; decision 56: never a premise a label alone presents as data), so it neither confirms
+        # nor refutes the accusation: whether the source states what they restate is a meaning question
+        for c in claims:
+            if any(f.code == "OVS-TRN-011" and c in f.claim_ids and (not reports or not f.report_ids or set(f.report_ids) & reports)
+                   and (not msgs or not f.message_ids or set(f.message_ids) & msgs) for f in base.findings):
+                return (f"the circular check left the restatement in the translation of claim {c} undecided (OVS-TRN-011: its result rests on premises "
+                        "whose figures rule same-quantity reads as their source's data, which no deterministic check verifies or refutes), so whether it "
+                        "assumes the claim is a meaning question the checks do not decide")
     return None
 
 

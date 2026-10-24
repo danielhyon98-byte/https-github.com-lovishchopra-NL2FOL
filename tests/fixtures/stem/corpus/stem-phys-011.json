@@ -1,0 +1,34 @@
+{
+  "id": "stem-phys-011",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A tennis ball of mass 58 g arrives at a racket at 30 m s⁻¹ and leaves in the opposite direction at 40 m s⁻¹. The contact time is 4.0 ms. Calculate the change in momentum of the ball and the average force on it.",
+  "supplied_texts": [],
+  "response_text": "m = 58 g = 0.058 kg, Δt = 4.0 ms = 4.0 x 10^-3 s. Take the final direction as positive: u = −30 m/s, v = +40 m/s.\n\nΔp = m(v − u) = 0.058 × (40 − (−30)) = 0.058 × 70 = 4.06 kg·m/s ≈ 4.1 N s\nF = Δp/Δt = 4.06 / (4.0 × 10⁻³) = 1015 N ≈ 1.0 × 10³ N\n\nThe racket exerts an average force of about 1.0 kN on the ball, in the direction of its final velocity.",
+  "notation": [
+    "unicode",
+    "ascii",
+    "sci_ascii",
+    "sci_unicode",
+    "units_slash",
+    "units_dot",
+    "units_prefix",
+    "signed_values",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "m = 58 g = 0.058 kg",
+      "Δt = 4.0 ms = 4.0 x 10^-3 s",
+      "u = −30 m/s, v = +40 m/s",
+      "Δp = m(v − u) = 0.058 × (40 − (−30))",
+      "0.058 × (40 − (−30)) = 0.058 × 70",
+      "0.058 × 70 = 4.06 kg·m/s",
+      "4.06 kg·m/s ≈ 4.1 N s",
+      "F = Δp/Δt = 4.06 / (4.0 × 10⁻³) = 1015 N",
+      "1015 N ≈ 1.0 × 10³ N",
+      "an average force of about 1.0 kN"
+    ]
+  }
+}

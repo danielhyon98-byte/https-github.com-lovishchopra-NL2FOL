@@ -18,7 +18,7 @@ from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
-from .conftest import CFG, DOC, EN_INPUT, KEY, english_report, make_auditor, make_plan
+from .conftest import CFG, DOC, EN_INPUT, KEY, english_report, make_auditor, make_plan, without_the_translators_circularity_gate
 from .test_hook_review import Scripted, no_network, pack, verdict  # noqa: F401  (fixtures: the exported pack, no network)
 from .test_protocol_validate import acc, review
 from .test_translation_oversight import INFER, POINT, SUPPORT, V, genuine_problem, point_claims, proposal, recompose, run
@@ -119,7 +119,10 @@ def test_the_translation_fidelity_lens_is_issued_and_a_verdict_under_it_is_accep
 
 
 # ============================================================================================ validation of the translation kinds
-def test_translation_circular_is_confirmed_by_the_deterministic_check(aud):
+def test_translation_circular_is_confirmed_by_the_deterministic_check(aud, monkeypatch):
+    # the translator merge: the circular encoding is delivered past the merged translator's own circularity gate (which
+    # withholds it itself; rule circularity-agreement, asserted in test_translation_oversight.py); every assertion kept
+    without_the_translators_circularity_gate(monkeypatch)
     aud, ch, _rc = run({POINT: proposal(circular_problem())}, auditor=aud)
     r = review(aud, ch.uid)
     a = r.run([tr_acc(r.dossier, "translation_circular")])
@@ -136,7 +139,8 @@ def test_translation_circular_on_a_faithful_translation_is_refuted(aud):
 
 
 @pytest.mark.parametrize("problem", ["faithful", "circular"])
-def test_translation_unfaithful_is_never_decided_by_a_check(aud, problem):
+def test_translation_unfaithful_is_never_decided_by_a_check(aud, problem, monkeypatch):
+    without_the_translators_circularity_gate(monkeypatch)  # the circular encoding delivered past the merged translator's gate
     p = genuine_problem() if problem == "faithful" else circular_problem()
     aud, ch, _rc = run({POINT: proposal(p)}, auditor=aud)
     r = review(aud, ch.uid)
@@ -237,7 +241,8 @@ def _translated_hub_task(hub: RouterHub, problem: dict):
     return ch, [m.message_id, rc.message_id]
 
 
-def test_hub_review_of_translations_decides_by_the_checks_and_changes_no_clearance(pack):
+def test_hub_review_of_translations_decides_by_the_checks_and_changes_no_clearance(pack, monkeypatch):
+    without_the_translators_circularity_gate(monkeypatch)  # the circular encoding delivered past the merged translator's gate
     hub = RouterHub(signing_key=KEY, config=CFG, auditor=make_auditor())
     try:
         _ch, mids = _translated_hub_task(hub, circular_problem())

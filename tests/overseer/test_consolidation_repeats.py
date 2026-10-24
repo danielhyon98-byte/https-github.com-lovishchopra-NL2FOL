@@ -164,7 +164,9 @@ def test_an_auditor_fault_about_what_the_agent_said_is_signed_and_repeated(hub):
     claims = [*[dict(c) for c in EN_CLAIMS], X_CLAIM]  # a claim its response does not carry: OVS-FID-001 (the receipt is clean)
     rc1 = d.answer("english-1", claims=claims, name="a")
     rc2 = d.answer("english-2", claims=claims, name="b")
-    assert rc1.status.value == rc2.status.value == "ACCEPTED"
+    # the receipts carry no finding of the fault (the merged channel adds only the duplication's INT-REQ-016 to the second)
+    assert rc1.status.value == "ACCEPTED" and rc1.findings == []
+    assert rc2.status.value == "ACCEPTED_WITH_FINDINGS" and [(f.code, f.severity) for f in rc2.findings] == [("INT-REQ-016", "warning")]
     rep = hub.repeats(d.key)
     fid = [o for o in rep.occurrences if o.code == "OVS-FID-001"]
     assert len(fid) == 2 and all(o.source == "audit" and o.anchor_kind == "claim" and o.anchor == "writer celebrates joy of labour" for o in fid)

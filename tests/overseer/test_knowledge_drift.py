@@ -427,13 +427,14 @@ def test_every_rule_code_is_defined_once():
     # the ranges design section 17.3 declares; every family but Inspection is numbered without gaps. The consolidation
     # stage (design section 19) added T13-T14, D24-D27, K7, N13, U11 and the consolidation checks I82-I89; pack 1.1
     # (after the contained round c1) added D28, the request parser's constraint rules; pack 1.2 (after the round-7
-    # simulation) added D29-D31 and I90-I97, the STEM answers.
-    for prefix, last in {"T": 14, "D": 31, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
+    # simulation) added D29-D31 and I90-I97, the STEM answers; the STEM completion (design section 31) added D32, the ST
+    # codes, and I98, a STEM receipt.
+    for prefix, last in {"T": 14, "D": 32, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 97
+    assert nums["I"][0] == 1 and nums["I"][-1] == 98
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
     assert [n for n in nums["I"] if 82 <= n < 90] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
-    assert [n for n in nums["I"] if n >= 90] == list(range(90, 98))  # the STEM answers, I90 to I97
+    assert [n for n in nums["I"] if n >= 90] == list(range(90, 99))  # the STEM answers, I90 to I98
 
 
 def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
@@ -449,7 +450,7 @@ def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
     assert "## 15. Common mistakes" in text
     moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 15. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 15. Common mistakes")
     (d / "02-dossier.md").write_text(moved, encoding="utf-8")
-    assert any("D14 is defined after D31" in p for p in rule_order_faults({"02-dossier.md": moved}))
+    assert any("D14 is defined after D32" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D32 (STEM completion) is now the last rule before
     with pytest.raises(ExportError) as ei:
         refresh_source(d)
     assert ei.value.reason == "source_invalid" and "out of ascending order" in ei.value.detail
@@ -488,8 +489,8 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    # the footer names another version than the pack's own (the pack is 1.2 since the round-7 corrections)
-    "titles_and_footers": ("08-never.md", "Pack version 1.2 · overseer-knowledge-docs", "Pack version 1.3 · overseer-knowledge-docs"),
+    # the footer names another version than the pack's own (the pack is 1.3 since the translator merge)
+    "titles_and_footers": ("08-never.md", "Pack version 1.3 · overseer-knowledge-docs", "Pack version 1.4 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

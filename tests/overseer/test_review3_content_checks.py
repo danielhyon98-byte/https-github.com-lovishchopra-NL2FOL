@@ -2,7 +2,8 @@
 code before the fix; the scenarios are the reviewers' own, run through the contained harness's synthetic task):
 
 * the blocker: the student-facing synthesis text negated, renamed, inverted or extended while every synthesized claim
-  stayed faithful was released; the text must now be a composition of its claims (INT-LEDGER-028, error);
+  stayed faithful was released; the text must now be a composition of its claims (INT-LEDGER-031, error; INT-LEDGER-028 before
+  the translator merge, which gave that number to a misspelt quotation);
 * a synthesis exchanging the Acts' NAMES (not their years) re-pairs years with events (rule ``name-partner``);
 * a forwarded answer altered and padded with background prose evades PEER-002 no longer (``contains-answer``), while a
   source document the answer quotes is never linked to the answer (``source-predates-answer``);
@@ -71,10 +72,10 @@ def test_a_synthesis_text_saying_what_its_claims_do_not_is_never_released(label,
     try:
         r = T.run_synthetic(a, synthesis=_with_text(text))
         rc = r.receipts["syn"]
-        assert ("INT-LEDGER-028", "error") in {(f.code, f.severity) for f in rc.findings}, label
+        assert ("INT-LEDGER-031", "error") in {(f.code, f.severity) for f in rc.findings}, label
         audit = r.audit(final=True)
         d = _release(r, audit)
-        assert not d.allowed and "INT-LEDGER-028" in d.reason, label
+        assert not d.allowed and "INT-LEDGER-031" in d.reason, label
     finally:
         a.close()
 
@@ -90,7 +91,7 @@ def test_the_genuine_synthesis_text_and_connectives_between_claims_stay_clean():
     a = _auditor(shadow="off")
     try:
         r = T.run_synthetic(a, synthesis=GOOD)
-        assert not [f for f in r.receipts["syn"].findings if f.code == "INT-LEDGER-028"]
+        assert not [f for f in r.receipts["syn"].findings if f.code in ("INT-LEDGER-031", "INT-LEDGER-028")]
         assert _release(r, r.audit(final=True)).allowed
     finally:
         a.close()

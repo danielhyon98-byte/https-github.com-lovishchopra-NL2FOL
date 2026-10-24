@@ -1,0 +1,31 @@
+{
+  "id": "stem-phys-026",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A beaker containing 0.200 kg of water is heated from 20 °C to 40 °C. Calculate the energy supplied (c = 4.18 kJ kg⁻¹ K⁻¹) and describe the change in temperature.",
+  "supplied_texts": [],
+  "response_text": "ΔT = 40 − 20 = 20 K, so\nQ = mcΔT = 0.200 × 4.18 × 20 = 16.72 kJ ≈ 16.7 kJ\n\nThe temperature of the water doubled from 20 °C to 40 °C, so the average kinetic energy of its molecules also doubled.",
+  "notation": [
+    "unicode",
+    "temperature_celsius_kelvin",
+    "prose_relation",
+    "units_prefix"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "offset_scale_relative_change",
+        "step": "The temperature of the water doubled from 20 °C to 40 °C",
+        "expected_codes": [
+          "CORE-QNT-001"
+        ],
+        "note": "A relative change on the offset Celsius scale is not defined (SI reading, section 12): in kelvin the water goes from 293.15 K to 313.15 K, a rise of 6.8 per cent, so the mean kinetic energy (proportional to T in K) rises by 6.8 per cent, not 100 per cent. [computed: 313.15/293.15 = 1.068, not 2]"
+      }
+    ],
+    "correct_steps": [
+      "ΔT = 40 − 20 = 20 K",
+      "Q = mcΔT = 0.200 × 4.18 × 20 = 16.72 kJ",
+      "16.72 kJ ≈ 16.7 kJ"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "stem-phys-015",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "Calculate the gravitational force between the Earth (mass 5.97 × 10²⁴ kg, radius 6.37 × 10⁶ m) and a 70 kg person standing on its surface.",
+  "supplied_texts": [],
+  "response_text": "Newton's law of gravitation: F = GMm/r², with G = 6.67e-11 N m^2 kg^-2, M = 5.97e24 kg, m = 70 kg and r = 6.37e6 m.\n\nF = 6.67e-11 × 5.97e24 × 70 / (6.37e6)^2 ≈ 687 N\n\nThis is the person's weight; dividing by the mass gives 687/70 = 9.81 N kg^-1, which matches the familiar surface value of g.",
+  "notation": [
+    "ascii",
+    "unicode",
+    "sci_e",
+    "units_ascii_exponent",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "M = 5.97e24 kg, m = 70 kg and r = 6.37e6 m",
+      "F = 6.67e-11 × 5.97e24 × 70 / (6.37e6)^2 ≈ 687 N",
+      "687/70 = 9.81 N kg^-1"
+    ]
+  }
+}

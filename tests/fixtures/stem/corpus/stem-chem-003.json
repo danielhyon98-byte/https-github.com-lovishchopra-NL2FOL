@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-003",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "5.4 g of aluminium reacts with 0.25 mol of chlorine gas according to 2Al + 3Cl₂ → 2AlCl₃. Identify the limiting reagent and calculate the amount of AlCl₃ formed. Ar(Al) = 27.0.",
+  "supplied_texts": [],
+  "response_text": "2Al + 3Cl₂ → 2AlCl₃\n\nn(Al) = 5.4 g / 27.0 g mol⁻¹ = 0.20 mol\nCl₂ needed for all the Al = 0.20 × 3/2 = 0.30 mol\nSince 0.25 mol < 0.30 mol, there is not enough chlorine, so Cl₂ is the limiting reagent.\nn(AlCl₃) = 0.25 × 2/3 = 0.167 mol ≈ 0.17 mol\n\nThe aluminium is in excess: only 0.25 × 2/3 = 0.167 mol of it reacts.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent",
+    "comparison"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "2Al + 3Cl₂ → 2AlCl₃",
+      "n(Al) = 5.4 g / 27.0 g mol⁻¹ = 0.20 mol",
+      "Cl₂ needed for all the Al = 0.20 × 3/2 = 0.30 mol",
+      "0.25 mol < 0.30 mol",
+      "n(AlCl₃) = 0.25 × 2/3 = 0.167 mol",
+      "0.167 mol ≈ 0.17 mol",
+      "only 0.25 × 2/3 = 0.167 mol of it reacts"
+    ]
+  }
+}

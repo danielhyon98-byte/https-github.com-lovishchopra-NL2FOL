@@ -43,6 +43,36 @@ DESIGN_CODES = {
     "T15b": ["OVS-CUST-006"], "T17": ["OVS-AUDIT-003"], "T18": ["OVS-DIV-001"], "T18.clock": ["OVS-DIV-002"], "T19": ["OVS-JOINT-004", "OVS-RCPT-004"],
     "T16d": ["OVS-FID-001"], "T22a": ["OVS-TRN-001"], "T22b": ["OVS-TRN-002"], "T22c": ["OVS-TRN-002"], "T22d": ["OVS-TRN-003"], "T22e": ["OVS-TRN-004"],
     "T22f": ["OVS-TRN-005"], "T22g": ["OVS-TRN-006"], "T22h": ["OVS-TRN-007"],
+    # the repair of the translator merge (decision 49): a restatement under a grounding kind label alone, delivered by the
+    # merged translator's own pipeline as a transcription, must be named
+    "T22i": ["OVS-TRN-006"], "T22j": ["OVS-TRN-006"], "T22k": ["OVS-TRN-006"], "T22l": ["OVS-TRN-006"],
+    # the second repair of the translator merge (decision 51): a task_setting label alone, a conjoined transcription, part
+    # of the conclusion assumed under a label the receipt presents as given, the conclusion in another form (three ways)
+    # and a tautology conjoined, each delivered by the merged translator's own pipeline, must be named
+    "T22m": ["OVS-TRN-006"], "T22n": ["OVS-TRN-006"], "T22o": ["OVS-TRN-006"], "T22p": ["OVS-TRN-006"], "T22q": ["OVS-TRN-006"],
+    "T22r": ["OVS-TRN-006"], "T22s": ["OVS-TRN-006"],
+    # the third repair of the translator merge (decision 55, rule same-quantity): the claim's own figure assumed under a
+    # task_setting label while the request states that number only for another quantity (t), only as the target the answer
+    # must show (u), or only as a bound the premise states as a value (v), each delivered by the merged translator's own
+    # pipeline, must be named
+    "T22t": ["OVS-TRN-006"], "T22u": ["OVS-TRN-006"], "T22v": ["OVS-TRN-006"],
+    # the fourth repair of the translator merge (decision 56, rule data-standing): the claim assumed under a task_setting or
+    # supplied_text label alone, the translation declaring it data throughout, content no check reads in the request
+    # (Boolean content under either label, w and x; a figure the request states only bare, y; a structural figure, z), each
+    # delivered by the merged translator's own pipeline, must be named (the third repair cleared each with OVS-TRN-011)
+    "T22w": ["OVS-TRN-006"], "T22x": ["OVS-TRN-006"], "T22y": ["OVS-TRN-006"], "T22z": ["OVS-TRN-006"],
+    # the fifth repair of the translator merge (decision 57, rule statement-context): the claim's own figure assumed under a
+    # task_setting label while the request states it only under a negation (aa), in a yes/no question (ab), as a
+    # requirement on the answer, a value (ac) or a bound (ad), inside a claim the answer must examine (ae), or as one of
+    # alternatives (af), each delivered by the merged translator's own pipeline, must be named (the fourth repair cleared
+    # each with OVS-TRN-011)
+    "T22aa": ["OVS-TRN-006"], "T22ab": ["OVS-TRN-006"], "T22ac": ["OVS-TRN-006"], "T22ad": ["OVS-TRN-006"], "T22ae": ["OVS-TRN-006"],
+    "T22af": ["OVS-TRN-006"],
+    # STEM repair 12 (decision 72, rule arithmetic-restatement): the paragraph's own length assumed by a writer's-own premise equivalent to
+    # 'n = 80' by the arithmetic of its own symbol, its terms moved across (ag), both sides scaled (ah) or both (ai), each delivered by the
+    # merged translator's own pipeline, must be named (before, the overseer read every arithmetic term as opaque: no finding); the control,
+    # the same length derived by a line of working on numbers alone ('n = 40 + 40'), raises no OVS-* error and no OVS-TRN-006
+    "T22ag": ["OVS-TRN-006"], "T22ah": ["OVS-TRN-006"], "T22ai": ["OVS-TRN-006"], "T22-working": [],
 }
 #: The agent, pack and runner cases: the reasons (or AGENT codes) they must produce.
 DESIGN_REASONS = {
@@ -136,6 +166,25 @@ def test_translator_faults_cover_the_founders_list(synthetic_suite):
     assert got["T22b"]["expected_codes"] == ["OVS-TRN-002"] and "unambiguous" in got["T22b"]["description"]
     for name in ("T22-premise", "T22-condition", "T22-comparison", "T22-direction"):
         assert got[name]["passed"]
+
+
+@pytest.mark.parametrize("name, kind", sorted(T.LABEL_ONLY_CASES.items()))
+def test_t22_label_only_restatements_are_delivered_by_the_translators_own_pipeline_and_named(synthetic_suite, name, kind):
+    """T22i to T22l (the repair of the translator merge, decision 49): nothing is planted past a gate. The merged
+    translator's own rule reads a restating premise grounded by a kind label alone as a transcription, so its pipeline
+    delivers the circular encoding, the engine gives ENTAILED with no E112 and the router is shown ENTAILED; the
+    overseer names it (OVS-TRN-006, an error) and the transfer fails."""
+    m, out = synthetic_suite
+    e = entries(m)[name]
+    assert e["class"] == "translation_circular" and e["passed"] and e["detected"] and e["transfer_state"] == "AUDIT_FAILED"
+    rec = H.load_record(out / e["record"])
+    (tr,) = [x for x in rec.audit.translations if x.claim_id == "en-point"]
+    assert tr.translation_status == "TRANSLATED" and tr.result_status == "ENTAILED" and tr.display_status == "ENTAILED"
+    assert not any("E112" in d for d in tr.diagnostics) and "OVS-TRN-006" in tr.codes
+    premise = next(p for p in json.loads(tr.problem_json)["premises"] if p["id"] == "P_assumed")
+    assert premise["grounding"]["kind"] == kind and not premise["grounding"].get("source_refs")
+    (f,) = [x for x in rec.audit.report.findings if x.code == "OVS-TRN-006"]
+    assert f.severity == "error" and f.claim_ids == ["en-point"] and "grounded-transcription" in f.message
 
 
 def test_classes_are_kinds_or_named_classes_and_faults_carry_identifiers(synthetic_suite):
@@ -238,7 +287,9 @@ def test_patched_restores_every_attribute_including_static_methods():
 
 def test_targets_missing_from_disk_are_recorded_as_not_run(tmp_path):
     m = T.run_suite(tmp_path / "out", rounds_root=tmp_path / "no-rounds", cases=["T1"])
-    assert set(m["targets_skipped"]) == {"r5/p4", "r5/hi-t9"}
+    # every recorded target: the r5 tasks and, since the STEM completion, the five r7 STEM tasks
+    assert set(m["targets_skipped"]) == {"r5/p4", "r5/hi-t9", "r7/ph-t13", "r7/maa-t13", "r7/p7b", "r7/ch-t13", "r7/cs-t13"}
+    assert set(T.STEM_TARGETS) == {"r7/ph-t13", "r7/maa-t13", "r7/p7b", "r7/ch-t13", "r7/cs-t13"}
     assert [e["target"] for e in m["faults"] if e["case"] == "T1"] == ["synthetic"]
 
 
@@ -320,6 +371,6 @@ def test_cases_on_the_recorded_r5_tasks_detect_and_never_write_the_round(tmp_pat
     assert before == after  # the recorded round is a read-only input
     got = {e["case"]: e for e in m["faults"] if e["target"] == "r5/hi-t9"}
     assert got["control"]["passed"] and m["controls"]["r5/hi-t9"] == []
-    for name in ("T1", "T3", "T22a", "T22b", "T22g", "T22h"):
+    for name in ("T1", "T3", "T22a", "T22b", "T22g", "T22h", "T22i"):
         assert got[name]["passed"] and got[name]["detected"], (name, got[name]["naming"], got[name]["checks"])
     assert all(g["ok"] for g in m["gates"].values())

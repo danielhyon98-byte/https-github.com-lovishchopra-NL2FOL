@@ -130,6 +130,239 @@ mistakes is §13. Kinds and codes: the ``translation_circular`` row and K6 (the 
 INT-SUBJ-004, the ``ST-*`` branch codes, OVS-TRN-010 in §6. Examples: every header names 1.2, Example 13 names 1.1, new
 Examples 22 (a redundant restatement), 23 (a STEM translation of a line of working), 24 (a Boolean identity checked by the
 branch) and 25 (an inequality reversal dropped in translation), four new wrong-verdict rows. README: the input budget.
+
+**Pack 1.3** (the translator merge: the overseer on the STEM-merged translator; 1.0 to 1.2 stay pinned and unchanged; a MINOR
+version: the contracts, the schemas and every kind are unchanged). It describes the merged translator's STEM and original
+translations as they reach a dossier. Master prompt: two WHEN IN DOUBT lines (a translation the translator withheld as
+circular, INVALID_FORMALIZATION with E112, and a restatement the code verified are not circular translations to accuse; a
+grounding kind is a label, not evidence, so a load-bearing restating premise grounded ``supplied_text``, ``rubric_rule``,
+``knowledge_document`` or ``library_source`` that no check verified is accused as ``translation_circular``). Dossier
+guide: D20 the agent-qualified generic ids (``g4.2@agent``); D21 a translation withheld by the translator itself (E112,
+stated precision), and the label-only restatements it delivers; D23 the engine's withheld verdicts (E108, E110, E111, E112 displayed
+INVALID_FORMALIZATION); D26 a member whose only findings are INT-REQ-016 collisions with other answers to the same input is
+clean; D28 the merged constraint rules ("about N words" gives a minimum and a maximum, "in N words" a maximum, ``excludes``
+for working and diagrams, one formula or code block one word on a STEM answer, one range problem for a pair one span
+states). Inspection: I13 and I27 follow D28; I26 the engine's withheld displays; I77 reads the restating premise's grounding
+by the overseer's rule ``grounded-transcription`` (a transcription only when the code verified it: a quotation, supplied
+text or arithmetic fact whose ``verified`` is true, or a task setting whose numbers the request or the report states; every
+other grounding, a ``supplied_text``, ``rubric_rule``, ``knowledge_document`` or ``library_source`` label included, is the
+writer's own: withheld by the translator itself when its rule agrees, else delivered and graded by the necessity rule); I81
+lists both, with a mistakes row for a label left unaccused; I68 and I69 name the
+receipt findings that settle a text not composed of its claims and a negated or turned paraphrase as the merged ledger
+raises them (INT-LEDGER-031 and INT-LEDGER-030; pack 1.2 gave them the pre-merge numbers 028 and 027). Kinds and codes: the
+``translation_circular`` row and K6 follow I77; INT-REQ-016; the INT-LEDGER codes as the merged channel raises them
+(027 a from-memory label dropped and 028 a misspelt quotation, warnings; 030 a comparison turned or a negation added and 031
+a text not composed of its claims, errors); the ``translation_circular`` row, K6 and two mistakes rows say a ``kind`` label
+alone is no grounding. Examples: every header names 1.3 (Example 13 still names 1.1); Example 15 shows the restating
+premise's grounding; Example 21 the merged rule for "about" (225 and 275); a new Example 26 (a restatement under a
+``supplied_text`` label the code did not verify, which the merged translator delivers: ``translation_circular``); three
+wrong-verdict rows. README: the input budget. (Corrected in place before any release, by the repair of the translator merge,
+design decision 49: the version staged first had I77, K6, two mistakes rows and the master prompt read a ``task_setting``,
+``rubric_rule``, ``supplied_text``, ``knowledge_document`` or ``library_source`` label as a transcription with nothing
+verified, steering agents away from the circular encodings the merged translator delivers on a label alone. Corrected in
+place a second time, before any release, by the second repair of the translator merge, design decision 51, so that the pack
+says exactly what the overseer's rules decide: the master prompt's WHEN IN DOUBT lines, I77, I81, K6, the
+``translation_circular`` row and the mistakes rows had kept "a task setting whose numbers the request or the report
+states" as a transcription, a condition a Boolean premise meets vacuously, so they steered agents away from a restatement
+under a ``task_setting`` label; and they called a premise restating the conclusion in another form a meaning question.
+Now: a restating premise is a transcription only when a check verified it (``verified`` true, or rule
+``figure-transcription``: a ``task_setting`` or ``supplied_text`` stating only numbers, every one stated in the request);
+a premise restating the conclusion in another form (two ``not``, a reversed comparison, ``e or e``, ``x + 0``) restates it
+(rule ``semantic-restatement``), a computation does not; a writer's-own premise restating only part of the conclusion is
+accused when the outcome's dependencies do not list it and the result rests on it (rule ``receipt-disclosure``). D21 names
+the ``task_setting`` label and the other forms among what the translator delivers, and the receipt's ``verification``
+fields; I85 follows D26 (a representative clean but for INT-REQ-016 collisions with other answers to the same input);
+a new Example 27 (a conclusion restated in part under a ``task_setting`` label no number of the request can verify:
+``translation_circular``) and two wrong-verdict rows, one of them reversed (a premise wrapping the conclusion in two ``not``
+is ``translation_circular``, not ``translation_unfaithful``). README: the input budget. Corrected in place a third time,
+before any release, by the third repair of the translator merge, design decision 55: rule ``figure-transcription`` is
+withdrawn (a number of the request that matches is no evidence, so a premise with no excerpt is never a transcription; the
+request can only refute it: a figure stated nowhere, only as the result to show, only for another quantity or only as a
+limit, rule ``same-quantity``; "monthly" states 12, rule ``frequency-words``), and rule ``engine-shown`` grades a
+restatement that rests only on premises no check verifies or refutes as OVS-TRN-011, a meaning question. I77 says which
+such premises a check shows are not data and which are undecided, and what to do with each (compare an undecided one with
+the request); I81, K6, the ``translation_circular`` row, the codes paragraph (OVS-TRN-011), the mistakes rows and the
+master prompt's WHEN IN DOUBT lines follow it; D30, I92 and the master prompt say where the translator records a STEM unit,
+in its guidance's own words (as an assumption, never inside an expression). Examples: Example 26 shows its symbols and
+why a check shows its premise is not data; Example 27 is rewritten as the question's data restated by task settings the
+request states (genuine: a transcription the code could not verify, the reviewer's finding on record version 4); a new
+Example 28 (the answer's result restated as given where the request states it only as a "show that" target:
+``translation_circular``); two wrong-verdict rows. README: the input budget. Corrected in place a fourth time, before any
+release, by the fourth repair of the translator merge, design decision 56: the third correction called a ``task_setting``
+or ``supplied_text`` premise stating a ``Bool`` symbol the translation grounds as data throughout UNDECIDED, so "p proves
+p" under such a label was a warning to leave (Example 27 taught exactly that), and the checks graded it OVS-TRN-011 on
+labels alone. Now I77 says a premise with no excerpt is undecided only when it states the values of quantities whose
+numbers the request states for the quantities it names, as it states them (in a table: in the column its header names
+and the row the premise names); a ``Bool`` symbol, anything but values of quantities, 0 or 1, or a number the request
+states only bare is what only the label presents as data: shown not to be data. I81, K6, the ``translation_circular`` row,
+the codes paragraph (OVS-TRN-011), two mistakes rows, two wrong-verdict rows and the master prompt's WHEN IN DOUBT line
+follow it. Examples: Example 26 says its premise would not be data even had the translation grounded its symbol; Example
+27 (the same excerpt) is now faulty, ``translation_circular`` naming the ``Bool`` task setting; a new Example 29 keeps the
+genuine case (the question's data restated by task settings the request states: a transcription the code could not
+verify). Corrected in place a fifth time by the fifth repair (decision 57) and a sixth by the STEM completion (decision
+60: D30 to D32, I91, I97, I98, Examples 31 and 32 teach the STEM receipt). Corrected in place a seventh time, before any
+release, by STEM repair 1 (decision 61), so that the pack says exactly what the code decides: D31's tolerance rule had
+said "1/20 for '≈'" beside "0 for unit conversions" and nothing of the trailing-zero rule or of a stated value's own
+half-width, which the checks apply; it now states them as ``stem.tolerance`` applies them (a test executes each
+statement), with the prose restatements, Given values and supplied-table values the checks read and the claims a failed
+substitution's finding names (D32's ST-UNDEC-001 and ST-DIM-001 rows: combination counts, bare factors). I78 items 7 to
+9, I92, I94 and I97 recognise the STEM translation faults only an agent can name (another stated given substituted,
+another relation encoded, two incompatible quantities combined; a quotation's figure converted between prefixes of its
+unit is none), with the kind the probe agents now take from the pack's own rule; I98 reads a failure finding's further
+claims; the ``translation_unfaithful`` row and two mistakes rows follow; Example 31's detail quotes the new short form; a
+new Example 33 (another stated given substituted in a STEM translation: ``translation_unfaithful``) and a wrong-verdict
+row. README: the input budget. Corrected in place an eighth time, before any release, by STEM repair 2 (decision 62), so that
+the pack says exactly what the code decides: D31 said the branches check "Given values and values taken from a table supplied
+with the request against the request", and D32 and I97 that an ST code says what was not checked, while Givens of most kinds
+and table values in working got neither a check nor an ST code, so an agent following the pack read the silence as checked.
+The code now sets every Given value against the request's values of its kind or names it (ST-UNDEC-003), and the pack states
+exactly what is read: D31 lists the integer, verbal, question, premise-cue, aside and restated-binding readings, the Given
+kinds, the two values neither checked nor named (zero, a booklet constant), the table-operands rule and that silence is not a
+check; D32 adds ST-UNDEC-003 and the new ST-PARSE-001 and ST-UNDEC-001 cases; I97 says a silent claim is neither checked nor a
+fault; I98 that a Given value with neither its check nor its ST-UNDEC-003 is ``finding_missing``; the ``finding_missing`` row,
+the master prompt's WHEN IN DOUBT lines and three mistakes rows follow; a new Example 34 (a Given the receipt leaves with neither
+its check nor its ST code: ``finding_missing``) and two wrong-verdict rows. README: the input budget. Corrected in place a ninth
+time, before any release, by STEM repair 3 (decision 63), so that the pack says exactly what the code decides: I97 and the master
+prompt said an ST code never says a claim is wrong, while ST-DIM-001, ST-DIM-002 and ST-UNDEF-001 report a relation wrong as
+written, and D32 listed a sum among the relations outside the encodings, while a Σ over written whole-number bounds is expanded
+and checked; D31 said nothing of the uncertainty band, which had widened h. The code now reads a value under a condition, a
+value with its uncertainty at its central value, the processed value of a table row, the values and uncertainties a supplied
+text states in prose, a value restated in another unit, a percentage change, a number of half-lives and a stated rounding of a
+stated value; D31, D32 (ST-UNDEC-001, ST-UNDEC-003, ST-DIM and ST-UNDEF-001 rows), I97, I98, the master prompt and two mistakes
+rows state them and the forms left unchecked, with a new Example 35 (a Given stated under a condition, checked against the
+supplied table's row: no accusation) and a wrong-verdict row. README: the input budget. Corrected in place a tenth time, before
+any release, by STEM repair 4 (decision 64), so that the pack says exactly what the code decides: D31 and I95 described Boolean
+identities only, while the code read every Boolean relation as one, so a correct evaluation under stated values failed and an
+agent following the pack agreed with it; D31 and I98 said every Given value has its check or an ST-UNDEC-003, while a Given
+uncertainty written with "±" and "%" had neither; D31 said results restated after "so" and values at a row of a supplied table
+are checked, while a restatement with a word after its number and a value at a lettered row were not read; and its tolerance
+rule let a 12% slip pass through a rounding interval on exact working. The code now evaluates a Boolean expression under the
+values its statement gives, lets a substitution take the value a stated change ends at, reads Given uncertainties written with
+"±", "+/-" and "%" and the uncertainty written with a Given value, never reads a Given of a span it cannot read whole in part,
+reads a rounding with a word naming the value's unit, sets a value at a lettered row against the table, carries exact working
+exactly, sets an uncertainty against the rule the answer states for it and bounds τ by what the rounding of the written operands
+allows; D31 (the opening list, the expected statuses, the Given, table and silence paragraphs, the readings failed at warning
+and the tolerance rule), D32's ST-PARSE-001 row, I95, I98, the master prompt and four mistakes rows state them, with a new
+Example 36 (a Boolean evaluation under stated values: no accusation) and a wrong-verdict row. README: the input budget.
+Corrected in place an eleventh time, before any release, by STEM repair 5 (decision 65), so that the pack says exactly what the
+code decides: D31 said "What the branch reads and cannot check, it names" while a relation the prose gave as a quantity's value,
+in symbols with stated values, had neither a check nor an ST code, and correct working failed where a formula was evaluated
+after its rearrangement, a symbol was reused in a part for another quantity, a count followed "so" and a percentage of a raw
+table cell was taken. The code now reads the evaluation after a rearrangement as the formula's substitution and a rearrangement
+after "Making R the subject", "Solving for R" or "Transposing" as a step, lets a symbol reused in a part match the part's own
+result, restates a bare number only from a chain of its own statement or the one before, checks a relation the prose gives as a
+quantity's value, a conversion the prose states and a value stated for a symbol with a stated rounding, and leaves a percentage,
+a ratio, the bounds or an inline processing of a raw cell unread; D31 (the opening list, the processed-value, silence and
+tolerance paragraphs), D32's ST-UNDEC-002 row, I97, the master prompt, three mistakes rows of the dossier guide and three of the
+inspection guide state them, with a new Example 37 (a symbol reused for another quantity, its substitution checked against the
+part's own result: no accusation) and a wrong-verdict row. Its third pass over the same classes, in the same correction: a
+rearrangement before the formula's evaluation is a step from the formula whatever words state it (a wrong one had lost its check
+when the evaluation stopped being a step), the inverse's swapped equation is no step, a reused symbol takes a value its part's
+prose names otherwise, another part's value of the line's quantity or a computation in its place, a prose relation giving its
+part's asked quantity in a reused symbol stays unread, a value after "so" following its own statement's value or a part of it
+restates nothing, a prose value restated with a stated rounding is checked, a conversion to a unit the prose names is checked,
+a ratio of the raw cell to its processed value and a line naming the measured quantity are not read, a ratio set against a
+number is ST-UNDEC-001, and an applied symbol no definition makes a function is named ST-UNDEC-002: D31, D32's ST-UNDEC-001
+row, I97 and a fourth mistakes row of the dossier guide state them. README: the input budget. Corrected in place a twelfth
+time, before any release, by STEM repair 6 (decision 66), so that the pack says exactly what the code decides: D31 defined a
+Given value as a named quantity given a number in a statement that begins "Given", "Data", "Known" or "We know", while the
+code read only the values given with "=", so a Given written in prose ("Data: emf 15 V, …", "Given: the mass of seeds is 12
+g.", "Given: 15.0 cm³ of acid.") had neither a check nor an ST code and an agent's true finding_missing was refuted; a symbol
+reused in a part passed with any value the request states, unnamed in the pack; a unit written after a compact fraction was
+read as the divisor's, a false ST-DIM-001 on the recorded answer's own notation; and NAND, NOR and XNOR were outside the
+Boolean grammar, which the pack did not say. The code now reads a Given written in prose (rule prose-given), checks a symbol
+reused with a value the request states that its part names nowhere at warning severity (rule part-given), reads a unit after
+a compact fraction as the fraction's own when that gives the relation one dimension (rule fraction-unit), and reads the gates
+NAND, NOR and XNOR (rule boolean-gates; ST-PARSE-002 for an order that has two readings); D31 (the opening list, the
+substitutions and the Given paragraph), D32's ST-PARSE-002 and ST-DIM-001 rows, I95, I97, I98, the master prompt, five
+mistakes rows of each guide state them, with a new Example 38 (a Given written in a Data list, its contradiction named by
+its check: no accusation) and a wrong-verdict row. README: the input budget. Corrected in place a thirteenth time, before any
+release, by STEM repair 7 (decision 67), so that the pack says exactly what the code decides: a line that evaluates a law
+stated right before it with its symbol not on its own ("ε = I(R + r)" then "I = 12 V / 2.9 Ω = 4.1 A") was read as an exact
+algebra step from the law, so correct working failed; D32 said ST-UNDEC-001 names a derivative while "v'(t)" and "d²v/dt²" had
+neither a check nor an ST code; and a value restated more finely than the chain's value passed against that value alone. The
+code now reads such a line as the law solved for its symbol (rule solved-law; ST-ALG-001 in mathematics for a principal root;
+a Given statement is never a step), names every Leibniz form and every primed letter applied to a bracket a derivative (rules
+leibniz and prime-derivative), and sets a finer restatement against the chain's written arithmetic at warning severity (rule
+finer-restatement); D31 (the algebra steps and the tolerance rule), D32's ST-UNDEC-001 and ST-ALG-001 rows, I97, the master
+prompt and three mistakes rows of each guide state them. README: the input budget. Corrected in place a fourteenth time, before
+any release, by STEM repair 8 (decision 68), so that the pack says exactly what the code decides: a value a run computes under a
+condition, after the list that names it or for a numbered item ("Mean time at 30.0 °C = (33.1 s + 34.0 s + 32.5 s) ÷ 3 = 33.2
+s", "Mean of 18, 27 and 40 = (18 + 27 + 40) ÷ 3 = 28.3") was read as a relation between the condition, the list's last value or
+the number and the computation, so correct working failed; a value copied wrongly from a supplied table, its arithmetic
+consistent, and a wrong background were neither checked nor named, while D31 said a value the working takes from the table is
+set against its row; a law its evaluation does not follow ("V = ε + Ir" then "V = 12 V − (4.14 A × 0.50 Ω) = 9.9 V") was named
+by nothing; and a rounding after ", so" with a word between it and the chain's value was not read. The code now reads such a
+run as the quantity's value (rules value-at, name-list and item-label, with rules condition-value and name-list's check of the
+values the computation takes), sets a number the working takes beside a table's cells against the row's cell or the stated
+value (rule table-terms), sets a law against the line that evaluates it at the values the line puts in (rule law-values) and
+names the law's claim in a failed substitution, and reads up to three describing words before ", so"; D31 (the opening list, the
+table paragraph and two new paragraphs), I97, the master prompt and three mistakes rows of the dossier guide and two of the
+inspection guide state them, with a new Example 39 (a law its evaluation does not follow, named by its check: no accusation) and
+a wrong-verdict row. README: the input budget. Corrected in place a fifteenth time, before any release, by STEM repair 9
+(decision 69), so that the pack says exactly what the code decides: a correct check line at the end of a part took the part's
+question words, so a later change stated from the part's result was set against it (a false INT-SUBJ-004); a Given of a
+function's value or of a function had neither a check nor an ST code while D31, I98 and the master prompt said every Given has
+one or the other (an agent's finding_missing refuted); a trial copied wrongly into a row's mean, a wrong rearrangement evaluated
+for a quantity the request names, a decay over stated half-lives written without a power of ½, a wrong median and a value
+restated at a rounding it is not written to were named by nothing; and D31's opening list was one paragraph of more than 14,000
+characters. The code now takes a part's answer from its last value that is no check and names no other quantity (rule
+part-answer), sets the value a line gives a quantity the request names against the request (rule named-result), a Given of a
+function's value or of a function against the request's function (rule given-function), a term of a sum over a row's repeats
+against the row's repeats (rule row-terms), a value computed over stated half-lives against the decay law (rule decay-law), a
+median, mode, range or mean against the statistic it forms (rule statistics; others ST-UNDEC-001) and a value stated with a
+rounding against the place the rounding names (rule rounded-digits); D31 (its opening list one kind of relation to a bullet,
+its paragraphs one statement to a line, with the new readings), D32's ST-UNDEC-001 and ST-UNDEC-003 rows, I97, I98 and the
+master prompt (also one statement to a line) state them, with seven mistakes rows of the dossier guide and three of the
+inspection guide, Example 38 regenerated through the channel (its emf now matched by the request's word), a new Example 40 (a
+Given of a function's value, its contradiction named by its check: no accusation) and a wrong-verdict row. README: the input
+budget. Corrected in place a sixteenth time, before any release, by STEM repair 10 (decision 70), so that the pack says exactly
+what the code decides: a conversion the prose states was read only at the end of the answer (its clause's end was read in a
+window of the whole text); a line naming its rows and its column was read in no column when its part's question named another;
+values at a supplied table's row restated wrongly went unnamed in common shapes, and a difference, a ratio, a processed or
+another quantity stated at a row, or a value stated under a condition, a hypothesis or a target, was failed against the cell;
+another resistor's value substituted for the one a sentence names, a wrong law evaluated right at a condition its part had
+computed, a base conversion in prose and a definite integral of a polynomial were named by nothing (a definite integral with a
+signed or a plain-text limit had neither a check nor an ST code, and a base named only after the first numeral, read one way,
+failed correct conversions); a slip under 1/100 on the request's exact data held; and a value restated from a decimal written
+with its digits cut was ST-UNDEC-001 whatever its rounding, while a plain '2.66…' was read as a rounded value and failed correct
+working, as did a cut value multiplied in an expression. The code now
+reads each in its own statement and clause (rules prose-conversion, table-operands, row-value, table-data), sets a substituted
+value against the named component (rule named-component), a value computed under a condition against the one computed under it
+before (rule condition-result), a base conversion in prose (rule prose-base), a definite integral of a polynomial and its
+evaluation bracket (rule definite-integral) and a value cut with an ellipsis (rule ellipsis-rounding), and takes the request's
+data as exact (rule operand-precision); D31, a paragraph after D32's table, I97 and the master prompt state them, with three
+mistakes rows of the dossier guide, one of the inspection guide and four wrong-verdict rows, Examples 37 and 39 regenerated
+through the channel (their τ now the one rule operand-precision gives) and D31's
+4773.7406 written 4773.7401 (the value to four decimals). README: the input budget. Corrected in place a seventeenth time, before
+any release, by STEM repair 11 (decision 71). The pack had grown to one system text of 472,563 characters sent with every dossier, so on
+the cheapest model tier the README recommends (a window of 160,000 tokens) 615 of the 1,435 dossiers measured did not fit, and D31 ran
+to more than 130 dense lines most dossiers never need: the parts of the documents that concern translations or STEM answers are now
+modules (:data:`SYSTEM_MODULES`), each span between a line ``<!-- module: NAME -->`` and a line ``<!-- end module: NAME -->`` (never
+sent: :func:`select_modules`), and an agent is sent the core and the modules its dossier's content needs (:func:`dossier_modules`,
+:meth:`KnowledgePack.system_text_for`; a lens never limits what a module covers, since the content decides). The manifest lists
+``system_modules`` and the digest of every composition (``system_compositions``, keys ``core``, ``core+stem``, ``core+translations``,
+``core+stem+translations``); ``system_sha256`` stays the whole text; the loader refuses malformed markers (``file_invalid``), a module
+list that is not the documents' (``manifest_invalid``) and a composition that does not recompute (``system_digest``); a pack with no
+marker (1.0 to 1.2) keeps the manifest it had. The master prompt says which parts come only with the content they concern; the
+mistakes tables, the examples' index and the wrong-verdict rows are split into a core table and one table per module. And so that
+the pack says exactly what the code decides: D31 (algebra steps: rule inequality-solution; a derivative of a polynomial, rule
+derivative; stated roots, rules part-condition and root-statement; a function's value, rule function-value; rules same-shape and
+unbound-substitution; a base phrase opening the clause, rule prose-base; the tolerance rule's exact work, rule exact-rounding, a
+rounding stated for a line's own result, rule result-rounding, and the request's data taken as written, rule given-data), D32's
+ST-UNDEC-001 row (a derivative of what is no polynomial), I97, the master prompt and three mistakes rows. README: the
+modules, the composition rule and the input budget. Corrected in place an eighteenth time, before any release, by STEM repair 12
+(decision 72), so that the pack says exactly what the code decides: an identity the branch checks for every value of its variable (a
+derivative, an antiderivative, a definite integral's bracket, a Given function) took the request's value of that variable, so a wrong one
+held at that value and was shown satisfied; a hexadecimal numeral with letter digits ('3E9', 'FF') was read in no base restatement; a value
+restated after ', which is about' or ', about' had no check; and a STEM translation whose conclusion a writer's-own premise restated with
+its terms moved across or both sides scaled ('pd − 60.4 = 0', '2 × pct = 200') restated nothing, so the result rested on the claim assumed
+with no finding and a translation_circular accusation of it was refuted. The code now gives an identity's variable no value (rule
+identity-variable) and names an identity decided with one (rule identity-statement, OVS-FORM-005), reads hexadecimal digits where words name
+base 16 (rule prose-base), reads an approximation word after the connective of an inline restatement (rule inline-restatement, τ 0 as for
+every restated result) and reads the arithmetic of a conjunct's own symbols as a restatement (rule arithmetic-restatement), arithmetic of
+numbers alone staying the working the engine checks: D31 (an identity's variable, results restated in prose, the tolerance rule's
+exception for a restated result, number bases), I77, I81, I98, K6, the kinds table, the master prompt and two mistakes rows state them.)
 """
 from __future__ import annotations
 
@@ -146,7 +379,7 @@ from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Collection, Iterable, Literal, Mapping, Optional, Union
+from typing import Annotated, Any, Collection, Iterable, Literal, Mapping, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -158,13 +391,14 @@ __all__ = [
     "PACK_NAME", "PACK_VERSION", "PACK_DIGESTS", "PACK_ERROR_REASONS", "PackError", "KnowledgePack", "PackManifest", "ManifestFile", "load_pack",
     "installed_pack", "installed_pack_dir", "accepted_identities", "build_system_text", "render_schemas", "build_manifest", "render_manifest",
     "manifest_pack_digest", "header_lines", "audience_of", "system_order_of", "pack_dir_name", "rule_order_faults", "MANIFEST_FILE", "README_FILE", "MASTER_PROMPT_FILE",
+    "SYSTEM_MODULES", "select_modules", "module_markup_faults", "modules_marked", "composition_key", "compositions_of", "dossier_modules",
     "VERDICT_SCHEMA_FILE", "DOSSIER_SCHEMA_FILE", "SCHEMA_FILES", "SCHEMA_IDS", "SYSTEM_SEPARATOR", "MANIFEST_VERSION", "MAX_FILE_BYTES", "MAX_PACK_BYTES",
     "MAX_PACK_FILES", "MAX_ZIP_ENTRIES", "ALLOWED_SUFFIXES", "KNOWLEDGE_DIR",
 ]
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.2"
+PACK_VERSION = "1.3"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -172,6 +406,7 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
     (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
     (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
+    (PACK_NAME, "1.3"): "fbc17cbd2dad2df552513b8cc3650299e356c965ee14022f2aeaafef9e0f8f9a",
 })
 
 MANIFEST_VERSION = "1.0"
@@ -206,6 +441,16 @@ PackErrorReason = Literal[
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _DOCUMENT_RE = re.compile(r"[0-9]{2}-[a-z0-9-]+\.md")
 _BOM = b"\xef\xbb\xbf"
+#: STEM repair 11 (the pack's modules): the parts of the agent documents that concern one kind of dossier content, each between a
+#: line ``<!-- module: NAME -->`` and a line ``<!-- end module: NAME -->``. A dossier's system text holds the parts its content needs
+#: (:func:`dossier_modules`, :meth:`KnowledgePack.system_text_for`); the marker lines are never sent. In this order.
+SYSTEM_MODULES: tuple[str, ...] = ("stem", "translations")
+_MODULE_OPEN_RE = re.compile(r"<!-- module: ([a-z]+) -->")
+_MODULE_CLOSE_RE = re.compile(r"<!-- end module: ([a-z]+) -->")
+#: a line that looks like a module marker (to refuse a misspelt one that would otherwise be sent as text)
+_MODULE_LIKE_RE = re.compile(r"\s*<!--.*\bmodule\b.*-->\s*")
+#: the claim ids of the STEM parsers (``adapters.stem_specialist.parser.ID_PREFIXES``) and their tails
+_STEM_CLAIM_RE = re.compile(r"[smc](?:\d+\.\d+|\.tail)")
 
 
 class PackError(ValueError):
@@ -242,6 +487,10 @@ class PackManifest(BaseModel):
     system_order: tuple[str, ...] = Field(min_length=1, max_length=MAX_PACK_FILES)
     system_separator: str = Field(min_length=6, max_length=200)
     system_sha256: str = Field(pattern=SHA256_PATTERN)
+    #: STEM repair 11: the modules the agent documents mark, in :data:`SYSTEM_MODULES` order (absent from a pack with none)
+    system_modules: tuple[Literal["stem", "translations"], ...] = Field(default=(), max_length=len(SYSTEM_MODULES))
+    #: STEM repair 11: the SHA-256 of the system text of every composition (:func:`composition_key`: the core and each set of modules)
+    system_compositions: dict[str, Annotated[str, Field(pattern=SHA256_PATTERN)]] = Field(default_factory=dict, max_length=2 ** len(SYSTEM_MODULES))
     files: tuple[ManifestFile, ...] = Field(min_length=1, max_length=MAX_PACK_FILES)
     pack_sha256: str = Field(pattern=SHA256_PATTERN)
 
@@ -276,9 +525,109 @@ def system_order_of(paths: Iterable[str]) -> list[str]:
     return ([MASTER_PROMPT_FILE] if MASTER_PROMPT_FILE in paths else []) + docs
 
 
-def build_system_text(documents: Iterable[tuple[str, str]], separator: str = SYSTEM_SEPARATOR) -> str:
-    """The system text of section 17.8 from ``(path, text)`` pairs in system order."""
-    parts = [separator.replace("{path}", path) + "\n" + text.rstrip("\n") + "\n" for path, text in documents]
+def select_modules(text: str, modules: Optional[Collection[str]] = None) -> str:
+    """An agent document as sent: its marker lines removed, and the lines of a module span kept only when ``modules`` holds
+    the module (``None``: every module, the whole document)."""
+    out: list[str] = []
+    current: Optional[str] = None
+    for line in text.split("\n"):
+        m = _MODULE_OPEN_RE.fullmatch(line)
+        if m:
+            current = m.group(1)
+            continue
+        if _MODULE_CLOSE_RE.fullmatch(line):
+            current = None
+            continue
+        if current is None or modules is None or current in modules:
+            out.append(line)
+    return "\n".join(out)
+
+
+def module_markup_faults(path: str, text: str) -> list[str]:
+    """STEM repair 11: what is wrong with the module markers of an agent document: an unknown module, a span opened inside
+    another or never closed, a close with no open span or for another module, a line shaped like a marker that is none."""
+    out: list[str] = []
+    current: Optional[str] = None
+    for n, line in enumerate(text.split("\n"), 1):
+        mo, mc = _MODULE_OPEN_RE.fullmatch(line), _MODULE_CLOSE_RE.fullmatch(line)
+        if mo:
+            if mo.group(1) not in SYSTEM_MODULES:
+                out.append(f"{path}:{n} opens an unknown module {mo.group(1)!r}")
+            if current is not None:
+                out.append(f"{path}:{n} opens a module inside the span of {current!r}")
+            current = mo.group(1)
+        elif mc:
+            if current is None or mc.group(1) != current:
+                out.append(f"{path}:{n} closes {mc.group(1)!r}, which is not the open span")
+            current = None
+        elif _MODULE_LIKE_RE.fullmatch(line):
+            out.append(f"{path}:{n} looks like a module marker but is none")
+    if current is not None:
+        out.append(f"{path} leaves the span of {current!r} open")
+    return out
+
+
+def modules_marked(documents: Iterable[tuple[str, str]]) -> tuple[str, ...]:
+    """The modules the documents mark, in :data:`SYSTEM_MODULES` order."""
+    used = {m.group(1) for _p, text in documents for line in text.split("\n") for m in [_MODULE_OPEN_RE.fullmatch(line)] if m}
+    return tuple(m for m in SYSTEM_MODULES if m in used)
+
+
+def composition_key(modules: Iterable[str]) -> str:
+    """The manifest key of a composition: ``core`` and the modules it adds, in :data:`SYSTEM_MODULES` order (``core+stem``)."""
+    chosen = set(modules)
+    return "+".join(["core"] + [m for m in SYSTEM_MODULES if m in chosen])
+
+
+def compositions_of(modules: Iterable[str]) -> list[tuple[str, ...]]:
+    """Every set of ``modules`` (the core alone first), each in :data:`SYSTEM_MODULES` order."""
+    mods = [m for m in SYSTEM_MODULES if m in set(modules)]
+    out: list[tuple[str, ...]] = []
+    for mask in range(2 ** len(mods)):
+        out.append(tuple(m for i, m in enumerate(mods) if mask >> i & 1))
+    return sorted(out, key=lambda c: (len(c), [SYSTEM_MODULES.index(m) for m in c]))
+
+
+def dossier_modules(dossier: Mapping[str, Any]) -> tuple[str, ...]:
+    """STEM repair 11: the modules a dossier's content needs, read from the dossier as data (nothing in it is followed):
+    ``stem`` when it carries a STEM answer (a claim of a STEM parser, ``s1.2``, ``m1.2``, ``c1.2`` or a tail ``s.tail``, or a
+    receipt with a formal check ``stem-...`` or an ``ST-`` code), ``translations`` when it carries a translation (an entry of
+    ``links.translations``, or a receipt outcome with a ``translation``). In :data:`SYSTEM_MODULES` order."""
+    need: set[str] = set()
+    if not isinstance(dossier, Mapping):
+        return ()
+    links = dossier.get("links")
+    if isinstance(links, Mapping) and links.get("translations"):
+        need.add("translations")
+    transfers = dossier.get("transfers")
+    for t in transfers if isinstance(transfers, list) else ():
+        if not isinstance(t, Mapping):
+            continue
+        rc = t.get("receipt")
+        if isinstance(rc, Mapping):
+            for o in rc.get("outcomes") or ():
+                if isinstance(o, Mapping) and o.get("translation") is not None:
+                    need.add("translations")
+            for fc in rc.get("formal_checks") or ():
+                if isinstance(fc, Mapping) and isinstance(fc.get("constraint_id"), str) and fc["constraint_id"].startswith("stem-"):
+                    need.add("stem")
+            for key in ("findings", "structural_findings"):
+                for f in rc.get(key) or ():
+                    if isinstance(f, Mapping) and isinstance(f.get("code"), str) and f["code"].startswith("ST-"):
+                        need.add("stem")
+        pl = t.get("payload")
+        if isinstance(pl, Mapping):
+            for c in pl.get("claims") or ():
+                if isinstance(c, Mapping) and isinstance(c.get("claim_id"), str) and _STEM_CLAIM_RE.fullmatch(c["claim_id"]):
+                    need.add("stem")
+    return tuple(m for m in SYSTEM_MODULES if m in need)
+
+
+def build_system_text(documents: Iterable[tuple[str, str]], separator: str = SYSTEM_SEPARATOR, modules: Optional[Collection[str]] = None) -> str:
+    """The system text of section 17.8 from ``(path, text)`` pairs in system order: each document as sent
+    (:func:`select_modules`: its marker lines removed, a module's spans kept only when ``modules`` holds it; ``None`` keeps
+    every module, the whole text)."""
+    parts = [separator.replace("{path}", path) + "\n" + select_modules(text, modules).rstrip("\n") + "\n" for path, text in documents]
     return "\n".join(parts)
 
 
@@ -328,12 +677,20 @@ def build_manifest(files: Mapping[str, bytes], *, name: str = PACK_NAME, version
         if data.startswith(_BOM) or b"\r" in data:
             raise ValueError(f"{path} has a byte-order mark or a CR")
         texts[path] = data.decode("utf-8")
-    system = build_system_text(((p, texts[p]) for p in order), separator)
+    documents = [(p, texts[p]) for p in order]
+    faults = [f for p, t in documents for f in module_markup_faults(p, t)]
+    if faults:
+        raise ValueError(f"module markers: {faults[0]}")
+    system = build_system_text(documents, separator)
     manifest: dict[str, Any] = {
         "manifest_version": MANIFEST_VERSION, "pack_name": name, "pack_version": version, "verdict_contract": VERDICT_CONTRACT,
         "dossier_version": DOSSIER_VERSION, "system_order": order, "system_separator": separator, "system_sha256": sha256_hex(system),
         "files": [{"path": p, "audience": audience_of(p), "bytes": len(files[p]), "sha256": hashlib.sha256(files[p]).hexdigest()} for p in sorted(files)],
     }
+    modules = modules_marked(documents)
+    if modules:  # STEM repair 11: a pack with no module marker keeps the manifest it had
+        manifest["system_modules"] = list(modules)
+        manifest["system_compositions"] = {composition_key(c): sha256_hex(build_system_text(documents, separator, c)) for c in compositions_of(modules)}
     PackManifest.model_validate_json(json.dumps(dict(manifest, pack_sha256="0" * 64)))  # the builder never writes an invalid manifest
     manifest["pack_sha256"] = manifest_pack_digest(manifest)
     return manifest
@@ -564,9 +921,40 @@ class KnowledgePack:
         if not getattr(_BUILDING, "active", False):
             raise TypeError("a KnowledgePack is built only by load_pack, which verifies it")
 
-    def system_text(self) -> str:
-        """The system configuration of an overseer agent (section 17.8)."""
-        return self._system
+    def system_text(self, modules: Optional[Iterable[str]] = None) -> str:
+        """The system configuration of an overseer agent (section 17.8): with ``modules`` None, the whole text (every module);
+        else the core and the modules named (STEM repair 11), which must be modules of this pack's documents."""
+        if modules is None:
+            return self._system
+        chosen = self._chosen(modules)
+        if set(chosen) == set(self.manifest.system_modules):
+            return self._system
+        return build_system_text(self.documents, self.manifest.system_separator, chosen)
+
+    def _chosen(self, modules: Iterable[str]) -> tuple[str, ...]:
+        if isinstance(modules, str):
+            raise TypeError("modules is a collection of module names")
+        mods = set(modules)
+        unknown = mods - set(self.manifest.system_modules)
+        if unknown:
+            raise ValueError(f"not a module of this pack: {sorted(unknown)}")
+        return tuple(m for m in self.manifest.system_modules if m in mods)
+
+    def modules_for(self, dossier: Mapping[str, Any]) -> tuple[str, ...]:
+        """STEM repair 11: the modules of this pack the dossier's content needs (:func:`dossier_modules`)."""
+        need = set(dossier_modules(dossier))
+        return tuple(m for m in self.manifest.system_modules if m in need)
+
+    def system_text_for(self, dossier: Mapping[str, Any]) -> str:
+        """STEM repair 11: the system text an agent reviewing ``dossier`` is sent: the core and the modules its content needs."""
+        return self.system_text(self.modules_for(dossier))
+
+    def composition_sha256(self, modules: Iterable[str]) -> str:
+        """The manifest's digest of the composition of ``modules`` (``system_sha256`` for a pack with no module)."""
+        chosen = self._chosen(modules)
+        if not self.manifest.system_modules:
+            return self.manifest.system_sha256
+        return self.manifest.system_compositions[composition_key(chosen)]
 
     @property
     def system_sha256(self) -> str:
@@ -626,6 +1014,7 @@ class KnowledgePack:
         system = build_system_text(docs, self.manifest.system_separator)
         if docs != self.documents or system != self._system or sha256_hex(system) != self.manifest.system_sha256:
             raise PackError("system_digest", "the system text in memory does not recompute")
+        _check_compositions(self.manifest, docs)
 
 
 # ============================================================================================ loading
@@ -686,6 +1075,23 @@ def _check_structure(manifest: PackManifest) -> None:
     sep = manifest.system_separator
     if sep.count("{path}") != 1 or "\n" in sep or "\r" in sep:
         raise PackError("manifest_invalid", "system_separator must hold '{path}' once and no line break", path=MANIFEST_FILE)
+
+
+def _check_compositions(manifest: PackManifest, documents: Iterable[tuple[str, str]]) -> None:
+    """STEM repair 11: the module markers are well formed, ``system_modules`` names the modules they mark, and every composition's
+    system text recomputes to the digest ``system_compositions`` records for it (none recorded for a pack with no module)."""
+    documents = tuple(documents)
+    for path, text in documents:
+        faults = module_markup_faults(path, text)
+        if faults:
+            raise PackError("file_invalid", f"the module markers are malformed: {faults[0]}", path=path)
+    marked = modules_marked(documents)
+    if tuple(manifest.system_modules) != marked:
+        raise PackError("manifest_invalid", "system_modules is not the list of modules the documents mark", path=MANIFEST_FILE)
+    expected = {composition_key(c): sha256_hex(build_system_text(documents, manifest.system_separator, c)) for c in compositions_of(marked)} if marked else {}
+    if dict(manifest.system_compositions) != expected:
+        raise PackError("system_digest", "a composition's recomputed system text digest differs from the manifest's system_compositions",
+                        path=MANIFEST_FILE)
 
 
 def _check_identity(identity: PackIdentity, trusted: Collection[PackIdentity]) -> None:
@@ -757,6 +1163,7 @@ def _load(source: _Source, trusted: Collection[PackIdentity], *, pin_check: bool
     system = build_system_text(documents, manifest.system_separator)
     if sha256_hex(system) != manifest.system_sha256:
         raise PackError("system_digest", "the recomputed system text digest differs from the manifest's system_sha256", path=MANIFEST_FILE)
+    _check_compositions(manifest, documents)
     if manifest.verdict_contract != VERDICT_CONTRACT or manifest.dossier_version != DOSSIER_VERSION:
         raise PackError("contract_mismatch", f"the pack is written for {manifest.verdict_contract} and dossier {manifest.dossier_version}; this code "
                                              f"implements {VERDICT_CONTRACT} and dossier {DOSSIER_VERSION}", path=MANIFEST_FILE)

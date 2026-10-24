@@ -8,22 +8,22 @@
     "English A: Literature"
   ],
   "p50_ms": {
-    "History": 16.621200998997665,
-    "Economics": 14.608258999942336,
-    "Business Management": 13.985637000587303,
-    "Psychology": 9.047241999724065,
-    "English A: Literature": 5.526221000764053
+    "History": 15.753108999888354,
+    "Economics": 14.56621500028632,
+    "Business Management": 13.76936199994816,
+    "Psychology": 8.345155999904819,
+    "English A: Literature": 3.4263320003447006
   },
   "p95_ms": {
-    "History": 22.218369998881826,
-    "Economics": 19.737557999178534,
-    "Business Management": 19.77321099911933,
-    "Psychology": 12.23813899923698,
-    "English A: Literature": 8.419970001341426
+    "History": 21.456576000218774,
+    "Economics": 19.571554999856744,
+    "Business Management": 16.428072000053362,
+    "Psychology": 10.746343999926466,
+    "English A: Literature": 4.676001999996515
   },
   "formal_checks_decided": 700,
   "statuses": {
     "ACCEPTED_WITH_FINDINGS": 500
   },
-  "rss_growth_mb": 2.18359375
+  "rss_growth_mb": -33.15234375
 }

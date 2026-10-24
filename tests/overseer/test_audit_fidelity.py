@@ -39,8 +39,10 @@ def test_normalisation_is_fixed_and_case_sensitive():
 def test_named_rules_are_listed():
     # review round 1 added joined-list-markers (its own tests: tests/overseer/test_review1_content_checks.py)
     # review round 2 added three named rules (context-free, carried-list-number, invisible); the earlier five stay, in order
+    # the translator merge added three (mark-annotation, same-form-figures, no-quotation-to-verify; their own tests:
+    # tests/overseer/test_rebuild_merged_translator.py); the earlier eight stay, in order
     assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free",
-                              "carried-list-number", "invisible")
+                              "carried-list-number", "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify")
 
 
 def test_rule_contract_cut():
@@ -148,14 +150,30 @@ def test_t8b_a_self_report_delivered_as_analysis_is_fid_005(auditor):
     assert f and f[0].claim_ids == ["en-self"] and f[0].severity == "error"
 
 
-@pytest.mark.parametrize("sentence", [
+#: Recorded round-5 phrasings the adapters' detector missed before the translator merge; the merged translator's
+#: detector (round-5 fixes of the development branch) now flags each of them.
+R5_PHRASINGS = [
     "Every mileage figure above has been checked against the Board of Trade railway returns.",
     "These quotations are accurate and need no further checking.",
     "Each of the mileage figures given above has been verified.",
     "Every quoted line above has been checked against the poem's text.",
     "All of the quotations above are exact.",
-])
-def test_t8_r5_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
+]
+#: Phrasings the merged detector still misses and the auditor's own structural rule flags: what FID-009 is for.
+MISSED_PHRASINGS = [
+    "Our statistics are precise to the decimal.",
+    "Each of these statistics is faithful to the census tables.",
+    "I compared every figure with the census tables.",
+    "These excerpts are verbatim from the poem.",
+    "Every detail here is precise.",
+]
+
+
+@pytest.mark.parametrize("sentence", MISSED_PHRASINGS)
+def test_t8_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
+    # Rewritten for the translator merge (every assertion kept): the recorded round-5 phrasings this test used are now
+    # caught by the merged adapters' detector (next test), so FID-009, the auditor's heuristic for what the detector
+    # misses, is asserted on phrasings the merged detector misses.
     from epinoic_logic.adapters.markdown import is_self_certification
     assert not is_self_certification(sentence)  # the adapters' detector misses it
     claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
@@ -164,6 +182,22 @@ def test_t8_r5_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
     assert f and f[0].severity == "warning" and f[0].claim_ids == ["en-cert"]
     assert not findings(audit, "OVS-FID-005")
     assert audit.transfer_states[rc.message_id] == "AUDIT_PASSED_WITH_FINDINGS"  # a heuristic never fails a transfer
+
+
+@pytest.mark.parametrize("sentence", R5_PHRASINGS)
+def test_t8_r5_phrasings_the_merged_detector_catches_are_fid_005(auditor, sentence):
+    """The round-5 phrasings, delivered as content: the merged detector flags each, so the channel names the claim
+    (ES-META-001 on the structured path) and the auditor reports the self-report delivered as content as FID-005, the
+    error, exactly as for any phrasing the detector knows (test_t8b); FID-009 is not raised beside it."""
+    from epinoic_logic.adapters.markdown import is_self_certification
+    assert is_self_certification(sentence)
+    claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
+    _ch, rc, audit = _send(auditor, english_report(EN_TEXT + " " + sentence, _claims(claim)))
+    assert any(sf.code == "ES-META-001" and "en-cert" in sf.claim_ids for sf in rc.structural_findings)
+    f = findings(audit, "OVS-FID-005")
+    assert f and f[0].severity == "error" and f[0].claim_ids == ["en-cert"]
+    assert not findings(audit, "OVS-FID-009")
+    assert audit.transfer_states[rc.message_id] == "AUDIT_FAILED"
 
 
 def test_t8c_controls_roled_other_are_not_flagged(auditor):

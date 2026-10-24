@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-014",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Write a balanced equation for the complete combustion of propane and calculate the mass of carbon dioxide formed from 4.4 g of propane. M(C₃H₈) = 44 g mol⁻¹, M(CO₂) = 44 g mol⁻¹.",
+  "supplied_texts": [],
+  "response_text": "C₃H₈(g) + 5O₂(g) → 3CO₂(g) + 4H₂O(l)\n\nCheck: C 3 = 3; H 8 = 4 × 2 = 8; O 5 × 2 = 10 = 3 × 2 + 4 = 10.\n\nn(C₃H₈) = 4.4 g ÷ 44 g mol⁻¹ = 0.10 mol\nn(CO₂) = 3 × 0.10 = 0.30 mol\nm(CO₂) = 0.30 × 44 = 13.2 g ≈ 13 g",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "units_unicode_exponent",
+    "atom_tally"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "C₃H₈(g) + 5O₂(g) → 3CO₂(g) + 4H₂O(l)",
+      "4 × 2 = 8",
+      "5 × 2 = 10 = 3 × 2 + 4 = 10",
+      "n(C₃H₈) = 4.4 g ÷ 44 g mol⁻¹ = 0.10 mol",
+      "n(CO₂) = 3 × 0.10 = 0.30 mol",
+      "m(CO₂) = 0.30 × 44 = 13.2 g",
+      "13.2 g ≈ 13 g"
+    ]
+  }
+}

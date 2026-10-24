@@ -11,8 +11,12 @@ Display rules (never relaxed):
   bound to exactly the translated problem; a missing or mis-bound result is
   ``INTERNAL_ERROR``. When the composer holds the signing key, a result whose
   signature does not verify is likewise rejected (``E501``). A definitive status
-  that the engine marked vacuous (``E108``: no premise was used) is displayed as
-  ``INVALID_FORMALIZATION``, never as a verdict.
+  that the engine marked vacuous (``E108``: no premise was used) or a COUNTEREXAMPLE
+  that only reassigns a figure the problem defines but never asserts (``E110``) is
+  displayed as ``INVALID_FORMALIZATION``, never as a verdict; so is a COUNTEREXAMPLE over
+  no premises (``E108``) or one that only reassigns conclusion symbols no premise mentions
+  (``E111``: the claim's own reason was not encoded), and an ENTAILED proof whose premises
+  restate the conclusion (``E112``: circular, the claim was assumed, not derived).
 * ``AMBIGUOUS_TRANSLATION``  -> ``AMBIGUOUS_TRANSLATION`` (the best-reading problem may
   have been verified for inspection, but an ambiguous claim is never displayed as
   a result).
@@ -117,8 +121,24 @@ def _binding_problem(
     return None
 
 
+#: Engine diagnostics that make a definitive status no verdict on the claim: a vacuous result (E108: no premise used, or
+#: a COUNTEREXAMPLE over no premises), a counterexample that only reassigns a figure the problem defines but never asserts
+#: (E110), a counterexample that only reassigns conclusion symbols no premise mentions (E111: the claim's reason was not
+#: encoded) and a circular proof whose premises restate the conclusion (E112: the claim was assumed, not derived).
+_NO_VERDICT_CODES = (DiagnosticCode.VACUOUS_RESULT.value, DiagnosticCode.UNASSERTED_FIGURE.value, DiagnosticCode.UNENCODED_REASON.value,
+                     DiagnosticCode.CIRCULAR_PREMISES.value)
+_NO_VERDICT_NAMES = {DiagnosticCode.VACUOUS_RESULT.value: "Vacuous result", DiagnosticCode.UNASSERTED_FIGURE.value: "Unasserted figure",
+                     DiagnosticCode.UNENCODED_REASON.value: "Unencoded reason", DiagnosticCode.CIRCULAR_PREMISES.value: "Circular encoding"}
+
+
+def _no_verdict_diagnostic(verification: VerificationResult):
+    if verification.status not in DEFINITIVE:
+        return None
+    return next((d for d in verification.diagnostics if d.code in _NO_VERDICT_CODES), None)
+
+
 def _is_vacuous(verification: VerificationResult) -> bool:
-    return verification.status in DEFINITIVE and any(d.code == DiagnosticCode.VACUOUS_RESULT.value for d in verification.diagnostics)
+    return _no_verdict_diagnostic(verification) is not None
 
 
 def display_status_for(
@@ -185,7 +205,10 @@ def _checked_lines(translation: TranslationResult) -> list[str]:
     )
     if problem.conclusion is not None:
         text += f"; conclusion '{problem.conclusion.id}': {truncate(problem.conclusion.label or '(no label)', _LABEL_CHARS)}"
-    return [text + "."]
+    lines = [text + "."]
+    # the label is shown beside the verdict, so a figure it states that the expression does not check is named with it
+    lines += [f"Note: the {truncate(d, _DIAG_CHARS)}." for d in translation.diagnostics if d.startswith("conclusion label states figure(s)")][:1]
+    return lines
 
 
 def _verification_lines(
@@ -204,13 +227,14 @@ def _verification_lines(
         return lines
     if translation.status is TranslationStatus.AMBIGUOUS_TRANSLATION:
         lines.append(
-            f"The best-reading encoding was run for inspection and returned {verification.status.value}; "
+            f"The translator's chosen encoding (one reading of an ambiguous claim) was run for inspection and returned {verification.status.value}; "
             "because the claim is ambiguous this is not displayed as a result."
         )
-    if _is_vacuous(verification):
-        vacuous = next(d for d in verification.diagnostics if d.code == DiagnosticCode.VACUOUS_RESULT.value)
+    vacuous = _no_verdict_diagnostic(verification)
+    if vacuous is not None:
+        what = _NO_VERDICT_NAMES.get(vacuous.code, "No verdict")
         lines.append(
-            f"Vacuous result: the engine returned {verification.status.value} but {truncate(vacuous.message, _DIAG_CHARS)} "
+            f"{what}: the engine returned {verification.status.value} but {truncate(vacuous.message, _DIAG_CHARS * 2)} "
             f"({vacuous.code}); it is displayed as INVALID_FORMALIZATION, not as a verdict."
         )
     if verification.premises_relied_on:

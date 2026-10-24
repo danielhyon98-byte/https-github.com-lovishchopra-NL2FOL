@@ -23,9 +23,27 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   verbatim is never failed because the normalisation strips a list marker in context on one side only (bold numbering
   ``**2.**``, items without full stops, a bullet after a closing quotation mark, inline numbering ``1. X. 2. Y.``);
 * ``carried-list-number`` (review round 2): a list number at the start or the end of a claim that the response uses as a
-  list marker is structure, not a figure the claim states (FID-003);
+  list marker is structure, not a figure the claim states (FID-003); so is one after a colon inside the claim (the merged
+  translator's English adapter joins "were:" and the item lines below it into one claim, "were: 1. Reparations ... 2."),
+  again only when the response uses that number as a list marker;
 * ``invisible`` (in the normalisation, review round 2): format and default-ignorable characters (a U+FEFF where two chunks
-  were joined) are removed on both sides.
+  were joined) are removed on both sides;
+* ``mark-annotation`` (the translator merge): the generic and STEM parsers remove a mark annotation from the claim that
+  ends with it ("[1]", "[1 spare]", "[2 marks]", "(3 marks)", "(M1)", "(A1)", "M1" after two spaces; ``original_response``
+  keeps them), so FID-001 also compares a claim with the response read without the annotations that end a sentence or a
+  line (the parsers' own patterns, ``branches.generic_parser``), and FID-006 never reads a mark annotation as a figure
+  the parse lost. Since the STEM completion (decision 60) the response is read line by line with the parsers' own rule as
+  well (``stem.layout.annotation_ranges``, the generic parser's patterns restated, which a test keeps identical): it also
+  removes an annotation that closes a sentence inside a line, before the next sentence ("... an increase of 100% [1] Mean
+  uptake = ..."), and a sentence that is nothing but annotations; the claim is compared with the response read either way;
+* ``same-form-figures`` (the translator merge, FID-006): the figures the claims carry are read in the same comparison
+  form as the response's content (normalised: a U+2212 minus, a superscript power), as well as as written, so a figure a
+  claim carries is never reported as lost for its spelling alone;
+* ``no-quotation-to-verify`` (the translator merge, FID-004): the merged core pack's own rule (round 7) for quoted words
+  that are no quotation to verify, applied as the pack applies it: words the request itself holds (located in the
+  journaled request by the channel's locator: a guiding question's "returning home", a true/false statement's "toda"), and
+  a word the sentence says the text lacks ('has no "like" or "as"', 'never says "ayudar"': a mention, read by the pack's
+  ``_absent_mentions``).
 
 * FID-001: a delivered ``claim_text`` does not occur in the normalised response (rule ``raw-occurrence``: a claim that
   occurs in the raw response as written, or whose comparison forms are all empty, always occurs).
@@ -34,7 +52,7 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
 * FID-004: a quotation that occurs in no supplied text has no receipt finding naming that claim (INT-REQ-003,
   INT-REQ-010, INT-REQ-013, INT-SUBJ-003 for a source rule, or a branch ``-SRC-`` rule), nor any other claim of the
   report that carries the same quotation (a sentence claim and its evidence claim quote the same words; the receipt
-  names one of them).
+  names one of them); quoted words that are no quotation to verify (rule ``no-quotation-to-verify``) are not read.
 * FID-005: a self-report delivered as content: the branch's own detector (``adapters.markdown.is_self_certification``)
   flags its TEXT read with its quotations masked (``mask_quotations``, as the adapters read it: a quoted claim of
   accuracy belongs to the supplied text, rule ``quoted-certification``), or (raw-text path) the adapter set ``advisory_verification_status`` or
@@ -64,18 +82,22 @@ import re
 from typing import Optional
 
 from ...adapters.markdown import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification, mask_quotations
+from ...adapters.sources import check_excerpt
+from ...branches.generic_parser import _MARK_ALLOC, _MARK_CODE
+from ...branches.packs import _absent_mentions, _quote_key
 from ...channel.bus import _FOLDED_TAIL_RE, _located
 from ...integrity.ledger import figure_spellings
+from ...stem.layout import annotation_ranges
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
 from ..view import REPORT_KINDS, Transfer
 from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
-           "uncut_text", "response_list_numbers"]
+           "uncut_text", "response_list_numbers", "strip_mark_annotations", "no_quotation_to_verify"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
-                  "invisible")
+                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify")
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -121,12 +143,59 @@ def uncut_text(text: str) -> str:
 _RESPONSE_LIST_NUMBER_RE = re.compile(r"(?:(?m:^)[ \t]*|(?<=[.:;!?])[ \t]+)(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?(?=\s|$)")
 #: A list number at the start or the end of a claim (an adapter's line join or item cut carried it into the claim).
 _LEAD_NUMBER_RE = re.compile(r"^\s*(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?(?=\s|$)")
+#: A list number an adapter's line join left after a colon inside a claim ("were: 1. Reparations ...").
+_AFTER_COLON_NUMBER_RE = re.compile(r"(?<=:)[ \t]+(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?(?=\s|$)")
 _TRAIL_NUMBER_RE = re.compile(r"(?:(?<=\s)|^)(?:\*\*|__)?\(?(\d{1,3})[.)](?:\*\*|__)?\s*$")
 
 
 def response_list_numbers(response: str) -> set[str]:
     """The numbers ``response`` uses as list markers (named rule ``carried-list-number``)."""
     return {m.group(1) for m in _RESPONSE_LIST_NUMBER_RE.finditer(response or "")}
+
+
+#: Rule ``mark-annotation``: a run of mark annotations (the generic and STEM parsers' own patterns: a mark allocation, a
+#: mark code in brackets or after two spaces) that ends a sentence or a line.
+_MARK_ANNOTATION_RE = re.compile(rf"(?:[ \t]*{_MARK_ALLOC}|(?:[ \t]{{2,}}|\t)\(?{_MARK_CODE}\)?|[ \t]*\({_MARK_CODE}\))+(?=[.;,]?[ \t]*$|\.[ \t])", re.MULTILINE)
+
+
+def _parser_unmarked(text: str) -> str:
+    """``text`` without the mark annotations the parsers' own line rule finds (``stem.layout.annotation_ranges``: those
+    closing the line, those closing one of its sentences, sentences of annotations alone), line by line."""
+    out: list[str] = []
+    for line in (text or "").split("\n"):
+        ranges = annotation_ranges(line)
+        if not ranges:
+            out.append(line)
+            continue
+        pieces, pos = [], 0
+        for a, b in ranges:
+            pieces.append(line[pos:a])
+            pos = max(pos, b)
+        pieces.append(line[pos:])
+        out.append("".join(pieces))
+    return "\n".join(out)
+
+
+def strip_mark_annotations(text: str) -> str:
+    """``text`` without the mark annotations that end a sentence or a line (rule ``mark-annotation``): what the generic and
+    STEM parsers leave out of a claim ("only 9 [1]." is delivered as "only 9."; "100% [1] Mean uptake = ..." as "100% Mean
+    uptake = ..."), read with the parsers' line rule and then with this module's pattern."""
+    return _MARK_ANNOTATION_RE.sub("", _parser_unmarked(text or ""))
+
+
+def no_quotation_to_verify(quotations: list[str], request_text: Optional[str], mention_keys: set[str]) -> list[str]:
+    """Rule ``no-quotation-to-verify``: the quotations among ``quotations`` that the merged core pack does not treat as
+    quotations to verify: located in the request (the channel's locator, with and without the closing punctuation), or a
+    mention whose sentence says the text lacks it (``mention_keys``, by the pack's quotation key)."""
+    out: list[str] = []
+    req = {"the request": SuppliedText(document_id="the request", title=None, author="router", text=request_text)} if request_text and request_text.strip() else None
+    for q in quotations:
+        if _quote_key(q) in mention_keys:
+            out.append(q)
+            continue
+        if req is not None and any(check_excerpt(x, "the request", req).located for x in dict.fromkeys([q, strip_trailing_punctuation(q)]) if x):
+            out.append(q)
+    return out
 
 
 def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
@@ -136,6 +205,7 @@ def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
     m = _LEAD_NUMBER_RE.match(t)
     if m and m.group(1) in list_numbers:
         t = t[m.end():]
+    t = _AFTER_COLON_NUMBER_RE.sub(lambda x: " " if x.group(1) in list_numbers else x.group(0), t)
     m = _TRAIL_NUMBER_RE.search(t)
     if m and m.group(1) in list_numbers:
         t = t[:m.start()]
@@ -205,6 +275,12 @@ def _supplied_for(ctx: CheckContext, t: Transfer, rep: SpecialistReport) -> tupl
     return req_texts or list(rep.supplied_texts), bool(req_texts), True
 
 
+def _request_text(ctx: CheckContext, t: Transfer) -> Optional[str]:
+    """The journaled request's ``user_input`` the channel gave the branch packs for this report (None without a request)."""
+    req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
+    return req.user_input if req is not None else None
+
+
 def _named_claims(t: Transfer) -> set[str]:
     """Claims a source finding of the receipt names (INT-REQ-003/010/013, INT-SUBJ-003 for a source rule, a branch
     ``-SRC-`` rule)."""
@@ -266,6 +342,9 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     ids = t.ids()
     norm_resp = normalise(rep.original_response)
     plain_resp = plain_form(rep.original_response)
+    # rule mark-annotation: the response as the generic and STEM parsers read a claim from it (mark annotations removed)
+    unmarked = strip_mark_annotations(rep.original_response)
+    unmarked_forms = (normalise(unmarked), plain_form(unmarked)) if unmarked != rep.original_response else None
     tails = _folded_tail_ids(rep)
     known_figs: set[str] = set()
     for _label, keys in figure_spellings(rep.original_response):
@@ -275,13 +354,17 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     covering = {cid for cov in (t.receipt.coverage if t.receipt else []) for cid in cov.addressed_by_claim_ids}
     supplied, req_had_texts, self_supplied = _supplied_for(ctx, t, rep)
     named = _named_claims(t)
+    request_text = _request_text(ctx, t)
+    mention_keys = {_quote_key(q) for q in _absent_mentions(rep.original_response, find_quotation_spans(rep.original_response))}
     ctx.coverage.claims_checked += len(rep.claims)
     claim_texts_norm: list[str] = []
     for c in rep.claims:
         cid = [c.claim_id]
         claim_texts_norm.append(normalise(c.claim_text))
         # FID-001
-        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp, raw_response=rep.original_response):
+        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp, raw_response=rep.original_response) and not (
+                unmarked_forms is not None and claim_occurs(strip_mark_annotations(c.claim_text), unmarked_forms[0], tail=c.claim_id in tails,
+                                                            plain_response=unmarked_forms[1], raw_response=unmarked)):
             ctx.ovs(t.seq, "OVS-FID-001", f"claim {c.claim_id} of report {rep.report_id} does not occur in the specialist's original_response: {c.claim_text[:160]!r}",
                     claim_ids=cid, **ids)
         # FID-002
@@ -297,6 +380,9 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         if supplied:
             unlocated = [q for q in _quotations(c) if not located_anywhere(q, supplied)]
             unlocated = [q for q in unlocated if c.claim_id not in named and not _accounted(rep, q, named)]
+            if unlocated:  # rule no-quotation-to-verify: the merged core pack's own reading of quoted words
+                exempt = no_quotation_to_verify(unlocated, request_text, mention_keys)
+                unlocated = [q for q in unlocated if q not in exempt]
             if unlocated:
                 ctx.ovs(t.seq, "OVS-FID-004", f"claim {c.claim_id} quotes {[q[:80] for q in unlocated[:4]]}, which occur in no supplied text, and no receipt finding names the claim",
                         claim_ids=cid, document_ids=[s.document_id for s in supplied], **ids)
@@ -332,7 +418,11 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         for spellings in claim_figures.values():
             for _l, keys in spellings:
                 claim_figs |= keys
-        content = normalise(_HEADING_LINE_RE.sub("", rep.original_response))  # headings and list numbering are structure, not content
+        for text_norm in claim_texts_norm:  # rule same-form-figures: the claims' figures in the content's comparison form too
+            for _l, keys in figure_spellings(text_norm):
+                claim_figs |= keys
+        # headings and list numbering are structure, not content; so are mark annotations (rule mark-annotation)
+        content = normalise(_HEADING_LINE_RE.sub("", strip_mark_annotations(rep.original_response)))
         lost_figs = [label for label, keys in figure_spellings(content) if not (keys & claim_figs)]
         lost_sentences = _uncarried_sentences(content, claim_texts_norm, carried)
         if lost_quotes or lost_figs or lost_sentences:

@@ -7,7 +7,11 @@
 * **Keys.** The worker never holds a key: it returns the unsigned result, and the parent signs it under the auditor's
   run key (``overseer-run``) before storing it with origin ``replay``.
 * **Limits.** A joint problem (problem id ``joint-*``) is replayed under ``JOINT_LIMITS``, every other problem under
-  ``DEFAULT_LIMITS``, as the channel ran them; a replay that hits a shape limit is retried under ``JOINT_LIMITS``.
+  ``DEFAULT_LIMITS``, as the channel ran them; a replay that hits a shape limit is retried under ``JOINT_LIMITS``. Rule
+  ``policy-limits`` (the translator merge): a result that records the ``Limits`` of a named engine policy
+  (``engine.policies.PACK_POLICIES``: a branch formal check run under the ``nonlinear`` policy records
+  ``allow_nonlinear``) is replayed under exactly those policy limits; any other recorded limits are never trusted (the
+  replay runs under the default).
 * **Bounds and sampling.** At most ``queue_bound`` jobs are outstanding. Beyond it, replay degrades to keyed
   deterministic sampling at ``sample_rate`` (at least 0.25): a job is kept when ``HMAC(sampling key, result_id)`` read
   as a fraction is below the rate; agents cannot predict it and the auditor can reproduce it. ``always`` jobs (results
@@ -59,6 +63,8 @@ class ReplayJob:
     always: bool = False
     seq: int = 0
     channel_uid: str = ""
+    #: The named engine policy whose Limits the result recorded ("" for none: default or joint limits by problem id).
+    policy: str = ""
 
 
 @dataclass
@@ -92,17 +98,31 @@ def build_replay_job(view: Any, store: Any, rid: str, *, always: bool, seq: int,
     cfg = replay_config(view, res, ev_seq or seq, origin)
     return ReplayJob(result_id=rid, problem_json=problem_json, config_json=canonical_json(cfg.model_dump(mode="json")), original_status=res.status.value,
                      problem_digest=res.binding.problem_digest, config_digest=res.binding.config_digest, versions_digest=res.binding.versions_digest,
-                     always=always, seq=seq, channel_uid=channel_uid)
+                     always=always, seq=seq, channel_uid=channel_uid, policy=recorded_policy(res))
 
 
-def replay_problem(problem_json: str, config_json: str) -> str:
-    """Re-verify one stored problem on this process's engine, unsigned; returns the result JSON. Runs in the worker."""
+def recorded_policy(res: VerificationResult) -> str:
+    """Rule ``policy-limits``: the named engine policy whose ``Limits`` ``res`` records ("" when it records none, the
+    default policy's, or limits that are no named policy's: those are never trusted for a replay)."""
+    from ..engine.policies import PACK_POLICIES
+    from ..ir.schema import DEFAULT_LIMITS
+    if res.limits is None:
+        return ""
+    return next((name for name, lim in sorted(PACK_POLICIES.items()) if lim != DEFAULT_LIMITS and lim == res.limits), "")
+
+
+def replay_problem(problem_json: str, config_json: str, policy: str = "") -> str:
+    """Re-verify one stored problem on this process's engine, unsigned; returns the result JSON. Runs in the worker.
+    ``policy`` names the engine policy whose limits the original recorded (rule ``policy-limits``)."""
+    from ..engine.policies import PACK_POLICIES
     from ..engine.results import SolverConfig
     from ..engine.runner import verify
     from ..integrity.cross_check import JOINT_LIMITS
     from ..ir.schema import DEFAULT_LIMITS, Problem
     problem = faithful(Problem, json.loads(problem_json))
     cfg = faithful(SolverConfig, json.loads(config_json))
+    if policy and policy in PACK_POLICIES and PACK_POLICIES[policy] != DEFAULT_LIMITS:
+        return canonical_json(verify(problem, cfg, PACK_POLICIES[policy]).model_dump(mode="json", exclude_none=True))
     limits = JOINT_LIMITS if problem.problem_id.startswith("joint-") else DEFAULT_LIMITS
     res = verify(problem, cfg, limits)
     if limits is DEFAULT_LIMITS and any(d.code in _LIMIT_CODES for d in res.diagnostics):
@@ -115,9 +135,9 @@ def _worker_main(jobs: Any, results: Any) -> None:  # pragma: no cover - runs in
         item = jobs.get()
         if item is None:
             return
-        jid, problem_json, config_json = item
+        jid, problem_json, config_json, policy = item
         try:
-            results.put((jid, replay_problem(problem_json, config_json), None))
+            results.put((jid, replay_problem(problem_json, config_json, policy), None))
         except Exception as exc:
             results.put((jid, None, f"{type(exc).__name__}"))
 
@@ -219,7 +239,7 @@ class Replayer:
             return
         self._ensure_worker()
         self._inflight[job.result_id] = (job, time.monotonic())
-        self._jobs_q.put((job.result_id, job.problem_json, job.config_json))
+        self._jobs_q.put((job.result_id, job.problem_json, job.config_json, job.policy))
 
     def _ensure_worker(self) -> None:
         if self._proc is not None and self._proc.is_alive():
@@ -271,7 +291,7 @@ class Replayer:
             self._queued.clear()
         for job in todo:  # inline mode
             try:
-                out = self._finish(job, replay_problem(job.problem_json, job.config_json), None)
+                out = self._finish(job, replay_problem(job.problem_json, job.config_json, job.policy), None)
             except Exception as exc:
                 out = ReplayOutcome(job=job, error=f"{type(exc).__name__}")
             with self._lock:

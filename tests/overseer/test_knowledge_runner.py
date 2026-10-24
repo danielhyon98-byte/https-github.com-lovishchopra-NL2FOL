@@ -94,13 +94,18 @@ def test_end_to_end_a_confirmed_accusation(auditor, pack):
     before = clearances(auditor, ch.uid, mids)
     run = runner.run(d, intake)
     assert run.status == "submitted" and run.reason is None and run.message_id and run.finding is None
-    # exactly one call, with the pack's system text and the dossier block, nothing else
+    # exactly one call, with the pack's system text and the dossier block, nothing else; STEM repair 11: the system text is the pack's
+    # composition for this dossier's content (the core and the modules it needs), whose digest the manifest records
     assert len(provider.calls) == 1
     call = provider.calls[0]
-    assert call.system == pack.system_text() and hashlib.sha256(call.system.encode()).hexdigest() == pack.manifest.system_sha256
+    modules = pack.modules_for(d)
+    assert call.system == pack.system_text_for(d) == pack.system_text(modules)
+    assert hashlib.sha256(call.system.encode()).hexdigest() == pack.composition_sha256(modules) == pack.manifest.system_compositions[
+        "+".join(("core",) + modules)]
     assert call.user == data_block("dossier", d) == render_dossier_block(d) and call.prompt_version == pack.prompt_version
-    assert pack.prompt_version == f"overseer-knowledge-docs/{pack.identity.version}+{pack.identity.sha256[:16]}" and pack.identity.version == "1.2"
-    assert run.provider_info["prompt_version"] == pack.prompt_version and run.system_sha256 == pack.manifest.system_sha256
+    assert pack.prompt_version == f"overseer-knowledge-docs/{pack.identity.version}+{pack.identity.sha256[:16]}" and pack.identity.version == "1.3"
+    assert run.provider_info["prompt_version"] == pack.prompt_version and run.system_sha256 == pack.composition_sha256(modules)
+    assert run.system_modules == modules
     assert run.user_sha256 == hashlib.sha256(call.user.encode()).hexdigest()
     # the reply reached the intake unchanged
     accepted = intake.accepted(run.message_id)
@@ -340,7 +345,7 @@ def test_the_dossier_block_equals_the_data_block_for_ordinary_dossiers(auditor, 
     _task, _intake, d = setup_task(auditor, pack)
     assert render_dossier_block(d) == data_block("dossier", d)
     system, user = OverseerAgentRunner(pack, FixtureCompletionProvider([]), agent_id=AGENT, lens=LENS).build_input(d)
-    assert system == pack.system_text() and user == data_block("dossier", d)
+    assert system == pack.system_text_for(d) and user == data_block("dossier", d)  # STEM repair 11: the dossier's composition
 
 
 # ============================================================================================ concurrency

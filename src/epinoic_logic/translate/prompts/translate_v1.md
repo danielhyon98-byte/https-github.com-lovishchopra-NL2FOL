@@ -42,25 +42,53 @@ Work in three stages. Do the staging internally; only the final JSON is output,
 with "interpretation" carrying the human-readable record of stages 1 and 2.
 
 Stage 1 — atomic propositions. List every atomic statement the claim and its
-supporting claims rely on. For each one record its textual grounding:
+supporting claims rely on. For each one record its textual grounding (the ten
+kinds the schema accepts):
   - quotation: a verbatim span of a supplied text (exact excerpt + document_id)
-  - supplied_text: a paraphrase or structural fact about a supplied text
+  - supplied_text: a paraphrase or structural fact about a supplied text; a fact
+    the claim reports from a supplied text may be grounded by an excerpt of that
+    text even when the specialist cited none
   - task_setting: a word count, prompt constraint or task parameter given with the task
   - rubric_rule: an assessment-criterion rule supplied with the task
-  - arithmetic_fact: a numeric fact given in the task or in the report
-  - specialist_inference: an inferential step the specialist asserted
+  - arithmetic_fact: a figure the TASK (or a supplied text) states, or one computed
+    from such figures. A figure that only the report states is NOT an arithmetic
+    fact: it is the specialist's own figure ("specialist_inference"), or
+    "general_knowledge" when the specialist gives it from memory
+  - specialist_inference: an inferential step, or a figure or formula, the specialist asserted
   - assumption: an explicit assumption with no textual support
+  - knowledge_document: a fact held in the specialist's own knowledge documents
+  - library_source: a fact retrieved from the approved library, cited by title and locator
+  - general_knowledge: subject knowledge stated from memory, at the certainty the
+    specialist labelled it with; a date or figure from memory is general_knowledge
+    too (never a quotation)
 
 Stage 2 — inferential links. Write the specialist's chain from evidence to
 interpretation to point as separate implications. Each link is its own premise
 with grounding kind "specialist_inference" and the certainty the specialist
 expressed ("established", "probable" or "possible"). Do not merge links, and do
 not add links the specialist did not make: a missing link is exactly what the
-check should expose.
+check should expose. A link the claim states itself IS a link the specialist
+made: "A, so B", "B because A", "since A, B" and "A, which means B" are encoded
+as the premise A (grounded as it is), a "specialist_inference" premise A -> B,
+and B in the conclusion. Never drop the claim's own reason, and never encode
+"A, so B" as the implication alone: the claim asserts A as well.
 
 Stage 3 — assemble the IR. Declare one symbol per atomic proposition (or per
 quantity), one premise per grounded statement or link, and the claim itself as
-the conclusion when the query is "entailment".
+the conclusion when the query is "entailment". The conclusion must never be one
+of the premises, and never the conjunction of premises that each restate one of
+its parts: a claim whose only possible encoding restates it (a bare fact from
+memory, a heading, a rubric description) has no relation to check, so return
+"problem": null with that reason.
+
+Symbol names are shared across ALL claims of the report. The formalizations of
+every claim are pooled under one glossary and checked against each other, so a
+name means one quantity report-wide: give one quantity one name in every claim,
+and different quantities different names, even when they play the same part in
+two claims (the marks of part (a) and of part (c): "marks_a", "marks_c"; the
+targets of two searches: "tgt_67", "tgt_20"; the low bound of each trace:
+"lo1_t67", "lo1_t20"). A name reused for another quantity makes correct claims
+look contradictory.
 
 ## IR 1.0 in brief
 
@@ -75,7 +103,7 @@ Symbol: {"name": <^[a-z][a-z0-9_]{0,63}$>, "sort": "Bool" | "Int" | "Real", "mea
 Assertion: {"id": <^[A-Za-z][A-Za-z0-9_.:-]{0,127}$>, "expr": <Expr>, "label": <the statement in words>,
             "grounding": <Grounding or null>, "materiality": "material" | "supporting"}
 
-Grounding: {"kind": <one of the seven kinds above>, "source_refs": [{"document_id": <id>, "locator": <optional>, "excerpt": <optional exact text>}],
+Grounding: {"kind": <one of the ten kinds above>, "source_refs": [{"document_id": <id>, "locator": <optional>, "excerpt": <optional exact text>}],
             "certainty": "established" | "probable" | "possible", "note": <optional>}
   Never set "verified"; deterministic code sets it.
 
@@ -128,8 +156,29 @@ paragraphs, thresholds):
   - Int symbols for counts, Real only when a quantity is genuinely fractional
   - facts given with the task as premises of kind "task_setting" or "arithmetic_fact"
   - the claim as a comparison ("le", "ge", "eq", ...) in the conclusion
-  - encode a tolerance ("about 350 words") only if the task states one;
-    otherwise flag the ambiguity and encode the literal comparison the claim makes
+
+Stated precision. A figure is stated to the precision it is written with, and
+that precision is part of the claim, not an unstated tolerance:
+  - a figure written to n decimal places (or n significant figures) says its
+    exact value lies within half a unit of its last stated place: "−0.67" is
+    encoded as "ge" −0.675 and "lt" −0.665, "0.1190" as "ge" 0.11895 and "lt"
+    0.11905, "20.00%" as "ge" 19.995 and "lt" 20.005. A correct rounded claim is
+    then ENTAILED and a wrong one still fails; never encode a rounded figure as
+    an exact equality with the unrounded value it was computed from;
+  - "about", "approximately", "≈" or "…" with no stated precision: encode the
+    figure at the precision it is written with, as above, and flag the vagueness;
+  - "eq" is for exact claims only: counts, given values, exact fractions.
+
+Shapes that are easy to weaken:
+  - a superlative over a finite set ("the largest rise of the four intervals",
+    "the least nitrate of the five sites"): encode the comparison with every
+    member of the set, not a single value;
+  - a solution set ("t = 0 or t = 2"): encode that each stated value satisfies
+    the equation, and, when the claim says these are the only ones, that no
+    other value does; never only that one of them does;
+  - a conclusion label states exactly what the conclusion expression checks:
+    every figure and condition the label names is in the expression, and an
+    asserted fact is a premise, never the antecedent of the conclusion.
 
 ## Ambiguity
 
@@ -137,7 +186,8 @@ Set "ambiguous": true and list the alternatives when a different but
 reasonable reading would change the encoding: scope of a negation, which text
 or speaker a pronoun refers to, whether "because" is causal or evidential,
 whether "and" joins two claims or qualifies one, vague quantities with no
-stated tolerance, a conclusion that could be the point or the thesis.
+stated precision, a conclusion that could be the point or the thesis. A figure
+written to a stated number of places is not ambiguous: encode its precision.
 
 ## Unsupported
 

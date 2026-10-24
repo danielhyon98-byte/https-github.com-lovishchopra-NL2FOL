@@ -59,7 +59,7 @@ WRONG_ENGINE_KEY = b"overseer-harness-wrong-engine-key-0123456789"
 #: Engine key ids the hub, the channel and the arena sign under (all one key, as in the arena).
 ENGINE_KEY_IDS = ("hub", "channel", "default", "integrity", "t")
 #: The recorded rounds the harness knows, in order (each is used only when present).
-ROUND_NAMES = ("r1", "r1-adv", "r2", "r3", "r4", "r5", "r6")
+ROUND_NAMES = ("r1", "r1-adv", "r2", "r3", "r4", "r5", "r6", "r7")
 #: The rounds the contained run and the dossier export use by default (the stage's acceptance names r2 to r5).
 DEFAULT_ROUNDS = ("r2", "r3", "r4", "r5", "r7")
 #: One overseer agent per lens: the agent ids the dossier export issues dossiers to (design section 10).
@@ -274,7 +274,8 @@ class RoundReplay:
 @contextlib.contextmanager
 def audited_arena(auditor: TransferAuditor, *, genuine_only: bool = False, verify_hook: Optional[Callable[..., Any]] = None) -> Iterator[list]:
     """``run_arena`` with ``RouterHub`` replaced by a hub that carries ``auditor`` (restored afterwards). With
-    ``genuine_only`` the arena's fault mutations are switched off (only the genuine pass runs). ``verify_hook`` replaces
+    ``genuine_only`` the arena's fault mutations are switched off, the STEM ones included (``STEM_MUTATIONS``, which the
+    translator merge added to the arena beside ``MUTATIONS``), so only the genuine pass runs. ``verify_hook`` replaces
     the arena's ``verify_claim``: it is called as ``verify_hook(real, claim, report, translator, **kw)`` inside the
     channel call (so every engine run it makes is captured) and returns the outcome the channel receives."""
     ra = arena()
@@ -287,9 +288,13 @@ def audited_arena(auditor: TransferAuditor, *, genuine_only: bool = False, verif
             hubs.append(self)
 
     saved = {"RouterHub": ra.RouterHub, "MUTATIONS": ra.MUTATIONS, "verify_claim": ra.verify_claim}
+    if hasattr(ra, "STEM_MUTATIONS"):
+        saved["STEM_MUTATIONS"] = ra.STEM_MUTATIONS
     ra.RouterHub = AuditedHub
     if genuine_only:
         ra.MUTATIONS = ()
+        if "STEM_MUTATIONS" in saved:
+            ra.STEM_MUTATIONS = ()
     if verify_hook is not None:
         real = saved["verify_claim"]
 
@@ -298,6 +303,23 @@ def audited_arena(auditor: TransferAuditor, *, genuine_only: bool = False, verif
         ra.verify_claim = verify_claim
     try:
         yield hubs
+    finally:
+        for k, v in saved.items():
+            setattr(ra, k, v)
+
+
+def run_round_without_auditor(round_copy: Path, *, genuine_only: bool = False) -> dict:
+    """``run_arena.run_round`` on a round COPY with no auditor (the comparison that decides non-interference); with
+    ``genuine_only`` the arena's fault mutations, the STEM ones included, are switched off as :func:`audited_arena` does."""
+    ra = arena()
+    saved = {"MUTATIONS": ra.MUTATIONS}
+    if hasattr(ra, "STEM_MUTATIONS"):
+        saved["STEM_MUTATIONS"] = ra.STEM_MUTATIONS
+    if genuine_only:
+        for k in saved:
+            setattr(ra, k, ())
+    try:
+        return ra.run_round(Path(round_copy))
     finally:
         for k, v in saved.items():
             setattr(ra, k, v)
@@ -332,6 +354,231 @@ def replay_round(round_copy: Path, auditor: TransferAuditor, *, genuine_only: bo
     journaled = set(auditor.channel_uids())
     return RoundReplay(round_name=Path(round_copy).name, round_dir=Path(round_copy), results=results, auditor=auditor, hubs=hubs,
                        channels=[c for c in channel_records(hubs) if c.uid in journaled])
+
+
+# ============================================================================================ recorded fixtures under merged claim ids
+#: The branches whose parser numbers claims with its own letter (``s``, ``m``, ``c``) instead of the generic branch's
+#: agent-qualified ids (the translator merge).
+STEM_BRANCH_KEYS = frozenset({"sciences", "mathematics", "computer_science"})
+#: The rule by which a fixture recorded before the translator merge is served to the claim the merged parse delivers.
+REKEY_RULE = "recorded-ids"
+#: The rule that serves a recorded fixture only to the claim it was written for (the second repair of the translator
+#: merge): an id is a position in the parse of its time, and a parse that changed since (a mark line such as "(d) [1]" no
+#: longer a claim, a line split in two) moves every later id to another claim.
+CORRESPONDENCE_RULE = "recorded-ids/2"
+_MARK_ANNOTATION_RE = re.compile(r"\[\s*\d+\s*(?:marks?)?\s*\]|\((?:[MABR]\d)\)", re.IGNORECASE)
+_PART_PREFIX_RE = re.compile(r"^\s*\(\s*[a-z]{1,4}\s*\)\s*", re.IGNORECASE)
+_QUOTE_RE = re.compile(r"[\"'\u201c\u201d\u2018\u2019`$\\]")
+
+
+def claim_text_key(text: Optional[str]) -> str:
+    """A claim text compared across parses (rule ``recorded-ids/2``): compatibility forms folded (NFKC), mark annotations
+    (``[2]``, ``[1 mark]``, ``(M1)``) and a leading part label (``(a)``) removed, quotes, dollar signs and backslashes
+    removed, case folded, whitespace collapsed, and the ends' punctuation trimmed."""
+    import unicodedata
+    t = unicodedata.normalize("NFKC", text or "")
+    t = _PART_PREFIX_RE.sub("", _MARK_ANNOTATION_RE.sub(" ", t))
+    return " ".join(_QUOTE_RE.sub("", t).casefold().split()).strip(" .;:,")
+
+
+def same_claim_text(a: Optional[str], b: Optional[str]) -> bool:
+    """Whether two claim texts are one claim's (rule ``recorded-ids/2``): equal under :func:`claim_text_key`, or one
+    contains the other (at least 12 characters: a line the current parse splits from, or joins to, its neighbour)."""
+    x, y = claim_text_key(a), claim_text_key(b)
+    if not x or not y:
+        return x == y
+    return x == y or (min(len(x), len(y)) >= 12 and (x in y or y in x))
+
+
+def recorded_claim_texts(round_dir: Path, stem: str, report_id: Optional[str]) -> tuple[dict[str, str], Optional[str]]:
+    """``(recorded id -> claim text, where)``: the claim texts the round records for its report ``stem`` at recording time:
+    its record of the claims the translator was given (``work/<stem>.claims.json``), else a recorded relay of the report
+    (``relayed/*.json`` whose payload is the report ``report_id``); empty when the round records neither."""
+    rnd = Path(round_dir)
+    p = rnd / "work" / f"{stem}.claims.json"
+    if p.is_file():
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return {str(c["claim_id"]): str(c.get("text") or c.get("claim_text") or "") for c in d.get("claims", []) if isinstance(c, dict) and "claim_id" in c}, f"work/{p.name}"
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    rel = rnd / "relayed"
+    if rel.is_dir() and report_id:
+        for q in sorted(rel.glob("*.json")):
+            try:
+                pl = json.loads(q.read_text(encoding="utf-8")).get("payload") or {}
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(pl, dict) and pl.get("report_id") == report_id:
+                return {str(c["claim_id"]): str(c.get("claim_text") or "") for c in pl.get("claims", []) if isinstance(c, dict) and "claim_id" in c}, f"relayed/{q.name}"
+    return {}, None
+
+
+def fixture_mismatch(fixture: Any, recorded_id: str, delivered_id: str, report: Any, recorded: Optional[dict[str, str]] = None,
+                     where: Optional[str] = None) -> Optional[str]:
+    """Rule ``recorded-ids/2``: None when nothing the round records shows that the fixture recorded under ``recorded_id``
+    was written for another claim than the delivered claim ``delivered_id`` of ``report``; else why. The evidence, in
+    order: the claim text the round records for the recorded id (``recorded``, from ``where``), which must be the
+    delivered claim's (:func:`same_claim_text`); else the fixture's conclusion label (the claim text the translator was
+    given, as its pipeline passes it), which must not be the text of ANOTHER delivered claim, nor a mark or part line alone
+    ("(d) [1]") when the delivered claim is not one."""
+    texts = {c.claim_id: c.claim_text for c in report.claims}
+    target = texts.get(delivered_id, "")
+    if recorded and recorded_id in recorded:
+        if not same_claim_text(recorded[recorded_id], target):
+            return f"{where or 'the round'} records the claim {recorded_id} as {recorded[recorded_id][:80]!r}, not the delivered claim {delivered_id}'s text"
+        return None
+    obj = json.loads(fixture) if isinstance(fixture, str) else fixture
+    label = str((((obj or {}).get("problem") or {}).get("conclusion") or {}).get("label") or "")
+    if not label.strip() or same_claim_text(label, target):
+        return None
+    key = claim_text_key(label)
+    if not key and claim_text_key(target):
+        return f"its conclusion label {label[:40]!r} is a mark or part line, and the delivered claim {delivered_id} is not one"
+    other = next((cid for cid, t in texts.items() if cid != delivered_id and claim_text_key(t) == key), None)
+    if other is not None:
+        return f"its conclusion label is the text of the delivered claim {other}, not of {delivered_id}"
+    return None
+
+
+def recorded_claim_ids(report: Any) -> dict[str, str]:
+    """Rule ``recorded-ids``: delivered claim id -> the id a round recorded before the translator merge gives the same
+    claim. A generic-branch id keeps the part before the "@" (the merged generic parser qualifies its ids with the agent);
+    a STEM-branch report's claim takes the generic parser's id of the claim at the same place, whose text must be the
+    same (the merged STEM parsers deliver the generic parser's claims of such an answer, claim by claim, under their own
+    letter). A STEM report whose claims are not the generic parser's is refused (``HarnessError``): no id is guessed."""
+    from epinoic_logic.branches import default_registry
+    from epinoic_logic.branches.generic_parser import GenericTextParser
+    ids = [c.claim_id for c in report.claims]
+    branch, _ = default_registry().for_subject(report.subject)
+    if branch.key not in STEM_BRANCH_KEYS:
+        return {i: i.split("@", 1)[0] for i in ids}
+    generic = GenericTextParser(report.agent_id).parse_response(report.original_response, request_id=report.request_id, task_id=report.task_id,
+                                                                report_id=report.report_id, subject=report.subject, task_type=report.task_type,
+                                                                supplied_texts=list(report.supplied_texts), agent_id=report.agent_id)
+    texts = [" ".join(c.claim_text.split()) for c in report.claims]
+    if texts != [" ".join(c.claim_text.split()) for c in generic.claims]:
+        raise HarnessError(f"{report.report_id}: the {branch.key} parser's claims are not the generic parser's, so no recorded id is re-keyed")
+    return {i: g.claim_id.split("@", 1)[0] for i, g in zip(ids, generic.claims)}
+
+
+def deliver_recorded_answer(items: list[dict], item: dict) -> tuple[Any, Any]:
+    """One recorded answer parsed as the arena's genuine pass delivers it (a hub task with the item's group plan, the
+    item's own supplied texts, the arena's key and configuration, no translation): ``(delivered report, receipt)``."""
+    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.translate.contracts import SpecialistReport
+    A = arena()
+    group = A.group_of(item)
+    hub = RouterHub(signing_key=A.KEY, config=A.CFG)
+    try:
+        hub.open_task(A.group_plan(items, group))
+        m, _req, _rq = hub.dispatch(group, item["agent_id"], item["question"], A.supplied(item))
+        reply, rc = hub.receive(group, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{item['task_id']}-0")
+    finally:
+        hub.close()
+    if reply is None:
+        raise HarnessError(f"the recorded answer of {item['task_id']} is not delivered ({rc.status.value})")
+    return SpecialistReport.model_validate(reply.payload), rc
+
+
+def rekeyed_fixture(fixture: Any, claim_id: str, request_id: str) -> dict:
+    """A recorded translation fixture (the provider's JSON, as text or object) served to the delivered claim ``claim_id``:
+    a deep copy whose problem names that claim and its request (data only; nothing else changes)."""
+    obj = json.loads(fixture) if isinstance(fixture, str) else json.loads(json.dumps(fixture))
+    if isinstance(obj.get("problem"), dict):
+        obj["problem"]["claim_id"] = claim_id
+        obj["problem"]["request_id"] = request_id
+    return obj
+
+
+@dataclass
+class RecordedDelivery:
+    """One recorded answer delivered as the arena's genuine pass delivers it, with recorded translation fixtures served to
+    the claims the merged parse delivers (rule ``recorded-ids``): the delivered report, its receipt, the map ``delivered id
+    -> recorded id`` and each outcome by delivered claim id."""
+    report: Any
+    receipt: Any
+    recorded_ids: dict[str, str]
+    outcomes: dict[str, Any]
+
+    def delivered_id(self, recorded_id: str) -> Optional[str]:
+        """The delivered claim the recording calls ``recorded_id`` (None when the parse delivers no such claim)."""
+        return next((d for d, r in self.recorded_ids.items() if r == recorded_id), None)
+
+
+def recorded_delivery(item: dict, plan: Any, fixtures: Optional[dict[str, Any]] = None) -> RecordedDelivery:
+    """Deliver the recorded answer ``item`` (``question``, ``response_text``, ``agent_id``, ``supplied_texts``) on a hub task
+    of ``plan`` (a ``WorkPlan`` or its JSON: the arena's group plan) with the arena's key and configuration, every recorded
+    fixture of ``fixtures`` (recorded claim id -> the provider's JSON) served, through the translator's real pipeline and
+    the engine, to the claim the merged parse delivers for it (:func:`recorded_claim_ids`, :func:`rekeyed_fixture`)."""
+    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.integrity import WorkPlan
+    from epinoic_logic.translate.contracts import SpecialistReport
+    from epinoic_logic.translate.outcome import verify_claim
+    from epinoic_logic.translate.pipeline import Translator
+    from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
+    A = arena()
+    plan = plan if isinstance(plan, WorkPlan) else WorkPlan.model_validate(plan)
+    fixtures = dict(fixtures or {})
+
+    def serve(claim, report):
+        rid = recorded_claim_ids(report).get(claim.claim_id)
+        if rid not in fixtures:
+            return None
+        obj = rekeyed_fixture(fixtures[rid], claim.claim_id, claim.request_id)
+        return verify_claim(claim, report, Translator(FixtureTranslationProvider({claim.claim_id: json.dumps(obj)})), config=A.CFG, signing_key=A.KEY)
+    hub = RouterHub(signing_key=A.KEY, config=A.CFG, verify_claim_fn=serve)
+    try:
+        hub.open_task(plan)
+        m, _req, _rq = hub.dispatch(plan.task_id, item["agent_id"], item["question"], A.supplied(item))
+        reply, rc = hub.receive(plan.task_id, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{item['task_id']}-0")
+    finally:
+        hub.close()
+    if reply is None:
+        raise HarnessError(f"the recorded answer of {item.get('task_id')} is not delivered ({rc.status.value})")
+    report = SpecialistReport.model_validate(reply.payload)
+    return RecordedDelivery(report=report, receipt=rc, recorded_ids=recorded_claim_ids(report), outcomes={o.claim_id: o for o in rc.outcomes})
+
+
+def rekey_translations(round_copy: Path) -> dict[str, dict]:
+    """Rules ``recorded-ids`` and ``recorded-ids/2`` on a round COPY: rewrite ``<round_copy>/translations/*.json`` so that
+    each fixture is keyed by the claim id the current parse delivers for the claim the recording gives its id
+    (:func:`recorded_claim_ids`), its problem naming that claim and its request (:func:`rekeyed_fixture`); a fixture whose
+    id names no delivered claim keeps its recorded id (it is still never served). A fixture the round's records show was
+    written for another claim (:func:`fixture_mismatch`: the parse has changed since it was recorded) is WITHHELD: moved out
+    of ``claims`` into ``withheld`` with why, so no claim receives a translation of another claim. Returns, per file stem,
+    the branch, how many fixtures were re-keyed and served, the map ``recorded id -> delivered id`` of those re-keyed, and
+    the withheld fixtures with why."""
+    A = arena()
+    items = A.load_items(Path(round_copy) / "specialists")
+    out: dict[str, dict] = {}
+    for it in items:
+        stem = it["_path"].stem
+        path = Path(round_copy) / "translations" / f"{stem}.json"
+        if not path.exists():
+            continue
+        tr = json.loads(path.read_text(encoding="utf-8"))
+        report, rc = deliver_recorded_answer(items, it)
+        delivered_of = {recorded: delivered for delivered, recorded in recorded_claim_ids(report).items()}
+        recorded, where = recorded_claim_texts(Path(round_copy), stem, tr.get("report_id"))
+        claims: dict[str, Any] = {}
+        moved: dict[str, str] = {}
+        withheld: dict[str, dict] = {}
+        for rid, fixture in tr["claims"].items():
+            did = delivered_of.get(rid, rid)
+            why = fixture_mismatch(fixture, rid, did, report, recorded, where) if did in {c.claim_id for c in report.claims} else None
+            if why is not None:
+                withheld[rid] = {"would_be_served_to": did, "why": why, "fixture": json.loads(fixture) if isinstance(fixture, str) else fixture}
+                continue
+            if did != rid:
+                moved[rid] = did
+                claims[did] = rekeyed_fixture(fixture, did, report.request_id)
+            else:
+                claims[did] = json.loads(fixture) if isinstance(fixture, str) else fixture
+        path.write_text(json.dumps({"report_id": tr.get("report_id"), "claims": claims, "withheld": withheld}), encoding="utf-8")
+        out[stem] = {"branch": rc.branch, "rekeyed": len(moved), "fixtures": len(claims), "moved": moved,
+                     "withheld": {rid: {"would_be_served_to": w["would_be_served_to"], "why": w["why"]} for rid, w in withheld.items()}}
+    return out
 
 
 # ============================================================================================ transfer records

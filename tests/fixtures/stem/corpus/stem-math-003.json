@@ -1,0 +1,25 @@
+{
+  "id": "stem-math-003",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "structured_answer",
+  "question": "Solve the inequality 3 − 2x > 7 and the equation 5(x − 2) = 3x + 4.",
+  "supplied_texts": [],
+  "response_text": "Inequality:\n3 − 2x > 7\n−2x > 4\nx < −2   (dividing by −2 reverses the inequality sign)\n\nEquation:\n5(x − 2) = 3x + 4\n5x − 10 = 3x + 4\n2x = 14\nx = 7\n\nCheck: 5(7 − 2) = 25 and 3(7) + 4 = 25 ✓",
+  "notation": [
+    "unicode",
+    "implicit_multiplication",
+    "derivation_lines",
+    "inequality"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "−2x > 4",
+      "x < −2",
+      "5x − 10 = 3x + 4",
+      "2x = 14",
+      "x = 7",
+      "5(7 − 2) = 25 and 3(7) + 4 = 25"
+    ]
+  }
+}

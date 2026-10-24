@@ -1,9 +1,10 @@
 """Heuristic parser for History specialist responses written with the pack's core
 operation: Claim -> Evidence -> Analysis -> Judgement -> Link (Response application §3,
-Structures §5). Sentences are assigned roles from surface cues; the point of each body
-paragraph is wired to every other argument claim in that paragraph, and each judgement
-or link claim is wired to the point and the paragraph's other argument claims, so the
-paragraph's verdict is an argument the translator can formalize. Heuristic by design:
+Structures §5). Sentences are assigned roles from surface cues; support links follow the
+argument and never form a cycle: the point of each body paragraph rests on the paragraph's
+evidence, analysis, counter-case and reported views (never on a judgement or link), and each
+judgement or link rests on the point and the claims before it (never on a later judgement),
+so the paragraph's verdict is an argument the translator can formalize. Heuristic by design:
 the generic structured adapter is the contract future agents should emit directly.
 
 Paragraph classification is decided by content, never by paragraph count alone:
@@ -19,8 +20,12 @@ Paragraph classification is decided by content, never by paragraph count alone:
 * everything else is a ``body`` paragraph whose first substantive sentence is the point.
 
 Inside a body paragraph a sentence's function is read before its surface (:func:`classify`):
-a link lead ('Against this background, ...') is a ``link`` and a stated verdict ('The turning
-point was 1930.') a ``judgement``, both material whatever they date or quote; a counter-case
+a link lead ('Against this background, ...', 'Against that toll, ...') is a ``link`` and a stated
+verdict ('The turning point was 1930.', 'The 1840s were the most decisive decade.') or the
+criterion of one ('Measured by what the network could do, ...') a ``judgement``, all material
+whatever they date or quote; an undated sentence carrying one of the channel's verdict cues is a
+``judgement`` too; a note on how the answer was composed ('The historical setting is my own
+addition, not part of that paragraph.', :func:`is_provenance_note`) is ``other``; a counter-case
 is ``counter_evidence`` dated or not (unless a judgement cue weighs it), and the dated sentence
 right after an undated counter-case statement is its counter evidence; only then does a dated
 item make a sentence ``evidence``, and a year that only names an event ('the 1923 crisis')
@@ -105,17 +110,45 @@ _LINK = ("therefore", "thus", "in sum", "ultimately")
 #: A sentence that ties the paragraph's evidence back to the question or to a peer's text: a link, whatever it quotes or dates.
 _LINK_LEADS = ("against this background", "against that background", "in this light", "in that light", "seen in this light", "read against", "seen against",
                "set against this", "in this context", "in that context", "this context explains", "this background explains", "this is why")
-#: A sentence that states the verdict a request asks for ('The turning point was 1930.', 'X mattered most'): a judgement, dated or not.
+#: 'Against that toll, ...', 'Set against this record, ...', 'Seen against these losses, ...': a demonstrative noun phrase after
+#: 'against' ties the sentence back to what the paragraph has just set out, so the sentence is a link. A bare 'Against this, ...'
+#: (no noun) is a counter-case lead and stays one.
+_LINK_LEAD_RE = re.compile(r"^(?:(?:set|seen|read|measured|weighed)\s+)?against\s+(?:this|that|these|those|such)\s+(?!is\b|was\b|are\b|were\b)[a-z][a-z'’-]*(?:\s+[a-z][a-z'’-]*)?\s*,", re.IGNORECASE)
+#: A sentence that states the verdict a request asks for ('The turning point was 1930.', 'X mattered most', 'The 1840s were the most
+#: decisive decade.', 'The most decisive decade was the 1840s.', 'The 1840s saw the most decisive expansion.'): a judgement, dated or
+#: not. The copula may be singular or plural ('was', 'were', 'is', 'are', 'proved', 'remained', 'became'), or a verb of standing as
+#: ('stands out as', 'emerged as', 'counts as', 'ranks as') before the turning point, a verdict noun or the watershed, and the noun a period
+#: ('decade', 'period', 'phase', 'stage', 'era') or a request's judgement noun ('expansion', 'change', 'development', 'factor').
+#: Adjectives of a verdict: with 'most' any degree adjective ('the most significant change'); without it only those that are a verdict
+#: by themselves ('the decisive decade', 'the pivotal year'), so 'the significant growth was ...' stays a description.
+_VERDICT_ADJ_MOST = r"(?:decisive|pivotal|critical|crucial|important|significant|consequential|influential|formative|transformative|far-reaching)"
+_VERDICT_ADJ_BARE = r"(?:decisive|pivotal|critical|crucial|key|formative|defining)"
+_VERDICT_NOUN = (r"(?:years?|decades?|period|phase|stage|era|moment|month|factor|cause|event|turning point|break|reason|effect|consequence|"
+                 r"expansion|growth|change|development|step|shift|advance|influence|driver|force)")
+_VERDICT_ADJ_NOUN = rf"(?:(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}|{_VERDICT_ADJ_BARE})\s+{_VERDICT_NOUN}"
 _VERDICT_STATEMENT_RE = re.compile(
-    r"\b(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\s+(?:was|came|is|lay|fell)\b"
-    r"|\b(?:was|is|marked|became|proved)\s+(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\b"
-    r"|\bthe\s+(?:decisive|pivotal|critical|crucial)\s+(?:year|moment|month|factor|cause|event|turning point|break)\s+(?:was|is|came)\b"
-    r"|\b(?:was|is|proved|became)\s+the\s+(?:decisive|pivotal|critical|crucial)\s+(?:year|moment|month|factor|cause|event|break)\b"
-    r"|\bthe\s+most\s+(?:important|significant|decisive)\s+(?:year|cause|factor|event|reason|moment|effect|consequence)\s+(?:was|is)\b"
-    r"|\b(?:was|is)\s+the\s+most\s+(?:important|significant|decisive)\b"
-    r"|\b(?:the\s+)?watershed\s+(?:was|came)\b|\b(?:was|is|marked)\s+(?:the|a)\s+watershed\b"
+    r"\b(?:the|a)\s+(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]point\s+(?:was|were|came|is|lay|fell)\b"
+    r"|\b(?:was|were|is|are|marked|became|proved|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)\s+(?:the|a)\s+"
+    r"(?:real\s+|true\s+|decisive\s+|key\s+|critical\s+|crucial\s+|main\s+)?turning[- ]points?\b"
+    rf"|\bthe\s+{_VERDICT_ADJ_NOUN}\s+(?:of\s+[^,;.]{{1,60}}?\s+)?(?:was|were|is|are|came)\b"
+    rf"|\b(?:was|were|is|are|proved|remained|became|has\s+been|have\s+been|marked|represented|made|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)"
+    rf"\s+(?:the|its|their)\s+{_VERDICT_ADJ_NOUN}\b"
+    rf"|\b(?:was|were|is|are|proved|remained|became)\s+(?:(?:truly|genuinely|clearly|plainly|therefore|thus|itself|then)\s+)?{_VERDICT_ADJ_BARE}\s*(?:[.;!?,]|$)"
+    r"|\bthe\s+(?:year|decade|moment|point|hour|period|turn)\s+of\s+decision\s+(?:was|were|came|is|fell)\b"
+    r"|\bthe\s+(?:real|true|decisive|key|critical|crucial|main|great|major)\s+(?:break|shift|departure|watershed|rupture)\s+(?:came|was|fell|lay|occurred|happened)\b"
+    r"|\b(?:was|were|is|are)\s+the\s+(?:single\s+)?most\s+(?:important|significant|decisive)\b"
+    rf"|\b(?:saw|brought|witnessed|marked|produced|delivered)\s+the\s+(?:single\s+)?most\s+{_VERDICT_ADJ_MOST}\s+[a-z]+"
+    r"|\b(?:the\s+)?watershed\s+(?:was|were|came)\b"
+    r"|\b(?:was|were|is|are|marked|(?:stands?|stood)\s+out\s+as|(?:emerges?|emerged|counts?|counted|ranks?|ranked)\s+as)\s+(?:the|a)\s+watershed\b"
     r"|\b(?:mattered|matters)\s+most\b",
     re.IGNORECASE)
+#: A sentence that opens by naming the criterion of a verdict ('Measured by what the network could do, ...', 'Judged by the
+#: criterion of capacity, ...'): the judgement's criterion, roled a judgement whatever it dates.
+_CRITERION_LEAD_RE = re.compile(r"^(?:(?:but|and|yet|so|thus|on\s+balance)[,\s]+)?(?:measured|judged|weighed|assessed)\s+(?:by|in\s+terms\s+of)\b"
+                                r"|^by\s+(?:the|this|that|any)\s+(?:criterion|criteria|measure|standard|test)\b", re.IGNORECASE)
+#: The channel's verdict cues as one word-bounded pattern: an undated sentence that the channel counts as a verdict (INT-REQ-008 reads an
+#: analysis claim with one of these as a position on degree) is roled a judgement here, so the hub and the parser never disagree.
+_VERDICT_CUE_RE = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in sorted(VERDICT_CUES, key=len, reverse=True)) + r")\b", re.IGNORECASE)
 #: A year used as a modifier ('the 1923 crisis', 'the September 1930 election'): it names an event, it does not date a statement.
 _ATTRIBUTIVE_YEAR_RE = re.compile(
     r"\b(?:the|a|an|its|their|this|that|his|her)\s+(?:(?:early|late|mid)[\s-]+)?(?:(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+)?"
@@ -129,9 +162,109 @@ _PEER_ATTRIBUTION_RE = re.compile(
     r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)(?:'s|’s)?\s+"
     r"(?:argues?|argued|notes?|noted|writes?|wrote|describes?|described|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested|identifies|identified|"
     r"points?\s+out|pointed\s+out|calls?|called|reads?|presents?|presented|concludes?|concluded|holds?|held|maintains?|maintained|contends?|contended|"
+    r"supplies|supplied|provides?|provided|offers?|offered|frames?|framed|"
     r"phrase|phrasing|claim|point|paragraph|reading|account|words?|view|argument|analysis|verdict|conclusion)\b",
     re.IGNORECASE,
 )
+#: A sentence about how the answer was composed, not about its subject ('The historical setting is my own addition, not part of
+#: that paragraph.', 'The judgement on which decade saw the most decisive expansion is from memory as well; verify it before use.',
+#: 'The English specialist's paragraph is from the hub; I have not checked its quotations.'): its subject is the answer, one of its
+#: parts or a received report, and its predicate is authorship or provenance. Such a sentence is a note (role ``other``): never the
+#: paragraph's point, never material, never addressing a request item.
+_PROVENANCE_SUBJECT = (r"(?:the|this|my|our|that|these|those)\s+(?:[a-z'’-]+\s+){0,2}?"
+                       r"(?:setting|context|background|judgement|judgment|verdict|conclusion|outline|answer|paragraph|response|summary|account|framing|"
+                       r"additions?|section|reading|analysis|interpretation|report|material|points?|claims?|figures?|dates?|numbers?|statistics|quotations?|evidence)"
+                       r"(?:\s+(?:on|of|about|for|in|above|below|here|given|that\s+follows?)\b[^,;:]{0,120}?)?")
+_PEER_REPORT_SUBJECT = (r"(?:the|my|our)\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)\s+"
+                        r"(?:paragraph|report|reading|analysis|account|words|quotations?|text|answer|contribution|material)")
+_PROVENANCE_PREDICATE = (r"(?:is|are|was|were)\s+(?:also\s+|entirely\s+|wholly\s+|all\s+|likewise\s+|itself\s+|simply\s+)?"
+                         r"(?:(?:my|our)\s+own(?:\s+(?:addition|additions|work|view|judgement|judgment|reading|inference|framing|contribution|interpretation|summary|context|gloss))?"
+                         r"|mine|ours"
+                         r"|(?:an?|my|our)\s+(?:own\s+)?(?:addition|additions|supplement|gloss)"
+                         r"|not\s+(?:part\s+of|from|in|taken\s+from|drawn\s+from|stated\s+in|given\s+in)\s+[^,;:]{1,60}"
+                         r"|from\s+(?:memory|recollection|the\s+hub|my\s+own\s+(?:knowledge|recollection|reading|memory)|that\s+paragraph|that\s+report"
+                         r"|the\s+(?:[a-z]+\s+)?(?:specialist|colleague|peer)(?:'s|’s)?(?:\s+(?:paragraph|report|text))?)"
+                         r"|(?:taken|drawn|quoted|relayed|forwarded|supplied|received|passed\s+on)\s+(?:from|through|by|via)\s+[^,;:]{1,60}"
+                         r")(?:\s+(?:as\s+well|too|also|alone))?")
+_DISCOURSE_LEAD = r"(?:(?:but|and|so|also|note(?:\s+that)?|please\s+note(?:\s+that)?)[,:\s]+)?"
+_PROVENANCE_CLAUSE_RE = re.compile(rf"^{_DISCOURSE_LEAD}(?:{_PEER_REPORT_SUBJECT}|{_PROVENANCE_SUBJECT})\s+{_PROVENANCE_PREDICATE}$", re.IGNORECASE)
+#: Clauses that may stand beside a provenance clause in a note: ', not part of that paragraph', 'I have not checked its quotations',
+#: 'verify it before use', 'check it against your notes'.
+_NOT_PART_RE = re.compile(r"^(?:and\s+|but\s+)?(?:it\s+is\s+|they\s+are\s+)?not\s+(?:part\s+of|from|in|taken\s+from|drawn\s+from)\s+[^,;:]{1,60}$", re.IGNORECASE)
+_NO_CHECK_RE = re.compile(r"^(?:and\s+|but\s+|so\s+)?(?:I|we)\s+(?:have\s+not|haven't|did\s+not|didn't|could\s+not|couldn't|cannot|can't)\s+"
+                          r"(?:yet\s+)?(?:checked|verified|confirmed|check|verify|confirm|seen|read)\b[^,;:]{0,80}$", re.IGNORECASE)
+_CHECK_IT_RE = re.compile(r"^(?:and\s+|so\s+|please\s+)?(?:verify|check|confirm|treat)\s+(?:it|them|this|these|that|those)\b[^,;:]{0,80}$", re.IGNORECASE)
+_NOTE_CLAUSE_SPLIT_RE = re.compile(r"\s*(?:;|,|\s[-–—]\s|—|–)\s*")
+#: A bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:', 'Limit:', 'Caveat:'): a sentence it opens is a note, and a paragraph
+#: whose first sentence it opens is a note paragraph as a whole, whatever its length, dates or figures. 'Note on ...:' and 'Note that ...'
+#: (no colon) introduce substance and are not bare leads.
+_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|n\.\s?b\.|next\s+steps?|confidence|limits?|limitations?|caveats?|sourcing)\s*[:.]?(?<=[:.])"
+                           r"|^[\s*_>#-]*(?:please\s+)?note\s*:", re.IGNORECASE)
+#: A caveat about the answer's own sources or library: 'my sources do not confirm the exact emigration total', 'the textbook library and
+#: MyLib were unavailable', 'no approved source here confirms the vote share'. Its subject is the answer's sources, not the past.
+_SOURCE_SUBJECT = (r"(?:(?:my|our|the)\s+(?:own\s+)?(?:available\s+)?(?:sources?|notes|references|library|libraries|textbooks?(?:\s+library)?|knowledge\s+documents?)"
+                   r"(?:\s+(?:here|available(?:\s+to\s+me)?|I\s+(?:have|had|used)))?|(?:the\s+)?(?:textbook\s+library|MyLib)(?:\s+and\s+(?:the\s+)?(?:textbook\s+library|MyLib))?"
+                   r"|no\s+(?:approved\s+|available\s+|supplied\s+)?(?:source|reference|textbook)s?(?:\s+(?:here|available|I\s+have))?)")
+_SOURCE_CAVEAT_RE = re.compile(
+    rf"^(?:(?:but|and|so|however|also)[,\s]+)?{_SOURCE_SUBJECT}\s+"
+    r"(?:(?:do|does|did|could|can)\s*(?:not|n['’]t)\s+(?:confirm|verify|give|state|record|cover|support|include)|cannot\s+(?:confirm|verify)|confirms?|verif(?:y|ies)"
+    r"|(?:is|are|was|were)\s+(?:not\s+)?(?:unavailable|available|supplied|accessible|consulted)|(?:has|have|had)\s+not\s+been\s+(?:checked|confirmed|verified|available))\b",
+    re.IGNORECASE)
+#: The figure a caveat says the answer gives in its place: a quoted word ('the figure is given as 'millions'').
+_QUOTED_TERM_RE = re.compile(r"(?<![\w])['‘\"“]([^'’\"”\n]{2,40})['’\"”](?![\w])")
+
+
+def has_note_lead(sentence: str) -> bool:
+    """True when ``sentence`` opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:', 'Limit:', 'Caveat:'), quotations
+    masked first, so a quoted 'Note:' is the quoted text's."""
+    return bool(_NOTE_LEAD_RE.match(_mask_quotations(sentence)))
+
+
+def is_source_caveat(sentence: str) -> bool:
+    """True when ``sentence`` opens with a caveat about the answer's own sources or library ('My sources do not confirm the exact emigration
+    total, so the figure is given as 'millions'; check the total in your textbook before quoting it.', 'The textbook library and MyLib were
+    unavailable in this session, so these points rest on the supplied data') and nothing after the caveat states a dated item or a figure:
+    a sentence that goes on to state one ('..., but about 3 million left between 1949 and 1961') keeps its substance."""
+    masked = _mask_quotations(sentence).strip()
+    core = re.sub(r"^[\s*_>#-]*(?:(?:please\s+)?note|nb|n\.\s?b\.|caveat|sourcing)\s*:\s*", "", masked, flags=re.IGNORECASE)
+    m = _SOURCE_CAVEAT_RE.match(core)
+    if m is None:
+        return False
+    rest = core[m.end():]
+    clause_end = re.search(r"[,;]|\s(?:so|but|and)\s", rest)
+    after = rest[clause_end.start():] if clause_end else ""
+    return not has_dated_item(after)
+
+
+def caveat_terms(sentence: str) -> list[str]:
+    """The figure a source caveat says the answer gives in its place: its quoted words ('so the figure is given as 'millions'' ->
+    'millions'). What the caveat says is not confirmed ('the 1924 vote share') is no figure the answer states, so it names no claim."""
+    terms = [inner.strip() for _s, _e, inner in find_quotation_spans(sentence) if inner.strip()]
+    terms += [m.group(1).strip() for m in _QUOTED_TERM_RE.finditer(sentence)]  # a single quoted word ('millions') is a term, not a quotation
+    return list(dict.fromkeys(t for t in terms if t))
+
+
+def is_provenance_note(sentence: str) -> bool:
+    """True when ``sentence`` speaks only of how the answer was composed: its subject is the answer,
+    its setting, its judgement, its figures or a received report ('The historical setting', 'The
+    judgement on which decade ...', 'The English specialist's paragraph'), its predicate is authorship
+    or provenance ('is my own addition', 'is not part of that paragraph', 'is from memory as well', 'is
+    from the hub'), and every other clause is a note too ('verify it before use', 'I have not checked
+    its quotations'). Quotations are masked first; a sentence that also asserts something about its
+    subject ('..., and it shows that ...') is not a note."""
+    masked = _mask_quotations(sentence).strip().rstrip(".!?\"'”’) ").strip()
+    if not masked or len(masked) > 400:
+        return False
+    clauses = [c.strip() for c in _NOTE_CLAUSE_SPLIT_RE.split(masked) if c.strip()]
+    found = False
+    for clause in clauses:
+        if _PROVENANCE_CLAUSE_RE.match(clause):
+            found = True
+        elif not (_NOT_PART_RE.match(clause) or _NO_CHECK_RE.match(clause) or _CHECK_IT_RE.match(clause) or not split_note_clauses(clause)[0]):
+            return False
+    return found
+
+
 _ESTABLISHED = ("shows", "establishes", "demonstrates", "made", "led to", "was decisive", "proves", "was responsible")
 _PROBABLE = ("suggests", "indicates", "is consistent with", "points to", "arguably")
 _POSSIBLE = ("can be read as", "may have", "some historians argue", "it is possible that", "perhaps")
@@ -139,6 +272,8 @@ _MIN_SUBSTANTIVE_WORDS = 25   # a paragraph this short (and undated) does not ma
 _MAX_ASIDE_WORDS = 12         # a one-sentence undated line without an argument cue is an aside, not a claim
 _MIN_QUOTE_CHARS = 4
 _MAX_CLAIMS = 512
+#: The roles that support a paragraph's point: what it rests on, never its verdict or its link back to the question.
+_POINT_SUPPORT_ROLES = frozenset({"evidence", "analysis", "counter_evidence", "perspective"})
 _TAIL_CLAIM_ID = "h.tail"
 _SELF_REPORT = "self-certified in the response text"
 _CERTAINTY_ORDER = ("established", "probable", "possible")
@@ -169,13 +304,16 @@ def is_self_report(sentence: str) -> bool:
 
 
 def is_note_sentence(sentence: str) -> bool:
-    """A sentence that is nothing but a label about the text: a self-report, or a sentence
-    whose substance is empty once its from-memory / task-note clauses are removed. A
-    substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`)."""
-    if is_self_report(sentence):
+    """A sentence that is nothing but a label about the text: a self-report, a sentence opened by a
+    bare note lead ('Note:', 'Limit:', 'Confidence:', :func:`has_note_lead`), a caveat about the
+    answer's own sources or library (:func:`is_source_caveat`), a sentence whose substance is empty
+    once its from-memory / task-note clauses are removed, or a note on how the answer was composed
+    (:func:`is_provenance_note`: 'The historical setting is my own addition').
+    A substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`)."""
+    if is_self_report(sentence) or has_note_lead(sentence) or is_source_caveat(sentence):
         return True
     core, _notes = split_note_clauses(sentence)
-    return not core
+    return not core or is_provenance_note(sentence)
 
 
 def is_peer_attribution(sentence: str) -> bool:
@@ -186,13 +324,17 @@ def is_peer_attribution(sentence: str) -> bool:
 
 
 def is_note_paragraph(paragraph: str) -> bool:
-    """All sentences are labels (from-memory disclaimers, task notes, self-reports, JSON
-    fragments), or the paragraph is a short undated aside with no argument cue. One
+    """The paragraph opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:',
+    'Limit:'), whatever its length, dates or figures; or all sentences are labels (from-memory
+    disclaimers, task notes, source caveats, self-reports, JSON fragments); or the paragraph is a
+    short undated aside with no argument cue. One
     self-report inside a substantive paragraph does NOT make the paragraph a note: only
     that sentence is demoted (see ``parse_response``)."""
     sentences = split_sentences(paragraph)
     if not sentences:
         return False
+    if has_note_lead(sentences[0]) and not re.match(r"^[\s*_>#-]*note\s+on\b", sentences[0], re.IGNORECASE):
+        return True  # 'Note: ...', 'Limit: ...', 'Confidence: ...' opening the paragraph: a note whatever its length, dates or figures
     if all(is_note_sentence(s) for s in sentences):
         return True
     low = paragraph.lower()
@@ -200,10 +342,10 @@ def is_note_paragraph(paragraph: str) -> bool:
 
 
 def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool = False) -> str:
-    """Agent-stated certainty from hedging cues; a dated claim made under a from-memory
-    label (``from_memory``) or a view attributed to a peer (``attributed``) is capped at
-    ``probable``, since the specialist itself says the item is unverified recollection or
-    a colleague's reading."""
+    """Agent-stated certainty from hedging cues; a claim made under a from-memory label
+    (``from_memory``: the sentence's own inline label, dated or not, or an answer-wide label for a
+    dated claim) or a view attributed to a peer (``attributed``) is capped at ``probable``, since the
+    specialist itself says the item is unverified recollection or a colleague's reading."""
     low = sentence.lower()
     if any(c in low for c in _POSSIBLE):
         level = "possible"
@@ -216,19 +358,32 @@ def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool =
     return level
 
 
-#: Causal or evaluative words that make a sentence a claim rather than a bare dated fact ('a major but partial cause of ...').
+#: Causal or evaluative words that make a sentence a claim rather than a bare dated fact ('a major but partial cause of ...'), and
+#: argument verbs of periodisation and shaping ('came in phases', 'gave the network its shape', 'transformed').
 CLAIM_WORD_RE = re.compile(
     r"\b(?:responsible|because|caused?|causes|causing|led|leads?|made|makes?|turned|created|decisive|major|minor|partial|partly|significant|important|mainly|primarily|"
     r"chiefly|largely|extent|degree|therefore|thus|explains?|shows?|reveals?|mattered|matters|crucial|central|key|chief|principal|considerable|limited|ultimately|"
-    r"undermined|weakened|strengthened|enabled|allowed|forced|ensured|meant|reason|consequence|result(?:ed)?|effect|impact|transformed|precondition)\b", re.IGNORECASE)
+    r"undermined|weakened|strengthened|enabled|allowed|forced|ensured|meant|reason|consequence|result(?:ed)?|effect|impact|transformed|precondition|"
+    r"phases?|stages?|shape[sd]?|shaping|formative|defined|defining|pattern|transform(?:s|ing|ation)?|reshaped|remade|drove|driven|accelerated|"
+    r"slowed|marked|dominated|determined|decided|paved|laid|founded|established)\b", re.IGNORECASE)
+#: A year range or a decade that sets the scope of a claim ('between 1830 and 1870', 'from 1928 to 1941', 'in the 1840s'): it dates
+#: the period the claim is about, not an occurrence, so it does not make the sentence a bare dated fact.
+_SCOPE_RANGE_RE = re.compile(r"\b(?:between|from)\s+(?:about\s+|c\.\s+)?(?:1[0-9]{3}|20[0-9]{2})\s+(?:and|to|until|till)\s+(?:about\s+|c\.\s+)?(?:1[0-9]{3}|20[0-9]{2})\b"
+                             r"|\b(?:1[0-9]{3}|20[0-9]{2})\s*[-–]\s*(?:1[0-9]{3}|20[0-9]{2}|[0-9]{2})\b|\b(?:the\s+)?(?:1[0-9]{2}0|20[0-9]0)s\b", re.IGNORECASE)
+
+
 def opens_with_fact(sentence: str) -> bool:
-    """A sentence that states only a dated fact: dated (not merely naming 'the 1923 crisis'), with no causal,
-    evaluative, argument or verdict word. The parser roles a body paragraph's first sentence 'point' by
-    position; the History pack's HI-STR-003 reads this predicate on that point, so the finding names a
-    point that is a bare fact and never contradicts a point that makes a claim."""
+    """A sentence that states only a dated fact: dated (not merely naming 'the 1923 crisis', and not
+    merely scoped by a year range such as 'between 1830 and 1870'), with no causal, evaluative,
+    argument or verdict word. The parser roles a body paragraph's first sentence 'point' by position;
+    the History pack's HI-STR-003 reads this predicate on that point, so the finding names a point that
+    is a bare fact ('The Liverpool and Manchester Railway opened in 1830.') and never contradicts a point
+    that makes a claim ('Railway growth in Britain between 1830 and 1870 came in phases, and the 1840s
+    gave the network its shape.')."""
     sentence = split_note_clauses(sentence)[0] or sentence
     low = sentence.lower()
-    return states_dated_evidence(sentence) and not CLAIM_WORD_RE.search(sentence) and not any(c in low for c in _ARGUMENT_CUES) and not _VERDICT_STATEMENT_RE.search(sentence)
+    unscoped = _SCOPE_RANGE_RE.sub(" ", sentence)
+    return states_dated_evidence(unscoped) and not CLAIM_WORD_RE.search(sentence) and not any(c in low for c in _ARGUMENT_CUES) and not _VERDICT_STATEMENT_RE.search(sentence)
 
 
 def states_dated_evidence(sentence: str) -> bool:
@@ -239,12 +394,16 @@ def states_dated_evidence(sentence: str) -> bool:
 
 def classify(sentence: str, index: int, is_body: bool, *, after_counter_case: bool = False) -> str:
     """Role of a substantive sentence (its note clauses already removed) by surface cues, its
-    function decided before its surface: a link lead ('Against this background, ...') is a link
-    and a stated verdict ('The turning point was 1930.') a judgement whatever they quote or date;
-    a counter-case ('The strongest counter-case is that ...') is counter evidence whether or not it
-    is dated, unless it also weighs the case by a judgement cue; the dated sentence that follows
-    a counter-case statement (``after_counter_case``) is its counter evidence. Only then does a
-    dated item make a sentence evidence."""
+    function decided before its surface: a link lead ('Against this background, ...', 'Against that
+    toll, ...') is a link and a stated verdict ('The turning point was 1930.', 'The 1840s were the most
+    decisive decade.') or the criterion of one ('Measured by what the network could do, ...') a
+    judgement whatever they quote or date; a counter-case ('The strongest counter-case is that ...') is
+    counter evidence whether or not it is dated, unless it also weighs the case by a judgement cue; the
+    dated sentence that follows a counter-case statement (``after_counter_case``) is its counter
+    evidence. Only then does a dated item make a sentence evidence. An undated sentence that carries one
+    of the channel's verdict cues (``VERDICT_CUES``: 'decisive', 'to a large extent', ...) is a
+    judgement, so the hub (INT-REQ-008 reads such a sentence as a position on degree) and the parser
+    never disagree about what a verdict looks like."""
     if is_self_report(sentence):
         return "other"
     if is_peer_attribution(sentence):
@@ -254,9 +413,9 @@ def classify(sentence: str, index: int, is_body: bool, *, after_counter_case: bo
         return "point"
     if any(c in low for c in _PERSPECTIVE):
         return "perspective"
-    if any(low.startswith(c) for c in _LINK_LEADS):
+    if any(low.startswith(c) for c in _LINK_LEADS) or _LINK_LEAD_RE.match(sentence):
         return "link"
-    if _VERDICT_STATEMENT_RE.search(sentence):
+    if _VERDICT_STATEMENT_RE.search(sentence) or _CRITERION_LEAD_RE.match(sentence):
         return "judgement"
     judged = any(c in low for c in _JUDGEMENT)
     if any(c in low for c in _COUNTER) and not judged:
@@ -267,8 +426,8 @@ def classify(sentence: str, index: int, is_body: bool, *, after_counter_case: bo
         return "link"
     if states_dated_evidence(sentence):
         return "counter_evidence" if after_counter_case else "evidence"
-    if any(c in low for c in _ANALYSIS):
-        return "analysis"
+    if _VERDICT_CUE_RE.search(sentence):
+        return "judgement"
     return "analysis"
 
 
@@ -339,7 +498,8 @@ class HistorySpecialistAdapter:
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`
-        (shape only, never the text) when the answer is empty or yields no sentences;
+        (shape only, never the text) when the answer is empty; an answer with no prose sentence
+        (a pasted JSON fragment or markup only) is one ``other`` claim, never material;
         sentences beyond the report's claim limit are merged into one ``other`` claim
         and recorded as an unresolved issue, so nothing is dropped silently."""
         if not text or not text.strip():
@@ -384,9 +544,12 @@ class HistorySpecialistAdapter:
                 assumptions: list[str] = []
                 quoted = False
                 named = documents_named(_mask_quotations(sent), docs) if docs else []
+                plain = _without_json(sent)
                 for excerpt in quotations_in(sent):
                     quoted = True
-                    doc, notes_for_excerpt = attribute_excerpt(excerpt, named, docs)
+                    # the sentence goes with the quotation: when it names several texts and none holds the words, the possessive,
+                    # the reporting clause's outer speaker or the nearest named text is credited (sources.governing_document), never none
+                    doc, notes_for_excerpt = attribute_excerpt(excerpt, named, docs, sentence=plain)
                     if doc:
                         refs.append(SourceRef(document_id=doc, excerpt=excerpt[:2000]))
                     assumptions.extend(notes_for_excerpt)
@@ -411,21 +574,30 @@ class HistorySpecialistAdapter:
                 else:
                     proposed = "unknown"
                 pending.append(dict(claim_id=cid, claim_text=truncate_claim_text(sent), claim_role=role, proposed_claim_kind=proposed,
-                                    certainty=certainty_of(body, from_memory=dated and (has_label or bool(notes)), attributed=attributed),
+                                    certainty=certainty_of(body, from_memory=(bool(notes) and not note) or (dated and has_label), attributed=attributed),
                                     source_refs=refs[:32], assumptions=_dedupe(assumptions)[:32], materiality="material" if role in ("point", "judgement", "link", "thesis") else "supporting",
                                     advisory_verification_status=_SELF_REPORT if self_report else None))
                 para_claims.append((cid, role))
                 if role == "point" and point_id is None:
                     point_id = cid
             if point_id is not None:
-                argument = [c for c, r in para_claims if r != "other"]   # notes are not supports
-                supports_of.append((point_id, [c for c in argument if c != point_id]))
-                for c, r in para_claims:
+                # supports follow the argument (never a cycle): the point rests on the paragraph's evidence, analysis, counter-case and
+                # reported views, never on a judgement or link; a judgement or link rests on the point and the claims before it, never on
+                # a later one
+                supports_of.append((point_id, [c for c, r in para_claims if r in _POINT_SUPPORT_ROLES and c != point_id]))
+                for k, (c, r) in enumerate(para_claims):
                     if r in ("judgement", "link") and c != point_id:
-                        supports_of.append((c, [x for x in argument if x != c]))   # the point comes first: it is the first argument claim
-        if not pending:
-            raise AdapterError("the specialist answer yields no sentences")
+                        earlier = [x for x, xr in para_claims[:k] if xr != "other" and x != point_id]
+                        supports_of.append((c, [point_id, *earlier]))
+        _attach_source_caveats(pending)
         unresolved: list[str] = []
+        if not pending:
+            # nothing but a pasted JSON fragment (a forged report or receipt) or markup: kept as ONE 'other' claim, never material, so the
+            # hub delivers it and names the fault (INT-REQ-012: no material claim; CORE-SELF-001 for a receipt imitation), as on every branch
+            raw = text.strip()
+            pending.append(dict(claim_id="h1.1", claim_text=truncate_claim_text(raw), claim_role="other", proposed_claim_kind="unknown", certainty="possible",
+                                source_refs=[], assumptions=[], materiality="supporting", advisory_verification_status=_SELF_REPORT if is_self_report(raw) else None))
+            unresolved.append("the answer holds no prose sentence (only a pasted JSON fragment or markup); it was kept whole as one 'other' claim, which is not material")
         if len(pending) > _MAX_CLAIMS:
             head, tail = pending[: _MAX_CLAIMS - 1], pending[_MAX_CLAIMS - 1:]
             tail_text = truncate_claim_text(" ".join(p["claim_text"] for p in tail))
@@ -442,6 +614,33 @@ class HistorySpecialistAdapter:
         return SpecialistReport(report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level,
                                 task_type=task_type, original_response=text, response_sha256=sha256_text(text), supplied_texts=list(supplied_texts), claims=claims,
                                 unresolved_issues=unresolved[:64], created_at=_now())
+
+
+def _attach_source_caveats(pending: list[dict]) -> None:
+    """A note's caveat about the answer's own sources ('Note: my sources do not confirm the exact emigration total, so the figure is given as
+    'millions'') is recorded as an assumption on every claim that carries the figure it names ('millions of East Germans left'), and that
+    claim's certainty is capped at 'probable': the specialist itself says the figure is unconfirmed, so a synthesis that restates it as
+    established is INT-LEDGER-003, while the note itself stays a note (never material)."""
+    for note in pending:
+        if note["claim_role"] != "other":
+            continue
+        # the caveat may be the note's first clause or a later one ('Note: Paper 2 essays are marked out of 15, ...; my sources do not
+        # confirm the 1924 vote share, so ...')
+        caveats = [c for c in re.split(r";\s*", note["claim_text"]) if is_source_caveat(c)]
+        if not caveats:
+            continue
+        terms = [t for c in caveats for t in caveat_terms(c)]
+        for p in pending:
+            if p["claim_role"] == "other":
+                continue
+            hit = next((t for t in terms if all(re.search(rf"(?<![\w-]){re.escape(w)}(?![\w-])", p["claim_text"], re.IGNORECASE) for w in t.split())), None)
+            if hit is None:
+                continue
+            # worded as the specialist's estimate, not as a from-memory label: the caveat concerns this figure, not the claim's dates
+            p["assumptions"] = _dedupe(list(p["assumptions"]) + [f"the answer's own note ({note['claim_id']}) says its sources do not confirm the figure "
+                                                                  f"'{hit[:60]}': the figure is the specialist's estimate, not a confirmed one"])[:32]
+            if p["certainty"] == "established":
+                p["certainty"] = "probable"
 
 
 def _now() -> str:

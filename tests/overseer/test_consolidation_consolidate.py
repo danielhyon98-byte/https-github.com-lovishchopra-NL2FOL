@@ -116,15 +116,25 @@ def codes_of(resp: ConsolidatedResponse) -> list[str]:
 # ============================================================================================ duplicated identical answers
 def test_duplicated_identical_answers_are_one_group_with_every_agent_and_the_earliest_clean_representative(hub):
     d = Dup(hub)
-    for a in DUP:
-        assert d.answer(a, name=a).status.value == "ACCEPTED"
+    for i, a in enumerate(DUP):
+        rc = d.answer(a, name=a)
+        # rewritten for the translator merge: the merged channel names the claim ids every later duplicated instance
+        # shares with the earlier answers (INT-REQ-016, a warning naming their reports); it is the only finding, the
+        # duplication this consolidation resolves (rule duplicate-collision)
+        if i == 0:
+            assert rc.status.value == "ACCEPTED"
+        else:
+            assert rc.status.value == "ACCEPTED_WITH_FINDINGS" and [(f.code, f.severity) for f in rc.findings] == [("INT-REQ-016", "warning")]
+            assert set(rc.findings[0].report_ids) == {f"rep-{x}-{j + 1}" for j, x in enumerate(DUP[:i + 1])}
     r = d.consolidate()
     assert verify_consolidated(r, hub.auditor.keyring) and r.signature_key_id == CONSOLIDATION_KEY_ID and r.contract == CONSOLIDATED_CONTRACT
     assert r.status == "CONSOLIDATED" and r.answers == 3 and len(r.groups) == 1 and not r.excluded and not r.conflicts and not r.advisory
     g = r.groups[0]
     assert g.basis == "identical_text" and g.agent_ids == list(DUP) and [m.message_id for m in g.members] == [d.mids[a] for a in DUP]
     assert g.canonical_message_id == d.mids["english-1"] and g.canonical_clean and g.canonical_basis == "earliest_fully_clean"
-    assert all(m.clean and m.receipt_status == "ACCEPTED" and m.clearance == "AUDIT_PASSED" for m in g.members)
+    assert all(m.clean and m.clearance == "AUDIT_PASSED" for m in g.members)
+    assert [m.receipt_status for m in g.members] == ["ACCEPTED", "ACCEPTED_WITH_FINDINGS", "ACCEPTED_WITH_FINDINGS"]
+    assert [m.finding_codes for m in g.members] == [[], ["INT-REQ-016"], ["INT-REQ-016"]]
     assert len({m.text_sha256 for m in g.members}) == 1 and g.merge_check is None
     assert r.deliverable_message_id == d.mids["english-1"] and r.request_message_ids and len(r.request_message_ids) == 3
     assert r.scope_statement == CONSOLIDATION_SCOPE_STATEMENT and "does not show that any answer is true" in r.scope_statement
@@ -139,12 +149,17 @@ def test_duplicated_identical_answers_are_one_group_with_every_agent_and_the_ear
 def test_the_representative_is_the_earliest_FULLY_CLEAN_member_never_an_earlier_one_with_findings(hub):
     d = Dup(hub)
     assert d.answer("english-1", text=TEXT_W, claims=CLAIMS_W, name="warned").status.value == "ACCEPTED_WITH_FINDINGS"
-    assert d.answer("english-2", name="clean").status.value == "ACCEPTED"
+    rc = d.answer("english-2", name="clean")  # the merged channel: only the duplication's INT-REQ-016 (rule duplicate-collision)
+    assert rc.status.value == "ACCEPTED_WITH_FINDINGS" and [(f.code, f.severity) for f in rc.findings] == [("INT-REQ-016", "warning")]
     r = d.consolidate()
     g = r.groups[0]
     assert len(r.groups) == 1 and g.basis == "same_material_claims" and [m.message_id for m in g.members] == [d.mids["warned"], d.mids["clean"]]
-    assert g.canonical_message_id == d.mids["clean"] and g.canonical_clean and g.canonical_basis == "earliest_fully_clean"
-    assert [m.clean for m in g.members] == [False, True] and "INT-REQ-010" in g.members[0].finding_codes and g.members[1].finding_codes == []
+    # rewritten in the second repair of the translator merge (the same representative, asserted more strictly): the member
+    # is clean by rule duplicate-collision, its receipt ACCEPTED_WITH_FINDINGS with INT-REQ-016 only, so its basis names
+    # that, never earliest_fully_clean, which only an ACCEPTED receipt is (the staged test pinned the misleading label)
+    assert g.canonical_message_id == d.mids["clean"] and g.canonical_clean and g.canonical_basis == "earliest_clean_with_duplicate_collisions"
+    assert g.members[1].receipt_status == "ACCEPTED_WITH_FINDINGS" and g.members[1].clean
+    assert [m.clean for m in g.members] == [False, True] and "INT-REQ-010" in g.members[0].finding_codes and g.members[1].finding_codes == ["INT-REQ-016"]
     assert r.status == "CONSOLIDATED" and r.deliverable_message_id == d.mids["clean"]
 
 
@@ -300,12 +315,16 @@ def test_an_answer_whose_transfer_fails_the_audit_is_excluded_even_with_a_clean_
     d = Dup(hub)
     d.answer("english-1", name="a")
     d.answer("english-2", name="b")
-    # router-side code edits the delivered payload in the log after issue: CUST-001 fails the transfer's audit
-    d.ch.log.get(d.mids["b"]).payload["claims"][0]["claim_text"] = "The writer celebrates work"
+    # router-side code edits the delivered payload in the log after issue: CUST-001 fails the transfer's audit.
+    # Rewritten for the translator merge: the edited answer is the first one, whose receipt is ACCEPTED with no finding
+    # at all (the second carries the duplication's INT-REQ-016), so the excluded answer's receipt is fully clean as
+    # before, and the representative is the next clean member
+    d.ch.log.get(d.mids["a"]).payload["claims"][0]["claim_text"] = "The writer celebrates work"
     r = d.consolidate()
-    ex = next(e for e in r.excluded if e.message_id == d.mids["b"])
+    ex = next(e for e in r.excluded if e.message_id == d.mids["a"])
     assert ex.clearance == "AUDIT_FAILED" and "OVS-CUST-001" in ex.codes and ex.receipt_status == "ACCEPTED"
-    assert r.groups[0].canonical_message_id == d.mids["a"]
+    assert d.receipts["a"].findings == [] and d.mids["b"] not in {e.message_id for e in r.excluded}
+    assert r.groups[0].canonical_message_id == d.mids["b"]
 
 
 # ============================================================================================ selection of the input

@@ -1,0 +1,72 @@
+"""STEM subject profiles (docs/STEM_DESIGN.md, section 10.1): the ``stem`` profile, what the STEM profiles say the
+formal layer can and cannot establish, the STEM encoding guidance in the model-facing profile text, and the pinned
+prompt version left unchanged."""
+from __future__ import annotations
+
+import pytest
+
+from epinoic_logic.translate.contracts import EligibilityClass
+from epinoic_logic.translate.subjects import (
+    PROFILES, SCIENCE_SUBJECTS, STEM_ENCODING_GUIDANCE, STEM_PROFILE_KEYS, UNKNOWN, prompt_profile_text, resolve_profile,
+)
+from epinoic_logic.version import POLICY_VERSION, TRANSLATOR_VERSION
+
+STEM_KEYS = ("physics", "chemistry", "biology", "ess", "sports_science", "design_technology", "stem", "mathematics_aa", "mathematics_ai",
+             "mathematics", "computer_science")
+
+
+def test_the_stem_profile():
+    p = PROFILES["stem"]
+    assert p.group == "sciences" and not p.argument_only and p.numeric_sorts == frozenset({"Int", "Real"})
+    assert p.allows(EligibilityClass.QUANTITATIVE_CLAIM) and p.allows(EligibilityClass.ARITHMETIC_CONSTRAINT)
+    assert resolve_profile(p.display_name) is p and resolve_profile("Physics/Chemistry") is p
+    assert set(SCIENCE_SUBJECTS) == {"physics", "chemistry", "biology", "ess", "sports_science", "design_technology"}
+    assert STEM_PROFILE_KEYS == frozenset(STEM_KEYS)
+
+
+@pytest.mark.parametrize("key", STEM_KEYS)
+def test_stem_profiles_state_the_truth_about_what_is_checked(key):
+    p = PROFILES[key]
+    assert "deterministic STEM checks decide" in p.can_check and "written arithmetic" in p.can_check
+    assert "do not check units" in p.can_check  # the model translator's formalisations
+    for never in ("physical validity", "truth of laws", "diagrams or graphs", "calculus"):
+        assert never in p.cannot_check, (key, never)
+    assert "units and significant figures (v1)" not in p.cannot_check  # the old text no longer applies to STEM
+
+
+def test_profile_specific_checks_are_named():
+    assert "Boolean identities" in PROFILES["computer_science"].can_check and "program behaviour" in PROFILES["computer_science"].cannot_check
+    assert "balances" in PROFILES["chemistry"].can_check and "stated roots" in PROFILES["mathematics_aa"].can_check
+    assert "statistical inference" in PROFILES["mathematics_ai"].cannot_check
+
+
+@pytest.mark.parametrize("key", STEM_KEYS)
+def test_stem_profile_text_carries_the_encoding_guidance(key):
+    text = prompt_profile_text(PROFILES[key])
+    assert text.endswith(STEM_ENCODING_GUIDANCE)
+    for phrase in ("no exponent", "substitute the stated values", "s<claim>_v", "unit as an assumption", "UNSUPPORTED"):
+        assert phrase in STEM_ENCODING_GUIDANCE
+
+
+@pytest.mark.parametrize("key", ["history", "english_a_literature", "economics", "philosophy", "tok"])
+def test_non_stem_profile_text_is_unchanged(key):
+    p = PROFILES[key]
+    text = prompt_profile_text(p)
+    assert STEM_ENCODING_GUIDANCE not in text
+    classes = ", ".join(sorted(c.value for c in p.eligible_classes))
+    expected = (f"Subject: {p.display_name} (IB group: {p.group}). Formalizable claim classes: {classes}. The formal check can establish: {p.can_check}. "
+                f"It can never establish: {p.cannot_check}. "
+                + ("Numeric claims are not expected in this subject; encode argument structure only. " if p.argument_only else
+                   f"Numeric sorts in use: {', '.join(sorted(p.numeric_sorts))}; keep Int and Real distinct and write numerals as exact strings. "))
+    assert text == expected
+
+
+def test_versions_are_bumped_and_the_pinned_prompt_is_unchanged():
+    from epinoic_logic.translate import prompts
+    assert TRANSLATOR_VERSION == "0.3.0" and POLICY_VERSION == "2026.10-v3"
+    assert prompts.TRANSLATE_PROMPT_VERSION == "translate_v1"
+
+
+def test_unknown_stays_the_most_conservative_profile():
+    assert resolve_profile("Underwater Basket Weaving") is UNKNOWN and UNKNOWN.argument_only
+    assert not UNKNOWN.allows(EligibilityClass.QUANTITATIVE_CLAIM)

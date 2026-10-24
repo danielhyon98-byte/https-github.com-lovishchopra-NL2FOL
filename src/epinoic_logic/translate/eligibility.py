@@ -13,12 +13,18 @@ Summary of the rules (applied in this order; the first match decides):
                                      claim itself exist (a self-reference is discarded and recorded),
                                      else NOT_ELIGIBLE_OTHER ("no supporting claims")
 4. role structural | quantitative -> ARITHMETIC_CONSTRAINT | QUANTITATIVE_CLAIM when the
-                                     text has numerals or comparatives, else NOT_ELIGIBLE_OTHER
+                                     text has numerals or comparatives (mark annotations "[2]", part and list
+                                     labels "(a)", "(iii)" and named items "Paper 1", "Table 1" are not figures:
+                                     ``figure_text``), or (subject profiles that allow QUANTITATIVE_CLAIM only) a
+                                     mathematical relation sign between operands (=, ≠, <, >, ≤, ≥, ≈: "F = ma") or a
+                                     superscript or subscript digit ("x²", "v₀"), else NOT_ELIGIBLE_OTHER
 5. role interpretation | effect | device | analysis | perspective | value | limitation (standalone)
                                   -> NOT_ELIGIBLE_INTERPRETIVE, route ``subject_evaluator``
 6. role evidence | counter_evidence | origin | purpose | content
-                                  -> QUANTITATIVE_CLAIM when the text carries dates/figures (exact consistency
-                                     is checkable; truth is not), else NOT_ELIGIBLE_FACTUAL, route ``evidence_service``
+                                  -> QUANTITATIVE_CLAIM when the text carries two or more related dates/figures or a
+                                     comparative (exact consistency is checkable; truth is not), else NOT_ELIGIBLE_FACTUAL,
+                                     route ``evidence_service`` (a single date or figure has nothing to be checked against:
+                                     its only encoding would restate it)
 7. role other: by kind            -> formal_logic: PROPOSITIONAL_ARGUMENT; arithmetic: QUANTITATIVE_CLAIM
                                      (with cues); interpretive: NOT_ELIGIBLE_INTERPRETIVE; unknown: NOT_ELIGIBLE_OTHER
 """
@@ -29,6 +35,7 @@ from typing import Optional
 
 from ..version import POLICY_VERSION
 from .contracts import ClaimRecord, EligibilityClass, EligibilityDecision
+from .subjects import resolve_profile
 
 ARGUMENT_ROLES = frozenset({"point", "thesis", "link", "judgement"})           # a judgement is an argued position on degree
 COUNT_ROLES = frozenset({"structural", "quantitative"})
@@ -36,6 +43,10 @@ INTERPRETIVE_ROLES = frozenset({"interpretation", "effect", "device", "analysis"
 FACTUAL_ROLES = frozenset({"evidence", "counter_evidence", "origin", "purpose", "content"})  # checked by grounding/evidence, not the solver
 
 _NUMERAL_RE = re.compile(r"\d")
+#: Superscript and subscript digits (``x²``, ``v₀``), which ``\d`` does not match: numerals for rule 4 in quantitative profiles.
+_SCRIPT_DIGIT_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]")
+#: A mathematical relation sign between two operands ('F = ma', 'x ≤ 3', 'E ≈ hf'); '==' and arrows are not relations here.
+_RELATION_RE = re.compile(r"[\w)\]}²³¹⁰⁴-⁹₀-₉′]\s*(?:<=|>=|=|≠|<|>|≤|≥|≈)(?![=<>])\s*[\w(\[{√±−+-]")
 _NUMBER_WORDS = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
     "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
@@ -54,14 +65,41 @@ _COMPARATIVE_CUES = (
 _COMPARATIVE_RE = re.compile(r"\b(" + "|".join(re.escape(c) for c in _COMPARATIVE_CUES) + r")\b", re.IGNORECASE)
 
 
-def has_numeral(text: str) -> bool:
-    """True when ``text`` contains a digit or a spelled-out number word."""
-    return bool(_NUMERAL_RE.search(text) or _NUMBER_WORD_RE.search(text))
+def has_numeral(text: str, *, scripts: bool = False) -> bool:
+    """True when ``text`` contains a digit or a spelled-out number word; with ``scripts``, a superscript
+    or subscript digit counts too (rule 4 in profiles that allow quantitative claims)."""
+    return bool(_NUMERAL_RE.search(text) or _NUMBER_WORD_RE.search(text) or (scripts and _SCRIPT_DIGIT_RE.search(text)))
+
+
+#: Numerals that are no figure of the claim: a mark annotation ("[2]", "[1 spare]", "[2 marks]"), a part or list label
+#: ("(a)", "(iii)", "(3)", "2." opening a line) and a named item ("Paper 1", "Table 1", "part (b)", "question 3", "Section A").
+_MARK_ANNOTATION_RE = re.compile(r"\[\s*\d+(?:\s*(?:marks?|spare))*\s*\]", re.IGNORECASE)
+_LABEL_RE = re.compile(r"(?<!\w)\((?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x|\d{1,2})\)|(?m:^\s*(?:\d{1,2}|[a-h])[.)](?=\s))", re.IGNORECASE)
+_NAMED_ITEM_RE = re.compile(r"\b(?:paper|section|part|question|unit|topic|criterion|item|step|table|figure|diagram|paragraph|stanza|page|appendix|source)"
+                            r"\s+\(?(?:\d{1,3}|[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)?(?![\w.]\d)", re.IGNORECASE)
+
+
+def figure_text(text: str) -> str:
+    """``text`` without the numerals that are no figure of the claim (mark annotations, part and list labels, named
+    items: :data:`_MARK_ANNOTATION_RE`, :data:`_LABEL_RE`, :data:`_NAMED_ITEM_RE`): what the numeric cues are read on, so
+    a mark heading "(a) [2]" or "Paper 1 is the unseen-text paper" is no quantitative claim."""
+    return _NAMED_ITEM_RE.sub(" ", _LABEL_RE.sub(" ", _MARK_ANNOTATION_RE.sub(" ", text)))
+
+
+def _figure_count(text: str) -> int:
+    """Figures and dates of ``text`` (numerals and number words), labels and annotations aside."""
+    t = figure_text(text)
+    return len(re.findall(r"\d+(?:[.,]\d+)*", t)) + len(_NUMBER_WORD_RE.findall(t))
 
 
 def has_comparative(text: str) -> bool:
     """True when ``text`` contains a comparative or threshold cue."""
     return bool(_COMPARATIVE_RE.search(text))
+
+
+def has_relation_sign(text: str) -> bool:
+    """True when ``text`` states a mathematical relation between two operands (``F = ma``, ``x ≤ 3``)."""
+    return bool(_RELATION_RE.search(text))
 
 
 def _decision(
@@ -106,11 +144,16 @@ def _argument_role(claim: ClaimRecord, reasons: list[str], pv: str) -> Eligibili
 
 
 def _count_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityDecision:
-    numeral, comparative = has_numeral(claim.claim_text), has_comparative(claim.claim_text)
-    if not (numeral or comparative):
-        reasons.append("no numerals or comparatives in claim text")
+    text = figure_text(claim.claim_text)
+    numeral, comparative = has_numeral(text), has_comparative(text)
+    relation = False
+    if not (numeral or comparative) and resolve_profile(claim.subject).allows(EligibilityClass.QUANTITATIVE_CLAIM):
+        numeral = has_numeral(text, scripts=True)
+        relation = not numeral and has_relation_sign(text)
+    if not (numeral or comparative or relation):
+        reasons.append("no numerals or comparatives in claim text" + (" (mark annotations, part labels and named items are not figures)" if text != claim.claim_text else ""))
         return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
-    cues = ", ".join(c for c, present in (("numerals", numeral), ("comparatives", comparative)) if present)
+    cues = ", ".join(c for c, present in (("numerals", numeral), ("comparatives", comparative), ("a mathematical relation sign", relation)) if present)
     reasons.append(f"role {claim.claim_role} with {cues} in the text")
     cls = EligibilityClass.ARITHMETIC_CONSTRAINT if claim.claim_role == "structural" else EligibilityClass.QUANTITATIVE_CLAIM
     return _decision(cls, True, reasons, pv)
@@ -122,7 +165,7 @@ def _other_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityD
         reasons.append("role other with proposed kind formal_logic")
         return _decision(EligibilityClass.PROPOSITIONAL_ARGUMENT, True, reasons, pv)
     if kind == "arithmetic":
-        if has_numeral(claim.claim_text) or has_comparative(claim.claim_text):
+        if has_numeral(figure_text(claim.claim_text)) or has_comparative(figure_text(claim.claim_text)):
             reasons.append("role other with proposed kind arithmetic and numeric cues in the text")
             return _decision(EligibilityClass.QUANTITATIVE_CLAIM, True, reasons, pv)
         reasons.append("proposed kind arithmetic but no numerals or comparatives in claim text")
@@ -157,9 +200,11 @@ def decide_eligibility(claim: ClaimRecord, policy_version: str = POLICY_VERSION)
         reasons.append(f"standalone {role} claim: interpretation, analysis or evaluation is not a solver question")
         return _decision(EligibilityClass.NOT_ELIGIBLE_INTERPRETIVE, False, reasons, policy_version, "subject_evaluator")
     if role in FACTUAL_ROLES:
-        if role in ("evidence", "counter_evidence") and (has_numeral(claim.claim_text) or has_comparative(claim.claim_text)):
-            reasons.append(f"{role} with dates or figures: the stated quantities can be checked for exact consistency; their truth is checked by evidence")
+        if role in ("evidence", "counter_evidence") and (_figure_count(claim.claim_text) >= 2 or has_comparative(figure_text(claim.claim_text))):
+            reasons.append(f"{role} with related dates or figures: the stated quantities can be checked for exact consistency; their truth is checked by evidence")
             return _decision(EligibilityClass.QUANTITATIVE_CLAIM, True, reasons, policy_version)
+        if role in ("evidence", "counter_evidence") and _figure_count(claim.claim_text) == 1:
+            reasons.append(f"{role} with a single date or figure: nothing to check it against but its own statement, so its only encoding would restate it")
         reasons.append(f"{role} claims are checked by deterministic grounding or the evidence service, not by the solver")
         return _decision(EligibilityClass.NOT_ELIGIBLE_FACTUAL, False, reasons, policy_version, "evidence_service")
     return _other_role(claim, reasons, policy_version)

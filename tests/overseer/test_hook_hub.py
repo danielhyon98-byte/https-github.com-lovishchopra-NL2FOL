@@ -237,8 +237,16 @@ def test_close_task_issues_the_final_audit_and_seals_the_journal(hub):
     assert final is not None and final.final and verify_audit(final, hub.auditor.keyring) and final.message_ids == task.all_mids()
     assert task.key not in hub.channels and hub.closed_channels[task.uid] is task.ch
     assert hub.auditor.journal(task.uid).sealed and hub.auditor.journal(task.uid).verify_chain() is None
-    with pytest.raises(KeyError):
-        hub.dispatch(task.key, "english-specialist", EN_INPUT, [DOC])
+    # Rewritten for the merged hub, which never raises into the router (a task id no open plan names gets a REJECTED
+    # receipt from a quarantine channel): a dispatch on the closed task sends nothing, names the closed task, and leaves
+    # the closed channel and its sealed journal exactly as they were (it was KeyError before the merge).
+    entries = len(hub.auditor.journal(task.uid).entries())
+    sent = len(task.ch.receipts)
+    msg, _req, rq = hub.dispatch(task.key, "english-specialist", EN_INPUT, [DOC])
+    assert msg is None and rq.status.value == "REJECTED" and [f.code for f in rq.findings] == ["INT-HANDOFF-001"]
+    assert "was closed on this hub" in rq.findings[0].message and task.key in rq.findings[0].message
+    assert len(hub.auditor.journal(task.uid).entries()) == entries and len(task.ch.receipts) == sent and task.key not in hub.channels
+    assert hub.auditor.journal(task.uid).sealed and hub.auditor.journal(task.uid).verify_chain() is None
     assert hub.audit(task.uid).channel_uid == task.uid  # still auditable through closed_channels
 
 

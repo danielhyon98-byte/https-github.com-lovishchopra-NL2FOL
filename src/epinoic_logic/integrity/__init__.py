@@ -20,7 +20,7 @@ from .contracts import (  # noqa: F401
 )
 from .cross_check import (  # noqa: F401
     JointMap, check_conflict_disclosure, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment,
-    claim_ids_from_core, joint_problem,
+    claim_ids_from_core, gloss_content, joint_problem, split_by_gloss,
 )
 from .envelope import MessageLog, bind_payload, ROLE_CONTRACTS  # noqa: F401
 from .handoff import check_report_against_plan, check_report_set, check_result_binding  # noqa: F401

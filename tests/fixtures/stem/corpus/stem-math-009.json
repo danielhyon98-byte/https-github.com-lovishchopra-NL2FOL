@@ -1,0 +1,36 @@
+{
+  "id": "stem-math-009",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "structured_answer",
+  "question": "Simplify log 2 + log 5, and solve log x + log(x − 3) = 1 (logarithms to base 10).",
+  "supplied_texts": [],
+  "response_text": "Using the laws of logarithms (base 10):\nlog 2 + log 5 = log 7 ≈ 0.845\n\nFor the equation, combine the logarithms on the left:\nlog x + log(x − 3) = 1\nlog(x(x − 3)) = 1\nx(x − 3) = 10\nx² − 3x − 10 = 0\n(x − 5)(x + 2) = 0\nx = 5 or x = −2. Since log(x − 3) needs x > 3, we reject x = −2, so x = 5.",
+  "notation": [
+    "unicode",
+    "logarithm",
+    "implicit_multiplication",
+    "derivation_lines",
+    "inequality"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_identity",
+        "step": "log 2 + log 5 = log 7",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq with enclosures (Form S): log 2 + log 5 = log 10 = 1, while log 7 = 0.8451; no admissible values of the enclosures (width below 10⁻¹⁵) bring them within 1 per cent. The product law was applied as a sum. [computed: log2 + log5 = 1.0000 vs log7 = 0.8451]"
+      }
+    ],
+    "correct_steps": [
+      "log 7 ≈ 0.845",
+      "log(x(x − 3)) = 1",
+      "x(x − 3) = 10",
+      "x² − 3x − 10 = 0",
+      "(x − 5)(x + 2) = 0",
+      "x = 5 or x = −2",
+      "we reject x = −2, so x = 5"
+    ]
+  }
+}

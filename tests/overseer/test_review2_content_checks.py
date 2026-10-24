@@ -6,7 +6,8 @@ code before the fix; the scenarios are the reviewers' own):
 * the synthesis ledger: a one-sided move of a figure onto another figure's event that keeps only a shared noun
   ("Factory", "Act"), or a year standing in another year's place, is INT-LEDGER-023; a figure or date in the
   student-facing text that no synthesized claim states is INT-LEDGER-023; a single-source paraphrase that turns a
-  comparison the other way or negates its source's own content is INT-LEDGER-027; each is an error the release gate
+  comparison the other way or negates its source's own content is INT-LEDGER-030 (INT-LEDGER-027 before the translator merge,
+  which gave that number to a dropped from-memory label); each is an error the release gate
   refuses;
 * precision on genuine transfers: a claim that occurs verbatim in a response laid out with markdown structure (bold
   numbering, items without full stops, a bullet after a quotation, inline numbering) is never FID-001; a list number
@@ -111,6 +112,10 @@ def _ledger(rep, claims, text=None) -> set[tuple[str, str]]:
     return {(f.code, f.severity) for f in check_synthesis_ledger([rep], _syn(rep, claims, text))}
 
 
+def _ledger_messages(rep, claims, code: str, text=None) -> list[str]:
+    return [f.message for f in check_synthesis_ledger([rep], _syn(rep, claims, text)) if f.code == code]
+
+
 @pytest.mark.parametrize("text", [
     "The Factory Act of 1847 banned the employment of children under nine in textile mills.",  # keeps 'Factory', 'Act'
     "The ban on the employment of children under nine in textile mills, which the Factory Act introduced, came in 1847.",
@@ -180,18 +185,18 @@ def _paraphrase(text: str) -> Synthesis:
     "The Factory Act of 1833 banned the employment of children over nine in textile mills.",  # the comparison turned the other way
     "The Factory Act of 1833 did not ban the employment of children under nine in textile mills.",  # the source negated
 ])
-def test_a_paraphrase_that_states_the_opposite_of_its_source_is_int_ledger_027_whatever_its_formal_conclusion(auditor, text):
+def test_a_paraphrase_that_states_the_opposite_of_its_source_is_int_ledger_030_whatever_its_formal_conclusion(auditor, text):
     task = run_task(auditor, synthesis_obj=_paraphrase(text))
     rs = task.receipts["syn"]
     assert rs.formal_result_ids  # the entailment check on the source's own conclusion ran and succeeded
-    f = [x for x in rs.findings if x.code == "INT-LEDGER-027"]
+    f = [x for x in rs.findings if x.code == "INT-LEDGER-030"]
     assert f and f[0].severity == "error" and "s2" in f[0].claim_ids
     assert not _release(auditor, task, task.audit(final=True)).allowed
 
 
 def test_control_a_faithful_paraphrase_is_released(auditor):
     task = run_task(auditor, synthesis_obj=_paraphrase("In 1833 the Factory Act banned the employment of children under nine in textile mills."))
-    assert not [x for x in task.receipts["syn"].findings if x.code in ("INT-LEDGER-027", "INT-LEDGER-026")]
+    assert not [x for x in task.receipts["syn"].findings if x.code in ("INT-LEDGER-030", "INT-LEDGER-026", "INT-LEDGER-027")]
     assert _release(auditor, task, task.audit(final=True)).allowed
 
 
@@ -205,7 +210,20 @@ def test_an_added_negation_is_an_error_only_when_it_negates_the_sources_own_cont
     assert not meaning_inversions(other, [src], "paraphrased")
     rep = _hi_report("The verb assembled gives the town the action. It builds itself out of the mist.")
     found = _ledger(rep, [SynthesizedClaim(claim_id="s1", text=other, source_claim_ids=["h1.1"], transformation="paraphrased")])
-    assert ("INT-LEDGER-027", "error") not in found and ("INT-LEDGER-026", "warning") in found
+    # The original assertion on the original input, kept (the error renumbered INT-LEDGER-030 by the translator merge): the
+    # unaligned negation is the INT-LEDGER-026 warning, never the error. The merged ledger keeps this branch's polarity
+    # reading (rule unaligned-polarity) beside the development branch's aligned comparison, which reads a negation only in a
+    # statement copied from a cited source; the third repair restored it after the staged rewrite had pinned its loss.
+    assert ("INT-LEDGER-030", "error") not in found and ("INT-LEDGER-026", "warning") in found
+    assert found == {("INT-LEDGER-002", "error"), ("INT-LEDGER-026", "warning")}  # exactly: and the uncited h1.2 unaccounted for
+    msgs = _ledger_messages(rep, [SynthesizedClaim(claim_id="s1", text=other, source_claim_ids=["h1.1"], transformation="paraphrased")], "INT-LEDGER-026")
+    assert len(msgs) == 1 and "it adds a negation its cited sources do not state" in msgs[0]
+    # the warning-not-error property on a statement the merged rule aligns: a negation over a word the source does not
+    # state ("no fog" for "the mist") is the INT-LEDGER-026 warning and never the INT-LEDGER-030 error
+    copied = _hi_report("The place she left seems to build itself out of the mist.")
+    found = _ledger(copied, [SynthesizedClaim(claim_id="s1", text="The place she left seems to build itself out of no fog.", source_claim_ids=["h1.1"],
+                                               transformation="paraphrased")])
+    assert ("INT-LEDGER-030", "error") not in found and ("INT-LEDGER-026", "warning") in found
     assert meaning_inversions("The place she left does not build itself out of the mist.", [src], "paraphrased")
 
 

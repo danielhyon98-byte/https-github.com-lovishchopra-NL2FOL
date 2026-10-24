@@ -38,8 +38,12 @@ Segmentation rules
     two quotations is the conclusion.
 
 * Sentences end at ``.``, ``!`` or ``?`` (closing quotation marks may follow) when
-  the next word starts with a capital letter; one-letter tokens and common
-  abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence, and a
+  the next word starts with a capital letter or a digit; one-letter tokens and common
+  abbreviations (``l.``, ``ll.``, ``p.``, ``Mr.`` ...) never end a sentence before a full
+  stop (the ``s`` of a sentence-final possessive, "... matches the enemy's.", the ``d`` of a
+  contraction, a quoted letter, her "I"., and the pronoun ``I`` outside a run of initials,
+  "No one speaks but I.", are the end of a word, not a one-letter token, and do; ``?`` and
+  ``!`` always do: "... "Who made the eyes but I?" The modal ..."), and a
   boundary inside an open quotation never splits it, so a quoted span that contains
   a full stop stays one quotation in one sentence. A pasted JSON span glued to the
   prose (:func:`~epinoic_logic.adapters.markdown.find_json_spans`) is one sentence of
@@ -75,9 +79,12 @@ Role rules (body paragraphs)
   narrates an internal step (``META_NARRATION_RE``) or is JSON-shaped -> ``other``
   with no source reference, wherever it stands, first sentence or not, quotation
   marks or not; the self-report travels in ``advisory_verification_status``;
-* a quotation-free sentence that is nothing but a note about the text (a from-memory
-  label, a disclaimer, a task-setting note: :func:`is_note_only`) -> ``other``,
-  wherever it stands, so a disclaimer is never the paragraph's material point; a
+* a sentence that is nothing but a note about the text (a from-memory label, a disclaimer,
+  a task-setting note, a note on where the answer's items or a received report's figures come
+  from: :func:`is_note_only`), quotation-free or quoting nothing but a label ("That account marks
+  its figures as "from memory", so they are reported unverified.") -> ``other``, wherever it
+  stands, so a disclaimer is never the paragraph's material point nor its link (a quoted label is
+  still an evidence claim the hub checks, supporting nothing); a
   substantive sentence that carries the label inline (a parenthetical, a
   sentence-initial "From memory,", a comma-bounded ", from memory", a trailing
   ", a figure I give from memory") keeps its role and records the label as an
@@ -85,14 +92,27 @@ Role rules (body paragraphs)
   label ("whose "dates and figures" are, in its own words, "from memory ..."") is the
   writer's analysis with no label assumption, and "from memory" as part of the
   argument ("The speaker recalls the scene from memory, which ...") is not a label;
-* the first remaining sentence (neither meta nor a note) -> ``point``;
+* a sentence whose subject is a colleague's view ("The History specialist states that ...", or the
+  colleague reporting a figure or date, "The History specialist gives about 5.2 million arrivals",
+  "... dates the sonnet to 1883": :func:`~epinoic_logic.adapters.markdown.is_peer_attribution`) -> ``perspective``, certainty
+  ``probable`` and the attribution recorded as an assumption, as on the History branch; never the
+  point or the link;
+* the first remaining sentence (neither meta nor a note nor a colleague's view) -> ``point``;
 * a sentence opening with ``Effectively``, ``Thus``, ``Ultimately``,
   ``Therefore``, ``Consequently`` or ``Hence``, or with a lead that draws the
   strands together (``Read together``, ``Taken together``, ``Together``, ``In this
   light``, ``Read against``: :data:`LINK_LEADS`) -> ``link``; in a single-paragraph
-  answer the closing argued sentence that draws a claim over the paragraph's evidence
-  without quoting ("... suggest that the poem captures a suspended morning") is the
-  ``link`` too, so a combinator that drops it is named (``INT-LEDGER-002``);
+  answer the closing argued sentence that draws the paragraph's conclusion, quoting or
+  not, is the ``link`` too, so a combinator that drops it is named (``INT-LEDGER-002``):
+  a claim over the paragraph's evidence ("... suggest that the poem captures a suspended
+  morning"), a conclusion marker anywhere in it ("Direct speech thus supplies ...", "...,
+  so that admiration and laughter remain held together", "..., so the argument moves from
+  persuasion to urgency") or a restatement of the point's terms; notes, a closing caveat on
+  the reading's grounds ("The reading stays plausible: ... comes from context, not the poem.")
+  and a colleague's view are skipped and the argued sentence before them is considered (a
+  conclusion drawn from what the poem leaves unsaid, "The sonnet never names an origin, so its
+  welcome ...", is not a caveat); after a signposted link only the quotation-free claim over the
+  evidence is a second link;
 * a sentence naming device vocabulary (diction, metaphor, paradox, juxtaposition,
   irony, imagery, syntax, semantic field, pronoun, verb, adjective, adverb, noun,
   declarative, parallel structure, employs) -> ``device``;
@@ -143,8 +163,8 @@ from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, Sup
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_note_sentence, is_self_certification, mask_json_spans,
-    split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
+    find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
+    is_self_certification, mask_json_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
 from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuation, word_count
 
@@ -152,7 +172,7 @@ __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS", "LINK_LEADS",
     "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
-    "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of",
+    "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of", "FEEDBACK_LABEL_RE", "is_feedback_label", "FEEDBACK_JUDGEMENT_RE", "feedback_item",
 ]
 
 AGENT_ID = "english-specialist"
@@ -167,6 +187,24 @@ _CONCLUSION_SIGNPOSTS: tuple[str, ...] = LINK_SIGNPOSTS + ("In conclusion", "Ove
 _LINK_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in LINK_SIGNPOSTS + LINK_LEADS) + r")\b")
 #: A closing sentence that draws a claim over the paragraph's evidence ("... suggest that the poem captures ...").
 _CLOSING_CLAIM_RE = re.compile(r"\b(?:suggests?|shows?|reveals?|indicates?|demonstrates?|implies|imply)\s+that\b", re.IGNORECASE)
+#: A conclusion drawn anywhere in a closing sentence, read outside its quotations: "Direct speech thus supplies ...",
+#: "..., so that admiration and laughter remain held together", "..., so the argument moves from persuasion to urgency".
+#: ", so much" and ", so far" are degree words, not a conclusion.
+_CONCLUSION_MARKER_RE = re.compile(
+    r"\b(?:thus|therefore|hence|consequently|accordingly)\b|\bso\s+that\b|,\s*(?:and\s+)?so\b(?!\s+(?:much|many|far|long|too|as|to\s+speak)\b)"
+    r"|\bin\s+(?:this|that)\s+way\b|\bwhich\s+is\s+why\b",
+    re.IGNORECASE,
+)
+_CONTENT_WORD_RE = re.compile(r"[^\W\d_]{4,}")
+#: Words a closing sentence shares with the point without restating it.
+_RESTATEMENT_STOPWORDS = frozenset("""
+that this these those which while where when with from into onto upon than then their there them they what whose
+have been being were will would could should shall must might also only even more most much such very just both each
+every other another about above below between through because although though however does done make makes made
+poem poet speaker reader line lines word words stanza text sense phrase image images
+""".split())
+#: How many distinct content words a closing sentence must share with the point to restate it.
+_RESTATEMENT_MIN_SHARED = 3
 _CONCLUSION_RE = re.compile(r"^(?:" + "|".join(re.escape(w) for w in _CONCLUSION_SIGNPOSTS) + r")\b")
 _DEVICE_RE = re.compile(
     r"\b(?:diction|metaphor\w*|paradox\w*|juxtapos\w*|iron(?:y|ic\w*)|imagery|syntax|syntactic\w*|"
@@ -176,8 +214,9 @@ _DEVICE_RE = re.compile(
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n[ \t]*\n+")
 _ALPHA_RE = re.compile(r"[^\W\d_]")
 #: A sentence ends at ``.``, ``!`` or ``?`` (closing marks may follow), or at the ``}`` / ``]`` that closes a
-#: pasted JSON fragment, when the next word starts with a capital or opens a JSON object (``{"``).
-_BOUNDARY_RE = re.compile(r"(?:[.!?]+[\"”’')\]»]*|[}\]])(?=\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ]|[{\[]\s*\"))")
+#: pasted JSON fragment, when the next word starts with a capital or a digit ("... dissent. 258 words.") or opens a JSON
+#: object (``{"``). An abbreviation before a figure ("l. 4", "p. 12", "c. 1900", "No. 5") is still not a boundary.
+_BOUNDARY_RE = re.compile(r"(?:[.!?]+[\"”’')\]»]*|[}\]])(?=\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\"))")
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
@@ -210,6 +249,10 @@ _MAX_CLAIM_TEXT_CHARS = 4000
 _MAX_CLAIMS = 512
 TAIL_CLAIM_ID = "p-tail"
 _SELF_REPORT = "self-certified in the response text"
+_UNDELIMITED_NOTE = "the paragraph has an unbalanced quotation mark; this span could not be delimited and was not attributed to or checked against any text"
+#: The assumption a colleague's reported view carries (the History parser records the same for its own peer attributions).
+_ATTRIBUTION_NOTE = ("the sentence attributes this view to a peer specialist; it is the colleague's claim, not the English specialist's own, "
+                     "and its certainty is capped at 'probable'")
 
 
 @dataclass(frozen=True)
@@ -313,17 +356,39 @@ def strip_quotations(text: str) -> str:
 _ABBREVIATION_WINDOW = 48
 
 
-def _is_abbreviation(prefix: str) -> bool:
+#: An initial right before a word ("J. I. Packer") or right after it ("I. A. Richards"): the pronoun test leaves runs of initials alone.
+_INITIAL_BEFORE_RE = re.compile(r"(?:^|\s)[A-Z]\.\s*$")
+_INITIAL_AFTER_RE = re.compile(r"^\s+[A-Z]\.(?:\s|$)")
+
+
+def _is_abbreviation(prefix: str, mark: str = ".", following: str = "") -> bool:
     """True when ``prefix`` ends in an abbreviation or a one-letter token (closing marks
-    ignored). Only the last :data:`_ABBREVIATION_WINDOW` characters are read: a word that
-    runs past the window's edge is longer than any abbreviation, so the answer is the same."""
-    tail = prefix[-_ABBREVIATION_WINDOW:].rstrip("\"”’')]»")
+    ignored) before the boundary ``mark``. Only the last :data:`_ABBREVIATION_WINDOW` characters are read: a word that
+    runs past the window's edge is longer than any abbreviation, so the answer is the same.
+    A letter after an apostrophe is the end of a word, not an initial: the ``s`` of a
+    sentence-final possessive ("... matches the enemy's. The key word ...") or the ``d`` of a
+    contraction ends the sentence like any other word. ``?`` and ``!`` never close an
+    abbreviation ("... as the short question "Who made the eyes but I?" The modal ..."); a
+    word followed by a closing mark before the full stop is quoted, not an initial (her "I".);
+    and the pronoun ``I`` ends a sentence like any other word ("No one speaks but I. The ...")
+    unless it stands in a run of initials ("I. A. Richards", "J. I. Packer"; ``following`` is the
+    text after the boundary)."""
+    if "?" in mark or "!" in mark:
+        return False  # abbreviations end in a full stop
+    window = prefix[-_ABBREVIATION_WINDOW:]
+    tail = window.rstrip("\"”’')]»")
+    if len(tail) < len(window):
+        return False  # "her "I".": a closing mark stands between the word and the stop, so the word is quoted, not an initial
     m = _LAST_WORD_RE.search(tail)
     if m is None:
         return False
     if m.start() == 0 and len(prefix) > _ABBREVIATION_WINDOW:
         return False  # the word reaches the window's edge: longer than any abbreviation, not one letter
     word = m.group(1)
+    if len(word) == 1 and m.start() > 0 and tail[m.start() - 1] in "'’" and m.start() > 1 and tail[m.start() - 2].isalpha():
+        return False  # "enemy's", "he'd": the end of a word, not a one-letter initial
+    if word == "I" and not _INITIAL_BEFORE_RE.search(tail[: m.start()]) and not _INITIAL_AFTER_RE.match(following):
+        return False  # the pronoun "I", not an initial
     return len(word) == 1 or word.lower() in _ABBREVIATIONS
 
 
@@ -342,12 +407,42 @@ def _span_index(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
     return starts, furthest
 
 
+#: A line break before a label-led line ("Biggest gap: ...", "Fix it: ...", "Model: ...") or a bullet ends a sentence: a
+#: marking-feedback layout writes one labelled item per line, often with no full stop before the next label.
+_LINE_LABEL_BREAK_RE = re.compile(r"\n(?=[ \t]*(?:[A-Z][\w’' ]{0,30}:\s|[-*•]\s))")
+_LINE_BULLET_RE = re.compile(r"^[ \t]*[-*•][ \t]+")
+#: A list number written inline ("Fix it: 1. Choose ...", "... explanation. 2. Add ..."): the number opens an item, it does
+#: not close a sentence.
+_INLINE_LIST_NUMBER_RE = re.compile(r"(?:^|[:;—–]\s*)\(?\d{1,2}\)?$")
+
+
+def _label_chunks(paragraph: str) -> list[str]:
+    """``paragraph`` cut at each line break before a label-led line or a bullet that lies outside any quotation (the
+    double marks before it are balanced), bullet markers removed."""
+    chunks: list[str] = []
+    start = 0
+    for m in _LINE_LABEL_BREAK_RE.finditer(paragraph):
+        head = paragraph[start:m.start()]
+        if head.count('"') % 2 or head.count("\u201c") != head.count("\u201d") or head.count("\u00ab") != head.count("\u00bb"):
+            continue  # the break lies inside a quotation (a verse line quoted across lines)
+        chunks.append(head)
+        start = m.end()
+    chunks.append(paragraph[start:])
+    return [_LINE_BULLET_RE.sub("", c, count=1) for c in chunks if c.strip()]
+
+
 def split_sentences(paragraph: str) -> list[str]:
     """Split ``paragraph`` into sentences (see module docstring).
 
     A pasted JSON span glued to the prose (``... answers. {"receipt_id": ...} The narrator
     ...``) is one sentence of its own: the prose before it and after it are split as prose,
-    and the JSON's strings are not read as quotation marks."""
+    and the JSON's strings are not read as quotation marks. A line break before a label-led
+    line or a bullet ends a sentence (:func:`_label_chunks`), and a list number written inline
+    ("Fix it: 1. Choose ...") opens its item rather than closing a sentence."""
+    if "\n" in paragraph.strip() and _LINE_LABEL_BREAK_RE.search(paragraph.strip()):
+        chunks = _label_chunks(paragraph.strip())
+        if len(chunks) > 1:
+            return [s for chunk in chunks for s in split_sentences(chunk)]
     text = " ".join(paragraph.split())
     if not text:
         return []
@@ -366,8 +461,10 @@ def split_sentences(paragraph: str) -> list[str]:
             continue  # inside a pasted JSON span
         k = bisect_right(json_cuts, m.start())
         prev = max(last_cut, json_cuts[k - 1] if k else 0)
-        if _is_abbreviation(masked[prev:m.start()]):
+        if _is_abbreviation(masked[prev:m.start()], m.group(0), masked[m.end():m.end() + 8]):
             continue
+        if m.group(0).startswith(".") and _INLINE_LIST_NUMBER_RE.search(masked[prev:m.start()].strip()):
+            continue  # "Fix it: 1. Choose ...": the list number opens the item
         cuts.add(m.end())
         last_cut = m.end()
     pieces: list[str] = []
@@ -404,18 +501,49 @@ def is_meta_sentence(sentence: str) -> bool:
 
 def is_note_only(sentence: str) -> bool:
     """True for a sentence that is nothing but a label about the text (a from-memory
-    disclaimer, a task-setting note, a self-certification) and carries no quotation: its
+    disclaimer, a task-setting note, a self-certification, a note on where the answer's items
+    or a received report's figures come from) and carries no quotation but a quoted label: its
     substance is empty once the label clauses are removed (:func:`~epinoic_logic.adapters.markdown.split_note_clauses`).
-    A substantive sentence with the label inline is not a note; it keeps its role and the
-    label travels as an assumption."""
-    if _iter_quotes_any(sentence):
+    A quotation whose words are nothing but a label ("That account marks its figures as "from
+    memory", so they are reported unverified.") relays the label, so it does not make the
+    sentence evidence (:func:`~epinoic_logic.adapters.markdown.is_label_quotation`); any other
+    quotation does. A substantive sentence with the label inline is not a note; it keeps its
+    role and the label travels as an assumption."""
+    if any(not is_label_quotation(inner) for _s, _e, inner in _iter_quotes(sentence)):
         return False
     core, _notes = split_note_clauses(sentence)
     return not core
 
 
-def _iter_quotes_any(sentence: str) -> bool:
-    return any(True for _ in _iter_quotes(sentence))
+#: A block opened by a bare note lead is a note as a whole ("Note on ...:" introduces a discussion and is not one).
+_BARE_NOTE_BLOCK_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence)\s*:|n\.\s?b\.)", re.IGNORECASE)
+#: The content of a marking-feedback layout besides its point: the judgement ("Biggest gap: ...") and the fixes ("Fix it: 1.
+#: ...", "2. ...", "3. ..."). Roled ``judgement`` and material, so a combinator that drops a requested fix is named.
+FEEDBACK_JUDGEMENT_RE = re.compile(r"^\W*(?:(?:biggest|main|key)\s+gaps?|fix\s+it|fixes|how\s+to\s+improve|to\s+improve|improvements?)\s*:", re.IGNORECASE)
+_NUMBERED_ITEM_RE = re.compile(r"^\W*\(?\d{1,2}[.)]\s+\S")
+_FIXES_LEAD_RE = re.compile(r"^\W*(?:fix\s+it|fixes|how\s+to\s+improve|to\s+improve|improvements?)\s*:", re.IGNORECASE)
+_LABEL_LINE_RE = re.compile(r"^\W*[A-Z][\w’' ]{0,30}:\s")
+#: The furniture of a marking-feedback layout: the task heading ("Task — Paper 1, SL — How does ...?"), the restated task
+#: ("What the task wants: ..."), the provisional marks line ("Provisional marks: A 3/5 · B 2/5 ...") and a bare label
+#: closing on a colon ("Why these marks:"). A self-rating ("Confidence: lowered.") is a note on every branch
+#: (``markdown.NOTE_LEAD_RE``). The judgement and the fixes are the feedback's content.
+FEEDBACK_LABEL_RE = re.compile(
+    r"^\W*(?:task\s*[—–]|task\s*:|provisional\s+marks?\s*:|what\s+the\s+(?:task|question)\s+(?:wants|asks(?:\s+for)?)\s*:)"
+    r"|^\W*[A-Z][\w’' ]{0,40}:\s*$",
+    re.IGNORECASE,
+)
+
+
+def feedback_item(sentence: str, after_fixes: bool = False) -> bool:
+    """True for the judgement or a fix of a marking-feedback layout (:data:`FEEDBACK_JUDGEMENT_RE`), or a numbered item
+    that continues a list of fixes (``after_fixes``)."""
+    plain = strip_quotations(sentence)
+    return FEEDBACK_JUDGEMENT_RE.match(plain) is not None or (after_fixes and _NUMBERED_ITEM_RE.match(plain) is not None)
+
+
+def is_feedback_label(sentence: str) -> bool:
+    """True for the furniture of a marking-feedback layout (:data:`FEEDBACK_LABEL_RE`), read with quotations masked."""
+    return FEEDBACK_LABEL_RE.match(strip_quotations(sentence).strip()) is not None
 
 
 def is_meta_block(block: str) -> bool:
@@ -525,17 +653,34 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         raw_sentences = _list_sentences(block) if kind == "list" else split_sentences(block)
         sentences: list[Sentence] = []
         argued = 0  # sentences that are neither meta nor a note: the first of them is the point
+        in_fixes = False  # a list of fixes is open ("Fix it: 1. ...", "2. ...") until another labelled line
+        # a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so ..."): what
+        # follows the lead explains the note, so every sentence is a note; the block is not meta-text (no ES-META-001)
+        note_led = kind in ("thesis", "body", "conclusion") and bool(_BARE_NOTE_BLOCK_RE.match(block.strip())) and not _block_quotations(block)
         for j, s in enumerate(raw_sentences, start=1):
             notes: tuple[str, ...] = ()
-            if kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+            if note_led:
                 role: ClaimRole = "other"
-            elif kind in ("thesis", "body", "conclusion") and is_note_only(s):
+            elif kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+                role = "other"
+            elif kind in ("thesis", "body", "conclusion") and (is_note_only(s) or is_feedback_label(s)):
                 role = "other"  # a label about the text is never the point, wherever it stands
+            elif kind == "body" and is_peer_attribution(split_note_clauses(s)[0] or s):
+                notes = tuple(split_note_clauses(s)[1])
+                role = "perspective"  # a colleague's reported view, not the writer's own: never the point, never the link
             else:
                 if kind in ("thesis", "body", "conclusion"):
                     notes = tuple(split_note_clauses(s)[1])  # an inline label is kept out of the role
                 argued += 1
                 role = _role_for(argued, s, kind)
+                if kind == "body" and role != "point" and feedback_item(s, in_fixes):
+                    role = "judgement"  # a marking-feedback judgement or fix: material content of the feedback
+                if kind == "body":
+                    plain = strip_quotations(s)
+                    if _FIXES_LEAD_RE.match(plain):
+                        in_fixes = True
+                    elif _LABEL_LINE_RE.match(plain):
+                        in_fixes = False  # another labelled line ("Model: ...") closes the list of fixes
             sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s), notes=notes))
         if kind == "body" and single_prose:
             sentences = _closing_link(sentences)
@@ -543,19 +688,91 @@ def segment(text: str) -> tuple[Paragraph, ...]:
     return tuple(paragraphs)
 
 
+def _content_words(text: str) -> set[str]:
+    """Distinct content words of ``text`` outside its quotations, lower-cased with a plural ``s`` dropped."""
+    words = set()
+    for w in _CONTENT_WORD_RE.findall(strip_quotations(text).replace("[quotation]", " ").lower()):
+        w = w[:-1] if w.endswith("s") and not w.endswith("ss") else w
+        if w not in _RESTATEMENT_STOPWORDS:
+            words.add(w)
+    return words
+
+
+def _draws_conclusion(sentence: Sentence, point: Optional[Sentence]) -> bool:
+    """True when ``sentence`` draws the paragraph's conclusion: a claim over the evidence ("... suggest that ..."), a
+    conclusion marker anywhere outside its quotations ("thus", "therefore", "so that", ", so the argument ..."), or a
+    restatement of the point's terms (at least :data:`_RESTATEMENT_MIN_SHARED` content words shared with the point, and
+    at least half of the sentence's own content words)."""
+    plain = strip_quotations(sentence.text)
+    if _CLOSING_CLAIM_RE.search(plain) or _CONCLUSION_MARKER_RE.search(plain):
+        return True
+    if point is None:
+        return False
+    own = _content_words(sentence.text)
+    shared = own & _content_words(point.text)
+    return len(shared) >= _RESTATEMENT_MIN_SHARED and 2 * len(shared) >= len(own)
+
+
+#: A closing remark on the reading's grounds rather than its conclusion: "The reading stays plausible: the sonnet never
+#: mentions exclusion, and the History specialist's statistic ... comes from context, not the poem.", "..., so this reading
+#: rests on context", "..., so the link cannot be proved". Read outside quotations. What the poem leaves unsaid is not a
+#: caveat by itself: "The sonnet never names an origin, so its universal welcome can be read as an ideal ..." draws the
+#: conclusion from that silence, and "..., not the poem's" is a possessive, not a source.
+_SOURCE_CAVEAT_RE = re.compile(
+    r"\b(?:reading|interpretation|link|connection|inference|argument|parallel|claim)\s+(?:stays|remains|is|seems|is\s+still|stays\s+only|remains\s+only)\s+"
+    r"(?:only\s+|still\s+|merely\s+|no\s+more\s+than\s+)?(?:plausible|tentative|speculative|conjectural|provisional|an?\s+inference|a\s+hypothesis|possible|contextual)\b"
+    r"|\b(?:reading|interpretation|link|connection|inference|parallel)\s+(?:cannot|can\s*not|can't)\s+be\s+(?:proved|proven|confirmed|established|settled)\b"
+    r"|\b(?:rests?|depends?|relies?|draws?)\s+(?:only\s+|entirely\s+|partly\s+|wholly\s+|largely\s+)?(?:up)?on\s+(?:the\s+)?(?:historical\s+)?"
+    r"(?:context|background|history|(?:[a-z]+\s+)?(?:specialist|colleague|peer)|(?:outside|external)\s+\w+)\b"
+    r"|\bcomes?\s+from\s+(?:the\s+)?(?:historical\s+)?context\b|\bfrom\s+(?:outside|beyond)\s+the\s+(?:poem|text|extract|sonnet|passage|novel)\b"
+    r"|\bcomes?\s+from\s+[^,.;:!?]{1,60},\s*not\s+(?:from\s+)?the\s+(?:poem|text|extract|sonnet|passage|novel)\b(?!['’])",
+    re.IGNORECASE,
+)
+
+
+def _is_source_caveat(sentence: Sentence) -> bool:
+    """True for a closing remark on the reading's grounds (it stays plausible, it rests on context, it cannot be proved, a
+    figure comes from context or from a colleague, not the poem): a caveat, never the paragraph's conclusion. A conclusion
+    drawn from what the poem leaves unsaid ("The sonnet never names an origin, so its welcome ...") is not one."""
+    return _SOURCE_CAVEAT_RE.search(strip_quotations(sentence.text)) is not None
+
+
 def _closing_link(sentences: list[Sentence]) -> list[Sentence]:
-    """In a single-paragraph answer, the closing argued sentence that draws a claim over the
-    paragraph's evidence ("... the clear air, the sleeping houses and the calm suggest that the poem
-    captures a suspended morning ...") is the paragraph's link, signpost or not, as long as it is
-    the writer's own claim (no quotation) and not the point."""
+    """In a single-paragraph answer, the closing argued sentence that draws the paragraph's
+    conclusion is its link, signpost or not, whether or not it quotes: a claim over the evidence
+    ("... the clear air, the sleeping houses and the calm suggest that the poem captures a suspended
+    morning ..."), a conclusion marker anywhere in it ("Direct speech thus supplies the heroic form
+    ..., so that admiration and laughter remain held together", "..., so the argument moves from
+    persuasion to urgency"), or a restatement of the point's terms. Delivered as the material
+    ``link``, it cannot be dropped by a combinator without a record (``INT-LEDGER-002``). Notes
+    (from-memory labels, a received report's labels, self-reports) are already ``other`` and never
+    count; a closing caveat on the reading's grounds ("The reading stays plausible: ... comes from
+    context, not the poem.") and a colleague's reported view (``perspective``) are never promoted:
+    the argued sentence before them is considered instead, so en-p5's conclusion ("..., so its
+    universal welcome can be read as an ideal that the country's law contradicted.") is the link
+    and the note after it is not. When a signposted link (``Read together, ...``) already carries
+    the conclusion, only a quotation-free closing claim over the evidence ("... suggest that ...")
+    is a second link; any other closing remark stays supporting."""
     argued = [k for k, s in enumerate(sentences) if s.role != "other"]
     if len(argued) < 3:
         return sentences
-    k = argued[-1]
-    last = sentences[k]
-    if last.role in ("interpretation", "device") and not last.quotations and _CLOSING_CLAIM_RE.search(last.text):
+    point = next((s for s in sentences if s.role == "point"), None)
+    signposted = any(s.role == "link" for s in sentences)
+    for k in reversed(argued):
+        last = sentences[k]
+        if last.role in ("point", "link"):
+            return sentences  # back at the point, or at a signposted link that already carries the conclusion
+        if last.role == "perspective" or (last.role in ("interpretation", "device") and _is_source_caveat(last)):
+            continue  # a colleague's view or a caveat on the reading's grounds: consider the sentence before it
+        if last.role not in ("interpretation", "device"):
+            return sentences
+        if not last.quotations and _CLOSING_CLAIM_RE.search(last.text):
+            pass  # the closing claim over the evidence: the link whatever precedes it
+        elif signposted or not _draws_conclusion(last, point):
+            return sentences  # a signposted link already carries the conclusion; a remark after it ("The poem never mentions the war, so ...") stays supporting
         sentences = list(sentences)
         sentences[k] = replace(last, role="link")
+        return sentences
     return sentences
 
 
@@ -794,7 +1011,24 @@ def parse_response(
         for sentence in para.sentences:
             sid = f"p{para.index}-s{sentence.index:02d}"
             if para.is_prose and sentence.role == "other":
-                # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference
+                # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference;
+                # a note that relays a quoted label ("That account marks its figures as "from memory"") keeps its quotation as
+                # an evidence claim the hub checks, attached to nothing: a label supports no claim
+                if not is_meta_sentence(sentence.text) and sentence.quotations:
+                    plain = strip_quotations(sentence.text)
+                    named = documents_named(plain, docs)
+                    for q in sentence.quotations:
+                        if q.excerpt in evidence_ids:
+                            continue
+                        quotation_count += 1
+                        qid = f"p{para.index}-q{quotation_count:02d}"
+                        doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text) if q.delimited else (None, [_UNDELIMITED_NOTE])
+                        if not q.delimited and para.index not in undelimited_paragraphs:
+                            undelimited_paragraphs.append(para.index)
+                        add(qid, f'"{q.text}"', "evidence", proposed_claim_kind="factual", materiality="supporting",
+                            certainty="established" if q.delimited else "possible", source_refs=[SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else [],
+                            assumptions=[*notes, "the quotation is a label relayed in a note, not evidence for the argument; it supports no claim"], parent_claim_id=None)
+                        evidence_ids[q.excerpt] = qid
                 add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=None,
                     advisory_verification_status=_SELF_REPORT if (is_json_shaped(sentence.text) or is_self_certification(strip_quotations(sentence.text))) else None)
                 continue
@@ -811,7 +1045,7 @@ def parse_response(
                         refs = [SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else []
                     else:
                         doc_id, refs = None, []
-                        notes = ["the paragraph has an unbalanced quotation mark; this span could not be delimited and was not attributed to or checked against any text"]
+                        notes = [_UNDELIMITED_NOTE]
                         if para.index not in undelimited_paragraphs:
                             undelimited_paragraphs.append(para.index)
                     add(
@@ -839,11 +1073,17 @@ def parse_response(
                 pending_conclusion.append((sid, sentence.text, quote_ids))
             elif sentence.role == "link":
                 pending_links.append((sid, sentence.text, quote_ids))
+            elif sentence.role == "judgement":
+                # a marking-feedback judgement or fix: material, resting on its own quotations; it does not support the point
+                add(sid, sentence.text, "judgement", proposed_claim_kind="interpretive", materiality="material", certainty="probable",
+                    supporting_claim_ids=quote_ids, parent_claim_id=point_id, assumptions=inline_notes[sid])
             else:
+                attributed = sentence.role == "perspective"
                 add(
                     sid, sentence.text, sentence.role,
                     proposed_claim_kind="interpretive", materiality="supporting", certainty="probable",
-                    supporting_claim_ids=quote_ids, parent_claim_id=point_id, assumptions=inline_notes[sid],
+                    supporting_claim_ids=quote_ids, parent_claim_id=point_id,
+                    assumptions=[*inline_notes[sid], _ATTRIBUTION_NOTE] if attributed else inline_notes[sid],
                 )
                 support_ids.append(sid)
         if point_id is not None and point_sentence is not None:

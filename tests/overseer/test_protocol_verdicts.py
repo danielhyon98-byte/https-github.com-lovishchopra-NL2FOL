@@ -20,7 +20,8 @@ from epinoic_logic.overseer.verdicts import (
 
 PACK = {"name": "overseer-knowledge-docs", "version": "1.0", "sha256": "0123456789abcdef" * 4}
 
-#: The design's table (section 9.3, with decision 31's additions and section 18's translation kinds), row by row, in order.
+#: The design's table (section 9.3, with decision 31's additions, section 18's translation kinds and decision 72's OVS-FORM-005), row by row,
+#: in order.
 DESIGN_TABLE = [
     ("payload_altered", ("OVS-CUST-001", "OVS-CUST-002", "OVS-CUST-004", "OVS-CUST-006")),
     ("receipt_altered", ("OVS-RCPT-001", "OVS-RCPT-006", "OVS-RCPT-007", "OVS-TRN-007")),
@@ -30,7 +31,7 @@ DESIGN_TABLE = [
     ("result_from_other_problem", ("OVS-RES-004", "OVS-RES-010")),
     ("result_out_of_task", ("OVS-RES-001", "OVS-RES-005", "OVS-RES-006", "OVS-RCPT-006")),
     ("replay_differs", ("OVS-RES-007",)),
-    ("formal_status_wrong", ("OVS-FORM-001", "OVS-FORM-002", "OVS-FORM-003", "OVS-FORM-004")),
+    ("formal_status_wrong", ("OVS-FORM-001", "OVS-FORM-002", "OVS-FORM-003", "OVS-FORM-004", "OVS-FORM-005")),
     ("claim_not_in_response", ("OVS-FID-001",)),
     ("quotation_absent", ("OVS-FID-002", "OVS-FID-004")),
     ("figure_changed", ("OVS-FID-003", "OVS-SYN-002")),

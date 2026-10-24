@@ -28,6 +28,7 @@ from epinoic_logic.overseer.export import export_pack  # noqa: E402
 
 ROUNDS = Path(os.environ["EPINOIC_ARENA_ROUNDS"]) if os.environ.get("EPINOIC_ARENA_ROUNDS") else None
 HAS_R5 = ROUNDS is not None and (ROUNDS / "r5" / "specialists").is_dir()
+HAS_R7 = ROUNDS is not None and (ROUNDS / "r7" / "specialists").is_dir()
 GOLD_KEYS = {"expected_codes", "fault_id", "faults", "injection", "agent_scorable", "visibility", "expected_reasons", "arena_injection", "gold"}
 CASES = ["T1", "T3", "T8", "T16", "T22"]
 
@@ -222,3 +223,40 @@ def test_a_recorded_task_is_exported_with_its_arena_faults_as_gold(exported_pack
     muts = [g for k, g in gold.items() if g["origin"] == "arena_mutation"]
     assert len(muts) == len(gold) - 1 and all(g["arena_injection"]["functional"] for g in muts)
     assert (tmp_path / "out" / "rounds" / "r5" / "results.json").exists() and not (tmp_path / "out" / "rounds" / "r5" / "specialists").exists()
+
+
+@pytest.mark.skipif(not HAS_R7, reason="the recorded round r7 is not present (set EPINOIC_ARENA_ROUNDS to the directory holding it)")
+def test_a_round_recorded_before_the_merge_is_exported_re_keyed_so_its_stem_translations_reach_the_agents(exported_pack, tmp_path):
+    """Finding (d) of the re-test of the fourth repair: no dossier built from a recorded round carried a STEM translation,
+    because r7 keys its recorded fixtures by the claim ids of its time and the exporter had no re-keyed pass. A task of r7
+    (ch-t13, the chemistry parser's ``s`` ids) is exported: its genuine pass and mutations carry no STEM translation (the
+    gap), and its re-keyed pass (rule recorded-ids) issues dossiers that do, each link resolving to its STEM claim and a
+    translation that carries a problem, its gold a genuine control's, and each dossier re-issued to the same digest from
+    its transfer record."""
+    from epinoic_logic.overseer import resolve_pointer
+    rounds = tmp_path / "rounds"
+    H.mini_round(ROUNDS / "r7", rounds / "r7", ["ch-t13"])
+    summary = ED.run_export(tmp_path / "out", exported_pack.directory, rounds_root=rounds, rounds=["r7"], lenses=["translation_fidelity"])
+    rk = summary["rounds"]["r7"]["rekeyed"]
+    assert rk["rule"] == H.REKEY_RULE and rk["channels"] == 1 and rk["fixtures_rekeyed"] > 0 and rk["stem_translations"]["dossiers"] == 1
+    assert summary["stem_translations"]["claims"] >= 1 and set(summary["stem_translations"]["by_letter"]) == {"s"}
+    out = tmp_path / "out"
+    issues = [json.loads(line) for line in (out / "issues.jsonl").read_text().splitlines()]
+    plain = [i for i in issues if not i["variant_id"].startswith("r7-rekeyed--")]
+    rekeyed = [i for i in issues if i["variant_id"].startswith("r7-rekeyed--")]
+    assert plain and rekeyed
+    assert all(ED.stem_translations(json.loads((out / i["dossier"]).read_text())) == [] for i in plain)  # the gap the re-test found
+    stem = 0
+    for i in rekeyed:
+        d = json.loads((out / i["dossier"]).read_text())
+        for cid in ED.stem_translations(d):
+            link = next(x for x in d["links"]["translations"] if x["claim_id"] == cid)
+            assert resolve_pointer(d, link["claim_pointer"])["claim_id"] == cid and resolve_pointer(d, link["translation_pointer"])["problem"]["claim_id"] == cid
+            stem += 1
+    assert stem >= 1
+    gold = json.loads((out / "gold" / "gold.json").read_text())["variants"]
+    assert {g["origin"] for v, g in gold.items() if v.startswith("r7-rekeyed--")} == {"arena_genuine_rekeyed"}
+    export = SV.load_export(out)
+    assessed = SV.assess_export(export, {exported_pack.identity}, lambda *a: ("no_reply", None, None, None, None))
+    assert len(assessed) == len(issues)  # every dossier, the re-keyed ones included, re-issued to its digest from its record
+

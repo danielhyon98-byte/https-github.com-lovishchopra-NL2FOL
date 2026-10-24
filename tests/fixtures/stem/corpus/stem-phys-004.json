@@ -1,0 +1,27 @@
+{
+  "id": "stem-phys-004",
+  "subject": "Physics",
+  "task_type": "structured_answer",
+  "question": "A ball is thrown horizontally at 12.0 m s⁻¹ from the top of a building 45.0 m high. Calculate the time it takes to reach the ground and the horizontal distance it travels. Take g = 9.81 m s⁻².",
+  "supplied_texts": [],
+  "response_text": "Vertical motion: u_y = 0, s_y = 45.0 m, g = 9.81 m s⁻².\ns_y = ½gt² ⇒ t = √(2s_y/g) = √(2 × 45.0 / 9.81) = 3.03 s\n(t is a time, so only the positive root is taken.)\nHorizontal motion: u_x = 12.0 m s⁻¹ and there is no horizontal acceleration, so\nx = u_x t = 12.0 × 3.03 = 36.4 m\nThe ball lands about 36 m from the base of the building after roughly 3.0 s.",
+  "notation": [
+    "unicode",
+    "ascii",
+    "subscripted_symbols",
+    "implicit_multiplication",
+    "units_unicode_exponent",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "s_y = 45.0 m, g = 9.81 m s⁻²",
+      "s_y = ½gt² ⇒ t = √(2s_y/g)",
+      "√(2 × 45.0 / 9.81) = 3.03 s",
+      "u_x = 12.0 m s⁻¹",
+      "x = u_x t = 12.0 × 3.03 = 36.4 m",
+      "about 36 m from the base of the building after roughly 3.0 s"
+    ]
+  }
+}

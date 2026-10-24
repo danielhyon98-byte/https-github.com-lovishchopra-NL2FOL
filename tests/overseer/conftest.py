@@ -300,3 +300,23 @@ def findings(audit, code: str) -> list:
 
 def ovs_errors(audit, *, allow=("OVS-DIV-001",)) -> list:
     return [f for f in audit.report.findings if f.severity == "error" and f.code not in allow]
+
+
+# ============================================================================================ the translator's circularity gate
+def without_the_translators_circularity_gate(monkeypatch) -> None:
+    """A translation that reaches the receipt past the merged translator's circularity gate (rule circularity-agreement):
+    the pipeline's translation-time check (``Translator._circularity``, the engine's E112 applied before the engine runs)
+    is replaced by a no-op, as in a translator version without the rule, a hand-built translator or a compromised one.
+    Everything else of the pipeline runs, and the engine's own E112 on an ENTAILED proof whose core restates the
+    conclusion stays. The merged translator never delivers such an encoding (asserted beside every use)."""
+    from epinoic_logic.translate.pipeline import Translator
+    monkeypatch.setattr(Translator, "_circularity", staticmethod(lambda problem, tag: None))
+
+
+def withheld_as_circular_by_the_translator(outcome) -> bool:
+    """The merged translator's own treatment of a circular encoding: the pipeline rejected it (INVALID_FORMALIZATION with
+    E112, fed back once), so no problem and no engine result were delivered, and the outcome is displayed
+    INVALID_FORMALIZATION."""
+    tr = outcome.translation
+    return (tr.status.value == "INVALID_FORMALIZATION" and tr.problem is None and outcome.verification is None
+            and any("E112" in d for d in tr.diagnostics) and outcome.display_status.value == "INVALID_FORMALIZATION")

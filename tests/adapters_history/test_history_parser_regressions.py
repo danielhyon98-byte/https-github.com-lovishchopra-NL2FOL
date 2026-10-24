@@ -30,7 +30,9 @@ def test_body_roles_are_invariant_under_an_appended_one_line_paragraph():
     base = parse(fixtures.EXAMPLE1_BODY1 + "\n\n" + LABEL)
     with_trailer = parse(fixtures.EXAMPLE1_BODY1 + "\n\n" + LABEL + "\n\n" + TRAILER, "rep2")
     assert roles(base, "h1.") == roles(with_trailer, "h1.")
-    assert base.claims[0].claim_role == "point" and len(base.claims[0].supporting_claim_ids) == len([c for c in base.claims if c.claim_id.startswith("h1.")]) - 1
+    # the point rests on every evidence, analysis and counter-case claim of its paragraph and on no judgement or link (r6: no support cycle)
+    assert base.claims[0].claim_role == "point" and base.claims[0].supporting_claim_ids == [
+        c.claim_id for c in base.claims if c.claim_id.startswith("h1.") and c.claim_role in ("evidence", "analysis", "counter_evidence", "perspective")]
     assert {f.code for f in structural_checks(base)} == {f.code for f in structural_checks(with_trailer)}
     trailer = [c for c in with_trailer.claims if c.claim_text == TRAILER]
     assert trailer and (trailer[0].claim_role, trailer[0].materiality, trailer[0].certainty) == ("other", "supporting", "established")

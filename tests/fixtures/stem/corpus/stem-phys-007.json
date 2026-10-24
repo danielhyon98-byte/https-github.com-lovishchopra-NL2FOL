@@ -1,0 +1,31 @@
+{
+  "id": "stem-phys-007",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A 2.0 kg trolley moves at 3.0 m s⁻¹. Calculate its momentum and its kinetic energy.",
+  "supplied_texts": [],
+  "response_text": "Momentum:\n\\[ p = mv = 2.0 \\times 3.0 = 6.0\\ \\mathrm{kg\\,m\\,s^{-1}} \\]\nKinetic energy:\n\\[ E_k = \\frac{1}{2} m v^2 = \\frac{1}{2}(2.0)(3.0)^2 = 18\\,\\text{J} \\]\nSo the trolley carries 6.0 kg m s⁻¹ of momentum and 18 J of kinetic energy.",
+  "notation": [
+    "latex_display",
+    "units_latex",
+    "units_unicode_exponent",
+    "implicit_multiplication"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "dropped_factor",
+        "step": "\\frac{1}{2}(2.0)(3.0)^2 = 18\\,\\text{J}",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq: ½(2.0)(3.0)² = 9.0 J exactly; stated 18 (the ½ was dropped in the arithmetic). The substitution itself is right; the closing restatement carries the slip. [computed: C=9 S=18 h=0.5 tau=1/100 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "p = mv = 2.0 \\times 3.0 = 6.0\\ \\mathrm{kg\\,m\\,s^{-1}}",
+      "E_k = \\frac{1}{2} m v^2 = \\frac{1}{2}(2.0)(3.0)^2",
+      "6.0 kg m s⁻¹ of momentum"
+    ]
+  }
+}

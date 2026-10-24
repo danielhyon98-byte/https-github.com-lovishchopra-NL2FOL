@@ -204,8 +204,8 @@ _LONG_TEXT = EN_TEXT + " " + " ".join(["The labour never stops and the hours rep
 def test_t5b_entailed_written_over_a_counterexample_is_form_001_and_form_002(auditor, monkeypatch):
     orig = TranslatorChannel._constraints
 
-    def rosy(self, req, report):
-        results, ids = orig(self, req, report)
+    def rosy(self, req, report, *a, **kw):  # the merged channel passes the branch's word-count view
+        results, ids = orig(self, req, report, *a, **kw)
         return [c.model_copy(update={"formal_status": "ENTAILED", "satisfied": True}) if c.formal_status == "COUNTEREXAMPLE" else c for c in results], ids
     monkeypatch.setattr(TranslatorChannel, "_constraints", rosy)
     ch, rc = _exchange(auditor, None, english_report(_LONG_TEXT))
@@ -224,7 +224,8 @@ def test_control_genuine_counterexample_constraint_is_not_accused(auditor):
 
 def test_t5c_constraint_encoded_with_a_wrong_measurement_is_form_003(auditor, monkeypatch):
     import epinoic_logic.channel.bus as bus
-    monkeypatch.setattr(bus, "count_answer_words", lambda text: (7, 0))
+    # the merged channel measures a word bound with measure_answer_words (the constraint's excludes, the branch's view)
+    monkeypatch.setattr(bus, "measure_answer_words", lambda text, excludes=(), view=None: (7, 0, 0))
     ch, rc = _exchange(auditor, None, english_report())
     audit = auditor.audit(ch.uid)
     f = findings(audit, "OVS-FORM-003")

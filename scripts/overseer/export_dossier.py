@@ -13,6 +13,17 @@ Inputs are read-only: each recorded round is COPIED into ``DIR/rounds/<name>`` a
 carries the auditor (every variant the arena runs: the genuine pass and its six fault mutations, each on its own
 channel); ``--tamper`` takes the output directory of ``tamper.py`` and issues dossiers for every transfer record in it.
 
+**The re-keyed pass** (the fifth repair of the translator merge; rule ``recorded-ids``, design decision 50). A round
+recorded before the translator merge keys its recorded translation fixtures by the claim ids of its time, so on its
+genuine pass the merged parsers' claims (the STEM ids ``s``, ``m`` and ``c``, agent-qualified generic ids) get none of
+them, and no dossier of that pass carries a STEM translation. When the arena reports fixtures matching no delivered claim,
+a further copy (``DIR/rounds/rekeyed/<name>``) has its fixtures re-keyed to the claims the merged parse delivers
+(``ovs_harness.rekey_translations``; rule ``recorded-ids/2`` withholds a fixture the round's records show was written for
+another claim) and its genuine pass is replayed with the auditor attached, as the contained run's re-keyed pass is: one
+dossier per channel, agent and mode, variant ``<round>-rekeyed--<channel>``, its gold a genuine control's (the auditor's
+own findings, the adjudicated faults of that pass among them). ``export.json`` counts the STEM translations the dossiers
+carry (``stem_translations``), so the pack's STEM guidance is put in front of an agent on recorded STEM data.
+
 For every task variant (one channel) the export writes, under ``DIR``:
 
 * ``transfers/<variant>/``: the transfer record (the journal's events as issued, the signed task audit, identifiers);
@@ -44,6 +55,7 @@ import json
 import shutil
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -110,6 +122,9 @@ class Exporter:
         self.index: dict[str, str] = {}
         self.gold: dict[str, dict] = {}
         self.variants: list[str] = []
+        #: STEM translations the issued dossiers carry: (variant, claim id) pairs and the dossiers that carry one
+        self.stem_claims: set[tuple[str, str]] = set()
+        self.stem_dossiers = 0
 
     def issue_variant(self, variant_id: str, record_dir: Path, gold: dict) -> int:
         """Rebuild the record, issue one dossier per agent and mode, write them, and keep the gold apart."""
@@ -127,6 +142,10 @@ class Exporter:
                     (self.out / rel).parent.mkdir(parents=True, exist_ok=True)
                     (self.out / rel).write_text(dossier_json(d) + "\n", encoding="utf-8")  # canonical JSON, exactly as issued
                     self.index[d["dossier_sha256"]] = str(rel)
+                    stem = stem_translations(d)
+                    if stem:
+                        self.stem_dossiers += 1
+                        self.stem_claims.update((variant_id, c) for c in stem)
                     self.issues.append({"variant_id": variant_id, "dossier": str(rel), "transfers": str(Path(record_dir).relative_to(self.out)),
                                         "keyring_profile": rec.record["keyring_profile"], "issue": issue.model_dump(mode="json")})
                     n += 1
@@ -155,9 +174,33 @@ class Exporter:
         summary = {"format": EXPORT_FORMAT, "pack": self.pack.identity.model_dump(), "pack_source": self.pack.source, "modes": list(self.modes),
                    "agents": [{"agent_id": a, "lens": lens} for a, lens in self.agents], "variants": len(self.variants), "dossiers": len(self.issues),
                    "clean_variants": sum(1 for g in self.gold.values() if g["clean"]),
-                   "variants_with_faults": sum(1 for g in self.gold.values() if not g["clean"]), **meta}
+                   "variants_with_faults": sum(1 for g in self.gold.values() if not g["clean"]),
+                   "stem_translations": {"dossiers": self.stem_dossiers, "claims": len(self.stem_claims),
+                                         "by_letter": dict(sorted(Counter(c[:1] for _v, c in self.stem_claims).items()))}, **meta}
         H.write_json(self.out / "export.json", summary)
         return summary
+
+
+#: The claim-id letters of the STEM parsers (``adapters.stem_specialist.parser.ID_PREFIXES``).
+STEM_ID_LETTERS = ("s", "m", "c")
+
+
+def stem_translations(d: dict) -> list[str]:
+    """The STEM claims (an id of a STEM parser, never agent-qualified) whose translation, carrying a problem, a dossier
+    links to its claim."""
+    from epinoic_logic.overseer import resolve_pointer
+    out = []
+    for link in d.get("links", {}).get("translations") or []:
+        cid = str(link.get("claim_id") or "")
+        if cid[:1] not in STEM_ID_LETTERS or not cid[1:2].isdigit() or "@" in cid or not link.get("translation_pointer"):
+            continue
+        try:
+            translation = resolve_pointer(d, link["translation_pointer"])
+        except Exception:
+            continue
+        if isinstance(translation, dict) and translation.get("problem") and cid not in out:
+            out.append(cid)
+    return out
 
 
 def arena_gold(results: dict, key: str, variant: str) -> dict:
@@ -198,6 +241,41 @@ def export_round(exporter: Exporter, name: str, src: Path) -> dict:
         if p.name not in ("results.json", "summary.md"):
             shutil.rmtree(p) if p.is_dir() else p.unlink()
     counts["functional"] = f"{rr.results['functional']}/{rr.results['transmissions']}"
+    if (rr.results.get("translation_fixtures_matching_no_delivered_claim") or {}).get("count", 0):
+        # a round recorded before the translator merge: its recorded translations reach the merged claims only re-keyed
+        counts["rekeyed"] = export_rekeyed_round(exporter, name, src)
+    return counts
+
+
+def export_rekeyed_round(exporter: Exporter, name: str, src: Path) -> dict:
+    """The re-keyed pass of a round (module docstring): a COPY with its fixtures re-keyed to the merged claims, its genuine
+    pass replayed with the auditor attached, a transfer record per channel and its dossiers issued."""
+    copy = H.copy_round(src, exporter.out / "rounds" / "rekeyed", name=name)
+    mapping = H.rekey_translations(copy)
+    before = (exporter.stem_dossiers, len(exporter.stem_claims))
+    aud = H.new_auditor(H.keyring_for("arena"))
+    counts: dict[str, Any] = {"rule": H.REKEY_RULE, "correspondence_rule": H.CORRESPONDENCE_RULE, "channels": 0, "dossiers": 0,
+                              "fixtures": sum(m["fixtures"] for m in mapping.values()), "fixtures_rekeyed": sum(m["rekeyed"] for m in mapping.values()),
+                              "fixtures_withheld": sum(len(m.get("withheld") or {}) for m in mapping.values())}
+    try:
+        rr = H.replay_round(copy, aud, genuine_only=True)
+        for c in rr.channels:
+            audit = aud.audit(c.uid)
+            vid = f"{name}-rekeyed--{H.safe_name(c.key)}"
+            rdir = exporter.out / "transfers" / vid
+            H.write_record(rdir, auditor=aud, uid=c.uid, audit=audit, profile="arena",
+                           meta={"round": name, "pass": "rekeyed", "rule": H.REKEY_RULE, "channel_key": c.key, "variant": c.variant})
+            g = arena_gold(rr.results, c.key, c.variant)
+            g.update(round=name, origin="arena_genuine_rekeyed", rekey_rule=H.REKEY_RULE)
+            counts["dossiers"] += exporter.issue_variant(vid, rdir, g)
+            counts["channels"] += 1
+        counts["functional"] = f"{rr.results['functional']}/{rr.results['transmissions']}"
+    finally:
+        aud.close()
+    for p in list(copy.iterdir()):
+        if p.name not in ("results.json", "summary.md"):
+            shutil.rmtree(p) if p.is_dir() else p.unlink()
+    counts["stem_translations"] = {"dossiers": exporter.stem_dossiers - before[0], "claims": len(exporter.stem_claims) - before[1]}
     return counts
 
 

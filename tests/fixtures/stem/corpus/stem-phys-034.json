@@ -1,0 +1,24 @@
+{
+  "id": "stem-phys-034",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A 12 kg crate is pushed across a horizontal floor at constant velocity. The coefficient of dynamic friction between the crate and the floor is 0.35. Calculate the pushing force. Take g = 9.81 m/s².",
+  "supplied_texts": [],
+  "response_text": "At constant velocity the resultant force is zero, so the push equals the friction force.\n\nNormal reaction: R = mg = 12 kg × 9.81 m/s² = 117.72 kg·m/s² = 117.72 N ≈ 118 N\nFriction: F = μR = 0.35 × 117.72 N = 41.2 N\n\nSo a horizontal push of about 41 N keeps the crate moving at constant velocity.",
+  "notation": [
+    "unicode",
+    "units_slash",
+    "units_dot",
+    "greek_symbols"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "R = mg = 12 kg × 9.81 m/s² = 117.72 kg·m/s²",
+      "117.72 kg·m/s² = 117.72 N",
+      "117.72 N ≈ 118 N",
+      "F = μR = 0.35 × 117.72 N = 41.2 N",
+      "a horizontal push of about 41 N"
+    ]
+  }
+}

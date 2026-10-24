@@ -1,0 +1,28 @@
+{
+  "id": "stem-math-014",
+  "subject": "Mathematics: Applications and Interpretation",
+  "task_type": "short_answer",
+  "question": "Evaluate the integral of 2x from x = 1 to x = 3.",
+  "supplied_texts": [],
+  "response_text": "∫₁³ 2x dx = [x²]₁³ = 3² − 1² = 9 − 1 = 7\n\nThe definite integral equals 7, which is the area under y = 2x between x = 1 and x = 3.",
+  "notation": [
+    "unicode",
+    "calculus"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "arithmetic_slip",
+        "step": "9 − 1 = 7",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-eq (exact mode): 9 − 1 = 8; stated 7. The antiderivative and the limits are right; the integral is 8. [computed: C=8 S=7 h=0 tau=0 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "∫₁³ 2x dx = [x²]₁³",
+      "3² − 1² = 9 − 1"
+    ]
+  }
+}

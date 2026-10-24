@@ -28,10 +28,21 @@ specialists), the infrastructure, never an agent, consolidates their answers int
    one formalized claim of every level-1 group merges them (basis ``same_material_claims``). Anything else (a
    contradiction, an undecided or unbuildable check, a group with no formalized material claim) keeps the groups apart
    and is recorded as an advisory note (``OVS-CONS-003``): semantic sameness the engine cannot decide never merges groups.
-4. **Canonical representative.** For each group, the earliest member whose receipt is fully clean (status ACCEPTED,
-   which by the channel's status rule means no finding, no error or warning structural finding and no undecided
-   outcome, and audit clearance AUDIT_PASSED). When no member is fully clean the earliest member is the representative
-   and the group says so (``canonical_clean`` false); it is never presented as clean.
+4. **Canonical representative.** For each group, the earliest CLEAN member: audit clearance AUDIT_PASSED, and a receipt
+   that is fully clean (status ACCEPTED, which by the channel's status rule means no finding, no error or warning
+   structural finding and no undecided outcome) or clean but for duplicate collisions (rule ``duplicate-collision``
+   below). ``canonical_basis`` names which: ``earliest_fully_clean`` (its receipt is ACCEPTED),
+   ``earliest_clean_with_duplicate_collisions`` (its receipt is ACCEPTED_WITH_FINDINGS, with INT-REQ-016 warnings only),
+   or ``earliest_with_findings`` when no member is clean: the earliest member is then the representative and the group
+   says so (``canonical_clean`` false); it is never presented as clean. Rule ``duplicate-collision`` (the merged
+   translator names a claim id another agent's report already holds, INT-REQ-016, a warning): duplicated instances of
+   one specialist parse the same answer into the same claim ids, so every answer after the first carries that warning
+   naming the answers before it. A member whose only receipt findings are INT-REQ-016 warnings that name, besides its
+   own report, only reports of other answers to this same input (the duplication this consolidation resolves by
+   delivering one answer), with no warning or error structural finding and no undecided outcome, is clean; its finding
+   codes still list INT-REQ-016, and as the representative its basis says so (the second repair of the translator
+   merge: it read ``earliest_fully_clean``, which only an ACCEPTED receipt is). A collision with any other report keeps
+   the member unclean.
 5. **Conflicts, disclosed.** Two or more groups are never reduced to one: every pair of groups is a conflict, its
    relation decided by the engine over the two representatives' formalized material claims (``contradiction``,
    ``consistent``, ``undecided``, or ``not_checked`` when either has none; at most :data:`MAX_CONFLICT_CHECKS` pairs are
@@ -39,8 +50,8 @@ specialists), the infrastructure, never an agent, consolidates their answers int
    conflict too. Every conflict is ``OVS-CONS-002``.
 6. **Status.** ``NO_DELIVERABLE_OUTPUT`` (every answer excluded), ``CONFLICTING`` (two or more groups, or a conflict:
    ``deliverable_message_id`` is null and the router discloses the groups), ``CONSOLIDATED`` (one group, its
-   representative fully clean, nothing excluded, repeated or advisory) or ``CONSOLIDATED_WITH_FINDINGS`` (one group
-   otherwise). Non-success is never shown as success.
+   representative clean as step 4 defines it, nothing excluded, repeated or advisory) or ``CONSOLIDATED_WITH_FINDINGS``
+   (one group otherwise). Non-success is never shown as success.
 
 The router delivers a consolidated answer only through :func:`delivery_decision`: the response must verify under the
 consolidation key, its status must be deliverable, and the message must be its ``deliverable_message_id``; an excluded or
@@ -71,7 +82,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..engine.provenance import sign_result
 from ..engine.results import VerificationResult
 from ..engine.sink import CapturedResult, capture_results
-from ..engine.statuses import SCOPE_STATEMENT, VerificationStatus as S
+from ..engine.statuses import SCOPE_STATEMENT, VerificationStatus as S, is_definitive
 from ..integrity.contracts import AgentMessage, AgentRole, IntegrityFinding, payload_hash, sign_message, verify_message
 from ..integrity.cross_check import check_cross_report_consistency
 from ..ir.canonical import canonical_json, problem_digest, sha256_hex
@@ -153,7 +164,8 @@ class ConsolidatedMember(BaseModel):
     seq: int
     receipt_status: str
     clearance: str
-    clean: bool = Field(description="status ACCEPTED and clearance AUDIT_PASSED: no finding of any severity")
+    clean: bool = Field(description="clearance AUDIT_PASSED, and a receipt that is ACCEPTED (no finding of any severity) or ACCEPTED_WITH_FINDINGS "
+                              "whose only findings are INT-REQ-016 warnings naming other answers to this same input (rule duplicate-collision)")
     finding_codes: list[str] = Field(default_factory=list, description="the warning and info codes on its receipt and in the audit")
     text_sha256: str = Field(description="sha256 of its original_response under the fidelity normalisation, together with its answer facts read on the raw text (the level-1 grouping key)")
     claims_key_sha256: Optional[str] = Field(default=None, description="digest of its material-claim key; null when it has no material claim")
@@ -171,7 +183,7 @@ class ConsolidatedGroup(BaseModel):
     canonical_agent_id: Optional[str] = None
     canonical_report_id: Optional[str] = None
     canonical_clean: bool
-    canonical_basis: Literal["earliest_fully_clean", "earliest_with_findings"]
+    canonical_basis: Literal["earliest_fully_clean", "earliest_clean_with_duplicate_collisions", "earliest_with_findings"]
     merge_check: Optional[EngineCheck] = None
 
 
@@ -692,6 +704,25 @@ class _Answer:
     facts: tuple = ()
 
 
+def _only_duplicate_collisions(t: Transfer, answer_report_ids: set[str]) -> bool:
+    """Rule ``duplicate-collision`` (module docstring, step 4): the receipt is ACCEPTED_WITH_FINDINGS only because of
+    INT-REQ-016 warnings naming collisions with other answers to the same input."""
+    rec = t.receipt
+    if rec is None or t.status != "ACCEPTED_WITH_FINDINGS" or not rec.findings:
+        return False
+    if any(sf.severity in ("error", "warning") for sf in rec.structural_findings):
+        return False
+    if any(o.verification is not None and not is_definitive(o.verification.status) for o in rec.outcomes):
+        return False
+    for f in rec.findings:
+        if f.code != "INT-REQ-016" or f.severity != "warning":
+            return False
+        others = [r for r in f.report_ids if r != t.report_id]
+        if not others or any(r not in answer_report_ids for r in others):
+            return False
+    return True
+
+
 def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, audit: OverseerAudit, request_message_ids: Optional[Sequence[str]] = None,
                 user_input_sha256: Optional[str] = None, prior_views: Sequence[OverseerView] = (), prior_audits: Optional[Mapping[str, OverseerAudit]] = None,
                 repeats: Optional[RepeatReport] = None) -> ConsolidatedResponse:
@@ -717,6 +748,7 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
     elif view.channel_uid not in repeats.channel_uids or repeats.task_id != view.task_id:
         raise ValueError("the repeat report does not cover this channel")
     last_seq = view.transfers[-1].seq if view.transfers else 0
+    answer_report_ids = {t.report_id for t in answers if t.report_id}
     run_ids: list[str] = []
     findings: list[IntegrityFinding] = []
     excluded: list[ExcludedOutput] = []
@@ -756,7 +788,7 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
                                         message_ids=[t.message_id], agent_ids=[agent], report_ids=[t.report_id], related_result_ids=rids))
             continue
         report = t.report
-        clean = t.status == "ACCEPTED" and state == "AUDIT_PASSED"
+        clean = state == "AUDIT_PASSED" and (t.status == "ACCEPTED" or _only_duplicate_collisions(t, answer_report_ids))
         codes = sorted({f.code for f in (rec.findings if rec is not None else [])} | {f.code for f in audit_named}
                        | {sf.code for sf in (rec.structural_findings if rec is not None else []) if sf.severity in ("error", "warning")})
         key = claims_key(report)
@@ -845,10 +877,13 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
         gid = _gid("grp", sorted(a.t.message_id or "" for a in members))
         clean = [a for a in members if a.member is not None and a.member.clean]
         rep = clean[0] if clean else members[0]
+        # the representative's basis says which kind of clean it is (step 4): only an ACCEPTED receipt is fully clean
+        basis_of_rep = (("earliest_fully_clean" if rep.t.status == "ACCEPTED" else "earliest_clean_with_duplicate_collisions") if clean
+                        else "earliest_with_findings")
         agents = list(dict.fromkeys(a.t.sender_agent_id for a in members if a.t.sender_agent_id))
         groups.append(ConsolidatedGroup(group_id=gid, basis=basis, members=[a.member for a in members if a.member is not None], agent_ids=agents,  # type: ignore[arg-type]
                                         canonical_message_id=rep.t.message_id or "", canonical_agent_id=rep.t.sender_agent_id, canonical_report_id=rep.t.report_id,
-                                        canonical_clean=bool(clean), canonical_basis="earliest_fully_clean" if clean else "earliest_with_findings", merge_check=check))
+                                        canonical_clean=bool(clean), canonical_basis=basis_of_rep, merge_check=check))
         canon[gid] = rep
         for a in members:
             group_of_mid[a.t.message_id or ""] = gid

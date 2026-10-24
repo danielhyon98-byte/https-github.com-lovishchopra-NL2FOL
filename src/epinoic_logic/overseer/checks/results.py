@@ -78,13 +78,23 @@ def store_captured(ctx: CheckContext, t: Transfer) -> None:
 
 def _allowed_configs(view, seq: int) -> Optional[list]:
     """The solver configurations the channel's engine runs under at ``seq`` (the journaled config, and the same with
-    ``produce_unsat_core`` forced on, as the integrity package's cross-report, synthesis and paraphrase checks run it);
-    None when the journal records no config (nothing to compare)."""
+    ``produce_unsat_core`` forced on, as the integrity package's cross-report, synthesis and paraphrase checks run it),
+    and each of them under every named engine policy (rule ``policy-configs``, the translator merge: a branch formal check
+    runs under ``engine.policies.policy_config(policy, config)``, which for the ``nonlinear`` policy caps the ``rlimit`` at
+    ``NONLINEAR_RLIMIT``); None when the journal records no config (nothing to compare)."""
+    from ...engine.policies import PACK_POLICIES, policy_config
     info = view.info_at(seq) if view is not None else {}
     if not info.get("config"):
         return None
     cfg = view.config_at(seq)
-    return [cfg, cfg.model_copy(update={"produce_unsat_core": True})]
+    base = [cfg, cfg.model_copy(update={"produce_unsat_core": True})]
+    out = list(base)
+    for name in sorted(PACK_POLICIES):
+        for c in base:
+            pc = policy_config(name, c)
+            if pc not in out:
+                out.append(pc)
+    return out
 
 
 def engine_run_problems(view, res: VerificationResult, seq: int) -> list[str]:
@@ -165,10 +175,13 @@ def replay_source(view, store, rid: str) -> Optional[tuple[str, Optional[str], i
 
 def replay_config(view, res: VerificationResult, seq: int, origin: str):
     """The solver configuration a replay runs under: for a local engine run, the channel's journaled configuration (the
-    result's own only when it is one the channel runs under), never a configuration the result itself names; for an
-    external engine, the result's own (its budget cannot make a definitive status pass: an undecided replay of a
-    definitive status is OVS-AUDIT-005)."""
-    if origin != "captured":
+    result's own only when it is one the channel runs under, a named engine policy's included), never a configuration
+    the result itself names; for an external engine, the result's own (its budget cannot make a definitive status pass:
+    an undecided replay of a definitive status is OVS-AUDIT-005). Rule ``unsigned-probe`` (the translator merge): an
+    UNSIGNED captured result is the translator's own probe (the pipeline's stated-figure and stated-precision runs under
+    the translator's configuration); no receipt can rely on it (a receipt citing an unsigned result is RES-001), so it is
+    replayed under its own configuration, a check that it reproduces."""
+    if origin != "captured" or not res.signature:
         return res.solver_config
     allowed = _allowed_configs(view, seq)
     if allowed is None or res.solver_config in allowed:

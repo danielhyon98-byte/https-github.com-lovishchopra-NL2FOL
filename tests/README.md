@@ -9,6 +9,26 @@ Every figure below was measured on the code at the commit named. This file is up
 each round. Last update: after the round-4 fix round (commit `a2d874d`), with the round-5
 overseer verdicts that had arrived.
 
+## Which model runs which role
+
+Deployment is kept as cheap as possible; checking during testing is done by the strongest
+model.
+
+- **Deployed agents run on the smallest, cheapest model tier.** This covers the subject
+  specialists (configured only from their knowledge documents), the combinator, the
+  translation provider and the logic-checking overseer agents. The test environment uses
+  the same tier for each of these roles, so the results show how the deployed system
+  behaves.
+- **The checks every transfer depends on use no model at all.** The translator turns each
+  output into IR, and the Z3 engine decides it. The engine results are signed, and they
+  are the only results the router and the overseers trust. Each transfer takes
+  milliseconds (see the stress tables below).
+- **The strongest model tier does the checking in testing.** That tier runs the arena
+  overseers and the judges of the overseer agents, plus the fixers. They check every output
+  the cheap agents produce against what the translator delivered and against the engine's
+  verdicts. That is, they confirm the logic recorded for each output is true to what the
+  agent actually wrote.
+
 ## How the infrastructure is tested
 
 Testing has three layers. A change is committed only when the first layer is green and the
@@ -187,3 +207,232 @@ here.
      runs.
 
 Each step adds its results to this file.
+
+## Progress (updated every hour while the builds run)
+
+**2026-10-12 00:30 UTC.** The four builds resumed after a pause caused by an account spend limit:
+- the English/History arena loop;
+- STEM support;
+- the logic-checking overseer agents;
+- the breadth probe of eight further specialists.
+
+The arena loop now stops at round 10 at the latest (at most 10 rounds in all). From round 7:
+- its specialists use the v3 knowledge bases;
+- a fourth overseer measures the translation model claim by claim against the 98% target.
+
+The overseer build now also oversees the translator agents: each proposed claim-to-IR
+translation is audited and appears in the overseer agents' dossiers.
+
+The verified baseline, `3147d08`, and its review are recorded in `docs/BASELINE_REVIEW.md`.
+Work in progress after it is labelled as such.
+
+**2026-10-12 02:45 UTC.**
+- **Publication.** The verified baseline was published to Bruno's private repository at
+  about 00:35 UTC, as branch `import/translator-baseline` (`650d1d3`). Its tree is identical to
+  the baseline (`3147d08`, tree `cc82e93`) plus documentation.
+- **Interruptions.** Between 00:30 and 02:40 UTC the four builds were resumed twice. Both times
+  an account usage limit stopped them within minutes, and the round-6 fixers were cut off again.
+- **Round 6.** The round-6 work so far is checkpointed as `4461ab2`: default suite 1,504 passed,
+  1 skipped. That checkpoint is work in progress. Its harness replays and the overseer re-check
+  are still to run.
+- **Final-only publishing.** From now on, Bruno's repository is updated every hour on branch
+  `verified-updates`, and only with final fixes. A final fix is one of these verified arena
+  commits:
+  - "Fix the rN arena overseer findings";
+  - "Fix defects found by the contained stress runs";
+  - "Arena results: …".
+
+  The full suite must be green, and no replayed round may score lower than in the last update.
+  Work-in-progress commits are never published. Nothing qualifies yet.
+- **Builds.** The four builds resumed at 02:41 UTC.
+
+**2026-10-12 03:30 UTC.**
+- **Arena round 6.** Fixes are still in progress. The English, History and harness fixers
+  have finished, and the channel fixer is still working. The round's verified commit follows
+  once the suite and the replays of every recorded round pass.
+- **Overseer build.** The live hook stage is committed on its own branch (`6bb22b7`). Its
+  contained-test harness is being built now.
+- **STEM build.** It is in its checks stage.
+- **Breadth probe.** It finished all its steps. Its 45 distinct findings feed the first
+  combined clearance round.
+- **Stress tests.** Per Daniel's instruction, no stress tests run after bug fixes, and no model
+  is stress tested. The only load testing will be the scalability tests with many agents on
+  the infrastructure, in the scaling step and the multi-agent test.
+- **Bruno's repository.** Nothing is final yet, so nothing new was sent.
+
+**2026-10-12 04:27 UTC.**
+- **Arena round 6.** Verified and committed (`23707b9`). The full suite has 1,617 tests, all passing. The harness
+  counts are r1 30/30, r1-adv 150/151 and 46/46 for each of r2 to r6. This was the first verified update sent to
+  Bruno's repository.
+- **Arena round 7.** It now uses all sixteen specialists from the v4 knowledge bases, on the cheapest model tier,
+  each reading its whole knowledge base as a single bundle. The task design has 22 tasks covering all sixteen
+  specialists, with three cross-subject peer pairs. Each pair shares one group, so the hub can relay between them:
+  - Economics to Business Management;
+  - Physics to Mathematics: Analysis and Approaches;
+  - History to English A: Literature.
+
+  The specialists are answering now. The STEM build joins round 7 if its implementation is committed before the
+  round's checks begin, after an independent verification; otherwise it joins round 8.
+- **Plan changes requested by Daniel.**
+  - Bug-testing rounds come first. The optimisation checks (at most three) now run last, after every bug-testing
+    round, and the stand-alone optimisation pass was stopped.
+  - Rounds 8 to 10 run after the STEM and overseer builds merge. In those rounds the overseer agents run on the
+    cheapest tier under the self-duplication protocol.
+  - The multi-agent test uses all sixteen specialists, not duplicated agents.
+  - Every update to Bruno's repository now includes an update README.
+- **STEM and overseer builds.** Both were interrupted at 03:45 UTC and resumed at 04:28 UTC from their last
+  completed steps. Their unfinished edits were backed up first.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 05:27 UTC.**
+- **Arena round 7, material.** The material is complete:
+  - 22 answers from all sixteen specialists, on the cheapest model tier from the v4 knowledge bases;
+  - 22 translations and 22 syntheses;
+  - 3 of 3 cross-subject peer reports delivered through the hub (Economics to Business Management, Physics to
+    Mathematics: Analysis and Approaches, History to English A: Literature).
+- **Arena round 7, harness before fixes.** 161 transmissions, 148 functional (91.9%). 13 failed; most are
+  syntheses, along with one peer answer. 35 genuine answers or syntheses carry findings to be judged. The full suite
+  has 1,617 tests, all passing. The overseer lenses will now decide which findings are real defects.
+- **STEM in round 7.** The STEM build was not merged into round 7: its routing and corpus-evaluation stages were not
+  committed when the round reached its harness. It joins at round 8, after the merge.
+- **Builds.** The STEM build is in its routing stage and the overseer build in its contained-test harness stage.
+  Neither has a new commit this hour.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent. Round 7's verified fix commit is the
+  next candidate.
+
+**2026-10-12 06:28 UTC.**
+- **Arena round 7, overseer agents.** Three cheapest-tier overseer instances reviewed 30 blind dossiers built from
+  a copy of the round, 10 each, using the exported knowledge pack. All 30 verdicts passed the package's validation.
+  Against the gold labels they named 52 of 123 injected faults, with no false accusation.
+- **Arena round 7, communication-fidelity lens.** Rate 0.4246. It confirms 13 previous bugs fixed and reports
+  18 new ones: 1 blocker, 11 major and 6 minor.
+- **Arena round 7, other lenses.** The results-audit and adversarial-live lenses are running now; the
+  translation-fidelity lens follows. Owner-partitioned fixes and the verified commit come after.
+- **Builds.**
+  - The STEM build committed its routing stage and is now on corpus evaluation.
+  - The overseer build committed its contained harness (tampering suite, dossier export, verdict scoring) and is
+    building the consolidation and self-duplicating pool stage.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 07:28 UTC.**
+- **Arena round 7, lens verdicts.** None of the four lenses reaches 98%. They report 66 new findings in all:
+  3 blockers, 45 majors and 18 minors.
+
+  | Lens | Rate | Previous bugs confirmed fixed | Blockers | Majors | Minors |
+  | --- | --- | --- | --- | --- | --- |
+  | results-audit | 0.532 | 8 | 1 | 14 | 7 |
+  | communication-fidelity | 0.4246 | 13 | 1 | 11 | 6 |
+  | adversarial-live | 0.7477 | 13 | 1 | 12 | 2 |
+  | translation-fidelity (translation accuracy) | 0.6384 | first round | 0 | 8 | 3 |
+
+  The rates fall from round 6 because round 7 adds fourteen new subjects. The owner-partitioned fixers are working
+  now; the round's verified commit follows.
+- **STEM build.** Corpus evaluation is complete. All 38 injected faults are named, and no error-level finding falls
+  on correct work. Its suite has 3,470 tests passing and 4 expected failures, each marked against a documented
+  existing defect. It is writing its documentation and joins the arena at round 8.
+- **Overseer build.** Its first adversarial review found 31 defects: 1 blocker, 22 majors and 8 minors. The fixes are
+  in progress.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 08:27 UTC.**
+- **Arena round 7 fixes.** The English fixer fixed 10 findings and the channel fixer 18. Items that need another
+  owner's files, or the STEM or overseer builds, were written as handoffs: 10 from the English fixer and 9 from the
+  channel fixer. The history and harness fixers are working now. The round's verified commit follows the full suite
+  and the replay of every recorded round.
+- **STEM build.** Finished on its own branch: all 38 injected faults named, no false errors on correct work, suite
+  green. It joins the arena at round 8.
+- **Overseer build.** Its first review round fixed defects in tamper evasion, agent abuse and precision. Its second
+  review round is running.
+- **Bruno's repository.** No new final fix this hour, so nothing new was sent.
+
+**2026-10-12 09:27 UTC.**
+- **Arena round 7, verified.** The fixes are committed (`dc77853`) with the round's results report (`99e435b`).
+  Round 7's harness now passes 162 of 162 transmissions, against 148 of 161 before the fixes. The full suite has
+  1,855 tests, all passing (1,617 before). No earlier round dropped: r1 30/30, r1-adv 150/151, and 46/46 for each of
+  r2 to r6. Before their fixes, the four lenses had rated round 7 at:
+  - results-audit 0.532;
+  - communication-fidelity 0.4246;
+  - adversarial-live 0.7477;
+  - translation accuracy 0.6384.
+
+  Testing continues in rounds 8 to 10, after the STEM and overseer builds merge. Findings that need the STEM or
+  overseer code are kept in handoff files and applied after those merges.
+- **Bruno's repository.** The second verified update was sent to `verified-updates` (from source `99e435b`). It
+  carries `UPDATE_README.md` (what changed, the bugs found, the fixes, the before and after counts) and a note
+  backfilled for the first update.
+- **Overseer build.** Its second review round is in its fix stage. The STEM build is complete and waiting to merge.
+
+**2026-10-12 14:11 UTC.**
+- **Overseer build stopped, then resumed.** At about 09:50 UTC the organisation's monthly spending limit stopped the
+  overseer build during its second review round's fix stage. The hourly checks from 10:27 to 13:29 UTC did not run
+  while the session restarted. A one-agent capacity test succeeded at 14:09 UTC, and the build resumed from its cache
+  at 14:10 UTC. Its unfinished edits were backed up first; the steps that failed at the limit run again. No spending
+  limit was changed.
+- **Arena and STEM build.** Unchanged since 09:27 UTC: round 7 verified, STEM waiting to merge at round 8.
+- **Bruno's repository.** No new final fix since the 09:27 UTC update, so nothing new was sent.
+
+**2026-10-12 15:27 UTC.**
+- **Overseer build, review round 2 fixed.** The round's 26 findings (18 blocker or major) are fixed on the build's
+  own branch (`cda154c`). Afterwards the transfer audit detected all 110 tamperings, with no false alarm on any of
+  the 72 genuine transfers. The full suite has 2,145 tests passing (6 skipped recorded-round tests pass when pointed
+  at the recorded rounds). Arena round 3 replays at 41 of 41 transmissions.
+- **Overseer build, review round 3.** Two of the three reviews have finished. Tamper evasion found 14 issues (1
+  blocker, 11 major, 2 minor). Agent abuse found 6 (4 major, 2 minor). The precision review is running; the fixes
+  follow.
+- **Bruno's repository.** No new final fix on the development branch, so nothing new was sent. The overseer build
+  reaches it through phase 2's verified merge.
+
+**2026-10-12 16:27 UTC.**
+- **Overseer prototype on Bruno's repository.** On Daniel's instruction the overseer build is now uploaded to Bruno's
+  repository on its own branch, `overseer-prototype`, and updated hourly with final commits only. The first upload
+  (16:13 UTC) is the build's review-round-2 commit (`cda154c`). Before the push, the full suite was re-run on exactly
+  that tree, with every recorded round available: 2,151 passed, none failed or skipped. The upload carries an update
+  note listing the changes, the review findings and fixes, and the findings still open.
+- **Overseer build, review round 3.** All three reviews are in: 25 findings (1 blocker, 19 major, 5 minor), against
+  26 in round 2 and 31 in round 1. The round-3 fix step is running.
+- **Bruno's `verified-updates`.** No new final translator fix, so nothing new was sent.
+
+**2026-10-12 17:27 UTC.**
+- **Overseer build stopped by a weekly usage limit, then resumed.** At 17:08 UTC the account's weekly usage limit
+  stopped the round-3 fix step after 58 minutes of work, before anything was committed. Its unfinished edits were
+  backed up, two one-word capacity tests succeeded, and the build resumed from its cache at 17:23 UTC; the round-3
+  fix step is running again. No spending limit was changed.
+- **Publishers.** The overseer upload scripts were checked by three independent review rounds; the last found no
+  blocker or major, and its small findings are fixed. No new final commit on either branch this hour, so nothing new
+  was sent to Bruno's repository.
+
+**2026-10-12 17:45 UTC.**
+- **Where testing stands.** Seven of the ten bug-testing rounds are done (r1 to r7; r7 was the first with all sixteen
+  specialists). Rounds 8 to 10 run in phase 2, after the STEM and overseer builds are merged. A live round takes about
+  2 to 5.5 hours (r4 2h20, r5 3h40, r6 5h30, r7 5h20); replaying one recorded round through the translator code takes
+  6 to 9 seconds and is used as the functional simulation before every upload.
+- **Translator.** After the round-7 fixes the replay passes 162 of 162 transmissions and the suite 1,855 tests. The
+  reviewers' ratings of round 7 before those fixes were translation accuracy 0.64, results-audit 0.53,
+  communication-fidelity 0.42 and adversarial-live 0.75; the fixes are re-rated by live reviewers in round 8, so the 98%
+  target is not yet demonstrated.
+- **STEM translator.** Built and evaluated on its own branch (all 38 injected faults named, no false errors); it joins
+  the arena at round 8.
+- **Overseer build.** Round-3 review fixes in progress (25 findings: 1 blocker, 19 major, 5 minor). The contained
+  simulation of the uploaded overseer prototype passes rounds 2 to 5 (41 of 41 each, 110 of 110 tamperings detected) and
+  fails on round 7 (139 of 143 functional, 3 false alarms, 235 of 254 injected faults named), because its translator
+  base predates the round 5 to 7 fixes; no further overseer code is uploaded until it passes, which the phase-2 merge
+  addresses.
+- **Uploads.** From now on an update is pushed every hour, with or without new final code. Every push is preceded by a
+  simulation of exactly the uploaded code (full suite and every recorded round), and the replaced version is kept in
+  the repository as a backup branch.
+
+**2026-10-12 18:28 UTC.**
+- **Overseer build, review round 3 fixed.** The round's 25 findings (20 blocker or major) are fixed on the build's own
+  branch (`87eaf86`, 18:11 UTC): 26 fixes, 6 items left undone and listed. Afterwards the transfer audit detected all
+  110 tamperings, with no false alarm on the 72 genuine transfers, and the suite has 2,244 tests passing (2,145 at
+  round 2). Arena round 3 replays at 41 of 41. The build has moved on to its contained rounds, in which overseer
+  agents configured only from the exported knowledge pack review live transfers.
+- **Uploads.** The hourly update of `verified-updates` carries no new code (the round-7 version), checked by a fresh
+  simulation before the push. The round-3 overseer commit is uploaded to `overseer-prototype` only if its full
+  simulation passes, including round 7.
+
+### Progress, 21:58 UTC
+
+- STEM support merged into the translator (commit 83e97e9) and published to `verified-updates`: full suite 4,353 passed (45 stress tests deselected, 4 strict expected failures); harness r1 30/30, r1-adv 150/151 (the planted empty answer stays REJECTED), r2 to r6 46/46, r7 177/177 (the 162 recorded transmissions plus 15 STEM mutation variants, all 15 named).
+- Overseer build: contained-round c1 fixes committed on the build branch; its evaluation gave 2,281 tests passed, 110 of 110 tamperings detected and 0 false alarms on rounds 2 to 5. On round 7 the overseer still fails two contained gates (99 of 118 arena faults named and confirmed; 3 false alarms, all from one circular-translation check); the correction and a rebuild on the STEM-merged translator are in progress.
+- Arena round 8 is prepared: 24 tasks over all sixteen v4 specialists, with four peer pairs (two humanities pairs, one STEM pair, one STEM-humanities pair).

@@ -77,7 +77,43 @@ def _norm_meaning(m: Optional[str]) -> str:
     return " ".join((m or "").split()).casefold()
 
 
-def _merge_symbols(problems: list[Problem]) -> tuple[list[Symbol], list[IntegrityFinding]]:
+#: Words a gloss may add, drop or move without changing the quantity it names: articles, the prepositions that date a
+#: stock at a year ("in 1870", "by 1870", "at 1870"), approximation words and punctuation.
+_GLOSS_STOP = frozenset("the a an of in by at on about around roughly approximately approx c ca circa some nearly almost and or as for its so thus then that which is are was were be been".split())
+_GLOSS_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*|[^\W\d_]+(?:['’-][^\W\d_]+)*")
+#: A part label of a question ("part (a)", "(c)", "(ii)", "part b", "question 2(b)"): content of the gloss, never the
+#: article 'a' or the circa 'c' the stop list sets aside, so 'marks allocated to part (a)' and '... part (c)' differ.
+_PART_LABEL_RE = re.compile(r"\((?P<p>[a-z]|[ivx]{1,4}|\d{1,2}[a-z]?)\)|\bpart\s+(?P<q>[a-z]|[ivx]{1,4}|\d{1,2})\b(?!['’])", re.IGNORECASE)
+
+
+def gloss_content(meaning: Optional[str]) -> frozenset[str]:
+    """The content of a symbol's gloss: its words (light-stemmed, case-folded), figures (thousands separators removed)
+    and part labels ("(a)", "part c", "(ii)"), without the words that never change the quantity named
+    (:data:`_GLOSS_STOP`), in any order. 'pig iron output in 1928 (million tonnes, about 3.3)' and 'pig iron output in
+    1928 (about 3.3 million tonnes)' have the same content, as do 'route mileage in 1870' and 'route mileage by 1870';
+    'marks allocated to part (a)' and 'marks allocated to part (c)' do not."""
+    from .ledger import light_stem
+    out: set[str] = set()
+    text = (meaning or "").casefold()
+    for m in _PART_LABEL_RE.finditer(text):
+        out.add(f"({m.group('p') or m.group('q')})")
+    text = _PART_LABEL_RE.sub(" part ", text)
+    for tok in _GLOSS_TOKEN_RE.findall(text):
+        if tok[:1].isdecimal():
+            out.add(re.sub(r"(?<=\d),(?=\d{3}\b)", "", tok))
+        elif tok not in _GLOSS_STOP:
+            out.add(light_stem(tok))
+    return frozenset(out)
+
+
+#: How INT-GLOSSARY-005 ends: a joint problem that pools the symbol as one quantity (synthesis entailment) or one that
+#: reads the glosses apart (the consistency check, :func:`split_by_gloss`).
+_POOLED_AS_ONE = "the joint check assumes they denote the same quantity"
+_READ_APART = ("the consistency check reads them as different quantities (the symbol is renamed apart per claim), so no contradiction is "
+               "charged on this shared name; one name for two quantities is a translation fault, not the specialist's")
+
+
+def _merge_symbols(problems: list[Problem], *, read_apart: bool = False) -> tuple[list[Symbol], list[IntegrityFinding]]:
     seen: dict[str, tuple[Symbol, str]] = {}
     findings: list[IntegrityFinding] = []
     for p in problems:
@@ -91,11 +127,138 @@ def _merge_symbols(problems: list[Problem]) -> tuple[list[Symbol], list[Integrit
                 findings.append(IntegrityFinding(code="INT-GLOSSARY-001", severity="error", message=f"symbol {s.name!r} declared as {prior_sym.sort} in claim {prior_claim!r} and as {s.sort} in claim {p.claim_id!r}; shared glossary violated", claim_ids=sorted({prior_claim, p.claim_id})))
             else:
                 a, b = _norm_meaning(prior_sym.meaning), _norm_meaning(s.meaning)
-                if a and b and a != b:
-                    findings.append(IntegrityFinding(code="INT-GLOSSARY-005", severity="warning", message=f"symbol {s.name!r} ({s.sort}) is glossed differently across claims: {prior_sym.meaning!r} in {prior_claim!r} vs {s.meaning!r} in {p.claim_id!r}; the joint check assumes they denote the same quantity", claim_ids=sorted({prior_claim, p.claim_id})))
+                ca, cb = gloss_content(prior_sym.meaning), gloss_content(s.meaning)
+                if a and b and a != b and ca != cb:  # the same words and figures in another order or with another "in"/"by" are one meaning
+                    only_a, only_b = sorted(ca - cb), sorted(cb - ca)
+                    what = "; ".join(x for x in (f"only the first states {only_a}" if only_a else "", f"only the second states {only_b}" if only_b else "") if x)
+                    findings.append(IntegrityFinding(code="INT-GLOSSARY-005", severity="warning", message=f"symbol {s.name!r} ({s.sort}) is glossed with different meanings across claims: {prior_sym.meaning!r} in {prior_claim!r} vs {s.meaning!r} in {p.claim_id!r} ({what}); {_READ_APART if read_apart else _POOLED_AS_ONE}", claim_ids=sorted({prior_claim, p.claim_id})))
             if not prior_sym.meaning and s.meaning:
                 seen[s.name] = (s, p.claim_id)
     return [v[0] for v in seen.values()], findings
+
+
+def _symbol_components(problem: Problem) -> dict[str, str]:
+    """Per symbol of ``problem``, a representative of its connected component in the problem's assertions (two symbols
+    are connected when one assertion, the conclusion included, uses both): the quantities computed together."""
+    parent = {sym.name: sym.name for sym in problem.symbols}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a in [*problem.premises, *([problem.conclusion] if problem.conclusion is not None else [])]:
+        names = sorted(n for n in _needed_symbols(a) if n in parent)
+        for n in names[1:]:
+            ra, rb = find(names[0]), find(n)
+            if ra != rb:
+                parent[rb] = ra
+    return {n: find(n) for n in parent}
+
+
+def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, list[tuple[str, list[str], str]]]]:
+    """The problems with symbols renamed apart wherever one name stands for different quantities:
+
+    * a symbol whose gloss content (:func:`gloss_content`) differs between two claims ('the target is 67' in one claim,
+      'the target is 20' in another; 'marks allocated to part (a)' and '... part (c)');
+    * and, between two claims that so gloss a shared symbol differently, every other shared symbol that either claim
+      computes together with it (connected to it through its own assertions: 'low on pass 1' of a search for the target
+      67 is not 'low on pass 1' of a search for 20, whatever the glosses say).
+
+    Claims that do not so differ keep one name: the first group of claims keeps the original name, each other group gets
+    ``<name>_g<k>``. Two claims that gloss a symbol alike and never gloss a shared symbol differently still share all
+    their symbols, so their contradictions are found as before. Returns the problems (unchanged when nothing differs)
+    and, per original name that was split, ``(name used, claim ids, gloss)`` for each group."""
+    n = len(problems)
+    content: list[dict[str, Optional[frozenset[str]]]] = []
+    shown: list[dict[str, str]] = []
+    comps = [_symbol_components(p) for p in problems]
+    sorts: dict[str, set[str]] = {}
+    holders: dict[str, list[int]] = {}
+    for i, p in enumerate(problems):
+        content.append({})
+        shown.append({})
+        for sym in p.symbols:
+            sorts.setdefault(sym.name, set()).add(sym.sort)
+            holders.setdefault(sym.name, []).append(i)
+            content[i][sym.name] = gloss_content(sym.meaning) if _norm_meaning(sym.meaning) else None
+            shown[i][sym.name] = sym.meaning or ""
+    # clash[(i, j)]: the shared symbols claims i and j gloss with different content (same sort; a sort clash withholds the check)
+    clash: dict[tuple[int, int], set[str]] = {}
+    for name, idxs in holders.items():
+        if len(idxs) < 2 or len(sorts[name]) > 1:
+            continue
+        for a in range(len(idxs)):
+            for b in range(a + 1, len(idxs)):
+                i, j = idxs[a], idxs[b]
+                ci, cj = content[i][name], content[j][name]
+                if ci is not None and cj is not None and ci != cj:
+                    clash.setdefault((i, j), set()).add(name)
+    if not clash:
+        return list(problems), {}
+
+    def apart(i: int, j: int, name: str) -> bool:
+        i, j = min(i, j), max(i, j)
+        ci, cj = content[i][name], content[j][name]
+        if ci is not None and cj is not None and ci != cj:
+            return True
+        return any(comps[i].get(name) == comps[i].get(t) or comps[j].get(name) == comps[j].get(t) for t in clash.get((i, j), ()))
+
+    taken = {sym.name for p in problems for sym in p.symbols}
+    rename: dict[int, dict[str, str]] = {}
+    splits: dict[str, list[tuple[str, list[str], str]]] = {}
+    for name, idxs in holders.items():
+        if len(idxs) < 2 or len(sorts[name]) > 1:
+            continue
+        groups: list[list[int]] = []
+        for i in idxs:
+            for g in groups:
+                if not any(apart(i, j, name) for j in g):
+                    g.append(i)
+                    break
+            else:
+                groups.append([i])
+        if len(groups) < 2:
+            continue
+        splits[name] = []
+        for k, g in enumerate(groups):
+            new = name
+            if k:
+                m = k + 1
+                new = f"{name[:56]}_g{m}"
+                while new in taken:
+                    m += 1
+                    new = f"{name[:56]}_g{m}"
+                taken.add(new)
+                for i in g:
+                    rename.setdefault(i, {})[name] = new
+            splits[name].append((new, [problems[i].claim_id for i in g], next((shown[i][name] for i in g if shown[i][name]), "")))
+    out: list[Problem] = []
+    for i, p in enumerate(problems):
+        table = rename.get(i)
+        out.append(_renamed(p, table) if table else p)
+    return out, splits
+
+
+def _renamed(problem: Problem, table: dict[str, str]) -> Problem:
+    """``problem`` with its symbols renamed by ``table`` (declarations and every ``var`` node)."""
+    data = problem.model_dump(mode="json", exclude_none=True)
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("op") == "var" and node.get("name") in table:
+                node["name"] = table[node["name"]]
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    for sym in data.get("symbols", []):
+        if sym.get("name") in table:
+            sym["name"] = table[sym["name"]]
+    walk(data.get("premises", []))
+    walk(data.get("conclusion"))
+    return Problem.model_validate(data)
 
 
 def _pooled_grounding(orig: Optional[Grounding]) -> Grounding:
@@ -387,16 +550,53 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     ``assumed_readings`` names pooled claims whose translation is AMBIGUOUS_TRANSLATION: a self-refutation of one of
     them exists only under the translator's assumed reading and is INT-CONFLICT-005 as a warning, not an error. Returns the result of the joint check
     over every problem; the findings cite the runs that established them."""
-    joint, findings, jmap = joint_problem(problems, request_id=request_id, joint_id="cross-report")
+    apart, splits = split_by_gloss(problems)
+    joint, findings, jmap = joint_problem(apart, request_id=request_id, joint_id="cross-report")
+    if splits:  # the glossary findings are those of the claims as translated, each saying the symbol was read apart
+        _syms, glossary = _merge_symbols(problems, read_apart=True)
+        findings = [f for f in glossary if f.code == "INT-GLOSSARY-005"] + [f for f in findings if f.code != "INT-GLOSSARY-005"]
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
     result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
     if result.status is S.INCONSISTENT_PREMISES:
-        findings += _attribute_contradiction(problems, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
+        findings += _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
     elif result.status is not S.CONSISTENT:
         findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
+    elif splits:
+        findings += _glossary_only_contradiction(problems, splits, result, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key)
     return result, findings
+
+
+def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list[tuple[str, list[str], str]]], apart_result: VerificationResult, *,
+                                 request_id: str, cfg: SolverConfig, limits: Limits, signing_key: Optional[bytes]) -> list[IntegrityFinding]:
+    """INT-CONFLICT-004 (warning) when the claims contradict each other only if a symbol they gloss as different
+    quantities is read as one: the pool is consistent with the glosses read apart and inconsistent with them pooled. The
+    finding names the claims of the pooled core and the symbols with their glosses; no INT-CONFLICT-001 is charged and no
+    disclosure is demanded (only INT-CONFLICT-001 enters the disclosure rule)."""
+    joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id="cross-report-pooled")
+    if joint is None:
+        return []
+    pooled = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    if pooled.status is not S.INCONSISTENT_PREMISES:
+        return []
+    claims = claim_ids_from_core(pooled.premises_relied_on, jmap) or sorted(set(jmap.claim_ids))
+    clashing, context = [], []
+    for name, groups in sorted(splits.items()):
+        involved = [(ids, gloss) for _new, ids, gloss in groups if set(ids) & set(claims)]
+        if len(involved) < 2:
+            continue
+        contents = {gloss_content(g) for _ids, g in involved if _norm_meaning(g)}
+        if len(contents) >= 2:
+            clashing.append(f"{name!r} (" + "; ".join(f"{gloss!r} in {[c for c in ids if c in claims] or ids}" for ids, gloss in involved[:4]) + ")")
+        else:
+            context.append(repr(name))
+    if not clashing:
+        clashing = [repr(name) for name in sorted(splits)][:6]
+    tail = f", and the quantities each claim computes with them ({', '.join(context[:8])}{' and more' if len(context) > 8 else ''})," if context else ""
+    return [IntegrityFinding(code="INT-CONFLICT-004", severity="warning",
+                             message=f"the pooled claims {claims} contradict each other only when symbol(s) {', '.join(clashing[:6])}, glossed as different quantities{tail} are read as one quantity; read apart they are consistent, so the contradiction is unattributable and no contradiction is charged to the specialists (one symbol name for two quantities is a translation fault)",
+                             claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]
 
 
 def _proven_elsewhere(claim_id: str, source_problems: list[Problem], prior_results: Optional[dict[str, VerificationResult]]) -> bool:

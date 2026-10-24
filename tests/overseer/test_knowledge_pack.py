@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import hashlib
+import re
 import io
 import json
 import os
@@ -117,12 +118,22 @@ def test_the_installed_pack_loads_under_its_pinned_digest():
 
 
 def test_the_system_text_follows_the_fixed_rule():
+    """STEM repair 11: each document is sent as written less its module marker lines (the whole text keeps every module); every
+    composition's text follows the same rule with the spans of the modules it leaves out removed, and recomputes to its manifest digest."""
     pack = installed_pack()
     text = pack.system_text()
     parts = text.split("\n\n===== ")
     assert len(parts) == len(pack.documents) and text.startswith("===== master_prompt.txt =====\nPACK: ") and text.endswith("\n")
+    marker = re.compile(r"<!-- (?:end )?module: [a-z]+ -->")
     for (path, doc), part in zip(pack.documents, ["===== " + p if i else p for i, p in enumerate(parts)]):
-        assert part.rstrip("\n") == f"===== {path} =====\n" + doc.rstrip("\n")
+        assert part.rstrip("\n") == f"===== {path} =====\n" + "\n".join(line for line in doc.split("\n") if not marker.fullmatch(line)).rstrip("\n")
+    assert pack.manifest.system_modules == ("stem", "translations")
+    for modules in ((), ("stem",), ("translations",), ("stem", "translations")):
+        composed = pack.system_text(modules)
+        assert hashlib.sha256(composed.encode()).hexdigest() == pack.composition_sha256(modules) == pack.manifest.system_compositions[
+            "+".join(("core",) + modules)]
+        assert not marker.search(composed) and ("**D31 " in composed) == ("stem" in modules) and ("**I70 " in composed) == ("translations" in modules)
+    assert pack.system_text(("stem", "translations")) == text
     assert build_system_text([("a.md", "x\n\n"), ("b.md", "y")], "== {path} ==") == "== a.md ==\nx\n\n== b.md ==\ny\n"
     assert build_system_text([("a.md", "x")], "{path}{path}".replace("{path}{path}", "<{path}>")) == "<a.md>\nx\n"
 
@@ -177,17 +188,19 @@ def test_verify_catches_a_pack_changed_in_memory(scratch):
 
 def test_accepted_identities_are_the_pinned_ones_plus_explicit_trust():
     pinned = installed_pack().identity
-    # packs 1.0 and 1.1 stay pinned beside the installed 1.2 (design section 17.12: an older version whose contracts the
-    # code still supports stays accepted, so its verdicts still validate)
+    # packs 1.0, 1.1 and 1.2 stay pinned beside the installed 1.3 (design section 17.12: an older version whose contracts
+    # the code still supports stays accepted, so its verdicts still validate)
     older = PackIdentity(name=PACK_NAME, version="1.0", sha256=PACK_DIGESTS[(PACK_NAME, "1.0")])
     older11 = PackIdentity(name=PACK_NAME, version="1.1", sha256=PACK_DIGESTS[(PACK_NAME, "1.1")])
+    older12 = PackIdentity(name=PACK_NAME, version="1.2", sha256=PACK_DIGESTS[(PACK_NAME, "1.2")])
     other = PackIdentity(name=PACK_NAME, version="9.9", sha256="cd" * 32)
     override = PackIdentity(name=PACK_NAME, version=PACK_VERSION, sha256="ef" * 32)
-    assert pinned.version == PACK_VERSION == "1.2"
-    assert accepted_identities() == frozenset({pinned, older, older11}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
-    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, other})  # trust never overrides a pinned version
+    assert pinned.version == PACK_VERSION == "1.3"
+    assert accepted_identities() == frozenset({pinned, older, older11, older12}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
+    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, other})  # trust never overrides a pinned version
     assert load_pack(installed_pack_dir("1.0")).identity == older  # the older pinned packs still load, unchanged
     assert load_pack(installed_pack_dir("1.1")).identity == older11
+    assert load_pack(installed_pack_dir("1.2")).identity == older12
 
 
 def test_pack_error_reasons_are_closed():
@@ -219,14 +232,14 @@ def test_t20c_a_file_added(scratch):
 
 
 def test_t20d_the_version_string_changed(scratch):
-    remanifest(scratch, version="1.3")
+    remanifest(scratch, version="1.4")
     refused(scratch, "unknown_pack")
-    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.3")
-    remanifest(scratch, version="1.3")
+    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.4")
+    remanifest(scratch, version="1.4")
     refused(scratch, "unknown_pack")
     # an operator may trust it explicitly, by its exact identity only
-    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.3"
-    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.3", sha256="ab" * 32)])
+    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.4"
+    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.4", sha256="ab" * 32)])
 
 
 def test_a_refused_pack_yields_nothing_to_configure_an_agent_with(scratch):

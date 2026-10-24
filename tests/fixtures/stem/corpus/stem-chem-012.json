@@ -1,0 +1,26 @@
+{
+  "id": "stem-chem-012",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "At equilibrium at 700 K the concentrations are [N₂] = 0.50 mol dm⁻³, [H₂] = 0.10 mol dm⁻³ and [NH₃] = 0.020 mol dm⁻³. Calculate Kc for N₂(g) + 3H₂(g) ⇌ 2NH₃(g) and comment on the position of equilibrium.",
+  "supplied_texts": [],
+  "response_text": "N₂(g) + 3H₂(g) ⇌ 2NH₃(g)\n\n$$K_c = \\frac{[\\mathrm{NH_3}]^2}{[\\mathrm{N_2}][\\mathrm{H_2}]^3} = \\frac{(0.020)^2}{(0.50)(0.10)^3} = \\frac{4.0 \\times 10^{-4}}{5.0 \\times 10^{-4}} = 0.80\\ \\mathrm{mol^{-2}\\,dm^{6}}$$\n\nKc is less than 1, so at 700 K the position of equilibrium lies to the left and the mixture contains more reactants than ammonia.",
+  "notation": [
+    "latex_display",
+    "unicode",
+    "chemical_equation",
+    "concentration_brackets",
+    "sci_latex",
+    "units_latex"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "N₂(g) + 3H₂(g) ⇌ 2NH₃(g)",
+      "\\frac{[\\mathrm{NH_3}]^2}{[\\mathrm{N_2}][\\mathrm{H_2}]^3} = \\frac{(0.020)^2}{(0.50)(0.10)^3}",
+      "\\frac{(0.020)^2}{(0.50)(0.10)^3} = \\frac{4.0 \\times 10^{-4}}{5.0 \\times 10^{-4}}",
+      "\\frac{4.0 \\times 10^{-4}}{5.0 \\times 10^{-4}} = 0.80\\ \\mathrm{mol^{-2}\\,dm^{6}}",
+      "Kc is less than 1"
+    ]
+  }
+}

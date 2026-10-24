@@ -1,0 +1,30 @@
+{
+  "id": "stem-phys-012",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A 0.20 kg ball on a string moves in a horizontal circle of radius 0.50 m at a constant speed of 4.0 m s⁻¹. Calculate the centripetal acceleration and the tension in the string (ignore gravity).",
+  "supplied_texts": [],
+  "response_text": "Given: m = 0.20 kg, r = 0.50 m, v = 4.0 m s⁻¹.\n\nCentripetal acceleration: a = v²/r = 4.0²/0.25 = 64 m s⁻²\nTension: T = ma = 0.20 × 64 = 12.8 N ≈ 13 N\n\nThe tension provides the centripetal force, so it always points towards the centre of the circle.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "wrong_substitution",
+        "step": "a = v²/r = 4.0²/0.25",
+        "expected_codes": [
+          "INT-SUBJ-001"
+        ],
+        "note": "stem-sub: r is bound to 0.50 m (Given line and request), but 0.25 was substituted; |0.25 − 0.50| exceeds h(0.50) + h(0.25) = 0.01. True a = 32 m s⁻² and T = 6.4 N. The arithmetic 4.0²/0.25 = 64 and 0.20 × 64 = 12.8 holds as written. [computed: substituted 0.25 vs binding 0.50: |diff|=0.25 band=0.01 -> does not hold]"
+      }
+    ],
+    "correct_steps": [
+      "m = 0.20 kg, r = 0.50 m, v = 4.0 m s⁻¹",
+      "4.0²/0.25 = 64 m s⁻²",
+      "0.20 × 64 = 12.8 N",
+      "12.8 N ≈ 13 N"
+    ]
+  }
+}

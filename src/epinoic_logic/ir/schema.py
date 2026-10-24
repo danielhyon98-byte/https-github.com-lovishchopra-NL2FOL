@@ -26,12 +26,12 @@ GroundingKind = Literal[
     "supplied_text",        # paraphrase or structural fact about a supplied text
     "task_setting",         # word counts, prompt constraints, task parameters
     "rubric_rule",          # an assessment-criterion rule supplied with the task
-    "arithmetic_fact",      # a numeric fact given in the task or report
+    "arithmetic_fact",      # a figure the task (or a supplied text) states, or one computed from such figures
     "specialist_inference", # an inferential step asserted by the specialist agent
     "assumption",           # an explicit assumption with no textual support
     "knowledge_document",   # a fact held in the specialist's own knowledge documents (source boundary (a))
     "library_source",       # a fact retrieved from the approved library, cited by title and locator (source boundary (b))
-    "general_knowledge",    # standard subject knowledge stated from memory at a labelled certainty; never a specific figure, date or quotation
+    "general_knowledge",    # subject knowledge stated from memory at a labelled certainty (a date or figure from memory included); never a quotation
 ]
 Certainty = Literal["established", "probable", "possible"]
 

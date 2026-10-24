@@ -1,0 +1,23 @@
+{
+  "id": "stem-phys-030",
+  "subject": "Physics",
+  "task_type": "short_answer",
+  "question": "A coach travels 200 km in 3 hours. Calculate its average speed in km h⁻¹ and in m s⁻¹.",
+  "supplied_texts": [],
+  "response_text": "Average speed = total distance ÷ total time\nv = 200 km ÷ 3 h = 67 km h⁻¹ (to 2 s.f.)\nIn SI units: 67 km h⁻¹ ÷ 3.6 = 18.6 m s⁻¹ ≈ 19 m s⁻¹\nThe coach averages about 67 km h⁻¹, although its actual speed varies along the route.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "units_prefix",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "v = 200 km ÷ 3 h = 67 km h⁻¹ (to 2 s.f.)",
+      "67 km h⁻¹ ÷ 3.6 = 18.6 m s⁻¹",
+      "18.6 m s⁻¹ ≈ 19 m s⁻¹",
+      "The coach averages about 67 km h⁻¹"
+    ]
+  }
+}

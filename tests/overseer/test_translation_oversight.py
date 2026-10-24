@@ -30,7 +30,8 @@ from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 from epinoic_logic.version import POLICY_VERSION
 
-from .conftest import CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, make_plan, new_channel
+from .conftest import (CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, make_plan, new_channel, withheld_as_circular_by_the_translator,
+                       without_the_translators_circularity_gate)
 
 POINT = "en-point"
 SUPPORT = ["en-ev1", "en-ev2", "en-an"]
@@ -429,16 +430,35 @@ def assumed_in_place_of_the_link(premise: dict) -> dict:
 
 
 @pytest.mark.parametrize("premise", [V("endless"), {"op": "and", "args": [V("bell"), {"op": "and", "args": [V("coal"), V("endless")]}]}])
-def test_trn006_a_conclusion_that_occurs_verbatim_among_the_premises(aud, premise):
+def test_trn006_a_conclusion_that_occurs_verbatim_among_the_premises(aud, premise, monkeypatch):
     """Rewritten after the round-7 simulation (rule ``restatement-necessity``; every original assertion kept): the
     restating premise now stands in for the specialist's link, so the auditor's own signed run without it is
     COUNTEREXAMPLE and the translation is circular. The earlier fixture appended the conclusion to the faithful encoding,
     whose other premises already give the point: that restatement is redundant, OVS-TRN-010 (a warning), pinned by
-    ``test_trn010_a_restatement_the_other_premises_already_give_is_a_warning``."""
+    ``test_trn010_a_restatement_the_other_premises_already_give_is_a_warning``.
+
+    Rewritten again for the translator merge (rule ``circularity-agreement``, every assertion kept): the merged
+    translator withholds this encoding itself (E112 at translation time), which is asserted first with no OVS-TRN
+    finding; the overseer's TRN-006 is then asserted on the same encoding delivered past the translator's gate, where the
+    engine's own E112 also withholds the displayed verdict."""
     p = assumed_in_place_of_the_link(premise)
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(p)}, auditor=a0)
+        o0 = next(o for o in rc0.outcomes if o.claim_id == POINT)
+        assert withheld_as_circular_by_the_translator(o0)
+        audit0 = a0.audit(ch0.uid)
+        assert trn(audit0, "OVS-TRN-006") == [] and trn(audit0, "OVS-TRN-010") == [] and audit0.state != "AUDIT_FAILED"
+        assert any("E112" in n and "circularity-agreement" in n for n in audit0.coverage.notes)
+    finally:
+        a0.close()
+    without_the_translators_circularity_gate(monkeypatch)
     aud, ch, rc = run({POINT: proposal(p)}, auditor=aud)
     o = next(o for o in rc.outcomes if o.claim_id == POINT)
     assert o.verification.status.value == "ENTAILED"  # the engine is right about the encoding: it entails trivially
+    # the engine's own rule agrees: the proof's core restates the conclusion from the writer's own premise (E112), so the
+    # outcome layer displays no verdict
+    assert "E112" in {d.code for d in o.verification.diagnostics} and o.display_status.value == "INVALID_FORMALIZATION"
     a = aud.audit(ch.uid)
     f = trn(a, "OVS-TRN-006")
     assert len(f) == 1 and f[0].severity == "error" and f[0].claim_ids == [POINT] and "P_assumed" in f[0].message
@@ -452,12 +472,25 @@ def test_trn006_a_conclusion_that_occurs_verbatim_among_the_premises(aud, premis
     assert "P_assumed" not in {x["id"] for x in json.loads(run_rec.problem_json)["premises"]}
 
 
-def test_trn010_a_restatement_the_other_premises_already_give_is_a_warning(aud):
+def test_trn010_a_restatement_the_other_premises_already_give_is_a_warning(aud, monkeypatch):
     """Rule ``restatement-necessity`` (the round-7 bm-t13 shape on the synthetic task): the conclusion appended to the
     faithful encoding is a restatement the other premises already give. The auditor's own signed run without it is
-    ENTAILED, so the translation is not circular: OVS-TRN-010, a warning naming the premise, which fails no transfer."""
+    ENTAILED, so the translation is not circular: OVS-TRN-010, a warning naming the premise, which fails no transfer.
+
+    Rewritten for the translator merge (rule ``circularity-agreement``, every assertion kept): the merged translator
+    withholds this encoding itself (E112 at translation time, a redundant restatement included), asserted first with no
+    OVS-TRN finding; TRN-010 is asserted on the encoding delivered past the translator's gate."""
     p = genuine_problem()
     p["premises"].append({"id": "P_assumed", "expr": V("endless"), "grounding": INFER})
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(p)}, auditor=a0)
+        assert withheld_as_circular_by_the_translator(next(o for o in rc0.outcomes if o.claim_id == POINT))
+        audit0 = a0.audit(ch0.uid)
+        assert trn(audit0, "OVS-TRN-006") == [] and trn(audit0, "OVS-TRN-010") == []
+    finally:
+        a0.close()
+    without_the_translators_circularity_gate(monkeypatch)
     aud, ch, rc = run({POINT: proposal(p)}, auditor=aud)
     o = next(o for o in rc.outcomes if o.claim_id == POINT)
     a = aud.audit(ch.uid)
@@ -502,9 +535,12 @@ def test_trn007_control_a_summary_composed_without_a_signing_key_is_a_configurat
 
 
 # ============================================================================================ live operation
-def test_live_a_circular_translation_holds_the_transfer_pending_then_fails_it_and_the_router_never_acts():
+def test_live_a_circular_translation_holds_the_transfer_pending_then_fails_it_and_the_router_never_acts(monkeypatch):
     # rewritten after the round-7 simulation (every assertion kept): the restating premise stands in for the specialist's
-    # link, so it is load-bearing (rule restatement-necessity); an appended, redundant one is OVS-TRN-010 and clears
+    # link, so it is load-bearing (rule restatement-necessity); an appended, redundant one is OVS-TRN-010 and clears.
+    # Rewritten for the translator merge (every assertion kept): the encoding is delivered past the merged translator's
+    # circularity gate, which would withhold it itself (rule circularity-agreement; asserted in the TRN-006 test)
+    without_the_translators_circularity_gate(monkeypatch)
     aud = make_auditor(shadow="off", eager=False)
     p = assumed_in_place_of_the_link(V("endless"))
     translator = Translator(FixtureTranslationProvider({POINT: proposal(p)}))

@@ -1,0 +1,23 @@
+{
+  "id": "stem-chem-017",
+  "subject": "Chemistry",
+  "task_type": "short_answer",
+  "question": "Heating 5.00 g of hydrated copper(II) sulfate, CuSO₄·5H₂O (M = 249.7 g mol⁻¹), leaves anhydrous CuSO₄ (M = 159.6 g mol⁻¹). Calculate the theoretical mass of CuSO₄ and the percentage yield if 3.00 g is obtained.",
+  "supplied_texts": [],
+  "response_text": "CuSO₄·5H₂O(s) → CuSO₄(s) + 5H₂O(g)\n\nn(CuSO₄·5H₂O) = 5.00 / 249.7 = 0.0200 mol\nTheoretical mass of CuSO₄ = 0.0200 × 159.6 = 3.19 g\nPercentage yield = actual / theoretical × 100 = 3.00 / 3.19 × 100 = 94.0 %\n\nThe yield is below 100 % because some solid was lost from the crucible during heating.",
+  "notation": [
+    "unicode",
+    "chemical_equation",
+    "hydrate_dot",
+    "percent"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "CuSO₄·5H₂O(s) → CuSO₄(s) + 5H₂O(g)",
+      "n(CuSO₄·5H₂O) = 5.00 / 249.7 = 0.0200 mol",
+      "0.0200 × 159.6 = 3.19 g",
+      "3.00 / 3.19 × 100 = 94.0 %"
+    ]
+  }
+}

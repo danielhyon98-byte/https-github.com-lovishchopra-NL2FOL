@@ -32,7 +32,7 @@ from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
-from .conftest import CFG, KEY, make_auditor, new_channel
+from .conftest import CFG, KEY, make_auditor, new_channel, withheld_as_circular_by_the_translator, without_the_translators_circularity_gate
 from .test_protocol_validate import review
 from .test_translation_agents import outcome_of, tr_acc
 from .test_translation_oversight import INFER, POINT, V, genuine_problem, proposal, run, trn
@@ -123,12 +123,32 @@ def _outcome(rc):
     return next(o for o in rc.outcomes if o.claim_id == CID)
 
 
+def _withheld_by_the_merged_translator(problem: dict) -> None:
+    """Rule circularity-agreement: the merged translator withholds the encoding itself (E112 at translation time), and
+    the overseer raises no OVS-TRN-006 or OVS-TRN-010 on it (the receipt shows no verdict)."""
+    a0 = make_auditor(shadow="off")
+    try:
+        ch0, rc0 = run_bm(problem, a0)
+        assert withheld_as_circular_by_the_translator(_outcome(rc0))
+        audit0 = a0.audit(ch0.uid)
+        assert trn(audit0, "OVS-TRN-006") == [] and trn(audit0, "OVS-TRN-010") == [] and audit0.transfer_states[rc0.message_id] != "AUDIT_FAILED"
+    finally:
+        a0.close()
+
+
 # ============================================================================================ the bm-t13 shape: a warning
-def test_the_bm_t13_restatement_is_redundant_a_warning_naming_the_premise(aud):
+def test_the_bm_t13_restatement_is_redundant_a_warning_naming_the_premise(aud, monkeypatch):
+    # The translator merge (rule circularity-agreement; every assertion kept): the merged translator withholds this
+    # encoding itself, the redundant restatement included (E112 at translation time); TRN-010 is asserted on the same
+    # encoding delivered past the translator's gate, where the engine's own E112 withholds the displayed verdict too
+    # (its proof's core is the restatement alone).
+    _withheld_by_the_merged_translator(bm_problem())
+    without_the_translators_circularity_gate(monkeypatch)
     ch, rc = run_bm(bm_problem(), aud)
     o = _outcome(rc)
     assert o.translation.status.value == "TRANSLATED" and o.verification.status.value == "ENTAILED"
     assert o.verification.premises_relied_on == ["d_contrib_val"]  # the outcome's own core names only the restatement
+    assert "E112" in {d.code for d in o.verification.diagnostics} and o.display_status.value == "INVALID_FORMALIZATION"
     a = aud.audit(ch.uid)
     assert trn(a, "OVS-TRN-006") == []
     (w,) = trn(a, "OVS-TRN-010")
@@ -144,13 +164,28 @@ def test_the_bm_t13_restatement_is_redundant_a_warning_naming_the_premise(aud):
 
 
 # ============================================================================================ errors: load-bearing restatements
-def test_p_proves_p_is_circular_an_error(aud):
-    """The cs-t13 g11.3 / ess-t13 g4.3 shape: the conclusion is the only premise. Without it nothing gives the claim."""
+def test_p_proves_p_is_circular_an_error(aud, monkeypatch):
+    """The cs-t13 g11.3 / ess-t13 g4.3 shape: the conclusion is the only premise. Without it nothing gives the claim.
+
+    The translator merge (rule circularity-agreement): the merged translator withholds it itself (E112 at translation
+    time; asserted first, with no OVS-TRN finding). Delivered past that gate, the engine's own E112 withholds the
+    displayed verdict (the pre-merge translator displayed it ENTAILED, the fault the recorded round showed), and the
+    overseer's TRN-006 assertions are kept."""
     p = genuine_problem()
     p["premises"] = [{"id": "a_point", "expr": V("endless"), "label": "the writer presents work as endless", "grounding": INFER}]
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(p)}, auditor=a0)
+        assert withheld_as_circular_by_the_translator(next(x for x in rc0.outcomes if x.claim_id == POINT))
+        audit0 = a0.audit(ch0.uid)
+        assert trn(audit0, "OVS-TRN-006") == [] and trn(audit0, "OVS-TRN-010") == []
+    finally:
+        a0.close()
+    without_the_translators_circularity_gate(monkeypatch)
     aud, ch, rc = run({POINT: proposal(p)}, auditor=aud)
     o = next(x for x in rc.outcomes if x.claim_id == POINT)
-    assert o.verification.status.value == "ENTAILED" and o.display_status.value == "ENTAILED"
+    assert o.verification.status.value == "ENTAILED" and "E112" in {d.code for d in o.verification.diagnostics}
+    assert o.display_status.value == "INVALID_FORMALIZATION"  # the engine's own circularity rule withholds the verdict
     a = aud.audit(ch.uid)
     (e,) = trn(a, "OVS-TRN-006")
     assert e.severity == "error" and e.claim_ids == [POINT] and "a_point" in e.message and "COUNTEREXAMPLE" in e.message
@@ -159,12 +194,15 @@ def test_p_proves_p_is_circular_an_error(aud):
     assert trn(a, "OVS-TRN-010") == [] and a.state == "AUDIT_FAILED" and a.transfer_states[rc.message_id] == "AUDIT_FAILED"
 
 
-def test_a_chain_whose_restated_premise_is_load_bearing_is_an_error(aud):
+def test_a_chain_whose_restated_premise_is_load_bearing_is_an_error(aud, monkeypatch):
     """The bm-t13 chain without the contribution's definition: the quoted figures are there, but only the restatement
-    gives the contribution, so the result rests on the claim assumed."""
+    gives the contribution, so the result rests on the claim assumed. (The translator merge: withheld by the merged
+    translator itself; TRN-006 asserted on the encoding delivered past its gate, every assertion kept.)"""
+    _withheld_by_the_merged_translator(bm_problem(derive=False))
+    without_the_translators_circularity_gate(monkeypatch)
     ch, rc = run_bm(bm_problem(derive=False), aud)
     o = _outcome(rc)
-    assert o.verification.status.value == "ENTAILED"
+    assert o.verification.status.value == "ENTAILED" and "E112" in {d.code for d in o.verification.diagnostics}
     a = aud.audit(ch.uid)
     (e,) = trn(a, "OVS-TRN-006")
     assert e.severity == "error" and e.claim_ids == [CID] and "d_contrib_val" in e.message and "COUNTEREXAMPLE" in e.message
@@ -188,6 +226,7 @@ def _starved(real):
 
 @pytest.mark.parametrize("how", ["timeout", "invalid", "raises", "no_run"])
 def test_an_undecidable_necessity_run_keeps_the_error(monkeypatch, how):
+    without_the_translators_circularity_gate(monkeypatch)  # the translator merge: delivered past the merged translator's gate
     real = T._engine_verify
     if how == "timeout":
         monkeypatch.setattr(T, "_engine_verify", _starved(real))
@@ -238,7 +277,8 @@ def test_without_premises_removes_whole_premises_and_never_mutates_the_input():
 
 
 # ============================================================================================ agents follow the check
-def test_translation_circular_on_a_redundant_restatement_is_refuted_by_the_check_not_by_a_signed_result(aud):
+def test_translation_circular_on_a_redundant_restatement_is_refuted_by_the_check_not_by_a_signed_result(aud, monkeypatch):
+    without_the_translators_circularity_gate(monkeypatch)  # the translator merge: delivered past the merged translator's gate
     p = genuine_problem()
     p["premises"].append({"id": "P_assumed", "expr": V("endless"), "grounding": INFER})
     aud, ch, _rc = run({POINT: proposal(p)}, auditor=aud)
@@ -247,7 +287,8 @@ def test_translation_circular_on_a_redundant_restatement_is_refuted_by_the_check
     assert o.outcome == "refuted" and o.code == "OVS-AGENT-001" and o.refuted_by == "deterministic_check"
 
 
-def test_translation_circular_on_p_proves_p_is_confirmed(aud):
+def test_translation_circular_on_p_proves_p_is_confirmed(aud, monkeypatch):
+    without_the_translators_circularity_gate(monkeypatch)  # the translator merge: delivered past the merged translator's gate
     p = genuine_problem()
     p["premises"] = [{"id": "a_point", "expr": V("endless"), "label": "the writer presents work as endless", "grounding": INFER}]
     aud, ch, _rc = run({POINT: proposal(p)}, auditor=aud)

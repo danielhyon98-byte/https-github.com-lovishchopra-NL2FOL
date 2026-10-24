@@ -1,0 +1,31 @@
+{
+  "id": "stem-ess-001",
+  "subject": "Environmental Systems and Societies",
+  "task_type": "short_answer",
+  "question": "Use the productivity data supplied to calculate the efficiency of energy transfer from the producers to the primary consumers.",
+  "supplied_texts": [
+    {
+      "document_id": "grassland-productivity",
+      "title": "Grassland ecosystem: gross productivity by trophic level",
+      "text": "Trophic level / gross productivity (kJ m⁻² yr⁻¹)\nProducers 1500\nPrimary consumers 150\nSecondary consumers 15",
+      "locator_scheme": "none",
+      "provenance": "data table supplied with the question"
+    }
+  ],
+  "response_text": "Efficiency = energy in consumers / energy in producers × 100\n= 150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100\n= 10 %\n\nAbout 10% of the energy passes to the next trophic level; the rest is lost mainly as heat from respiration, or remains in uneaten and undigested material.",
+  "notation": [
+    "unicode",
+    "units_unicode_exponent",
+    "percent",
+    "supplied_data",
+    "derivation_lines"
+  ],
+  "gold": {
+    "faults": [],
+    "correct_steps": [
+      "150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100",
+      "= 10 %",
+      "About 10% of the energy passes to the next trophic level"
+    ]
+  }
+}

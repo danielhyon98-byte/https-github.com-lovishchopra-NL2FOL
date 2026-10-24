@@ -1,0 +1,33 @@
+{
+  "id": "stem-math-020",
+  "subject": "Mathematics: Analysis and Approaches",
+  "task_type": "structured_answer",
+  "question": "Without a calculator, evaluate (a) 16^(3/4), (b) 16^(−1/2) and (c) (2³)².",
+  "supplied_texts": [],
+  "response_text": "Evaluate each power using the index laws.\n\n(a) 16^(3/4) = 16 × 3/4 = 12\n\n(b) 16^(−1/2) = 1/16^(1/2) = 1/√16 = 1/4 = 0.25\n\n(c) (2^3)^2 = 2^6 = 64",
+  "notation": [
+    "ascii",
+    "unicode",
+    "fractions_surds",
+    "part_labels"
+  ],
+  "gold": {
+    "faults": [
+      {
+        "kind": "fractional_power_misuse",
+        "step": "16^(3/4) = 16 × 3/4",
+        "expected_codes": [
+          "ST-PARSE-001",
+          "ST-UNDEC-001"
+        ],
+        "note": "16^(3/4) = (⁴√16)³ = 2³ = 8 (8⁴ = 4096 = 16³); the exponent was used as a multiplier. A fractional power is outside the grammar, so the relation is named, not decided (the code table lists it under ST-PARSE-001, the grammar's Unsupported list under ST-UNDEC-001). The arithmetic 16 × 3/4 = 12 holds as written. [computed: (16 × 3/4)⁴ = 20736, 16³ = 4096: 12 is not 16^(3/4); 8⁴ = 4096 = 16³, so 16^(3/4) = 8]"
+      }
+    ],
+    "correct_steps": [
+      "16 × 3/4 = 12",
+      "16^(−1/2) = 1/16^(1/2)",
+      "1/√16 = 1/4 = 0.25",
+      "(2^3)^2 = 2^6 = 64"
+    ]
+  }
+}

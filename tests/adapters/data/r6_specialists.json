@@ -1,0 +1,157 @@
+{
+ "en-p5": {
+  "task_id": "en-p5",
+  "group": "p5",
+  "peer_of": "hi-p5",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "You have received the History specialist's context paragraph through the hub; it is supplied to you as the document peer:hi-p5. Write one analytical paragraph on how the poem's contrast between the 'brazen giant' and the 'Mother of Exiles', and the welcome spoken in its closing lines, can be read against that historical context. Quote exactly from the poem; where you draw on the History specialist's paragraph, quote it exactly and attribute it to the History specialist. Write no more than 300 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-nc",
+    "title": "The New Colossus (sonnet, supplied text)",
+    "author": "Emma Lazarus",
+    "text": "Not like the brazen giant of Greek fame,\nWith conquering limbs astride from land to land;\nHere at our sea-washed, sunset gates shall stand\nA mighty woman with a torch, whose flame\nIs the imprisoned lightning, and her name\nMother of Exiles. From her beacon-hand\nGlows world-wide welcome; her mild eyes command\nThe air-bridged harbor that twin cities frame.\n\"Keep, ancient lands, your storied pomp!\" cries she\nWith silent lips. \"Give me your tired, your poor,\nYour huddled masses yearning to breathe free,\nThe wretched refuse of your teeming shore.\nSend these, the homeless, tempest-tost to me,\nI lift my lamp beside the golden door!\""
+   }
+  ],
+  "response_text": "Lazarus replaces the conquest of the \"brazen giant\" with a welcome that the closing lines extend to the displaced; read against the History specialist's account, that welcome can be read as spoken into a country already excluding some by origin. Negation opens the contrast: \"Not like the brazen giant of Greek fame\" rejects a power whose \"conquering limbs astride from land to land\" span territory. The replacement is \"Mother of Exiles\", and the key word is the noun \"Exiles\". Conventionally it names people forced from their homes, while \"Mother\" implies nurture, so the name ties the figure to the displaced rather than to power she holds. Her authority survives in \"mild eyes command\", where the adjective \"mild\" softens the verb, so power is exercised as hospitality. The closing lines develop this pattern. The arrivals are \"the homeless, tempest-tost\", a passive participle with the storm as agent, and the only activity granted them is \"yearning to breathe free\". The figure, by contrast, acts: \"I lift my lamp beside the golden door!\" The welcome thus comes from her action, while the arrivals appear through need and passivity. The History specialist states that \"Hostility toward one group was already written into law\", and that the poem's \"welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.\" The poem's \"world-wide welcome\" names no origin, so its universal welcome can be read as an ideal that the country's law contradicted. The reading stays plausible: the sonnet never mentions exclusion, and the History specialist's statistic, \"About 5.2 million people entered the United States in the 1880s\", comes from context, not the poem. That account marks its figures as \"from memory\", so they are reported unverified."
+ },
+ "hi-p5": {
+  "task_id": "hi-p5",
+  "group": "p5",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "short_answer",
+  "question": "A literature student is reading Emma Lazarus's sonnet 'The New Colossus' (written in 1883 for an auction to raise money for the pedestal of the Statue of Liberty). In one paragraph of no more than 200 words, outline for that student the historical context of the poem: the scale and origins of immigration to the United States in the 1880s, the Chinese Exclusion Act of 1882, and the dedication of the Statue of Liberty in 1886, with dated evidence labelled from memory as your method requires.",
+  "supplied_texts": [],
+  "response_text": "Dates and figures here are from memory; check them against your notes. About 5.2 million people entered the United States in the 1880s, and 1882 alone brought nearly 790,000, while arrivals increasingly came from southern and eastern Europe rather than from the north and west. Hostility toward one group was already written into law: on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act, which suspended Chinese labour immigration for ten years. Emma Lazarus, a New York writer already active in aid for Jewish refugees from Russia, wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal, and the statue, a gift from France, was dedicated on 28 October 1886. The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin."
+ },
+ "en-t11": {
+  "task_id": "en-t11",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "Write one analytical paragraph on how Brontë uses reported speech and direct speech to present Jane's exclusion from the Reed family in this opening. Use quotations from the extract, including its spoken words. Keep to about 250 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-je",
+    "title": "Jane Eyre, Chapter I, opening (extract, supplied text)",
+    "author": "Charlotte Brontë",
+    "text": "There was no possibility of taking a walk that day. We had been wandering, indeed, in the leafless shrubbery an hour in the morning; but since dinner (Mrs. Reed, when there was no company, dined early) the cold winter wind had brought with it clouds so sombre, and a rain so penetrating, that further out-door exercise was now out of the question.\n\nI was glad of it: I never liked long walks, especially on chilly afternoons: dreadful to me was the coming home in the raw twilight, with nipped fingers and toes, and a heart saddened by the chidings of Bessie, the nurse, and humbled by the consciousness of my physical inferiority to Eliza, John, and Georgiana Reed.\n\nThe said Eliza, John, and Georgiana were now clustered round their mama in the drawing-room: she lay reclined on a sofa by the fireside, and with her darlings about her (for the time neither quarrelling nor crying) looked perfectly happy. Me, she had dispensed from joining the group; saying, \"She regretted to be under the necessity of keeping me at a distance; but that until she heard from Bessie, and could discover by her own observation, that I was endeavouring in good earnest to acquire a more sociable and childlike disposition, a more attractive and sprightly manner—something lighter, franker, more natural, as it were—she really must exclude me from privileges intended only for contented, happy, little children.\"\n\n\"What does Bessie say I have done?\" I asked.\n\n\"Jane, I don't like cavillers or questioners; besides, there is something truly forbidding in a child taking up her elders in that manner. Be seated somewhere; and until you can speak pleasantly, remain silent.\""
+   }
+  ],
+  "response_text": "Brontë presents Jane's exclusion as a judgement that depends on reports, and is then enforced by silencing her. The passage moves from reported speech to direct speech, keeping the family's authority at a distance before placing it face to face with Jane as she tries to question it.\n\nMrs Reed's justification sits within quotation marks, yet its pronouns and tense belong to the narrator's report, with \"she\" for Mrs Reed and \"I\" for Jane, so it reaches the reader indirectly. The key word is \"dispensed\", as in \"Me, she had dispensed from joining the group\". To dispense someone from a duty is conventionally to release them from an obligation, so the exclusion sounds like an official exemption rather than a personal snub. The judgement is also conditional, waiting \"until she heard from Bessie\", which makes Jane's standing depend on reports that Jane has not heard.\n\nThe direct exchange differs. Jane's question, \"What does Bessie say I have done?\", seeks the grounds of the judgement, but Mrs Reed deflects it by shifting from \"Jane\" to \"a child taking up her elders\", a phrase that turns the question into a breach of hierarchy. The reply ends with the imperative \"remain silent\", making silence the condition Jane must keep until she can speak pleasantly.\n\nTogether, the two forms show exclusion built through control of speech: the judgement is kept at a remove, then enforced where Jane's question would test it. The repeated \"until\" moves the condition from reports about Jane to her own voice, leaving the exclusion without a stated end."
+ },
+ "en-t12": {
+  "task_id": "en-t12",
+  "subject": "English A: Literature",
+  "agent_id": "english-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "Write one analytical paragraph: how does Herbert use unmarked dialogue and the alternation of long and short lines to present the speaker's reluctance and Love's insistence? Quote exactly from the poem, keeping its original spellings. Write no more than 300 words.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-love",
+    "title": "Love (III) (poem, 1633 spelling, supplied text)",
+    "author": "George Herbert",
+    "text": "Love bade me welcome: yet my soul drew back,\nGuiltie of dust and sinne.\nBut quick-ey'd Love, observing me grow slack\nFrom my first entrance in,\nDrew nearer to me, sweetly questioning,\nIf I lack'd any thing.\n\nA guest, I answer'd, worthy to be here:\nLove said, You shall be he.\nI the unkinde, ungratefull? Ah my deare,\nI cannot look on thee.\nLove took my hand, and smiling did reply,\nWho made the eyes but I?\n\nTruth Lord, but I have marr'd them: let my shame\nGo where it doth deserve.\nAnd know you not, sayes Love, who bore the blame?\nMy deare, then I will serve.\nYou must sit down, sayes Love, and taste my meat:\nSo I did sit and eat."
+   }
+  ],
+  "response_text": "Herbert's unmarked speech and his regular alternation of long and short lines present the speaker's reluctance as a position that Love's insistence answers within the same exchange, so that refusal gives way to compliance by the final line.\n\nThe speech has no quotation marks, so the boundaries between voices are marked mainly by tags, and the tags sometimes fall inside what is said. A tag conventionally sits outside the words it attributes, but in \"And know you not, sayes Love, who bore the blame?\" the tag \"sayes\" splits Love's question, so the attribution interrupts the argument. Even Love's question, \"sweetly questioning, / If I lack'd any thing\", takes the speaker's pronoun, so Love's tenderness reaches the reader filtered through the speaker's account.\n\nThe short lines carry the decisive turns. The refusal \"I cannot look on thee.\" is compressed into one short line, and Love's reply follows a long line of action, \"Love took my hand, and smiling did reply,\" as the short question \"Who made the eyes but I?\" The modal \"cannot\" presents refusal as incapacity, and the question answers it by attributing the eyes to Love's making. In the closing lines Love's words fill the long lines, \"You must sit down, sayes Love, and taste my meat:\", while the speaker's replies stay short, \"My deare, then I will serve.\"\n\nInsistence therefore has the last long line, while each of the speaker's refusals is answered in the following pair of lines. The final \"did\" is emphatic, and the poem's last short line closes the exchange on obedience rather than dissent."
+ },
+ "hi-t11": {
+  "task_id": "hi-t11",
+  "subject": "History",
+  "agent_id": "history-specialist",
+  "task_type": "essay",
+  "question": "To what extent was the Marshall Plan responsible for the economic recovery of Western Europe between 1948 and 1952? Write one body paragraph only, following your method, in no more than 350 words, with dated and quantified evidence.",
+  "supplied_texts": [],
+  "response_text": "The Marshall Plan was responsible for the speed of Western European recovery between 1948 and 1952 to a significant but limited extent, and more for the timing of recovery than for its occurrence. Its most direct effect was to relieve the dollar shortage that capped European imports. The Economic Cooperation Act, signed on 3 April 1948, launched a European Recovery Programme that had transferred about $13 billion in grants and loans by mid-1952, of which the United Kingdom received about $3.2 billion and France about $2.7 billion. That dollar credit bought American coal, grain and machinery which European currencies could not buy, and the constraint was still binding when sterling was devalued from $4.03 to $2.80 on 18 September 1949. Yet the aid was small beside the economies it served, averaging around 2 to 3 per cent of recipients' combined national income in its heaviest years, which is why some economic historians argue that it could not by its own weight have produced the recovery. Output had already begun to revive: West Germany's currency reform of 20 June 1948 ended the black market and restored the incentive to sell, and it came before most Marshall deliveries had arrived. The strongest counter-case, that reconstruction would have stalled without dollars, holds for 1948 and 1949, when aid decided what could be bought at all. It weighs less for 1950 to 1952, when European exports had revived and demand from the Korean War, begun on 25 June 1950, lifted orders further. Weighed by timing and scale, the Plan was decisive for the pace and the import capacity of recovery but not for its origin, so its responsibility was real but partial.\n\nDates and figures are from memory; verify them against your notes before use."
+ },
+ "syn-hi-p5": {
+  "report_id": "rep-hi-p5-0",
+  "claims": [
+   {
+    "text": "About 5.2 million people entered the United States in the 1880s, and 1882 alone brought nearly 790,000, while arrivals increasingly came from southern and eastern Europe rather than from the north and west (figures from memory).",
+    "source_claim_ids": [
+     "h1.2"
+    ],
+    "certainty": "probable",
+    "transformation": "paraphrased"
+   },
+   {
+    "text": "Hostility toward one group was already written into law: on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act, which suspended Chinese labour immigration for ten years (dates and figures from memory).",
+    "source_claim_ids": [
+     "h1.3"
+    ],
+    "certainty": "probable",
+    "transformation": "paraphrased"
+   },
+   {
+    "text": "Emma Lazarus, a New York writer already active in aid for Jewish refugees from Russia, wrote the sonnet in 1883 for an auction to raise money for the statue's pedestal, and the statue, a gift from France, was dedicated on 28 October 1886 (dates from memory).",
+    "source_claim_ids": [
+     "h1.4"
+    ],
+    "certainty": "probable",
+    "transformation": "paraphrased"
+   },
+   {
+    "text": "The poem's welcome was therefore spoken into a country that was admitting immigrants in unprecedented numbers while excluding some by origin.",
+    "source_claim_ids": [
+     "h1.5"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   }
+  ],
+  "dropped": []
+ },
+ "syn-en-p5": {
+  "report_id": "rep-en-p5-0",
+  "claims": [
+   {
+    "text": "Lazarus replaces the conquest of the \"brazen giant\" with a welcome that the closing lines extend to the displaced; read against the History specialist's account, that welcome can be read as spoken into a country already excluding some by origin.",
+    "source_claim_ids": [
+     "p1-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "The replacement name \"Mother of Exiles\" ties the figure to the displaced rather than to the power she holds: conventionally \"Exiles\" names people forced from their homes, while \"Mother\" implies nurture.",
+    "source_claim_ids": [
+     "p1-s03",
+     "p1-s04"
+    ],
+    "certainty": "probable",
+    "transformation": "merged"
+   },
+   {
+    "text": "The arrivals are \"the homeless, tempest-tost\", a passive participle with the storm as agent, and the only activity granted them is \"yearning to breathe free\", while the figure acts with \"I lift my lamp beside the golden door!\", so the welcome comes from her action.",
+    "source_claim_ids": [
+     "p1-s07",
+     "p1-s08",
+     "p1-s09"
+    ],
+    "certainty": "probable",
+    "transformation": "merged"
+   },
+   {
+    "text": "The poem's \"world-wide welcome\" names no origin, so its universal welcome can be read as an ideal that the country's law contradicted.",
+    "source_claim_ids": [
+     "p1-s11"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   }
+  ],
+  "dropped": [
+   {
+    "source_claim_ids": [
+     "p1-s13"
+    ],
+    "reason": "A from-memory label, not a content claim: it is a verification note on the History account's figures, so it is never carried as a claim. No History figure is used in this synthesis."
+   }
+  ]
+ }
+}
