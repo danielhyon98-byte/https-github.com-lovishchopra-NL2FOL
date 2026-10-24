@@ -793,3 +793,9 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: verification round 5 found new high-severity issues (adversarial 8, re-run findings 2, corpus 1;
   invariants none); the last allowed repair round is running. The fixed corpora still meet their gates (development 44/44
   with no false alarm; hold-out 65/66 with 1 false alarm).
+
+### Progress, 05:00 UTC (24 October)
+
+- Overseer rebuild: the tenth STEM repair measured 7343 tests passed; its independent audit is running. Severities the audit
+  writes in between ("medium-high") now count as high for the loop and the commit gate.
+- Argument diagnostics: the last allowed repair round is still running.
