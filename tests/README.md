@@ -887,3 +887,9 @@ Work in progress after it is labelled as such.
   committed code. Two are speed: single answers of the latest recorded round take 11 to 13 times as long, and the round as a
   whole 3.1 times. The others are readings that turn a forecast, a supposition or a hedge in the task into a stated fact, or
   refute a plainly stated rule. The last fix round is running; nothing is committed.
+
+### Progress, 16:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair round is still running.
+- Argument diagnostics: the last fix round for the places where the changes are worse than the committed code is still
+  running. Nothing is committed.
