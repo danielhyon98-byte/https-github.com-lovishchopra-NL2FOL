@@ -772,3 +772,9 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: repair round 4 restarted after a transient server error stopped it (its finished work is kept).
   Verification round 4 measured 44/44 development defects named with 0 false alarms and 65/66 hold-out defects named with
   1 false alarm (a two-way choice the task states word for word is refuted as the translator's own; being repaired).
+
+### Progress, 02:00 UTC (24 October)
+
+- Overseer rebuild: the ninth STEM repair measured 7235 tests passed, all 13 contained-run gates passing with no false alarm
+  on genuine transfers, 15/15 STEM mutations named and 269/269 arena faults named; the independent audit is running.
+- Argument diagnostics: repair round 4 is still running.
