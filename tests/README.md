@@ -854,3 +854,12 @@ Work in progress after it is labelled as such.
   corpus: 64/66 named, 68/68 controls clean (committed code: 13 named, 23 false alarms). Suite: 8847 passed; one timing test
   went over its 50 ms bound under load and passes when run alone. Independent differential and safety checks are running;
   nothing is committed.
+
+### Progress, 12:00 UTC (24 October)
+
+- Overseer rebuild: the eleventh STEM repair round is still running (at most one more repair and audit follow).
+- Argument diagnostics: the independent checks of the first fix round confirmed the full suite (8848 passed when run alone)
+  and equal functional counts with the committed code on every recorded round, and found 6 new high-severity places where
+  the changes are worse than the committed code (2 from the safety review, among them a quotation reader that is quadratic in
+  the number of quoted spans; 4 from the differential review), plus 3 medium. The second fix round is running; from now on a
+  reading already narrowed once is reverted to the committed behaviour rather than narrowed again. Nothing is committed.
