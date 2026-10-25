@@ -972,3 +972,14 @@ Work in progress after it is labelled as such.
 - Argument diagnostics: the second security round is still fixing the five slow-pattern findings of the first round's
   review (the first round made 17 patterns linear; suite 9014 passed, corpus and arena outcomes unchanged). The accuracy
   round and the commit follow.
+
+### Progress, 01:00 UTC (25 October)
+
+- Phase 2 is merging the overseer rebuild into the integrated line: 46 conflicting places in 16 files resolved, keeping both
+  sides' behaviour. The harness gives the same counts on the merge as on the development line (r1 30/30, r1-adv 150/151,
+  r2 to r6 46/46 each, r7 177/177); the recorded rounds were not written (463 files checked). The last full run measured
+  8241 passed and 2 failed outside the overseer, 2231 passed and 33 failed or errored in the overseer tests (mostly pack
+  consistency checks after pack edits made during that run); the merge is being fixed and re-run before an independent
+  verification decides whether it is committed.
+- Argument diagnostics: the second security round is still in progress (the five slow-pattern findings now have fixes and
+  tests; a sweep over every pattern is running).
