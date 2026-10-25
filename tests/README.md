@@ -1016,3 +1016,16 @@ Work in progress after it is labelled as such.
   left as known defects and listed in the commit. Suite 10855 passed, 0 failed; arena rounds r1 to r7 at their recorded
   counts.
 - Next: the delivery rule, the argument-diagnostics merge, integration, the gate, then arena round 8.
+
+### Progress, 18:30 UTC (25 October)
+
+- The round 7 handoff fixes are committed (suite 10855 passed, 0 failed; arena rounds r1 to r7 at their recorded counts).
+- The delivery rule is committed: four minutes for the translator to give each claim a definitive outcome, otherwise the
+  overseer agents' best validated output is delivered only above 90% accuracy, labelled overseer-selected. Suite 10944
+  passed, 0 failed; arena rounds r1 to r7 at their recorded counts; the contained overseer run passed all 13 gates.
+- Two test defects found by the pre-upload simulation are fixed in the same commit, neither in the product code: a race in
+  two audit-replayer tests (4 of 40 repeated runs failed before the fix, 0 of 60 after), and a STEM probe compared with the
+  wrong untampered copy (1 of 677 probes; all 677 pass after the fix, with the same outcomes as before round 7's changes).
+- The argument-diagnostics build could not be merged: it was built on the code of 17 October, and both lines fixed the same
+  findings differently. It stays on its own branch and will be rebuilt on the current code, keeping the current behaviour
+  where the two disagree.
