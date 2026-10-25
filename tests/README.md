@@ -990,3 +990,14 @@ Work in progress after it is labelled as such.
   failed, 45 deselected, 4 expected failures); the overseer tests and the contained overseer run on rounds r2 to r5 and r7
   are being re-run before an independent verification decides whether the merge is committed.
 - Argument diagnostics: the second security round is taking its final timing measurements of the changed patterns.
+
+### Progress, 03:00 UTC (25 October)
+
+- Argument diagnostics: the second security round is done. Suite on the staged tree: 9058 passed, 0 failed (44 new
+  security tests). 389 new or changed patterns were timed at three input sizes; the 74 that grew were each read at their
+  call sites (2 fixed in this round, 1 removed, the rest read only on bounded windows, anchored at single places, or as
+  slow in the committed code). An accuracy round has started on the false alarms on correct answers and three common STEM
+  misses.
+- Phase 2's merge of the overseer rebuild: suite on the merge 2271 passed in the overseer tests and 8243 passed elsewhere,
+  0 failed; the contained overseer run passed 12 of its 13 gates, and the merge is being corrected for the remaining one
+  (named STEM fault classes) and re-run before the independent verification.
