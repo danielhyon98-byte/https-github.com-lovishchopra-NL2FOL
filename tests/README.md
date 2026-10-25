@@ -1029,3 +1029,9 @@ Work in progress after it is labelled as such.
 - The argument-diagnostics build could not be merged: it was built on the code of 17 October, and both lines fixed the same
   findings differently. It stays on its own branch and will be rebuilt on the current code, keeping the current behaviour
   where the two disagree.
+
+### Progress, 19:00 UTC (25 October)
+
+- The argument diagnostics are being ported onto the integrated translator on their own branch, keeping the integrated
+  behaviour wherever the two lines disagree; they are merged only after the full suite, the arena rounds, the contained
+  overseer run and the three argument-diagnostics corpora pass on the port.
