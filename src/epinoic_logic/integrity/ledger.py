@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..translate.contracts import ClaimRecord, SpecialistReport
 from .contracts import CERTAINTY_RANK, IntegrityFinding, Synthesis
@@ -1374,15 +1374,27 @@ def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str],
     src_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(source_text)) if len(t) >= 4]
     syn_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(synthesized_text)) if len(t) >= 4]
     if src_sentences and syn_sentences:
+        syn_run = "\x00" + "\x00".join(k for k, _s in syn) + "\x00"
         for st in src_sentences:
+            # A source sentence the synthesis reproduces word for word is copied, not changed: it is aligned with nothing
+            # (a verbatim copy is never charged a figure swap across parallel sentences).
+            if "\x00" + "\x00".join(k for k, _s in st) + "\x00" in syn_run:
+                continue
             content = {k for k, w in st if w.isalpha() and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP}
+            if not content:
+                continue
+            # Each source sentence is aligned only with the synthesized sentence that shares most of its content words
+            # (the first of equals), never with every sentence sharing half of them.
+            best, best_shared = None, -1
             for yt in syn_sentences:
-                shared = content & {k for k, _w in yt}
-                if not content or len(shared) * 2 < len(content):
-                    continue
-                f2, m2 = _aligned_ops(yt, st, src_numerals, anchored=True)
-                figures += f2
-                meaning += m2
+                shared = len(content & {k for k, _w in yt})
+                if shared * 2 >= len(content) and shared > best_shared:
+                    best, best_shared = yt, shared
+            if best is None:
+                continue
+            f2, m2 = _aligned_ops(best, st, src_numerals, anchored=True)
+            figures += f2
+            meaning += m2
     return list(dict.fromkeys(figures)), list(dict.fromkeys(meaning))
 
 
@@ -2220,10 +2232,56 @@ def _scientific_figures(text: str) -> list[tuple[int, int, Optional[str], frozen
     return out
 
 
+#: A minus sign written with another glyph right before a digit (U+2212 minus, U+2012 figure dash, U+2013 en dash): the
+#: same sign as the ASCII hyphen-minus, so "−352.19" and "-352.19" are one figure.
+_MINUS_GLYPH_RE = re.compile("[\u2212\u2012\u2013](?=\\d)")
+#: LaTeX's ellipsis after a figure ("-352.1907\ldots"): the figure is the digits written.
+_LATEX_ELLIPSIS_RE = re.compile(r"\\l?dots\b")
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
+#: A whole-number power written with its exponent ("10³", "10⁻⁶", "2⁵", "10^6", "10^{-3}", "10**6"): one figure, its base
+#: and exponent together, so a synthesis that writes 10⁶ for its source's 10³ states another figure.
+_POWER_FIGURE_RE = re.compile(r"(?<![\w.])(?P<base>\d+(?:\.\d+)?)(?:(?P<sup>[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3})|\^\{?(?P<car>[-+]?\d{1,3})\}?|\*\*(?P<pow>[-+]?\d{1,3}))(?![\w⁰¹²³⁴⁵⁶⁷⁸⁹])(?!\.\d)")
+
+
+def _power_figures(text: str) -> list[tuple[int, int, str, tuple[str, ...], str]]:
+    """``(start, end, mantissa, spellings, surface)`` of every whole-number power of :data:`_POWER_FIGURE_RE`: its
+    spellings are ``base^exponent`` and, for an exponent of at most 30 on a base of at most six digits, its exact value
+    (so "10⁶" meets "10^6" and "1000000")."""
+    from fractions import Fraction
+    out: list[tuple[int, int, str, tuple[str, ...], str]] = []
+    for m in _POWER_FIGURE_RE.finditer(text):
+        exp_text = (m.group("sup") or "").translate(_SUPERSCRIPT_DIGITS) or m.group("car") or m.group("pow") or ""
+        try:
+            exp = int(exp_text)
+        except ValueError:
+            continue
+        base = m.group("base")
+        spelled = f"{base}^{exp}"
+        keys = [spelled]
+        mantissa = spelled
+        if abs(exp) <= 30 and len(base) <= 6:
+            try:
+                value = Fraction(base) ** exp
+            except ZeroDivisionError:
+                value = None
+            if value is not None:
+                mantissa = _exact_decimal(value)
+                keys.append(mantissa)
+        out.append((m.start(), m.end(), mantissa, tuple(keys), m.group(0)))
+    return out
+
+
 def _figures(text: str) -> list[_Figure]:
     """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
-    figures in scientific notation (one figure each, :func:`_scientific_figures`), figures written in words
-    (:func:`_word_figures`), and month-year dates."""
+    figures in scientific notation (one figure each, :func:`_scientific_figures`), whole-number powers ("10³", "10^6":
+    one figure each, :func:`_power_figures`), figures written in words (:func:`_word_figures`), and month-year dates. A
+    minus written as U+2212 or a figure or en dash before a digit is the ASCII sign, and LaTeX's ``\\ldots`` is no part
+    of a figure."""
+    text = text or ""
+    if not text.isascii():
+        text = _MINUS_GLYPH_RE.sub("-", text)
+    if "\\" in text:
+        text = _LATEX_ELLIPSIS_RE.sub("…", text)
     plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
     out: list[_Figure] = []
     masked = plain
@@ -2231,6 +2289,10 @@ def _figures(text: str) -> list[_Figure]:
         for start, end, exact, spellings, surface in _scientific_figures(plain):
             if exact is not None:
                 out.append(_Figure(exact, None, surface, tuple(spellings)))
+            masked = masked[:start] + " " * (end - start) + masked[end:]
+    if "^" in masked or "**" in masked or not masked.isascii():
+        for start, end, mantissa, spellings, surface in _power_figures(masked):
+            out.append(_Figure(mantissa, None, surface, spellings))
             masked = masked[:start] + " " * (end - start) + masked[end:]
     for start, end, mantissa, scale, surface in _word_figures(masked):
         out.append(_Figure(mantissa, scale, " ".join(surface.split())))
@@ -2380,6 +2442,16 @@ def foreign_number_values(text: str) -> set[str]:
     return {str(_FOREIGN_NUMBER_WORDS[m.group(1).casefold()]) for m in _FOREIGN_NUMBER_RE.finditer(text)} if text else set()
 
 
+def magnitude_keys(keys: Iterable[str]) -> set[str]:
+    """``keys`` with the unsigned magnitude of each signed key ("-12.50" also as "12.50"), for the SOURCE side of a
+    figure comparison: a claim that restates a source's signed figure as its magnitude, the direction moved into the
+    words ("falls by 12.50%" for "= −12.50%", "a PED of 0.67 in absolute value" for "PED = −0.67"), states the source's
+    figure. A sign the claim adds to an unsigned source figure, or reverses, stays a changed figure."""
+    out = set(keys)
+    out.update(k[1:] for k in keys if k.startswith("-") and len(k) > 1)
+    return out
+
+
 def figure_tokens(text: str) -> set[str]:
     """The figures of ``text`` as tokens, the units of a figure/date fidelity comparison between a synthesized claim and
     its sources: numerals (thousands separators removed), month-year tokens, and figures written in words as their value
@@ -2399,8 +2471,10 @@ def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple
     # A source in another language states its figures in its own words ("doce vecinos"): a faithful "twelve" is no
     # introduced figure.
     foreign = set().union(*(foreign_number_values(t) for t in source_texts)) if source_texts else set()
-    introduced = _sorted_tokens({f.label for f in syn if not (f.keys & (src_keys | foreign))})
-    dropped = _sorted_tokens({f.label for f in src if not (f.keys & syn_keys)})
+    # A magnitude restated without its sign is the source's figure (:func:`magnitude_keys`); an added or reversed sign is not.
+    src_known = magnitude_keys(src_keys)
+    introduced = _sorted_tokens({f.label for f in syn if not (f.keys & (src_known | foreign))})
+    dropped = _sorted_tokens({f.label for f in src if not (magnitude_keys(f.keys) & syn_keys)})
     rescaled: list[str] = []
     for f in syn:
         if not f.scale or not (f.keys & src_keys) or (f.keys - {f.mantissa}) & src_keys:
@@ -2436,6 +2510,8 @@ _UNIT_WORDS: tuple[tuple[str, str], ...] = tuple(sorted({
 _CURRENCY_SYMBOLS = {"$": "dollar", "£": "pound", "€": "euro", "¥": "yen"}
 #: The words after a figure that may be its unit: a run of up to four tokens up to the clause's punctuation.
 _UNIT_RUN_RE = re.compile(r"[ \t]?(?P<run>[^\s\d,;:!?()\[\]{}\"'“”‘’][^\s,;:!?()\[\]{}\"'“”‘’]*(?:[ \t]+[^\s\d,;:!?()\[\]{}\"'“”‘’][^\s,;:!?()\[\]{}\"'“”‘’]*){0,3})")
+#: A sentence stop inside a unit run: a full stop (or an ellipsis) before white space or the end of the text.
+_SENTENCE_STOP_RE = re.compile(r"(?:\.|…)(?=\s|$)")
 _ERA_AFTER_RE = re.compile(r"\s*(?P<era>B\.?C\.?E\.?|B\.?C\.?|C\.?E\.?|A\.?D\.?)(?![\w])")
 _ERA_BEFORE_RE = re.compile(r"(?:\bAD|\bA\.D\.)\s*$")
 _YEAR_RE = re.compile(r"^(?:1\d{3}|20\d{2}|\d{1,3})$")
@@ -2458,7 +2534,15 @@ def _unit_after(plain: str, end: int) -> Optional[tuple[frozenset[str], str]]:
     m = _UNIT_RUN_RE.match(plain, end)
     if m is None:
         return None
-    run = m.group("run").rstrip(".")
+    # A unit run never starts at or crosses a sentence stop (a full stop before white space or the end): "Sales were
+    # 300. Costs rose." has no unit, and "0.025 kg. L is the length." has the unit "kg", never "kg. L".
+    run = m.group("run")
+    stop = _SENTENCE_STOP_RE.search(run)
+    if stop is not None:
+        run = run[:stop.start()]
+    run = run.rstrip(".")
+    if not run.strip(".…"):
+        return None
     low = run.casefold()
     for words, kind in _UNIT_WORDS:
         if low == words or low.startswith(words + " ") or (words.startswith("-") and low.startswith(words)):
@@ -2471,6 +2555,8 @@ def _unit_after(plain: str, end: int) -> Optional[tuple[frozenset[str], str]]:
             return frozenset(f"{k}^{power}" for k in inner[0]), f"{tokens[0]} {inner[1]}"
     for n in range(min(4, len(tokens)), 0, -1):
         text = " ".join(tokens[:n]).rstrip(".")
+        if not text.strip():
+            continue  # a token of full stops only reads as no unit
         if text in _UNIT_WORDLIKE or text.split()[0] in _UNIT_WORDLIKE or (text == "A" and len(tokens) > 1):
             continue
         u = parse_unit(text, ascii_exponents=True)
@@ -2848,7 +2934,7 @@ def _dropped_memory_labels(text: str, known: list[ClaimRecord], report_labelled:
         own = _MEMORY_LABEL_RE.search(c.claim_text) or any(_MEMORY_LABEL_RE.search(a) for a in c.assumptions)
         if not own and c.claim_id not in report_labelled:
             continue
-        carried = {f.label for f in _figures(c.claim_text) if f.keys & syn_keys}
+        carried = {f.label for f in _figures(c.claim_text) if magnitude_keys(f.keys) & syn_keys}
         if not carried:
             continue
         items |= carried
@@ -3057,9 +3143,51 @@ def _report_context(reports: list[SpecialistReport], known: list[ClaimRecord]) -
     return tuple(out)
 
 
-def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
+def evidence_ref_problems(synthesis: Synthesis, reports: list[SpecialistReport], *, document_texts: Optional[dict[str, str]] = None,
+                          allowed_document_ids: Optional[Iterable[str]] = None) -> list[tuple[str, str]]:
+    """``(claim_id, description)`` for every evidence reference a synthesized claim gives that names a document outside
+    the task or quotes an excerpt the named document does not hold (INT-LEDGER-025). The documents are the reports'
+    supplied texts (a relayed peer report ``peer:<task>`` included) and ``document_texts`` (the requests' supplied
+    texts, by document id); with ``allowed_document_ids`` (the plan's retrieval scope) a document in that scope whose
+    text is not supplied is a known document whose excerpt cannot be checked, and a document in neither is named. A
+    reference copied unchanged from a cited source claim is the source's (its excerpt was checked on that report's
+    delivery, and INT-LEDGER-020 compares an altered one)."""
+    docs: dict[str, str] = {}
+    for r in reports:
+        for t in r.supplied_texts:
+            docs.setdefault(t.document_id, t.text)
+    for d, t in (document_texts or {}).items():
+        docs.setdefault(d, t)
+    scope = set(docs) | set(allowed_document_ids or ())
+    sources = {c.claim_id: c for r in reports for c in r.claims}
+    out: list[tuple[str, str]] = []
+    for sc in synthesis.claims:
+        copied = {(r.document_id, r.locator, _norm(r.excerpt or "")) for cid in sc.source_claim_ids if cid in sources for r in sources[cid].source_refs}
+        for ref in sc.evidence_refs:
+            excerpt = (ref.excerpt or "").strip()
+            if (ref.document_id, ref.locator, _norm(excerpt)) in copied:
+                continue
+            if allowed_document_ids is not None and ref.document_id not in scope:
+                out.append((sc.claim_id, f"its evidence reference names document {ref.document_id!r}, which is neither in the plan's retrieval scope nor among the texts supplied on this task"))
+                continue
+            if not excerpt or not re.search(r"[^\W\d_]", excerpt) or ref.document_id not in docs:
+                continue
+            if _holds_quotation(excerpt, docs[ref.document_id]):
+                continue
+            holders = sorted(d for d, t in docs.items() if d != ref.document_id and _holds_quotation(excerpt, t))
+            if holders:
+                out.append((sc.claim_id, f"its evidence reference credits the excerpt {excerpt[:80]!r} to document {ref.document_id!r}, which does not hold it; {holders[:3]} does (misattributed)"))
+            else:
+                out.append((sc.claim_id, f"its evidence reference quotes the excerpt {excerpt[:80]!r} from document {ref.document_id!r}, which does not hold it, nor does any other text supplied on this task (an invented excerpt)"))
+    return out
+
+
+def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = (),
+                           document_texts: Optional[dict[str, str]] = None, allowed_document_ids: Optional[Iterable[str]] = None) -> list[IntegrityFinding]:
     """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
-    quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
+    quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs);
+    ``document_texts`` and ``allowed_document_ids`` are the documents its evidence references may name
+    (:func:`evidence_ref_problems`)."""
     f: list[IntegrityFinding] = []
     sid = [synthesis.synthesis_id]
     report_ids = {r.report_id for r in reports}
@@ -3085,6 +3213,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         for cid in sc.source_claim_ids:
             carried_by_source.setdefault(cid, set()).update(keys)
     credit_docs = _credit_documents(reports, tuple(extra_texts))
+    ref_problems = evidence_ref_problems(synthesis, reports, document_texts=document_texts, allowed_document_ids=allowed_document_ids)
     agents = sorted({r.agent_id for r in reports})
     memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and _MEMORY_LABEL_RE.search(c.claim_text) for c in r.claims)}
 
@@ -3118,8 +3247,12 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         altered = sorted({c.claim_id for c in known for r in c.source_refs if (r.document_id, r.locator) in have and r.excerpt and have[(r.document_id, r.locator)].excerpt and _norm(r.excerpt) != _norm(have[(r.document_id, r.locator)].excerpt)})
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
+        bad_refs = [d for cid, d in ref_problems if cid == sc.claim_id]
+        if bad_refs:
+            f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') gives evidence the task's texts do not hold: " + "; ".join(bad_refs[:8]),
+                                      claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({r.document_id for r in sc.evidence_refs})))
         introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
-        dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(c.claim_text) if not (f.keys & carried_by_source.get(c.claim_id, set()))
+        dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(c.claim_text) if not (magnitude_keys(f.keys) & carried_by_source.get(c.claim_id, set()))
                                           and f.label not in incidental_figures(c.claim_text)})
         repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
         word_counts, _meaning = aligned_differences(sc.text, [c.claim_text for c in known])

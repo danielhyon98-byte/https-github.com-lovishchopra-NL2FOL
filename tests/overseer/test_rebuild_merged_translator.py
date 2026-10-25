@@ -175,6 +175,9 @@ def _lit_task(aud, monkeypatch=None):
         def finish(self, msg, direction, findings_, *a, structural=(), **kw):
             return orig_finish(self, msg, direction, findings_, *a, structural=[sf for sf in structural if sf.code != "CORE-SRC-003"], **kw)
         monkeypatch.setattr(TranslatorChannel, "_finish", finish)
+        # since the round-7 core fix (r7 history hand-off 2) the channel also names an uncredited quotation found in no
+        # supplied text with INT-REQ-003; a channel that names nothing names that neither
+        monkeypatch.setattr(TranslatorChannel, "_uncredited_quotations", staticmethod(lambda *a, **kw: []))
     ch = new_channel(aud, make_plan(allowed_document_ids=["doc-ferry", "doc-ferry-student"]))
     m, _r, _q = ch.request("router", "english-specialist", LIT_REQUEST, [LIT, LIT_STUDENT])
     _msg, rc = ch.respond_text(m.message_id, LIT_TEXT, agent_id="english-specialist", report_id="rep-lit")  # the English parser reads it
@@ -939,6 +942,19 @@ def _n(v: str, op: str = "int") -> dict:
 _E, _B, _Q, _X = V("endless"), V("bell"), V("q"), V("x")
 
 
+#: The forms below that the translator's own E112 reads since the round-7 core fix (fidelity-4: the engine reads a premise as
+#: written and in its normal form, ``engine/README.md``): double negation, ``e <-> true``, swapped ``eq`` operands, a flipped
+#: comparison and a pair of bounds. ``e or e``, ``true implies e``, ``b and (b implies e)``, ``not (q != 105)``, identity
+#: elements and the arithmetic forms are still read by the Overseer only.
+ENGINE_READS = (
+    {"op": "not", "arg": {"op": "not", "arg": _E}},
+    {"op": "iff", "left": _E, "right": {"op": "bool", "value": True}},
+    {"op": "eq", "left": _n("105"), "right": _Q},
+    {"op": "lt", "left": _n("3"), "right": _Q},
+    {"op": "and", "args": [{"op": "ge", "left": _Q, "right": _n("105")}, {"op": "le", "left": _Q, "right": _n("105")}]},
+)
+
+
 @pytest.mark.parametrize("premise, conclusion, symbols, way", [
     ({"op": "or", "args": [_E, _E]}, _E, {"endless": "Bool"}, "boolean"),
     ({"op": "implies", "left": {"op": "bool", "value": True}, "right": _E}, _E, {"endless": "Bool"}, "boolean"),
@@ -972,11 +988,13 @@ def test_rule_semantic_restatement_reads_a_restatement_in_another_form(premise, 
     """Rule ``semantic-restatement`` (the second repair, decision 51): a premise that restates the conclusion in another
     form than as written (``e or e``, ``true implies e``, ``not not e``, ``b and (b implies e)``, a reversed or negated
     comparison, an identity element beside a symbol, the order of numbers) restates it as the same expression does. The
-    translator's rule reads only the expression as written, so it delivers every one of these; under a writer's-own
-    grounding each is the conclusion assumed."""
+    translator's rule reads the expression as written and in its normal form (``engine/README.md``; the round-7 core fix,
+    fidelity-4), so it flags exactly the forms of ``ENGINE_READS`` and delivers the others; the Overseer's rule reads every
+    one, and under a writer's-own grounding each is the conclusion assumed. (Rewritten to the stricter rule: the
+    translator's reading of each form is pinned, where before the test pinned that it read none.)"""
     from epinoic_logic.engine.runner import circular_premises as translator_circular_premises
     prob = _form(premise, conclusion, symbols)
-    assert translator_circular_premises(prob) == []  # as written only: the translator's rule does not read it
+    assert translator_circular_premises(prob) == (["P"] if premise in ENGINE_READS else [])
     rs = restatement(prob, english_report(), [])
     assert rs.holds and rs.own == ("P",) and dict(rs.how)["P"] == (way,) and way in RESTATEMENT_WAYS
 

@@ -263,3 +263,149 @@ def test_the_default_process_mode_end_to_end():
         assert any(r is not None and r.origin == "replay" and r.key_id == "overseer-run" and r.signature_ok_at_put for r in replays)
     finally:
         auditor.close()
+
+
+# ============================================================================================ round 7: the job budget
+# The merged overseer started a job's budget when it was QUEUED: twenty correct replays queued at once (about 2 s each)
+# drained in 30 s with six of them marked budget exceeded, i.e. OVS-AUDIT-005 on a correct result. A job's budget now
+# runs from when the worker takes it. These tests hold the worker still (SIGSTOP) or simulate its messages, so they do
+# not depend on how fast the host solves.
+import os
+import signal
+import sys
+import threading
+import time
+
+from epinoic_logic.engine.results import VerificationResult
+from epinoic_logic.overseer.faithful import faithful
+
+_posix = pytest.mark.skipif(not hasattr(signal, "SIGSTOP"), reason="holds the worker with SIGSTOP (POSIX)")
+
+
+def _warm(rp):
+    """Start the worker and run one job, so the worker is idle on its queue."""
+    rp.submit(_job(rid="warm"))
+    rp.drain(timeout_s=120)
+    assert rp.outcomes()["warm"].result_json, rp.outcomes()["warm"]
+    return rp._proc.pid
+
+
+def _verdicts(rp, jobs):
+    out = {}
+    for j in jobs:
+        o = rp.outcomes().get(j.result_id)
+        rep = None if o is None or o.result_json is None else faithful(VerificationResult, json.loads(o.result_json))
+        out[j.result_id] = (None if o is None else o.budget_exceeded, None if o is None else o.error,
+                            classify(compare(j, rep, budget_exceeded=bool(o and o.budget_exceeded), error=o.error if o else None)) if o else "missing")
+    return out
+
+
+def _started(rp, rid):
+    """Tell the replayer the worker took job ``rid`` (as the worker's own message does), and wait until it has read it."""
+    rp._results_q.put((rp._gen, "started", rid, None, None))
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        with rp._lock:
+            if rp._inflight[rid][1] is not None:
+                return
+        time.sleep(0.01)
+    raise AssertionError("the started message was not read")
+
+
+@_posix
+def test_a_correct_replay_queued_behind_others_longer_than_the_budget_is_never_budget_exceeded():
+    """Six jobs wait in the worker's queue for longer than the 1 s budget while the drain waits (the worker is held);
+    released, each runs well within its budget, so all agree. The merged overseer marked all six budget exceeded."""
+    rp = Replayer(make_keyring(), mode="process", job_budget_s=1.0)
+    pid = None
+    try:
+        pid = _warm(rp)
+        os.kill(pid, signal.SIGSTOP)
+        jobs = [_job(rid=f"q{i}", always=True) for i in range(6)]
+        for j in jobs:
+            assert rp.submit(j) == "queued"
+        drainer = threading.Thread(target=rp.drain, daemon=True)
+        drainer.start()
+        time.sleep(1.6)  # longer than the budget: the jobs have been queued for > 1 s, none has been taken
+        assert drainer.is_alive() and rp.pending() == {j.result_id for j in jobs}  # still waiting, nothing marked
+        os.kill(pid, signal.SIGCONT)
+        drainer.join(timeout=120)
+        assert not drainer.is_alive() and not rp.pending()
+        assert _verdicts(rp, jobs) == {j.result_id: (False, None, None) for j in jobs}
+        assert rp._proc.pid == pid  # the same worker: nothing was replaced
+    finally:
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGCONT)
+            except OSError:
+                pass
+        rp.close()
+
+
+@_posix
+def test_a_job_still_running_at_its_budget_is_budget_exceeded_and_the_jobs_behind_it_run_on_a_fresh_worker():
+    """A worker stuck in a job (held; its 'started' message simulated): at the budget the job is budget exceeded
+    (AUDIT-005, never agreement), the stuck worker is replaced, and the two jobs queued behind it still replay and agree."""
+    rp = Replayer(make_keyring(), mode="process", job_budget_s=1.0)
+    try:
+        pid = _warm(rp)
+        os.kill(pid, signal.SIGSTOP)
+        stuck, *behind = jobs = [_job(rid="stuck", always=True), _job(rid="b1", always=True), _job(rid="b2", always=True)]
+        for j in jobs:
+            rp.submit(j)
+        _started(rp, "stuck")
+        t0 = time.monotonic()
+        rp.drain(timeout_s=0.3)  # a short wait: the job has not run its budget yet, so nothing is marked
+        assert rp.pending() == {"stuck", "b1", "b2"} and time.monotonic() - t0 < 1.0
+        rp.drain()
+        v = _verdicts(rp, jobs)
+        assert v["stuck"] == (True, None, "OVS-AUDIT-005")
+        assert v["b1"] == v["b2"] == (False, None, None)
+        assert rp._proc.pid != pid and not rp.pending()
+    finally:
+        rp.close()
+
+
+@_posix
+def test_a_worker_that_exits_is_replaced_its_running_job_errs_and_its_queued_jobs_still_run():
+    rp = Replayer(make_keyring(), mode="process", job_budget_s=30.0)
+    try:
+        pid = _warm(rp)
+        os.kill(pid, signal.SIGSTOP)
+        jobs = [_job(rid="running", always=True), _job(rid="queued", always=True)]
+        for j in jobs:
+            rp.submit(j)
+        _started(rp, "running")
+        os.kill(pid, signal.SIGKILL)
+        rp.drain(timeout_s=120)
+        v = _verdicts(rp, jobs)
+        assert v["running"] == (False, "ReplayWorkerExited", "OVS-AUDIT-005")
+        assert v["queued"] == (False, None, None)
+        assert rp._proc.pid != pid
+        # a job submitted after the worker exits while idle gets a fresh worker too
+        pid2 = rp._proc.pid
+        os.kill(pid2, signal.SIGKILL)
+        rp._proc.join(timeout=10)
+        later = _job(rid="later", always=True)
+        rp.submit(later)
+        rp.drain(timeout_s=120)
+        assert _verdicts(rp, [later]) == {"later": (False, None, None)} and rp._proc.pid not in (pid, pid2)
+    finally:
+        rp.close()
+
+
+def test_a_worker_that_never_takes_a_job_leaves_every_job_with_an_error_never_agreement():
+    """Every worker exits before taking a job: after the bounded replacements the outstanding jobs carry an error (a
+    definitive original is AUDIT-005), and the drain returns."""
+    rp = Replayer(make_keyring(), mode="process", job_budget_s=5.0)
+    rp._worker_target = sys.exit  # the spawned process exits at once (sys.exit takes no queues)
+    try:
+        jobs = [_job(rid="n1", always=True), _job(rid="n2", always=True)]
+        for j in jobs:
+            rp.submit(j)
+        t0 = time.monotonic()
+        rp.drain()
+        assert time.monotonic() - t0 < 120 and not rp.pending()
+        assert _verdicts(rp, jobs) == {j.result_id: (False, "ReplayWorkerUnavailable", "OVS-AUDIT-005") for j in jobs}
+    finally:
+        rp.close()

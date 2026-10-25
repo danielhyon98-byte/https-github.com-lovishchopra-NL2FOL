@@ -167,7 +167,9 @@ STEM_TASKS = ((("ph-t13",), "ph-t13"), (("maa-t13",), "maa-t13"), (("mai-t13",),
 #: base raised to an integer beyond 12 is one value: 1.003^60 on m6.1 and 1.003^132, 1.003^144 on m12.3, each against its cut value, holding;
 #: m6.1's two ST-UNDEC-001 are gone, the other lines' remain), p7b 43 -> 46 (the mathematics answer's three evaluations of the exponential
 #: model the request states, stem-mod, each holding); every other count and every ST code set is unchanged
-STEM_TASK_CONTENT = {"ph-t13": (18, set()), "maa-t13": (16, {"ST-UNDEC-001"}), "mai-t13": (13, {"ST-UNDEC-001"}), "bi-t13": (7, set()),
+#: Round-7 parsers handoff (r7 history handoff A2): the SI reading checks a pair's direction word, ph-t13 18 -> 20 ('rises from 2.4 Ω to
+#: 4.0 Ω' and 'from 2.9 Ω to 4.5 Ω', each holding), bi-t13 7 -> 8 ('drops from 92 to 61 mm³ per g per hour', holding); every ST code set is unchanged
+STEM_TASK_CONTENT = {"ph-t13": (20, set()), "maa-t13": (16, {"ST-UNDEC-001"}), "mai-t13": (13, {"ST-UNDEC-001"}), "bi-t13": (8, set()),
                      "ch-t13": (0, set()), "ess-t13": (13, set()), "cs-t13": (3, {"ST-SCOPE-001", "ST-UNDEC-001"}),
                      "p7b": (46, {"ST-SCOPE-001", "ST-UNDEC-001"})}
 

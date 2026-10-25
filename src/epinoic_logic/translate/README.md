@@ -71,6 +71,32 @@ inspection.
 `widen_rounded_literals` remains as a helper that reads EVERY decimal equality of a problem as its
 half-unit interval; it is no longer a decision rule (it ignores the wording).
 
+Rules added for the round-7 arena hand-off:
+
+- A relayed peer specialist's report (`grounding.is_peer_document`: a document id `peer:<task>`, or an author
+  `<subject>-specialist`) is evidence of what that agent said, never a source: an excerpt located in it leaves the
+  grounding unverified (`verified = None`, detail `peer_report: ...`), so a premise it supports stays an unverified
+  dependency and the release check refuses it; a peer report confers no task authority either.
+- A figures or verbatim check verifies a premise only when the excerpt's figure is about the premise's quantity: when
+  the figure's asserting clause names years and none of them is a year the symbol's name or meaning names ("In 2020
+  Lowtown had 252 residents" for `p2010`), the match is refused as another year's figure (rule same-quantity,
+  conflicting qualifier).
+- An approximation cue with no stated precision on a whole number ("about 100%") reads the figure at half a unit of
+  its last written digit ([99.5, 100.5]), never at its first significant digit ([50, 150)), so a 55% growth is not
+  "about 100%" and a faithful narrow encoding is accepted. After a stated-precision rejection the reference reading
+  used to judge a retry is rebounded to the demanded bounds (`precision.reference_reading`), so a retry that encodes
+  exactly the demanded interval is no weakened claim (`retry_changed_claim`); the rejection names the figure as
+  written ("0.33 (the interval's midpoint 0.3325)").
+- A partial encoding is never a silent verdict: a claim figure no literal of the problem encodes, and a clause whose
+  figures the conclusion checks none of, are recorded as notes ("part of the claim only: ..."), and when the
+  translator's own reading says part of the claim is not encoded the translation is AMBIGUOUS_TRANSLATION with the
+  flag `partial_encoding` (code numerals, such as a binary string, are not claim figures).
+- A translation record of another translator release ("0.3.0" where the current one differs) is stale
+  (`outcome.translation_staleness`): displayed INTERNAL_ERROR, release not permitted, "translate and verify again".
+  A record a caller built in process with no release version is read as it stands.
+- Provider output holding a lone UTF-16 surrogate is a `ProviderOutputError` (`parsing.parse_json_object`), so the
+  translation is INVALID_FORMALIZATION and nothing raises (POST `/v1/outcomes` answers it).
+
 Assertion (`assertion.py`). Mentioning a figure is not asserting it. A figure supports a coverage finding only
 when (1) its clause asserts it: no question, instruction or supposition opening the sentence, and no
 condition (including "when" read as a condition: "When n equals 17, b holds"; "when" after a time expression

@@ -46,13 +46,15 @@ a gap.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple, Optional
 
 from .limits import DEFAULT_LIMITS, StemLimits
 from .numbers import (
-    SUBSCRIPT_DIGITS, SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, VULGAR_FRACTIONS, exact_integer, exact_vulgar, is_ascii_digit, scan_based, scan_number,
-    superscript_int,
+    SUBSCRIPT_DIGITS, SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, VULGAR_FRACTIONS, exact_based, exact_integer, exact_vulgar, is_ascii_digit, scan_based,
+    scan_number, superscript_int,
 )
 
 __all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "Token", "combination_at", "lex"]
@@ -629,6 +631,18 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 emit("NUM", ch, i, i + 1, value=_digit(ch) if values else None)
                 i += 1
                 continue
+            if cs and ch != "." and not (i > 0 and (s[i - 1].isalnum() or s[i - 1] == ".")):
+                grouped = _GROUPED_BASED_RE.match(s, i, min(n, i + 160))
+                if grouped is not None and (grouped.end() >= n or not (s[grouped.end()].isalnum() or s[grouped.end()] in SUBSCRIPT_DIGITS)):
+                    # stem-precision-10 (round 7): a numeral written in groups of four or eight digits with its base subscript ('1011 0110₂',
+                    # '3F A2₁₆' is not: groups of four or eight only) is one based numeral; read apart, its last group was the numeral
+                    digits = "".join((grouped.group("digits") or grouped.group("hdigits")).split())
+                    base = 2 if grouped.group("digits") else 16
+                    num = exact_based(s[i:grouped.end()], digits, base, limits=limits)
+                    if num is not None:
+                        emit("NUM", s[i:grouped.end()], i, grouped.end(), value=num)
+                        i = grouped.end()
+                        continue
             based = None
             if ch != "." and ((ch == "0" and s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i)) or not digit or _base_mark_after_digits(s, i, n)
                               or (cs and _based_ahead(s, i, n))):  # '2A₁₆': a hexadecimal numeral may open with a decimal digit
@@ -751,6 +765,13 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             if digits is None:
                 emit("SUP", ch, i, i + 1, value=None)
                 i += 1
+            elif len(digits) - digits.startswith("-") > limits.max_number_digits:
+                # parser-safety-1 (round 7): an overlong run of superscript digits is bounded like any numeral, before int() (a run
+                # beyond the interpreter's integer-string limit raised ValueError and emptied the whole document)
+                # (a SUP token whose value is the (code, message) of the bound: the reader keeps the run, the parser names it ST-LIM-001)
+                emit("SUP", s[i:k], i, k, value=("ST-LIM-001", f"a superscript of {len(digits) - digits.startswith('-')} digits; "
+                                                               f"the bound is {limits.max_number_digits}"))
+                i = k
             else:
                 emit("SUP", s[i:k], i, k, value=int(digits))
                 i = k
@@ -785,6 +806,12 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             k = i + (1 if ch == "…" else 3)
             emit("UNSUP", s[i:k], i, k, value="an ellipsis")
             i = k
+            continue
+        if ch == "." and cs and not space and _and_dot(s, i, n, toks):
+            # stem-soundness-4 (round 7): in Computer Science the dot between single capitals or brackets is AND ('A.B + A.C = A.(B + C)');
+            # read as a full stop it cut the identity into the fragment 'C = A', so a correct law failed and a wrong one held
+            emit("OP", "·", i, i + 1)
+            i += 1
             continue
         if ch in _SIMPLE:
             kind = _SIMPLE[ch]
@@ -841,6 +868,25 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
 
 #: what stands beside an operand of an arithmetic expression: an operator or a relation sign
 _EXPRESSION_SIGNS = frozenset("×÷*/+-−·=≈<>≤≥^")
+
+
+#: stem-precision-10: a binary or hexadecimal numeral in groups of four or eight digits, one space apart, ending in its base subscript
+_GROUPED_BASED_RE = re.compile(r"(?P<digits>(?:[01]{4}|[01]{8})(?: (?:[01]{4}|[01]{8})){1,7})(?P<base>₂|_2)"
+                               r"|(?P<hdigits>(?:[0-9A-F]{4})(?: [0-9A-F]{4}){1,7})(?P<hbase>₁₆|_16)")
+
+
+def _and_dot(s: str, i: int, n: int, toks: list[Token]) -> bool:
+    """A full stop glued between a Boolean operand and the next one: after a single capital letter (with its primes) or a closing
+    bracket, and before a single capital letter, an opening bracket or a negation sign, with no space on either side."""
+    if not toks or toks[-1].end != i or i + 1 >= n:
+        return False
+    prev = toks[-1]
+    if not ((prev.kind == "IDENT" and len(prev.text) == 1 and "A" <= prev.text <= "Z" and not prev.sub) or prev.kind == "RPAR"):
+        return False
+    nxt = s[i + 1]
+    if nxt in "(¬":
+        return True
+    return "A" <= nxt <= "Z" and not (i + 2 < n and s[i + 2].isalnum())
 
 
 def _thousands_operand(s: str, i: int, n: int) -> bool:

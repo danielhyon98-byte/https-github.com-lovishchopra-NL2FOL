@@ -63,6 +63,7 @@ from .models import (
     substitute,
 )
 from .scope import Binding, Formula, Model, Scope, si_value
+from .tolerance import approx_word_before
 from .units import DIMENSIONLESS, Dimension, UnitExpr, parse_unit
 
 #: rule ``bare-factor``: the most readings of a relation's bare numbers that are compared
@@ -94,6 +95,9 @@ _TRAILING_WORD_RE = re.compile(r"([A-Za-z]+)[ \t]*$")
 #: rule ``question`` (STEM repair 2): a relation followed by a question mark, and the answer the answer gives it
 _QUESTION_RE = re.compile(r"[ \t]*\?[ \t]*(?:[(\[:—–-][ \t]*)?(yes|no|true|false)?(?![A-Za-z])", re.IGNORECASE)
 _YES_WORDS = frozenset({"yes", "true"})
+#: stem-precision-8: the words after a comparison that state it is false
+_STATED_FALSE_RE = re.compile(r"[ \t]*\)?[ \t]*,?[ \t]*(?:(?:which|this|that|it)[ \t]+)?(?:(?:is|was|evaluates[ \t]+to|returns|gives|is[ \t]+evaluated[ \t]+as)"
+                              r"[ \t]+(?:false|not[ \t]+true)|fails|is[ \t]+not[ \t]+true)(?![A-Za-z])", re.IGNORECASE)
 #: rule premise-cue (STEM repair 2): the words that introduce a relation another one on the same line is derived from
 _PREMISE_CUE_RE = re.compile(r"(?:^|[\s(])(?:from|since|because|as|using|rearranging|by)[ \t]*$", re.IGNORECASE)
 #: rule restated-binding (STEM repair 2): the word that makes a value stated for a symbol the restatement of the chain before it
@@ -177,6 +181,24 @@ _STEP_WORDS = ("⇒", "∴", "so", "hence", "therefore", "thus", "gives", "givin
 _APPROX_WORDS = ("approximately", "approx.", "about", "roughly", "estimate", "around", "nearly")
 _COMPLETE_PHRASES = ("only solution", "only root", "the solution is", "the solutions are", "is the solution", "are the solutions", "the roots are",
                      "solutions are", "roots are", "the only value", "is the only")
+#: stem-precision-1: the words that open the clause of a restated value, and the words of such a clause that name no quantity
+_CUE_WORDS = frozenset({"so", "therefore", "thus", "hence", "giving", "gives", "then", "consequently", "which", "means"})
+_CLAUSE_STOP_WORDS = frozenset({
+    "the", "and", "are", "was", "were", "this", "that", "its", "their", "his", "her", "our", "for", "with", "from", "into", "equal", "equals",
+    "about", "approximately", "roughly", "nearly", "around", "rounded", "exactly", "just", "only", "now", "here", "also", "still", "get", "gets",
+    "got", "answer", "result", "results", "value", "values", "final", "total", "overall", "required", "comes", "becomes", "works", "out", "is",
+    "be", "been", "being", "has", "have", "had", "will", "would", "can", "could", "may", "might", "must", "should", "one", "two", "number",
+    "figure", "amount", "quantity", "calculated", "computed", "obtained", "found", "worked", "correct", "correctly", "answers", "given", "use",
+    "using", "used", "decimal", "places", "place", "significant", "figures", "nearest", "whole", "per", "cent", "percent", "percentage",
+    "there", "these", "those", "they", "them", "than", "when", "where", "what", "each", "every", "all", "both", "some", "any", "such", "more",
+    "less", "most", "least", "very", "much", "many", "you", "your", "our", "which", "whose",
+})
+#: words that name a factorisation, an expansion or a simplification (stem-soundness-12)
+_IDENTITY_WORDS = ("factoris", "factoriz", "expand", "expansion", "simplif")
+#: words that name a system of simultaneous equations (stem-soundness-5)
+_SYSTEM_WORDS = ("simultaneous", "system of", "the system", "equations (1)", "(1) and (2)", "both equations")
+#: words that make a root line state one root of several (stem-soundness-11): such a line claims no full set
+_PARTIAL_ROOT_WORDS = (" one ", " a root", " a solution", " another ", " other ", " also ", " either ", " one of ", " first ", " second ")
 _RESTRICT_WORDS = ("reject", "positive", "non-negative", "nonnegative", "x > 0", "x ≥ 0", "> 0", "≥ 0", "length", "time", "only the positive",
                    "cannot be negative", "must be positive", "domain")
 _RESULT_CUES = ("therefore", "hence", "thus", "so", "the answer is", "the result is")
@@ -479,6 +501,11 @@ class Relation:
     #: ``sol``: the root is a value the answer states in prose for the quantity it named by the symbol (a prose value,
     #: approximate by nature: the checks stage compares it within the '=' band, τ = 1/100 beyond its half-width)
     described: bool = False
+    #: ``sol`` of simultaneous equations (stem-soundness-5, round 7): the equations of the system (left, right operands) and the value the
+    #: answer states for each unknown; the stated values are checked against every equation of the system together, never as an algebra
+    #: step from one equation that takes another stated value of the same conclusion as a premise
+    simultaneous: tuple[tuple[Operand, Operand], ...] = ()
+    simultaneous_values: tuple[tuple[str, Node], ...] = ()
 
     @property
     def is_check(self) -> bool:
@@ -1610,8 +1637,9 @@ def _contains_based(node: Node) -> bool:
 
 
 def _approx_context(text: str) -> bool:
-    low = text[-160:].lower()
-    return any(w in low for w in _APPROX_WORDS)
+    """An approximation word, as a whole word, directly before the item (stem-soundness-6, round 7: never a substring, never a word
+    qualifying another quantity earlier in the sentence)."""
+    return approx_word_before(text)
 
 
 def _words(text: str) -> list[str]:
@@ -1671,6 +1699,11 @@ class _Planner:
         self.unit_reported: set[tuple[str, str]] = set()
         self.request_relations: list[tuple[Operand, str, Operand]] = []
         self._root_groups: dict[tuple[str, str], int] = {}
+        #: stem-soundness-5: the equations of the current system of simultaneous equations (infos), and the sol relation of its stated solution
+        self._system: list[dict] = []
+        self._system_sol: Optional[int] = None
+        #: stem-soundness-11: (equation, letter) -> (the sol relation its next-line roots extend, the order of the last root line)
+        self._line_roots: dict[tuple[int, str], tuple[int, int]] = {}
         #: Boolean names the answer defines ('M = (A ∧ B) ∨ …'): name -> (expression, statement id)
         self.bool_defs: dict[str, tuple[Node, str]] = {}
         #: rule boolean-values (STEM repair 4): every value a statement gives a Boolean name ('A = 1'), in document order: (name, value,
@@ -1820,6 +1853,8 @@ class _Planner:
     def _chain(self, item: MathItem, ci: int, chain: Chain) -> None:
         sid = item.statement_id
         if not self.request_mode and chain.ops and not chain.lead and self._question(item, chain):
+            return
+        if not self.request_mode and chain.ops and not chain.lead and self._stated_false(item, chain):
             return
         operands: list[tuple[Operand, str]] = [(op, sid) for op in chain.operands]
         ops = list(chain.ops)
@@ -1977,6 +2012,27 @@ class _Planner:
         for k in range(before, len(self.relations)):
             r = self.relations[k]
             note = f"a relation asked as a question and answered '{m.group(1)}': {'its negation' if op != chain.ops[0] else 'the relation'} is checked"
+            self.relations[k] = replace(r, reason=(r.reason + "; " if r.reason else "") + note)
+        return True
+
+    def _stated_false(self, item: MathItem, chain: Chain) -> bool:
+        """stem-precision-8 (round 7): a comparison of one link the text says is false ('2 <= 1, which is false', 'Since 5 > 8 is false',
+        '(2 <= 1) fails') claims its negation: the negation is checked, as rule question checks a relation answered "no" (it had been
+        checked as asserted, and every loop trace that states a failing test got INT-SUBJ-001). True when the chain was handled here."""
+        if len(chain.ops) != 1 or chain.ops[0] not in _NEGATION or chain.ops[0] in _EQUALITY or not (0 <= chain.end <= len(self.text)):
+            return False
+        m = _STATED_FALSE_RE.match(self.text, chain.end)
+        if m is None:
+            return False
+        sid = item.statement_id
+        first, last = chain.operands[0], chain.operands[-1]
+        op = _NEGATION[chain.ops[0]]
+        lead = first.node if not chain.lead else None
+        before = len(self.relations)
+        self._link(item, first, sid, op, last, sid, 0, _is_lone(lead), lead if _is_lone(lead) else None, False, [(first, sid), (last, sid)], [op])
+        for k in range(before, len(self.relations)):
+            r = self.relations[k]
+            note = f"a comparison the text states is false ('{' '.join(m.group(0).split())[:40]}'): its negation is checked"
             self.relations[k] = replace(r, reason=(r.reason + "; " if r.reason else "") + note)
         return True
 
@@ -2525,6 +2581,11 @@ class _Planner:
             if lc in ("value", "closed", "bound") and rc in ("value", "closed", "bound"):
                 self._dimension_check(base, item, lnode, rnode)
                 self.add(kind="cmp", outcome="check", **base)
+            elif self.profile.is_mathematics and _has_step_word(item.gap_before) and (
+                    sum(1 for o in full_ops if o in _ORDER) >= 2 or any(isinstance(n, Abs) for n in walk(lnode)) or any(isinstance(n, Abs) for n in walk(rnode))):
+                # stem-soundness-12 (round 7): a chained inequality ('so −3 < x − 1 < 3, giving −2 < x < 5') or an inequality of an absolute
+                # value that a step word says follows is a step the encodings do not read: named, never silent
+                self._undecided("ST-UNDEC-001", "a step to a chained inequality or an inequality of an absolute value, outside the encodings", base, item)
             else:
                 self.add(kind="link", outcome="context", reason="an inequality about an unknown (a condition, or a step checked between relations)", **base)
             return
@@ -2621,7 +2682,38 @@ class _Planner:
                      identity=tuple(sorted(_syms(lnode))),
                      reason="a factorisation or expansion stated inside one chain (the two sides are the same polynomial)", **base)
             return
+        if pos == 0 and len(full_ops) == 1 and op in _EQUALITY and self._stated_identity(item, lnode, rnode):
+            # stem-soundness-12 (round 7): a factorisation or expansion the words state ('Factorising, x² + 5x + 6 = (x + 2)(x + 4).',
+            # 'Expand (a + b)²': '(a + b)² = a² + b²') is an identity of polynomials, checked for every value of its variables from the
+            # trivially true premise; it had been context, so a wrong factorisation was named nowhere
+            names = tuple(sorted(_syms(lnode) | _syms(rnode)))
+            self.add(kind="alg", outcome="check", premise_left=left, premise_op="=", premise_right=left, premise_ids=sids, explicit=True,
+                     identity=names, reason="a factorisation or expansion the words state (the two sides are the same polynomial)", **base)
+            return
         self.add(kind="stated", outcome="context", reason="a relation stated without a preceding relation to derive it from", **base)
+
+    def _stated_identity(self, item: MathItem, lnode: Node, rnode: Node) -> bool:
+        """Both sides are polynomials in the same letters (at most three) and the statement, or the request, names a factorisation, an
+        expansion or a simplification (stem-soundness-12)."""
+        if not self.profile.is_mathematics:
+            return False
+        words = item.context() + " " + self._request_lower
+        if not any(w in words for w in _IDENTITY_WORDS):
+            return False
+        names = _syms(lnode) | _syms(rnode)
+        if not names or len(names) > 3 or not _syms(lnode) or not _syms(rnode):
+            return False
+        for side in (lnode, rnode):
+            for n in walk(side):
+                if isinstance(n, (Func, RealPower, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit, Degrees, Ratio)):
+                    return False
+                if isinstance(n, Sym) and n.kind not in ("symbol",):
+                    return False
+                if isinstance(n, BinOp) and n.op == "/" and _syms(n.right):
+                    return False
+                if isinstance(n, Pow) and (n.exp < 0 or n.exp > 4):
+                    return False
+        return max(max(_degree(lnode, x), _degree(rnode, x)) for x in names) >= 1 and shape_key(lnode) != shape_key(rnode)
 
     def _record_model(self, operands: list[tuple[Operand, str]], ops: list[str]) -> None:
         """``P = P₀e^(kt)`` (no variable named: the answer's applications name it) or ``C(t) = C0 e^(−kt)`` (the letter glued
@@ -3826,6 +3918,8 @@ class _Planner:
             if rhs is not None and is_closed(rhs) and solved:
                 rooted = self._roots_candidate(item, chain, head, operands)
         prev = self.prev_rel
+        if self._system_step(item, chain, info, operands, rel_op, lone, head, rooted, prev):
+            prev = None
         # STEM repair 11 (rule root-statement): a root stated for the equation of an earlier line ('t = 0 or t = 2' after 'Both values lie in
         # 0 ≤ t ≤ 3.') is checked against that equation (stem-sol), never as a step from the line between them (it had been read as a step from
         # the domain statement, a false failure, once the letter is an unknown of its part)
@@ -3909,6 +4003,80 @@ class _Planner:
             self.prev_rel = dict(rooted, order=info["order"], kept_by=item.statement_id)
             return
         self.prev_rel = info
+
+    def _system_equation(self, info: dict, operands: list[tuple[Operand, str]], rel_op: str, lone: bool, head: Optional[Node]) -> bool:
+        """An equation of a system of simultaneous equations: one link '=' in two or more unknowns, no solved form ('y = 10 − x')."""
+        if rel_op != "=" or len(operands) != 2 or len(info["unknown"]) < 2:
+            return False
+        if lone and isinstance(head, Sym) and head.name not in _syms(_first(operands[1][0]) or Sym("?")):
+            return False
+        return not any(isinstance(n, (Unsupported, Apply)) for op, _s in operands for n in walk(_first(op) or Sym("?")))
+
+    def _system_cue(self, item: MathItem, chain: Chain, info: dict, last: dict) -> bool:
+        """What makes two equations the equations of one system rather than a line and its rearrangement: the words 'simultaneous' or
+        'system' in the request or around them, 'and' joining them in one statement, or the request stating both."""
+        before = (self.text[max(0, last["item"].start - 160):last["item"].start] if self.text else "").lower()
+        if "simultaneous" in self._request_lower or any(w in item.context() or w in last["item"].context() or w in before for w in _SYSTEM_WORDS):
+            return True
+        if last["item"].statement_id == item.statement_id and (chain.connective in ("and", ",", ";")
+                                                               or item.gap_before.strip().lower() in ("and", ",", ";", ", and")):
+            return True
+        stated = {(shape_key(l), shape_key(r)) for l_op, op, r_op in self.request.relations if op == "=" for l, r in [(_first(l_op), _first(r_op))]
+                  if l is not None and r is not None}
+        both = 0
+        for e in (last, info):
+            l, r = _first(e["left"]), _first(e["right"])
+            if l is not None and r is not None and ((shape_key(l), shape_key(r)) in stated or (shape_key(r), shape_key(l)) in stated):
+                both += 1
+        return both == 2
+
+    def _system_step(self, item: MathItem, chain: Chain, info: dict, operands: list[tuple[Operand, str]], rel_op: str, lone: bool,
+                     head: Optional[Node], rooted: Optional[dict], prev: Optional[dict]) -> bool:
+        """stem-soundness-5 (round 7): simultaneous equations. Consecutive equations of one part in the same two or more unknowns form a system
+        (no line of it is a step from the one before unless a connective says so: '2x + y = 7', then 'x − y = 2', had failed as an algebra
+        step); the values the answer then states for its unknowns ('so x = 5 and y = 3') are its stated solution, planned as one ``sol``
+        check against every equation of the system (a wrong pair satisfying one equation only had passed, as a step that took the other stated
+        value as a premise). Returns True when the line must not be read as a step from ``prev``."""
+        if self._system_equation(info, operands, rel_op, lone, head):
+            last = self._system[-1] if self._system else None
+            joined = (last is not None and last["item"].part == item.part and info["order"] - last["order"] <= 1
+                      and bool(info["unknown"] & last["unknown"]) and self._system_cue(item, chain, info, last))
+            if joined:
+                explicit = prev is not None and prev is last and self._step_cues(item, chain, prev)[0]
+                self._system.append(info)
+                return not explicit
+            self._system = [info]
+            self._system_sol = None
+            return False
+        if not self._system or len(self._system) < 2 or rooted is not None:
+            return False
+        unknowns = set().union(*(e["unknown"] for e in self._system))
+        if not (lone and isinstance(head, Sym) and head.name in unknowns and rel_op == "=" and len(operands) == 2):
+            return False
+        value = _first(operands[1][0])
+        if value is None or not is_closed(value) or self._system[-1]["item"].part != item.part:
+            return False
+        x = head.name
+        sid = item.statement_id
+        eq_sids = tuple(dict.fromkeys(s for e in self._system for s in e["sids"]))
+        if self._system_sol is not None:
+            rel = self.relations[self._system_sol]
+            if x not in dict(rel.simultaneous_values) and info["order"] - self.order.get(rel.statement_ids[-1], -10) <= 1:
+                self.relations[self._system_sol] = replace(rel, roots=rel.roots + (value,), simultaneous_values=rel.simultaneous_values + ((x, value),),
+                                                           statement_ids=tuple(dict.fromkeys(rel.statement_ids + (sid,))), end=max(rel.end, operands[1][0].end))
+                return prev is not None and len(prev["unknown"]) >= 2
+            return False
+        if info["order"] - self._system[-1]["order"] > 3:
+            return False
+        first = self._system[0]
+        rel = self.add(kind="sol", outcome="check", statement_ids=tuple(dict.fromkeys(eq_sids + (sid,))), start=operands[0][0].start,
+                       end=operands[1][0].end, op="=", left=operands[0][0], right=operands[1][0], part=item.part, premise_left=first["left"],
+                       premise_op="=", premise_right=first["right"], premise_ids=eq_sids, root_symbol=x, roots=(value,),
+                       simultaneous=tuple((e["left"], e["right"]) for e in self._system), simultaneous_values=((x, value),),
+                       reason=f"the stated solution of the simultaneous equations in {', '.join(eq_sids)}, against every equation of the system")
+        self._system_sol = rel.index
+        # the value is no step from one equation of the system with another stated value as a premise
+        return prev is not None and len(prev["unknown"]) >= 2
 
     def _given_in(self, name: str, part: str) -> bool:
         """Rule ``part-condition`` (STEM repair 11): ``name`` is given for a relation of ``part``: bound by something other than a stated root
@@ -4319,7 +4487,27 @@ class _Planner:
                                                                                                              or "or" in item.gap_before.lower().split()) and not restricted)
             self.relations[idx] = new
             return eq
-        complete = (complete_phrase or chain.connective in ("∴", "⇒")) and not restricted
+        line_key = (id(eq), x)
+        if source == "answer" and line_key in self._line_roots:
+            # stem-soundness-11 (round 7): a further root on the line right after the last root line of the same equation ('x = 2', then
+            # 'x = −2') belongs to the same stated set
+            idx, last_order = self._line_roots[line_key]
+            rel = self.relations[idx]
+            if self.order.get(sid, -10) == last_order + 1:
+                self.relations[idx] = replace(rel, roots=rel.roots + (root,), statement_ids=tuple(dict.fromkeys(rel.statement_ids + (sid,))),
+                                              end=max(rel.end, operands[1][0].end))
+                self._line_roots[line_key] = (idx, self.order.get(sid, -10))
+                group[key] = idx
+                return eq
+        # stem-soundness-11 (round 7): roots stated as values on the line right after their equation ('x² = 3x', then 'Dividing by x,
+        # x = 3') claim the solution set as '⇒' does, unless the line says it gives one root of several or a domain restriction is stated;
+        # before, only membership was checked, so a root lost by dividing by x passed. A root written as an expression (one sign of the
+        # quadratic formula, '(5 + 1)/2', or a principal root '√(50/π)', which ST-ALG-001 names) and a formula's evaluation claim no set;
+        # in the sciences a root is a quantity whose other root the context rejects, as before
+        follows = (self.profile.is_mathematics and source == "answer" and eq is self.prev_rel and sid not in eq["sids"] and is_value(root)
+                   and not eq.get("is_formula")
+                   and not any(w in f" {stmt_text.lower()} " for w in _PARTIAL_ROOT_WORDS))
+        complete = (complete_phrase or chain.connective in ("∴", "⇒") or follows) and not restricted
         rel = self.add(kind="sol", outcome="check", statement_ids=tuple(dict.fromkeys(eq["sids"] + (sid,))) if source == "answer" else (sid,),
                        start=operands[0][0].start, end=operands[1][0].end, op="=", left=operands[0][0], right=operands[1][0], part=item.part,
                        premise_left=eq["left"], premise_op="=", premise_right=eq["right"], premise_ids=eq["sids"], root_symbol=x, roots=(root,),
@@ -4327,6 +4515,8 @@ class _Planner:
                        reason=f"stated roots of the equation in {', '.join(eq['sids'])}" + ("; the full solution set is claimed" if complete else "")
                        + self._part_condition_note((x,), item.part))
         group[key] = rel.index
+        if follows:
+            self._line_roots[line_key] = (rel.index, self.order.get(sid, -10))
         return eq
 
     # -------------------------------------------------------------- chemistry, Boolean, tables
@@ -4616,6 +4806,13 @@ class _Planner:
                     continue
                 if _percent_against_quantity(v, fvv):
                     continue  # STEM repair 3: a percentage never restates a quantity of a dimension ('… = 6.0 m. So the uncertainty is 2%')
+                if v[2] is None and fvv[2] is None and not v[3] and not fvv[3] and not inline and v[0].denominator == 1 \
+                        and v[1] is not None and not v[1].has_point and fvv[0].denominator != 1 and self._restates_other_quantity(pv, fv):
+                    # stem-precision-1 (round 7): a whole number with no unit after a chain whose value is no whole number is the chain's
+                    # value only when the prose names nothing else: 'so the degrees of freedom are 3' after 'χ² = … = 384.864', 'so the
+                    # loan lasts 60 months' after 'r = 0.035/12 = 0.0029167' count other quantities, and had been set against the chain
+                    # (INT-SUBJ-001 on correct working)
+                    continue
                 if v[2] is not None and fvv[2] is not None:
                     d1, d2 = v[2].dim, fvv[2].dim
                     if d1 is None or d2 is None:
@@ -4635,6 +4832,22 @@ class _Planner:
                      reason=f"a prose restatement against the final value of the chain in {best['sid']}{how}")
             if h_round is not None:
                 self._finer_restatement(best, Operand((pv.node,), pv.start, pv.end), pv.statement_id, pv.part, h_round, phrase)
+
+    def _restates_other_quantity(self, pv: ProseValue, fv: dict) -> bool:
+        """The clause between the result cue and the prose value ``pv`` names a quantity in words that the chain ``fv`` names nowhere
+        (its symbol and its statement's words): the value is no restatement of the chain (stem-precision-1). 'so there are 4 half-lives'
+        and 'therefore the answer is 6' name none and keep the check."""
+        chain_text = next((it.statement_text.lower() for it in self.items if it.statement_id == fv.get("sid")), "")
+        chain_words = set(_words(chain_text))
+        if fv.get("symbol"):
+            chain_words.add(fv["symbol"].lower())
+        clause: list[str] = []
+        for w in reversed(_words(pv.before[-120:])):
+            if w in _CUE_WORDS:
+                break
+            clause.append(w)
+        content = [w for w in clause if len(w) >= 3 and w not in _CLAUSE_STOP_WORDS and w.isalpha()]
+        return any(w not in chain_words and w.rstrip("s") not in chain_words for w in content)
 
     def _own_value_before(self, pv: ProseValue, v: tuple, fv: dict) -> bool:
         """Rule ``adjacent-restatement`` (STEM repair 5): the statement of the prose value ``pv`` (value ``v``) states, before it, a prose

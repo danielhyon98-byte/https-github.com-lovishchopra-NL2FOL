@@ -408,12 +408,13 @@ def request_quoted_claims(rep: Any, req: Any) -> set[str]:
     counts as covered by the request with no finding and no branch ``-SRC-001`` error (``TranslatorChannel.
     _source_findings``: a quotation of the request is no invented quotation). Re-derived with the channel's own source
     check (``translate.grounding.check_claim_sources``) and locator (``channel.bus._located``) on the texts the channel
-    checks against (the request's, else the report's)."""
+    checks against (the request's: the channel never falls back to texts a report supplies itself, and a report text that
+    is not byte-identical to a request text is INT-REQ-002)."""
     if req is None or not (getattr(req, "user_input", None) or "").strip():
         return set()
     from ...channel.bus import _located
     from ...translate.grounding import check_claim_sources
-    supplied = list(req.supplied_texts) or list(rep.supplied_texts)
+    supplied = list(req.supplied_texts)
     out: set[str] = set()
     for c in rep.claims:
         for ref, g in zip(c.source_refs, check_claim_sources(c, supplied)):

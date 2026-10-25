@@ -86,6 +86,7 @@ exactly the dossiers it issued before). A hub that never calls these behaves exa
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import threading
 import time
@@ -258,6 +259,8 @@ class RouterHub:
 
     def receipts(self, task_id: str) -> list[TransmissionReceipt]:
         ch = self.channels.get(task_id) or self._unopened.get(task_id)
+        if ch is None and isinstance(task_id, str) and task_id and self._quarantine_key(task_id).startswith("sha256:"):
+            ch = self._unopened.get(self._quarantine_key(task_id))  # a task id that is not valid Unicode is quarantined under its digest
         return list(ch.receipts) if ch is not None else []
 
     def branch_for(self, subject: str) -> str:
@@ -274,8 +277,20 @@ class RouterHub:
             return f"task {str(task_id)[:128]!r} was closed on this hub (close_task); its channel takes no new transfer"
         return f"no task {str(task_id)[:128]!r} is open on this hub (open_task was not called with its plan)"
 
-    def _quarantine(self, task_id: Any) -> TranslatorChannel:
+    @staticmethod
+    def _quarantine_key(task_id: Any) -> str:
+        """The key of the quarantine channel of a task id no plan opened: the id's first 128 characters, or, for an id
+        that is not valid Unicode (a lone surrogate), a digest of it, so the quarantine plan is always a valid
+        WorkPlan and the call returns a REJECTED receipt instead of raising."""
         key = str(task_id)[:128] or "unopened-task"
+        try:
+            key.encode("utf-8")
+        except UnicodeEncodeError:
+            key = "sha256:" + hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+        return key
+
+    def _quarantine(self, task_id: Any) -> TranslatorChannel:
+        key = self._quarantine_key(task_id)
         ch = self._unopened.get(key)
         if ch is None:
             plan = WorkPlan(plan_id="unopened-task", request_id="unopened-task", task_id=key, subject="generic", task_type="unopened", selected_agent_ids=[_NO_AGENT])

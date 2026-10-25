@@ -322,3 +322,78 @@ def test_concurrent_submissions(auditor):
         t.join()
     assert all(o.accepted for o in outs) and len({o.message_id for o in outs}) == 8
     assert len(intake.accepted_verdicts("task-ovs")) == 8 and len(intake.outcomes("task-ovs")) == 8
+
+
+# ------------------------------------------------------------------------------------------- round 7: a reply that is not valid Unicode text
+_LONE = "\ud83d"  # the first half of a surrogate pair: what a provider SDK hands over after decoding a truncated escape
+
+
+@pytest.mark.parametrize("make", [
+    lambda d: json.dumps(json.loads(verdict_text(d, notes="truncated emoji " + _LONE)), ensure_ascii=False),  # the code point itself
+    lambda d: verdict_text(d, notes="truncated emoji " + _LONE),                                            # the JSON escape \ud83d
+    lambda d: verdict_text(d).replace('"notes": ""', '"notes": "", "' + _LONE + '": 1'),                    # in a key
+    lambda d: "```json\n" + json.dumps(json.loads(verdict_text(d, notes=_LONE)), ensure_ascii=False) + "\n```",
+], ids=["raw", "escaped", "key", "fenced"])
+def test_a_bound_verdict_holding_a_lone_surrogate_is_unparseable_and_recorded_never_raised(setup, make):
+    """Round-7 arena (blocker): the merged overseer raised UnicodeEncodeError on such a verdict AFTER marking the issue
+    answered, so the verdict was lost with no outcome and a clean resubmission was refused as a duplicate. Now it is
+    refused as ``unparseable`` with OVS-AGENT-005, the outcome is recorded (bound: it carries the issue), the outcome
+    serialises, and the issue's one bound submission is used up as for any other bound malformed reply."""
+    _task, intake, d = setup
+    text = make(d)
+    assert d["dossier_sha256"] in text
+    out = submit(intake, d, text)
+    assert_rejected(out, "unparseable")
+    assert out.issue_id == intake.issue_record(d["agent_id"], d["task"]["task_id"]).issue_id and out in intake.outcomes()
+    assert out.raw_chars == len(text) and len(out.raw_text_sha256) == 64
+    assert _LONE not in out.model_dump_json() and _LONE not in out.finding.message
+    json.loads(out.model_dump_json())
+    assert_rejected(submit(intake, d, verdict_text(d)), "duplicate")
+    assert intake.accepted_verdicts() == []
+
+
+def test_an_unbound_reply_holding_a_lone_surrogate_leaves_the_issue_open(setup):
+    _task, intake, d = setup
+    out = submit(intake, d, '{"notes": "' + _LONE + '"}')
+    assert_rejected(out, "unparseable")
+    assert out.issue_id is None and out.dossier_sha256 is None
+    assert submit(intake, d, verdict_text(d)).accepted
+
+
+@pytest.mark.parametrize("error", [UnicodeEncodeError("utf-8", "x", 0, 1, "surrogates not allowed"), RecursionError("deep"), RuntimeError("bug")],
+                         ids=["unicode", "recursion", "runtime"])
+def test_any_error_the_parser_raises_is_unparseable_never_raised_and_never_lost(setup, monkeypatch, error):
+    """Whatever the parser raises on agent text (the merged overseer's UnicodeEncodeError among it): ``submit`` returns an
+    outcome, a bound reply is recorded as ``unparseable`` (the issue answered, as for any bound reply), and an unbound
+    one leaves the issue open."""
+    _task, intake, d = setup
+
+    def boom(*_a, **_k):
+        raise error
+    monkeypatch.setattr(intake_mod, "parse_json_object", boom)
+    unbound = submit(intake, d, "{}")
+    assert_rejected(unbound, "unparseable")
+    assert unbound.issue_id is None
+    bound = submit(intake, d, verdict_text(d))
+    assert_rejected(bound, "unparseable")
+    assert bound.issue_id is not None and type(error).__name__ in bound.detail and bound in intake.outcomes()
+    assert_rejected(submit(intake, d, verdict_text(d)), "duplicate")
+
+
+def test_an_unexpected_error_in_a_later_stage_is_refused_under_that_stage(setup, auditor, monkeypatch):
+    """Validation and the envelope log: an error other than the expected ones is recorded under the stage's reason."""
+    task, intake, d = setup
+
+    def boom(*_a, **_k):
+        raise RuntimeError("bug")
+    with monkeypatch.context() as m:
+        m.setattr(intake_mod.AgentVerdict, "model_validate", classmethod(lambda cls, *_a, **_k: boom()))
+        out = submit(intake, d, verdict_text(d))
+    assert_rejected(out, "schema")
+    assert "RuntimeError" in out.detail
+    d2 = intake.issue(auditor.view(task.uid), agent_id="overseer-general-2", lens="general", mode="blind", pack=PACK)
+    with monkeypatch.context() as m:
+        m.setattr(intake_mod.MessageLog, "accept", lambda self, msg: boom())
+        out2 = submit(intake, d2, verdict_text(d2))
+    assert_rejected(out2, "envelope")
+    assert "RuntimeError" in out2.detail and intake.accepted(out2.message_id) is None

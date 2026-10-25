@@ -46,6 +46,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Optional
 
 from ..channel.events import ChannelEvent
+from ..engine.provenance import signature_matches
 from ..engine.results import VerificationResult
 from ..engine.statuses import VerificationStatus as S, is_definitive
 from ..integrity.contracts import AgentMessage, AgentRole, IntegrityFinding, IntegrityReport, payload_hash, report_digest, sign_message, verify_report_digest
@@ -104,11 +105,16 @@ def sign_audit(audit: OverseerAudit, keyring: KeyRing) -> OverseerAudit:
 
 
 def verify_audit(audit: OverseerAudit, keyring: KeyRing) -> bool:
-    """True only when the audit is signed under the audit key, unchanged since, and its report digest holds."""
+    """True only when the audit is signed under the audit key, unchanged since, and its report digest holds. Never raises:
+    a forged signature of any form (a non-ASCII or surrogate character included) is False, and so is an audit whose text
+    is not valid Unicode (no audit the Overseer signs holds a lone surrogate)."""
     if not audit.signature or audit.signature_key_id != AUDIT_KEY_ID:
         return False
-    expected = hmac.new(keyring.subkey("audit"), audit_signable_text(audit).encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, audit.signature) and verify_report_digest(audit.report)
+    try:
+        expected = hmac.new(keyring.subkey("audit"), audit_signable_text(audit).encode("utf-8"), hashlib.sha256).hexdigest()
+        return signature_matches(expected, audit.signature) and verify_report_digest(audit.report)
+    except (UnicodeEncodeError, TypeError, ValueError):
+        return False
 
 
 def audit_envelope(audit: OverseerAudit, keyring: KeyRing, *, recipient_role: AgentRole = AgentRole.ROUTER, recipient_agent_id: Optional[str] = None,

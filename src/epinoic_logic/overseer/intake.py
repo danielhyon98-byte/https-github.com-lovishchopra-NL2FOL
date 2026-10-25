@@ -29,10 +29,15 @@ pack, lens, mode)``. A later issue for the same agent and task replaces the earl
    accepts it into a ``MessageLog`` per task and request that requires that signature; any ``INT-ENV`` finding is
    ``envelope``.
 
-Every rejection is ``OVS-AGENT-005`` and the verdict is discarded. A finding message never contains agent text: only
-the reason, field locations (list positions and the contract's field names; any other key is shown as ``<unknown field #n
-sha256:...>``) and error types. The verdict is data: it is parsed, never evaluated or followed, and an
-accepted verdict has no authority; only :func:`~epinoic_logic.overseer.validate.validate_overseer_verdict` assesses
+Every rejection is ``OVS-AGENT-005`` and the verdict is discarded. ``submit`` never raises on agent output, and a bound
+reply always leaves an outcome (round-7 finding: a verdict holding a lone UTF-16 surrogate, what a provider SDK hands
+over after decoding a truncated ``\\ud83d`` escape, raised ``UnicodeEncodeError`` after the issue was marked answered, so
+the verdict was lost and a clean resubmission refused as ``duplicate``). A reply that is not valid Unicode text is
+``unparseable``; whatever else fails at a stage is refused under that stage's reason (``unparseable``, ``schema``,
+``envelope``) with the error type only, so the one bound submission of an issue is always recorded. A finding message
+never contains agent text: only the reason, field locations (list positions and the contract's field names; any other
+key is shown as ``<unknown field #n sha256:...>``) and error types. The verdict is data: it is parsed, never evaluated
+or followed, and an accepted verdict has no authority; only :func:`~epinoic_logic.overseer.validate.validate_overseer_verdict` assesses
 it, and only a confirming deterministic check reaches the router. ``provider_info`` is bookkeeping recorded beside the
 verdict, never evidence; but a ``provider_info.prompt_version`` in the runner's form (``<pack>/<version>+<digest
 prefix>``) naming another pack than the issue's contradicts the verdict's copied header and is ``pack_mismatch``
@@ -93,6 +98,8 @@ INTAKE_REASONS: tuple[str, ...] = (
     "lens_mismatch", "pack_unknown", "pack_mismatch", "envelope",
 )
 _AGENT_ID_RE = re.compile(HEADER_ID_PATTERN.replace("$", r"\Z"))
+#: A lone UTF-16 surrogate code point: not valid Unicode text, so no verdict, digest or signature can be made of a reply holding one.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
 
 def _now() -> str:
@@ -348,57 +355,76 @@ class VerdictIntake:
                 return self._reject(reason=reason, detail=detail + "; it does not carry the digest of the dossier issued to this agent, so the issue stays open",
                                     **unbound)
             self._answered.add(issue.issue_id)
-            if not is_text:
-                return self._reject(reason="unparseable", detail="the reply is not text", **common)
+            stage = ["unparseable"]
             try:
-                obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
-            except ProviderOutputError:
-                return self._reject(reason="unparseable", detail="the reply is not exactly one strict JSON object (fences tolerated, nothing else)", **common)
-            if is_no_dossier(obj):
-                return self._reject(reason="no_dossier", detail="the agent reported that it received no dossier (no review)", **common)
-            if obj.get("contract") != VERDICT_CONTRACT:
-                return self._reject(reason="contract", detail=f"the verdict does not name the contract {VERDICT_CONTRACT}", **common)
-            try:
-                verdict = AgentVerdict.model_validate(obj)
-            except ValidationError as exc:
-                return self._reject(reason="schema", detail="the verdict does not validate against overseer_verdict/1.0: " + _schema_detail(exc), **common)
-            for field, reason in (("agent_id", "agent_mismatch"), ("task_id", "task_mismatch"), ("dossier_sha256", "dossier_mismatch"), ("lens", "lens_mismatch")):
-                if getattr(verdict, field) != getattr(issue, field):
-                    return self._reject(reason=reason, detail=f"the verdict's {field} is not the one in the dossier issued to this agent", verdict=verdict, **common)
-            if verdict.pack not in self._packs:
-                return self._reject(reason="pack_unknown", detail="the verdict names a knowledge pack this intake does not accept", verdict=verdict, **common)
-            if verdict.pack != issue.pack:
-                return self._reject(reason="pack_mismatch", detail=f"the verdict names another pack than the one the dossier was issued under ({issue.pack.label})",
-                                    verdict=verdict, **common)
-            named = _named_pack(info)
-            if named is not None and not (named[0] == issue.pack.name and named[1] == issue.pack.version and issue.pack.sha256.startswith(named[2])):
-                # the deployment's own record of the pack it ran under contradicts the pack the verdict copied from the header
-                return self._reject(reason="pack_mismatch", detail=f"provider_info.prompt_version names another pack than the one the dossier was issued under "
-                                    f"({issue.pack.label}): the verdict was produced under an altered or other pack", verdict=verdict, **common)
-            try:
-                payload = json.loads(canonical_json(verdict.model_dump(mode="json")))
-                msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=issue.request_id or "unknown", task_id=issue.task_id or "unknown",
-                                   sender_agent_id=issue.agent_id, sender_role=AgentRole.OVERSEER, recipient_role=AgentRole.OVERSEER,
-                                   recipient_agent_id=AUDITOR_AGENT_ID, contract=VERDICT_CONTRACT, payload=payload, payload_sha256=payload_hash(payload),
-                                   created_at=_now())
-                msg = sign_message(msg, self._intake_key(), INTAKE_KEY_ID)
+                return self._take_bound(issue, text, info, attested, raw_sha, raw_chars, common, stage)
             except Exception as exc:
-                return self._reject(reason="envelope", detail=f"the verdict could not be wrapped in an envelope ({type(exc).__name__})", verdict=verdict, **common)
-            log_key = (issue.task_id, issue.request_id or "unknown")
-            log = self._logs.get(log_key)
-            if log is None:
-                log = self._logs[log_key] = MessageLog(signing_key=self._intake_key(), request_id=log_key[1])
+                # never raises on agent output, and never loses the issue's one bound submission: whatever failed is recorded
+                # as a refusal under the stage it failed in (the error type only, never agent text)
+                return self._reject(reason=stage[0], detail=f"the reply could not be taken in ({type(exc).__name__}); it is discarded", **common)
+
+    def _take_bound(self, issue: IssueRecord, text: Any, info: Optional[dict], attested: str, raw_sha: Optional[str], raw_chars: int, common: dict,
+                    stage: list) -> IntakeOutcome:
+        """The stages of a bound reply (the lock held, the issue marked answered). ``stage[0]`` names the stage reached."""
+        if not isinstance(text, str):
+            return self._reject(reason="unparseable", detail="the reply is not text", **common)
+        if _SURROGATE_RE.search(text):
+            return self._reject(reason="unparseable", detail="the reply is not valid Unicode text (it holds a lone UTF-16 surrogate code point)", **common)
+        try:
+            obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
+        except ProviderOutputError:
+            return self._reject(reason="unparseable", detail="the reply is not exactly one strict JSON object (fences tolerated, nothing else)", **common)
+        stage[0] = "schema"
+        if is_no_dossier(obj):
+            return self._reject(reason="no_dossier", detail="the agent reported that it received no dossier (no review)", **common)
+        if obj.get("contract") != VERDICT_CONTRACT:
+            return self._reject(reason="contract", detail=f"the verdict does not name the contract {VERDICT_CONTRACT}", **common)
+        try:
+            verdict = AgentVerdict.model_validate(obj)
+        except ValidationError as exc:
+            return self._reject(reason="schema", detail="the verdict does not validate against overseer_verdict/1.0: " + _schema_detail(exc), **common)
+        stage[0] = "envelope"
+        for field, reason in (("agent_id", "agent_mismatch"), ("task_id", "task_mismatch"), ("dossier_sha256", "dossier_mismatch"), ("lens", "lens_mismatch")):
+            if getattr(verdict, field) != getattr(issue, field):
+                return self._reject(reason=reason, detail=f"the verdict's {field} is not the one in the dossier issued to this agent", verdict=verdict, **common)
+        if verdict.pack not in self._packs:
+            return self._reject(reason="pack_unknown", detail="the verdict names a knowledge pack this intake does not accept", verdict=verdict, **common)
+        if verdict.pack != issue.pack:
+            return self._reject(reason="pack_mismatch", detail=f"the verdict names another pack than the one the dossier was issued under ({issue.pack.label})",
+                                verdict=verdict, **common)
+        named = _named_pack(info)
+        if named is not None and not (named[0] == issue.pack.name and named[1] == issue.pack.version and issue.pack.sha256.startswith(named[2])):
+            # the deployment's own record of the pack it ran under contradicts the pack the verdict copied from the header
+            return self._reject(reason="pack_mismatch", detail=f"provider_info.prompt_version names another pack than the one the dossier was issued under "
+                                f"({issue.pack.label}): the verdict was produced under an altered or other pack", verdict=verdict, **common)
+        try:
+            payload = json.loads(canonical_json(verdict.model_dump(mode="json")))
+            msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=issue.request_id or "unknown", task_id=issue.task_id or "unknown",
+                               sender_agent_id=issue.agent_id, sender_role=AgentRole.OVERSEER, recipient_role=AgentRole.OVERSEER,
+                               recipient_agent_id=AUDITOR_AGENT_ID, contract=VERDICT_CONTRACT, payload=payload, payload_sha256=payload_hash(payload),
+                               created_at=_now())
+            msg = sign_message(msg, self._intake_key(), INTAKE_KEY_ID)
+        except Exception as exc:
+            return self._reject(reason="envelope", detail=f"the verdict could not be wrapped in an envelope ({type(exc).__name__})", verdict=verdict, **common)
+        log_key = (issue.task_id, issue.request_id or "unknown")
+        log = self._logs.get(log_key)
+        if log is None:
+            log = self._logs[log_key] = MessageLog(signing_key=self._intake_key(), request_id=log_key[1])
+        try:
             env = log.accept(msg)
-            if env:
-                return self._reject(reason="envelope", detail="the envelope was refused: " + ", ".join(sorted({f.code for f in env})), verdict=verdict,
-                                    message_id=msg.message_id, **common)
-            self._verdicts[msg.message_id] = AcceptedVerdict(message=msg, verdict=verdict, issue=issue, provider_info=info, raw_text_sha256=raw_sha or "",
-                                                             received_at=_now(), pack_attestation=attested)
-            out = IntakeOutcome(accepted=True, agent_id=issue.agent_id, task_id=issue.task_id, issue_id=issue.issue_id, message_id=msg.message_id,
-                                verdict_id=verdict.verdict_id, pack=verdict.pack, dossier_sha256=issue.dossier_sha256, raw_text_sha256=raw_sha,
-                                raw_chars=raw_chars, provider_info=info, received_at=_now())
-            self._outcomes.append(out)
-            return out
+        except Exception as exc:
+            return self._reject(reason="envelope", detail=f"the envelope could not be checked ({type(exc).__name__})", verdict=verdict,
+                                message_id=msg.message_id, **common)
+        if env:
+            return self._reject(reason="envelope", detail="the envelope was refused: " + ", ".join(sorted({f.code for f in env})), verdict=verdict,
+                                message_id=msg.message_id, **common)
+        self._verdicts[msg.message_id] = AcceptedVerdict(message=msg, verdict=verdict, issue=issue, provider_info=info, raw_text_sha256=raw_sha or "",
+                                                         received_at=_now(), pack_attestation=attested)
+        out = IntakeOutcome(accepted=True, agent_id=issue.agent_id, task_id=issue.task_id, issue_id=issue.issue_id, message_id=msg.message_id,
+                            verdict_id=verdict.verdict_id, pack=verdict.pack, dossier_sha256=issue.dossier_sha256, raw_text_sha256=raw_sha,
+                            raw_chars=raw_chars, provider_info=info, received_at=_now())
+        self._outcomes.append(out)
+        return out
 
     @staticmethod
     def _bound(text: Any, issue: IssueRecord) -> bool:
@@ -411,9 +437,11 @@ class VerdictIntake:
         """The reason recorded for a reply that is not bound to its issue (the issue stays open)."""
         if not isinstance(text, str):
             return "unparseable", "the reply is not text"
+        if _SURROGATE_RE.search(text):
+            return "unparseable", "the reply is not valid Unicode text (it holds a lone UTF-16 surrogate code point)"
         try:
             obj = parse_json_object(text, max_bytes=self.max_text_bytes, strict=True)
-        except ProviderOutputError:
+        except Exception:  # ProviderOutputError, or anything else the parser raises on agent text: never raised from submit
             return "unparseable", "the reply is not exactly one strict JSON object"
         if is_no_dossier(obj):
             return "no_dossier", "the agent reported that it received no dossier (no review)"

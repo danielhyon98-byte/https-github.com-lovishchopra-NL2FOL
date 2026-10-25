@@ -651,7 +651,11 @@ def _decode_text(raw: Union[bytes, str], max_bytes: int, diagnostics: list[Diagn
         except UnicodeDecodeError:
             diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "payload is not valid UTF-8", None))
             return None
-    size = len(raw.encode("utf-8"))
+    try:
+        size = len(raw.encode("utf-8"))
+    except UnicodeEncodeError:  # a lone surrogate: not valid Unicode text, so no JSON document (never an internal error)
+        diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "payload is not valid Unicode text (it holds a lone UTF-16 surrogate code point)", None))
+        return None
     if size > max_bytes:
         diagnostics.append(_diag(DiagnosticCode.PAYLOAD_TOO_LARGE, f"payload is {size} bytes; limit is {max_bytes}", None))
         return None
@@ -666,7 +670,10 @@ def _load_object(raw: Union[bytes, str, dict], max_bytes: int, diagnostics: list
         except RecursionError:
             diagnostics.append(_diag(DiagnosticCode.TOO_DEEP, "document nesting is too deep to process", None))
             return None
-        except (TypeError, ValueError):
+        except UnicodeEncodeError:
+            diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "document is not valid Unicode text (a string holds a lone UTF-16 surrogate code point)", None))
+            return None
+        except (TypeError, ValueError, OverflowError):
             diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "document is not representable as JSON", None))
             return None
         if size > max_bytes:

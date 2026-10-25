@@ -19,7 +19,7 @@ import hmac
 from dataclasses import dataclass
 from typing import Literal, Mapping, Optional, Union
 
-from ..engine.provenance import verify_signature
+from ..engine.provenance import signature_matches, verify_signature
 from ..engine.results import VerificationResult
 
 __all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "CONSOLIDATION_KEY_ID", "MIN_SECRET_BYTES",
@@ -138,7 +138,7 @@ class KeyRing:
         return hmac.new(self.subkey(label), text.encode("utf-8", errors="surrogatepass"), hashlib.sha256).hexdigest()
 
     def mac_ok(self, label: str, text: str, mac: Optional[str]) -> bool:
-        return isinstance(mac, str) and hmac.compare_digest(self.mac(label, text), mac)
+        return signature_matches(self.mac(label, text), mac)
 
     def sample_fraction(self, result_id: str) -> float:
         """``HMAC(sampling key, result_id)`` read as a fraction in [0, 1): reproducible by the auditor, unpredictable

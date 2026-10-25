@@ -56,7 +56,7 @@ from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .layout import annotation_ranges, label_only_rest, plain_line
 from .normalize import blank_ranges, reading_view
 from .parser import STEM_NAMES
-from .units import english_word_atom, is_unit_atom, prefixed_greek_unit, unit_group
+from .units import compound_part, english_word_atom, is_unit_atom, prefixed_greek_unit, unit_group
 
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
@@ -864,6 +864,10 @@ class _RunFinder:
                         in_unit = False  # a power after a value: '1600 e^(−8k)', 'C0 e^(−kt)', '3 x²' (a factor, not a unit)
                     else:
                         break
+                elif kind == "NUM" and in_unit and t.space and compound_part(toks, k):
+                    # stem-precision-5 (round 7): the next part of a compound quantity ('4 min 30 s', '1 kg 250 g'): the run goes on (it had
+                    # been cut there, and only the last part was read)
+                    prev_value, in_unit = True, False
                 elif kind in ("FUNC", "LATEX"):
                     operand = True
                 elif kind == "LPAR":
@@ -1039,9 +1043,13 @@ def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover") -> l
             j = i
             while j + 1 < n and view[lines[j + 1].start:lines[j + 1].end].strip().startswith("|") and not _inside(lines[j + 1].start, covered):
                 j += 1
-            out.append(Span("table", lines[i].start, lines[j].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, j + 1)), line=i))
-            i = j + 1
-            continue
+            block = [view[lines[k].start:lines[k].end].strip() for k in range(i, j + 1)]
+            if any(t.endswith("|") or t.count("|") >= 3 for t in block):
+                out.append(Span("table", lines[i].start, lines[j].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, j + 1)), line=i))
+                i = j + 1
+                continue
+            # stem-soundness-12 (round 7): a line opening with an absolute value ('|x − 1| < 3, so …') is maths, not a pipe table: no row
+            # of it ends with a bar or has three, so the relations on it were read as table cells and named nowhere
         if text[0] in "[{" and text[-1] in "]}" and "," in text and _data_like(text):
             a = ln.start + (len(view[ln.start:ln.end]) - len(view[ln.start:ln.end].lstrip()))
             out.append(Span("data_line", a, a + len(text), rows=((a, a + len(text)),), line=i))

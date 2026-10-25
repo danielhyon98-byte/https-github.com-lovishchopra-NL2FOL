@@ -60,16 +60,16 @@ from .models import MAX_MONOMIALS, all_symbols as model_symbols, denominators as
 from .models import render_model
 from .models import _walk as model_nodes
 from .nodes import (
-    Abs, BinOp, BoolOp, Degrees, Func, IntOp, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym, WithUnit,
+    Abs, BinOp, BoolOp, Degrees, Func, IntOp, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym, Unsupported, WithUnit,
     children, is_closed, is_value, render, symbols, value_of, walk,
 )
 from .numbers import ExactNumber
 from .relations import ST_SEVERITY, Relation
 from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, literal_text, nary, real, to_frame, var_term
 from .scope import Binding, si_value
-from .tolerance import APPROX_WORDS, SHORT_RULE, TAU_APPROX, TAU_EQUAL, band_expr, half_width, is_measured
+from .tolerance import SHORT_RULE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
 from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
-from .units import DIMENSIONLESS, Dimension, UnitExpr, parse_unit
+from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, parse_unit
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
 
@@ -206,12 +206,16 @@ def _question_note(rel: Relation) -> str:
     check's statement says which relation it decides, so '67 = 67' answered "No" reads as the claim 67 ≠ 67."""
     reason = rel.reason or ""
     k = reason.find("a relation asked as a question")
+    rule = "rule question"
+    if k < 0:
+        k = reason.find("a comparison the text states is false")  # stem-precision-8 (round 7)
+        rule = "round 7, stated false"
     if k < 0:
         return ""
     note = reason[k:].split(";", 1)[0]
     if rel.left is not None and rel.right is not None and rel.left.node is not None and rel.right.node is not None:
         note += f" (the relation decided: {render(rel.left.node)[:60]} {rel.op} {render(rel.right.node)[:60]})"
-    return note + " (rule question)"
+    return note + f" ({rule})"
 
 
 _ARITH = frozenset("+-−×*/·÷^")
@@ -231,6 +235,16 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
         return ""  # a check a rule built from two places of the text (STEM repair 3): its operands are where they are written, never cut
     text = doc.text
     n = len(text)
+    if "request" not in rel.premise_ids and 0 <= rel.start < rel.end <= n:
+        # stem-soundness-4 (round 7): a relation glued by a full stop to a letter or a bracket on either side ('A.B = B.C' read from
+        # 'B = B') is a fragment of a longer expression (a dot written for AND or a product): deciding the fragment could fail correct
+        # work or pass a wrong identity
+        glued_before = rel.start >= 2 and text[rel.start - 1] == "." and (text[rel.start - 2].isalpha() or text[rel.start - 2] in ")]'′")
+        glued_after = rel.end + 1 < n and text[rel.end] == "." and (text[rel.end + 1].isalpha() or text[rel.end + 1] in "([¬")
+        if glued_before or glued_after:
+            shown = " ".join(text[max(0, rel.start - 8):min(n, rel.end + 8)].split())[:80]
+            return (f"the relation is read from a fragment of '{shown}' (a full stop glued to the expression on its "
+                    f"{'left' if glued_before else 'right'}), so it is not checked")
     ops = [rel.left, rel.right]
     if "request" not in rel.premise_ids:
         ops += [rel.premise_left, rel.premise_right]
@@ -263,6 +277,14 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
             token = text[m + 1:j + 1]
             if not (token.isalpha() and (len(token) >= 3 or token.lower() in _SHORT_WORDS)):
                 return f"the operand '{shown}' opens with a sign right after '{text[max(0, j - 8):j + 1].strip()}', so it is likely cut from a longer expression; the relation is not checked"
+            q = m
+            while q >= 0 and text[q] in " \t" and m - q < 4:
+                q -= 1
+            if q >= 0 and text[q].isdigit() and token.lower() not in _SHORT_WORDS:
+                # stem-precision-9 (round 7): a numeral and a count noun before the sign ('4 categories − 1 = 3'): the left operand is the
+                # numeral the noun counts, so the sign is binary; read from the sign, the relation was '− 1 = 3' and failed
+                return (f"the operand '{shown}' opens with a sign right after '{text[max(0, q - 6):j + 1].strip()}', a numeral and the noun it "
+                        "counts: the left operand is written partly in words, so the relation is not checked")
     if rel.kind in _CHAIN_KINDS and rel.left is not None and rel.right is not None and rel.left.end <= rel.right.start <= n:
         gap = _strip_relation_text(text[rel.left.end:rel.right.start])
         if _REMAINDER_GAP_RE.fullmatch(text[rel.left.end:rel.right.start]):
@@ -461,8 +483,15 @@ def _approx(ctx: _Ctx) -> bool:
     st = ctx.doc.statement(sid)
     if st is None:
         return False
-    before = ctx.doc.text[max(st.start, ctx.rel.start - 120):ctx.rel.start].lower()
-    return any(w in before.split() or w in before for w in APPROX_WORDS)
+    # stem-soundness-6 (round 7): a whole approximation word directly before the relation, or between its two sides ('= about 6.3');
+    # before, any substring of the 120 characters before it ('linearly', 'thoroughly', 'for about 3 s, and v = …') gave τ = 1/20
+    before = ctx.doc.text[max(st.start, ctx.rel.start - 120):ctx.rel.start]
+    if approx_word_before(before):
+        return True
+    rel = ctx.rel
+    if rel.left is not None and rel.right is not None and rel.left.end <= rel.right.start <= len(ctx.doc.text):
+        return approx_word_in(ctx.doc.text[rel.left.end:rel.right.start])
+    return False
 
 
 #: a significant-figure count no written integer reaches: with it, every trailing zero of a whole number counts (R1)
@@ -490,7 +519,13 @@ def _scale_for(node: Node, reading: Reading, enc: Encoder) -> Fraction:
         factor = abs(enc._factor_of(v[2], start))
     if v[3] == "%" and (reading.si or reading.percent):
         factor /= 100
+    if v[3] == "°" and reading.degrees_si:
+        factor *= _DEGREE_UPPER  # a half-width in degrees, in radians (stem-soundness-8): rounded up, so never narrower than it is
     return factor
+
+
+#: a rational upper bound of π/180 (0.01745329…)
+_DEGREE_UPPER = Fraction(174533, 10 ** 7)
 
 
 def _operand_combos(*ops: Optional[Operand]) -> list[tuple[Node, ...]]:
@@ -502,9 +537,112 @@ def _operand_combos(*ops: Optional[Operand]) -> list[tuple[Node, ...]]:
     return combos
 
 
-def _reading_modes(nodes: list[Node], *, symbol_units: bool = False, force: Optional[str] = None) -> tuple[list[str], bool, list[UnitExpr]]:
+#: the written unit of an expression: (dimension, SI factor, whether a unit or a per cent is written in it)
+_WrittenUnit = tuple[Dimension, Fraction, bool]
+_NO_UNIT: _WrittenUnit = (DIMENSIONLESS, Fraction(1), False)
+
+
+def _written_unit(node: Node, depth: int = 0) -> Optional[_WrittenUnit]:
+    """The units written in ``node``, read multiplicatively (a bare numeral is a pure number): the dimension, the exact SI factor and
+    whether any unit or per cent is written. None when it cannot be told: a symbol, an unknown, ambiguous, affine or inexact unit (the
+    degree), terms of a sum written in different units, a power of a unit that is no integer (stem-soundness-1, round 7)."""
+    if depth > 64:
+        return None
+    if isinstance(node, Num):
+        return _NO_UNIT
+    if isinstance(node, (Quantity, WithUnit)):
+        unit = node.unit
+        if unit.unknown or len(unit.readings) != 1:
+            return None
+        r = unit.readings[0]
+        if r.dim is None or r.factor is None or r.affine is not None:
+            return None
+        inner = _NO_UNIT if isinstance(node, Quantity) else _written_unit(node.arg, depth + 1)
+        if inner is None:
+            return None
+        return inner[0] * r.dim, inner[1] * r.factor, True
+    if isinstance(node, Percent):
+        inner = _written_unit(node.arg, depth + 1)
+        return None if inner is None else (inner[0], inner[1] / 100, True)
+    if isinstance(node, (Neg, Abs)):
+        return _written_unit(node.arg, depth + 1)
+    if isinstance(node, Sym):
+        return _NO_UNIT if node.kind == "constant" else None
+    if isinstance(node, (Func, RealPower, IntOp)):
+        return _NO_UNIT if not any(isinstance(m, (Quantity, WithUnit, Percent, Degrees)) for m in walk(node)) else None
+    if isinstance(node, Pow):
+        inner = _written_unit(node.base, depth + 1)
+        if inner is None:
+            return None
+        return inner[0].power(node.exp), inner[1] ** node.exp, inner[2]
+    if isinstance(node, BinOp):
+        a, b = _written_unit(node.left, depth + 1), _written_unit(node.right, depth + 1)
+        if a is None or b is None:
+            return None
+        if node.op == "*":
+            return a[0] * b[0], a[1] * b[1], a[2] or b[2]
+        if node.op == "/":
+            return a[0] / b[0], a[1] / b[1], a[2] or b[2]
+        if not a[2]:
+            return b  # a bare term of a sum is taken in the other terms' unit
+        if not b[2]:
+            return a
+        return a if (a[0], a[1]) == (b[0], b[1]) else None
+    return None
+
+
+def _bare_factors(node: Node) -> list[tuple[Fraction, int]]:
+    """The values of the bare numerals multiplying (exponent 1) or dividing (−1) ``node`` at its top level ('× 1000', '/ 60')."""
+    out: list[tuple[Fraction, int]] = []
+    stack: list[tuple[Node, int]] = [(node, 1)]
+    while stack and len(out) <= 16:
+        cur, e = stack.pop()
+        if isinstance(cur, BinOp) and cur.op in ("*", "/"):
+            stack.append((cur.left, e))
+            stack.append((cur.right, e if cur.op == "*" else -e))
+            continue
+        v = None
+        if isinstance(cur, Num):
+            v = cur.number.value
+        elif isinstance(cur, Pow) and isinstance(cur.base, Num):
+            v = cur.base.number.value ** cur.exp if cur.base.number.value or cur.exp > 0 else None
+        if v:
+            out.append((Fraction(v), e))
+    return out
+
+
+def _as_written_consistent(cnode: Node, snode: Node) -> bool:
+    """Whether the reading as written (every unit read as a factor of 1) is a consistent reading of ``cnode = snode``
+    (stem-soundness-1, round 7). Read as written, a bare numeral stands in some unit of its own; the reading is admitted unless the
+    units written on the two sides differ by a pure number other than 1 that no bare conversion factor written in the computation
+    supplies: '3 × 2.0 kg = 6.0 g', '2.0 kW × 3.0 = 6.0 W', '300/400 = 0.75 %' and '80 × 25 % = 2000' are read in SI only, while
+    '2.5 kg × 1000 = 2500 g', '4.5 min × 60 = 270 s', '0.75 × 100 = 75 %' and '120/4.0 = 30 km/h' (the bare numerals stand in km and h)
+    keep it. A ratio that has a dimension leaves the reading as before, and so does any unit that cannot be told."""
+    lu, ru = _written_unit(cnode), _written_unit(snode)
+    if lu is None or ru is None:
+        return True
+    dim = ru[0] / lu[0]
+    if any(dim.exps) or dim.angle:
+        return True
+    need = lu[1] / ru[1]  # the bare conversion factor that turns the computed side's written units into the stated value's
+    if need == 1:
+        return True
+    factors = _bare_factors(cnode)[:8]
+    for mask in range(1, 1 << len(factors)):
+        prod = Fraction(1)
+        for k, (v, e) in enumerate(factors):
+            if mask >> k & 1:
+                prod *= v if e > 0 else 1 / v
+        if prod == need:
+            return True
+    return False
+
+
+def _reading_modes(nodes: list[Node], *, symbol_units: bool = False, force: Optional[str] = None,
+                   pairs: Optional[list[tuple[Node, Node]]] = None, symbol_factors: bool = False) -> tuple[list[str], bool, list[UnitExpr]]:
     """Section 6.4. Returns the unit modes (``aw``, ``si``), whether an unknown unit restricts the
-    check to the reading as written, and the ambiguous units (two readings each)."""
+    check to the reading as written, and the ambiguous units (two readings each). ``pairs`` (computed side, stated side) admit the
+    reading as written only where its units are consistent (:func:`_as_written_consistent`)."""
     units = [u for n in nodes for u in _units_in(n)]
     unknown = any(u.unknown for u in units)
     if unknown:
@@ -524,16 +662,17 @@ def _reading_modes(nodes: list[Node], *, symbol_units: bool = False, force: Opti
                 continue
             bare = True
     ambiguous = [u for u in units if len(u.readings) > 1]
-    if not _si_differs(nodes):
+    if not _si_differs(nodes) and not symbol_factors:
         return ["aw"], False, []  # every unit factor is 1 and no per cent: SI and as written coincide
     if not bare and (units or percent):
         return ["si"], False, ambiguous
+    aw = ["aw"] if (pairs is None or all(_as_written_consistent(c, sn) for c, sn in pairs)) else []
     if _percent_factor(nodes) and _unit_factor_differs(nodes):
         # STEM repair 5: a per cent taken of a bare number beside a unit whose SI factor is not 1 ('1620 × 2% = 32.4 counts min⁻¹'): as
         # written reads 2% as 2 and SI converts the unit of one side only, so the per cent is also read as its fraction with the units as
         # written
-        return ["aw", "si", "awp"], False, ambiguous
-    return ["aw", "si"], False, ambiguous
+        return aw + ["si", "awp"], False, ambiguous
+    return aw + ["si"], False, ambiguous
 
 
 def _percent_factor(nodes: list[Node]) -> bool:
@@ -588,12 +727,38 @@ def _needs_angle(nodes: list[Node]) -> bool:
     return False
 
 
+#: an angle the text writes in degrees, or a mention of radians (stem-soundness-9)
+_DEGREE_TEXT_RE = re.compile(r"°(?![ \t]?[CF](?![A-Za-z]))|\\circ|(?<![A-Za-z])degrees?(?![A-Za-z])(?![ \t]+(?:of[ \t]+freedom|celsius|fahrenheit|C\b|F\b))",
+                             re.IGNORECASE)
+_RADIAN_TEXT_RE = re.compile(r"(?<![A-Za-z])(?:rad|radians?)(?![A-Za-z])|π|\\pi", re.IGNORECASE)
+#: a whole number of radians beyond a full turn is no angle a calculation writes as a bare number
+_FULL_TURN = Fraction(63, 10)
+
+
+def _trig_angles(nodes: list[Node], doc: Optional[StemDocument]) -> list[str]:
+    """The angle readings of a trigonometric function of a bare number (stem-soundness-9, round 7). Degrees only when the request or the
+    answer writes an angle in degrees and the answer never mentions radians ('a 10 N force at 60°' … '10 cos 60 = −9.5 N' is the
+    radian-mode slip and fails), or when every such argument is a whole number beyond a full turn (cos 60); otherwise both, as before."""
+    if not _needs_angle(nodes):
+        return ["rad"]
+    args = [n.arg for node in nodes for n in walk(node) if isinstance(n, Func) and n.name in ("sin", "cos", "tan") and not isinstance(n.arg, Degrees)]
+    if doc is not None:
+        text = doc.text + "\n" + (doc.request_text or "")
+        if _DEGREE_TEXT_RE.search(text) and not _RADIAN_TEXT_RE.search(doc.text):
+            return ["deg"]
+    whole = [value_of(a) for a in args]
+    if whole and all(v is not None and v[2] is None and not v[3] and v[0].denominator == 1 and abs(v[0]) > _FULL_TURN for v in whole):
+        return ["deg"]
+    return ["deg", "rad"]
+
+
 def _readings(nodes: list[Node], *, symbol_units: bool = False, force: Optional[str] = None, affine: tuple[bool, ...] = (False,),
-              degrees_si: bool = False) -> tuple[list[Reading], bool]:
+              degrees_si: bool = False, pairs: Optional[list[tuple[Node, Node]]] = None,
+              doc: Optional[StemDocument] = None, symbol_factors: bool = False) -> tuple[list[Reading], bool]:
     """Every reading of a check (at most 4: ST-PARSE-002 beyond) and whether it is restricted to the
     reading as written by an unknown unit."""
-    modes, unknown, ambiguous = _reading_modes(nodes, symbol_units=symbol_units, force=force)
-    angles = ["deg", "rad"] if _needs_angle(nodes) else ["rad"]
+    modes, unknown, ambiguous = _reading_modes(nodes, symbol_units=symbol_units, force=force, pairs=pairs, symbol_factors=symbol_factors)
+    angles = _trig_angles(nodes, doc)
     unit_choices: list[tuple[tuple[int, int], ...]] = [()]
     starts: list[tuple[int, int]] = []
     for node in nodes:
@@ -609,7 +774,7 @@ def _readings(nodes: list[Node], *, symbol_units: bool = False, force: Optional[
             for ch in choices:
                 for aff in (affine if mode == "si" else (False,)):
                     parts = ["SI" if mode == "si" else "as written, per cent as a fraction" if mode == "awp" else "as written"]
-                    if len(angles) > 1:
+                    if len(angles) > 1 or (ang == "deg" and _needs_angle(nodes)):
                         parts.append("angles in degrees" if ang == "deg" else "angles in radians")
                     if ch:
                         parts.append(", ".join(f"unit reading {i + 1}" for _s, i in ch))
@@ -768,8 +933,8 @@ def _exact_mode_chain(doc: StemDocument, rel: Relation, left: Node, node: Node) 
         return False
     st = doc.statement(rel.statement_ids[-1]) if rel.statement_ids else None
     if st is not None:
-        before = doc.text[max(st.start, rel.start - 120):rel.start].lower()
-        if any(w in before.split() or w in before for w in APPROX_WORDS):
+        before = doc.text[max(st.start, rel.start - 120):rel.start]
+        if approx_word_before(before):
             return False
     return True
 
@@ -1226,6 +1391,13 @@ def _eq(ctx: _Ctx) -> None:
         # a:b = c:d is a·d = b·c over closed terms (design section 7.4): the cross products are compared
         combos = [(BinOp("*", c.left, sn.right, c.start, c.end), BinOp("*", c.right, sn.left, sn.start, sn.end)) for c, sn in combos]
         ctx.detail("a ratio equality a:b = c:d, compared as a·d = b·c")
+    angle = bool(combos) and all(_top_degrees(c) != _top_degrees(sn) for c, sn in combos)
+    if angle:
+        # stem-soundness-8 (round 7): an angle in degrees set equal to one in radians or to a number ('θ = 30° = 0.524 rad', '2 rad = 115°',
+        # '180° = π rad') is a conversion: compared in SI, the degree read as π/180 rad (an enclosure of π); before, the two numbers were
+        # compared as written (30 against 0.524) and every correct conversion failed
+        combos = [(_degree_units_as_degrees(c), _degree_units_as_degrees(sn)) for c, sn in combos]
+        ctx.detail("an angle in degrees set against one in radians (or a number): compared in radians, a degree read as π/180 rad")
     scaled = [_antilog_as_concentration(c, sn) for c, sn in combos]
     scale_unit = bool(combos) and all(x is not None for x in scaled)
     if scale_unit:
@@ -1325,7 +1497,9 @@ def _eq(ctx: _Ctx) -> None:
     for n in dict.fromkeys(m for cnode, _s in pairs for m in walk(cnode) if isinstance(m, IntOp)):
         ctx.detail(f"integer arithmetic: {render(n)[:80]} is the {'remainder' if n.op == 'mod' else 'integer quotient'} of whole numbers "
                    "(read from the words mod, div, the signs %, // or a stated remainder)")
-    readings, unknown = _readings(nodes, force="si" if scale_unit else None)
+    # stem-precision-5: a compound quantity ('4 min 30 s') has a value in SI only (as written its parts would be added as plain numbers)
+    compound = any(isinstance(m, BinOp) and m.op == "+" and m.implicit for n in nodes for m in walk(n))
+    readings, unknown = _readings(nodes, force="si" if (scale_unit or angle or compound) else None, pairs=pairs, degrees_si=angle, doc=ctx.doc)
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
     elif scale_unit:
@@ -1349,6 +1523,35 @@ def _eq(ctx: _Ctx) -> None:
         ctx.detail(f"τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
     _compare(ctx, pairs, kind="eq", tau=tau, h_written=hs, readings=readings, intervals=intervals, signs=signs, h_scale_nodes=extra)
+
+
+def _degree_unit(unit: UnitExpr) -> bool:
+    """A unit that is exactly the degree (°, 'degrees')."""
+    return len(unit.readings) == 1 and len(unit.readings[0].atoms) == 1 and unit.readings[0].atoms[0].unit is not None \
+        and unit.readings[0].atoms[0].unit.angle_degrees == 1 and unit.readings[0].atoms[0].power == 1
+
+
+def _top_degrees(node: Node) -> bool:
+    """``node`` writes an angle in degrees outside a function's argument (``30°``, ``30 degrees``; not ``sin 30°``)."""
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, (Func, Unsupported)):
+            continue
+        if isinstance(n, Degrees) or (isinstance(n, Quantity) and _degree_unit(n.unit)):
+            return True
+        stack.extend(children(n))
+    return False
+
+
+def _degree_units_as_degrees(node: Node) -> Node:
+    """A value written with the unit 'degrees' (or °) as the degree node the encoder converts to radians (``Degrees``)."""
+    if isinstance(node, Quantity) and _degree_unit(node.unit):
+        return Degrees(Num(node.number, node.start, node.end), node.start, node.end)
+    if isinstance(node, Neg):
+        inner = _degree_units_as_degrees(node.arg)
+        return node if inner is node.arg else Neg(inner, node.start, node.end)
+    return node
 
 
 def _antilog(node: Node) -> bool:
@@ -1939,7 +2142,7 @@ def _cmp(ctx: _Ctx) -> None:
             raise EncodeError("ST-UNDEC-002", f"'{name}' has no stated value")
         domains[name] = _domain_from_bindings(name, blist)
     symbol_units = any(b.unit is not None for n in names for b in ctx.doc.bindings.get(n, ()))
-    readings, unknown = _readings(nodes, symbol_units=symbol_units)
+    readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc)
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the comparison is checked as written only")
     op = _CMP_OPS.get(rel.op)
@@ -2019,6 +2222,7 @@ def _sub_pairs(ctx: _Ctx) -> None:
     if num_side is None:
         raise EncodeError("ST-UNDEC-001", "a substitution with no closed side")
     groups = _product_groups(num_side)
+    sym_side = rel.left.node if (rel.left is not None and rel.left.node is not num_side) else (rel.right.node if rel.right is not None else None)
     b = ctx.builder
     defined: dict[tuple[int, bool], tuple[str, int]] = {}
     checked: list[str] = []
@@ -2027,6 +2231,8 @@ def _sub_pairs(ctx: _Ctx) -> None:
     changed: list[str] = []
     part_stated = dict(rel.part_stated)
     prior = dict(rel.prior_readings)
+    mode = ctx.doc.profile.mode
+    rescaled: set[str] = set()
     for name, node in rel.pairs:
         if not is_closed(node):
             continue
@@ -2049,7 +2255,7 @@ def _sub_pairs(ctx: _Ctx) -> None:
             # rule part-given (STEM repair 6): the values of its dimension the part's question states, which the symbol may stand for there
             blist = blist + tuple(b for b in rel.part_given if b.unit is not None and value_of(node) is not None and value_of(node)[2] is not None
                                   and b.unit.dim == value_of(node)[2].dim)
-        alternatives = [node] + [m for m in groups.get(id(node), []) if m is not node]
+        alternatives = [node] + _non_coefficient_factors(node, groups.get(id(node), []), _written_coefficients(sym_side, name))
         per_alt: dict[int, dict] = {}
         for alt in alternatives:
             disj: list[dict] = []
@@ -2086,16 +2292,33 @@ def _sub_pairs(ctx: _Ctx) -> None:
                         if bval is None:
                             continue
                         f_b = abs(bd.unit.readings[0].factor) if (bd.unit is not None and bd.unit.readings and bd.unit.readings[0].factor is not None) else Fraction(1)
-                        tol = max(_match_h(bd) * f_b, h_w * f_w) if data else _match_h(bd) * f_b + h_w * f_w
+                        tol = max(_match_h(bd, mode) * f_b, h_w * f_w) if data else _match_h(bd, mode) * f_b + h_w * f_w
                     else:
                         if w_unit is not None and (bd.unit is None or bd.unit.text != w_unit.text):
                             continue
                         bval = bd.value
-                        tol = max(_match_h(bd), h_w) if data else _match_h(bd) + h_w
+                        tol = max(_match_h(bd, mode), h_w) if data else _match_h(bd, mode) + h_w
                     try:
                         disj.append(band_expr({"op": "var", "name": wname}, literal_in_frame(bval, k), literal_in_frame(tol, k), Fraction(0)))
                     except LiteralTooLong:
                         continue
+            if w_unit is None and (id(alt), False) in defined:
+                # stem-precision-2 (round 7): a bare substituted value may be the binding converted to another unit of its dimension that the
+                # line's other values are written in ('V = 25.0 cm³' put in as 0.0250 beside 'c = 0.100 mol dm⁻³': V in dm³); before, it
+                # was matched as written and in SI only, so the standard concentration step failed as an error
+                wname, k = defined[(id(alt), False)]
+                for bd in blist:
+                    if bd.unit is None or bd.si is None or not bd.unit.readings or bd.unit.readings[0].factor is None:
+                        continue
+                    f_b = abs(bd.unit.readings[0].factor)
+                    data = bd.source in ("request", "supplied", "given")
+                    for f in _rescale_factors(ctx, bd, rel):
+                        tol = max(_match_h(bd, mode) * f_b / f, h_w) if data else _match_h(bd, mode) * f_b / f + h_w
+                        try:
+                            disj.append(band_expr({"op": "var", "name": wname}, literal_in_frame(bd.si / f, k), literal_in_frame(tol, k), Fraction(0)))
+                        except LiteralTooLong:
+                            continue
+                        rescaled.add(name)
             if disj:
                 per_alt[id(alt)] = nary("or", disj) if len(disj) > 1 else disj[0]
         if per_alt:
@@ -2154,6 +2377,9 @@ def _sub_pairs(ctx: _Ctx) -> None:
                    "for it before this line, which the algebra step this evaluation replaces had pinned")
     ctx.detail("a value matches any binding of its symbol, as written or in SI; a factor written in another order matches too (R7)"
                + ("; each factor stands for one symbol only" if ordered else ""))
+    if rescaled:
+        ctx.detail("a bare value put in for " + ", ".join(sorted(rescaled)) + " also matches its binding converted to another unit of its dimension "
+                   "that the line's other values are written in (dm³ beside mol dm⁻³)")
     if any(bd.source in ("request", "supplied", "given") for name in checked for bd in ctx.doc.bindings.get(name, ())):
         ctx.detail("the request's values and the Given values that restate them are data, taken as written: a value substituted for one matches "
                    "it only when one of the two is the other rounded to its own last written digit, |w − b| ≤ max(h(w), h(b)) (rule given-data)")
@@ -2170,6 +2396,73 @@ def _sub_pairs(ctx: _Ctx) -> None:
         ctx.detail(_formula_detail(rel.formula))
     ctx.readings = ["as written or SI per value"]
     ctx.conclusion = ("SUBSTITUTED", nary("and", conj) if len(conj) > 1 else conj[0], "every substituted value matches a binding of its symbol")
+
+
+def _rescale_factors(ctx: _Ctx, bd: Binding, rel: Relation) -> list[Fraction]:
+    """The SI factors of the units of ``bd``'s dimension formed from a unit atom another value of the relation is written in (a binding of
+    another substituted symbol, or a value stated in the relation's own statements): 'dm⁻³' of 'mol dm⁻³' gives dm³ for a volume
+    (stem-precision-2). The binding's own unit and SI are left out; at most four."""
+    dim = bd.unit.dim if bd.unit is not None else None
+    if dim is None or not any(dim.exps):
+        return []
+    own = bd.unit.readings[0].factor if bd.unit.readings else None
+    pool: list[Binding] = []
+    for name, _node in rel.pairs:
+        pool.extend(ctx.doc.bindings.get(name, ()))
+    sids = set(rel.statement_ids)
+    for blist in ctx.doc.bindings.values():
+        pool.extend(b for b in blist if b.statement_id in sids)
+    out: list[Fraction] = []
+    for b2 in pool:
+        if b2.unit is None or b2.symbol == bd.symbol:
+            continue
+        for r in b2.unit.readings:
+            for a in r.atoms:
+                if a.unit is None or a.unit.factor is None or a.unit.affine:
+                    continue
+                base = UnitAtom(a.text, a.unit, a.prefix, 1).factor
+                if base is None:
+                    continue
+                for e in (1, 2, 3, -1, -2, -3):
+                    if a.unit.dim.power(e) == dim:
+                        f = base ** e
+                        if f not in (1, own) and f not in out:
+                            out.append(f)
+    return out[:4]
+
+
+def _written_coefficients(sym_side: Optional[Node], name: str) -> list[Fraction]:
+    """The values of the closed factors (or terms) the symbolic side writes beside ``name`` in its flattened product (or sum): the 4 of
+    ``4x + 1``, the ½ of ``½mv²`` (stem-soundness-3, round 7)."""
+    if sym_side is None:
+        return []
+    for n in walk(sym_side):
+        if isinstance(n, BinOp) and n.op in "*+":
+            items = _flatten_same(n, n.op)
+            if not any(not is_closed(m) and name in symbols(m) and not isinstance(m, BinOp) for m in items):
+                continue
+            out = []
+            for m in items:
+                v = value_of(m) if is_closed(m) else None
+                if v is not None and v[2] is None and not v[3]:
+                    out.append(v[0])
+            return out
+    return []
+
+
+def _non_coefficient_factors(node: Node, group: list[Node], coefficients: list[Fraction]) -> list[Node]:
+    """The other closed factors of ``node``'s product (or terms of its sum) that a symbol written in another order may stand opposite,
+    without the numerals that write the symbolic side's own coefficients (stem-soundness-3, round 7: in 'y = 4x + 1 = 4 × 9 + 1' with
+    x = 4 the 4 is the formula's coefficient, so x stands for 9 only; before, x matched the written 4 and the wrong substitution held).
+    One numeral per coefficient is removed, never ``node`` itself."""
+    others = [m for m in group if m is not node]
+    for c in coefficients:
+        for k, m in enumerate(others):
+            v = value_of(m)
+            if v is not None and v[2] is None and not v[3] and v[0] == c:
+                del others[k]
+                break
+    return others
 
 
 def _part_value_expr(ctx: _Ctx, num_side: Node) -> Optional[dict]:
@@ -2193,7 +2486,7 @@ def _part_value_expr(ctx: _Ctx, num_side: Node) -> Optional[dict]:
             continue
         f_b = abs(hb.unit.readings[0].factor) if (hb.unit is not None and hb.unit.readings and hb.unit.readings[0].factor is not None) else Fraction(1)
         try:
-            lit_v, lit_h = literal_in_frame(value, k), literal_in_frame(_match_h(hb) * f_b, k)
+            lit_v, lit_h = literal_in_frame(value, k), literal_in_frame(_match_h(hb, ctx.doc.profile.mode) * f_b, k)
         except LiteralTooLong:
             continue
         if not vname:
@@ -2231,9 +2524,15 @@ def _formula_detail(formula) -> str:
     return f"the formula of '{formula.name}' stated in {formula.statement_id}"
 
 
-def _match_h(bd: Binding) -> Fraction:
+def _match_h(bd: Binding, mode: str = "") -> Fraction:
+    """The half-width a binding's value matches with (R7). An exact integer or fraction stated with no unit in Mathematics or Computer
+    Science ('Let x = 3') is that number and nothing near it: h = 0, so a substituted 4 no longer matches it (stem-soundness-2, round 7;
+    before, an integer kept half a unit, and with the substituted integer's own half a unit the next integer matched). A computed
+    result keeps its half unit: it may be a rounding."""
     exact = bd.unit is None and not bd.number.has_point and not bd.number.scientific and bd.source != "request"
-    return Fraction(0) if exact and bd.number.vulgar else bd.number.half_width
+    if exact and (bd.number.vulgar or (mode in ("mathematics", "computer_science") and bd.wrapper != "%" and bd.source != "result")):
+        return Fraction(0)
+    return bd.number.half_width
 
 
 def _sub_evaluate(ctx: _Ctx) -> None:
@@ -2293,12 +2592,17 @@ def _sub_evaluate(ctx: _Ctx) -> None:
         ctx.detail("booklet readings: " + "; ".join(r.note for r in booklet_used))
     euler = "e" in names and "e" not in domains
     symbol_units = any(bd.unit is not None for n in names for bd in ctx.doc.bindings.get(n, ())) or bool(booklet_used)
+    # stem-precision-3 (round 7): a symbol bound in a unit whose SI factor is not 1 ('t = 4.5 min') makes the SI reading differ even when
+    # the written sides carry no unit ('Pt = 2200 × 4.5 × 60', the conversion factor written out); before, only the reading as written was
+    # offered, so correct working failed
+    symbol_factors = any(bd.unit is not None and any(r.factor is None or r.factor != 1 or r.affine is not None for r in bd.unit.readings)
+                         for n in names for bd in ctx.doc.bindings.get(n, ()))
     nodes = [n for p in pairs for n in p]
     approx = _approx(ctx)
     exact_mode = rel.op in ("=", "≡") and not approx and all(_all_exact(n) for n in nodes) and all(
         not d.is_interval and not d.booklet for d in domains.values()) and not symbol_units
     tau = Fraction(0) if exact_mode else (TAU_APPROX if approx else TAU_EQUAL)
-    readings, unknown = _readings(nodes, symbol_units=symbol_units)
+    readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc, symbol_factors=symbol_factors)
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
     # STEM repair 11 (rule exact-rounding): a stated value of two or more significant figures against a rational symbolic side under exact
@@ -2510,10 +2814,13 @@ def _step_conclusion(ctx: _Ctx, cop: str, cl: Node, cr: Node, lt: Term, rt: Term
     b.premise(f"L_DEF{suffix}", {"op": "eq", "left": {"op": "var", "name": ln}, "right": le}, f"{ln} is {render(cl)[:300]}", grounding("device"))
     b.premise(f"R_DEF{suffix}", {"op": "eq", "left": {"op": "var", "name": rn}, "right": re_}, f"{rn} is {render(cr)[:300]}", grounding("device"))
     lv, rv = {"op": "var", "name": ln}, {"op": "var", "name": rn}
-    value_side = cr if is_value(cr) else (cl if is_value(cl) else None)
+    # stem-soundness-10 (round 7): a rounded value written with '±' ('x = ±1.41') is a rounded value of each sign: its band applies to both
+    # branches (with h = 0 the + branch read 1.41 as exact, so x² = 2 ⇒ x = ±1.41 failed on correct work)
+    unsigned = lambda n: n.right if isinstance(n, PlusMinus) and n.left is None else n  # noqa: E731
+    value_side = cr if is_value(unsigned(cr)) else (cl if is_value(unsigned(cl)) else None)
     h = Fraction(0)
     if value_side is not None:
-        v = value_of(value_side)
+        v = value_of(unsigned(value_side))
         if v is not None and v[1] is not None and (v[1].has_point or v[1].scientific):
             h = v[1].half_width
     approx = ctx.rel.approx
@@ -2581,8 +2888,90 @@ def _irrational_power(node: Node) -> bool:
     return isinstance(node, RealPower) and real_power_value(node) is None
 
 
+def _sol_system(ctx: _Ctx) -> None:
+    """stem-soundness-5 (round 7): the stated solution of simultaneous equations against every equation of the system together. Each
+    stated value is its exact value (an exact root) or ranges over its rounding interval (R10); an unknown the answer states no value for
+    is free, and a parameter takes its stated values outside the solution's own statements (never a value of the same conclusion). Exact
+    values: Form E, every equation holds at them; otherwise Form S, some point of the values' intervals satisfies every equation."""
+    rel = ctx.rel
+    values = dict(rel.simultaneous_values)
+    eqs: list[tuple[Node, Node]] = []
+    for lop, rop in rel.simultaneous:
+        if lop.node is None or rop.node is None:
+            raise EncodeError("ST-PARSE-001", "an equation of the system could not be read")
+        eqs.append((lop.node, rop.node))
+    names = sorted(set().union(*(set(symbols(a)) | set(symbols(c)) for a, c in eqs)))
+    if any(n.endswith("()") for n in names):
+        raise EncodeError("ST-UNDEC-001", "a function of an unknown")
+    b = ctx.builder
+    reading = Reading(si=False, label="as written")
+    solution_sids = set(rel.statement_ids) - set(rel.premise_ids)
+    env: dict[str, Term] = {}
+    hulls: dict[str, Interval] = {}
+    exact = True
+    free: list[str] = []
+    for name in names:
+        if name in values:
+            node = values[name]
+            enc = Encoder(b, reading, cache={})
+            if _root_is_exact(node):
+                t = enc.term(node)
+                var = b.user_symbol(name, role="pinned", meaning=f"'{name}' at the stated solution {render(node)[:80]}")
+                b.premise(f"V_{var}", {"op": "eq", "left": {"op": "var", "name": var}, "right": to_frame(t, 0)},
+                          f"the stated value {name} = {render(node)[:120]}", grounding("figure"))
+                iv = enc.interval(node)
+            else:
+                lo, hi = _root_interval(ctx, node, reading, {})
+                var = b.user_symbol(name, role="interval", meaning=f"'{name}' within the rounding interval of the stated {render(node)[:80]} (R10)")
+                b.premise(f"V_LO_{var}", {"op": "ge", "left": {"op": "var", "name": var}, "right": real(lo)}, f"the stated value {name} = {render(node)[:120]}",
+                          grounding("figure"))
+                b.premise(f"V_HI_{var}", {"op": "le", "left": {"op": "var", "name": var}, "right": real(hi)}, f"the stated value {name} = {render(node)[:120]}",
+                          grounding("figure"))
+                iv = Interval(lo, hi)
+                exact = False
+            env[name] = var_term(var)
+            hulls[name] = iv
+            continue
+        blist = tuple(x for x in ctx.doc.bindings.get(name, ()) if x.statement_id not in solution_sids)
+        if blist:
+            dom = _domain_from_bindings(name, blist)
+            denv, dhulls, needs = _install_domains(ctx, {name: dom}, reading, "")
+            env.update(denv)
+            hulls.update(dhulls)
+            exact = exact and not needs
+            continue
+        var = b.user_symbol(name, role="aux", meaning=f"the unknown '{name}' of the system, for which the answer states no value")
+        env[name] = var_term(var)
+        free.append(name)
+        exact = False
+    conj: list[dict] = []
+    for i, (lt_node, rt_node) in enumerate(eqs, 1):
+        enc = Encoder(b, reading, env=env, symbol_hulls=hulls, cache={})
+        lt, rtt = enc.term(lt_node), enc.term(rt_node)
+        (le, re_), _k = align_terms(lt, rtt)
+        conj.append({"op": "eq", "left": le, "right": re_})
+        if not exact:
+            b.premise(f"EQ_{i}", {"op": "eq", "left": le, "right": re_}, f"the equation {render(lt_node)[:160]} = {render(rt_node)[:160]} of the system",
+                      grounding("figure", f"the equations stated in {', '.join(rel.premise_ids)}"))
+    shown = ", ".join(f"{n} = {render(v)[:40]}" for n, v in rel.simultaneous_values)
+    ctx.readings = ["as written"]
+    ctx.detail(f"the stated solution ({shown}) set against every equation of the system ({len(eqs)} equations), never one equation with another "
+               "stated value as a premise")
+    if free:
+        ctx.detail("no value is stated for " + ", ".join(free) + ": it ranges over every value")
+    if exact:
+        ctx.detail("exact values: every equation of the system must hold at them")
+        ctx.conclusion = ("SOLUTION", nary("and", conj) if len(conj) > 1 else conj[0], "the stated values satisfy every equation of the system")
+        return
+    ctx.form, ctx.query, ctx.expected = "S", "satisfiability", "SATISFIABLE"
+    ctx.detail("membership: some point of the stated values' rounding intervals (R10) satisfies every equation of the system")
+
+
 def _sol(ctx: _Ctx) -> None:
     rel = ctx.rel
+    if rel.simultaneous:
+        _sol_system(ctx)
+        return
     if rel.premise_left is None or rel.premise_right is None or not rel.roots:
         raise EncodeError("ST-UNDEC-001", "stated roots without an equation")
     eq_l, eq_r = rel.premise_left.node, rel.premise_right.node

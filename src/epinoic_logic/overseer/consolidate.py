@@ -79,7 +79,7 @@ from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..engine.provenance import sign_result
+from ..engine.provenance import sign_result, signature_matches
 from ..engine.results import VerificationResult
 from ..engine.sink import CapturedResult, capture_results
 from ..engine.statuses import SCOPE_STATEMENT, VerificationStatus as S, is_definitive
@@ -290,7 +290,7 @@ def verify_consolidated(resp: Any, keyring: KeyRing) -> bool:
     except Exception:
         return False
     expected = hmac.new(keyring.subkey("consolidation"), text.encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, resp.signature)
+    return signature_matches(expected, resp.signature)
 
 
 def consolidation_digest(resp: ConsolidatedResponse) -> str:

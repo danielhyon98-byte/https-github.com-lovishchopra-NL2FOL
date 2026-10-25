@@ -1226,6 +1226,13 @@ def _exactness_from_cue(cue: _Cue, figure: StatedFigure) -> Exactness:
         half = _sig_fig_half_width(figure.value, cue.sig_figs) or figure.half_width
     elif cue.nearest is not None:
         half = cue.nearest / 2
+    elif not figure.has_point and figure.half_width:
+        # an approximation cue with no stated precision ("about 100%", "about 10 times", "roughly 1000 people"): half a
+        # unit of the last written digit, as the translation prompt states. The STEM tolerance rule's integer trailing-zero
+        # reading (trailing zeros significant only up to the operands' figures, so "100" = [50, 150)) belongs to written
+        # arithmetic, never to a claim's wording: read here it forced the widest reading on the claim (55% growth ENTAILED
+        # as "about 100%") and refused the faithful one.
+        half = Fraction(1, 2)
     else:
         half = figure.half_width
     if cue.mode != "nearest":

@@ -6,7 +6,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | File | What it does |
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
-| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`) |
+| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload, its document id and the relay status only) and the router's record of it (`<round>/router/<task>.json`: the plan, the request, the peer's receipt and the relay receipt; no agent reads it) |
 | `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
@@ -15,7 +15,27 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 
 A round directory holds `specialists/*.json` (the answers), and optionally `translations/*.json` (recorded translations,
 with `claim_text_sha256` binding each to the claim text it was produced for), `syntheses/*.json`, `relayed/*.json`,
-`tasks.json` and `adjudications/translation_fidelity.json`.
+`router/*.json`, `tasks.json` and `adjudications/translation_fidelity.json`.
+
+## Peer relays: what the dependent agent reads
+
+`relay_peer.py <round> <task>` relays the peer task's delivered report to the peer-dependent agent through the hub and
+writes two files. `relayed/<task>.json` is the only thing that agent may read of its peer, and it holds exactly
+`task_id`, `peer_of`, `delivered`, `relay_status` (the relay's transmission status, or `NOT_RELAYED` when nothing was
+relayed), `document_id` (`peer:<peer task>`) and `payload` (the specialist_report/1.0 payload as delivered); the last two
+only when a report was relayed (`run_arena.RELAYED_FILE_KEYS`). `router/<task>.json` is the router's record: the plan as
+used, the request to the peer, the peer's delivery receipt (every finding, subject finding, constraint result and formal
+check, with its message) and the relay's own receipt. Brief the dependent agent with the relayed file alone; the tool's
+standard output is the router's (both paths, the statuses and the receipt's codes, no finding message).
+
+A receipt is the router's to act on, not content for the agent: the round-7 router and envelope review found the
+receipt, finding messages included, written into the relayed file, and a dependent agent repeating a false finding
+(INT-SUBJ-001) to the student. Every recorded relay of rounds 2 to 7 (round 1 has none) carries the plan, the request,
+the peer's receipt and the relay receipt that way; the recorded rounds stay read-only and were not re-recorded. A replay
+reads only `delivered`, `document_id` and `payload` of a recorded file, and each recorded relay check
+(`recorded_relay_checks` in results.json, the recorded peer relays in summary.md) names the file's other fields as
+`router_fields_exposed`, so an answer written by an agent that could read its peer's receipt reads as one. It changes no
+count.
 
 ## Synthesis format (the combinator's instructions)
 
@@ -121,7 +141,8 @@ Beside the measures, summary.md counts on the genuine pass the claims whose enco
 (`withheld_verdicts`: E108 vacuous, E110 unasserted figure and E111 unencoded reason a source states, E112 circular, a
 rounded figure at another precision than the source states, an exact or given figure widened), and, apart, the verdicts
 that stand with the engine's advisory coverage warning (`advisory_coverage_warnings`: W110, W111; the encoding leaves
-open a figure no source asserts, which the question may leave open on purpose). Neither count changes the transport
+open a figure no source asserts, which the question may leave open on purpose, or, for W111, a conjunct of the judgement
+that no premise links). Neither count changes the transport
 measure.
 
 The harness's injected verifier keeps the two-argument signature `fn(claim, report)`, so a replay translates on the same
@@ -185,7 +206,7 @@ judgment applies only to a translation this run served whose digests match; anyt
 ## Tests
 
 ```
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, and what a peer relay file may hold
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)
 python -m pytest -q tests/stem/test_e2e_run1_detection.py   # the e2e run1 injections: all six named, each as the harness injects it

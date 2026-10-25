@@ -1510,6 +1510,16 @@ fault, not that every finding is true.
   relays of r2 and of r4 to r7 differ from the current parse; none was re-recorded, so the harness
   stays read-only on the rounds. Rounds from 8 on should record `claim_text_sha256` for every
   fixture.
+- **Peer relay files.** Every recorded relay of rounds 2 to 7 (`relayed/<task>.json`, the only file
+  the peer-dependent agent may read) also carries the router's records: the plan, the request, the
+  peer's delivery receipt with every finding message and formal check, and the relay receipt. A
+  dependent agent could therefore read hub findings as content, and in run1 one repeated a false
+  INT-SUBJ-001 to the student (round-7 router and envelope review). Fixed in the harness:
+  `relay_peer.py` now writes the delivered payload, its document id and the relay status only, and the
+  router's records to `router/<task>.json`, which no agent reads. The recorded rounds were not
+  re-recorded: a replay names the router-only fields of each recorded file (`router_fields_exposed`
+  on the recorded relay check, and in summary.md), without changing any count. The dependent answers
+  of rounds 2 to 7 are to be read as written by agents that could read their peer's receipt.
 - **Claim ids.** English and History claim ids are still positional per report, so two English-branch
   agents in one group would collide; the generic fold claim keeps the unqualified 'g.tail'.
 - **Quotations and credit.** An uncredited quotation found in no supplied text, whose sentence credits

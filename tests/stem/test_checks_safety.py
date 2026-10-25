@@ -166,7 +166,12 @@ def test_an_enclosure_that_fails_its_cross_check_builds_no_check(monkeypatch):
 
 
 def test_too_many_readings_is_st_parse_002():
+    # round 7 (stem-soundness-9): sin of a whole number beyond a full turn is read in degrees only, so the original input now has three
+    # readings (as written, and SI with each reading of 'ms⁻¹') and is decided; the bound is exercised with an argument read both ways
     plan = plan_of("F = 2.0 × sin(30) × 20 ms⁻¹ = 20 m s⁻¹")
+    pc = plan.check("stem-eq-1")
+    assert pc is not None and all("angles in degrees" in r for r in pc.readings) and len(pc.readings) == 3
+    plan = plan_of("F = 2.0 × sin(0.5) × 20 ms⁻¹ = 20 m s⁻¹")
     f = plan.finding_for("stem-eq-1")
     assert f is not None and f.code == "ST-PARSE-002"
 

@@ -11,7 +11,7 @@ from epinoic_logic.overseer.checks.fidelity import FIDELITY_RULES, claim_occurs,
 from epinoic_logic.overseer.checks.selfcert import flags_self_certification
 from epinoic_logic.translate.contracts import SuppliedText
 
-from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, english_report, findings, new_channel, ovs_errors
+from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, english_report, findings, make_auditor, new_channel, ovs_errors
 
 
 def _send(auditor, report, *, texts=(DOC,), request=EN_INPUT):
@@ -241,15 +241,50 @@ def test_fid_006_response_content_no_claim_carries(auditor):
     assert f and f[0].severity == "warning" and "and then we sleep" in f[0].message and f[0].message_ids == [rc.message_id]
 
 
-def test_fid_007_quotations_checked_only_against_the_specialists_own_text(auditor):
-    _ch, rc, audit = _send(auditor, english_report(), texts=(), request="Analyse how the writer presents work. Write no more than 80 words.")
+# Round-7 core hand-off (security-3): the channel checks quotations against the router's texts only, and a report text
+# that is not byte-identical to a request text under its document id is INT-REQ-002 (error, blocking: REJECTED). Both
+# scenarios below are therefore caught by the channel first, and the audit (delivered transfers only) raises no
+# FID-007/008 for the rejected transfer. FID-007 and FID-008 stay the Overseer's defence against a channel that fails to
+# reject: with the channel's INT-REQ-002 rule switched off (``_supplied_text_mismatch`` returning nothing) the same
+# scenario is delivered and the original FID assertions hold unchanged. (Rewritten to the stricter rule: the channel's
+# catch is asserted in addition to the Overseer's.)
+def _channel_catches_int_req_002(rc, audit, doc_id: str) -> None:
+    assert rc.status.value == "REJECTED"
+    f002 = [f for f in rc.findings if f.code == "INT-REQ-002"]
+    assert f002 and all(f.severity == "error" for f in f002) and any(doc_id in f.document_ids for f in f002), rc.findings
+    assert not findings(audit, "OVS-FID-007") and not findings(audit, "OVS-FID-008")
+
+
+def test_fid_007_quotations_checked_only_against_the_specialists_own_text(auditor, monkeypatch):
+    request = "Analyse how the writer presents work. Write no more than 80 words."
+    _ch, rc, audit = _send(auditor, english_report(), texts=(), request=request)
+    _channel_catches_int_req_002(rc, audit, "doc-mill")
+    assert "the request sent no texts" in " ".join(f.message for f in rc.findings if f.code == "INT-REQ-002")
+    # the Overseer's defence when the channel fails to reject
+    monkeypatch.setattr(TranslatorChannel, "_supplied_text_mismatch", staticmethod(lambda *a, **kw: []))
+    second = make_auditor()
+    try:
+        _ch, rc, audit = _send(second, english_report(), texts=(), request=request)
+    finally:
+        second.close()
+    assert rc.status.value != "REJECTED"
     f = findings(audit, "OVS-FID-007")
     assert f and f[0].severity == "warning" and f[0].document_ids == ["doc-mill"]
 
 
-def test_fid_008_a_supplied_text_altered_in_the_report(auditor):
+def test_fid_008_a_supplied_text_altered_in_the_report(auditor, monkeypatch):
     altered = SuppliedText(document_id="doc-mill", title="Mill extract", author="Anonymous",
                            text=DOC.text.replace("grew rich on their silence", "grew poor") + " We work until the bell.")
     _ch, rc, audit = _send(auditor, english_report(docs=(altered,)))
+    _channel_catches_int_req_002(rc, audit, "doc-mill")
+    assert "a supplied text replaced" in " ".join(f.message for f in rc.findings if f.code == "INT-REQ-002")
+    # the Overseer's defence when the channel fails to reject
+    monkeypatch.setattr(TranslatorChannel, "_supplied_text_mismatch", staticmethod(lambda *a, **kw: []))
+    second = make_auditor()
+    try:
+        _ch, rc, audit = _send(second, english_report(docs=(altered,)))
+    finally:
+        second.close()
+    assert rc.status.value != "REJECTED"
     f = findings(audit, "OVS-FID-008")
     assert f and f[0].document_ids == ["doc-mill"] and f[0].severity == "error" and f[0].message_ids == [rc.message_id]

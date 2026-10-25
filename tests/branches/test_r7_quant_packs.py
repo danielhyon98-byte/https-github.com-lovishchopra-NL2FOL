@@ -178,11 +178,14 @@ def test_formulas_values_and_algebra_are_not_worked_equations(text):
 
 
 def test_bm_t13_break_even_is_never_silent_and_its_margins_are_decided():
+    # rewritten to a stricter rule (r7 history handoff A1): the wrong break-even was only named undecided (CORE-QNT-001); the
+    # worked-arithmetic reader of the Business branch now has the engine refute it, and the undecided report no longer names the line
     wrong = BM_T13.replace("= $6,000 ÷ $2.00 = 3,000 loaves per month", "= $6,000 ÷ $2.00 = 4,000 loaves per month")
     reply, rc = through_hub(wrong, BM_T13_Q, subject="Business Management", agent="business-specialist")
     assert reply is not None
-    named = [f for f in rc.structural_findings if f.code == "CORE-QNT-001" and "$6,000 ÷ $2.00 = 4,000 loaves per month" in f.message]
-    assert named and "worked equation" in named[0].message and named[0].claim_ids
+    refuted = [f for f in errors(rc) if "worked_arithmetic" in f.message and "$6,000 ÷ $2.00 = 4,000 loaves per month" in f.message]
+    assert refuted and refuted[0].claim_ids and refuted[0].formal_result_id
+    assert not [f for f in rc.structural_findings if f.code == "CORE-QNT-001" and "$6,000 ÷ $2.00 = 4,000 loaves per month" in f.message]
     margins = [fc for fc in rc.formal_checks if fc.constraint_id.startswith("business-margin")]
     assert [fc.formal_status for fc in margins] == ["ENTAILED", "ENTAILED"]
     # a margin the Business pack decides is not also named undecided
@@ -193,9 +196,17 @@ def test_bm_t13_break_even_is_never_silent_and_its_margins_are_decided():
 
 
 def test_ge_t13_dependency_ratio_is_named_undecided():
+    # rewritten to a stricter rule (r7 history handoff A1): the wrong dependency ratio was only named undecided (CORE-QNT-001); the
+    # generic branch's worked-arithmetic reader now has the engine refute it (INT-SUBJ-001 naming the claim), the undecided report no
+    # longer names the line, and the genuine answer's working is ENTAILED with no error
     wrong = GE_T13.replace("= 31 ÷ 69 × 100\n= 44.9", "= 31 ÷ 69 × 100\n= 54.9")
     reply, rc = through_hub(wrong, GE_T13_Q, subject="Geography", agent="geography-specialist")
-    assert any(f.code == "CORE-QNT-001" and "31 ÷ 69 × 100 = 54.9" in f.message for f in rc.structural_findings)
+    assert any("worked_arithmetic" in f.message and "54.9" in f.message and f.claim_ids for f in errors(rc))
+    assert not any(f.code == "CORE-QNT-001" and "31 ÷ 69 × 100 = 54.9" in f.message for f in rc.structural_findings)
+    _reply, ok = through_hub(GE_T13, GE_T13_Q, subject="Geography", agent="geography-specialist")
+    assert not [f for f in errors(ok) if "worked_arithmetic" in f.message]
+    assert [fc.formal_status for fc in ok.formal_checks if fc.constraint_id.startswith("generic-worked")] and \
+        all(fc.formal_status == "ENTAILED" for fc in ok.formal_checks if fc.constraint_id.startswith("generic-worked"))
 
 
 # ------------------------------------------------------------------ elasticity: PED/YED/XED/PES, Unicode minus, worked divisions

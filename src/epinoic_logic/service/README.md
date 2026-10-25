@@ -41,5 +41,10 @@ Controls: bearer token compared in constant time (401), request body size limit
 (413), per-process concurrency semaphore (503), per-token token bucket (429),
 rejection of any top-level self-certification field such as `verified` or
 `advisory_verification_status` (400), generic error bodies with a request id and
-no stack traces, verification run off the event loop. The signing key and token
+no stack traces, verification run off the event loop. Client-derived identifiers
+(`claim_id`, `result_id`, outcome ids) reach the log only when they are plain ids (letters, digits and `._:@#-`, at most
+128 characters); any other value is logged as `sha256:<first 16 hex digits>`, so no client input starts a new log
+record. The signature routes never fail on a hostile result: a signature that is not 64 lowercase hex characters, or
+a result holding a lone UTF-16 surrogate, answers `valid: false` / `eligible: false` (or 400 `E100`), never 500, and
+a genuine result re-posted after an `exclude_none` dump (no `memory_max_mb`) still verifies. The signing key and token
 come from environment variables; the browser never talks to this service directly.

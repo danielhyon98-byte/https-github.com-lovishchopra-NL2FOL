@@ -42,6 +42,10 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 17.9, listed as each stage r
   outcome object);
 * the raw text kept on the run is bounded at 1,048,576 characters (a longer reply is kept as its prefix, flagged, with
   the digest of the whole); the intake receives it whole and applies its own bound;
+* in the raw text kept on the run, a lone UTF-16 surrogate code point (not valid Unicode text: a provider SDK can hand
+  one over after decoding a truncated escape) is kept as U+FFFD, so the run record always serialises as JSON; the
+  intake receives the reply unchanged (and refuses it as ``unparseable``), and ``raw_text_sha256`` is the digest of
+  the reply exactly as received (round-7 follow-up);
 * a provider that raises something other than ``ProviderError``, or returns something other than a
   ``ProviderResponse`` with text, is ``provider_error`` too (reasons ``provider_exception`` and ``bad_response``).
 """
@@ -63,6 +67,9 @@ from .audit import AUDITOR_AGENT_ID
 from .dossier import Dossier, verify_dossier_digest
 from .pack import KnowledgePack, PackError
 from .verdicts import HEADER_ID_PATTERN, LENSES, PackIdentity
+
+#: A lone UTF-16 surrogate code point (no JSON text or UTF-8 file can hold one).
+_LONE_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
 __all__ = [
     "OverseerAgentRunner", "AgentRun", "RunStatus", "RUN_STATUSES", "REFUSAL_REASONS", "PROVIDER_FAILURE_REASONS", "render_dossier_block",
@@ -119,7 +126,7 @@ class AgentRun(BaseModel):
     provider_info: Optional[dict[str, Any]] = None
     raw_text_sha256: Optional[str] = None
     raw_chars: int = 0
-    raw_text: Optional[str] = Field(default=None, description="the reply as received (bounded); data, never evaluated")
+    raw_text: Optional[str] = Field(default=None, description="the reply as received (bounded; a lone surrogate kept as U+FFFD); data, never evaluated")
     raw_text_truncated: bool = False
     message_id: Optional[str] = Field(default=None, description="the id of the envelope the intake signed, when it accepted the reply")
     finding: Optional[IntegrityFinding] = Field(default=None, description="the intake's OVS-AGENT-005, when it rejected the reply")
@@ -248,6 +255,7 @@ class OverseerAgentRunner:
         raw = resp.raw_text
         info = resp.info.model_dump(mode="json")
         kept = raw if len(raw) <= MAX_RAW_TEXT_CHARS else raw[:MAX_RAW_TEXT_CHARS]
+        kept = _LONE_SURROGATE_RE.sub("\ufffd", kept)  # the run record must serialise; the digest stays the reply's own
         outcome = intake.submit(self._agent_id, task_id, raw, provider_info=resp.info, attestation="runner")
         reply = dict(provider_info=info, raw_text_sha256=sha256_hex(raw), raw_chars=len(raw), raw_text=kept, raw_text_truncated=len(raw) > MAX_RAW_TEXT_CHARS)
         if outcome.accepted:

@@ -65,7 +65,7 @@ from .nodes import (
     RealPower, Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
-from .units import UnitExpr, english_word_atom, is_unit_atom, lookup_atom, parse_unit, prefixed_greek_unit, unit_group
+from .units import UnitExpr, compound_part, english_word_atom, is_unit_atom, lookup_atom, parse_unit, prefixed_greek_unit, unit_group
 
 __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM_NAMES", "parse_math", "segment", "symbol_name"]
 
@@ -514,6 +514,11 @@ class _Parser:
                 op = "/" if tok.text in ("/", "÷") else "*"
                 left = self._count(BinOp(op, left, right, _start(left), _end(right), written=tok.text))
                 continue
+            if tok.kind == "LPAR" and tok.text == "(" and tok.space and _is_value_node(left) and self._alternative_form_at(self.i):
+                # stem-precision-6 (round 7): '0.870 (87%)', '3/8 = 0.375 (37.5%)': a bracketed per cent right after a value, ending the
+                # operand, restates it in another form; it is no factor (read as the product 0.870·87%, the correct link failed)
+                self.i = self._close_index(self.i) + 1
+                return left
             if self._juxtaposable(tok, left):
                 if tok.kind == "IDENT" and tok.text == "i" and not tok.sub and not tok.space and _ends_in_number(left):
                     self.i += 1
@@ -523,6 +528,14 @@ class _Parser:
                 left = self._count(BinOp("*", left, right, _start(left), _end(right), written="", implicit=True))
                 continue
             return left
+
+    def _alternative_form_at(self, k: int) -> bool:
+        """The bracket at ``k`` holds only a per cent ('(87%)', '(87 %)', '(37.5%)') and the operand ends right after it."""
+        c = self._close_index(k)
+        if c is None or c != k + 3:
+            return False
+        a, b = self.t[k + 1], self.t[k + 2]
+        return a.kind == "NUM" and b.kind == "PERCENT" and self._ends_operand(c + 1)
 
     def _juxtaposable(self, tok: Token, left: Node) -> bool:
         if self.is_connective(tok):
@@ -569,6 +582,8 @@ class _Parser:
         if tok.kind == "SUP" and not tok.space:
             if tok.value is None:
                 raise self._err("ST-PARSE-001", f"a superscript sign {tok.text!r} with no digits (a charge outside a formula)", tok)
+            if isinstance(tok.value, tuple):  # parser-safety-1: a superscript run beyond the numeral bound (the lexer never converts it)
+                raise self._err(tok.value[0], tok.value[1], tok)
             self.i += 1
             if self.ctx.profile.mode != "sciences" and isinstance(base, Sym) and base.name == "e" and base.kind == "symbol" and isinstance(tok.value, int):
                 return self._count(Func("exp", Num(exact_integer(tok.value), tok.start, tok.end), None, _start(base), tok.end))  # e² is exp(2)
@@ -1051,7 +1066,19 @@ class _Parser:
             expr, j = unit
             end = self.t[j - 1].end
             self.i = j
-            return self._count(Quantity(num, expr, tok.start, end))
+            node: Node = self._count(Quantity(num, expr, tok.start, end))
+            # stem-precision-5 (round 7): a compound quantity ('4 min 30 s', '1 kg 250 g', '1 h 2 min 3 s') is the sum of its parts, never
+            # its last part: each part a numeral and one unit atom of the same dimension, strictly smaller than the one before
+            while self.i < len(self.t) and self.t[self.i].kind == "NUM" and self.t[self.i].space and compound_part(self.t, self.i) \
+                    and self.t[self.i].value is not None:
+                ntok = self.t[self.i]
+                more = self._unit_after(self.i + 1, glued_ok=False)
+                if more is None or more[1] != self.i + 2:
+                    break
+                part = self._count(Quantity(ntok.value, more[0], ntok.start, self.t[more[1] - 1].end))
+                self.i = more[1]
+                node = self._count(BinOp("+", node, part, tok.start, _end(part), written="+", implicit=True))  # juxtaposed parts: a sum
+            return node
         return self._count(Num(num, tok.start, tok.end))
 
     def _unit_after(self, j: int, *, glued_ok: bool) -> Optional[tuple[UnitExpr, int]]:
@@ -1149,8 +1176,8 @@ class _Parser:
                 k += 1
                 continue
             break
-        if not self._ends_operand(k):
-            return None
+        if not self._ends_operand(k) and not (k < n and toks[k].kind == "NUM" and toks[k].space and compound_part(toks, k)):
+            return None  # (a compound quantity's next part may follow: stem-precision-5)
         text = self.ctx.s[toks[j].start:toks[k - 1].end]
         expr = parse_unit(text, bare_m=prof.bare_m, tonne=prof.tonne, ascii_exponents=True)  # only the forms read above carry a glued digit
         if expr is None:
@@ -1394,6 +1421,8 @@ class _Parser:
         power_after: Optional[int] = None
         nxt = self.peek()
         if nxt is not None and nxt.kind == "SUP" and nxt.value is not None and not nxt.space and name not in ("sqrt",):
+            if isinstance(nxt.value, tuple):  # parser-safety-1: an overlong superscript run
+                raise self._err(nxt.value[0], nxt.value[1], nxt)
             power_after = nxt.value  # sin²θ
             self.i += 1
         if name == "sqrt":

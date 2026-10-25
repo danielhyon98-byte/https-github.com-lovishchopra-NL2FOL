@@ -192,3 +192,16 @@ class VerificationResult(BaseModel):
         if isinstance(data, dict) and "limits" in data and data["limits"] is None:
             del data["limits"]
         return data
+
+
+def parse_result(data: Any) -> "VerificationResult":
+    """Read a result dump as it was decided and signed (the faithful parse every receiver of a dump uses). Every dump the
+    engine signs and binds leaves ``None`` values out (``exclude_none``), and ``SolverConfig.memory_max_mb`` is the one
+    setting whose default is not ``None``: a plain ``VerificationResult.model_validate`` reads a dump without it as the
+    default 512, which changes the signed text and the configuration digest of a genuine result. Here a configuration
+    without it records ``memory_max_mb=None``, so a genuine signed result verifies after every round trip. Anything else
+    (not a mapping, a configuration that is not a mapping) is validated as it stands and raises ``ValidationError`` like
+    ``model_validate``."""
+    if isinstance(data, dict) and isinstance(data.get("solver_config"), dict) and "memory_max_mb" not in data["solver_config"]:
+        data = {**data, "solver_config": {**data["solver_config"], "memory_max_mb": None}}
+    return VerificationResult.model_validate(data)

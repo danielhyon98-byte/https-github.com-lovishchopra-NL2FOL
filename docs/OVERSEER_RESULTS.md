@@ -4241,6 +4241,33 @@ passed; the combinator sub-project's own suite (`cd combinator && python -m pyte
 the merge, each asserting the same behaviour equally or more strictly, are listed in design section 44.3; none was
 weakened or deleted.
 
+## 31. After the round-7 arena findings (design section 45)
+
+Two findings the round-7 arena fixers handed to the overseer, both reproduced on the merged tree before the fix:
+
+| Finding | Probe | Before | After |
+| --- | --- | --- | --- |
+| Replay budget started at queue time (major) | 20 correct replays of one problem (about 2.1 s each in the worker) queued at once, process mode, 30 s budget | drain 30.0 s; 13 agree, 7 budget exceeded, OVS-AUDIT-005 (the arena fixers measured 14 and 6) | drain 43.5 s; 20 of 20 agree |
+| A verdict holding a lone surrogate (blocker) | a bound verdict whose notes end in a truncated emoji escape, then the clean verdict | `UnicodeEncodeError` raised after the issue was marked answered; resubmission `duplicate` | rejected `unparseable` with OVS-AGENT-005 and recorded; resubmission `duplicate` (one bound submission per issue, review round 3) |
+
+The translator's parser had meanwhile been changed to refuse such text (another owner's fix), so on the current tree the
+second probe gives the rejection either way; the intake's tests replace the parser with one that raises
+(`UnicodeEncodeError`, `RecursionError`, `RuntimeError`) and fail on the merged intake, which raised.
+
+Contained run on a fresh copy of r7 with replay in the worker process (`run_contained.py --round r7 --no-tamper
+--replay-mode process`, 1,187 s on a host shared with other suites): every gate but one passes; the genuine pass 19
+channels, 66 transfers, no false alarm, 1,651 results replayed with no disagreement and none inconclusive, the re-keyed
+pass 44/44 functional with 439 replayed and none disagreeing (2,090 in all), the arena 177/177 functional and unchanged by
+the auditor, and 677 STEM probes counted. The gate `stem_fault_classes_named` failed on one control,
+units-translation-table-base-control: its receipt carried a new INT-REQ-006 warning from the channel that the run of that
+probe alone on the same tree, a few minutes later, does not give (`clean`, no new receipt finding, no OVS finding in
+either run); the channel and translator files were being changed by their owners during the run, and no overseer file
+touches that receipt. The arena harness on a fresh copy of r7 (`run_arena.py`): 177 of 177 functional, as recorded.
+
+Deferred to the optimisation checks (recorded with measurements, not fixed): one replay worker runs jobs in turn (the
+twenty replays above take 43.5 s), and the replayed problem's 2.1 s is almost all a solver check the result's stage
+timings do not report (about 33 ms reported).
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction

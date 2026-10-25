@@ -900,6 +900,14 @@ def find_quotation(excerpt: str, text: str, *, document_id: Optional[str] = None
     return match.start, match.end, match.matched
 
 
+def is_peer_document(doc: SuppliedText) -> bool:
+    """A relayed specialist's report supplied as a document ('peer:<task>', or an author '<subject>-specialist'): the
+    same rule as ``adapters.sources.is_peer_text``. Another agent's report is evidence of what that agent said, never a
+    source: an excerpt located in it confers no authority on a premise (agent self-reports are advisory)."""
+    author = (doc.author or "").strip().lower()
+    return doc.document_id.startswith("peer:") or author.endswith("-specialist") or author.endswith(" specialist")
+
+
 def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, SuppliedText], kind: str = "quotation", ref_index: Optional[int] = None) -> GroundingCheck:
     doc = docs.get(ref.document_id)
     if doc is None:
@@ -931,6 +939,15 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
         how = f"as an elided quotation, fragments in order within {match.end - match.start} characters, after typographic normalization"
     if match.note:
         how += f" ({match.note})"
+    if is_peer_document(doc):
+        # peer_report: the words are another agent's, so the reference is located but verifies nothing (an unverified or
+        # ungrounded dependency the engine lists, which blocks release until a task record or a primary text supports it)
+        return GroundingCheck(
+            target_id=target_id, kind=kind, method=match.method, verified=None,  # type: ignore[arg-type]
+            document_id=ref.document_id, ref_index=ref_index,
+            detail=(f"peer_report: found {how} at characters {match.start}-{match.end} of {ref.document_id}, a relayed peer specialist's report; "
+                    "another agent's report is no source, so the reference is located but confers no authority"),
+        )
     return GroundingCheck(
         target_id=target_id, kind=kind, method=match.method, verified=True,  # type: ignore[arg-type]
         document_id=ref.document_id, detail=f"found {how} at characters {match.start}-{match.end}", ref_index=ref_index,
@@ -1002,7 +1019,8 @@ def check_grounding(target_id: str, grounding: Grounding, docs: dict[str, Suppli
             )
             return grounding.model_copy(update={"verified": False}), [check]
         checks = [_check_quotation_ref(target_id, ref, docs, ref_index=i) for i, ref in enumerate(grounding.source_refs)]
-        verified = all(c.verified is True for c in checks)
+        # every reference located verifies; any refuted refutes; a reference located only in a peer report leaves it unchecked
+        verified: Optional[bool] = True if all(c.verified is True for c in checks) else (False if any(c.verified is False for c in checks) else None)
         return grounding.model_copy(update={"verified": verified}), checks
     if grounding.source_refs:
         checks = [_check_quotation_ref(target_id, ref, docs, kind=grounding.kind, ref_index=i) if ref.excerpt and ref.excerpt.strip()
@@ -1043,6 +1061,33 @@ class _Literal:
     declared: DeclaredReading
     symbol: Optional[str]
     required: Optional[str] = None
+    #: the years the compared symbol's name and meaning name ("p2010", "residents in 2010"): the time the figure is about
+    years: frozenset[str] = frozenset()
+
+
+#: A year written in digits (1500-2099), never part of a longer number.
+_YEAR_TOKEN_RE = re.compile(r"(?<![\d.,])(1[5-9]\d{2}|20\d{2})(?![.,]?\d)")
+
+
+def _years_named(*texts: Optional[str]) -> frozenset[str]:
+    """The years ``texts`` name in digits (a symbol's name and meaning: "p2010", "Lowtown residents in 2010")."""
+    return frozenset(m.group(1) for t in texts if t for m in _YEAR_TOKEN_RE.finditer(t))
+
+
+def _about_another_time(lit: "_Literal", text: str, start: int, end: int) -> Optional[str]:
+    """Why the figure at ``start``-``end`` of ``text`` is not about the time the literal's symbol names, or None: its
+    asserting clause (:func:`.assertion.asserting_clause`, read where it stands in its document) names years, none of
+    them a year the symbol's name or meaning names ("In 2020 Lowtown had 252 residents" for ``p2010``, "Lowtown residents
+    in 2010"). A figure of another year is another quantity's figure, so it states nothing about this symbol (rule
+    same-quantity, conflicting qualifier). A clause that names no year, or a symbol that names none, is not read here."""
+    if not lit.years:
+        return None
+    from .assertion import asserting_clause
+    a, b = asserting_clause(text, start, end)
+    years = {m.group(1) for m in _YEAR_TOKEN_RE.finditer(text, a, b) if not (m.start() < end and start < m.end())}
+    if years and not (years & lit.years):
+        return f"about {', '.join(sorted(years))}, while {lit.symbol} is about {', '.join(sorted(lit.years))} (another year's figure)"
+    return None
 
 
 def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
@@ -1065,7 +1110,8 @@ def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
             # a literal an assignment compares directly with its symbol is the figure itself, trivial or not ("10 km": k = 10)
             sym = symbols.get(name)
             written = lit.value if getattr(node, "op", None) != "neg" else f"-{lit.value}"  # type: ignore[attr-defined]
-            out_a.append(_Literal(written, value, declared_reading(sym.meaning if sym is not None else None), name, required))
+            out_a.append(_Literal(written, value, declared_reading(sym.meaning if sym is not None else None), name, required,
+                                  _years_named(name, sym.meaning if sym is not None else None)))
         return out_a
     out: list[_Literal] = []
     stack: list[tuple[object, Optional[str]]] = [(expr, None)]
@@ -1123,6 +1169,8 @@ def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources:
             for m in matches:
                 text = texts.get((m.figure.source_kind, m.figure.source_id))
                 reason = stated_as(text, m.figure.start, m.figure.end, lit.required) if text is not None else "its text is not at hand"
+                if reason is None and text is not None:
+                    reason = _about_another_time(lit, text, m.figure.start, m.figure.end)
                 if reason is None:
                     kept.append(m)
                 else:
@@ -1288,12 +1336,13 @@ def _ref_docs(docs: dict[str, SuppliedText], task: Optional[TaskRecord]) -> dict
 def _authority_sources(grounding: Grounding, docs: dict[str, SuppliedText], supplied: Sequence[SuppliedText], task: Optional[TaskRecord]) -> tuple[list[SourceText], list[str]]:
     """The records a task-authority premise may rest on: the documents its references name, else every supplied text and
     the task record. ``(sources, the named document ids)``."""
-    named = [r.document_id for r in grounding.source_refs if r.document_id in docs]
+    # a relayed peer report is never a record of the task: its figures and relations validate no task authority
+    named = [r.document_id for r in grounding.source_refs if r.document_id in docs and not is_peer_document(docs[r.document_id])]
     if named:
         sources = [SourceText("task" if task is not None and docs[d].text == task.text and d not in {t.document_id for t in supplied} else "supplied_text",  # type: ignore[arg-type]
                               d, docs[d].text) for d in dict.fromkeys(named)]
         return sources, named
-    sources = [SourceText("supplied_text", t.document_id, t.text) for t in supplied]
+    sources = [SourceText("supplied_text", t.document_id, t.text) for t in supplied if not is_peer_document(t)]
     if task is not None:
         sources.append(SourceText("task", task.task_id, task.text))
     return sources, []

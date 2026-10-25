@@ -542,6 +542,103 @@ def _minimise_by_deletion(claims: list[str], active: dict[str, Problem], res: Ve
     return current, rid
 
 
+#: The bounds of the stated-precision re-check of a named contradiction (:func:`at_stated_precision`): the joint bounds with
+#: the nonlinear-term gate open, since a decimal coefficient read over its rounding interval becomes a variable factor.
+PRECISION_LIMITS: Limits = JOINT_LIMITS.model_copy(update={"allow_nonlinear": True})
+_DECIMAL_LITERAL_RE = re.compile(r"^-?(0|[1-9][0-9]*)\.([0-9]+)$")
+#: The fields of a node whose child must stay a constant (a divisor): a literal there is never read as an interval.
+_CONSTANT_FIELDS = {"div": "right", "idiv": "right", "mod": "right"}
+
+
+def at_stated_precision(problems: list[Problem]) -> Optional[list[Problem]]:
+    """The problems with every decimal real literal (``"9.57"``, ``"24.0"``; never an integer or a fraction, and never a
+    divisor, which must stay a constant) read at the precision it is written to: a fresh Real symbol per occurrence,
+    bounded to the closed interval of half a unit of its last written digit (``9.565 <= r <= 9.575``). A figure an
+    agent states to three significant figures is then the interval it stands for, so two correct lines that each
+    compute a quantity from rounded intermediates ("R = 230 V / 9.57 A = 24.0 ohm" and "R = (230 V)^2 / 2200 W = 24.0
+    ohm") are not read as contradicting each other at a precision neither states. None when no problem has such a
+    literal (nothing to read differently). The rewrite is data on data: literals and identifiers only."""
+    from fractions import Fraction
+    changed = False
+    out: list[Problem] = []
+    for i, p in enumerate(problems):
+        data = p.model_dump(mode="json", exclude_none=True)
+        taken = {s["name"] for s in data.get("symbols", [])}
+        extra_symbols: list[dict] = []
+        extra_premises: list[dict] = []
+        counter = [0]
+
+        def widen(node, parent_op: Optional[str] = None, field_name: Optional[str] = None):
+            if isinstance(node, list):
+                return [widen(x, parent_op, field_name) for x in node]
+            if not isinstance(node, dict):
+                return node
+            if node.get("op") == "real" and isinstance(node.get("value"), str) and _CONSTANT_FIELDS.get(parent_op or "") != field_name:
+                m = _DECIMAL_LITERAL_RE.match(node["value"])
+                if m is not None:
+                    value = Fraction(node["value"])
+                    half = Fraction(1, 2 * 10 ** len(m.group(2)))
+                    counter[0] += 1
+                    name = f"rnd{i}_{counter[0]}"
+                    while name in taken:
+                        counter[0] += 1
+                        name = f"rnd{i}_{counter[0]}"
+                    taken.add(name)
+                    extra_symbols.append({"name": name, "sort": "Real", "meaning": f"the figure {node['value']} read at its stated precision"})
+                    lo, hi = value - half, value + half
+                    extra_premises.append({"id": f"rnd_{name}", "expr": {"op": "and", "args": [
+                        {"op": "ge", "left": {"op": "var", "name": name}, "right": {"op": "real", "value": f"{lo.numerator}/{lo.denominator}" if lo.denominator != 1 else str(lo.numerator)}},
+                        {"op": "le", "left": {"op": "var", "name": name}, "right": {"op": "real", "value": f"{hi.numerator}/{hi.denominator}" if hi.denominator != 1 else str(hi.numerator)}}]},
+                        "label": f"{node['value']} as written: half a unit of its last digit either way"})
+                    return {"op": "var", "name": name}
+            op = node.get("op")
+            return {k: (widen(v, op, k) if k not in ("op", "name", "value") else v) for k, v in node.items()}
+
+        for key in ("premises",):
+            data[key] = [{**a, "expr": widen(a["expr"])} for a in data.get(key, [])]
+        if data.get("conclusion") is not None:
+            data["conclusion"] = {**data["conclusion"], "expr": widen(data["conclusion"]["expr"])}
+        if not extra_symbols:
+            out.append(p)
+            continue
+        changed = True
+        data["symbols"] = [*data.get("symbols", []), *extra_symbols]
+        data["premises"] = [*data["premises"], *extra_premises]
+        try:
+            out.append(Problem.model_validate(data))
+        except Exception:
+            return None  # a rewrite outside the schema (an oversized problem): the strict reading stands
+    return out if changed else None
+
+
+def _without_rounding_only_conflicts(findings: list[IntegrityFinding], problems: list[Problem], *, request_id: str, cfg: SolverConfig,
+                                     signing_key: Optional[bytes]) -> list[IntegrityFinding]:
+    """``findings`` without each INT-CONFLICT-001 whose claims are consistent once their decimal figures are read at the
+    precision they are written to (:func:`at_stated_precision`, decided by the engine under :data:`PRECISION_LIMITS`): the
+    contradiction exists only at a precision none of the claims states, so nothing is charged to the specialists. A
+    re-check that cannot be built or decided keeps the finding. Every other finding is kept as it is."""
+    from ..engine.policies import policy_config
+    by_id = {p.claim_id: p for p in problems}
+    out: list[IntegrityFinding] = []
+    for f in findings:
+        if f.code != "INT-CONFLICT-001":
+            out.append(f)
+            continue
+        named = [by_id[c] for c in dict.fromkeys(f.claim_ids) if c in by_id]
+        relaxed = at_stated_precision(named) if len(named) >= 2 else None
+        if relaxed is None:
+            out.append(f)
+            continue
+        joint, _jf, _jm = joint_problem(relaxed, request_id=request_id, joint_id="cross-report-precision")
+        if joint is None:
+            out.append(f)
+            continue
+        res = verify(joint, policy_config("nonlinear", cfg), PRECISION_LIMITS, signing_key=signing_key, key_id="integrity")
+        if res.status is not S.CONSISTENT:
+            out.append(f)
+    return out
+
+
 def check_cross_report_consistency(problems: list[Problem], *, request_id: str, config: SolverConfig = SolverConfig(), signing_key: Optional[bytes] = None, limits: Limits = JOINT_LIMITS,
                                    assumed_readings: frozenset[str] | set[str] = frozenset()) -> tuple[Optional[VerificationResult], list[IntegrityFinding]]:
     """Are all specialists' formalized claims jointly consistent? Names the conflict claim-minimally
@@ -563,7 +660,8 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     cfg = config.model_copy(update={"produce_unsat_core": True})
     result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
     if result.status is S.INCONSISTENT_PREMISES:
-        findings += _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
+        attributed = _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
+        findings += _without_rounding_only_conflicts(attributed, apart, request_id=request_id, cfg=cfg, signing_key=signing_key)
     elif result.status is not S.CONSISTENT:
         findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
     elif splits:

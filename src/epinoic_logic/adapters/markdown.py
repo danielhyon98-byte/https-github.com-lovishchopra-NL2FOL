@@ -96,7 +96,7 @@ __all__ = [
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
-    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
+    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "BARE_NOTE_LEAD_RE", "opens_note_paragraph", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
 ]
 
 BOM = "\ufeff"
@@ -1585,15 +1585,28 @@ def is_peer_attribution(sentence: str) -> bool:
 
 #: A sentence opened by a note lead is a note as a whole, on every branch and in the channel's word count: "Note: my sources
 #: do not confirm the exact emigration total ...", "Note on the Physics specialist's uncertainty: ...", "N.B. ...", "NB:
-#: ...", "Next step: trace find_position(scores, 12) yourself ...", "Confidence: lowered." (a self-rating of the answer).
-#: Read with quotations masked, so a quoted "Note:" is the quoted text's. "Note that ..." (no colon) is an argument's own
-#: signpost and stays substantive.
+#: ...", "Next step: trace find_position(scores, 12) yourself ...", "Confidence: lowered." (a self-rating of the answer),
+#: "Limit: no approved source here confirms the exact total.", "Caveat: the totals are estimates." (what the answer could not
+#: draw on or vouch for). Read with quotations masked, so a quoted "Note:" is the quoted text's. "Note that ..." (no colon) is
+#: an argument's own signpost and stays substantive, and so is "Limitation:" (an evaluation point of a study or a model in
+#: Psychology or Economics: "Limitation: the sample was 30 students"; the History parser reads its own leads).
 NOTE_LEAD_RE = re.compile(
-    r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence)\s*:"
+    r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence|limits?|caveats?)\s*:"
     r"|^[\s*_>#-]*n\.\s?b\.(?:\s*:)?"
     r"|^[\s*_>#-]*note\s+on\b[^:.!?]{1,80}:",
     re.IGNORECASE,
 )
+#: A bare note lead: a paragraph whose first sentence it opens is a note as a whole, whatever its other sentences state ("Note: the
+#: totals ... come from a textbook table I could not check. Departures rose from about 144,000 in 1959 ..."), as the generic and History
+#: parsers role it. "Note on ...:" introduces a discussion and is not bare; "Confidence:" rates the answer in one sentence.
+BARE_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|limits?|caveats?)\s*:|n\.\s?b\.)", re.IGNORECASE)
+
+
+def opens_note_paragraph(paragraph: str) -> bool:
+    """True when ``paragraph`` opens with a bare note lead (:data:`BARE_NOTE_LEAD_RE`), quotations masked: the paragraph is a note
+    as a whole, so a word or paragraph bound leaves out all of it, as the parsers role all of it non-material."""
+    text = paragraph.lstrip()
+    return bool(text) and BARE_NOTE_LEAD_RE.match(mask_quotations(text[:400])) is not None
 _PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
 _PAREN_INNER_RE = re.compile(r"\([^()]*\)")
 _CLAUSE_SEPARATOR_RE = re.compile(r"[;—–]")

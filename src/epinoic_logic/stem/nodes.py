@@ -15,7 +15,7 @@ Node types:
                    ``[H⁺]``), ``bond`` (``O=O``)
 ``Neg``            unary minus
 ``BinOp``          ``+ - * /`` (``written`` keeps the sign as written, ``implicit`` marks
-                   juxtaposition)
+                   juxtaposition: a product, or the sum of a compound quantity's parts, ``4 min 30 s``)
 ``IntOp``          an integer remainder or quotient, ``a mod b`` and ``a div b`` (written ``mod``, ``modulo``,
                    ``div``, ``//``, or ``%`` in Computer Science; STEM repair 2)
 ``PlusMinus``      ``±``/``∓`` inside a formula (binary, or unary when ``left`` is None)
@@ -530,7 +530,7 @@ def _render(node: Node, canonical: bool, level: int) -> str:
     if isinstance(node, BinOp):
         sym = node.op if canonical or not node.written else node.written
         if not canonical and node.implicit:
-            sym = "·"
+            sym = "·" if node.op == "*" else "+"  # juxtaposed parts of a compound quantity ('4 min 30 s') are a sum
         left, right = r(node.left), r(node.right)
         if isinstance(node.left, IntOp):
             left = f"({left})"
@@ -543,7 +543,7 @@ def _render(node: Node, canonical: bool, level: int) -> str:
             right = f"({right})"
         if isinstance(node.right, (Neg, PlusMinus)):
             right = f"({right})"
-        return f"{left} {sym} {right}" if canonical or not node.implicit else f"{left}·{right}"
+        return f"{left} {sym} {right}" if canonical or not node.implicit or node.op != "*" else f"{left}·{right}"
     if isinstance(node, PlusMinus):
         if node.left is None:
             return f"{node.sign}{r(node.right)}"

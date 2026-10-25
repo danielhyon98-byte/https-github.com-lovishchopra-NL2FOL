@@ -716,12 +716,17 @@ def _identity_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, st
     plan = ctx.view.plan_at(t.seq)
     if plan is not None:
         expected += check_report_against_plan(plan, rep)
-    report_docs = {d.document_id for d in rep.supplied_texts}
-    req_docs = {d.document_id for d in req.supplied_texts}
-    if req_docs and report_docs and not report_docs <= req_docs:
+    # The channel's rule (``TranslatorChannel._supplied_text_mismatch``), re-derived here on its own: a report text whose
+    # document id the journaled request did not send (also when it sent none), or whose text differs from the one sent
+    # under that id (SHA-256 of the text), is INT-REQ-002 (error, blocking); quotations are checked against the router's
+    # texts only.
+    from ...translate.contracts import sha256_text
+    req_texts = {d.document_id: sha256_text(d.text) for d in req.supplied_texts}
+    bad = sorted({d.document_id for d in rep.supplied_texts if req_texts.get(d.document_id) != sha256_text(d.text)})
+    if bad:
         how = _present(rc.findings, "INT-REQ-002", "error")
         if how:
-            out.append(("INT-REQ-002", how, f"the report supplies texts {sorted(report_docs - req_docs)[:8]} that the journaled request did not"))
+            out.append(("INT-REQ-002", how, f"the report supplies texts {bad[:8]} the journaled request did not send, or changed"))
     seen: set[tuple[str, str]] = set()
     for f in expected:
         if (f.code, f.severity) in seen:

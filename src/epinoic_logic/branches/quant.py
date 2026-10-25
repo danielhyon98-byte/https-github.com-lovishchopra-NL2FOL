@@ -75,7 +75,12 @@ such as ``1923-24``, or a circa before the year: ``by about 1700``, ``in c. 1700
   a signed change (``changed by −6 per 1,000``, ``a change of −6``; an ASCII or Unicode minus); a share
   written ``356 of the 535 seats, about three-quarters``;
 * a worked equation (``$6,000 ÷ $2.00 = 3,000 loaves``, :func:`worked_equations`) is written arithmetic
-  this reader does not decide: it is returned undecided with that reason, never skipped.
+  this reader does not decide: it is returned undecided with that reason, never skipped (the Economics, Business Management and
+  generic packs decide the ones ``branches.worked`` reads, and the core pack then does not name them);
+* a figure in scientific notation (``from 500 tonnes to 2.5e3 tonnes``, ``to 2.5 × 10³ tonnes``, ``from 5 to 1e9``) is read whole
+  as a figure of a pair, a list, a continuation, a dated figure, a difference or an absolute change (the STEM number reader gives
+  its exact value), and no reader takes the mantissa alone or starts a figure at the exponent (``1e100``, ``2.5e−3``, ``× 10⁴``
+  are read by none).
 
 Relations stated across sentences: a derived figure whose clause states no pair (``The
 annual average grew by roughly 60 per cent that year``, ``The 1840s ... added roughly 4,500
@@ -135,12 +140,14 @@ the reading described above, byte for byte; every non-STEM branch uses it.
   finding's paragraph and sentence numbers are the STEM claim's ``s<paragraph>.<n>``;
 * the relations read are those of pairs and their derived figures (per cent, point, fraction
   and fold changes), the paragraph's dated series (across sentences, 'rose in each year', 'the
-  greatest rise'), shares and totals. The general reading's other prose readers (absolute changes
-  and average rates, multiples such as 'six times', parts of a total, differences between
-  parties, stated lengths of years, rate trends, comparisons with a benchmark, a pair's direction
-  word, 'more than any other decade', worked equations) read their figures with the general
-  reading's scale words ('m' is million there), so they do not run in the SI reading; an
-  approach qualifier ('nearly', 'just over') is read with the symmetric band.
+  greatest rise'), shares and totals, and a pair's direction word with its figures in SI units
+  (``rises from 4.0 Ω to 2.4 Ω`` is a COUNTEREXAMPLE, ``decreases from 5.0 kΩ to 500 Ω`` holds), except
+  a verb of motion over lengths (``the ball falls from 0 m to 20 m``: a position, not a change). The
+  general reading's other prose readers (absolute changes and average rates, multiples such as 'six
+  times', parts of a total, differences between parties, stated lengths of years, rate trends,
+  comparisons with a benchmark, 'more than any other decade', worked equations) read their figures
+  with the general reading's scale words ('m' is million there), so they do not run in the SI reading;
+  an approach qualifier ('nearly', 'just over') is read with the symmetric band.
 """
 from __future__ import annotations
 
@@ -166,10 +173,15 @@ _WORD_VALUES = {w: i for i, w in enumerate(_SMALL_WORDS, start=1)} | {w: 10 * (i
 _WNUM_TOKEN = "|".join(sorted((*_SMALL_WORDS, *_TENS_WORDS), key=len, reverse=True))  # longest first: 'sixty' before 'six'
 #: A number in words below a thousand: 'forty-five', 'two hundred and sixty'. Scale words (thousand, million, ...) are units.
 _WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred))*(?![a-z])"
+#: A power of ten written after a mantissa ('2.5e3', '2.5 × 10³', '3.0 x 10^8', '1.2*10**6') or a superscript power ('10³'): a figure
+#: is never read as the mantissa alone (2.5 for 2,500), and never starts at the exponent.
+_SCI_TAIL = r"(?:[eE][-+−]?\d|\s?[×xX*·]\s?10(?:\^|\*\*|[⁻⁰¹²³⁴⁵⁶⁷⁸⁹])|[⁻⁰¹²³⁴⁵⁶⁷⁸⁹])"
+_NOT_EXPONENT = r"(?<!\d[eE])(?<!\d[eE][-+−])(?<!\^)(?<!\^[-−{(])(?<!\^\{[-−])(?<!\*\*)(?<!\*\*[-−])"
 #: Digits: thousands groups (with an optional decimal part), a plain decimal, or a decimal comma ('1,9': one or two digits after it).
 #: A figure never starts inside another ('1234,567' is not '4,567'; '4.03' is not '03'): besides reading what was written, the
-#: guard keeps every pattern linear on a long run of digits, since no match is attempted from each digit of the run.
-_DIGITS = r"(?<!\d)(?<!\d[.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\d+,\d{1,2})"
+#: guard keeps every pattern linear on a long run of digits, since no match is attempted from each digit of the run. A figure with a
+#: power of ten after it (:data:`_SCI_TAIL`) is not these digits: only the pair figures read it whole (:data:`_FIG_NUMX`).
+_DIGITS = rf"(?<!\d)(?<!\d[.,]){_NOT_EXPONENT}(?:\d{{1,3}}(?:,\d{{3}})+(?:\.\d+)?|\d+(?:\.\d+)?|\d+,\d{{1,2}})(?!{_SCI_TAIL})"
 #: A currency sign before a figure ('$4.03', '£600 million', 'US$13 billion'): carried with the figure as its unit of account, so a
 #: figure in dollars is compared only with a figure in dollars.
 _CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
@@ -178,6 +190,9 @@ _CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
 MAX_FIGURE_DIGITS = 1000
 _NUM = rf"({_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
 _NUMX = rf"(?:{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
+#: A figure of a pair, a list, a continuation, a dated figure or a difference: digits, words, or scientific notation read whole
+#: ('from 500 tonnes to 2.5e3 tonnes', 'to 2.5 × 10³ tonnes', 'from 5 to 1e9'; the STEM number reader gives its exact value).
+_FIG_NUMX = rf"(?:(?<!\d)(?<!\d[.,]){_NOT_EXPONENT}(?:{si_digits_pattern()})|{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
 _AMOUNT = rf"([-+−]?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"  # a derived figure may carry a sign (ASCII or Unicode minus)
 _PCT_UNIT = r"(?:per cent|percent(?!age)|%)"  # 'percentage points' is a difference, not a per-cent unit
 _RATE_UNIT = r"per (?:thousand|1,?000|10,?000|100,?000|million|head|capita)"
@@ -203,7 +218,7 @@ _DATE_BODY = (rf"\s+(?:(?:in|by|of|on|at|during|for)\s+(?:(?:about|around|approx
 _DATE = rf"(?:{_DATE_BODY})?"
 
 
-def _fig(i: int, *, dated: bool = False, numx: str = _NUMX, unit_words: str = _UNIT_WORDS) -> str:
+def _fig(i: int, *, dated: bool = False, numx: str = _FIG_NUMX, unit_words: str = _UNIT_WORDS) -> str:
     """One figure of a pair, with named groups ``q<i>`` (qualifier), ``c<i>`` (currency sign), ``n<i>`` (number), ``u<i>`` (unit),
     ``noun<i>`` and ``d<i>`` (date). ``numx`` and ``unit_words`` default to the general reading's; the SI reading passes its own."""
     date = _DATE_BODY if dated else _DATE
@@ -261,7 +276,7 @@ _TIMES_RE = re.compile(
     r"(?=as\b|its\b|their\b|his\b|her\b|the\b|that\b|what\b|over\b|larger\b|greater\b|bigger\b|higher\b|longer\b|more\b)", re.IGNORECASE)
 #: The amount of an absolute change: a figure with an optional scale or count unit and a noun ('roughly 4,500 miles', '2.9 million
 #: tonnes'), never a per-cent, point, fraction, fold or multiple (those are the relative readings above).
-_ABS_AMOUNT = (rf"(?:(?P<q>{_QUAL})\s+)?(?P<cur>{_CUR})?\s?(?P<n>{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
+_ABS_AMOUNT = (rf"(?:(?P<q>{_QUAL})\s+)?(?P<cur>{_CUR})?\s?(?P<n>{_FIG_NUMX})"
                r"(?!\s*(?:per\s*cent|percent|%|percentage|points?\b|times\b|-?fold\b)|[\s-]+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b)"
                rf"(?:\s*(?P<u>{_SCALE_UNIT}|seats|votes)\b)?(?P<noun>{_NOUN})")
 _RATE_TAIL = r"\s+(?:a|an|per|each|every)\s+(?P<per>year|annum|decade|month)\b|\s+(?P<annually>annually|yearly)\b"
@@ -275,7 +290,7 @@ _ABS_CHANGE_RES = (
     # 'changed by −6 per 1,000', 'a change of -$34.50 million': a sign states the direction (minus a fall, plus a rise); an unsigned amount
     # takes the direction of its figures
     re.compile(rf"\b(?P<dir>(?:an?\s+)?(?:net\s+|overall\s+|total\s+)?change\s+of|changed\s+by)\s+(?:(?P<q>{_QUAL})\s+)?(?P<sign>[-+−])?\s?(?P<cur>{_CUR})?\s?"
-               rf"(?P<n>{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
+               rf"(?P<n>{_FIG_NUMX})"
                r"(?!\s*(?:per\s*cent|percent|%|percentage|points?\b|times\b|-?fold\b)|[\s-]+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b)"
                rf"(?:\s*(?P<u>{_SCALE_UNIT}|seats|votes)\b)?(?P<noun>{_NOUN})(?:{_RATE_TAIL})?", re.IGNORECASE),
 )
@@ -454,6 +469,10 @@ def _words_value(words: str) -> Fraction:
     return Fraction(total)
 
 
+#: A figure written in scientific notation (an e-form, a times sign before a power of ten, a superscript exponent).
+_SCI_NUM_RE = re.compile(r"\d[eE][-+]?\d|\d\s?[×xX*·]\s?10|\d\^|\d\*\*|\d[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]")
+
+
 class FigureTooLarge(ValueError):
     """A figure of more than :data:`MAX_FIGURE_DIGITS` digits: the statement that holds it is reported undecided."""
 
@@ -467,6 +486,11 @@ def _number(num: str) -> Fraction:
     if sum(ch.isdigit() for ch in num) > MAX_FIGURE_DIGITS:
         raise FigureTooLarge(f"figure of {sum(ch.isdigit() for ch in num)} digits")
     s = num.strip().replace("−", "-").lstrip("+")
+    if _SCI_NUM_RE.search(s):
+        v = si_number(s)  # scientific notation read whole ('2.5e3', '2.5 × 10³'), exactly, by the STEM number reader
+        if v is None:
+            raise FigureTooLarge(f"figure {s[:40]!r} outside the number reader's bounds")
+        return v
     if re.fullmatch(r"-?\d+,\d{1,2}", s):
         return Fraction(s.replace(",", "."))  # '1,9': a decimal comma, never a thousands group
     if re.fullmatch(r"-?[\d,.]+", s):
@@ -1381,6 +1405,22 @@ def _elliptical(gap: str) -> bool:
         return False
     words = m.group(1).split()
     return 0 < len(words) <= 3 and not any(w.lower().endswith(("ed", "ing")) for w in words)
+
+
+#: Direction words that are also verbs of motion: over lengths in the SI reading they may describe a position ('the ball falls from 0 m
+#: to 20 m' below its start), so a pair of lengths they govern is not read as a change of a quantity.
+_MOTION_WORDS = frozenset("rose rising risen rises fell falling fallen falls dropped dropping drops climbed climbing climbs sank sinking jumped jumping "
+                          "soared soaring raised raising lowered lowering".split()) | {"went up", "went down"}
+
+
+def _si_length_pair(pair: "_Pair", profile: str) -> bool:
+    """SI reading: a figure of the pair carries a unit of length."""
+    for fig in (pair.before, pair.last):
+        if fig.unit:
+            su = si_unit(fig.unit, profile)
+            if su is not None and su.dimension == "length":
+                return True
+    return False
 
 
 def _direction_spec(values: _Values, word: str, statement: str) -> _Spec:
@@ -2497,7 +2537,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                     # a pair governed by a direction word and no stated change ('pig iron rising from X to Y'): the direction is checked
                     prev_dir: Optional[str] = None
                     prev_end = 0
-                    for p, (seg_start, seg_end) in (zip(pairs, segments) if not si_mode else ()):  # the SI reading reads no direction word
+                    for p, (seg_start, seg_end) in zip(pairs, segments):  # the SI reading reads the figures in SI units ('from 4.0 Ω to 2.4 Ω')
                         head = clause[prev_end: p.start]
                         inner = clause[p.start: p.after.start]   # 'before climbing to' for a continuation; 'from X to' for a from/to pair
                         prev_end = p.end
@@ -2512,7 +2552,9 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                             continue
                         if not re.search(r"\bto\b", clause[p.before.start: p.after.start], re.IGNORECASE):
                             continue  # 'from 2.6 per cent and twelve seats': two figures of one date, not a change from one to the other
-                        values, why = _values(p.before, p.last)
+                        if si_mode and word in _MOTION_WORDS and _si_length_pair(p, reading.profile):
+                            continue  # 'the ball falls from 0 m to 20 m': a verb of motion over positions, not a change of a quantity
+                        values, why = _si_values(p.before, p.last, reading.profile) if si_mode else _values(p.before, p.last)
                         if values is None:
                             continue  # a year span, or units that cannot be compared (a misread pair): no direction is stated between them
                         statement = clause.strip() if len(pairs) == 1 else clause[seg_start:seg_end].strip(" ,;")

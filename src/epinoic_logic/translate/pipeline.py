@@ -136,6 +136,129 @@ logger = logging.getLogger(__name__)
 REQUIRED_OUTPUT_KEYS: tuple[str, ...] = ("problem", "interpretation", "ambiguous", "unsupported_reason")
 _MAX_DIAGNOSTIC_CHARS = 500
 #: An ambiguity flag's statement that a figure is encoded as stated ("literal equality to 15 is encoded").
+#: The translation's own reading says part of the claim is left out of the encoding ("The 'likely cause' is an
+#: interpretation and is not encoded", "Not encoded: ..."). Read only to withhold a verdict, never to give one.
+_NOT_ENCODED_RE = re.compile(r"\b(?:not|never)\s+(?:been\s+)?encoded\b|\bunencoded\b|\bleft\s+out\s+of\s+the\s+encoding\b", re.IGNORECASE)
+
+
+def _all_literal_values(problem: Problem) -> list[Fraction]:
+    """Every numeric literal of the problem's premises and conclusion (trivial ones included: "about 100%" is the literal 1)."""
+    out: list[Fraction] = []
+    stack = [a.expr for a in [*problem.premises, *([problem.conclusion] if problem.conclusion is not None else [])]]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op in ("int", "real"):
+            try:
+                out.append(Fraction(node.value))  # type: ignore[attr-defined]
+            except (ValueError, ZeroDivisionError):
+                pass
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(node, "args", None) or ())
+    return out
+
+
+#: Where a claim joins two statements ("Your -1 is right, but the count is 3"; "...: steps rises by one"; "; so").
+_CLAUSE_JOIN_RE = re.compile(r",\s+but\s+|;\s+|:\s+|,\s+so\s+", re.IGNORECASE)
+
+
+def _conclusion_holds(problem: Problem, f) -> bool:
+    """Whether the problem's conclusion checks the figure ``f``: a literal of the conclusion encodes it (typed) or an
+    interval of the conclusion holds it."""
+    from .precision import collect_sites
+    from .quantities import literal_matches
+    if problem.conclusion is None:
+        return False
+    only = problem.model_copy(update={"premises": []})
+    if any(literal_matches(v, [f])[0] for v in _all_literal_values(only)):
+        return True
+    candidates = {f.value, f.value * f.scale} | ({f.value * f.scale * f.unit_factor} if f.unit_factor else set())
+    return any(site.in_conclusion and site.kind == "interval" and site.lo is not None and site.hi is not None and site.lo <= c <= site.hi
+               for site in collect_sites(problem) for c in candidates)
+
+
+def unchecked_clauses(problem: Problem, claim: ClaimRecord) -> list[str]:
+    """The clauses of a claim that joins several statements (", but", ";", ":", ", so") whose figures the conclusion checks
+    none of, while it checks a figure of another clause: the verdict concerns part of the claim only (a note for the
+    reader; the status is decided by :func:`partial_encoding`). Clauses without figures in digits are not read."""
+    from .quantities import figures_in, is_year_like
+    if problem.conclusion is None:
+        return []
+    text = claim.claim_text
+    bounds = [0, *[m.end() for m in _CLAUSE_JOIN_RE.finditer(text)], len(text)]
+    if len(bounds) <= 2:
+        return []
+    figures = [f for f in figures_in(SourceText("claim", claim.claim_id, text)) if not f.word and not is_year_like(f) and not _is_code_numeral(f, text)]
+    covered: list[bool] = []
+    shown: list[str] = []
+    for a, b in zip(bounds, bounds[1:]):
+        mine = [f for f in figures if a <= f.start < b]
+        if not mine:
+            continue
+        covered.append(any(_conclusion_holds(problem, f) for f in mine))
+        shown.append(truncate(text[a:b].strip(" ,;:"), 120))
+    if not any(covered):
+        return []
+    return [c for c, ok in zip(shown, covered) if not ok]
+
+
+def _is_code_numeral(f, text: str) -> bool:
+    """A numeral that names a code or a based number rather than a quantity: written with a leading zero ("0110"), or
+    followed by a subscript base ("1101₂") or written in a run of bit groups ("0110 1101")."""
+    numeral = (f.numeral or "").lstrip("-")
+    if len(numeral) > 1 and numeral.startswith("0") and not f.has_point:
+        return True
+    after = text[f.end:f.end + 1]
+    return bool(after) and "\u2080" <= after <= "\u2089"
+
+
+def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
+    """The figures the claim states in digits that no literal of the problem encodes, in any typed form ("20%" as 0.2),
+    and no interval of the problem holds (years, which date a quantity rather than state one, and code numerals apart).
+    A note for the reader: a figure may count something else ("I checked 3 values"), so it never decides the status."""
+    from .precision import collect_sites
+    from .quantities import figures_in, is_year_like, literal_matches
+    literals = _all_literal_values(problem)
+    intervals = [(site.lo, site.hi) for site in collect_sites(problem) if site.kind == "interval" and site.lo is not None and site.hi is not None]
+    text = claim.claim_text
+    missing: list[str] = []
+    for f in figures_in(SourceText("claim", claim.claim_id, text)):
+        if f.word or is_year_like(f) or _is_code_numeral(f, text):
+            continue
+        if any(literal_matches(v, [f])[0] for v in literals):
+            continue
+        candidates = {f.value, f.value * f.scale}
+        if f.unit_factor:
+            candidates.add(f.value * f.scale * f.unit_factor)
+        if any(lo <= c <= hi for c in candidates for lo, hi in intervals):
+            continue
+        missing.append(repr(f.written))
+    return list(dict.fromkeys(missing))
+
+
+def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optional[Interpretation]) -> Optional[AmbiguityFlag]:
+    """The ``partial_encoding`` flag when the translation's own reading says part of the claim is not encoded ("The
+    'likely cause' is an interpretation and is not encoded"): the encoding covers only part of the claim, so the outcome
+    is AMBIGUOUS_TRANSLATION, never a verdict on the whole claim (deterministic; the reading is read only to withhold a
+    verdict, never to give one). The figures the claim states and no literal encodes are named with it when there are
+    any. None otherwise."""
+    reading = interpretation.reading if interpretation is not None else ""
+    m = _NOT_ENCODED_RE.search(reading or "")
+    if m is None:
+        return None
+    a = max(0, m.start() - 120)
+    parts = [f"the translation's own reading says part of the claim is not encoded ({truncate(reading[a:m.end() + 40].strip(), 240)!r})"]
+    missing = unencoded_claim_figures(problem, claim)
+    if missing:
+        parts.append(f"the claim states figure(s) {', '.join(missing[:8])} that no literal of the problem encodes")
+    return AmbiguityFlag(code="partial_encoding", message=truncate("the encoding covers only part of the claim: " + "; ".join(parts)
+                                                                 + ", so its verdict is no verdict on the claim as a whole", 2000))
+
+
 _ENCODED_CLAIM_RE = re.compile(r"\b(?:literal\s+)?equalit(?:y|ies)\b[^.;]*\b(?:is|are)\s+encoded\b|\bencoded\s+as\s+(?:a\s+)?literal\s+equalit", re.IGNORECASE)
 _MAX_SCHEMA_ERRORS = 12
 
@@ -625,6 +748,19 @@ class Translator:
         if decision.ambiguity is not None:
             interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, decision.ambiguity]})
             notes.append(truncate(f"stated precision unresolved: {decision.ambiguity.message}", _MAX_DIAGNOSTIC_CHARS * 2))
+        partial = partial_encoding(grounded, claim, interpretation)
+        if partial is not None:
+            interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, partial]})
+            notes.append(truncate(f"partial encoding: {partial.message}", _MAX_DIAGNOSTIC_CHARS * 2))
+        if partial is None:
+            unencoded = unencoded_claim_figures(grounded, claim)
+            if unencoded:
+                notes.append(truncate(f"part of the claim only: the claim states figure(s) {', '.join(unencoded[:8])} that no literal of the problem "
+                                      "encodes (a figure may count something else; if it states part of the claim, the verdict does not cover it)", _MAX_DIAGNOSTIC_CHARS * 2))
+        unchecked = unchecked_clauses(grounded, claim)
+        if unchecked:
+            notes.append(truncate("part of the claim only: the conclusion checks no figure of the clause(s) " + "; ".join(repr(c) for c in unchecked[:4])
+                                  + ", while it checks another clause of the claim: the verdict concerns the clauses it checks", _MAX_DIAGNOSTIC_CHARS * 2))
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")

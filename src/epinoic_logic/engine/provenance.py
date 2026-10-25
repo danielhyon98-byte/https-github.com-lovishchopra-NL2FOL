@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from typing import Optional
 
 import z3
@@ -153,6 +154,19 @@ def signable_text(result: VerificationResult) -> str:
     return canonical_json(data)
 
 
+#: An HMAC-SHA256 signature as the engine writes it: 64 lowercase hexadecimal characters.
+_SIGNATURE_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def signature_matches(expected: str, given) -> bool:
+    """Constant-time comparison of a computed signature with a given one, total on untrusted input: a value that is not
+    64 lowercase hex characters (any other type, another length, a non-ASCII or surrogate character) never matches and
+    never raises (``hmac.compare_digest`` refuses non-ASCII text, so both sides are compared as ASCII bytes)."""
+    if not isinstance(given, str) or not _SIGNATURE_RE.fullmatch(given) or not isinstance(expected, str) or not expected.isascii():
+        return False
+    return hmac.compare_digest(expected.encode("ascii"), given.encode("ascii"))
+
+
 def sign_result(result: VerificationResult, key: bytes, key_id: str) -> VerificationResult:
     if not key:
         raise ValueError("signing key must not be empty")
@@ -161,7 +175,14 @@ def sign_result(result: VerificationResult, key: bytes, key_id: str) -> Verifica
 
 
 def verify_signature(result: VerificationResult, key: bytes) -> bool:
+    """True exactly when ``result`` carries the signature ``key`` gives its canonical text. Never raises: a forged
+    signature of any form is False, and so is a result whose text is not valid Unicode (no result the engine signs holds
+    a lone surrogate, so none can carry a genuine signature)."""
     if not result.signature or not key:
         return False
-    expected = hmac.new(key, signable_text(result).encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, result.signature)
+    try:
+        text = signable_text(result).encode("utf-8")
+    except (UnicodeEncodeError, TypeError, ValueError):
+        return False
+    expected = hmac.new(key, text, hashlib.sha256).hexdigest()
+    return signature_matches(expected, result.signature)

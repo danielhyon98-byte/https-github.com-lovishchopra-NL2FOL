@@ -228,7 +228,10 @@ harness rates of the second layer have not dropped.
    self-certification, wrong arithmetic and a wrong chronology. A fault counts as caught only
    when a finding of the expected code names the injected claim or quotes the injected
    words. Each round also includes a peer exchange: one specialist's delivered report is
-   forwarded by the router to the other specialist, who quotes it.
+   forwarded by the router to the other specialist, who quotes it. That specialist reads only
+   the delivered report, its document id and the relay status (`relayed/<task>.json`), never
+   the hub's receipt of it, which stays in the router's record (`router/<task>.json`); the
+   regression tests are in `scripts/arena/test_arena_rules.py`.
 
    Three independent overseer agents then judge the round:
    - **Results audit** checks every receipt against its input.
@@ -1001,3 +1004,15 @@ Work in progress after it is labelled as such.
 - Phase 2's merge of the overseer rebuild: suite on the merge 2271 passed in the overseer tests and 8243 passed elsewhere,
   0 failed; the contained overseer run passed 12 of its 13 gates, and the merge is being corrected for the remaining one
   (named STEM fault classes) and re-run before the independent verification.
+
+### Progress, 14:00 UTC (25 October)
+
+- The overseer rebuild is merged into the translator: suite on the merge 10503 passed, 0 failed; arena rounds r1 to r7
+  at their recorded counts; the contained overseer run passed every gate.
+- Argument diagnostics: two accuracy rounds are done and committed on their own branch. Suite 9191 passed; arena rounds
+  unchanged; development corpus 44/44 defects named and 57/57 controls clean, hold-out corpus 64/66 named and 68/68
+  controls clean. Known defects are listed in the commit and in docs/ARGUMENT_DIAGNOSTICS.md.
+- The round 7 handoff findings are fixed on the merged tree: 5 blocking and 11 major findings; the minor findings are
+  left as known defects and listed in the commit. Suite 10855 passed, 0 failed; arena rounds r1 to r7 at their recorded
+  counts.
+- Next: the delivery rule, the argument-diagnostics merge, integration, the gate, then arena round 8.

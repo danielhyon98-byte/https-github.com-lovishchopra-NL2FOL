@@ -21,11 +21,16 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   colleague's from-memory label quoted by the writer is quotation and counts toward a word
   bound; a label word inside a substantive sentence, "recalls the scene from memory, which
   ...", "is illustrative of how ...", never makes it a note; a sentence opened by a note lead,
-  `NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "NB:", "Next step:", "Confidence:", is a note as a
-  whole on the English, History and generic branches and outside the channel's word and paragraph
-  counts, so hi-t13's closing "Note: Paper 2 essays are marked out of 15 ..." is no second body
-  paragraph and counts toward no bound, while "Note that ..." with no colon stays the argument's own
-  signpost), disclaimers told apart from
+  `NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "NB:", "Next step:", "Confidence:", "Limit:",
+  "Caveat:", is a note as a whole on the English, History and generic branches and outside the
+  channel's word and paragraph counts, so hi-t13's closing "Note: Paper 2 essays are marked out of 15
+  ..." is no second body paragraph and counts toward no bound, while "Note that ..." with no colon
+  stays the argument's own signpost and "Limitation:" an evaluation point; a paragraph opened by a
+  bare lead, `BARE_NOTE_LEAD_RE` / `opens_note_paragraph` ("Note:", "N.B.", "Next step:", "Limit:",
+  "Caveat:"; not "Note on ...:"), is a note as a whole on the generic branch as on the History
+  branch, and the generic branch also roles a caveat about the answer's own sources
+  (`history_specialist.parser.is_source_caveat`: "My sources do not confirm the exact total, ...")
+  as a note), disclaimers told apart from
   self-certifications (`is_self_certification`; a verification label, `verification_label`: "Verified: ...",
   "... (verified).", "[verified] ...", "..., as formally verified.", a sentence that is nothing but the label being
   a self-certification and a label on content leaving the content a claim; a positive check only, so "should be checked
@@ -125,7 +130,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   A quotation whose sentence credits a source that is not a supplied text while its words are a
   relayed colleague's own prose ("Hardy's speaker himself admits that ...", "The poem says ...")
   keeps the colleague's report as its source and records the credit as an assumption (`CORE-SRC-005`;
-  the channel's `INT-REQ-015`); `quotation_credit` names who a sentence credits a quotation to,
+  the channel's `INT-REQ-015`); `quotation_credit` names who a sentence credits a quotation to (a
+  possessive or a crediting verb after a named source, "according to", a possessive view with its
+  complement clause, "the Economics specialist's view that the company could '...'", unless the
+  clause names its own speaker, and a text named by kind: "the poem", "the speaker", and for any
+  supplied text "the leaflet", "the textbook", "the bread price table", "the case study", with up to
+  two lower-case words before the kind),
   `credited_agents` the specialists a text credits with a view, `peer_prose_span` whether an excerpt
   is a colleague's own prose rather than a quotation the colleague makes, and `is_peer_text` a
   relayed report.
@@ -133,7 +143,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   space ("history specialist"), and, when the id names a course or qualifier after the subject's
   first word, that word with "specialist" as well ("mathematics specialist" for
   `mathematics-aa-specialist`, the name the router's own hand-off gives the colleague), with
-  "maths specialist" and "math specialist" for Mathematics. `_names_of` and the English parser's
+  "maths specialist" and "math specialist" for Mathematics. A parenthesis closing an author's name is
+  a description, not a name ("Kestrelford Borough Council (a fictional council)" is named
+  "Kestrelford Borough Council" and "Council", "Ruth Ashdown (a fictional poet)" "Ashdown"). `_names_of` and the English parser's
   `documents_named`, which the History, STEM and generic parsers use, share it, so "The
   Mathematics specialist states that ..." credits the colleague's relayed report and a
   misquotation of it is refuted there (INT-REQ-003) rather than only reported unverifiable.

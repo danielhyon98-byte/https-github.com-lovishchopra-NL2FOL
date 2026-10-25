@@ -112,12 +112,21 @@ def _now() -> str:
 
 
 def _raw_digest(raw: Union[bytes, str, dict]) -> str:
-    if isinstance(raw, dict):
-        from ..ir.canonical import canonical_json
-        raw = canonical_json(raw)
-    if isinstance(raw, str):
-        raw = raw.encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
+    """The digest an unparsed payload is bound by. Total: a dict is digested as canonical JSON and text as UTF-8 (a lone
+    surrogate encoded with ``surrogatepass``); anything that has no such form (a list, ``None``, a number, a dict holding
+    a value JSON cannot represent, an integer over Python's conversion limit) is digested by its type name alone, so a
+    malformed payload is INVALID_FORMALIZATION (E100) with a binding, never an internal error."""
+    try:
+        if isinstance(raw, dict):
+            from ..ir.canonical import canonical_json
+            raw = canonical_json(raw)
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8", errors="surrogatepass")
+        if isinstance(raw, (bytes, bytearray)):
+            return hashlib.sha256(bytes(raw)).hexdigest()
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        pass
+    return hashlib.sha256(f"unrepresentable payload of type {type(raw).__name__}".encode("ascii", errors="replace")).hexdigest()
 
 
 def _status_for_compile_error(code: str) -> VerificationStatus:
@@ -231,9 +240,15 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
     premise_vars, concl_vars = _assertion_vars(problem)
     sorts = {sym.name: sym.sort for sym in problem.symbols}
     free = sorted(v for v in concl_vars - premise_vars if v in compiled.symbols)
-    # A Bool point no premise links to is the classic non sequitur: "the evidence holds and the point fails" is a verdict
-    # on the claim. A figure the conclusion compares that no premise states is not: any value refutes it.
-    if not free or not any(sorts.get(v) in _NUMERIC_SORTS for v in free):
+    if not free:
+        return None
+    # A Bool point no premise links to at all is the classic non sequitur: "the evidence holds and the point fails" is a
+    # verdict on the claim. A figure the conclusion compares that no premise states is not: any value refutes it. Between
+    # the two, a conclusion the premises reach in part whose counterexample falsifies only Bool atoms no premise mentions
+    # (one conjunct of "objective and narrow" linked to nothing) is a judgement the encoding left unlinked: the advisory
+    # W111 names it, and the counterexample stands (no coverage evidence is computed for an atom, so never E111).
+    bool_only = not any(sorts.get(v) in _NUMERIC_SORTS for v in free)
+    if bool_only and not (concl_vars & premise_vars):
         return None
     try:
         solver = z3.Solver(ctx=compiled.ctx)
@@ -250,6 +265,15 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
         return None
     model = proc.model or {}
     shown = ", ".join(f"{v}={model[v]}" for v in free if v in model) or ", ".join(free)
+    if bool_only:
+        return Diagnostic(
+            code=DiagnosticCode.UNENCODED_REASON_ADVISORY.value,
+            message=(f"coverage (advisory): judgement not linked: the counterexample falsifies the conclusion only through the atom(s) "
+                     f"{', '.join(free)}, which no premise mentions ({shown}), while the premises reach the rest of the conclusion; for every "
+                     "assignment of the premises some value of these atoms makes the conclusion true. The COUNTEREXAMPLE says only that "
+                     "nothing encoded supports them: if the claim states a reason for them, the translation left it out"),
+            path="conclusion",
+        )
     stated = source_stated_symbols(problem, free)
     if stated:
         return Diagnostic(
@@ -288,10 +312,93 @@ def _canonical(expr) -> str:
     return json.dumps(expr.model_dump(mode="json", exclude_none=True), sort_keys=True, separators=(",", ":"))
 
 
+_TRUE = {"op": "bool", "value": True}
+_FALSE = {"op": "bool", "value": False}
+_FLIPPED = {"gt": "lt", "ge": "le"}
+_COMMUTATIVE = frozenset({"and", "or", "add", "mul"})
+
+
+def _key(node: dict) -> str:
+    import json
+    return json.dumps(node, sort_keys=True, separators=(",", ":"))
+
+
+def _normal_form(node):
+    """An equivalent normal form of one IR expression (as JSON data) for the restatement comparison: the operands of
+    ``eq``, ``ne`` and ``iff`` in a fixed order, ``gt``/``ge`` written as ``lt``/``le`` with the operands swapped, nested
+    ``and``/``or``/``add``/``mul`` flattened and their operands sorted, a
+    double negation removed, ``X <-> true`` read as ``X`` and ``X <-> false`` as ``not X``, a conjunction of ``a <= b``
+    and ``b <= a`` read as ``a = b``, and an exact real numeral written in lowest terms (``41.0`` is ``41``). Every rewrite
+    preserves the meaning, so two formulas with one normal form are equivalent; the converse is not claimed. Data on
+    data: nothing is evaluated."""
+    from fractions import Fraction
+    if isinstance(node, list):
+        return [_normal_form(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    op = node.get("op")
+    if op == "real" and isinstance(node.get("value"), str):
+        try:
+            v = Fraction(node["value"])
+        except (ValueError, ZeroDivisionError):
+            return dict(node)
+        return {"op": "real", "value": str(v.numerator) if v.denominator == 1 else f"{v.numerator}/{v.denominator}"}
+    if op == "not":
+        arg = _normal_form(node["arg"])
+        if isinstance(arg, dict) and arg.get("op") == "not":
+            return arg["arg"]
+        if arg == _TRUE:
+            return dict(_FALSE)
+        if arg == _FALSE:
+            return dict(_TRUE)
+        return {"op": "not", "arg": arg}
+    if op in _FLIPPED:
+        return _normal_form({"op": _FLIPPED[op], "left": node["right"], "right": node["left"]})
+    if op in ("eq", "ne", "iff"):
+        left, right = _normal_form(node["left"]), _normal_form(node["right"])
+        if op == "iff":
+            for a, b in ((left, right), (right, left)):
+                if b == _TRUE:
+                    return a
+                if b == _FALSE:
+                    return _normal_form({"op": "not", "arg": a})
+        a, b = sorted((left, right), key=_key)
+        return {"op": op, "left": a, "right": b}
+    if op in _COMMUTATIVE:
+        args: list = []
+        for x in node.get("args", []):
+            x = _normal_form(x)
+            args.extend(x["args"] if isinstance(x, dict) and x.get("op") == op else [x])
+        if op == "and":
+            les = {(_key(x["left"]), _key(x["right"])): x for x in args if isinstance(x, dict) and x.get("op") == "le"}
+            paired = {k for k in les if (k[1], k[0]) in les}
+            if paired:
+                kept = [x for x in args if not (isinstance(x, dict) and x.get("op") == "le" and (_key(x["left"]), _key(x["right"])) in paired)]
+                for k in sorted(paired):
+                    if k[0] <= k[1]:
+                        kept.append(_normal_form({"op": "eq", "left": les[k]["left"], "right": les[k]["right"]}))
+                args = kept
+            args = [x for x in args if x != _TRUE] or [dict(_TRUE)]
+        if op == "or":
+            args = [x for x in args if x != _FALSE] or [dict(_FALSE)]
+        args = sorted(args, key=_key)
+        return args[0] if len(args) == 1 else {"op": op, "args": args}
+    return {k: (_normal_form(v) if k not in ("op", "name", "value") else v) for k, v in node.items()}
+
+
+def _normal_conjuncts(expr) -> list[str]:
+    """The keys of the "and" conjuncts of ``expr``'s normal form (:func:`_normal_form`)."""
+    norm = _normal_form(expr.model_dump(mode="json", exclude_none=True))
+    parts = norm["args"] if isinstance(norm, dict) and norm.get("op") == "and" else [norm]
+    return [_key(x) for x in parts]
+
+
 def circular_premises(problem: Problem, relied_on: Optional[list[str]] = None) -> list[str]:
     """The premises (among ``relied_on`` when given) that restate the conclusion: the conclusion, or each of its "and"
-    conjuncts, is syntactically one of these premises or one of their conjuncts. Empty when the conclusion is derived
-    from something else. Purely syntactic, no solver."""
+    conjuncts, is one of these premises or one of their conjuncts, as written or in an equivalent normal form
+    (:func:`_normal_form`: "41 = dt" restates "dt = 41", and so do "dt <= 41 and dt >= 41", "not not (a and b)" and
+    "(a and b) <-> true" for their conclusions). Empty when the conclusion is derived from something else. Syntactic, no
+    solver."""
     if problem.conclusion is None:
         return []
     pool = [pr for pr in problem.premises if relied_on is None or pr.id in relied_on]
@@ -303,9 +410,18 @@ def circular_premises(problem: Problem, relied_on: Optional[list[str]] = None) -
         for c in _conjuncts(pr.expr):
             owner.setdefault(_canonical(c), pr.id)
     needed = [_canonical(c) for c in _conjuncts(problem.conclusion.expr)]
-    if not needed or not all(n in owner for n in needed):
+    if needed and all(n in owner for n in needed):
+        return list(dict.fromkeys(owner[n] for n in needed))
+    normal_owner: dict[str, str] = {}
+    for pr in pool:
+        whole = _normal_form(pr.expr.model_dump(mode="json", exclude_none=True))
+        normal_owner.setdefault(_key(whole), pr.id)
+        for k in _normal_conjuncts(pr.expr):
+            normal_owner.setdefault(k, pr.id)
+    normal_needed = _normal_conjuncts(problem.conclusion.expr)
+    if not normal_needed or normal_needed == [_key(_TRUE)] or not all(n in normal_owner for n in normal_needed):
         return []
-    return list(dict.fromkeys(owner[n] for n in needed))
+    return list(dict.fromkeys(normal_owner[n] for n in normal_needed))
 
 
 def _circular_diagnostic(problem: Problem, proc: ProcedureOutcome) -> Optional[Diagnostic]:
@@ -588,7 +704,9 @@ def verify(
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
             figure_note = _unasserted_figure_diagnostic(problem, proc, config)
-            if figure_note is None:
+            # An advisory W110 leaves the counterexample standing, so the free-symbol probe still runs: a source-stated
+            # free symbol (E111) withholds the verdict whatever the definitions say. E110 already withholds it.
+            if figure_note is None or figure_note.code == DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value:
                 reason_note = _unencoded_reason_diagnostic(problem, proc, compiled, config)
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
@@ -609,7 +727,10 @@ def verify(
         vacuous = _vacuous_diagnostic(problem, proc, config)
         if vacuous is not None:
             diagnostics.append(vacuous)
-        if figure_note is not None:
+        # E110 and E111 (no verdict) take precedence over the advisories W110 and W111, which say the counterexample stands:
+        # an advisory is never recorded beside an error that withholds the same counterexample.
+        withheld = reason_note is not None and vacuous is None and reason_note.code == DiagnosticCode.UNENCODED_REASON.value
+        if figure_note is not None and not (withheld and figure_note.code == DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value):
             diagnostics.append(figure_note)
         if reason_note is not None and vacuous is None:
             diagnostics.append(reason_note)
