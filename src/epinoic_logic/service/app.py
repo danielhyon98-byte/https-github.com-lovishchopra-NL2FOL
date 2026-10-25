@@ -61,6 +61,24 @@ nonlinear terms), as the cross-agent joint checks run. The same problem therefor
 decision over HTTP as in the pipeline. Authentication, the rate limit, the body-size limit (which,
 not the policy, bounds how large a problem can be sent), the per-call timeout and the concurrency
 limit apply under every policy, and an unknown name is refused before anything is run.
+
+Hardening (review round 8):
+
+* a body holding a lone surrogate (a ``\\ud800`` escape: valid JSON, not Unicode text) is refused
+  as 400 ``E100`` on every route, before any model sees it, so no later encoding can fail as a 500;
+* ``config`` and the outcome route's ``report`` are validated strictly (``true`` is no timeout, ``"100"`` no
+  integer, ``"yes"`` no boolean: 400 ``E100``), and
+  ``config.model_completion`` is server-controlled like ``memory_max_mb`` (400 ``E100``): the engine
+  always completes models, so a counterexample's values are always literals;
+* ``POST /v1/outcomes`` takes the client's ``fixture_responses`` only when the service allows it
+  (``ServiceSettings.allow_client_fixtures``, off by default): otherwise 403 ``E506`` before the
+  body is read, since the client would act as the translation provider;
+* ``adapter_id`` is looked up in a closed allowlist built when the app is created from the
+  registered adapters: an unknown, overlong or ill-formed id is refused and no module is imported;
+* every logged field passes :func:`_log_safe` (a filter on each logger of :data:`SAFE_LOGGERS`, the
+  service's and the translation pipeline's): C0 and C1 controls, line separators, lone surrogates and
+  the backslash are escaped and each field is cut to 128 characters, so a claim id cannot forge a log
+  line.
 """
 from __future__ import annotations
 
@@ -83,7 +101,7 @@ from pydantic import ValidationError
 
 from ..engine.errors import DiagnosticCode
 from ..engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
-from ..engine.provenance import compute_versions, verify_signature, z3_version
+from ..engine.provenance import FORM_BOUND, FORM_LEGACY, compute_versions, signature_form, z3_version
 from ..engine.release import release_check
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
@@ -93,6 +111,8 @@ from ..version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VER
 from .settings import ServiceSettings
 
 __all__ = [
+    "LOG_FIELD_MAX_CHARS",
+    "SAFE_LOGGERS",
     "REQUEST_ID_HEADER",
     "SELF_CERTIFICATION_KEYS",
     "SERVER_CONTROLLED_CONFIG_KEYS",
@@ -102,18 +122,75 @@ __all__ = [
     "create_app",
 ]
 
+#: Each logged field is cut to this many characters (:func:`_log_safe`).
+LOG_FIELD_MAX_CHARS = 128
 log = logging.getLogger("epinoic_logic.service")
 
+
+def _log_safe(value: Any, limit: int = LOG_FIELD_MAX_CHARS) -> str:
+    """``value`` as one safe log field: every C0 and C1 control character, the line and paragraph separators, a lone
+    surrogate and the backslash are escaped (``\\n``, ``\\x1b``, ``\\u2028``, ``\\\\``), and the field is cut to ``limit``
+    characters of the original (the cut is marked). A logged claim id or path can then never start a new log line or
+    imitate a field of another one."""
+    text = value if isinstance(value, str) else str(value)
+    head = text[:limit]
+    out: list[str] = []
+    for ch in head:
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif o < 0x20 or 0x7F <= o <= 0x9F:
+            out.append(f"\\x{o:02x}")
+        elif o in (0x2028, 0x2029) or 0xD800 <= o <= 0xDFFF:
+            out.append(f"\\u{o:04x}")
+        else:
+            out.append(ch)
+    safe = "".join(out)
+    return safe if len(text) <= limit else f"{safe}...(+{len(text) - limit} chars)"
+
+
+class _SafeFields(logging.Filter):
+    """Pass every argument of a service log record through :func:`_log_safe` (numbers stay numbers, for ``%d``)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(a if isinstance(a, (int, float)) else _log_safe(a) for a in args)
+        elif isinstance(args, Mapping):
+            record.args = {k: (a if isinstance(a, (int, float)) else _log_safe(a)) for k, a in args.items()}
+        return True
+
+
+#: Every logger of the package that logs a value taken from a request: the service's own and the translation pipeline's
+#: (``translation <id> claim=<claim id> ...``, reached through ``POST /v1/outcomes``). A logger's filter applies to the records
+#: logged through it, so each one carries the filter itself; ``logging.getLogger`` returns the same logger object the
+#: pipeline module creates on import.
+SAFE_LOGGERS: tuple[str, ...] = ("epinoic_logic.service", "epinoic_logic.translate.pipeline")
+for _name in SAFE_LOGGERS:
+    _logger = logging.getLogger(_name)
+    if not any(isinstance(f, _SafeFields) for f in _logger.filters):
+        _logger.addFilter(_SafeFields())
+
 REQUEST_ID_HEADER = "X-Request-Id"
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")  # applied with fullmatch: a trailing newline is no part of an id
+#: The form an ``adapter_id`` must have before the allowlist is even consulted.
+_ADAPTER_ID_RE = re.compile(r"[a-z0-9_.-]{1,64}")
 
 #: Keys a client might use to assert a verification verdict about its own payload.
 #: They are refused outright (400 ``E505``): status comes only from the engine.
 SELF_CERTIFICATION_KEYS: frozenset[str] = frozenset({
     "advisory_verification_status", "verified", "self_certified", "status",
 })
-#: Solver options a client may not set: process-global, so one request could affect every other.
-SERVER_CONTROLLED_CONFIG_KEYS: frozenset[str] = frozenset({"memory_max_mb"})
+#: Solver options a client may not set: ``memory_max_mb`` is process-global, so one request could affect every other;
+#: ``model_completion`` would let a client obtain signed counterexamples whose values are symbol names, not literals
+#: (the engine always completes models, so the option has no effect on evidence and is not the client's to send).
+SERVER_CONTROLLED_CONFIG_KEYS: frozenset[str] = frozenset({"memory_max_mb", "model_completion"})
 _VERIFY_ENVELOPE_KEYS = frozenset({"problem", "config", "policy"})
 _SIGNATURE_ENVELOPE_KEYS = frozenset({"result"})
 _RELEASE_ENVELOPE_KEYS = frozenset({"result", "problem", "policy"})
@@ -181,7 +258,7 @@ class RequestIdMiddleware:
             await self.app(scope, receive, send)
             return
         incoming = _header(scope, REQUEST_ID_HEADER.lower())
-        request_id = incoming if incoming and _REQUEST_ID_RE.match(incoming) else uuid.uuid4().hex
+        request_id = incoming if incoming and _REQUEST_ID_RE.fullmatch(incoming) else uuid.uuid4().hex
         scope.setdefault("state", {})["request_id"] = request_id
 
         async def send_with_id(message: dict[str, Any]) -> None:
@@ -277,6 +354,8 @@ def _parse_envelope(body: bytes, allowed_keys: frozenset[str], required_keys: fr
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body is not valid JSON (or repeats a key)") from None
     if not isinstance(obj, dict):
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body must be a JSON object")
+    if _holds_lone_surrogate(obj):
+        raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "request body holds a lone surrogate escape: it is not valid Unicode text")
     _reject_self_certification(obj, "request body")
     unknown = sorted(set(obj) - allowed_keys)
     if unknown:
@@ -285,6 +364,27 @@ def _parse_envelope(body: bytes, allowed_keys: frozenset[str], required_keys: fr
     if missing:
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"missing key(s) in request body: {', '.join(missing)}")
     return obj
+
+
+def _holds_lone_surrogate(obj: Any) -> bool:
+    """Whether any key or string value of the parsed body holds a lone surrogate (JSON accepts ``"\\ud800"``; Unicode text
+    cannot hold it, and every later UTF-8 encoding of it would raise). An iterative walk, bounded by the parsed body."""
+    stack: list[Any] = [obj]
+    while stack:
+        node = stack.pop()
+        items: list[Any] = []
+        if isinstance(node, dict):
+            items = [*node.keys(), *node.values()]
+        elif isinstance(node, list):
+            items = node
+        elif isinstance(node, str):
+            try:
+                node.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+            continue
+        stack.extend(i for i in items if isinstance(i, (dict, list, str)))
+    return False
 
 
 def _reject_self_certification(obj: Mapping[str, Any], where: str) -> None:
@@ -339,7 +439,7 @@ def _parse_config(raw: Any) -> SolverConfig:
             f"'config' option(s) {', '.join(reserved)} are server-controlled and cannot be set by clients",
         )
     try:
-        return SolverConfig.model_validate(raw)
+        return SolverConfig.model_validate(raw, strict=True)  # strict: true is no timeout and "100" no integer
     except ValidationError as exc:
         fields = ", ".join(".".join(str(p) for p in err.get("loc", ())) or "config" for err in exc.errors())
         raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, f"'config' is invalid at: {fields}") from None
@@ -393,6 +493,17 @@ def _guarded(handler: Handler) -> Handler:
 
 # --- application --------------------------------------------------------------------
 
+def _registered_adapter_ids() -> frozenset[str]:
+    """The closed allowlist of ``adapter_id`` values: the adapters the package registers when it is imported. Built once,
+    when the app is created; an empty set when the adapters cannot be imported (the route then answers 501)."""
+    try:
+        importlib.import_module("epinoic_logic.adapters")
+        base = importlib.import_module("epinoic_logic.adapters.base")
+        return frozenset(i for i in base.registered_ids() if isinstance(i, str) and _ADAPTER_ID_RE.fullmatch(i))
+    except Exception:  # noqa: BLE001 - a broken adapters package leaves the allowlist empty; the solver routes stay up
+        return frozenset()
+
+
 def _versions() -> dict[str, str]:
     return {
         "ir_version": IR_VERSION,
@@ -415,6 +526,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
     app.state.settings = cfg
     app.state.semaphore = asyncio.Semaphore(cfg.max_concurrency)
     app.state.rate_limiter = TokenBucketLimiter(cfg.rate_per_minute, clock)
+    app.state.adapter_ids = _registered_adapter_ids()
     app.add_middleware(RequestIdMiddleware)
 
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -475,8 +587,14 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             return JSONResponse({"valid": False, "reason": "result is unsigned"})
         if result.signature_key_id != cfg.signing_key_id:
             return JSONResponse({"valid": False, "reason": "unknown signature key id"})
-        if verify_signature(result, cfg.signing_key):
+        form = signature_form(result, cfg.signing_key)
+        if form == FORM_BOUND:
             return JSONResponse({"valid": True})
+        if form == FORM_LEGACY:
+            # a record of an earlier build: signed with this service's key over its content, never over the key id it names
+            # (repair round 3, INV-6), so the id is reported as not attested
+            return JSONResponse({"valid": True, "key_id_attested": False,
+                                 "reason": "signed in an earlier build's form, which does not cover the key id: the key id is not attested"})
         return JSONResponse({"valid": False, "reason": "signature does not match the result content"})
 
     async def post_release_check(request: Request) -> JSONResponse:
@@ -506,6 +624,9 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
 
     async def post_outcomes(request: Request) -> JSONResponse:
         admit(request)
+        if not cfg.allow_client_fixtures:
+            raise HttpError(403, DiagnosticCode.CLIENT_FIXTURES_DISABLED,
+                            "client fixtures disabled: this service does not take a client's fixture_responses as the translation provider")
         body = await _read_body(request, cfg.max_body_bytes)
         envelope = _parse_envelope(body, _OUTCOME_ENVELOPE_KEYS, frozenset({"report", "claim_id", "fixture_responses"}))
         # The translation layer is imported lazily so the solver routes stay available even
@@ -520,7 +641,9 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         if not isinstance(envelope["report"], dict):
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'report' must be a JSON object")
         try:
-            report = contracts.SpecialistReport.model_validate(envelope["report"])
+            # strict, as the IR is: "yes" is no boolean and "1" no integer (the body is JSON, so strings stay valid for
+            # enumerations and literals)
+            report = contracts.SpecialistReport.model_validate_json(json.dumps(envelope["report"]), strict=True)
         except ValidationError:
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'report' does not match the SpecialistReport contract") from None
         claim_id = envelope["claim_id"]
@@ -535,23 +658,19 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         structural: list[Any] = []
         adapter_id = envelope.get("adapter_id")
         if adapter_id is not None:
-            if not isinstance(adapter_id, str):
-                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'adapter_id' must be a string")
+            # The allowlist is closed and was built when the app was created: an id is checked before anything is
+            # imported, so a request can never make the service probe or import a module by name.
+            if type(adapter_id) is not str or not _ADAPTER_ID_RE.fullmatch(adapter_id):
+                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'adapter_id' must be a registered adapter id ([a-z0-9_.-], at most 64 characters)")
+            if not app.state.adapter_ids:
+                raise HttpError(501, DiagnosticCode.INTERNAL, "specialist adapters are not available in this build")
+            if adapter_id not in app.state.adapter_ids:
+                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "unknown adapter_id")
             try:
-                importlib.import_module("epinoic_logic.adapters")
-                adapters_base = importlib.import_module("epinoic_logic.adapters.base")
-            except ImportError:
-                raise HttpError(501, DiagnosticCode.INTERNAL, "specialist adapters are not available in this build") from None
-            try:
+                adapters_base = importlib.import_module("epinoic_logic.adapters.base")  # already imported when the allowlist was built
                 adapter = adapters_base.get_adapter(adapter_id)
-            except (KeyError, LookupError, ValueError):
-                # The registry may be populated only when the adapter's own module is imported.
-                with contextlib.suppress(ImportError):
-                    importlib.import_module(f"epinoic_logic.adapters.{adapter_id.replace('-', '_')}")
-                try:
-                    adapter = adapters_base.get_adapter(adapter_id)
-                except (KeyError, LookupError, ValueError):
-                    raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "unknown adapter_id") from None
+            except (ImportError, KeyError, LookupError, ValueError):
+                raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "unknown adapter_id") from None
             structural = list(adapter.structural_checks(report))
 
         def run() -> Any:

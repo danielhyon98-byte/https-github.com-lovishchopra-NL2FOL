@@ -178,11 +178,16 @@ def test_formulas_values_and_algebra_are_not_worked_equations(text):
 
 
 def test_bm_t13_break_even_is_never_silent_and_its_margins_are_decided():
+    # Rewritten to a stricter rule (B25): the wrong worked break-even line was named undecided (CORE-QNT-001, a warning); the
+    # STEM chain checker now decides it, so it is an engine counterexample (INT-SUBJ-001, an error) on the claim holding it.
     wrong = BM_T13.replace("= $6,000 ÷ $2.00 = 3,000 loaves per month", "= $6,000 ÷ $2.00 = 4,000 loaves per month")
     reply, rc = through_hub(wrong, BM_T13_Q, subject="Business Management", agent="business-specialist")
     assert reply is not None
-    named = [f for f in rc.structural_findings if f.code == "CORE-QNT-001" and "$6,000 ÷ $2.00 = 4,000 loaves per month" in f.message]
-    assert named and "worked equation" in named[0].message and named[0].claim_ids
+    failed = [fc for fc in rc.formal_checks if fc.constraint_id.startswith("core-stem") and fc.satisfied is False]
+    assert len(failed) == 1 and failed[0].formal_status == "COUNTEREXAMPLE" and failed[0].claim_ids
+    assert any(f.code == "INT-SUBJ-001" and f.severity == "error" and "6,000 ÷ 2.00 = 4,000" in f.message and f.claim_ids == failed[0].claim_ids
+               for f in rc.findings)
+    assert not [f for f in rc.structural_findings if f.code == "CORE-QNT-001" and "$6,000 ÷ $2.00 = 4,000" in f.message]
     margins = [fc for fc in rc.formal_checks if fc.constraint_id.startswith("business-margin")]
     assert [fc.formal_status for fc in margins] == ["ENTAILED", "ENTAILED"]
     # a margin the Business pack decides is not also named undecided
@@ -192,10 +197,18 @@ def test_bm_t13_break_even_is_never_silent_and_its_margins_are_decided():
     assert any("margin" in f.message and "60.00%" in f.message for f in errors(rc2))
 
 
-def test_ge_t13_dependency_ratio_is_named_undecided():
+def test_ge_t13_dependency_ratio_is_decided_by_the_stem_checker():
+    # Rewritten to a stricter rule and renamed (was test_ge_t13_dependency_ratio_is_named_undecided, B25): the wrong worked ratio
+    # was named undecided (CORE-QNT-001, a warning); the STEM chain checker now decides it (INT-SUBJ-001, an error), and the
+    # correct lines of the same answer (rates per 1,000 divided by 10 as per cent) hold.
     wrong = GE_T13.replace("= 31 ÷ 69 × 100\n= 44.9", "= 31 ÷ 69 × 100\n= 54.9")
     reply, rc = through_hub(wrong, GE_T13_Q, subject="Geography", agent="geography-specialist")
-    assert any(f.code == "CORE-QNT-001" and "31 ÷ 69 × 100 = 54.9" in f.message for f in rc.structural_findings)
+    errs = [f for f in rc.findings if f.code == "INT-SUBJ-001" and f.severity == "error"]
+    assert len(errs) == 1 and "31 ÷ 69 × 100 = 54.9" in errs[0].message
+    assert not any(f.code == "CORE-QNT-001" and "31 ÷ 69 × 100 = 54.9" in f.message for f in rc.structural_findings)
+    _reply, ok = through_hub(GE_T13, GE_T13_Q, subject="Geography", agent="geography-specialist")
+    assert not errors(ok) and [fc for fc in ok.formal_checks if fc.constraint_id.startswith("core-stem")]
+    assert all(fc.satisfied is True for fc in ok.formal_checks if fc.constraint_id.startswith("core-stem"))
 
 
 # ------------------------------------------------------------------ elasticity: PED/YED/XED/PES, Unicode minus, worked divisions

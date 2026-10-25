@@ -3703,11 +3703,13 @@
       "class": "arithmetic_slip",
       "step": "25 mm / 50 µm = 25 000 µm / 50 µm = 50×",
       "expected_codes": [
-       "ST-PARSE-001"
+       "INT-SUBJ-001"
       ],
-      "check_kinds": [],
-      "severity": "warning",
-      "note": "25 mm / 50 µm = 500; stated 50. '25 000' with a plain space is an ambiguous numeral, so the relation is named unreadable (ST-PARSE-001)",
+      "check_kinds": [
+       "eq"
+      ],
+      "severity": "error",
+      "note": "25 mm / 50 µm = 500; stated 50. '25 000', written in thousands groups beside an operator, is read as 25000, so the arithmetic is refuted",
       "proof": {
        "rule": "see note",
        "fails": true

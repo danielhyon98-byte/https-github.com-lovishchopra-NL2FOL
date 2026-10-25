@@ -136,8 +136,13 @@ def test_an_echo_of_the_request_never_supersedes_the_genuine_report_or_its_pool(
     genuine = report("physics-specialist", "rep-1", "The speed is 15 m/s; the timing mattered most.", [dict(claim_id="a-1", claim_text="The speed is 15 m/s.", claim_role="quantitative"), dict(claim_id="a-2", claim_text="The timing mattered most.", claim_role="judgement")])
     r1, rc1 = ch.respond(m1.message_id, genuine)
     assert r1 is not None and "a-1" in ch.formalized
+    # Rewritten to the stricter rule of repair round 3 (V3-H2-STEM-MISSES): the report links no claim to another, so its
+    # ranking judgement 'The timing mattered most.' is a bare assertion (ARG-BARE-001) on arrival, carried on the relay as
+    # its one finding. The relay was ACCEPTED with no finding before; every other assertion is the earlier one.
+    assert [(f.code, f.claim_ids) for f in rc1.findings] == [("INT-ARG-001", ["a-2"])] and "ARG-BARE-001" in rc1.findings[0].message
     fwd, fr = ch.relay("router", AgentRole.ROUTER, "combinator", AgentRole.COMBINATOR, genuine, in_reply_to=r1.message_id)
-    assert fwd is not None and fr.status is TransmissionStatus.ACCEPTED
+    assert fwd is not None and fr.status is TransmissionStatus.ACCEPTED_WITH_FINDINGS
+    assert [(f.code, f.severity, f.claim_ids) for f in fr.findings] == [("INT-HIST-001", "warning", ["a-2"])] and "INT-ARG-001" in fr.findings[0].message
     m2, _, _ = ch.request("router", "physics-specialist", ask)
     problems[("rep-2", "a-1")] = speed_problem("a-1", "99")  # an echo whose claims get formalized must still not enter the pool
     echo = report("physics-specialist", "rep-2", ask, [dict(claim_id="a-1", claim_text=ask, claim_role="point"), dict(claim_id="a-2", claim_text=ask, claim_role="point")])

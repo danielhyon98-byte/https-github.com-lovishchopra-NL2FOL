@@ -22,13 +22,13 @@ router ──► RouterHub ──► TranslatorChannel: envelope · hand-off · 
 
 | Module | Role |
 | --- | --- |
-| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs, optional `hub_hooks`; `run_packs` runs each pack's checks and formal checks on their own, so a pack that fails internally adds `PACK-INTERNAL-001` (error) naming the pack and the call, with the branch infrastructure's `BR-INTERNAL-001` (warning) beside it, while every other pack's findings and formal checks still reach the receipt; it prefers a pack's `formal_checks_for(report, request_text)`), `IntegrityPack` protocol, `BranchHooks` protocol, `FormalCheck` (with `claim_ids`: the delivered claims whose text holds the statement the check was built from, which the channel copies onto `INT-SUBJ-001` / `INT-SUBJ-002` / `INT-SUBJ-004`; the named engine `policy`, `failure_severity`, `inconsistent_is_failure`), `BranchRegistry` (subject label → branch, generic fallback). |
+| `base.py` | `SubjectBranch` (profile keys, parser factory, integrity packs, optional `hub_hooks`; `run_packs` runs each pack's checks and formal checks on their own, so a pack that fails internally adds `PACK-INTERNAL-001` (error) naming the pack and the call, with the branch infrastructure's `BR-INTERNAL-001` (warning) beside it, while every other pack's findings and formal checks still reach the receipt; it prefers a pack's `formal_checks_for(report, request_text)`), `IntegrityPack` protocol, `BranchHooks` protocol, `FormalCheck` (with `defect`: the canonical defect label that a failure of this check names. The channel puts it on the INT-SUBJ-001 or INT-SUBJ-004 finding; without it, the channel labels the finding by the check's kind, `named.DEFECT_OF_CHECK_KIND`. With `claim_ids`: the delivered claims whose text holds the statement the check was built from, which the channel copies onto `INT-SUBJ-001` / `INT-SUBJ-002` / `INT-SUBJ-004`; the named engine `policy`, `failure_severity`, `inconsistent_is_failure`), `BranchRegistry` (subject label → branch, generic fallback). |
 | `quant.py` | Finds a report's own quantitative statements (every pair of figures of a clause bound to its own stated percentage change, percentage-point difference, word fraction, fold change or multiple, absolute change or average rate; the direction a from/to pair is said to move; a comparison with a stated benchmark; a derived figure, a trend or a superlative stated across sentences, read against the paragraph's dated series, a decade superlative among them; shares; totals; the parts of a stated total, after it ('of which', 'alone') or opening the clause ('Of the $13 billion, ...'); a share of the total; a yearly average of a total dated by a decade or a span; a difference between two named parties' figures; a stated length of years against its span, in any wording and with day or month dates; a rate verb between a one-year count and a multi-year count; a signed change; a share written 'N of the M, about <fraction>'; figures written with a currency sign) and builds exact entailment problems; the engine then says whether the specialist's arithmetic holds. A stated derived figure, comparison or superlative no problem can be built for is returned as undecided (`undecided_quant_statements`), and so is every worked equation (`worked_equations`: written arithmetic in '=' form, which no reader on these branches decides), so no stated arithmetic crosses the hub silently. Each check carries the phrase it reads, so its finding names the claim that states it. No model is involved. Every statement is read in the general reading, or in the SI reading of the STEM branches (`reading`: SI units, scientific notation, signs, repeated folds, a sign-aware band, the SI quant view with the maths masked; the module docstring lists what each reading reads). |
-| `packs.py` | `CorePack(reading=...)` (every branch, in the general reading but on the STEM branches, which run `CORE_SI = CorePack(reading=SI_READING)`: quotation grounding, a structured claim's quotation against its own source reference, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification, support cycles in any delivered report, parsed or structured; each check runs on its own, a failing one being `CORE-INTERNAL-001`; at most `MAX_FORMAL_CHECKS` (500) formal checks per transmission, the rest named as undecided), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic: the term in full or as PED, YED, XED or PES, an ASCII or Unicode minus, stated in prose with its two percentage changes on its line or worked as a division, 'PED = −12.50 ÷ 18.75 = −0.67', whose sign is checked too), `BusinessPack` (margins: in prose, or worked as '(A ÷ B) × 100 = m%' under a margin label), `GenericPack`. A worked equation a subject pack decides (`pack_decided_equations`) is not also named undecided by the core pack. |
+| `packs.py` | `CorePack(reading=...)` (every branch, in the general reading but on the STEM branches, which run `CORE_SI = CorePack(reading=SI_READING)`: quotation grounding, a structured claim's quotation against its own source reference, numeric self-consistency, undecided arithmetic, from-memory labelling, unverifiable / undelimited / misattributed quotations, undecided chronology, self-certification, support cycles in any delivered report, parsed or structured; each check runs on its own, a failing one being `CORE-INTERNAL-001`; at most `MAX_FORMAL_CHECKS` (500) formal checks per transmission, the rest named as undecided), `HistoryPack` (pack rules + request-aware suppression), `EnglishPack`, `PsychologyPack` (study attributions need grounding, which a supplied text naming the study's authors and year within 120 characters gives; "significant" needs a figure), `EconomicsPack` (elasticity arithmetic: the term in full or as PED, YED, XED or PES, an ASCII or Unicode minus, stated in prose with its two percentage changes on its line or worked as a division, 'PED = −12.50 ÷ 18.75 = −0.67', whose sign is checked too), `BusinessPack` (margins: in prose, or worked as '(A ÷ B) × 100 = m%' under a margin label), `GenericPack`. A worked equation a subject pack decides (`pack_decided_equations`) is not also named undecided by the core pack. In the general reading the core pack also sends every other worked equation through the STEM chain checker (`worked_formal_checks`, checks `core-stem-…`; docs/STEM_DESIGN.md section 24.5), and a derived figure a supplied text states word for word is a transcription, not the writer's arithmetic. |
 | `stem_pack.py` | `StemPack(mode)`: the STEM pack of the `sciences`, `mathematics` and `computer_science` branches (ST findings and the STEM engine checks of `stem.checks`, see below). |
 | `registry.py` | The default registry and how subjects map to branches (`CORE` in the general reading; `CORE_SI = CorePack(reading=SI_READING)` first in every STEM branch). |
-| `generic_parser.py` | Fallback parser for subjects without a dedicated adapter. Claim ids are qualified by the agent, `g{paragraph}.{unit}@{agent_id}` (`g4.2@economics-specialist`), so two generic-branch reports of one task (Economics with Business, Physics with Mathematics) never share an id (no INT-REQ-016, no INT-LEDGER-014); the fold claim of an oversized answer keeps `g.tail`. A paragraph is read line by line: a line that opens with `=` continues the equation of the line before it (one claim per equation chain), a soft-wrapped prose line or a line ending on a comma or connective continues its line, and every other line break ends a claim, so each line of working, list item and result is a claim of its own; a sentence also ends after a closing quotation mark ('."', '.”'). Part labels ("(a) [2]", "(i) [2 marks]", "Part (a) — find — 3 marks") and mark annotations ("[1]", "[1 spare]", "M1", "(A1)") are no claims (`original_response` keeps them). Notes (`markdown.NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:", and "Limit:" on this branch; a paragraph opened by a bare note lead is a note as a whole), questions and headings ("Measure: ..." stating no working, "Working for (b):", "Diagram 1: ...", a short title such as "2024 (no tax)") are roled `other`; a line of working or a bare value is never a note for having no letters. Each part's answer is a material `point`: a line led by "Answer:", "Result(s):", "Total:" or credited with an accuracy mark ("A1"), else the last line of the part's first run of working with the rows before it that give the same quantity for another case, else the part's opening claim (every sentence of it when the part carries a "Why:" justification); a bare value opening a part ("(-1, 3)") always. Supports follow the stated direction and never cycle: a point opening its paragraph or part rests on the plain claims after it, a closing answer, judgement or consequence ("Therefore ...", "Consumers therefore pay ...") on the claims before it; caveats ("However ...") and "Assumption:" lines support nothing and an assumption is never a derived point; two labelled answers opening a paragraph ("Binary search: ... Linear search: ...") are coordinate. |
-| `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. Nothing raises into the router: a structured report received as a mapping takes its sender and report id from its own fields when the call states none, any other non-text payload goes to the channel's payload path (REJECTED, `INT-REQ-009`), raw text with no stated sender or report id is REJECTED unparsed (`INT-REQ-009`), and a task id no plan opened gets a REJECTED receipt from a quarantine channel (`INT-HANDOFF-001` for a dispatch, `INT-REQ-009` naming the task for a reply); `receipts()` of such a task lists those receipts. |
+| `generic_parser.py` | Fallback parser for subjects without a dedicated adapter. Claim ids are qualified by the agent, `g{paragraph}.{unit}@{agent_id}` (`g4.2@economics-specialist`), so two generic-branch reports of one task (Economics with Business, Physics with Mathematics) never share an id (no INT-REQ-016, no INT-LEDGER-014); the fold claim of an oversized answer keeps `g.tail`. A paragraph is read line by line: a line that opens with `=` continues the equation of the line before it (one claim per equation chain), a soft-wrapped prose line or a line ending on a comma or connective continues its line, and every other line break ends a claim, so each line of working, list item and result is a claim of its own; a sentence also ends after a closing quotation mark ('."', '.”'). Part labels ("(a) [2]", "(i) [2 marks]", "Part (a) — find — 3 marks") and mark annotations ("[1]", "[1 spare]", "M1", "(A1)") are no claims (`original_response` keeps them). Notes (`markdown.NOTE_LEAD_RE`: "Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:", and "Limit:" on this branch; a paragraph opened by a bare note lead is a note as a whole), questions and headings ("Measure: ..." stating no working, "Working for (b):", "Diagram 1: ...", a short title such as "2024 (no tax)") are roled `other`; a line of working or a bare value is never a note for having no letters. Each part's answer is a material `point`: a line led by "Answer:", "Result(s):", "Total:" or credited with an accuracy mark ("A1"), else the last line of the part's first run of working with the rows before it that give the same quantity for another case, else the part's opening claim (every sentence of it when the part carries a "Why:" justification); a bare value opening a part ("(-1, 3)") always. Supports follow the stated direction and never cycle: a point opening its paragraph or part rests on the plain claims after it, a closing answer, judgement or consequence ("Therefore ...", "Consumers therefore pay ...", and a sentence whose reason clause opens it and whose main clause restates the sentences before it, "Since ..., ...": `markdown.concludes_from_earlier`, repair round 2) on the claims before it; caveats ("However ...") and "Assumption:" lines support nothing and an assumption is never a derived point; two labelled answers opening a paragraph ("Binary search: ... Linear search: ...") are coordinate. An accuracy mark closing a line of working ("A1", "(A1) M1 A1.") is read in one linear pass (`accuracy_marked`, exactly `_ACCURACY_MARK_RE.search`, which was quadratic on a long run of white space), and the STEM parser's unit reader uses it too. |
+| `hub.py` | `RouterHub`: open a task from a work plan, dispatch requests, receive raw text or structured reports, read receipts. Nothing raises into the router: a structured report received as a mapping takes its sender and report id from its own fields when the call states none, any other non-text payload goes to the channel's payload path (REJECTED, `INT-REQ-009`), raw text with no stated sender or report id is REJECTED unparsed (`INT-REQ-009`), and a task id no plan opened gets a REJECTED receipt from a quarantine channel (`INT-HANDOFF-001` for a dispatch, `INT-REQ-009` naming the task for a reply); `receipts()` of such a task lists those receipts. A dispatch outside the request contract (a request text that is not text, is blank or exceeds 400,000 characters; a sender or recipient id that is not text of 1 to 128 characters with no lone surrogate; supplied texts that are not a list of at most 16 `SuppliedText`) is REJECTED with `INT-REQ-009` naming every fault, on a placeholder request that carries none of the refused input: nothing is sent and no request is registered (`request_faults`). A stated reply id that is not text or exceeds 128 characters is REJECTED, never cut to fit (a shortened id could name another agent). A call the channel itself cannot carry is REJECTED naming the error's type, and a task id holding a lone surrogate is quarantined under its text with U+FFFD in its place. |
 
 Two shared helpers live beside the History adapter and are read by the packs and the
 parser alike, so the parser's claims, the pack's sentence numbers and the engine's checks
@@ -60,7 +60,11 @@ candidate span is one bisection, so 5,000 nested braces, a 20,000-deep array or 
 fragments cost milliseconds, not the minutes the old scan from every bracket took; its answer is
 the same as a stack scan from each opener (`_balanced_end`, kept as the reference). The splitter's
 JSON cuts and the core pack's sentence walk are memoised per text, so a bracket-heavy paragraph is
-scanned once per transmission.
+scanned once per transmission. The end marks are read in one pass too (`_end_marks`): each run of
+marks, of closing marks after it and of white space is read once, with exactly the boundaries the
+pattern `[.?!]+[closers]*(?=\s+\S)` gave. Read through `finditer`, that pattern retried a run of marks
+with no white space after it from every position of the run, so `x = 9` followed by 20,000 `!` took
+6.5 s and an answer at the 400,000-character bound minutes; the one-pass read takes milliseconds.
 
 ## The report's own arithmetic (`quant.py`)
 
@@ -267,11 +271,36 @@ stated figures and whose conclusion is the stated change.
 * Worked equations (`worked_equations`): a statement of a line of working (with the lines after it that open with `=` or `≈`; a
   line is cut at semicolons and full stops) whose `=` links put an arithmetic operator (`+ − × ÷ / * ^`, a spaced hyphen) between two
   figures before a link whose value is a figure with no further arithmetic (`$6,000 ÷ $2.00 = 3,000 loaves per month`, `(12 − 8) − 0 =
-  4`, `= 31 ÷ 69 × 100 = 44.9`, `2.4 Ω + 0.50 Ω = 2.9 Ω`). This reader does not decide written arithmetic, so each one is returned
-  undecided with that reason and named by the core pack (`CORE-QNT-001`, 'states worked arithmetic'), never passed silently and never
-  given the reason that no pair of figures is stated; the Economics and Business packs decide the elasticities and margins they read.
+  4`, `= 31 ÷ 69 × 100 = 44.9`, `2.4 Ω + 0.50 Ω = 2.9 Ω`). The first operator link is found in one pass over the links. This
+  reader does not decide written arithmetic, so each one is returned undecided with that reason; the Economics and Business packs
+  decide the elasticities and margins they read, and in the general reading the core pack decides the rest with the STEM chain
+  checker (B25, below). An equation no check is built for is named by the core pack (`CORE-QNT-001`, 'states worked arithmetic'),
+  never passed silently and never given the reason that no pair of figures is stated.
   A formula with no figure on both sides of an operator (`(aged 0–14 + aged 65 and over) ÷ aged 15–64`), algebra (`a = 6 − 6t`) and a
   stated value (`PED = −0.67`) are not worked equations. (Decided readings of worked steps belong to the STEM branches' math front end.)
+* Worked equations decided by the STEM chain checker (`packs.worked_formal_checks`, B25; general reading only): the equations'
+  phrases are kept in a view of the answer of the same length (currency signs blanked, a line break inside a phrase read as a space,
+  so one equation never continues another's chain; every other character blank but line breaks), read by `stem.build_document` and
+  checked by `stem.checks.build_checks` under the STEM tolerance rule (docs/STEM_DESIGN.md section 5): one `core-stem-<kind>-<n>`
+  check per link, naming the claims that hold it, in the STEM checker's readings. A wrong worked line is a COUNTEREXAMPLE and the
+  channel's `INT-SUBJ-001` error (`$8,100 ÷ $2.70 = 3,300` in Business; `31 ÷ 69 × 100 = 54.9` in Geography); a decided equation
+  gets no `CORE-QNT-001`. The STEM SI-unit companion (ST-UNIT-003) is a STEM convention and is not built here: `(31 − 11) ÷ 10 =
+  2.0%` turns a rate per 1,000 into per cent as written. At most 120 equations per report are read; a check the IR refuses is never
+  run, and an equation the STEM checker withholds (an operand it reads as cut from a longer expression) stays named.
+  With the request's text (`CorePack.formal_checks_for`, which `SubjectBranch.run_packs` prefers; accuracy round 2, V1I-06), the
+  same view is read again with the request and only the traced unit companions of a working whose every traced number is a
+  quantity the request states with its unit are kept (`packs.request_unit_formal_checks`, checks `core-req-stem-…`,
+  `stem_unit_error`, warning): `Total distance = 2.4 + 450 = 452.4 m` for a walk of 2.4 km and 450 m, `V = 40 × 15 = 600 m³` for
+  15 mm of rain on 40 m². A number of the answer's own, a conversion factor or a rate per 1,000 builds none, and a failure of the
+  extra reading leaves the pack's other formal checks as they are.
+* Transcribed figures: a derived figure that a supplied text states word for word, with up to three words of its sentence on each
+  side (at least four words in all, whitespace and case aside: `burglaries fell by 30% on the CCTV streets`), is the text's figure,
+  not the writer's arithmetic, and gets no `CORE-QNT-001`. An invented figure is still named.
+* Pairs whose end is an expression: `falls from $1.60 to $2.00 − $0.60 = $1.40` ends at the value its written arithmetic states
+  ($1.40), and a pair whose end cannot be read so is withheld, never decided on the expression's first figure.
+* Bounded reading: number words are one atomic group (`_WNUM`), and 'and' joins number words only after 'hundred' (`two hundred and
+  sixty`; `between one and two` is two figures), so a long run of number words is read in linear time; the general figure patterns
+  never read the mantissa of scientific notation (`2.5e3`, `2.5 × 10³`) as a figure (`_NOT_SCI`).
 * Undecided arithmetic (`undecided_quant_statements`, reported by the core pack as
   `CORE-QNT-001`): a derived figure (relative, absolute, a rate or a multiple), a comparison with
   a named benchmark, a trend or a superlative that no problem can be built for is named with the
@@ -452,6 +481,13 @@ can never disagree.
   `ChronologyRelation.kind` says which relation a sentence asserts (`order`, `within`, `overlaps`,
   `same_year`) and `statement` words it; `HI-CHR-001`, `CORE-CHR-001` and the formal check's label
   read it, and every formal chronology check names the claims whose text holds the sentence.
+* A quotation or a JSON string wrapped round two or more sentences (`"The crash of 1929 came after a
+  speculative boom. Banks failed in 1930 and 1931."`, `{"answer": "…"}`) is one sentence to the shared
+  splitter; the core pack's formal chronology sets the wrapping marks aside and splits the inside again
+  (`history_specialist.sentences.inner_sentences`), so a cue of one sentence is never paired with a date
+  of the next. The History pack's chronology proxy (HI-CHR-001) reads the same inner sentences (repair
+  round 1), so the proxy and the formal check agree on a wrapped answer. A wrong order inside one quoted
+  sentence still fails.
 
 ## Core pack findings
 
@@ -619,7 +655,10 @@ what a verdict looks like.
   a link; a judgement or link is supported by the point and the claims before it, never by a later
   judgement (in hi-t12 the judgement `The decisive turning point was 1960.` rests on the point and the
   evidence before it, and the point no longer rests on the judgement). Judgement and link claims are
-  therefore PROPOSITIONAL_ARGUMENT eligible like English links. Dated claims
+  therefore PROPOSITIONAL_ARGUMENT eligible like English links. An evidence or analysis sentence after
+  the first of its paragraph whose reason clause opens it and whose main clause restates the
+  paragraph's earlier sentences ("Since ..., ...": `markdown.concludes_from_earlier`) is a link
+  (repair round 2), so it rests on what it restates in text as in a report. Dated claims
   under a from-memory label are capped at certainty `probable`, and so is any claim whose own
   inline label the parser set aside, dated or not (`A regular private's pay of about a shilling a
   day (from memory) was a real draw ...`), so a synthesis that restates it as established is
@@ -634,7 +673,14 @@ AI and an unspecified course to `mathematics`; Computer Science to `computer_sci
 
 * `StemTextParser` (`adapters/stem_specialist`): claims are the shared `StemDocument`'s
   statements, offset substrings of the answer with ids `s<paragraph>.<n>` (`m` in mathematics,
-  `c` in Computer Science, so two STEM branches never share a claim id on one task);
+  `c` in Computer Science, so two STEM branches never share a claim id on one task). Two agents of
+  one STEM branch on one task (Chemistry and ESS) are told apart when the parser is given the task's
+  agents (`task_agent_ids`; `StemTextParser.accepts_task_agents`): with two or more distinct agents
+  every id, support and note carries the agent's qualifier, as the generic branch's ids do
+  (`s1.1@ess-specialist`), and the STEM pack maps its checks to the qualified ids; with one agent ids
+  are unchanged. The channel passes the agents of the same branch that delivered on the task, and
+  the answering agent (`channel/bus.py`, `respond_text`; docs/STEM_DESIGN.md section 24.5), so a
+  physics and a mathematics answer on one task keep their plain ids;
 * `CORE_SI`: the core pack in SI reading (`quant` module docstring, `stem/si_reading.py`): only
   spelled-out scale words scale a figure (`300 K`, `500 mm to 2 m` read as written), units of
   the STEM table convert exactly and pair only when their dimensions agree, scientific
@@ -691,8 +737,12 @@ factors that hold variables), and a description that names the statement, the cl
 tolerance rule, the readings and any constant the pack supplied. Undecided outcomes are
 INT-SUBJ-002; the channel also runs a report's STEM checks under an 8 s wall-clock budget, and
 checks left when it is spent are INT-SUBJ-002, never success. Statement ids map to the report's
-claims by id (`s1.2`, or `m1.2`/`c1.2` in the other two branches), else by offset overlap, else
-by the shared two-way substring rule, and descriptions and messages are relabelled to the
+claims by source span and text, never by id spelling alone (STEM review S4): by offset overlap,
+else by the shared two-way substring rule (on the statement as written and as the STEM parser
+gives it); a claim whose id is the statement id (`s1.2`, or `m1.2`/`c1.2` in the other two
+branches) is the statement's one claim only when its text agrees with the statement, and a
+familiar-looking id whose text is another statement's is named (ST-CLAIM-001, warning) while the
+statement goes to the claim that holds its text. Descriptions and messages are relabelled to the
 report's own claim ids. The pack keeps a 32-entry cache per report and request; the front end
 keeps a 64-entry document cache.
 
@@ -730,3 +780,32 @@ Adding a subject: write a pack (deterministic checks citing the pack's working r
 plus any formal check templates), optionally an adapter, and register a branch. The
 hub integrity never has to be touched. Receipts carry `branch`, `structural_findings`
 and `formal_checks` so the router and Overseer can see which branch judged what.
+
+**Repair round 3.** The generic parser rests a sentence on the sentences before it when it opens with a conclusion lead
+("So ...", "This shows that ...": `markdown.opens_with_conclusion`) or with a ground phrase that points back ("With
+turnover that high, ...": `markdown.grounded_on_earlier`, read inside `concludes_from_earlier`). The core pack reads a
+model the request states with the range of its input and names its use outside that range in any subject
+(`packs.request_model_extrapolation`, ST-RANGE-001), Geography included.
+
+**Repair round 4** (`docs/ARGUMENT_DIAGNOSTICS.md`, section 10). The core pack names a figure the answer credits to a
+named data table for a year that the table states otherwise (`CORE-SRC-007`, warning: `packs.table_figure_mismatches`;
+`invented_figure` when the table states it for no year, `source_mismatch` when for another year, by `named.DEFECT_OF_CODE`),
+reads an equation whose relation sign stands inside quotation marks as a mention (`_worked_view`), and tests peer texts
+with `translate.grounding.is_peer_document` (`_is_peer_text`). The generic parser makes a paragraph's one live claim that
+states its own reason its own point, material (`_paragraph_points`), reads a check tip's "should" as no judgement
+(`_CHECK_TIP_RE`), and strips trailing annotations in linear time (`_strip_annotations`, `_trailing_annotation_span`). The
+general figure reader (`quant.py`) reads space-grouped figures and scale words with scientific notation, compares a scaled
+figure with a whole one of the same noun phrase (`_same_noun_phrase`, `_sci_pair_number`), reads a continuation with a
+manner adverb in both readings (`_CONT_ADVERB`), and never chains a continuation across an unread level of its own unit
+(`_unread_figure_between`, `_Patterns.figure`). Tests: `tests/branches/test_repair_round4_*.py`,
+`tests/branches/test_annotation_strip_linear.py`.
+
+**Repair round 5** (`docs/ARGUMENT_DIAGNOSTICS.md`, section 11). The generic parser reads an answer made of list items or
+numbered parts in linear time: lines and paragraphs are read once, the supports of the parts are indexed and each part
+finds its eligible supports by bisection (`_part_answers`, `_first_working_run`), and the role pass grows its list of
+earlier sentences in one pass, bounded (`assign_roles`, `_EARLIER_REACH`). The branch packs read the report's own task
+type as advisory for quotation roles (`base.run_packs`). Tests: `tests/branches/test_repair_round5_generic_lists.py`.
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `CORE-SRC-007` | warning | a figure a claim states for a year, in a clause about a supplied data table's quantity (a word of its title, or only trend words), where the table (three or more "YEAR: value" lines, named by its title in the request or the sentence) states another figure for that year: "... states 11.4 for no year" (`invented_figure`) or "... states 8.9 for 2020: another year's figure" (`source_mismatch`); the table's own figure, rounded to the answer's places or written in another scale (1,900,000 for 1.9 million), and a change ("rose by 2.5 points") are not read |

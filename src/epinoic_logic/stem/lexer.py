@@ -11,7 +11,9 @@ Token kinds:
 
 ``NUM``      a numeral (``value``: :class:`~epinoic_logic.stem.numbers.ExactNumber`), incl.
              scientific forms, a bare power of ten, a vulgar fraction ``½`` and based numerals
-             (``0xFF``, ``0b1010``, ``FF₁₆``, ``1010₂``)
+             (``0xFF``, ``0b1010``, ``FF₁₆``, ``1010₂``, ``1011 0110₂`` in digit groups), a figure
+             with a spelled-out scale word (``45 million``: 4.5 × 10⁷) and a decimal with a glued
+             ellipsis (``2.084429…``: truncated)
 ``NUMERR``   a numeral breaking a bound (``value``: ``(code, message)``)
 ``IDENT``    a run of Latin letters, or one Greek letter; ``sub`` is its subscript (``v₀``,
              ``v_0``, ``v_{max}``, ``Q1``, ``T½``, ``W∥``), ``primes`` its primes, ``delta`` a
@@ -31,7 +33,8 @@ Token kinds:
 ``INF``      ``∞``, ``\\infty``
 ``UNSUP``    the start of a construct outside the encodings (``value``: the reason): ``∫ Σ ∏ ∂ ∇
              lim d/dx \\int \\sum \\lim \\vec \\mathbf \\partial \\binom \\ldots``, matrices
-``PUNCT``    a full stop that is not a decimal point, ``?``, ``…``
+``PUNCT``    a full stop that is not a decimal point, ``?``, ``…`` (an ellipsis glued to a decimal's last digit belongs
+             to the numeral: ``2.084429…`` is one ``NUM`` whose number is ``truncated``)
 ``QUOTE``    a quotation mark
 ``OTHER``    any other single character (``✓``, ``#``, an en dash between numbers ...)
 ``ERROR``    an unknown LaTeX command or a character of another script (a confusable)
@@ -42,16 +45,19 @@ a gap.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import functools
+import math
+from dataclasses import dataclass, replace
+from fractions import Fraction
 from typing import Any, Literal, NamedTuple, Optional
 
 from .limits import DEFAULT_LIMITS, StemLimits
 from .numbers import (
-    SUBSCRIPT_DIGITS, SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, VULGAR_FRACTIONS, exact_integer, exact_vulgar, is_ascii_digit, scan_based, scan_number,
-    superscript_int,
+    SUBSCRIPT_DIGITS, SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, VULGAR_FRACTIONS, exact_integer, exact_vulgar, is_ascii_digit, scan_based,
+    scan_grouped_based, scan_number, superscript_int,
 )
 
-__all__ = ["FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "Token", "lex"]
+__all__ = ["FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "Token", "lex", "writes_constant_dot"]
 
 LexMode = Literal["plain", "latex"]
 
@@ -205,10 +211,15 @@ def _subscript_text(s: str, i: int, n: int, mode: LexMode) -> tuple[int, str]:
 def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "plain", orig: Optional[str] = None, cs: bool = False,
         limits: StemLimits = DEFAULT_LIMITS, max_tokens: Optional[int] = None, values: bool = True) -> LexResult:
     """Tokenize ``s[start:end]`` (offsets stay absolute). ``orig`` is the original text (same
-    length) for thin-space thousands groups. ``cs`` reads the Boolean words AND OR NOT XOR.
+    length) for thin-space thousands groups. ``cs`` reads the Boolean words AND OR NOT XOR and
+    the AND dot (``A.B``), except in an original text that writes a Boolean constant with the AND
+    dot (:func:`writes_constant_dot`): the dot before a digit is a decimal point to this lexer, so
+    such an expression would be read only in part, and the text is read with its full stops as
+    full stops, as before the AND dot was read (close round 2, DIFF-04).
     With ``values`` False numerals carry no value (``NUM`` tokens with ``value`` None): the span
     finder and the name pre-pass need only extents, and building exact values for a whole answer
     would cost a ``Fraction`` per numeral."""
+    and_dot = cs and not (orig is not None and writes_constant_dot(orig))
     n = len(s) if end is None else min(end, len(s))
     i = start
     toks: list[Token] = []
@@ -452,8 +463,11 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 i += 1
                 continue
             based = None
-            if ch != "." and ((ch == "0" and s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i)) or not digit or _base_mark_after_digits(s, i, n)
-                              or (cs and _based_ahead(s, i, n))):  # '2A₁₆': a hexadecimal numeral may open with a decimal digit
+            if ch != "." and _group_follows(s, i, n):
+                based = scan_grouped_based(s, i, limits=limits)  # '1011 0110₂': one numeral written in digit groups
+            if based is None and ch != "." and ((ch == "0" and s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i)) or not digit
+                                                or _base_mark_after_digits(s, i, n)
+                                                or (cs and _based_ahead(s, i, n))):  # '2A₁₆': a hexadecimal numeral may open with a decimal digit
                 based = scan_based(s, i, limits=limits)
             if based is not None:
                 k, num, _digits = based
@@ -474,8 +488,22 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                             k += 1
                         i = k
                     else:
-                        emit("NUM", s[i:scan.end], i, scan.end, value=scan.number)
-                        i = scan.end
+                        end, num = scan.end, scan.number
+                        cut = _ellipsis_after(s, i, end, n, mode)
+                        if cut:
+                            # '2.084429…': the ellipsis glued to a decimal belongs to the numeral (its digits are a prefix of the value)
+                            end += cut
+                            if num is not None:
+                                num = replace(num, text=s[i:end], truncated=True)
+                        else:
+                            word, power = _scale_word_after(s, i, end, n)
+                            if power:
+                                # '45 million': a spelled-out scale word multiplies the figure exactly (a power of ten, as in 4.5 × 10⁷)
+                                end += 1 + len(word)
+                                if num is not None:
+                                    num = _scaled(num, s[i:end], power)
+                        emit("NUM", s[i:end], i, end, value=num)
+                        i = end
                     continue
         if ch in VULGAR_FRACTIONS:
             emit("NUM", ch, i, i + 1, value=exact_vulgar(ch))
@@ -555,11 +583,23 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             emit("CARET", "^", i, i + 1)
             i += 1
             continue
+        if (ch in SUPERSCRIPT_DIGITS or ch in SUBSCRIPT_DIGITS) and (not toks or toks[-1].end != i or toks[-1].kind not in ("IDENT", "NUM", "RPAR")):
+            comb = _binomial_at(s, i, n)
+            if comb is not None:
+                k, value = comb
+                emit("NUM", s[i:k], i, k, value=exact_integer(value, s[i:k]))  # '⁵C₂': the binomial coefficient, an exact integer
+                i = k
+                continue
         if ch in SUPERSCRIPT_DIGITS or ch in SUPERSCRIPT_SIGNS:
             k, digits = superscript_int(s, i, n)
             if digits is None:
                 emit("SUP", ch, i, i + 1, value=None)
                 i += 1
+            elif len(digits) - digits.startswith("-") > limits.max_number_digits:
+                # an over-long superscript run is never turned into an integer (bounded like any numeral): ST-LIM-001 on its span
+                emit("NUMERR", s[i:k], i, k, value=("ST-LIM-001", f"a superscript exponent of {len(digits) - digits.startswith('-')} digits exceeds "
+                                                                  f"the bound of {limits.max_number_digits}"))
+                i = k
             else:
                 emit("SUP", s[i:k], i, k, value=int(digits))
                 i = k
@@ -579,6 +619,10 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             else:
                 emit("OTHER", "_", i, i + 1)
                 i += 1
+            continue
+        if ch == "." and and_dot and ((not space and _boolean_dot(toks, s, i, n)) or (space and _spaced_boolean_dot(toks, s, i, n))):
+            emit("OP", "·", i, i + 1)  # Computer Science 'A.B', 'A.(B + C)', '(A + B).C', 'A . B': the AND dot, not a full stop
+            i += 1
             continue
         if ch in _SIMPLE:
             kind = _SIMPLE[ch]
@@ -678,6 +722,110 @@ def _base_mark_after_digits(s: str, i: int, n: int) -> bool:
     return k < n and (s[k] in "₂₈₁" or (s[k] == "_" and k + 1 < n and (s[k + 1] in "128" or s[k + 1] == "{")))
 
 
+@functools.lru_cache(maxsize=16)
+def writes_constant_dot(text: str) -> bool:
+    """Whether a text writes a Boolean constant with the AND dot: an upper-case operand of one or two letters (not the end of
+    a longer word) or a closing bracket, glued to a full stop that is glued to a lone 0 or 1 (``P.0``, ``A.1``, ``(A +
+    B).0``). The lexer reads that dot as a decimal point, so the AND-dot reading would leave such an expression half read;
+    a text that writes one is read without the AND dot (:func:`lex`; close round 2, DIFF-04). One pass over the text."""
+    n = len(text)
+    i = text.find(".")
+    while i >= 0:
+        if i + 1 < n and text[i + 1] in "01" and not (i + 2 < n and text[i + 2].isdigit()) and i > 0:
+            j = i - 1
+            if text[j] == ")":
+                return True
+            k = j
+            while k >= 0 and k > i - 3 and "A" <= text[k] <= "Z":
+                k -= 1
+            if 1 <= j - k <= 2 and not (k >= 0 and (text[k].isalnum() or text[k] == "_")):
+                return True
+        i = text.find(".", i + 1)
+    return False
+
+
+def _boolean_dot(toks: list, s: str, i: int, n: int) -> bool:
+    """A full stop glued between two Boolean operands in Computer Science (``A.B``, ``A.(B + C)``, ``(A + B).C``,
+    ``A.¬B``): an upper-case letter (with an optional subscript or prime) or a closing bracket right before it, and right
+    after it an upper-case letter that is a single letter or a bracket or a negation, never a lower-case letter, a digit or a
+    word ('Fig.A' aside), so a sentence's full stop and a decimal point stay what they are."""
+    if not toks or i + 1 >= n:
+        return False
+    prev = toks[-1]
+    if prev.end != i:
+        return False
+    if not ((prev.kind == "IDENT" and prev.text.isupper() and len(prev.text) <= 2) or prev.kind == "RPAR"):
+        return False
+    nxt = s[i + 1]
+    if nxt in "(¬~":
+        return True
+    if not ("A" <= nxt <= "Z"):
+        return False
+    after = s[i + 2] if i + 2 < n else " "
+    return not (("a" <= after <= "z") or ("A" <= after <= "Z"))  # 'A.B' and 'A.B1', not 'U.S.' words or 'A.Bc'
+
+
+def _spaced_boolean_dot(toks: list, s: str, i: int, n: int) -> bool:
+    """The AND dot written with a space on each side in Computer Science (``A . B``, ``A . (B + C)``, ``NOT A . NOT B``): a
+    Boolean operand (an upper-case letter of at most two characters, or a closing bracket) before it with a space between,
+    one space after it, then an operand (an upper-case letter that is no word, a bracket, a negation, or NOT). A full stop
+    never stands after a space, so a sentence's end stays what it is."""
+    if not toks or i + 2 >= n or s[i + 1] != " ":
+        return False
+    prev = toks[-1]
+    if prev.end >= i or s[prev.end:i].strip():
+        return False
+    if not ((prev.kind == "IDENT" and prev.text.isupper() and len(prev.text) <= 2) or prev.kind == "RPAR"):
+        return False
+    nxt = s[i + 2]
+    if nxt in "(¬~":
+        return True
+    if s.startswith("NOT", i + 2) and (i + 5 >= n or not s[i + 5].isalpha()):
+        return True
+    if not ("A" <= nxt <= "Z"):
+        return False
+    after = s[i + 3] if i + 3 < n else " "
+    return not (("a" <= after <= "z") or ("A" <= after <= "Z"))
+
+
+_SUB_DIGITS = {"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9"}
+
+
+def _binomial_at(s: str, i: int, n: int) -> Optional[tuple[int, int]]:
+    """``(end, value)`` for a binomial coefficient written ``ⁿCᵣ`` (``⁵C₂``, ``₁₀C₃``: n as superscript or subscript digits, a
+    capital C, r as subscript digits, n and r at most three digits, r <= n): its exact value, else None."""
+    k = i
+    top = []
+    while k < n and k - i < 3 and (s[k] in SUPERSCRIPT_DIGITS or s[k] in _SUB_DIGITS):
+        top.append(SUPERSCRIPT_DIGITS.get(s[k]) or _SUB_DIGITS[s[k]])
+        k += 1
+    if not top or k >= n or s[k] != "C":
+        return None
+    j = k + 1
+    bottom = []
+    while j < n and j - (k + 1) < 3 and s[j] in _SUB_DIGITS:
+        bottom.append(_SUB_DIGITS[s[j]])
+        j += 1
+    if not bottom or (j < n and (s[j] in _SUB_DIGITS or _is_latin(s[j]))):
+        return None
+    top_n, r = int("".join(top)), int("".join(bottom))
+    if r > top_n:
+        return None
+    return j, math.comb(top_n, r)
+
+
+def _group_follows(s: str, i: int, n: int) -> bool:
+    """Cheap test before :func:`scan_grouped_based`: a run of at most eight hexadecimal digits, then one space and another
+    digit (``1011 0110₂``), and a base subscript within the next 150 characters."""
+    k = i
+    while k < n and s[k] in "0123456789abcdefABCDEF" and k - i <= 8:
+        k += 1
+    if not (k - i <= 8 and k + 1 < n and s[k] == " " and s[k + 1] in "0123456789abcdefABCDEF"):
+        return False
+    window = s[k:k + 150]
+    return "₂" in window or "₈" in window or "₁₆" in window
+
+
 def _based_ahead(s: str, i: int, n: int) -> bool:
     """A hexadecimal letter starts a based numeral only when a base subscript follows its digit run (``FF₁₆``)."""
     k = i
@@ -685,6 +833,53 @@ def _based_ahead(s: str, i: int, n: int) -> bool:
         k += 1
     return k < n and (s.startswith("₁₆", k) or s.startswith("₂", k) or s.startswith("₈", k) or s.startswith("_16", k) or s.startswith("_{16}", k)
                       or s.startswith("₁₀", k) or s.startswith("_2", k) or s.startswith("_8", k))
+
+
+#: an ellipsis glued to a decimal's last digit: the Unicode character, three full stops, and in LaTeX \\ldots, \\dots, \\cdots
+_ELLIPSES_LATEX = ("\\ldots", "\\dots", "\\cdots")
+
+
+#: spelled-out scale words after a figure ('45 million litres'): the power of ten each multiplies by (short scale)
+_SCALE_WORDS = {"thousand": 3, "million": 6, "billion": 9, "trillion": 12, "quadrillion": 15}
+
+
+def _scale_word_after(s: str, i: int, end: int, n: int) -> tuple[str, int]:
+    """``(word, power)`` for a scale word after the numeral ``s[i:end]`` and one space (``45 million``, ``1.60 billion``), as a
+    whole word; ``('', 0)`` otherwise. A numeral in scientific notation or one already scaled takes none. Bounded lookahead."""
+    if end >= n or s[end] != " " or not ("0" <= s[end - 1] <= "9") or any(c in s[i:end] for c in "×xX*eE^⁰¹²³⁴⁵⁶⁷⁸⁹"):
+        return "", 0
+    j = end + 1
+    k = j
+    while k < n and "a" <= s[k] <= "z" and k - j <= 12:
+        k += 1
+    word = s[j:k]
+    if word not in _SCALE_WORDS or (k < n and (s[k].isalnum() or s[k] == "_")):
+        return "", 0
+    return word, _SCALE_WORDS[word]
+
+
+def _scaled(num, text: str, power: int):
+    """The numeral times 10^power, read as scientific notation (its last written digit moves with it: ``45 million`` has
+    the half-width of 4.5 × 10⁷, half a million)."""
+    return replace(num, text=text, value=num.value * Fraction(10) ** power, last_place=num.last_place + power, exponent=num.exponent + power,
+                   scientific=True, trailing_zeros=0)
+
+
+def _ellipsis_after(s: str, i: int, end: int, n: int, mode: str) -> int:
+    """The length of an ellipsis glued right after the numeral ``s[i:end]`` (``2.084429…``, ``0.6931...``,
+    ``4787.58\\ldots``), else 0. Only a decimal written with a point qualifies, and only when the numeral ends in a digit:
+    ``1, 2, 3…`` (a sequence) and ``6.31 × 10⁻⁹…`` keep their ellipsis as punctuation. Bounded lookahead (seven characters)."""
+    if end <= i or end >= n or not ("0" <= s[end - 1] <= "9") or "." not in s[i:end] or any(c in s[i:end] for c in "×xX*eE^⁰¹²³⁴⁵⁶⁷⁸⁹"):
+        return 0
+    if s[end] == "…":
+        return 1
+    if s.startswith("...", end) and not s.startswith("....", end):
+        return 3
+    if mode == "latex":
+        for cmd in _ELLIPSES_LATEX:
+            if s.startswith(cmd, end) and not (end + len(cmd) < n and _is_latin(s[end + len(cmd)])):
+                return len(cmd)
+    return 0
 
 
 def _brace_close(s: str, k: int, n: int, limit: int) -> Optional[int]:

@@ -393,6 +393,20 @@ def shape_key(node: Node) -> str:
     return render(node, canonical=True)
 
 
+#: The constants a working may write as a rounded decimal, with their values to more places than any reading needs.
+_CONSTANT_VALUES = {"π": Fraction(314159265358979, 10 ** 14), "pi": Fraction(314159265358979, 10 ** 14), "e": Fraction(271828182845905, 10 ** 14)}
+
+
+def _rounded_constant(name: str, node: Node) -> bool:
+    """Whether ``node`` writes the constant ``name`` (π, e) as a rounded decimal of three or more significant figures whose
+    rounding interval holds the constant ("3.14", "3.142", "2.718": repair round 4, ADV4-11: '2πr = 2 × 3.14 × 3.0' did not
+    align, so r was never paired with 3.0)."""
+    value = _CONSTANT_VALUES.get(name)
+    if value is None or not isinstance(node, Num) or node.number.sig_figs < 3:
+        return False
+    return abs(node.number.value - value) <= node.number.half_width
+
+
 def align(symbolic: Node, numeric: Node) -> Optional[list[tuple[Node, Node]]]:
     """Pair the leaves of ``symbolic`` with the subtrees of ``numeric`` when both trees have the
     same shape apart from substituted leaves: a symbol on the left may stand opposite any subtree
@@ -418,8 +432,8 @@ def align(symbolic: Node, numeric: Node) -> Optional[list[tuple[Node, Node]]]:
             if vb is None or vb[0] != a.number.value:
                 return None
             continue
-        if isinstance(a, Sym):  # a constant must stay a constant
-            if not (isinstance(b, Sym) and b.name == a.name):
+        if isinstance(a, Sym):  # a constant must stay a constant, or be written as its rounded value
+            if not (isinstance(b, Sym) and b.name == a.name) and not _rounded_constant(a.name, b):
                 return None
             continue
         if isinstance(a, BinOp) and a.op in "+*":
@@ -427,6 +441,13 @@ def align(symbolic: Node, numeric: Node) -> Optional[list[tuple[Node, Node]]]:
                 return None
             la, lb = _flatten(a, a.op), _flatten(b, b.op)
             if len(la) != len(lb):
+                if len(la) == 2 and len(lb) > 2:
+                    # 'Pt = 2000 W × (3.0 × 3600 s)': a two-factor law against a product with a bracketed factor; the tree's
+                    # own two sides stand opposite each other (t opposite the bracket), so the bracket is kept whole
+                    # (repair round 2, ADV2-12: flattened, the three factors had no two-factor reading)
+                    stack.append((a.right, b.right))
+                    stack.append((a.left, b.left))
+                    continue
                 return None
             stack.extend(zip(reversed(la), reversed(lb)))
             continue

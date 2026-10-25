@@ -43,6 +43,7 @@ class DiagnosticCode(str, Enum):
     TOO_MANY_ARGS = "E304"
     LITERAL_TOO_LONG = "E305"
     PAYLOAD_TOO_LARGE = "E306"
+    COEFFICIENTS_TOO_LARGE = "E307"  # the exact arithmetic of the problem could reach numbers beyond policies.MAX_COEFFICIENT_DIGITS
     # Solver
     SOLVER_TIMEOUT = "E400"
     SOLVER_UNKNOWN = "E401"
@@ -55,6 +56,7 @@ class DiagnosticCode(str, Enum):
     RATE_LIMITED = "E503"
     CONCURRENCY_LIMITED = "E504"
     SELF_CERTIFICATION_REJECTED = "E505"
+    CLIENT_FIXTURES_DISABLED = "E506"  # a client may not act as the translation provider (HTTP 403) unless the service allows it
     INTERNAL = "E900"
 
 

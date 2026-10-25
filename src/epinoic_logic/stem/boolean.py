@@ -217,9 +217,16 @@ def parse_boolean(tokens: "tuple[Token, ...] | list[Token]", *, limits: StemLimi
         if not seg:
             continue
         rel_idx = [k for k, t in enumerate(seg) if t.kind == "REL" and t.text in _EQUIV]
+        if len(rel_idx) > 1:
+            # an evaluation chain 'NOT (A AND B) = NOT (1 AND 0) = NOT 0 = 1': each pair of neighbouring expressions is one
+            # relation, as in an arithmetic chain (repair round 2, holdout2 CS class: the whole chain was refused)
+            chain = _chain_links(seg, rel_idx, limits)
+            if isinstance(chain, ParseIssue):
+                issues.append(chain)
+            else:
+                rels.extend(chain)
+            continue
         if len(rel_idx) != 1:
-            if rel_idx:
-                issues.append(ParseIssue("ST-PARSE-001", "a Boolean chain with more than one equivalence sign", seg[0].start, seg[-1].end))
             continue
         k = rel_idx[0]
         try:
@@ -236,6 +243,37 @@ def parse_boolean(tokens: "tuple[Token, ...] | list[Token]", *, limits: StemLimi
             continue
         rels.append(BoolRelation(left, seg[k].text, right, seg[0].start, seg[-1].end))
     return tuple(rels), tuple(issues)
+
+
+#: At most this many links of one Boolean evaluation chain are read.
+MAX_BOOLEAN_CHAIN_LINKS = 16
+
+
+def _chain_links(seg: list[Token], rel_idx: list[int], limits: StemLimits) -> "list[BoolRelation] | ParseIssue":
+    """The links of a Boolean chain ``E0 = E1 = ... = En`` (equivalence signs at ``rel_idx``): one relation per pair of
+    neighbouring expressions, or the ST-PARSE-001 issue when an expression is outside the grammar or the chain has more
+    than :data:`MAX_BOOLEAN_CHAIN_LINKS` links."""
+    if len(rel_idx) > MAX_BOOLEAN_CHAIN_LINKS:
+        return ParseIssue("ST-PARSE-001", f"a Boolean chain of more than {MAX_BOOLEAN_CHAIN_LINKS} links", seg[0].start, seg[-1].end)
+    bounds = [-1] + rel_idx + [len(seg)]
+    exprs: list[Node] = []
+    try:
+        for a, b in zip(bounds, bounds[1:]):
+            part = tuple(seg[a + 1:b])
+            if not part:
+                raise ValueError("an empty side of an equivalence sign")
+            p = _BoolParser(part, limits)
+            node = p.expr(0)
+            if p.i != len(part):
+                raise ValueError("unexpected tokens in a link of the chain")
+            exprs.append(node)
+    except (ValueError, AssertionError) as exc:
+        return ParseIssue("ST-PARSE-001", f"a Boolean expression outside the grammar: {exc}", seg[0].start, seg[-1].end)
+    out: list[BoolRelation] = []
+    for i, k in enumerate(rel_idx):
+        left_tok, right_tok = seg[bounds[i] + 1], seg[bounds[i + 2] - 1]
+        out.append(BoolRelation(exprs[i], seg[k].text, exprs[i + 1], left_tok.start, right_tok.end))
+    return out
 
 
 def _cells(line: str) -> list[str]:

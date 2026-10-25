@@ -201,14 +201,14 @@ def _literal_is_zero(text: str) -> Optional[bool]:
 
 
 def _valid_int_literal(text: Any) -> bool:
-    return isinstance(text, str) and INT_RE.match(text) is not None
+    return isinstance(text, str) and INT_RE.fullmatch(text) is not None
 
 
 def _valid_real_literal(text: Any) -> bool:
     return isinstance(text, str) and (
-        INT_RE.match(text) is not None
-        or RATIONAL_RE.match(text) is not None
-        or DECIMAL_RE.match(text) is not None
+        INT_RE.fullmatch(text) is not None
+        or RATIONAL_RE.fullmatch(text) is not None
+        or DECIMAL_RE.fullmatch(text) is not None
     )
 
 
@@ -535,7 +535,7 @@ def _symbol_table(problem: Problem, diagnostics: list[Diagnostic]) -> dict[str, 
     symbols: dict[str, Sort] = {}
     for index, symbol in enumerate(problem.symbols):
         path = f"symbols[{index}].name"
-        if not isinstance(symbol.name, str) or not IDENT_RE.match(symbol.name):
+        if not isinstance(symbol.name, str) or not IDENT_RE.fullmatch(symbol.name):
             diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "symbol name is not a valid identifier", path))
             continue
         if symbol.sort not in ("Bool", "Int", "Real"):
@@ -587,7 +587,7 @@ def validate_problem(problem: Problem, limits: Limits = DEFAULT_LIMITS) -> Valid
     total_nodes = 0
     deepest = 0
     for base, assertion in _assertions(problem):
-        if not isinstance(assertion.id, str) or not ASSERTION_ID_RE.match(assertion.id):
+        if not isinstance(assertion.id, str) or not ASSERTION_ID_RE.fullmatch(assertion.id):
             diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "assertion id is not valid", f"{base}.id"))
         elif assertion.id in seen_ids:
             diagnostics.append(_diag(DiagnosticCode.DUPLICATE_IDENTIFIER, f"assertion id {assertion.id!r} used more than once", f"{base}.id"))
@@ -651,7 +651,12 @@ def _decode_text(raw: Union[bytes, str], max_bytes: int, diagnostics: list[Diagn
         except UnicodeDecodeError:
             diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "payload is not valid UTF-8", None))
             return None
-    size = len(raw.encode("utf-8"))
+    try:
+        size = len(raw.encode("utf-8"))
+    except UnicodeEncodeError:
+        # a lone surrogate (a str that is not valid Unicode text): an invalid payload, never an internal error
+        diagnostics.append(_diag(DiagnosticCode.SCHEMA_VIOLATION, "payload contains a lone surrogate: it is not valid Unicode text", None))
+        return None
     if size > max_bytes:
         diagnostics.append(_diag(DiagnosticCode.PAYLOAD_TOO_LARGE, f"payload is {size} bytes; limit is {max_bytes}", None))
         return None

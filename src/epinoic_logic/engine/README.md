@@ -2,16 +2,17 @@
 
 | Module | Purpose |
 | --- | --- |
-| `validator.py` | Parses untrusted JSON into a `Problem` (size and depth guards) and checks identifiers, strict sorts (no Int/Real mixing without `to_real`), policy (constant non-zero divisors; nonlinear terms off by default) and limits. Collects every diagnostic; maps E1xx/E3xx to INVALID_FORMALIZATION and E2xx to UNSUPPORTED. |
+| `validator.py` | Parses untrusted JSON into a `Problem` (size and depth guards; a lone surrogate in a text payload is `E100`, never an internal error) and checks identifiers (matched whole, so `x\n` is no second symbol and `P1\n` no second premise id), strict sorts (no Int/Real mixing without `to_real`), policy (constant non-zero divisors; nonlinear terms off by default) and limits. Collects every diagnostic; maps E1xx/E3xx to INVALID_FORMALIZATION and E2xx to UNSUPPORTED. |
 | `compiler.py` | Maps each validated node to exactly one Z3 call in a fresh `Context`; numerals from text so `0.1` is the rational 1/10; `idiv`/`mod` follow Z3 integer semantics; exports exact SMT-LIB text for audit. |
-| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. The core is always extracted, whatever `produce_unsat_core` says (see "Policy evidence" below). Models are extracted exactly (`a/b`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. |
+| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. The core is always extracted, whatever `produce_unsat_core` says (see "Policy evidence" below). Models are extracted exactly (`a/b`), always with model completion (a value is never a symbol name, whatever `model_completion` says), and only after each value is bounded inside Z3 (`MAX_MODEL_VALUE_DIGITS`, 400 digits): building a model's text runs outside the timeout and the rlimit, so a value beyond the bound makes the result UNKNOWN (`E401`, `MODEL_TOO_LARGE_REASON`), never a cut value. The entailment's consistency precheck builds no model, and the extraction is timed as its own stage (`model`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. |
 | `authority.py` | Premise authority: `is_ungrounded`, `is_unverified`, `has_authority`, the dependency lists and `assumed_grounding`. Only a grounding a check in this process verified establishes a premise; every other grounding is a dependency, whatever kind it claims (see "Premise authority" below). |
-| `identity.py` | The immutable identity bound into every result: `build_id` (digest of the engine, IR and version source), `schema_id` (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest of `policy_manifest()`, the decision policy as data). |
+| `identity.py` | The immutable identity bound into every result: `build_id` (digest of the `BUILD_SOURCES`: the engine, IR and version source and the shared diagnosis modules `named.py` and `lexis.py`), `schema_id` (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest of `policy_manifest()`, the decision policy as data, with `argument_rules` and `named_codes`, the digest of the named-code table). |
 | `provenance.py` | Version and identity capture, binding digests over (problem, config, versions with identity, non-default limits), HMAC-SHA256 signing and constant-time verification, `binding_inconsistencies`, and `stale_reasons` (why a result is not current-policy evidence). |
-| `release.py` | `release_check(result, problem, signing_key=..., required_limits=...)`: the current-policy release check (authentic, bound, current, a positive verdict on the claim, its evidence computed, resting on established premises only). Formal entailment and permission to release stay separate. |
-| `runner.py` | `verify(...)`: validate → compile → decide → bind → sign. Never raises; every failure is a bound non-success result. Also lists `ungrounded_dependencies` (relied-on premises with missing, inferential, assumed or failed grounding) and `unverified_dependencies` (relied-on premises whose task or source authority no check validated, any kind). A definitive status that used no premise carries `E108` (vacuous), and so does a COUNTEREXAMPLE over zero premises (it says only that the conclusion is no tautology: nothing the claim rests on was encoded). A COUNTEREXAMPLE over at least one premise that falsifies the conclusion only through numeric symbols no premise mentions (Z3 decides `premises AND forall free. NOT conclusion` unsat, so every premise assignment leaves a value of those figures that makes the conclusion true) carries the advisory `W111` and stands as the verdict on the encoding: the question may leave them unconstrained. It carries `E111` (unencoded reason: no verdict) only with source-linked evidence, a grounding on one of those symbols that a check in this process verified; a Bool point no premise links to stays the non sequitur COUNTEREXAMPLE. An ENTAILED proof whose relied-on premises restate the conclusion (it, or each of its "and" conjuncts, is syntactically a relied-on premise or a conjunct of one: `circular_premises`) carries `E112` (circular) when every restating premise is the writer's own (`assumed_grounding`: an ungrounded kind or an unverified `arithmetic_fact`); restating a task setting, a rubric rule or a text is a transcription check, not a circle. A COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts (a premise `b <-> (n = 17)`, a Bool atom defined by a comparison of numeric symbols that no other premise mentions, and the entailment re-run with each such atom asserted is ENTAILED) carries the advisory `W110`: a definition is not an assertion, and "define b iff n = 17; does b necessarily hold?" is answered by exactly that counterexample, so it stands. It carries `E110` (unasserted figure: no verdict) only with source-linked evidence that a source asserts the figure, a grounding on the figure or the atom that a check in this process verified (the translation layer creates that record from the source clauses that assert the figure, read from their grammar by `translate.assertion`, `translate.coverage.apply_coverage_evidence`, so its coverage note and this code are one decision; a payload cannot carry it, E505). Both name the premise, its label, the atom and the values the counterexample chose; neither ever instructs adding a premise because it produces entailment unless a source states it. The status stays COUNTEREXAMPLE (the solver's answer about the encoding, as it stays ENTAILED under `E112`); the outcome layer never displays any of `E108`, `E110`, `E111`, `E112` as a verdict, and shows `W110`/`W111` beside the verdict as advisory coverage warnings. `unasserted_figure_definitions(problem)` is the syntactic test (no solver) the translator shares; `source_stated_symbols(problem, names)` is the evidence test. Records and binds non-default `Limits` on every result path, and refuses over-degree polynomials under the nonlinear gate (see below). |
-| `policies.py` | Named pack policies: `PACK_POLICIES` (`linear`, `nonlinear`), `policy_limits`, `policy_config`, `required_policy`, `NONLINEAR_RLIMIT`, `NONLINEAR_MAX_DEGREE` and the polynomial-degree walk; `JOINT_LIMITS`, the integrity layer's bounds for joint problems; `NAMED_POLICIES`, `named_policy` and `named_policy_of`, the policies a caller outside the packs requests by name (the service, the CLI). |
-| `statuses.py`, `errors.py`, `results.py` | Closed status taxonomy with `is_definitive`, stable diagnostic codes (`NO_VERDICT_CODES`, `ADVISORY_CODES`), and result models including the scope statement, the `limits` record, the identity in `Versions` and `Binding.limits_digest`. |
+| `release.py` | `release_check(result, problem, signing_key=..., required_limits=...)`: the current-policy release check (authentic, bound, current, a positive verdict on the claim, its evidence computed, resting on established premises only; rule 8: no named defect at warning or error by effective severity, so a capped one still blocks; rule 9: diagnosed by these rules, `argument_rules == "argdiag-2"`, so a result verified with `diagnose=False` or whose diagnosis did not finish is refused). Formal entailment and permission to release stay separate. |
+| `argument.py`, `argument_cues.py` | The argument stage of the diagnosis, engine layer (`diagnose(problem, proc, compiled, config, limits, diagnostics)`; rules `argdiag-2`, `ARGUMENT.md`). From the engine's own status it names ARG-CONTRA-001 (INCONSISTENT_PREMISES), ARG-VAC-001 (E108) and ARG-CIRC-001 (E112); on an ENTAILED point with no no-verdict code, R0 decides the point again from the premises a check established and names the writer's links (ARG-LINK-001, info, each with its `missing_link`), the unestablished facts (ARG-FACT-001, info) and the pattern rules over them (ARG-CIRC-002, ARG-CIRC-003, ARG-AC-001, ARG-DA-001, ARG-FD-001, ARG-HG-001, ARG-CL-001, ARG-EQ-003); on a COUNTEREXAMPLE it names the shape (ARG-REFUTE-001, ARG-AC-001, ARG-DA-001, ARG-HG-001, ARG-NS-001, ARG-PART-001, ARG-NS-002 with ARG-EQ-002, ARG-INV-001). Derived runs are data-built subsets of the bound problem decided on its own compiled terms: at most `MAX_DERIVED_RUNS` (24), each under `min(timeout_ms, 1000)` ms, at most `min(4 × timeout_ms, 8000)` ms in all; the closed English cue tables are in `argument_cues.py`. The runner checks whatever it returns: engine-layer named diagnostics only, merged, ordered, bounded and capped. A stage that raises, breaks the contract or meets an undecided or over-budget derived run records `argdiag-2/incomplete:<reason>`, and the rule that needed it fires nothing. |
+| `runner.py` | `verify(...)`: validate → compile → decide → diagnose → bind → sign. Never raises. The diagnose stage runs `argument.diagnose` unless the caller passes `diagnose=False`. Its output becomes the signed `named_diagnostics` and `argument_rules`, capped first by `severity_cap` when the caller gives one, and it never changes the status, the dependency lists or the engine diagnostics. `diagnose` and `severity_cap` are Python keywords only; every failure is a bound non-success result. Also lists `ungrounded_dependencies` (relied-on premises with missing, inferential, assumed or failed grounding) and `unverified_dependencies` (relied-on premises whose task or source authority no check validated, any kind). A definitive status that used no premise carries `E108` (vacuous), and so does a COUNTEREXAMPLE over zero premises (it says only that the conclusion is no tautology: nothing the claim rests on was encoded). A COUNTEREXAMPLE over at least one premise that falsifies the conclusion only through numeric symbols no premise mentions (Z3 decides `premises AND forall free. NOT conclusion` unsat, so every premise assignment leaves a value of those figures that makes the conclusion true) carries the advisory `W111` and stands as the verdict on the encoding: the question may leave them unconstrained. It carries `E111` (unencoded reason: no verdict) only with source-linked evidence, a grounding on one of those symbols that a check in this process verified; a Bool point no premise links to stays the non sequitur COUNTEREXAMPLE. An ENTAILED proof whose relied-on premises restate the conclusion (it, or each of its "and" conjuncts, is a relied-on premise or a conjunct of one, as written or in the engine's normal form: `circular_premises`, below) carries `E112` (circular) when every restating premise is the writer's own (`assumed_grounding` is `not has_authority`: no check in this process established it, whatever kind it claims); restating a task setting, a rubric rule or a text excerpt that a check verified is a transcription check, not a circle, and restating one that only carries the label is a circle (policy 2026.10-v5). A COUNTEREXAMPLE that only reassigns a figure the problem defines but never asserts (a premise `b <-> (n = 17)`, a Bool atom defined by a comparison of numeric symbols that no other premise mentions, and the entailment re-run with each such atom asserted is ENTAILED) carries the advisory `W110`: a definition is not an assertion, and "define b iff n = 17; does b necessarily hold?" is answered by exactly that counterexample, so it stands. It carries `E110` (unasserted figure: no verdict) only with source-linked evidence that a source asserts the figure, a grounding on the figure or the atom that a check in this process verified (the translation layer creates that record from the source clauses that assert the figure, read from their grammar by `translate.assertion`, `translate.coverage.apply_coverage_evidence`, so its coverage note and this code are one decision; a payload cannot carry it, E505). Both name the premise, its label, the atom and the values the counterexample chose; neither ever instructs adding a premise because it produces entailment unless a source states it. The status stays COUNTEREXAMPLE (the solver's answer about the encoding, as it stays ENTAILED under `E112`); the outcome layer never displays any of `E108`, `E110`, `E111`, `E112` as a verdict, and shows `W110`/`W111` beside the verdict as advisory coverage warnings. `unasserted_figure_definitions(problem)` is the syntactic test (no solver) the translator shares; `source_stated_symbols(problem, names)` is the evidence test. Records and binds non-default `Limits` on every result path, and refuses over-degree polynomials under the nonlinear gate (see below). |
+| `policies.py` | Named pack policies: `PACK_POLICIES` (`linear`, `nonlinear`), `policy_limits`, `policy_config`, `required_policy`, `NONLINEAR_RLIMIT`, `NONLINEAR_MAX_DEGREE` and the polynomial-degree walk; `MAX_COEFFICIENT_DIGITS` and `coefficient_digits`, the bound on exact arithmetic (E307, every policy); `MAX_FORCED_VALUE_DIGITS` and `forced_value_digits`, the bound on the values a nonlinear problem's products force (E307 under `allow_nonlinear`, repair round 4); `JOINT_LIMITS`, the integrity layer's bounds for joint problems; `NAMED_POLICIES`, `named_policy` and `named_policy_of`, the policies a caller outside the packs requests by name (the service, the CLI). |
+| `statuses.py`, `errors.py`, `results.py` | Closed status taxonomy with `is_definitive`, stable diagnostic codes (`NO_VERDICT_CODES`, `ADVISORY_CODES`), and result models including the scope statement, the `limits` record, the identity in `Versions`, `Binding.limits_digest`, and the argument diagnosis (`named_diagnostics`, `argument_rules`). The `limits`, `named_diagnostics` and `argument_rules` fields are left out of every dump while `None`, so a result of an earlier release re-serialises byte-identically and its signature still verifies. |
 
 ## Premise authority (`authority.py`)
 
@@ -34,6 +35,16 @@ Until the external review of 2026-10-12 an unchecked `arithmetic_fact`, `task_se
 `rubric_rule` was listed nowhere, so a translation could hide an invented premise (160 km for a
 supplied 120 km) by choosing that label. The lists never change a status: formal entailment from
 an unverified premise is still ENTAILED, and `release.release_check` refuses it.
+
+## Circularity follows authority (policy 2026.10-v5)
+
+"p, therefore p" is a transcription only when a check in this process verified p against the
+supplied text or the task record. With nothing but a source or task label behind it (`verified`
+unset, an excerpt no check located, a `knowledge_document`), the proof's only support for p is
+the claim itself, so it is circular (`E112`) under every kind. `dependency_policy()` records the
+rule as `assumed_for_circularity: "not_established"`. Before this policy only the ungrounded kinds
+and an unverified `arithmetic_fact` counted, so a label-only `task_setting` that restated its
+conclusion cleared the check.
 
 ## Policy evidence is computed, not optional
 
@@ -65,6 +76,99 @@ verifications running at once and only raises the limit while any runs; lowering
 it under load made Z3 abort and the next solver call crash the process. Stress
 results for this package are in `tests/stress/results/` and summarized in
 `docs/STRESS_RESULTS.md`.
+
+## Signatures, the coverage checks and malformed payloads (re-run review)
+
+**The signature covers the key id.** `provenance.signable_text` leaves out only `signature`, so a
+result relabelled to another `signature_key_id` no longer verifies, even for a receiver whose key
+ring maps several ids to one secret or gives trust by key id. Earlier builds signed without the
+key id (`legacy_signable_text`); `verify_signature` still accepts that form, but only for a result
+this build did not produce (other versions or identity), which is never current-policy evidence:
+results of earlier releases stay inspectable, and a result of this build verifies only in the form
+that binds its key id. `verify_signature` never raises: a signature that is not 64 lower-case hex
+digits (the only form `sign_result` issues), a key that is not bytes or a result that cannot be
+serialised is no valid signature, and digests are compared as bytes (`mac_matches`; comparing two
+text values holding non-ASCII characters made `hmac.compare_digest` raise, so a forged
+`"é" * 64` crashed `release_check`, the composer and both HTTP signature routes).
+
+**Both coverage shapes, inside the decision's bound.** A COUNTEREXAMPLE is checked for both
+shapes, as the translation layer checks both: one that also has the W110 shape is still checked
+for `E111`, so a free figure a source states withholds the verdict with or without a definition
+beside it. Only `E110` skips the E111 check, since it already withholds the verdict. A no-verdict
+code takes precedence: the other shape's advisory, which says the counterexample stands, is not
+carried beside it; two advisories are both reported. The procedure and the coverage checks share
+one deadline, the documented bound of an entailment (`DECISION_SOLVER_CALLS` = 2 times
+`timeout_ms`): the figure check's two solver calls each get half of what is left, the reason check
+what remains, never more than `timeout_ms` each. A check with nothing left is skipped and decides
+nothing, as an undecided check does. Each check's time is in `timings` (`coverage_probe_figure`,
+`coverage_probe_reason`, with `_skipped` for a skipped one), so the time a verdict cost is the time
+it reports. Before, the checks ran after the procedure with a whole timeout each and were not
+timed: a COUNTEREXAMPLE could take five timeouts while its timings showed milliseconds.
+
+**Circularity in a trivially different form.** `circular_premises` compares the conclusion's
+conjuncts with the relied-on premises and their conjuncts as written and, when that finds no match,
+in a normal form (`_NormalForms`, a closed list of equivalences read from the IR as data: operands
+of `eq`, `ne`, `iff`, `and`, `or`, `add` and `mul` ordered, `>` and `>=` written as `<` and `<=`, a
+negated comparison as its complement, double negation removed, `iff`, `implies` and `ite` with a
+constant side simplified, repeats removed, `x <= a and x >= a` within one premise read as `x = a`,
+a literal read as its exact value). So `41 = dt`, `dt <= 41 and dt >= 41`, `not not (a and b)` and
+`(a and b) <-> true` restate `dt = 41` or `a and b` exactly as the same text does: `E112` in the
+engine, and the pipeline's circularity refusal, which shares the function. A conclusion conjunct
+that normalises to a constant restates nothing, and bounds stated in two premises are a derivation,
+not a restatement.
+
+**Circularity in other terms** (repair round 2). Beyond the normal form, `equivalent_premises` asks
+Z3 whether a relied-on premise of the writer's own (`assumed_grounding`), with the conclusion's
+symbols and the restatement shape the argument rule ARG-CIRC-002 reads, is equivalent to the
+conclusion under every assignment: "2·dt = 82", "dt + 1 = 42" and "40 < dt < 42" over Int for
+dt = 41, or a De Morgan form, now carry `E112` with the rest of the circles, and the pipeline's
+refusal names them "in other terms". Working over stated figures ("rate = 2.0 + 0.40 × 60" for
+rate = 26) is never a restatement. At most `MAX_RESTATEMENT_CHECKS` (4) premises are decided,
+within what the decision's time bound left (`RESTATEMENT_RUN_MS` each at most, stage `restatement`
+of the timings); an undecided check finds nothing.
+
+**A contradiction is no circle** (repair round 2). `premises_inconsistent(problem, budget_ms=...)` asks
+Z3, within the restatement budget, whether the premises contradict each other (True only on a
+proof; an undecided or failed check is False). The translator asks it before it refuses an encoding
+as circular, so premises that contradict each other ("they recalled more, and they did not recall
+more") reach the engine, which decides INCONSISTENT_PREMISES first (consistency before entailment)
+and the argument stage names ARG-CONTRA-001.
+
+**Fallacies packed into one premise** (repair round 2). The argument stage reads the converse or the
+inverse step of a stated rule when the rule, the fact the step starts from and the step stand
+together in one premise as a conjunction ("if a plant gets light it grows, and this plant gets no
+light, and so it will not grow": ARG-DA-001; the converse: ARG-AC-001; `argument.py`,
+`packed_converse`). The fact must be in the same conjunction, so modus ponens packed the same way and
+a biconditional written as two implications are not read.
+
+**Numbers too large for exact arithmetic** (repair round 2). Z3 checks its timeout between steps of
+exact arithmetic, and one step on numbers of tens of thousands of digits runs for seconds. Before
+it compiles, the runner bounds the digits every number of the problem's exact linear arithmetic can
+reach (`policies.coefficient_digits`, a Hadamard bound read from the IR's numerals, nothing
+evaluated) and refuses a problem above `MAX_COEFFICIENT_DIGITS` (16,000) as INVALID_FORMALIZATION
+with `E307` (COEFFICIENTS_TOO_LARGE): a 40-link chain of thirty-digit products that held one solver
+call for 5 s under a 2000 ms timeout is refused in about 0.05 s. The bound is part of the policy
+manifest (`max_coefficient_digits`); ordinary problems stay far below it.
+
+**Malformed payloads stay INVALID_FORMALIZATION.** A payload that never becomes a Problem is bound
+to a digest of what was sent whatever it is (`_raw_digest`): text and bytes as they arrived (a lone
+surrogate written with `surrogatepass`), anything else as its canonical JSON, and a payload JSON
+cannot write (nested beyond the recursion limit, an integer too long for decimal text, a value of
+another type) over a deterministic iterative encoding. So `None`, a list, a number, or a dict nested
+50,000 deep, holding a lone surrogate or a 5,000-digit integer, keeps the validator's
+INVALID_FORMALIZATION (`E100`, `E303`), never an INTERNAL_ERROR raised while the rejection was being
+bound.
+
+**The core record of a vacuous ENTAILED.** With `produce_unsat_core` the raw core record is
+serialised on every ENTAILED, INCONSISTENT_PREMISES and UNSATISFIABLE result, a vacuous ENTAILED
+included: `{"premise_ids": [], "includes_negated_conclusion": true}`.
+
+**An absent memory budget reads back as none.** An `exclude_none` dump (the channel's and the
+signer's canonical form) drops `solver_config.memory_max_mb` only when it is `None`, since the
+engine always writes 512. `VerificationResult` therefore reads an absent `memory_max_mb` as `None`
+(`results._absent_memory_budget_was_none`), not as the field's default, so a genuine signed result
+round-trips through such a dump with its binding and signature intact
+(`tests/engine/test_rerun_review_provenance.py`).
 
 ## Named pack policies (`policies.py`)
 
@@ -181,3 +285,38 @@ Larger roots, surds and wrong roots take 2 to 15 ms. A linear sign-change form (
 of opposite signs, by the intermediate value theorem) decides the same correct root in about
 13 ms. A double root has no sign change, so the nonlinear Form S stays the fallback. Both
 forms are pinned in the shape tests.
+
+**Repair round 3** (`docs/ARGUMENT_DIAGNOSTICS.md`, section 9). The argument stage reads exhaustive options by closed
+partitions (`argument_cues.EXHAUSTIVE_PARTITIONS`: "positive, negative or zero", "moving or at rest" are no false dilemma),
+a census of the whole population as no sample (`_sampling_marked`, `_population_added`), a post hoc about one case as a
+causal leap, and a control cue only where it bears on the causal link it would warrant (`warranting_control`: a decoy
+elsewhere hides nothing); a sequence in time is read from the facts' meanings and their dates. A "rule" note on a
+knowledge link whose label records no rule ("so") is unmarked knowledge, so the link keeps its missing link
+(`unmarked_knowledge`). `runner.conclusion_valid_alone` lets the translator leave a tautological point to E108 (vacuous)
+rather than refuse it as circular. `provenance.signature_form` tells the bound signature (it covers the key id) from the
+legacy form of earlier builds, which attests no key id: `verify_signature(result, key, key_id=...)` accepts only the
+bound form, and `release_check` with a key id names a legacy record's key id as not attested.
+
+**Repair round 4** (`docs/ARGUMENT_DIAGNOSTICS.md`, section 10). The values a nonlinear problem's products force are bounded
+from the IR before it compiles (`policies.forced_value_digits`: the equalities of the premises fix a variable to an
+expression; a literal's digits, a product's digits the sum of its factors', a quotient's the sum, a sum's the largest
+plus the digits of the term count, to a fixed point; `runner._forced_value_diagnostic`): above `MAX_FORCED_VALUE_DIGITS`
+(2,000; calibrated with a chain of squarings: 640 digits in about 0.09 s, 2,048 in about 0.4 s, 2,560 in about 2 s, 10,240
+in 37 s) the problem is INVALID_FORMALIZATION with E307, in about a millisecond; the bound is in the policy manifest
+(`max_forced_value_digits`). `runner.equivalent_premises` tests the candidate premises together once when none restates the
+point alone ("dt ≤ 41" and "dt ≥ 41" for dt = 41: E112). The argument stage reads one comparative after a relative clause
+of two words or more as a correlation (`_correlation`), "light" as radiation where it is what travels or is refracted
+(`argument_cues`), "did not work" for "ineffective" (`argument_cues.SYNONYM_GROUPS`, synonym roots in `_concept`), and a
+proof over no premise at all as an info record (ARG-VAC-001). Release rule 8 lists capped diagnostics under their own line
+(`named.blocking_release_lines`). Tests: `tests/engine/test_repair_round4_engine.py`,
+`tests/engine/test_repair_round4_argument.py`.
+
+**Repair round 5** (`docs/ARGUMENT_DIAGNOSTICS.md`, section 11). R0 lists a figure relation the proof needs (a numeric
+relation between quantities with no implication, biconditional or either/or: `_Diagnosis.figure_relation`) with the
+facts under ARG-FACT-001, never as a writer's link with an empty consequent (ARG-LINK-001). The hasty-generalisation
+reading takes cases named by a list or a label as instances (`_ENUMERATED_CASES_RE`, `_LABELLED_CASE_RE`), the causal
+reading a causative verb with a result comparative ("make swimmers faster": `_CAUSATIVE_VERBS`, `_RESULT_COMPARATIVES`),
+and the cue tables gain populations ("runners", "swimmers") and one synonym group ("boring", "tedious", "dull",
+"monotonous"). A derived run made only of bound premises skips its consistency check when the engine found the bound
+premises consistent (`_Runs.consistent`; a subset of a satisfiable set is satisfiable); a run that adds a step is checked
+as before. Tests: `tests/engine/test_repair_round5_engine.py`.

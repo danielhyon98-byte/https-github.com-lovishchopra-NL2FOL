@@ -9,15 +9,24 @@ synthesized claim FOLLOWS from its sources is a formal question answered in
 
 Figures for the synthesis-fidelity comparison (INT-LEDGER-0xx) include scientific notation
 (``3.0e8``, ``6.67 × 10⁻¹¹``, ``1.2*10**6``), read exactly by the STEM number scanner
-(``stem.numbers``): such a figure is one figure whose spellings are its exact decimal value
-and its normalised mantissa-exponent form, so ``3.0e8``, ``3.0 × 10⁸`` and ``300000000`` are
-the same figure and ``6.67 × 10⁻¹¹`` is never read as 6.67 and 10. Figures with no exponent
-are read as before.
+(``stem.numbers``), so ``6.67 × 10⁻¹¹`` is never read as 6.67 and 10. Figures are compared as
+typed quantities (docs/STEM_DESIGN.md, section 11.5): a numeral's exact value and its
+significant figures are one spelling (``3.0e-2``, ``0.030`` and ``30e-3`` are the same figure:
+the value 3/100 to two significant figures; ``0.03`` is the same value to one, a precision
+change; ``0.031`` is another value), and the unit written after it is a separate attribute
+(``2.0 g`` and ``2.0 kg`` state the same numeral of two different quantities, a unit change;
+``2.0 g`` and ``0.0020 kg`` state one quantity in commensurable units, a conversion). The
+trailing zeros of an integer written without a point are ambiguous, so ``300`` meets ``3e2``,
+``3.0e2`` and ``3.00e2``. A value change, a precision change, a unit change and a change of
+form only are distinct outcomes (:func:`figure_changes`).
 """
 from __future__ import annotations
 
 import re
-from typing import Optional
+from dataclasses import dataclass, field
+from fractions import Fraction
+from functools import lru_cache
+from typing import Optional, Sequence
 
 from ..translate.contracts import ClaimRecord, SpecialistReport
 from .contracts import CERTAINTY_RANK, IntegrityFinding, Synthesis
@@ -25,7 +34,67 @@ from .contracts import CERTAINTY_RANK, IntegrityFinding, Synthesis
 PLACEHOLDERS = frozenset({"n/a", "na", "-", ".", "tbd", "see above", "none", "null", "nil", "todo", "?", "x", "...", "as above", "same"})
 _NUMBER_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
 _LIST_MARKER_RE = re.compile(r"(?m)^\s*\(?\d{1,2}[.)]\s")
-_THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+_COMMA_THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+#: A figure grouped in thousands with a space as the SI and the IB write it ("12 500", "1 250.75", with a thin space, a
+#: no-break space, a narrow no-break space or LaTeX "\\,"): a first group of one to three digits that no digit, point or
+#: comma precedes, then groups of exactly three digits (repair round 3, rerun-combinator-faults-8: "12 500" was read as
+#: the two figures 12 and 500, so a synthesis writing a source's 12500 in SI grouping was charged INT-LEDGER-023).
+_SPACE_THOUSANDS_RE = re.compile(r"(?<![\d.,])(\d{1,3})((?:(?: |\u2009|\u00a0|\u202f|\\,)\d{3})+)(?!\d)")
+_GROUP_SPACE_RE = re.compile(r" |\u2009|\u00a0|\u202f|\\,")
+#: The decimal digits grouped in threes after the point, as the SI and the IB write them ("0.000 42", "1.138 429…",
+#: "0.047 79"): a first group of exactly three digits after the point, then groups of three, the last of one to three
+#: digits, each after a space of the thousands groups (repair round 4, rerun-combinator-faults-8 variant: "0.000 42" was
+#: read as the two figures 0.000 and 42, so a synthesis writing a source's 0.00042 in SI grouping was charged
+#: INT-LEDGER-023).
+_SPACE_DECIMALS_RE = re.compile(r"(?<![\d,])(\d+\.\d{3})((?:(?: |\u2009|\u00a0|\u202f|\\,)\d{3})*(?: |\u2009|\u00a0|\u202f|\\,)\d{1,3})(?!\d)(?![.,]\d)")
+#: Thousands grouped with an apostrophe ("12'500", "1'250'000"): groups of exactly three digits.
+_APOSTROPHE_THOUSANDS_RE = re.compile(r"(?<![\d.,'’])(\d{1,3})((?:['’]\d{3})+)(?![\d'’])")
+
+
+def _ungrouped(text: str) -> str:
+    """``text`` with its thousands separators removed: commas ("12,500"), the space groups of
+    :data:`_SPACE_THOUSANDS_RE` ("12 500"), the apostrophe groups of :data:`_APOSTROPHE_THOUSANDS_RE` ("12'500") and the
+    decimal groups of :data:`_SPACE_DECIMALS_RE` ("0.000 42"), so one figure is read as one figure however it is grouped."""
+    text = _COMMA_THOUSANDS_RE.sub("", text)
+    if "'" in text or "’" in text:
+        text = _APOSTROPHE_THOUSANDS_RE.sub(lambda m: m.group(1) + re.sub("['’]", "", m.group(2)), text)
+    if not any(ch in text for ch in (" ", "\u2009", "\u00a0", "\u202f", "\\")):
+        return text
+    text = _SPACE_THOUSANDS_RE.sub(lambda m: m.group(1) + _GROUP_SPACE_RE.sub("", m.group(2)), text)
+    return _SPACE_DECIMALS_RE.sub(lambda m: m.group(1) + _GROUP_SPACE_RE.sub("", m.group(2)), text)
+#: Minus glyphs other than the ASCII hyphen-minus, right before a digit: the minus sign U+2212, the hyphen, non-breaking
+#: hyphen, figure dash and en dash (U+2010 to U+2013), the small and full-width hyphen-minus (:func:`_figures` gives a figure
+#: after one its signed spelling as well).
+_MINUS_GLYPH_RE = re.compile("[‐‑‒–−﹣－](?=[0-9])")
+#: The glyphs that are minus signs and nothing else (U+2212 MINUS SIGN, U+FE63 SMALL HYPHEN-MINUS, U+FF0D FULLWIDTH
+#: HYPHEN-MINUS): written as a sign (not after a letter or digit) they sign the figure exactly as the ASCII hyphen-minus
+#: does, so "−0.5" restated as "0.5" is a change (repair round 2, combinator-faults-8 variant). The hyphens and dashes
+#: (U+2010 to U+2013) are also range and punctuation marks: one signs the figure only in a sign's place, after a space,
+#: a bracket or a relation sign with no figure before it ("the change was –12 K"; "2010 –2020" and "3 –5" are ranges or
+#: differences), and otherwise the figure keeps both readings.
+_MINUS_SIGNS = frozenset("−﹣－")
+#: A unit symbol's exponent written with a caret: a letter or µ, then "^", an optional sign or bracket and one or two digits.
+_CARET_UNIT_EXPONENT_RE = re.compile(r"([A-Za-zµμΩ])\^[({]?[-−]?\d{1,2}[)}]?(?!\d|\.\d)")
+#: The count of a precision note: "2 s.f.", "3 sf", "2 d.p.", "1 dp", "3 significant figures", "2 decimal places" (the
+#: count, in digits, right before the note's words).
+_PRECISION_NOTE_RE = re.compile(r"(?<![\w.,])\d{1,2}(?=[ \t]*(?:s\.[ \t]?f\.?|sf|sig\.?[ \t]*figs?\.?|significant[ \t]+fig(?:ure)?s?|d\.[ \t]?p\.?|dp|decimal[ \t]+places?)(?![^\W\d_]))", re.IGNORECASE)
+#: Accounting parentheses: an amount alone between brackets, written as money (a currency sign, or thousands separators:
+#: "(1,250.75)", "($450)", "(£1.2 million)"). A bare small figure in brackets ("(2) per cent") is no accounting amount.
+_ACCOUNTING_AMOUNT_RE = re.compile(r"\([ \t]?(?:[$£€¥][ \t]?(?P<a>\d[\d,]*(?:\.\d+)?)|(?P<b>\d{1,3}(?:,\d{3})+(?:\.\d+)?))"
+                                   r"(?:[ \t]+(?:thousand|million|billion|trillion|bn))?[ \t]?\)", re.IGNORECASE)
+#: A decrease stated in words right before or after a figure ("fell 12.50%", "a fall of 12.50%", "decreased by 3", "a 12.50%
+#: drop"): the figure carries its negative spelling too, so "fell 12.50%" restates "−12.50%" for either minus glyph, while
+#: "12.50%" alone or "rose 12.50%" for "−12.50%" is a change.
+_DECREASE_BEFORE_RE = re.compile(
+    r"\b(?:fell|fall|falls|fallen|falling|decreased|decrease|decreases|decreasing|declined|decline|declines|declining|dropped|drop|drops|dropping"
+    r"|lowered|lower|down|loss|deficit|reduction|reduced|cut|negative|minus|shrank|shrunk|contracted|contraction)"
+    r"\s+(?:(?:by|of|a|an|some|about|around|nearly|almost|roughly|approximately)\s+){0,2}[$£€¥]?$", re.IGNORECASE)
+#: (security round 1) The white space around the per-cent unit read possessively: the unit and the word cannot begin with white
+#: space, so the run's longest reading is the only one the rest can follow, and the same figures are read as decreases; the run
+#: after a figure was split between two quantifiers before failing, once per figure (quadratic in the run)
+#: (tests/integrity/test_security_round1_decrease.py).
+_DECREASE_AFTER_RE = re.compile(r"\s*+(?:%|per\s*cent|percent)?+\s*+(?:fall|decrease|drop|decline|reduction|loss|cut|contraction)\b", re.IGNORECASE)
+_DASH_SIGNS = frozenset("‐‑‒–")
 #: A decade written in digits ("the 1840s", "the 1840's"): a date of its own, never the year it starts with, so a synthesis
 #: that moves an event or a verdict to "the 1850s" states a date its sources do not (INT-LEDGER-023).
 _DECADE_RE = re.compile(r"(?<![\w.])(1\d{2}0|20\d0)['’]?s(?!\w)")
@@ -37,7 +106,9 @@ _FIGURE_RE = re.compile(r"(?<![\w.])(?:(?:1\d{2}0|20\d0)['’]?s(?!\w)|-?\d+(?:\
 _YEARLIKE_QUANTITY_RE = re.compile(r"(?<![\w.,])(?:(1),(\d{3})|(2),(0\d{2}))(?![\d,]|\.\d)")
 _YEARLIKE_SHOWN_RE = re.compile(r"(?<![\w.])(1\d{3}|20\d{2})\.0(?![\w.])")
 #: A figure in scientific notation: a mantissa, then an e-exponent or a times sign and a power of ten.
-_SCI_FIGURE_RE = re.compile(r"(?<![\w.])[-−]?\d+(?:\.\d+)?(?:[eE][-+−]?\d{1,7}|\s?[×xX*·]\s?10(?:\^\{?[-−]?\d{1,7}\}?|\*\*[-−]?\d{1,7}|[⁻]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,7}))(?!\w)(?!\.\d)")
+#: The exponent may be written "10^-3", "10^{-3}" or "10^(−3)" (repair round 4, rerun-combinator-faults-8 variant: the
+#: bracketed form of "10⁻³" was read as an introduced figure).
+_SCI_FIGURE_RE = re.compile(r"(?<![\w.])[-−]?\d+(?:\.\d+)?(?:[eE][-+−]?\d{1,7}|\s?[×xX*·]\s?10(?:\^\{[-−]?\d{1,7}\}|\^\([-−]?\d{1,7}\)|\^[-−]?\d{1,7}|\*\*[-−]?\d{1,7}|[⁻]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,7}))(?!\w)(?!\.\d)")
 _MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december")
 _MONTH_YEAR_RE = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{3,4})\b", re.IGNORECASE)
 #: Transformations that promise the source's content unchanged: a figure or date they drop is reported (INT-LEDGER-024).
@@ -251,7 +322,7 @@ def _plain_for_pairs(text: str) -> str:
     text = _INTERVAL_RE.sub(lambda m: f"{m.group(1)}~{m.group(2)} {m.group(3)}", text)
     text = _YEARLIKE_QUANTITY_RE.sub(lambda m: f"{m.group(1) or m.group(3)}{m.group(2) or m.group(4)}.0", _LIST_MARKER_RE.sub(" ", text))
     text = _DECADE_RE.sub(lambda m: m.group(1) + "s", text)
-    return _words_as_digits(_THOUSANDS_RE.sub("", text))
+    return _words_as_digits(_ungrouped(text))
 
 
 def _shown_figures(description: str) -> str:
@@ -277,7 +348,9 @@ def _figure_kind(tokens: list[str], i: int) -> str:
         return "year"
     if re.fullmatch(r"1\d{2}0s|20\d0s", tok):
         return "decade"
-    if tok.isdecimal() and 1 <= int(tok) <= 31:  # a superscript '¹⁹' is a digit to isdigit() but neither decimal nor a day
+    # a superscript '¹⁹' is a digit to isdigit() but neither decimal nor a day; a day has at most two digits, so a figure of
+    # thousands of digits is never converted (int() refuses more than 4,300 digits, which once ended the whole ledger check)
+    if tok.isdecimal() and len(tok) <= 2 and 1 <= int(tok) <= 31:
         for j in (i - 1, i + 1):
             if 0 <= j < len(tokens) and tokens[j].casefold() in _MONTHS:
                 return "day"
@@ -587,7 +660,7 @@ def _with_word_labels(descriptions: list[str], texts: list[str]) -> list[str]:
     """Show a figure written in words as the words, with the value the readers compared ("'a tenth' (0.1)")."""
     labels: dict[str, str] = {}
     for t in texts:
-        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t)):
+        for _s, _e, mantissa, _scale, surface in _word_figures(_ungrouped(t)):
             labels.setdefault(mantissa, " ".join(surface.split()))
     if not labels:
         return descriptions
@@ -640,6 +713,73 @@ _CANON_SHOWN = {canon: shown for _re, canon, shown in _CANON_PHRASES}
 #: A parenthetical aside ("(from memory; check your notes)"): left out of the alignment, so a label the synthesis dropped
 #: never hides the one word it changed beside it.
 _PARENTHETICAL_RE = re.compile(r"\([^()]{0,300}\)")
+
+#: Nouns that number the steps, trials and parts of a piece of work: one label is written "Trial 1", "the first trial",
+#: "the 1st trial" or "trial one" (closed reference data; repair round 5, rerun-combinator-faults-7 variant: a correct
+#: synthesis writing "Trial 1" for its source's "the first trial" was charged INT-LEDGER-023 for the figure 1).
+STEP_LABEL_NOUNS = frozenset((
+    "trial run test attempt experiment sample replicate repeat repetition loop iteration pass step stage phase round cycle wave "
+    "batch generation lap game match heat day week year quarter term session visit case scenario option version method group "
+    "site plot zone level"
+).split())
+_ORDINAL_WORDS = {w: i for i, w in enumerate((
+    "first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth "
+    "sixteenth seventeenth eighteenth nineteenth twentieth").split(), start=1)}
+_LABEL_NUMBER_WORDS = {w: i for i, w in enumerate((
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen "
+    "nineteen twenty").split(), start=1)}
+_STEP_NOUN_ALT = "|".join(sorted(STEP_LABEL_NOUNS, key=len, reverse=True))
+#: A step label in its three notations: an ordinal before the noun ("the first trial", "the 2nd loop"), or the noun before
+#: its number in digits ("Trial 1", "Loop 2:") or in words ("year one").
+_STEP_LABEL_RE = re.compile(
+    r"\b(?:(?P<ord>" + "|".join(sorted(_ORDINAL_WORDS, key=len, reverse=True)) + r")|(?P<ordn>[1-9]\d?)(?:st|nd|rd|th))[ \t]+(?P<n1>"
+    + _STEP_NOUN_ALT + r")\b"
+    r"|\b(?P<n2>" + _STEP_NOUN_ALT + r")[ \t]+(?:(?P<num>[1-9]\d?)|(?P<word>" + "|".join(sorted(_LABEL_NUMBER_WORDS, key=len, reverse=True))
+    + r"))(?![\w'’])(?![.,]\d)", re.IGNORECASE)
+
+
+def _step_label_matches(text: str):
+    """``(match, noun, number)`` for every step label of ``text`` (:data:`_STEP_LABEL_RE`)."""
+    if not text or len(text) > 400_000:
+        return
+    for m in _STEP_LABEL_RE.finditer(text):
+        if m.group("n1"):
+            n = _ORDINAL_WORDS[m.group("ord").casefold()] if m.group("ord") else int(m.group("ordn"))
+            yield m, m.group("n1").casefold(), n
+        else:
+            n = int(m.group("num")) if m.group("num") else _LABEL_NUMBER_WORDS[m.group("word").casefold()]
+            yield m, m.group("n2").casefold(), n
+
+
+def step_labels(text: str) -> set[tuple[str, int]]:
+    """The step labels ``text`` states, ``(noun, number)``, whatever their notation: "Trial 1", "the first trial", "the
+    1st trial" and "trial one" are each ``("trial", 1)``."""
+    return {(noun, n) for _m, noun, n in _step_label_matches(text)}
+
+
+def _canonical_step_labels(text: str) -> str:
+    """``text`` with every step label written as its noun and its number in digits ("the first trial" -> "the trial 1",
+    "year one" -> "year 1"), so one label in two notations reads as the same words."""
+    if not text or not _STEP_LABEL_RE.search(text):
+        return text
+    return _STEP_LABEL_RE.sub(lambda m: next(f"{noun} {n}" for mm, noun, n in _step_label_matches(m.group(0))), text)
+
+
+def _masked_step_labels(text: str, labels: set[tuple[str, int]]) -> str:
+    """``text`` with the number of every step label written in digits blanked when ``labels`` holds that label: the
+    number of "Trial 1" restates the label "the first trial" of a source, never a figure of the statement."""
+    if not labels or not text:
+        return text
+    out = text
+    for m, noun, n in _step_label_matches(text):
+        if (noun, n) not in labels:
+            continue
+        key = "num" if m.group("num") else "ordn" if m.group("ordn") else None
+        if key is None:
+            continue
+        a, b = m.span(key)
+        out = out[:a] + " " * (b - a) + out[b:]
+    return out
 
 
 def _akey(word: str) -> str:
@@ -756,18 +896,25 @@ _ALIGN_STOP = _PARTNER_STOP | frozenset(("his her him he she they them we our yo
                                          "accordingly besides").split())
 
 
+def _align_plain(text: str) -> str:
+    """``text`` as the aligned comparison reads it: parentheticals left out, thousands separators removed, decades as
+    "1840s" and the canonical phrases (:data:`_CANON_PHRASES`) as one word."""
+    plain = _DECADE_RE.sub(lambda m: m.group(1) + "s", _ungrouped(_PARENTHETICAL_RE.sub(" ", fold_exponent_marks(text))))
+    for rx, canon, _shown in _CANON_PHRASES:
+        plain = rx.sub(canon, plain)
+    return plain
+
+
+def _align_token(m: "re.Match[str]") -> tuple[str, str]:
+    w = m.group(0)
+    low = w.casefold()
+    return (low if low[:1].isdecimal() or low in _CANON_SHOWN else _akey(low), _CANON_SHOWN.get(low, w))
+
+
 def _align_tokens(text: str) -> list[tuple[str, str]]:
     """``(key, surface)`` per token of ``text``: words light-stemmed and case-folded, numerals as written (thousands
     separators removed), decades as "1840s", and the canonical phrases (:data:`_CANON_PHRASES`) as one token."""
-    plain = _DECADE_RE.sub(lambda m: m.group(1) + "s", _THOUSANDS_RE.sub("", _PARENTHETICAL_RE.sub(" ", fold_exponent_marks(text))))
-    for rx, canon, _shown in _CANON_PHRASES:
-        plain = rx.sub(canon, plain)
-    out: list[tuple[str, str]] = []
-    for m in _ALIGN_TOKEN_RE.finditer(plain):
-        w = m.group(0)
-        low = w.casefold()
-        out.append((low if low[:1].isdecimal() or low in _CANON_SHOWN else _akey(low), _CANON_SHOWN.get(low, w)))
-    return out
+    return [_align_token(m) for m in _ALIGN_TOKEN_RE.finditer(_align_plain(text))]
 
 
 def _cardinal(key: str, surface: str) -> Optional[float]:
@@ -844,7 +991,17 @@ def _reversal(syn_keys: list[str], src_keys: list[str]) -> Optional[str]:
     return None
 
 
-def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str], list[str]]:
+def _joined_keys(texts: Sequence[str]) -> tuple[str, ...]:
+    """The alignment keys of every text in ``texts``, one after another with a separator no token equals between them, so
+    a run never crosses from one text into the next."""
+    out: list[str] = []
+    for t in texts:
+        out.extend(k for k, _s in _align_tokens(t))
+        out.append("\x00")
+    return tuple(out)
+
+
+def aligned_changes(synthesized_text: str, source_text: str, *, context_keys: Optional[tuple[str, ...]] = None) -> tuple[list[str], list[str]]:
     """``(figure_changes, meaning_changes)``: where ``synthesized_text`` copies a statement of ``source_text`` word for word
     around one changed place (difflib alignment of the light-stemmed tokens; the change must stand between copied words
     on both sides, at least three copied words in all; a replaced content word two on each side, four in all):
@@ -874,29 +1031,95 @@ def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str],
     if not syn or not src:
         return [], []
     src_numerals = {k for k, _s in src if k[:1].isdecimal()}
-    figures, meaning = _aligned_ops(syn, src, src_numerals)
+    # where a copied statement is looked for: this source, or every cited source (``context_keys``, :func:`aligned_differences`)
+    src_all = context_keys if context_keys is not None else tuple(k for k, _s in src)
+    figures, meaning = _aligned_ops(syn, src, src_numerals, src_all=src_all, syn_starts=_sentence_starts(synthesized_text, syn))
     src_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(source_text)) if len(t) >= 4]
     syn_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(synthesized_text)) if len(t) >= 4]
     if src_sentences and syn_sentences:
+        syn_keys = tuple(k for k, _s in syn)
+        src_keys = tuple(k for k, _s in src)
+        # A synthesized sentence the source states word for word is a copy of that source sentence: it is never the place
+        # another source sentence was changed ("from July to September by 20.9" is not "from January to July by 1.55").
+        candidates = [yt for yt in syn_sentences if not _holds_run(src_keys, tuple(k for k, _w in yt))]
         for st in src_sentences:
+            if _holds_run(syn_keys, tuple(k for k, _w in st)):
+                continue  # copied word for word: nothing of this sentence changed
             content = {k for k, w in st if w.isalpha() and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP}
-            for yt in syn_sentences:
-                shared = content & {k for k, _w in yt}
-                if not content or len(shared) * 2 < len(content):
+            if not content:
+                continue
+            # only the best-matching synthesized sentence(s) are its rewrite, never every parallel sentence sharing half its words
+            scored = [(len(content & {k for k, _w in yt}), yt) for yt in candidates]
+            scored = [(n, yt) for n, yt in scored if n * 2 >= len(content)]
+            best = max((n for n, _yt in scored), default=0)
+            for n, yt in scored:
+                if n != best:
                     continue
-                f2, m2 = _aligned_ops(yt, st, src_numerals, anchored=True)
+                f2, m2 = _aligned_ops(yt, st, src_numerals, anchored=True, src_all=src_all)
                 figures += f2
                 meaning += m2
     return list(dict.fromkeys(figures)), list(dict.fromkeys(meaning))
+
+
+def _holds_run(haystack: tuple[str, ...], needle: tuple[str, ...]) -> bool:
+    """Whether the token sequence ``needle`` occurs contiguously in ``haystack`` (a word-for-word copy). Linear in practice:
+    each candidate start is the needle's first token."""
+    n = len(needle)
+    if n == 0 or n > len(haystack):
+        return False
+    first = needle[0]
+    for i in range(len(haystack) - n + 1):
+        if haystack[i] == first and haystack[i:i + n] == needle:
+            return True
+    return False
 
 
 #: Sentence ends for the anchored alignment: a full stop, question or exclamation mark, a semicolon, a line break.
 _ALIGN_SENTENCE_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 
-def _aligned_ops(syn: list[tuple[str, str]], src: list[tuple[str, str]], src_numerals: set[str], *, anchored: bool = False) -> tuple[list[str], list[str]]:
+def _start_of(starts: tuple[int, ...], i: int) -> int:
+    """The first token of the sentence that holds token ``i`` (``starts`` from :func:`_sentence_starts`)."""
+    return max((s for s in starts if s <= i), default=0)
+
+
+def _copied_with_context(syn: list[tuple[str, str]], i1: int, i2: int, lb: int, la: int, src_all: tuple[str, ...], start: int = 0) -> bool:
+    """Whether the source states the synthesis's words at ``i1:i2`` with the copied words around them, word for word: the
+    whole copied run before them in their own sentence (``start`` is the sentence's first token; never fewer than the four
+    copied words before, when the run is that long) and up to two after. The synthesis then copies that statement of the
+    source, wherever the alignment paired it. A source that states two parallel steps ("On the first loop, i is 0, so
+    total = 3. On the second loop, i is 1, so total = 8.") pairs a synthesized step with either one; "so total 8" is still
+    the source's own statement, never a 3 changed to 8 (repair round 4, rerun-combinator-faults-7 variant). The words that
+    tell parallel statements apart (a year, a place, a trial) may stand anywhere before the figure in its sentence: "In
+    2019 the price of bread rose by 1.4 per cent" is no copy of a source that states "in 2020 the price of bread rose by
+    1.4 per cent" and gives 2019 3.2 per cent (repair round 5, rerun-combinator-faults-7: a window of four words excused
+    that swap). A figure that no source statement carries with those words ("wrote the sonnet in 1886" for a source that
+    dates the dedication 1886) is still a swap."""
+    if not src_all:
+        return False
+    left = min(i1 - min(lb, 4), max(i1 - lb, start))
+    run = tuple(k for k, _s in syn[max(0, left):i2 + min(la, 2)])
+    return _holds_run(src_all, run)
+
+
+def _sentence_starts(text: str, tokens: list[tuple[str, str]]) -> tuple[int, ...]:
+    """The index in ``tokens`` (:func:`_align_tokens` of ``text``) of the first token of each sentence of ``text``
+    (:data:`_ALIGN_SENTENCE_RE`), or ``(0,)`` when the sentences' own tokens do not add up to ``tokens`` (a parenthesis
+    or a canonical phrase across a sentence end)."""
+    starts: list[int] = []
+    n = 0
+    for piece in _ALIGN_SENTENCE_RE.split(text):
+        starts.append(n)
+        n += len(_align_tokens(piece))
+    return tuple(starts) if n == len(tokens) else (0,)
+
+
+def _aligned_ops(syn: list[tuple[str, str]], src: list[tuple[str, str]], src_numerals: set[str], *, anchored: bool = False,
+                 src_all: tuple[str, ...] = (), syn_starts: tuple[int, ...] = (0,)) -> tuple[list[str], list[str]]:
     """The changes :func:`aligned_changes` reads between two token lists. With ``anchored`` (two sentences), the start and
-    the end of the source sentence count as one copied word each."""
+    the end of the source sentence count as one copied word each. ``src_all`` is the whole source's token keys: a figure or
+    month the synthesis states with the words the source states it with is a copy (:func:`_copied_with_context`);
+    ``syn_starts`` are the first tokens of the synthesis's sentences."""
     from difflib import SequenceMatcher
     ops = SequenceMatcher(None, [k for k, _s in syn], [k for k, _s in src], autojunk=False).get_opcodes()
     figures: list[str] = []
@@ -939,11 +1162,13 @@ def _aligned_ops(syn: list[tuple[str, str]], src: list[tuple[str, str]], src_num
                     nxt_syn = syn[i2][1] if i2 < len(syn) else ""
                     nxt_src = src[j2][1] if j2 < len(src) else ""
                     figures.append(f"'{(sa + ' ' + nxt_syn).strip()}' ({_fmt_value(va)}) where its cited sources state '{(sb + ' ' + nxt_src).strip()}' ({_fmt_value(vb)}): a count written in words changed")
-                elif ka in src_numerals:  # a figure the source states elsewhere, put in place of the one it states here
+                elif ka in src_numerals and not _copied_with_context(syn, i1, i2, lb, la, src_all, _start_of(syn_starts, i1)):
+                    # a figure the source states elsewhere, put in place of the one it states here
                     figures.append(f"'{here}' where its cited sources state '{there}': '{sa}' is a figure they state elsewhere, put in place of '{sb}'")
                 continue
             if sa.casefold() in _MONTH_KEYS and sb.casefold() in _MONTH_KEYS and sa.casefold() != sb.casefold():
-                figures.append(f"'{here}' where its cited sources state '{there}': a month changed")
+                if not _copied_with_context(syn, i1, i2, lb, la, src_all, _start_of(syn_starts, i1)):
+                    figures.append(f"'{here}' where its cited sources state '{there}': a month changed")
                 continue
         what = _reversal([k for k, _s in syn_words], [k for k, _s in src_words])
         if what == "a comparative or superlative" and _change_words(src[max(0, j1 - 5):j1]) != _change_words(syn[max(0, i1 - 5):i1]):
@@ -975,16 +1200,240 @@ def _fmt_value(v: float) -> str:
 
 
 def aligned_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str]]:
-    """:func:`aligned_changes` against every cited source text, and :func:`day_month_differences` against all of them,
-    deduplicated."""
+    """:func:`aligned_changes` against every cited source text, :func:`day_month_differences` and :func:`context_swaps`
+    against all of them, deduplicated (a swap the alignment already names is not named twice). A pure reading of the texts:
+    the ledger reads it twice for one synthesized claim (its count and date changes, and :func:`meaning_differences`), so
+    one answer is kept per pair of texts (close round 3, DV2-06); callers receive copies."""
+    figures, meaning = _aligned_differences(synthesized_text, tuple(source_texts))
+    return list(figures), list(meaning)
+
+
+@lru_cache(maxsize=64)
+def _aligned_differences(synthesized_text: str, source_texts: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     figures: list[str] = []
     meaning: list[str] = []
+    joined = _joined_keys(source_texts) if len(source_texts) > 1 else None
     for t in source_texts:
-        f, m = aligned_changes(synthesized_text, t)
+        f, m = aligned_changes(synthesized_text, t, context_keys=joined)
         figures += f
         meaning += m
-    figures += day_month_differences(synthesized_text, source_texts)
-    return list(dict.fromkeys(figures)), list(dict.fromkeys(meaning))
+    figures += day_month_differences(synthesized_text, list(source_texts))
+    for swap, tail in context_swaps(synthesized_text, source_texts):
+        if not any(tail in d for d in figures):
+            figures.append(swap)
+    return tuple(dict.fromkeys(figures)), tuple(dict.fromkeys(meaning))
+
+
+#: An operator, a relation sign or a function right after a figure: the figure starts a calculation ("8 ln 2 ÷ ln(...) ≈ 8.5"),
+#: it is not the figure the statement states.
+_EXPRESSION_AFTER_RE = re.compile(r"[ \t]*(?:[×÷/*+\-−^·√=≈<>≤≥(]|(?:ln|log|lg|sin|cos|tan|exp|sqrt|mod)\b)")
+#: A swap read from a figure's copied context: at least four copied tokens before the figure, two of them content words,
+#: read back at most twenty-four tokens within the figure's own sentence.
+_SWAP_MIN_RUN = 4
+_SWAP_REACH = 24
+_SWAP_SCALES = {"thousand": 10 ** 3, "million": 10 ** 6, "billion": 10 ** 9, "trillion": 10 ** 12}
+
+
+def _scaled_number(keys: Sequence[str], shown: Sequence[str], i: int) -> Optional[float]:
+    """The value of the numeral token ``i`` with a scale word right after it ("1.4 million")."""
+    v = _cardinal(keys[i], shown[i])
+    if v is None:
+        return None
+    nxt = shown[i + 1].casefold() if i + 1 < len(shown) else ""
+    return v * _SWAP_SCALES.get(nxt, 1)
+
+
+def _yearlike(key: str) -> bool:
+    return re.fullmatch(r"1\d{3}|20\d{2}", key) is not None
+
+
+class _RunPlaces:
+    """The places in the sources of one run of tokens, and, read on demand, the places of each run one token longer, by that
+    token (close round 3, DV2-06). ``places`` are anchors in ascending order: for a run read backwards from a figure, the end
+    (exclusive) of each place (the run is ``keys[e - length:e]``); for a run read forwards, the position of the figure the run
+    follows (the run is ``keys[p + 1:p + 1 + length]``). A place enters at most :data:`_SWAP_REACH` runs of one direction, so
+    every run of a pair of texts together costs a bounded multiple of the sources' length, whatever is repeated in them."""
+
+    __slots__ = ("places", "length", "_next", "_followers", "_values")
+
+    def __init__(self, places: list[int], length: int) -> None:
+        self.places = places
+        self.length = length
+        self._next: Optional[dict[str, "_RunPlaces"]] = None
+        self._followers: Optional[tuple[bool, bool, bool, frozenset, str]] = None
+        self._values: Optional[frozenset] = None
+
+    def extended(self, token: str, keys: Sequence[str], backward: bool) -> Optional["_RunPlaces"]:
+        """The places of this run with ``token`` one place before it (``backward``) or after it, or None."""
+        if self._next is None:
+            grouped: dict[str, list[int]] = {}
+            n, length = len(keys), self.length
+            for p in self.places:
+                q = p - length - 1 if backward else p + length + 1
+                if 0 <= q < n:
+                    grouped.setdefault(keys[q], []).append(p)
+            self._next = {k: _RunPlaces(v, length + 1) for k, v in grouped.items()}
+        return self._next.get(token)
+
+    def followers(self, keys: Sequence[str], shown: Sequence[str], in_expression: Sequence[bool]) -> tuple[bool, bool, bool, frozenset, str]:
+        """What follows every place of a backward run, read once: ``(each is a figure that starts no calculation and has a
+        value, each is year-like, none is year-like, their values, the first one as written)``."""
+        if self._followers is None:
+            ok, years, no_years, values = True, True, True, set()
+            for e in self.places:
+                if e >= len(keys) or not keys[e][:1].isdecimal() or in_expression[e]:
+                    ok = False
+                    break
+                other = _scaled_number(keys, shown, e)
+                if other is None:
+                    ok = False
+                    break
+                y = _yearlike(keys[e])
+                years, no_years = years and y, no_years and not y
+                values.add(other)
+            first = shown[self.places[0]] if ok and self.places else ""
+            self._followers = (ok and bool(self.places), years, no_years, frozenset(values), first)
+        return self._followers
+
+    def figure_values(self, keys: Sequence[str], shown: Sequence[str]) -> frozenset:
+        """The values of the figures a forward run follows, read once."""
+        if self._values is None:
+            self._values = frozenset(v for v in (_scaled_number(keys, shown, p) for p in self.places) if v is not None)
+        return self._values
+
+
+def _states_own_figure(plain: str, matches: Sequence["re.Match[str]"], tkeys: Sequence[str], tshown: Sequence[str], i: int, value: float,
+                       keys: Sequence[str], shown: Sequence[str], after: dict[tuple[str, ...], _RunPlaces]) -> bool:
+    """Whether the synthesis's words after its figure ``i``, to the end of the figure's clause (a comma, a semicolon, a colon
+    or the sentence's end; at most :data:`_SWAP_REACH` tokens), are what a source states right after the same figure: at
+    least :data:`_SWAP_MIN_RUN` tokens, two of them content words and one of them a figure or a date of that statement
+    ("37.3 per cent and 230 seats in July 1932"). Such a figure keeps its own words; the words before it may come from the
+    statement of a figure the summary skipped (close round 1, arena r1 hi-t1 synthesis). ``after`` holds the places of every
+    source figure followed by :data:`_SWAP_MIN_RUN` tokens, by those five keys (close round 3: each source place is read
+    once for all the synthesis's figures, :class:`_RunPlaces`)."""
+    j = i + 1
+    while j < len(tkeys) and j - i <= _SWAP_REACH:
+        if any(ch in ",;:" for ch in plain[matches[j - 1].end():matches[j].start()]):
+            break
+        j += 1
+    run = list(tkeys[i + 1:j])
+    words = list(tshown[i + 1:j])
+    content = sum(1 for kk, ww in zip(run, words) if ww.isalpha() and kk not in _ALIGN_STOP and ww.casefold() not in _ALIGN_STOP)
+    if len(run) < _SWAP_MIN_RUN or content < 2 or not any(kk[:1].isdecimal() for kk in run):
+        return False
+    node = after.get((tkeys[i], *run[:_SWAP_MIN_RUN]))
+    while node is not None and node.length < len(run):
+        node = node.extended(run[node.length], keys, backward=False)
+    return node is not None and value in node.figure_values(keys, shown)
+
+
+def _longest_run(window: tuple[str, ...], keys: Sequence[str], at_run: dict[tuple[str, ...], _RunPlaces]) -> Optional[_RunPlaces]:
+    """The places of the longest suffix of ``window`` (the tokens before a figure in its own sentence, at most
+    :data:`_SWAP_REACH`) that the sources hold, as the token-by-token extension of :func:`context_swaps` finds it: from the
+    places of its last :data:`_SWAP_MIN_RUN` tokens (``at_run``), extended one token at a time while some place still holds
+    it. None when the sources hold no such run of :data:`_SWAP_MIN_RUN` tokens."""
+    reach = len(window)
+    if reach < _SWAP_MIN_RUN:
+        return None
+    node = at_run.get(window[reach - _SWAP_MIN_RUN:])
+    while node is not None and node.length < reach:
+        longer = node.extended(window[reach - node.length - 1], keys, backward=True)
+        if longer is None:
+            break
+        node = longer
+    return node
+
+
+def context_swaps(synthesized_text: str, source_texts: Sequence[str]) -> list[tuple[str, str]]:
+    """Figures the synthesis states right after words its sources state, word for word, with another figure: the longest
+    run of tokens before the figure in its own sentence that the sources hold (at least :data:`_SWAP_MIN_RUN` tokens, two
+    of them content words; step labels read in one notation, :func:`_canonical_step_labels`) is followed in every place
+    the sources state it by a figure of the same kind with another value, while the sources state the synthesized figure
+    elsewhere. "In 2019 the price of bread rose by 1.4 per cent" for a source that states "In 2019 the price of bread rose
+    by 3.2 per cent, while in 2020 the price of bread rose by 1.4 per cent" splices one statement's figure into the other's
+    words: the alignment pairs it with the 2020 statement and reads no change (repair round 5, rerun-combinator-faults-7).
+    A run the sources state with the synthesized figure somewhere, a run followed there by anything but a figure, and a
+    figure in no source (the plain introduced figure) are not read. Nor is a figure whose words after it, to the end of its
+    clause, are a source's own statement of that same figure (:func:`_states_own_figure`: "from 2.6 per cent ... in May 1928
+    to 37.3 per cent and 230 seats in July 1932" for a source that lists 18.3 per cent in September 1930 between them): the
+    summary skips an intermediate figure and keeps each figure with its own words (close round 1). Returns ``(description,
+    its swap clause)`` pairs.
+
+    Linear in the two texts (close round 3, DV2-06; the old answer on every input): the places of every run of
+    :data:`_SWAP_MIN_RUN` source tokens and of every source figure with the tokens after it are indexed once and extended
+    one token at a time on demand (:class:`_RunPlaces`, which also reads once what follows every place of a run), a figure
+    whose preceding tokens hold fewer than two content words is not read (no run inside them could hold two), and one
+    reading is kept per sequence of preceding tokens."""
+    texts = [t for t in source_texts if t]
+    if not synthesized_text or not texts or len(synthesized_text) > 400_000:
+        return []
+    keys: list[str] = []
+    shown: list[str] = []
+    in_expression: list[bool] = []  # the token is a figure an operator or a function follows: the start of a calculation
+    for t in texts:
+        plain = _align_plain(_canonical_step_labels(t))
+        for m in _ALIGN_TOKEN_RE.finditer(plain):
+            k, w = _align_token(m)
+            keys.append(k)
+            shown.append(w)
+            in_expression.append(bool(_EXPRESSION_AFTER_RE.match(plain, m.end())))
+        keys.append("\x00")
+        shown.append("")
+        in_expression.append(False)
+    numerals = {k for k in keys if k[:1].isdecimal()}
+    if not numerals:
+        return []
+    # the end (exclusive) of every place of every run of _SWAP_MIN_RUN source tokens, and every place of a source figure by
+    # its key and the _SWAP_MIN_RUN keys after it: each read once (close round 3, DV2-06)
+    run_places: dict[tuple[str, ...], list[int]] = {}
+    figure_places: dict[tuple[str, ...], list[int]] = {}
+    for p in range(len(keys)):
+        if p >= _SWAP_MIN_RUN - 1:
+            run_places.setdefault(tuple(keys[p - _SWAP_MIN_RUN + 1:p + 1]), []).append(p + 1)
+        if keys[p][:1].isdecimal() and p + _SWAP_MIN_RUN < len(keys):
+            figure_places.setdefault(tuple(keys[p:p + _SWAP_MIN_RUN + 1]), []).append(p)
+    at_run = {k: _RunPlaces(v, _SWAP_MIN_RUN) for k, v in run_places.items()}
+    after = {k: _RunPlaces(v, _SWAP_MIN_RUN) for k, v in figure_places.items()}
+    runs: dict[tuple[str, ...], Optional[_RunPlaces]] = {}  # one reading per sequence of preceding tokens
+    out: list[tuple[str, str]] = []
+    for sentence in _ALIGN_SENTENCE_RE.split(_canonical_step_labels(synthesized_text)):
+        plain = _align_plain(sentence)
+        matches = list(_ALIGN_TOKEN_RE.finditer(plain))
+        toks = [_align_token(m) for m in matches]
+        tkeys = [k for k, _w in toks]
+        tshown = [w for _k, w in toks]
+        for i, (k, w) in enumerate(toks):
+            if not k[:1].isdecimal() or k not in numerals or i < _SWAP_MIN_RUN or _EXPRESSION_AFTER_RE.match(plain, matches[i].end()):
+                continue
+            value = _scaled_number(tkeys, tshown, i)
+            if value is None:
+                continue
+            reach = min(i, _SWAP_REACH)
+            # the run is a suffix of the tokens before the figure: with fewer than two content words among them it has fewer
+            if sum(1 for kk, ww in toks[i - reach:i] if ww.isalpha() and kk not in _ALIGN_STOP and ww.casefold() not in _ALIGN_STOP) < 2:
+                continue
+            # the ends (exclusive) of every place the sources state the longest run of the tokens before the figure
+            window = tuple(tkeys[i - reach:i])
+            if window not in runs:
+                runs[window] = _longest_run(window, keys, at_run)
+            node = runs[window]
+            if node is None:
+                continue
+            length = node.length
+            run = toks[i - length:i]
+            content = sum(1 for kk, ww in run if ww.isalpha() and kk not in _ALIGN_STOP and ww.casefold() not in _ALIGN_STOP)
+            if length < _SWAP_MIN_RUN or content < 2:
+                continue
+            # every place the sources state the run is followed by a figure of the same kind (year-like or not) with another value
+            ok, years, no_years, values, first = node.followers(keys, shown, in_expression)
+            if not ok or not (years if _yearlike(k) else no_years) or value in values:
+                continue
+            if _states_own_figure(plain, matches, tkeys, tshown, i, value, keys, shown, after):
+                continue  # the words after it are a source's own statement of this figure: an intermediate figure skipped, no swap
+            context = " ".join(ww for _kk, ww in run)
+            tail = f"'{w}' is a figure they state elsewhere, put in place of '{first}'"
+            out.append((f"'{context} {w}' where its cited sources state '{context} {first}': {tail}", tail))
+    return out
 
 
 _MONTH_ALT = "|".join(m.capitalize() for m in _MONTHS)
@@ -1053,8 +1502,8 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     out += reversed_voices(synthesized_text, source_texts)
     out += dropped_hedges(synthesized_text, source_texts)
     # Figures in words are read as digits first, so "roughly fifteen" is an approximate 15 and "exactly fifteen" an exact one.
-    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_THOUSANDS_RE.sub("", t)))}
-    syn_plain = _THOUSANDS_RE.sub("", synthesized_text)
+    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_ungrouped(t)))}
+    syn_plain = _ungrouped(synthesized_text)
     exact: dict[str, str] = {}
     for m in _EXACT_RE.finditer(_words_as_digits(syn_plain)):
         if m.group(2) in approx:
@@ -1098,7 +1547,7 @@ def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
 
 def _approx_phrases(text: str) -> list[tuple[str, str]]:
     """``(phrase as written, value)`` for every approximate figure of ``text`` ("roughly fifteen", 15)."""
-    plain = _THOUSANDS_RE.sub("", text)
+    plain = _ungrouped(text)
     out: list[tuple[str, str]] = []
     for m in re.finditer(r"\b(?:about|around|roughly|approximately|nearly|almost|some|close to|c\.|circa|ca\.|more than|over|under|less than|just over|just under)\s+(\S+(?:[\s-](?:hundred|thousand|million|billion|five|four|three|two|one|six|seven|eight|nine))?)", plain, re.IGNORECASE):
         value = _APPROX_RE.match(_words_as_digits(m.group(0)))
@@ -1187,9 +1636,9 @@ def unlocated_quotations(text: str, corpus: list[str]) -> list[str]:
     """The quotations of ``text`` whose words occur, in any recognised form (exact, normalised, elided, a form difference,
     a long elision, the same words with their inner quotation marks dropped or changed), in none of ``corpus``: invented
     or altered quotations."""
-    from ..adapters.markdown import find_quotation_spans
+    from ..adapters.markdown import cited_quotation_spans
     out: list[str] = []
-    for _s, _e, inner in find_quotation_spans(text):
+    for _s, _e, inner in cited_quotation_spans(text):
         q = inner.strip().strip(".,;:!?").strip()
         if not q or not re.search(r"[^\W\d_]", q):
             continue
@@ -1202,10 +1651,10 @@ def quotation_form_differences(text: str, corpus: list[str]) -> list[str]:
     """The quotations of ``text`` whose words occur in ``corpus`` only with other diacritics ("vivian solas" for "vivían
     solas"): a misspelt quotation, located, so no invented one (INT-LEDGER-028, a warning). A difference of quotation
     marks, capitals or line breaks is the quotation's form and is not reported."""
-    from ..adapters.markdown import find_quotation_spans
+    from ..adapters.markdown import cited_quotation_spans
     from ..translate.grounding import locate_quotation, locate_quotation_inexact
     out: list[str] = []
-    for _s, _e, inner in find_quotation_spans(text):
+    for _s, _e, inner in cited_quotation_spans(text):
         q = inner.strip().strip(".,;:!?").strip()
         if not q or not re.search(r"[^\W\d_]", q) or any(locate_quotation(q, t) is not None for t in corpus):
             continue
@@ -1234,17 +1683,185 @@ def _norm(text: str) -> str:
 
 #: A scale word right after a figure ("6.1 million"): part of the figure, so "6.1 billion" is not "6.1 million".
 _SCALE_AFTER_RE = re.compile(r"\s*(thousand|million|billion|trillion)s?\b", re.IGNORECASE)
+#: Most canonical spellings one figure gets (one per admissible count of significant figures).
+_MAX_CANONICAL = 48
+#: Longest numeral, in written digits, whose exact value the ledger builds; a longer one keeps its written spelling only.
+_MAX_VALUE_DIGITS = 60
+#: A unit spelled out after a figure ("2.0 grams", "3 kilojoules", "20 metres per second"); symbols ("g", "kJ", "m s⁻²")
+#: are read with the SI reading's unit pattern. Per cent is no unit here: a per-cent figure keeps its own spellings.
+_UNIT_WORD = (r"(?:kilo|mega|giga|tera|milli|micro|nano|pico|centi|deci)?(?:metre|meter|gramme|gram|second|ampere|amp|kelvin|mole|newton|joule|watt|"
+              r"pascal|hertz|coulomb|volt|ohm|farad|tesla|litre|liter|minute|hour|day|radian|becquerel|electronvolt)s?")
+_UNIT_WORDS_RE = re.compile(rf"{_UNIT_WORD}(?:\s+(?:squared|cubed))?(?:\s+per\s+{_UNIT_WORD}(?:\s+(?:squared|cubed))?)?", re.IGNORECASE)
+#: What may close a unit read after a figure without being part of it.
+_UNIT_TRAILING = ".,;:!?)]\"'’”"
+_ASCII_DIGIT_RE = re.compile(r"[0-9]")
+
+
+@dataclass(frozen=True)
+class FigureUnit:
+    """The unit written right after a figure, as the STEM unit table reads it: its dimension, its exact SI factor (None
+    when the table has none, as for the angle degree) and, for an offset scale (°C, °F), its offset (SI value =
+    factor·(x + offset))."""
+    text: str
+    dim: object
+    factor: Optional[Fraction]
+    offset: Optional[Fraction] = None
+
+    def same(self, other: "FigureUnit") -> bool:
+        """The same unit, however it is spelled ("J" and "N m", "h" and "hours")."""
+        return (self.dim == other.dim and self.factor == other.factor and self.offset == other.offset
+                and (self.factor is not None or _norm(self.text) == _norm(other.text)))
+
+    def si(self, value: Fraction) -> Optional[Fraction]:
+        if self.factor is None:
+            return None
+        return self.factor * (value + self.offset) if self.offset is not None else self.factor * value
+
+
+@lru_cache(maxsize=1024)
+def _read_unit(candidate: str) -> Optional[FigureUnit]:
+    """``candidate`` as one unit expression the STEM table reads unambiguously (one dimension, one factor), written as
+    symbols the SI reading accepts after a figure or as unit words; None otherwise."""
+    from ..stem.si_reading import si_unit_pattern
+    from ..stem.units import parse_unit
+    if not candidate or "%" in candidate or _ASCII_DIGIT_RE.search(candidate) or len(candidate) > 48:
+        return None
+    if not (re.fullmatch(si_unit_pattern(), candidate) or _UNIT_WORDS_RE.fullmatch(candidate)):
+        return None
+    expr = parse_unit(candidate)
+    if expr is None or not expr.known:
+        return None
+    readings = expr.readings
+    if len({r.dim for r in readings}) != 1 or len({r.factor for r in readings}) != 1 or len({r.affine for r in readings}) != 1 or readings[0].dim is None:
+        return None
+    r = readings[0]
+    return FigureUnit(text=candidate, dim=r.dim, factor=r.factor, offset=(r.affine[1] if r.affine is not None else None))
+
+
+def _unit_after(text: str, pos: int) -> Optional[FigureUnit]:
+    """The unit written right after the figure that ends at ``pos`` (no space or one space between them; at most four
+    words of the same line, the longest that reads as one unit), or None."""
+    j = pos
+    if j < len(text) and text[j] in " \u00a0\u2009\u202f":
+        j += 1
+    if j >= len(text) or not (text[j].isalpha() or text[j] in "µμΩ°Å"):
+        return None
+    stop = text.find("\n", j)
+    chunk = text[j:(min(stop, j + 64) if stop >= 0 else j + 64)]
+    words = chunk.split()[:4]
+    for n in range(len(words), 0, -1):
+        unit = _read_unit(" ".join(words[:n]).rstrip(_UNIT_TRAILING))
+        if unit is not None:
+            return unit
+    return None
+
+
+def _decimal_digits(value: Fraction) -> Optional[tuple[str, int]]:
+    """``(digits, exponent)`` with ``|value| = int(digits) · 10^exponent`` and no trailing zero in ``digits``, for a
+    non-zero terminating decimal; None otherwise (a third, zero)."""
+    if value == 0:
+        return None
+    num, den = abs(value.numerator), value.denominator
+    rest, twos, fives = den, 0, 0
+    while rest % 2 == 0:
+        rest, twos = rest // 2, twos + 1
+    while rest % 5 == 0:
+        rest, fives = rest // 5, fives + 1
+    if rest != 1:
+        return None
+    places = max(twos, fives)
+    digits = str(num * 10 ** places // den)
+    stripped = digits.rstrip("0")
+    return stripped, len(digits) - len(stripped) - places
+
+
+def canonical_spellings(value: Fraction, lo: int, hi: int) -> frozenset[str]:
+    """The precision-aware spellings of an exact value: ``d.ddd e<exponent>`` with exactly n significant digits, one per
+    admissible count n in ``[lo, hi]`` (a count too small to write the value exactly is skipped: a value is never rounded
+    into a spelling). ``3/100`` to two figures is ``3.0e-2``; ``300`` written without a point (one to three figures) is
+    ``3e2``, ``3.0e2`` and ``3.00e2``."""
+    dd = _decimal_digits(value)
+    if dd is None:
+        return frozenset()
+    digits, exp = dd
+    m = len(digits)
+    sign = "-" if value < 0 else ""
+    lead = exp + m - 1  # the power of ten of the leading digit
+    out = set()
+    for n in range(max(lo, m), min(hi, m + _MAX_CANONICAL) + 1):
+        mant = digits + "0" * (n - m)
+        out.add(f"{sign}{mant[0]}{'.' + mant[1:] if n > 1 else ''}e{lead}")
+    return frozenset(out)
+
+
+def _token_reading(tok: str) -> tuple[Optional[Fraction], Optional[tuple[int, int]], Optional[Fraction]]:
+    """``(value, significant-figure range, half a unit in the last written place)`` of a plain numeral ("0.030" ->
+    (3/100, (2, 2), 1/2000); "1500" -> (1500, (2, 4), 1/2): the trailing zeros of an integer written without a point may
+    or may not be significant, but a conversion is held to its last written digit)."""
+    body = tok.lstrip("-")
+    if not body or len(body) > _MAX_VALUE_DIGITS:
+        return None, None, None
+    try:
+        value = Fraction(tok)
+    except (ValueError, ZeroDivisionError):
+        return None, None, None
+    if "." in body:
+        ip, fp = body.split(".", 1)
+        n = len((ip + fp).lstrip("0")) or 1
+        return value, (n, n), Fraction(1, 2) / 10 ** len(fp)
+    sig = body.lstrip("0")
+    if not sig:
+        return value, (1, 1), Fraction(1, 2)
+    core = sig.rstrip("0")
+    # half a unit in the last written digit: a conversion is held to the figure as written ("300 K" for 25 °C is not one)
+    return value, (len(core), len(sig)), Fraction(1, 2)
+
+
+def _value_key(spelling: str) -> str:
+    """A normalised scientific spelling without its mantissa's trailing zeros ("1.50e999" -> "1.5e999"): the value a
+    figure read by its digits alone states, whatever its precision."""
+    mant, _, exp = spelling.partition("e")
+    if "." in mant:
+        mant = mant.rstrip("0").rstrip(".")
+    return f"{mant}e{exp}"
+
+
+def _normalised_scientific(surface: str) -> Optional[str]:
+    """The precision-aware spelling of a figure in scientific notation read from its digits alone (no value is built):
+    for a figure beyond the number scanner's bounds ("1e999", "1.0 × 10^999" -> "1.0e999"), compared by what is
+    written."""
+    m = re.match(r"^\s*([-−]?)(\d+)(?:\.(\d+))?", surface)
+    e = re.search(r"(?:[eE]|10\^\{?|10\*\*|10)([-+−⁻]?)([0-9⁰¹²³⁴⁵⁶⁷⁸⁹]{1,7})\}?\s*$", surface)
+    if m is None or e is None:
+        return None
+    sup = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+    exp = int(e.group(2).translate(sup)) * (-1 if e.group(1) in ("-", "−", "⁻") else 1)
+    ip, fp = m.group(2), m.group(3) or ""
+    digits = (ip + fp)
+    lead_zeros = len(digits) - len(digits.lstrip("0"))
+    sig = digits.lstrip("0")
+    if not sig:
+        return None
+    lead = exp + len(ip) - 1 - lead_zeros  # the power of ten of the first significant digit
+    sign = "-" if m.group(1) else ""
+    return f"{sign}{sig[0]}{'.' + sig[1:] if len(sig) > 1 else ''}e{lead}"
 
 
 class _Figure:
     """One figure or date of a text: ``keys`` are its equivalent spellings (the numeral; with a scale word also
-    "<numeral> <scale>" and the scaled value, so "a million" meets "1 million" and "1,000,000"), ``mantissa`` and
-    ``scale`` its parts, ``label`` how a finding shows it (the numeral, a month-year, or the words as written)."""
-    __slots__ = ("keys", "mantissa", "scale", "label")
+    "<numeral> <scale>" and the scaled value, so "a million" meets "1 million" and "1,000,000"; for a numeral, its
+    precision-aware spellings, :func:`canonical_spellings`, so "3.0e-2" meets "0.030" and not "0.03"), ``mantissa`` and
+    ``scale`` its parts, ``label`` how a finding shows it (the numeral, a month-year, or the words as written).
+    ``value`` is its exact value (scale applied; None for a date or a figure read by its digits alone), ``sig`` the range
+    of its significant figures, ``half`` half a unit in its last written place (in its own unit), ``unit`` the unit
+    written after it (:class:`FigureUnit`) and ``unread`` marks a figure beyond the number scanner's bounds, compared by
+    its normalised written form only."""
+    __slots__ = ("keys", "mantissa", "scale", "label", "value", "sig", "half", "unit", "unread", "vkey")
 
-    def __init__(self, mantissa: str, scale: Optional[str], label: str, extra: tuple[str, ...] = ()) -> None:
-        from fractions import Fraction
-        keys = {mantissa, *extra}
+    def __init__(self, mantissa: str, scale: Optional[str], label: str, extra: tuple[str, ...] = (), *, value: Optional[Fraction] = None,
+                 sig: Optional[tuple[int, int]] = None, half: Optional[Fraction] = None, unit: Optional[FigureUnit] = None,
+                 unread: bool = False, mantissa_key: bool = True) -> None:
+        keys = {mantissa, *extra} if mantissa_key else set(extra)
         if scale:
             keys.add(f"{mantissa} {scale}")
             try:
@@ -1252,10 +1869,18 @@ class _Figure:
                 keys.add(_fmt(v.numerator, v.denominator))
             except (ValueError, ZeroDivisionError):
                 pass
+        if value is not None and sig is not None:
+            keys |= canonical_spellings(value, sig[0], sig[1])
         self.keys = frozenset(keys)
         self.mantissa = mantissa
         self.scale = scale
         self.label = label
+        self.value = value
+        self.sig = sig
+        self.half = half
+        self.unit = unit
+        self.unread = unread
+        self.vkey = _value_key(mantissa) if unread else None
 
 
 def _exact_decimal(value) -> str:
@@ -1276,42 +1901,73 @@ def _exact_decimal(value) -> str:
 
 def _scientific_figures(text: str) -> list[tuple[int, int, Optional[str], frozenset[str], str]]:
     """``(start, end, exact decimal, spellings, surface)`` of every figure in scientific notation, read exactly by the
-    STEM number scanner. A figure beyond the scanner's bounds (an exponent over 99, over 30 digits) is not read, and
-    its parts are not read as figures either (the caller masks every span returned; the exact decimal is None for it)."""
+    STEM number scanner; its spellings are its precision-aware spellings (:func:`canonical_spellings`: "3.0e8" is
+    ``3.0e8``, never the less precise ``3e8``). A figure beyond the scanner's bounds (an exponent over 99, over 30
+    digits) is not read as a value, and its parts are not read as figures either (the caller masks every span returned;
+    the exact decimal is None for it and its spellings are its normalised written form, :func:`_normalised_scientific`)."""
+    return [(start, end, exact, spellings, surface) for start, end, exact, spellings, surface, _number in _scientific_readings(text)]
+
+
+def _scientific_readings(text: str) -> list[tuple[int, int, Optional[str], frozenset[str], str, object]]:
     from ..stem.normalize import reading_view
     from ..stem.numbers import scan_number
-    out: list[tuple[int, int, Optional[str], frozenset[str], str]] = []
+    out: list[tuple[int, int, Optional[str], frozenset[str], str, object]] = []
     for m in _SCI_FIGURE_RE.finditer(text):
         surface = m.group(0)
         body = reading_view(surface)
         sign = -1 if body.startswith("-") else 1
         body = body.lstrip("-")
         scan = scan_number(body, 0, orig=body)
+        shown = " ".join(surface.split())
         if scan is None or scan.number is None or scan.end != len(body) or not scan.number.scientific:
-            out.append((m.start(), m.end(), None, frozenset(), " ".join(surface.split())))  # unreadable: masked, not a figure
+            normal = _normalised_scientific(surface)
+            out.append((m.start(), m.end(), None, frozenset({normal} if normal else ()), shown, None))  # masked; compared by its digits
             continue
         value = sign * scan.number.value
-        exact = _exact_decimal(value)
-        mant = scan.number.value / (10 ** scan.number.exponent) if scan.number.exponent >= 0 else scan.number.value * (10 ** -scan.number.exponent)
-        normal = f"{'-' if sign < 0 else ''}{_exact_decimal(mant)}e{scan.number.exponent}"
-        out.append((m.start(), m.end(), exact, frozenset({exact, normal}), " ".join(surface.split())))
+        n = scan.number.sig_figs
+        out.append((m.start(), m.end(), _exact_decimal(value), canonical_spellings(value, n, n), shown, (value, (n, n), scan.number.half_width)))
     return out
 
 
 def _figures(text: str) -> list[_Figure]:
     """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
     figures in scientific notation (one figure each, :func:`_scientific_figures`), figures written in words
-    (:func:`_word_figures`), and month-year dates."""
-    plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
+    (:func:`_word_figures`), and month-year dates. Each numeral carries its exact value, its significant figures and
+    the unit written after it (:class:`_Figure`). A figure written after a minus sign (U+2212 and the other glyphs of
+    :data:`_MINUS_SIGNS`, as a sign: not after a letter or digit) is signed exactly as after the ASCII hyphen-minus, so
+    "−352.19" and "-352.19" are one figure and "352.19" for either is a change; a figure after a hyphen or dash
+    (U+2010 to U+2013, also range and punctuation marks) keeps its unsigned reading and also carries its signed spelling."""
+    plain = _ungrouped(_LIST_MARKER_RE.sub(" ", text))
     out: list[_Figure] = []
     masked = plain
+    accounting = {_COMMA_THOUSANDS_RE.sub("", m.group("a") or m.group("b")) for m in _ACCOUNTING_AMOUNT_RE.finditer(text)} if "(" in text else set()
+    if any(ch in plain for ch in "sdSD"):
+        # a precision note ("4.9 N (2 s.f.)", "to 3 d.p.", "correct to 2 significant figures") states how a figure is
+        # written, never a figure of the statement (repair round 5, rerun-combinator-faults-8 variant)
+        masked = _PRECISION_NOTE_RE.sub(lambda m: " " * len(m.group(0)), masked)
+    if "^" in plain:
+        # a unit's exponent written with a caret ("dm^-3", "m s^-1", "cm^3") is part of the unit, as "dm⁻³" is: no figure
+        # (repair round 4, rerun-combinator-faults-8 variant: "mol dm^-3" gave a figure -3 that "mol dm⁻³" does not)
+        masked = _CARET_UNIT_EXPONENT_RE.sub(lambda m: m.group(1) + " " * (len(m.group(0)) - len(m.group(1))), masked)
     if "10" in plain or "e" in plain or "E" in plain:
-        for start, end, exact, spellings, surface in _scientific_figures(plain):
-            if exact is not None:
-                out.append(_Figure(exact, None, surface, tuple(spellings)))
+        for start, end, exact, spellings, surface, reading in _scientific_readings(plain):
+            unit = _unit_after(plain, end)
+            if exact is not None and reading is not None:
+                value, sig, half = reading
+                out.append(_Figure(exact, None, surface, tuple(spellings), value=value, sig=sig, half=half, unit=unit, mantissa_key=False))
+            elif spellings:
+                spelling = next(iter(spellings))
+                n = len(spelling.partition("e")[0].lstrip("-").replace(".", ""))
+                out.append(_Figure(spelling, None, surface, tuple(spellings), sig=(n, n), unit=unit, unread=True))
             masked = masked[:start] + " " * (end - start) + masked[end:]
     for start, end, mantissa, scale, surface in _word_figures(masked):
-        out.append(_Figure(mantissa, scale, " ".join(surface.split())))
+        value, sig, _half = _token_reading(mantissa)
+        if value is not None and sig is not None:
+            value = value * _SCALES[scale] if scale else value
+            if value.denominator == 1 and value != 0:  # words state no precision: any count up to the integer's own digits
+                sig = (sig[0], max(sig[1], len(str(abs(value.numerator)))))
+        # words state no last written place, so a conversion of a figure in words must be exact (half None)
+        out.append(_Figure(mantissa, scale, " ".join(surface.split()), value=value, sig=sig, unit=_unit_after(plain, end)))
         masked = masked[:start] + " " * (end - start) + masked[end:]
     for m in _FIGURE_RE.finditer(masked):
         tok = m.group(0)
@@ -1320,15 +1976,41 @@ def _figures(text: str) -> list[_Figure]:
             out.append(_Figure(tok, None, tok))
             continue
         sc = _SCALE_AFTER_RE.match(masked, m.end())
-        out.append(_Figure(tok, sc.group(1).casefold() if sc else None, tok))
+        scale = sc.group(1).casefold() if sc else None
+        at = m.start()
+        sign_glyph = (not tok.startswith("-") and at > 0 and (at < 2 or not masked[at - 2].isalnum())
+                      and (masked[at - 1] in _MINUS_SIGNS
+                           or (masked[at - 1] in _DASH_SIGNS and not masked[max(0, at - 24):at - 1].rstrip()[-1:].isdigit()
+                               and masked[max(0, at - 24):at - 1].rstrip()[-1:] not in (")", "]"))))
+        if not sign_glyph and not tok.startswith("-") and at > 1 and masked[at - 1] == " " and masked[at - 2] in _MINUS_SIGNS:
+            # a minus sign set apart from its figure in a sign's place ("x = − 3", "(− 0.5)"): after a relation sign, an
+            # opening bracket or the start, never after a figure or a letter ("5 − 3" is a difference); repair round 4
+            before = masked[max(0, at - 26):at - 2].rstrip()
+            sign_glyph = before[-1:] in ("", "=", "(", "[", "<", ">", "≈", "≤", "≥", ":", ",")
+        if sign_glyph:  # "−0.5": a minus sign, read as "-0.5"
+            tok = f"-{tok}"
+        value, sig, half = _token_reading(tok)
+        if value is not None and scale:
+            value, half = value * _SCALES[scale], (half * _SCALES[scale] if half is not None else None)
+        signed: tuple[str, ...] = ()
+        if not tok.startswith("-") and at > 0 and _MINUS_GLYPH_RE.match(masked, at - 1):
+            signed = (f"-{tok}",) + ((f"-{tok} {scale}",) if scale else ())
+        elif not tok.startswith("-") and tok in accounting and "(" in masked[max(0, at - 4):at]:
+            # accounting parentheses around an amount alone ("(1,250.75)", "($450)") write it negative: the figure keeps
+            # its unsigned reading and carries its signed spelling (repair round 5, rerun-combinator-faults-8 variant)
+            signed = (f"-{tok}",) + ((f"-{tok} {scale}",) if scale else ())
+        elif not tok.startswith("-") and (_DECREASE_BEFORE_RE.search(masked[max(0, at - 48):at]) or _DECREASE_AFTER_RE.match(masked, m.end())):
+            # the sign stated in words: "fell 12.50%", "a fall of 12.50%", "a 12.50% drop" restate "−12.50%" (whatever the glyph)
+            signed = (f"-{tok}",) + ((f"-{tok} {scale}",) if scale else ())
+        out.append(_Figure(tok, scale, tok, signed, value=value, sig=sig, half=half, unit=_unit_after(plain, sc.end() if sc else m.end())))
     out += [_Figure(f"{m.group(1).casefold()} {m.group(2)}", None, f"{m.group(1).casefold()} {m.group(2)}") for m in _MONTH_YEAR_RE.finditer(plain)]
     return out
 
 
 def figure_spellings(text: str, *, with_scale: bool = False) -> list[tuple[str, frozenset[str]]]:
     """``(label, spellings)`` for every figure and date of ``text`` (digits, words, scale words, month-years): two figures
-    are the same when their spellings meet ("a million", "1 million" and "1,000,000"). With ``with_scale`` a numeral's
-    label carries its scale word ("2.5 million"), as a finding should name it."""
+    are the same when their spellings meet ("a million", "1 million" and "1,000,000"; "3.0e-2" and "0.030"). With
+    ``with_scale`` a numeral's label carries its scale word ("2.5 million"), as a finding should name it."""
     return [((f"{f.label} {f.scale}" if with_scale and f.scale and f.label == f.mantissa else f.label), f.keys) for f in _figures(text)]
 
 
@@ -1420,7 +2102,7 @@ _INCIDENTAL_FIGURE_RE = re.compile(
 def incidental_figures(text: str) -> set[str]:
     """The labels of the figures of ``text`` that are formula constants, references to a part of a text or task, or mark
     annotations (:data:`_INCIDENTAL_FIGURE_RE`), unless the same numeral also stands in ``text`` as content elsewhere."""
-    plain = _THOUSANDS_RE.sub("", text)
+    plain = _ungrouped(text)
     out: set[str] = set()
     spans: list[tuple[int, int]] = []
     for m in _INCIDENTAL_FIGURE_RE.finditer(plain):
@@ -1461,33 +2143,267 @@ def foreign_number_values(text: str) -> set[str]:
 def figure_tokens(text: str) -> set[str]:
     """The figures of ``text`` as tokens, the units of a figure/date fidelity comparison between a synthesized claim and
     its sources: numerals (thousands separators removed), month-year tokens, and figures written in words as their value
-    ("two million" -> "2", "a tenth" -> "0.1")."""
-    return {f.mantissa for f in _figures(text)}
+    ("two million" -> "2", "a tenth" -> "0.1"). A figure in scientific notation beyond the number scanner's bounds has
+    no exact value and is no token (the ledger still compares it by its normalised written form)."""
+    return {f.mantissa for f in _figures(text) if not f.unread}
 
 
-def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str], list[str]]:
-    """``(introduced, dropped, rescaled)``: the synthesized claim's figures that occur in no source under any spelling,
-    the sources' figures the claim does not state, and the claim's figures whose scale word differs from every scale the
-    sources state that numeral with ("6.1 billion" where the sources say "6.1 million"; a numeral the sources state
-    without a scale word is not held to one, since "from 1.9 to 6.1 million" elides the first figure's scale)."""
-    syn = _figures(synthesized_text)
-    src = [f for t in source_texts for f in _figures(t)]
+def _sig_text(f: _Figure) -> str:
+    if f.sig is None:
+        return "an unstated number of significant figures"
+    lo, hi = f.sig
+    return f"{lo} significant figure{'' if lo == 1 else 's'}" if lo == hi else f"{lo} to {hi} significant figures"
+
+
+def _sig_overlap(a: _Figure, b: _Figure) -> bool:
+    """The two figures may state the same number of significant figures (a figure with no stated precision may)."""
+    if a.sig is None or b.sig is None:
+        return True
+    return max(a.sig[0], b.sig[0]) <= min(a.sig[1], b.sig[1])
+
+
+def _units_agree(a: Optional[FigureUnit], b: Optional[FigureUnit]) -> bool:
+    """No unit change: the same unit, or a unit stated on one side only (an omitted unit is no different unit)."""
+    return a is None or b is None or a.same(b)
+
+
+def _converts(g: _Figure, f: _Figure) -> bool:
+    """``g`` states ``f``'s quantity in another, commensurable unit (same dimension, exact SI factors): the two agree in
+    SI to within half a unit in ``g``'s last written place ("0.0020 kg" for "2.0 g", "90 min" for "1.5 h"). Units of
+    different dimensions are never converted."""
+    if g.unit is None or f.unit is None or g.value is None or f.value is None or g.unit.same(f.unit) or g.unit.dim != f.unit.dim:
+        return False
+    a, b = g.unit.si(g.value), f.unit.si(f.value)
+    if a is None or b is None:
+        return False
+    tolerance = abs((g.half or Fraction(0)) * g.unit.factor) if g.unit.factor is not None else Fraction(0)
+    return abs(a - b) <= tolerance
+
+
+def _same_value(g: _Figure, f: _Figure) -> bool:
+    if g.value is not None and f.value is not None:
+        return g.value == f.value and _units_agree(g.unit, f.unit)
+    return g.vkey is not None and g.vkey == f.vkey and _units_agree(g.unit, f.unit)
+
+
+def _tolerance(g: _Figure) -> Fraction:
+    """Half a unit in ``g``'s last written place, in SI (0 for a figure with no stated last place)."""
+    return abs((g.half or Fraction(0)) * g.unit.factor) if g.unit is not None and g.unit.factor is not None else Fraction(0)
+
+
+class _FigureIndex:
+    """Figures indexed by spelling, by value and, per dimension, by SI quantity in order, so that comparing two texts
+    costs about the sum of their figure counts, never their product."""
+
+    def __init__(self, figs: list[_Figure]) -> None:
+        from bisect import bisect_left, bisect_right
+        self._lo, self._hi = bisect_left, bisect_right
+        self.figs = figs
+        self.by_key: dict[str, list[_Figure]] = {}
+        self.by_value: dict[object, list[_Figure]] = {}
+        quantities: dict[object, list[tuple[Fraction, int]]] = {}
+        self.max_tolerance: dict[object, Fraction] = {}
+        for i, f in enumerate(figs):
+            for k in f.keys:
+                self.by_key.setdefault(k, []).append(f)
+            if f.value is not None:
+                self.by_value.setdefault(("v", f.value), []).append(f)
+            elif f.vkey:
+                self.by_value.setdefault(("k", f.vkey), []).append(f)
+            si = f.unit.si(f.value) if f.unit is not None and f.value is not None else None
+            if si is not None:
+                quantities.setdefault(f.unit.dim, []).append((si, i))
+                self.max_tolerance[f.unit.dim] = max(self.max_tolerance.get(f.unit.dim, Fraction(0)), _tolerance(f))
+        self.quantities = {d: sorted(v) for d, v in quantities.items()}
+        self.si_values = {d: [q for q, _i in v] for d, v in self.quantities.items()}
+        # one answer per set of spellings, and per figure as written (close round 3, DV2-06: a text of one repeated figure
+        # made every figure read every other figure that shares its spelling, the product of the two counts)
+        self._spelled: dict[frozenset, list[_Figure]] = {}
+        self._carried: dict[tuple, bool] = {}
+
+    def spelled(self, g: _Figure) -> list[_Figure]:
+        """The indexed figures sharing a spelling with ``g`` (one list per set of spellings; callers do not change it)."""
+        found = self._spelled.get(g.keys)
+        if found is None:
+            out: dict[int, _Figure] = {}
+            for k in g.keys:
+                for f in self.by_key.get(k, ()):
+                    out.setdefault(id(f), f)
+            found = list(out.values())
+            self._spelled[g.keys] = found
+        return found
+
+    def same_value(self, g: _Figure) -> list[_Figure]:
+        """The indexed figures stating ``g``'s value with a unit that agrees (the same, or stated on one side only)."""
+        key = ("v", g.value) if g.value is not None else (("k", g.vkey) if g.vkey else None)
+        if key is None:
+            return []
+        return [f for f in self.by_value.get(key, ()) if _units_agree(g.unit, f.unit)]
+
+    def _window(self, dim, centre: Fraction, width: Fraction) -> list[_Figure]:
+        sis = self.si_values.get(dim)
+        if not sis:
+            return []
+        lo, hi = self._lo(sis, centre - width), self._hi(sis, centre + width)
+        return [self.figs[i] for _q, i in self.quantities[dim][lo:hi]]
+
+    def converted_by(self, g: _Figure) -> list[_Figure]:
+        """The indexed figures whose quantity ``g`` states in another commensurable unit (:func:`_converts`)."""
+        if g.unit is None or g.value is None:
+            return []
+        si = g.unit.si(g.value)
+        if si is None:
+            return []
+        return [f for f in self._window(g.unit.dim, si, _tolerance(g)) if _converts(g, f)]
+
+    def converting(self, f: _Figure) -> list[_Figure]:
+        """The indexed figures that state ``f``'s quantity in another commensurable unit (each to its own tolerance)."""
+        if f.unit is None or f.value is None:
+            return []
+        si = f.unit.si(f.value)
+        if si is None:
+            return []
+        return [g for g in self._window(f.unit.dim, si, self.max_tolerance.get(f.unit.dim, Fraction(0))) if _converts(g, f)]
+
+    def carries(self, f: _Figure) -> bool:
+        """Some indexed (synthesized) figure carries source figure ``f`` (:func:`_carries`). The answer depends only on what
+        ``f`` states (its spellings, value, unit and precision), so it is read once per figure as written."""
+        sig = _figure_signature(f)
+        known = self._carried.get(sig)
+        if known is None:
+            known = any(k in self.by_key for k in f.keys) or bool(self.same_value(f)) or bool(self.converting(f))
+            self._carried[sig] = known
+        return known
+
+
+def _figure_signature(g: _Figure) -> tuple:
+    """Everything a figure comparison of the ledger reads of ``g``: two figures with the same signature are compared alike."""
+    return (g.keys, g.mantissa, g.scale, g.label, g.value, g.sig, g.half, g.unit, g.unread, g.vkey)
+
+
+def _carries(g: _Figure, f: _Figure) -> bool:
+    """Synthesized figure ``g`` carries source figure ``f`` (so ``f`` is not dropped): the same spelling, the same value
+    with other significant figures (a precision change, reported as one), or the same quantity in a commensurable unit."""
+    return bool(g.keys & f.keys) or _same_value(g, f) or _converts(g, f)
+
+
+def _shown(f: _Figure) -> str:
+    return f"{f.label} {f.unit.text}" if f.unit is not None else f.label
+
+
+@dataclass
+class FigureChanges:
+    """How a synthesized claim's figures differ from its cited sources', as distinct outcomes: ``introduced`` (a value
+    that occurs in no source under any spelling, precision or commensurable unit: a changed or new figure), ``dropped``
+    (a source figure no synthesized figure carries), ``rescaled`` (a changed scale word), ``reprecised`` (a source's
+    value with other significant figures: "0.03" for "3.0e-2"), ``reunited`` (a source's numeral with another unit that
+    is not its value converted: "2.0 kg" for "2.0 g"). A change of form only ("0.030 J" for "3.0e-2 J", "0.0020 kg"
+    for "2.0 g") is none of these."""
+    introduced: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)
+    rescaled: list[str] = field(default_factory=list)
+    reprecised: list[str] = field(default_factory=list)
+    reunited: list[str] = field(default_factory=list)
+
+
+def figure_changes(synthesized_text: str, source_texts: list[str]) -> FigureChanges:
+    """The typed comparison of a synthesized claim's figures with its sources' (:class:`FigureChanges`). Figures are
+    compared by their precision-aware spellings first; a figure whose spelling meets a source figure's is the same
+    numeral, and a unit change when every source figure it meets states a unit and none is its unit (a unit on one side
+    only is no change). A figure whose spelling meets none is a precision change when a source states its exact value
+    (in the same unit or with no unit), a faithful conversion when a source states its quantity in a commensurable unit
+    (a precision change if the significant figures cannot agree), and otherwise an introduced figure. A figure that only
+    a source in another language states in its own words ("doce" for "twelve") is no introduced figure."""
+    # a step label states no figure where the other side states the same label in any notation ("Trial 1" for "the first
+    # trial"; repair round 5, rerun-combinator-faults-7 variant)
+    src_labels = set().union(*(step_labels(t) for t in source_texts)) if source_texts else set()
+    syn_labels = step_labels(synthesized_text)
+    syn = _figures(_masked_step_labels(synthesized_text, src_labels))
+    src = [f for t in source_texts for f in _figures(_masked_step_labels(t, syn_labels))]
     src_keys = set().union(*(f.keys for f in src)) if src else set()
-    syn_keys = set().union(*(f.keys for f in syn)) if syn else set()
-    # A source in another language states its figures in its own words ("doce vecinos"): a faithful "twelve" is no
-    # introduced figure.
     foreign = set().union(*(foreign_number_values(t) for t in source_texts)) if source_texts else set()
-    introduced = _sorted_tokens({f.label for f in syn if not (f.keys & (src_keys | foreign))})
-    dropped = _sorted_tokens({f.label for f in src if not (f.keys & syn_keys)})
+    sources, synthesized = _FigureIndex(src), _FigureIndex(syn)
+    out = FigureChanges()
+    introduced: set[str] = set()
+    reprecised: set[str] = set()
+    reunited: set[str] = set()
+    read: set[tuple] = set()  # every outcome below depends only on what the figure states: one reading per figure as written
+    for g in syn:
+        sig = _figure_signature(g)
+        if sig in read:
+            continue
+        read.add(sig)
+        hits = sources.spelled(g)
+        if hits:
+            if g.unit is not None and all(f.unit is not None and not f.unit.same(g.unit) for f in hits) and not sources.converted_by(g):
+                f = hits[0]
+                kind = "another kind of quantity" if f.unit.dim != g.unit.dim else "the same numeral in another unit, so another quantity"
+                reunited.add(f"'{_shown(g)}' where the cited sources state {_shown(f)} ({kind})")
+            continue
+        if g.keys & foreign:
+            continue
+        if _bits_in_cells(g.label, source_texts):
+            continue  # a row of bits a source's table states cell by cell ("010" for "| 0 | 1 | 0 |")
+        same = sources.same_value(g)
+        if same:
+            f = same[0]
+            reprecised.add(f"'{_shown(g)}' where the cited sources state {_shown(f)} ({_sig_text(f)} there, {_sig_text(g)} here)")
+            continue
+        converted = sources.converted_by(g)
+        if converted:
+            # significant figures carry over a change of factor ("2.0 g" is "0.0020 kg") but not over an offset scale
+            # ("25 °C" is "298 K" or "298.15 K"), where the tolerance alone decides
+            if not any(_sig_overlap(g, f) or g.unit.offset is not None or f.unit.offset is not None for f in converted):
+                f = converted[0]
+                reprecised.add(f"'{_shown(g)}' converts {_shown(f)} to other significant figures ({_sig_text(f)} there, {_sig_text(g)} here)")
+            continue
+        introduced.add(g.label)
+    out.introduced = _sorted_tokens(introduced)
+    out.dropped = _sorted_tokens({f.label for f in src if not synthesized.carries(f)})
+    out.reprecised = sorted(reprecised)
+    out.reunited = sorted(reunited)
     rescaled: list[str] = []
+    scales_of: dict[str, set[str]] = {}  # the scale words the sources write after each mantissa, read once (close round 3, DV2-06)
+    for g in src:
+        if g.scale:
+            scales_of.setdefault(g.mantissa, set()).add(g.scale)
     for f in syn:
         if not f.scale or not (f.keys & src_keys) or (f.keys - {f.mantissa}) & src_keys:
             continue
-        scales = sorted({g.scale for g in src if g.mantissa == f.mantissa and g.scale})
+        scales = sorted(scales_of.get(f.mantissa, ()))
         if scales and f.scale not in scales:
             shown = f.label if f.label != f.mantissa else f"{f.mantissa} {f.scale}"
             rescaled.append(f"'{shown}' where the cited sources state {f.mantissa} {' or '.join(scales)} (a changed scale word)")
-    return introduced, dropped, sorted(set(rescaled))
+    out.rescaled = sorted(set(rescaled))
+    return out
+
+
+#: A row of bits written as one numeral ("010", "1101"): two to sixteen digits, each 0 or 1.
+_BITS_RE = re.compile(r"-?[01]{2,16}")
+
+
+def _bits_in_cells(written: str, source_texts: Sequence[str]) -> bool:
+    """Whether ``written`` is a row of bits (:data:`_BITS_RE`) that a source states cell by cell, in order, on one line:
+    its digits as single-digit cells of a table, between bars or tabs ("| 0 | 1 | 0 |"; repair round 4,
+    rerun-combinator-faults-7 variant: a correct truth table synthesized as rows "000 → ..." was charged INT-LEDGER-023 for
+    rows its source table writes in separate columns). The bits are compared as written, so "011" is no restatement of a
+    row "1 1 0", and a list in prose ("1, 1, 0") is no row of a table."""
+    if not _BITS_RE.fullmatch(written or ""):
+        return False
+    bits = written.lstrip("-")
+    sep = r"[ ]*[|\t][ ]*"
+    pattern = re.compile(r"(?<![\w.])" + sep.join(bits) + r"(?![\w.])")
+    return any(pattern.search(t) for t in source_texts if t and len(t) <= 400_000)
+
+
+def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """``(introduced, dropped, rescaled)`` of :func:`figure_changes`: the synthesized claim's figures whose value occurs
+    in no source under any spelling, precision or commensurable unit, the sources' figures the claim does not carry,
+    and the claim's figures whose scale word differs from every scale the sources state that numeral with ("6.1
+    billion" where the sources say "6.1 million"; a numeral the sources state without a scale word is not held to one,
+    since "from 1.9 to 6.1 million" elides the first figure's scale)."""
+    changes = figure_changes(synthesized_text, source_texts)
+    return changes.introduced, changes.dropped, changes.rescaled
 
 
 def _sorted_tokens(tokens: set[str]) -> list[str]:
@@ -1533,7 +2449,7 @@ def misattributed_quotations(text: str, docs: dict, *, skip: set[str] = frozense
     a possessive or a crediting verb after a named author, title, specialist or "the poem") to a text that does not hold
     them while another text of ``docs`` does: a specialist's prose presented as the poem's words, the poem's words
     presented as a colleague's. Quotations in ``skip`` (already reported as found nowhere) are not read."""
-    from ..adapters.markdown import find_quotation_spans
+    from ..adapters.markdown import cited_quotation_spans
     from ..adapters.sources import quotation_credit
     if not docs:
         return []
@@ -1542,7 +2458,7 @@ def misattributed_quotations(text: str, docs: dict, *, skip: set[str] = frozense
         return _holds_quotation(q, doc.text)
 
     out: list[str] = []
-    for start, _end, inner in find_quotation_spans(text):
+    for start, _end, inner in cited_quotation_spans(text):
         q = inner.strip().strip(".,;:!?").strip()
         if not q or q in skip or not re.search(r"[^\W\d_]", q):
             continue
@@ -1660,6 +2576,119 @@ def _source_index(reports: list[SpecialistReport], colliding: set[str]) -> tuple
     return idx, report_of
 
 
+#: Sentence ends for the self-report reading of a synthesis: a sentence stop followed by space, or a line break.
+_SELF_REPORT_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+#: The longest sentence the self-report reading reads (a sentence beyond it is read on its first characters only).
+_SELF_REPORT_SENTENCE_CHARS = 4000
+
+
+#: What runs the checks, as the subject of a check-status statement: the verification infrastructure (Z3, the engine,
+#: solver, verifier, checker, the hub, channel, router, translator, Overseer) or the checks of a report, an answer or a
+#: specialist ("the Mathematics report's own checks", "its own checks", "the formal checks"). Checks of anything else
+#: ("border checks", "the safety checks") are subject matter, not the process.
+_CHECK_SUBJECT = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation|integrity)\s+)?(?:engine|solver|verifier|checker)\b"
+                  r"|\bthe\s+(?:hub|channel|translator|overseer|router)\b(?:\s*['’]s\s+(?:own\s+)?checks?\b)?"
+                  r"|\b(?:its|their|my|our)\s+own\s+(?:formal\s+|automated\s+)?checks?\b"
+                  r"|\bthe\s+[\w-]+(?:\s+(?:report|specialist|answer|working|paragraph))?\s*['’]s?\s+(?:own\s+)?(?:formal\s+|automated\s+)?checks?\b"
+                  r"|\bthe\s+(?:formal|automated|verification|integrity)\s+checks?\b)")
+#: A check status stated in a synthesis, in either polarity (repair round 1, re-run review cf-3 variant): the checks of the
+#: process or of a report as the subject of a verb that reports a check's outcome on the answer's items ("the Mathematics
+#: report's own checks flag its written lines ... as not holding", "the engine found that the second line does not hold",
+#: "the hub's checks show every figure holds"). A combinator cannot vouch for a check result; only the receipts carry
+#: them, so the statement is a self-report like a self-certification.
+_CHECK_STATUS_RE = re.compile(
+    rf"{_CHECK_SUBJECT}\s+(?:(?:have|has|had)\s+)?(?:flag(?:s|ged)?|mark(?:s|ed)?)\b[^\n]{{0,240}}?\bas\s+(?:not\s+holding|false|wrong|incorrect|"
+    r"failing|failed|holding|true|correct|valid)\b"
+    rf"|{_CHECK_SUBJECT}\s+(?:(?:have|has|had)\s+)?(?:show(?:s|ed|n)?|finds?|found|report(?:s|ed)?|confirm(?:s|ed)?|reject(?:s|ed)?|refute(?:s|d)?)\b"
+    r"[^\n]{0,240}?\b(?:do(?:es)?\s+not\s+hold|does\s+hold|holds|is\s+false|are\s+false|is\s+wrong|are\s+wrong|fails|failed)\b",
+    re.IGNORECASE)
+
+
+def _self_report_sentences(text: str) -> list[str]:
+    """The sentences of ``text`` that state a verification status of the answer itself ("VERIFIED: all claims checked and
+    confirmed.", "checked by the formal verifier: every line holds", "All checks passed."), read with the closed
+    self-certification vocabulary of the specialists' reports
+    (:func:`~epinoic_logic.adapters.markdown.is_self_certification`), and those that state a check's result in either
+    polarity (:data:`_CHECK_STATUS_RE`: "the Mathematics report's own checks flag its written lines ... as not holding").
+    One linear split."""
+    from ..adapters.markdown import is_self_certification, is_word_count_line
+    out: list[str] = []
+    for sentence in _SELF_REPORT_SENTENCE_RE.split(text or ""):
+        s = sentence.strip()
+        if s and is_word_count_line(s):
+            continue  # a word count is a length the channel measures, no verification status (repair round 5, ADV5-12)
+        if s and (is_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]) or _CHECK_STATUS_RE.search(s[:_SELF_REPORT_SENTENCE_CHARS])):
+            out.append(s[:200])
+    return list(dict.fromkeys(out))
+
+
+def _self_report_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
+    """INT-LEDGER-029: a synthesized claim, or a sentence of the student-facing text, that states a verification status of
+    the answer: a self-report of the combinator (or one it carried from a specialist's note), advisory only. No check in
+    this process stands behind it, so it is never material content and never evidence that anything was checked (a
+    specialist's report with the same sentence is named CORE-SELF-001). Each sentence is named once."""
+    f: list[IntegrityFinding] = []
+    named: set[str] = set()
+    for sc in synthesis.claims:
+        found = _self_report_sentences(sc.text)
+        if found:
+            named.update(found)
+            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+                f"synthesized claim ('{sc.transformation}', {sc.materiality}) states a verification status of the answer: {found[:3]}: a self-report, "
+                "advisory only; no check in this process stands behind it, so it is no material content and no evidence of a check"),
+                claim_ids=[sc.claim_id] + list(sc.source_claim_ids)[:16], agent_ids=[synthesis.combinator_agent_id]))
+    rest = [s for s in _self_report_sentences(synthesis.text) if s not in named and not any(s in n or n in s for n in named)]
+    if rest:
+        f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+            f"the synthesis text states a verification status of the answer: {rest[:3]}: a self-report, advisory only; no check in this "
+            "process stands behind it"), claim_ids=[synthesis.synthesis_id], agent_ids=[synthesis.combinator_agent_id]))
+    return f
+
+
+def _reference_findings(sc, known: list[ClaimRecord], reports: list[SpecialistReport], combinator: str) -> list[IntegrityFinding]:
+    """The evidence references of a synthesized claim checked against the documents they name:
+
+    * INT-LEDGER-025 (error): an excerpt that the named supplied text does not hold in any recognised form
+      (:func:`_holds_quotation`): an invented excerpt, or a misattributed one when another supplied text holds it;
+    * INT-LEDGER-030 (warning): a reference to a document that no report supplies and no source claim cites, so nothing
+      in scope can check it.
+
+    A document known only from the source claims' references (no text supplied) is not read further: its excerpt is
+    compared with the sources' by INT-LEDGER-020."""
+    texts: dict[str, object] = {}
+    for r in reports:
+        for t in r.supplied_texts:
+            texts.setdefault(t.document_id, t)
+    cited = {ref.document_id for r in reports for c in r.claims for ref in c.source_refs}
+    carried = {(ref.document_id, _norm(ref.excerpt)) for c in known for ref in c.source_refs if ref.excerpt}
+    out: list[IntegrityFinding] = []
+    unknown: list[str] = []
+    for ref in sc.evidence_refs:
+        doc = texts.get(ref.document_id)
+        if doc is None:
+            if ref.document_id not in cited:
+                unknown.append(ref.document_id)
+            continue
+        excerpt = (ref.excerpt or "").strip().strip(".,;:!?").strip()
+        if not excerpt or not re.search(r"[^\W_]", excerpt) or _holds_quotation(excerpt, doc.text):  # type: ignore[attr-defined]
+            continue
+        elsewhere = sorted(d for d, t in texts.items() if d != ref.document_id and _holds_quotation(excerpt, t.text))  # type: ignore[attr-defined]
+        how = (f"misattributed: the words are in {elsewhere[:4]}, not in {ref.document_id}" if elsewhere
+               else "an invented or altered excerpt: no supplied text holds it")
+        source_note = " (as a cited source claim's reference also states it)" if (ref.document_id, _norm(ref.excerpt or "")) in carried else ""
+        out.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=(
+            f"synthesized claim ('{sc.transformation}') credits to {ref.document_id} the excerpt {excerpt[:120]!r}, which that document does not "
+            f"hold{source_note}: {how}"), claim_ids=[sc.claim_id] + [c.claim_id for c in known][:16], agent_ids=[combinator],
+            document_ids=sorted({ref.document_id, *elsewhere[:4]})))
+    if unknown:
+        docs = sorted(set(unknown))
+        out.append(IntegrityFinding(code="INT-LEDGER-030", severity="warning", message=(
+            f"synthesized claim ('{sc.transformation}') references document(s) {docs[:8]} that no report supplies and no source claim cites: "
+            "nothing in scope can check them, so the references are the combinator's own"), claim_ids=[sc.claim_id], agent_ids=[combinator],
+            document_ids=docs[:16]))
+    return out
+
+
 def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
     """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
     quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
@@ -1681,12 +2710,19 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
     accounted: set[str] = set()
     listed_reports = set(synthesis.source_report_ids)
     # Figures a source's content keeps in the synthesis: those of every synthesized claim that cites it (a source split
-    # across two synthesized claims loses no figure the other one carries).
-    carried_by_source: dict[str, set[str]] = {}
+    # across two synthesized claims loses no figure the other one carries). A source figure is carried by a synthesized
+    # figure that spells it, states its value to other significant figures (a precision change, reported as one) or
+    # states its quantity in a commensurable unit (:func:`_carries`).
+    carried_by_source: dict[str, list[_Figure]] = {}
+    labels_by_source: dict[str, set[tuple[str, int]]] = {}  # the step labels the claims citing a source state (any notation)
     for sc in synthesis.claims:
-        keys = set().union(*(f.keys for f in _figures(sc.text))) if sc.text else set()
+        figs = _figures(sc.text) if sc.text else []
+        labels = step_labels(sc.text) if sc.text else set()
         for cid in sc.source_claim_ids:
-            carried_by_source.setdefault(cid, set()).update(keys)
+            carried_by_source.setdefault(cid, []).extend(figs)
+            labels_by_source.setdefault(cid, set()).update(labels)
+    carried_index = {cid: _FigureIndex(figs) for cid, figs in carried_by_source.items()}
+    no_figures = _FigureIndex([])
     credit_docs = _credit_documents(reports, tuple(extra_texts))
     agents = sorted({r.agent_id for r in reports})
     memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and _MEMORY_LABEL_RE.search(c.claim_text) for c in r.claims)}
@@ -1718,23 +2754,38 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         lost = [c.claim_id for c in material_sources if any((r.document_id, r.locator) not in have for r in c.source_refs)]
         if lost:
             f.append(IntegrityFinding(code="INT-LEDGER-004", severity="error", message=f"evidence references of material source claims {lost} were not preserved in the '{sc.transformation}' claim", claim_ids=[sc.claim_id] + lost, document_ids=sorted({r.document_id for c in material_sources if c.claim_id in lost for r in c.source_refs})))
-        altered = sorted({c.claim_id for c in known for r in c.source_refs if (r.document_id, r.locator) in have and r.excerpt and have[(r.document_id, r.locator)].excerpt and _norm(r.excerpt) != _norm(have[(r.document_id, r.locator)].excerpt)})
+        # A source excerpt is preserved when it is among the synthesized claim's excerpts under the same (document, locator):
+        # one table cited twice with no locator ("2022: 6.4%", "2023: 3.9%") holds two excerpts under one key, and comparing
+        # the source's excerpt with only one of them read a faithful copy as an altered one.
+        excerpts_at: dict[tuple[str, Optional[str]], set[str]] = {}
+        for r in sc.evidence_refs:
+            if r.excerpt and _norm(r.excerpt):
+                excerpts_at.setdefault((r.document_id, r.locator), set()).add(_norm(r.excerpt))
+        altered = sorted({c.claim_id for c in known for r in c.source_refs
+                          if r.excerpt and excerpts_at.get((r.document_id, r.locator)) and _norm(r.excerpt) not in excerpts_at[(r.document_id, r.locator)]})
+        f += _reference_findings(sc, known, reports, synthesis.combinator_agent_id)
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
-        introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
-        dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(c.claim_text) if not (f.keys & carried_by_source.get(c.claim_id, set()))
-                                          and f.label not in incidental_figures(c.claim_text)})
+        changes = figure_changes(sc.text, [c.claim_text for c in known])
+        introduced, rescaled = changes.introduced, changes.rescaled
+        dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(_masked_step_labels(c.claim_text, labels_by_source.get(c.claim_id, set())))
+                                          if not carried_index.get(c.claim_id, no_figures).carries(f) and f.label not in incidental_figures(c.claim_text)})
         repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known])
         word_counts, _meaning = aligned_differences(sc.text, [c.claim_text for c in known])
-        if introduced or rescaled or repaired or word_counts:
+        if introduced or rescaled or repaired or word_counts or changes.reprecised or changes.reunited:
             # One finding per synthesized claim: the figures no source states, the figures stated with another scale word,
-            # and the figures every source states but with another event (a swap passes a token-set comparison, so the
-            # pairing is compared too). Figures written in words count like figures in digits.
+            # another precision or another unit, and the figures every source states but with another event (a swap
+            # passes a token-set comparison, so the pairing is compared too). Figures written in words count like figures
+            # in digits. A change of form only (another notation, a commensurable unit) is none of these.
             parts: list[str] = []
             if introduced:
                 parts.append(f"states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date")
             if rescaled:
                 parts.append(f"changes the scale of figures of its cited sources {known_ids}: " + "; ".join(rescaled))
+            if changes.reprecised:
+                parts.append(f"changes the precision (significant figures) of figures of its cited sources {known_ids}: " + "; ".join(changes.reprecised))
+            if changes.reunited:
+                parts.append(f"changes the unit of figures of its cited sources {known_ids}: " + "; ".join(changes.reunited))
             if repaired:
                 parts.append(f"re-pairs figures or dates between events relative to its cited sources {known_ids}: " + "; ".join(repaired))
             if word_counts:
@@ -1774,6 +2825,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             what = "content removed; formal coverage check required" if sc.transformation == "narrowed" else "formal synthesis-entailment check required"
             f.append(IntegrityFinding(code="INT-LEDGER-011", severity="info", message=f"material content produced by '{sc.transformation}' from {[c.claim_id for c in material_sources]}: {what}", claim_ids=[sc.claim_id] + [c.claim_id for c in material_sources]))
 
+    f += _self_report_findings(synthesis)
     for entry in synthesis.ledger:
         unknown = [s for s in entry.source_claim_ids if s not in sources and s not in colliding]
         if unknown:

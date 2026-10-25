@@ -177,6 +177,9 @@ def _units() -> dict[str, UnitDef]:
     add("″", "arc second", _ANGLE, None, prefixable=False, angle_degrees=Fraction(1, 3600))
     add("%", "per cent", DIMENSIONLESS, Fraction(1, 100), prefixable=False)
     add("ppm", "part per million", DIMENSIONLESS, Fraction(1, 10 ** 6), prefixable=False)
+    # Computer Science: an amount of data, a count of bits (a pure number, so '32 bits = 4 bytes' converts exactly)
+    add("bit", "bit", DIMENSIONLESS, Fraction(1), prefixable=False)
+    add("byte", "byte", DIMENSIONLESS, Fraction(8), prefixable=False)
     add("°C", "degree Celsius", _TEMP, Fraction(1), prefixable=False, offset=Fraction(27315, 100), affine=True)
     add("°F", "degree Fahrenheit", _TEMP, Fraction(5, 9), prefixable=False, offset=Fraction(45967, 100), affine=True)
     add("M", "molar", _d(m=-3, mol=1), Fraction(1000), prefixable=False)  # mol dm⁻³; read only per profile (see parse_unit)
@@ -194,6 +197,7 @@ for _sym, _names in (
     ("mol", ("mole",)), ("N", ("newton",)), ("J", ("joule",)), ("W", ("watt",)), ("Pa", ("pascal",)), ("Hz", ("hertz",)),
     ("C", ("coulomb",)), ("V", ("volt",)), ("Ω", ("ohm",)), ("F", ("farad",)), ("T", ("tesla",)), ("L", ("litre", "liter")),
     ("min", ("minute",)), ("h", ("hour",)), ("d", ("day",)), ("rad", ("radian",)), ("Bq", ("becquerel",)), ("eV", ("electronvolt",)),
+    ("bit", ("bit",)), ("byte", ("byte",)),
 ):
     for _n in _names:
         _WORDS[_n] = _sym
@@ -285,10 +289,17 @@ class UnitExpr:
         return None
 
 
+#: letter runs that name a quantity and are never read as a prefixed unit: ``pH`` is the acidity scale in every profile
+#: ("a fall of 0.1 pH unit"), never the picohenry, which no IB syllabus uses
+_QUANTITY_NAMES = frozenset({"pH", "pOH", "pKa", "pKb", "pKw"})
+
+
 def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[tuple[UnitDef, str]]:
     """Every (unit, prefix) reading of a letter run, best first: an exact symbol, then prefix +
     symbol (longest prefix first). The bare ``M`` and the tonne follow the profile."""
     out: list[tuple[UnitDef, str]] = []
+    if word in _QUANTITY_NAMES:
+        return []
     if word in _OHM_ALIASES:
         return [(UNITS["Ω"], "")]
     if word == "M":
@@ -388,6 +399,8 @@ _MAX_UNIT_CHARS = 160
 #: ambiguous: nobody writes day metre or centi... as two atoms.
 _GLUED_AMBIGUOUS = frozenset({"ms"})
 _MAX_ATOMS = 12
+#: digits of one unit exponent read as an integer (a longer superscript run is an unreadable unit, never an int() call)
+_MAX_EXPONENT_DIGITS = 6
 
 
 @dataclass
@@ -498,6 +511,9 @@ def _lex_unit(text: str, ascii_exponents: bool = False) -> _Lex:
             j, digits = superscript_int(s, i, n)
             if digits is None:
                 out.error = "a superscript sign with no digits"
+                return out
+            if len(digits) - digits.startswith("-") > _MAX_EXPONENT_DIGITS:
+                out.error = f"an exponent of more than {_MAX_EXPONENT_DIGITS} digits"  # never turned into an integer
                 return out
             out.items.append(("pow", int(digits)))
             i = j

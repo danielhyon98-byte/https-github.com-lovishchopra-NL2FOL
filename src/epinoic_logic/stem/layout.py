@@ -26,7 +26,7 @@ from typing import Optional
 __all__ = [
     "ANNOTATION_ONLY_RE", "BULLET_RE", "CONNECTIVE_END_RE", "CONTINUATION_RE", "LABEL_ONLY_REST_RE", "MARK_ALLOC", "MARK_CODE", "PART_LEAD_RE",
     "SENT_RE", "SOFT_WRAP_NEXT_RE", "TABLE_ROW_RE", "TABLE_SEPARATOR_RE", "TERMINAL_PUNCT_RE", "TRAILING_ANNOTATION_RE", "annotation_ranges",
-    "is_working", "joins_previous", "label_only_rest", "plain_line", "EMPHASIS_RE",
+    "is_working", "joins_previous", "label_only_rest", "plain_line", "emphasis_spans", "EMPHASIS_RE",
 ]
 
 ROMAN = r"(?:i{1,3}|iv|vi{0,3}|ix|x)"
@@ -64,18 +64,88 @@ _QUOTED_RE = re.compile(r"\"[^\"\n]{1,2000}\"|“[^”\n]{1,2000}”|«[^»\n]{1
 _MAX_LINE = 20_000
 
 
+_MARKERS = ("**", "__", "*", "_")
+
+
+def _is_word(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def emphasis_spans(line: str, markers: tuple[str, ...] = _MARKERS) -> list[tuple[int, int, int, int]]:
+    """``(start, end, body start, body end)`` of every emphasis :data:`EMPHASIS_RE` finds in ``line``, in the order and with
+    the result of ``EMPHASIS_RE.finditer``, in linear time: the regex scans lazily to the end of the line from every
+    opener that has no closer (quadratic on '**a ' repeated), this reads each marker's valid closers once and moves one
+    pointer per marker. An opener is a marker not after a word character and before a non-space character (markers
+    tried in the order ``**``, ``__``, ``*``, ``_``); its closer is the first later occurrence of the same marker that
+    leaves a body of at least one character, follows a non-space character and is not followed by a word character; the
+    scan goes on after the match. A line break never stands in a body. ``markers`` (tried in their order) gives the same
+    reading of the same pattern with other markers: ``("**", "__", "*", "_", "`")`` is the markdown helper's
+    ``adapters.markdown.EMPHASIS_RE``, backticks included."""
+    if not any(m in line for m in markers):
+        return []  # no marker: nothing to read (repair round 2, parser-safety-11: most lines hold none)
+    n = len(line)
+    closers: dict[str, list[int]] = {}
+    for m in markers:
+        k = len(m)
+        out = []
+        q = line.find(m, 0)
+        while q >= 0:
+            if q > 0 and not line[q - 1].isspace() and (q + k >= n or not _is_word(line[q + k])):
+                out.append(q)
+            q = line.find(m, q + 1)
+        closers[m] = out
+    pointer = {m: 0 for m in markers}
+    breaks = []
+    q = line.find("\n")
+    while q >= 0:
+        breaks.append(q)
+        q = line.find("\n", q + 1)
+    brk = 0
+    spans: list[tuple[int, int, int, int]] = []
+    p = 0
+    while p < n:
+        while brk < len(breaks) and breaks[brk] < p:
+            brk += 1
+        next_break = breaks[brk] if brk < len(breaks) else n
+        hit = None
+        if p == 0 or not _is_word(line[p - 1]):
+            for m in markers:
+                k = len(m)
+                if not line.startswith(m, p) or p + k >= n or line[p + k].isspace():
+                    continue
+                lst = closers[m]
+                j = pointer[m]
+                while j < len(lst) and lst[j] < p + k + 1:
+                    j += 1
+                pointer[m] = j
+                if j < len(lst) and lst[j] <= next_break:
+                    q = lst[j]
+                    hit = (p, q + k, p + k, q)
+                    break
+        if hit is None:
+            p += 1
+            continue
+        spans.append(hit)
+        p = hit[1]
+    return spans
+
+
 def plain_line(line: str) -> tuple[str, list[int]]:
-    """``line`` with its emphasis markers removed (:data:`EMPHASIS_RE`, applied as the markdown helper applies it), and
-    the offset in ``line`` of every character kept: what the generic branch reads the line as."""
+    """``line`` with its emphasis markers removed (:data:`EMPHASIS_RE`, applied as the markdown helper applies it, through
+    the linear :func:`emphasis_spans`), and the offset in ``line`` of every character kept: what the generic branch reads
+    the line as."""
+    found = emphasis_spans(line)
+    if not found:
+        return line, list(range(len(line)))
     out: list[str] = []
     index: list[int] = []
     pos = 0
-    for m in EMPHASIS_RE.finditer(line):
-        out.append(line[pos:m.start()])
-        index.extend(range(pos, m.start()))
-        out.append(m.group(2))
-        index.extend(range(m.start(2), m.end(2)))
-        pos = m.end()
+    for start, end, b0, b1 in found:
+        out.append(line[pos:start])
+        index.extend(range(pos, start))
+        out.append(line[b0:b1])
+        index.extend(range(b0, b1))
+        pos = end
     out.append(line[pos:])
     index.extend(range(pos, len(line)))
     return "".join(out), index

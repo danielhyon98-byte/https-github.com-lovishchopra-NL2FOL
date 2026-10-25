@@ -13,6 +13,9 @@ Environment variables (all prefixed ``EPINOIC_``):
 ``EPINOIC_MAX_BODY_BYTES``    request body limit (default 1_000_000)
 ``EPINOIC_MAX_CONCURRENCY``   simultaneous solver runs (default 4)
 ``EPINOIC_RATE_PER_MINUTE``   token-bucket capacity per bearer token (default 60)
+``EPINOIC_ALLOW_CLIENT_FIXTURES`` ``1``/``true``/``yes`` lets ``POST /v1/outcomes`` take the client's
+                              ``fixture_responses`` (default off: the client would act as the translation
+                              provider; the route then answers 403 ``E506`` before reading the body)
 
 Secrets are excluded from ``repr`` so that settings can appear in logs safely.
 """
@@ -29,6 +32,8 @@ DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_RATE_PER_MINUTE = 60
 MIN_TOKEN_LENGTH = 16
 MIN_SIGNING_KEY_BYTES = 16
+_TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
+_FALSE_WORDS = frozenset({"0", "false", "no", "off"})
 
 __all__ = [
     "ENV_PREFIX",
@@ -69,6 +74,13 @@ class ServiceSettings(BaseModel):
     allow_unsigned_for_tests: bool = Field(
         default=False,
         description="permit running without a signing key; for tests only, never settable from the environment",
+    )
+    allow_client_fixtures: bool = Field(
+        default=False,
+        description=(
+            "let POST /v1/outcomes take the client's fixture_responses as the translation provider's output; off by default, "
+            "since any authenticated client would then choose what the translation says (403 E506 otherwise)"
+        ),
     )
 
     @model_validator(mode="after")
@@ -120,6 +132,12 @@ class ServiceSettings(BaseModel):
                 values[name] = int(raw.strip(), 10)
             except ValueError as exc:
                 raise SettingsError(f"{ENV_PREFIX}{var} must be an integer") from exc
+        flag = source.get(f"{ENV_PREFIX}ALLOW_CLIENT_FIXTURES")
+        if flag is not None and flag.strip() != "":
+            word = flag.strip().lower()
+            if word not in _TRUE_WORDS | _FALSE_WORDS:
+                raise SettingsError(f"{ENV_PREFIX}ALLOW_CLIENT_FIXTURES must be one of: {', '.join(sorted(_TRUE_WORDS | _FALSE_WORDS))}")
+            values["allow_client_fixtures"] = word in _TRUE_WORDS
         try:
             return cls.model_validate(values)
         except ValidationError as exc:

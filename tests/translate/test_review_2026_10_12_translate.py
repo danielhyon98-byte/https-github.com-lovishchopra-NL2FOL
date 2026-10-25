@@ -34,6 +34,7 @@ from epinoic_logic.engine.runner import verify as engine_verify
 from epinoic_logic.engine.statuses import VerificationStatus as S
 from epinoic_logic.ir.schema import Grounding, Problem
 from epinoic_logic.translate import prompts
+from epinoic_logic.version import TRANSLATOR_VERSION
 from epinoic_logic.translate.contracts import (
     ClaimRecord, EligibilityDecision, ProviderInfo, SpecialistReport, SuppliedText, TaskRecord, TranslationResult, TranslationStatus as T, sha256_text,
 )
@@ -482,7 +483,7 @@ def test_a_substituted_figure_under_any_trusted_kind_is_an_evidence_failure_and_
     assert failed and failed[0].method == "numeric_in_task" and "160" in failed[0].detail and "doc" in failed[0].detail
     assert outcome.release is not None and not outcome.release.permitted and not outcome.release.evidence_resolved
     assert any("ungrounded dependencies" in u and "D" in u for u in outcome.release.unresolved)
-    assert "Release (release-v1): NOT permitted" in outcome.summary
+    assert "Release (release-v2): NOT permitted" in outcome.summary  # the policy pin moves with each release (argdiag-1: release-v2)
 
 
 def test_the_authentic_120_still_supports_15_and_release_needs_a_faithful_current_review():
@@ -555,8 +556,12 @@ def test_a_restated_trusted_kind_is_a_transcription_only_when_the_task_states_it
     assert outcome.translation.status is T.TRANSLATED and outcome.display_status is S.ENTAILED  # a transcription of the task
     outcome, _ = run(claim, report, output(p), task=TaskRecord.of("t", "r", "Keep the answer within 400 words."))
     assert outcome.translation.status is T.INVALID_FORMALIZATION and any("E112" in d for d in outcome.translation.diagnostics)  # assumed, not given
+    # Rewritten to the stricter rule of policy 2026.10-v5 (issue 1): with no task record no check validated the restating
+    # premise, so it is the writer's own and the restatement is circular (refused, E112), never shown as ENTAILED. Before,
+    # the label alone made it a transcription, displayed ENTAILED and only kept from release.
     outcome, _ = run(claim, report, output(p))
-    assert outcome.display_status is S.ENTAILED and not outcome.release.permitted  # unvalidated: shown as the encoding's result, never released
+    assert outcome.translation.status is T.INVALID_FORMALIZATION and outcome.display_status is not S.ENTAILED
+    assert any("E112" in d for d in outcome.translation.diagnostics) and not outcome.release.permitted
 
 
 # =========================================================================== 4. reviewer context and binding
@@ -735,9 +740,10 @@ def test_the_coverage_note_the_signed_result_and_the_display_are_one_decision(na
     no_verdict, advisory = ("E110", "W110") if notes[0].kind == "unasserted_definition" else ("E111", "W111")
     assert result.status is S.COUNTEREXAMPLE
     assert codes == ([no_verdict] if asserted else [advisory]), codes
+    # a record as this translator makes it (version and claim-text digest): any other is displayed INTERNAL_ERROR (re-run review correctness-5)
     tr = TranslationResult(translation_id="tr", request_id="r", report_id="rep", claim_id="c", status=T.TRANSLATED, problem=with_record, coverage=notes,
                            eligibility=EligibilityDecision(eligibility_class="PROPOSITIONAL_ARGUMENT", eligible=True, decided_by="deterministic", policy_version="p"),
-                           translator_version="t", policy_version="p", created_at="2026-10-12T00:00:00Z")
+                           claim_text_sha256=sha256_text(claim.claim_text), translator_version=TRANSLATOR_VERSION, policy_version="p", created_at="2026-10-12T00:00:00Z")
     assert display_status_for(tr, result, KEY, "k") is (S.INVALID_FORMALIZATION if asserted else S.COUNTEREXAMPLE)
     payload = engine_verify(json.loads(with_record.model_dump_json(exclude_none=True)), CFG, signing_key=KEY, key_id="k")
     assert advisory in [d.code for d in payload.diagnostics] and no_verdict not in [d.code for d in payload.diagnostics]
@@ -757,9 +763,11 @@ def test_a_hand_made_translation_without_source_assessment_keeps_e110_and_e111_c
                                      "conclusion": {"id": "C", "expr": {"op": "lt", "left": V("x"), "right": V("y")}}})
     for prob, code, withheld in ((p_def, "W110", "E110"), (p_free, "W111", "E111")):
         result = engine_verify(prob, CFG, signing_key=KEY, key_id="k")
+        # a record as this translator makes it (version and claim-text digest): any other is displayed INTERNAL_ERROR (re-run review correctness-5)
         tr = TranslationResult(translation_id="tr", request_id="r1", report_id="rep1", claim_id="c1", status=T.TRANSLATED, problem=prob,
                                eligibility=EligibilityDecision(eligibility_class="PROPOSITIONAL_ARGUMENT", eligible=True, decided_by="deterministic", policy_version="p"),
-                               translator_version="t", policy_version="p", created_at="2026-10-12T00:00:00Z")
+                               claim_text_sha256=sha256_text("the claim c1"), translator_version=TRANSLATOR_VERSION, policy_version="p",
+                               created_at="2026-10-12T00:00:00Z")
         codes = [d.code for d in result.diagnostics]
         assert result.status is S.COUNTEREXAMPLE and code in codes and withheld not in codes
         assert display_status_for(tr, result, KEY, "k") is S.COUNTEREXAMPLE

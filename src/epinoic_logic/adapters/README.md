@@ -8,7 +8,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   (`register`, `get_adapter`, `registered_ids`).
 - `markdown.py` — the pre-segmentation rules every text parser shares: markdown furniture,
   code fences and pasted JSON blocks removed before segmentation (`strip_markup`; CRLF and a
-  lone CR are line breaks; a fence with no language or a text or markdown tag whose body is prose,
+  lone CR are line breaks; emphasis is removed in one linear pass, `_strip_emphasis` over
+  `stem.layout.emphasis_spans` with the backtick among its markers, exactly the matches of
+  `EMPHASIS_RE`, which scanned to the end of a line from every opener without a closer; a fence with no language or a text or markdown tag whose body is prose,
   at least 20 words and two sentence ends with no JSON shape, keeps its body, so an answer wrapped
   in a fence is counted as the answer by the channel as the English parser reads it, while code, a
   receipt in a fence tagged `json` and a short decoration are removed whole), a JSON span glued to prose located wherever it stands
@@ -109,9 +111,39 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   the span it leaves unchecked, and `undelimited_quote_spans` adds every pair of an unbalanced
   paragraph whose marks contradict their context, so the writer's prose between quotations is
   neither delivered as a quotation nor reported as invented).
+  - `quotation_role(text, start, end)` gives a quoted span's role from `QUOTATION_ROLES`:
+    `quotation`, `correction`, `suggestion` or `mention`.
+  - `cited_quotation_spans(text)` keeps only the spans whose role is `quotation`.
+  - Every check or attribution of a quotation reads `cited_quotation_spans`: the channel, the
+    ledger, the packs, `sources.py` and the subject parsers.
+  - Masking and position checks read `find_quotation_spans`, so a span of any role stays masked.
+  - Only closed frames give another role: a `correction` is the right-hand side of an arrow, the
+    span after "should be" or "change ... to", or a span a "Model:" or "Corrected:" label directly
+    governs; a `suggestion` follows "you could write", an imperative "try" or "add", or "Suggestion";
+    a `mention` is a quoted function word of the closed list (`MENTION_FUNCTION_WORDS`), a connective
+    of the closed list `MENTION_CONNECTIVES` right after a naming frame (`the word "although"`, `the
+    connective "however"`; a bare quoted connective may cite the text and stays a quotation), a span
+    after "never uses" or a negated report (`It does not say that the plan has "failed"`), or a short
+    span after a negating frame (`without "like" or "as"`). A content word under "the word" or "the verb"
+    stays a quotation, and "becomes" is no correction frame. A correction also reads `Not "x" but "y"`,
+    and a suggestion an imperative "write", "use", "say", "put" or "choose" at the start of a clause
+    (`write "my friend and I"`), which attributes nothing. `uncited_quotation_spans(text)` lists the
+    other spans with their roles (the writer's own words, never checked or attributed as quotations).
+  - A note clause reader (`_split_note_clauses`) reads every whitespace run as one space and finds the
+    sentence's terminal from its end, so a run of spaces in the middle of a sentence is read at once.
+  - A reasoned conclusion (repair round 2): `leading_reason_clause(sentence)` is the reason clause a
+    sentence opens with ("Since ...,", "Because ...,", "Given that ...,", "Seeing that ...,", "Now that
+    ...,"; quotations masked; "because of" is no clause), and `concludes_from_earlier(sentence,
+    earlier)` says whether its main clause restates earlier sentences of the paragraph (two or more
+    content-word stems, at most one of them new). The generic parser reads such a sentence as a
+    consequence and the History parser as a link, so a raw answer's conclusion rests on the sentences
+    it restates, as a report's claim rests on the supports it lists, and the claim rules grade the
+    same premises in text and report modes.
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
   joined-span tolerance; a form difference such as an initial capital, a verse line-break
-  mark, diacritics or a long elision is a located status, never "not found") used by every
+  mark, diacritics or a long elision is a located status, never "not found"; emphasis markup that
+  wraps a whole excerpt, `"*una mujer muy simpático*"`, is markup and is set aside when the marked
+  form is not found, `unwrap_emphasis`) used by every
   adapter's source-integrity findings, and the one attribution rule every parser applies
   (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text is
   credited to the one text its sentence names, whether or not that text holds the words; when
@@ -126,7 +158,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   the channel's `INT-REQ-015`); `quotation_credit` names who a sentence credits a quotation to,
   `credited_agents` the specialists a text credits with a view, `peer_prose_span` whether an excerpt
   is a colleague's own prose rather than a quotation the colleague makes, and `is_peer_text` a
-  relayed report.
+  relayed report (one rule with the grounding checks' `is_peer_document`, which never let such a
+  report verify a premise). A text is credited by its author's name (a trailing parenthetical is a
+  description, so "Kestrelford Borough Council (a fictional council)" is named "Kestrelford Borough
+  Council", surname "Council"), its title, or its kind when exactly one non-peer text was supplied:
+  "the poem", "the speaker", ..., and the non-literary kinds "the leaflet", "the article", "the
+  table", "the textbook", "the case study", "the speech" and the like ("the post-war" names none).
   A specialist author is named by `specialist_names`: its agent id with each hyphen spelled as a
   space ("history specialist"), and, when the id names a course or qualifier after the subject's
   first word, that word with "specialist" as well ("mathematics specialist" for
@@ -139,7 +176,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
 - `generic_structured.py` — the integration contract for every specialist being
   built: accepts a report that is already structured JSON and checks source refs and
-  claim links. New specialists should emit this format directly. Every located form
+  claim links. New specialists should emit this format directly. Its `created_at` must be one
+  whole RFC 3339 timestamp (`RFC3339_RE.fullmatch`: a trailing newline or anything after it is
+  refused). Every located form
   difference of the shared check (long elision included) is the inexact warning code
   (`GEN-SRC-003`, `ES-SRC-006` for the English pack), never the not-found error.
 - `english_specialist/` — the worked example: a heuristic parser for PETAL-style
@@ -154,6 +193,8 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   are credited to no one by the colleague's possessive, and a text the sentence also names before the
   quotation and that holds its words makes the credit ambiguous, left to `CORE-SRC-005`), and fixtures from its model essay including
   deliberately corrupted variants (`example1_texts.py` holds the verbatim Example 1 texts).
+  Its sentence boundaries are read in one pass (`parser._boundaries`, exactly the matches of
+  `_BOUNDARY_RE`, which retried a run of end marks from every position of it).
   The parser reads a marking-feedback layout as feedback: a line break before a label-led line
   ("Biggest gap: ...", "Fix it: ...", "Model: ...") or a bullet ends a sentence (outside a quotation
   spanning the lines), an inline list number ("Fix it: 1. Choose ...", "... explanation. 2. Add ...")
@@ -244,3 +285,67 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   History and English fixtures with expected statuses.
 
 Rule sources cited in findings are the agent's working rules, not official IB rules.
+
+**Repair round 3.** `markdown.py` gains `states_own_reason` (an argument in one sentence), `opens_with_conclusion` and
+`grounded_on_earlier` (`GROUND_PHRASE_LEADS`), which the generic and History parsers read. The History chronology reader
+reads each ordering cue within a window of its sentence (`chronology._cue_window`, 1,000 characters each side, cut at a
+word boundary), so a run-on answer is read in linear time (a 300 KB answer took about 270 s before;
+`tests/adapters_history/test_repair_round3_chronology_scale.py` counts the characters read). `sources.py` credits a
+quotation by an organisation's leading name and by its title's document kind, and recognises peer documents by the
+normalised id.
+
+**Repair round 4** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.3 and 10). `markdown.py`: the correction and suggestion
+roles of a quoted span are read only in a marking, feedback, correction, proofreading or editing task
+(`FEEDBACK_TASK_RE`, `corrections_apply`), set around a parse by `quotation_task` (the channel sets the plan's task type
+authoritatively; a parser called on its own reads the task type it is given through `@in_quotation_task`, and with no
+task none is read); feedback frames ("it should read", "the corrected sentence is", "rewrite it as", "becomes", a
+"Model:" label governing the span right after it) and mention frames ("avoids", "omits", "leaves out", "could have
+used", "chose not to use", "instead of using", read in every task); a frame whose subject is a quotation of a text keeps
+its span a quotation (`_QUOTATION_SUBJECT_RE`). `SELF_CERT_RE` reads short and symbolic self-certification ("Formally
+verified ✓", "Status: VALID.", "all steps checked", "This answer has passed every quality check."). A conclusion with a
+pronoun subject counts the pronoun as a word (`_CONCLUSION_PRONOUNS`), so "..., so it is a mammal" states its own
+reason. `sources.py` reads a credit after the closing mark when none stands before (`_credit_after`: '"...", the
+leaflet says.', '"...", says the leaflet.', "according to", "as X put it", a bracketed citation naming one text) and
+tests peer documents with `translate.grounding.is_peer_document` (author and provenance read as words). The History,
+English and STEM parsers read their quotations in their task (`@in_quotation_task`). Tests:
+`tests/adapters/test_repair_round4_quotations.py`, `tests/translate/test_repair_round4_eligibility.py`,
+`tests/integrity/test_repair_round4_ledger.py`.
+
+**Repair round 5** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.3 and 11). `markdown.py`: a word the writer quotes as one
+the text does not use is a mention in more frames (an example with an indefinite article, "a gentle word such as";
+"unlike"; a verb phrase the writer negates, 'do not "crash"'; a reporting verb under a negation, 'never writes "roared"',
+reverted by close round 3: `_MENTION_EXAMPLE_BEFORE_RE`, `_MENTION_SHORT_BEFORE_RE`); `quotation_task(..., advisory=True)` reads
+a task type a record states about itself without ever widening the roles (the claim and report diagnoses and the branch
+packs use it; the channel's plan and a caller's task still apply); `SELF_CERT_RE` reads more status forms (a check mark
+with a verdict, "QA: passed", "Correctness guaranteed.", "(Checked.)", "Result: correct.", "This has been reviewed and
+approved.", the hub or router finding no problems); `is_word_count_line` tells a word-count line, which the ledger never
+reads as a self-certification. `sources.py`: a quotation credited by "As X puts it:", "In X's words,", '"..." — X.', "X:"
+opening a sentence or a person's role ("The President declares that") is credited to that text (`quotation_credit`,
+`_AFTER_DASH_RE`, `_GENERIC_LITERARY_RE`). Tests: `tests/adapters/test_repair_round5_quotations.py`,
+`tests/integrity/test_repair_round5_ledger.py`, `tests/service/test_repair_round5_cli.py`.
+
+**Close round 1** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.3 and 12). `markdown.py`: the negated-verb mention frame
+applies to one quoted word only (`_MENTION_NEGATED_VERB_BEFORE_RE`), and a credit to a source right after a span keeps it a
+quotation (`_CREDIT_AFTER_RE`); `SELF_CERT_RE` reads the same forms in linear time (every whitespace run consumed once,
+the elliptical status list read as words and separators: `_ELLIPTIC_CHECK`). Tests:
+`tests/adapters/test_close1_quotation_roles.py`, `tests/adapters/test_close1_selfcert_linear.py`.
+
+**Close round 2** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.3 and 13). `markdown.py`: the quotation-role reader is linear
+in the text (SEC-QROLE-QUADRATIC): `_LineIndex` reads the line starts, the sentence marks of each line and the label heads
+(`_CORRECTION_LABEL_HEAD_RE`, `_SUGGESTION_LABEL_HEAD_RE`) once, an earlier correction on a span's line is known from the
+end of the last correction span, the gap patterns between two spans are possessive (`_WORD_CORRECTION_GAP_RE`,
+`_BECOMES_GAP_RE`, `_BUT_GAP_RE`, `_LIST_JOIN_RE`), and one answer's roles are read once (`_roles_cached`); the roles are
+the old reader's. A span after a contrast ("unlike", "rather than", "instead of") is a quotation again and is checked, as
+on the committed base (DIFF-02, reverted under the round's convergence rule); "without", "with no" and "no" keep their
+mentions (`_MENTION_SHORT_BEFORE_RE`). Tests: `tests/adapters/test_close2_quotation_roles.py`; the "unlike" case of
+`tests/adapters/test_repair_round5_quotations.py` is rewritten to the stricter base behaviour.
+
+**Close round 3** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.3, 7 and 14). `markdown.py`: a span right after a reporting verb
+under a negation ('never says "x"', 'does not write "x"') is an attribution like any other, so it is a quotation and is
+checked, as on the committed base (INV-QR-1): the repair round 5 frame (`_NEGATED_ATTRIBUTION_RE`, now gone) allowed one word
+between the negation and the verb, so 'not only writes "..."' and 'does not just say "..."', which affirm the attribution,
+took an invented quotation out of the checks; the mention frames had been narrowed by close round 1, so the frame is reverted
+for its whole class under the round's convergence rule. A negated report with words between its verb and the span keeps its
+mention (`_MENTION_NEGATED_REPORT_RE`). Tests: `tests/adapters/test_close3_quotation_roles.py`; the "never writes" cases of
+`tests/adapters/test_repair_round5_quotations.py` and `tests/adapters/test_close1_quotation_roles.py`, and the pinned
+"ayudar" mention of `tests/contract/test_quotation_stub.py`, are rewritten to the stricter base behaviour.

@@ -1,15 +1,17 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.3 (2026-10-17). Version 0.1 described commit
+- **Contract version:** 0.4 (2026-10-17). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
-  HTTP and on the command line, after the end-to-end simulation of 16 October 2026 (see section 11
-  for what changed). The component versions are unchanged by 0.3.
+  HTTP and on the command line, after the end-to-end simulation of 16 October 2026 (the component
+  versions are unchanged by 0.3); 0.4 adds the named diagnostics of the argument diagnosis
+  (section 10). Section 12 lists what changed.
 - **Component versions:**
   - IR `1.0`
-  - engine `0.4.0`
-  - policy `2026.10-v4`
-  - translator `0.4.0`
+  - engine `0.5.0`
+  - policy `2026.10-v5`
+  - translator `0.5.1`
+  - argument-diagnosis rules `argdiag-2` (`ARG_RULES_VERSION`)
 
   These come from `src/epinoic_logic/version.py`. Every result also binds the immutable identity
   of the build that produced it (`build_id`, `schema_id`, `policy_id`; section 6).
@@ -76,8 +78,15 @@ name, exactly as the in-process caller of that policy uses them; an unknown name
 
 **Grounding metadata** (`kind`, `source_refs`, `certainty`, `verified`) is never compiled. The
 engine only reports which relied-on premises were ungrounded or unverified.
-- A payload that arrives as JSON text, bytes or a dict cannot certify itself: any
-  `verified: true` it contains is discarded, with diagnostic E505.
+- A payload cannot certify itself. The two entry points handle a `verified: true` in it two ways,
+  both pinned by `tests/service/test_e505_contract_b15.py`:
+  - **in process** (`engine.verify` on JSON text, bytes or a dict): the assertion is discarded,
+    with diagnostic E505, and the premise it meant to certify stays an unverified dependency; the
+    verdict on the encoding is unchanged;
+  - **over HTTP** (`POST /v1/verify`): the request is refused with 400 E505 before anything runs
+    (no result, no solver call), whether the key stands at the top of the envelope, in the problem
+    or nested as `grounding.verified: true`. This is stricter than the in-process discard, and it is
+    kept: a remote caller gets no result built from a body that tried to certify itself.
 - Only deterministic checks run in the same process may set `verified`. Only such a record
   confers task or source authority: a `kind` is the proposer's claim, never a validation.
 
@@ -85,19 +94,23 @@ engine only reports which relied-on premises were ungrounded or unverified.
 
 | Entry point | How | Notes |
 | --- | --- | --- |
-| Python | `epinoic_logic.engine.verify(problem_or_raw, config=SolverConfig(), limits=DEFAULT_LIMITS, signing_key=None, key_id=None)` | Never raises. Every failure becomes a result. |
-| CLI | `epinoic-logic verify FILE [--timeout-ms N] [--rlimit N] [--policy NAME] [--signing-key-hex HEX --key-id ID]` | Prints the result JSON. **Exits 0 for every status**, including failures; read `status`. `--policy` is `linear` (default), `nonlinear` or `joint`; an unknown name exits 2 with a JSON error. |
-| HTTP | `POST /v1/verify`, `POST /v1/results/verify-signature`, `POST /v1/results/release-check`, `POST /v1/outcomes`, `GET /healthz` (`epinoic-logic serve`) | Needs `EPINOIC_SERVICE_TOKEN` and `EPINOIC_SIGNING_KEY` in the environment. Optional limits: `EPINOIC_MAX_BODY_BYTES`, `EPINOIC_MAX_CONCURRENCY`, `EPINOIC_RATE_PER_MINUTE`. The service refuses a client-supplied `memory_max_mb`. `POST /v1/verify` takes `{problem, config?, policy?}`: `policy` names a named policy (above; `linear` by default), anything else is HTTP 400 `E100` before anything runs, and authentication, the rate limit, the body-size limit (which bounds the problem size under every policy) and the concurrency limit apply unchanged; the release check takes the same names as its required policy. Tested in-process and over a local socket in the test suite; never deployed. |
+| Python | `epinoic_logic.engine.verify(problem_or_raw, config=SolverConfig(), limits=DEFAULT_LIMITS, signing_key=None, key_id=None, *, diagnose=True, severity_cap=None)` | Never raises. Every failure becomes a result. `diagnose` and `severity_cap` (section 10) are Python keywords only: neither HTTP nor `SolverConfig` reaches them. |
+| CLI | `epinoic-logic verify FILE [--timeout-ms N] [--rlimit N] [--policy NAME] [--signing-key-file PATH \| --signing-key-env [VAR] \| --signing-key-hex HEX] [--key-id ID]` | Prints the result JSON. **Exits 0 for every status**, including failures; read `status`. `--policy` is `linear` (default), `nonlinear` or `joint`; an unknown name exits 2 with a JSON error. A signing key is hex text of at least 16 bytes (the service's floor); a shorter one, or more than one key source, is a usage error (exit 2), and the key is never echoed. `--signing-key-file` (the hex text on its first line) and `--signing-key-env` (by default `EPINOIC_SIGNING_KEY`, the service's variable) keep the key off the command line, where `--signing-key-hex` exposes it in the process list. |
+| HTTP | `POST /v1/verify`, `POST /v1/results/verify-signature`, `POST /v1/results/release-check`, `POST /v1/outcomes`, `GET /healthz` (`epinoic-logic serve`) | Needs `EPINOIC_SERVICE_TOKEN` and `EPINOIC_SIGNING_KEY` in the environment. Optional limits: `EPINOIC_MAX_BODY_BYTES`, `EPINOIC_MAX_CONCURRENCY`, `EPINOIC_RATE_PER_MINUTE`. The service refuses a client-supplied `memory_max_mb` or `model_completion` (400 E100: both are server-controlled, and models are always completed), validates `config` strictly (`"100"` is no integer), refuses a body holding a lone surrogate escape on every route (400 E100), takes client fixture responses on `POST /v1/outcomes` only when `allow_client_fixtures` is set (otherwise 403 E506), and refuses a self-certifying body (`verified: true` anywhere in the problem, or a self-certification key in the envelope) with 400 E505 before anything runs, where the Python entry point discards the assertion with an E505 diagnostic (both above). `POST /v1/verify` takes `{problem, config?, policy?}`: `policy` names a named policy (above; `linear` by default), anything else is HTTP 400 `E100` before anything runs, and authentication, the rate limit, the body-size limit (which bounds the problem size under every policy) and the concurrency limit apply unchanged; the release check takes the same names as its required policy. Tested in-process and over a local socket in the test suite; never deployed. |
 
 ## 3. Validation and solving are separate stages
 
-`verify` runs these stages in order: validate, then compile, then decide, then bind, then
-optionally sign. The result records each stage's timing.
+`verify` runs these stages in order: validate, then compile, then decide, then diagnose, then
+bind, then optionally sign. Diagnose is the argument diagnosis of section 10. It runs on every
+problem that reaches the solver, unless the caller passes `diagnose=False`. The result records
+each stage's timing.
 
 | Stage outcome | Status | Diagnostic codes | Solver run? |
 | --- | --- | --- | --- |
 | Not JSON, wrong shape, unknown field or `op`, bad literal, duplicate id | INVALID_FORMALIZATION | E100–E107, E109 | no |
 | Construct outside policy: nonlinear term, non-constant or zero divisor, unsupported IR version | UNSUPPORTED | E200–E206 | no |
+| Exact arithmetic whose numbers could exceed `MAX_COEFFICIENT_DIGITS` (16,000 digits, a bound read from the IR's numerals: `policies.coefficient_digits`) | INVALID_FORMALIZATION | E307 | no |
+| Under a policy that allows nonlinear terms, products that force values of more than `MAX_FORCED_VALUE_DIGITS` digits (2,000; read from the IR's equalities, nothing evaluated: `policies.forced_value_digits`; repair round 4) | INVALID_FORMALIZATION | E307 | no |
 | Unexpected exception inside the engine | INTERNAL_ERROR | E900 (exception type only, no internals) | — |
 
 ## 4. Solver outcomes
@@ -147,7 +160,28 @@ INVALID_FORMALIZATION):
   numeric symbols no premise mentions, where a source states one of them (a verified grounding
   on the symbol, created the same way);
 - **E112 (circular):** an ENTAILED proof whose relied-on premises, all the writer's own, restate
-  the conclusion.
+  the conclusion. A premise is the writer's own when no check in this process established it,
+  whatever kind its grounding claims (`authority.assumed_grounding` is `not has_authority`, policy
+  2026.10-v5): a `task_setting`, `rubric_rule` or text label with no check behind it restates the
+  point with nothing but the claim itself, while a premise a check verified against the task record
+  or a supplied text is a transcription. A restatement is read as written and in the engine's normal
+  form (`circular_premises`: ordered operands of symmetric operators, flipped and negated
+  comparisons, double negation, `x <= a and x >= a` for `x = a`, literal values), so `5 < x`
+  restates `x > 5`; beyond that form, a relied-on premise of the writer's own that Z3 finds
+  equivalent to the conclusion under every assignment restates it too (`equivalent_premises`:
+  `2 * dt = 82` for `dt = 41`, at most four premises within the decision's remaining time), unless
+  it is a calculation over stated figures.
+
+Both shapes are checked on every COUNTEREXAMPLE: one that also has the W110 shape is still checked
+for E111, and only an E110 skips the E111 check. A no-verdict code takes precedence over the other
+shape's advisory, which is then not carried; two advisories are both reported. The probes run inside
+the decision's time bound; a probe that decides nothing (skipped because the bound was spent,
+undecided, or failed) leaves the COUNTEREXAMPLE standing only when no source-linked evidence bears
+on its symbols, which the evidence check decides without the solver; with such evidence it is E110
+or E111 saying that the probe did not decide, so a spent bound never lets a counterexample stand
+that the probe could have withheld (repair round 1, re-run review INV-4). With
+`produce_unsat_core` a vacuous ENTAILED also carries its raw core record, empty:
+`{"premise_ids": [], "includes_negated_conclusion": true}`.
 
 Without that source-linked evidence, the structures of E110 and E111 are the advisory **W110**
 and **W111**: a definition is not an assertion and a question may leave a variable unconstrained,
@@ -204,7 +238,14 @@ verifies), bound (to the problem, internally consistent), current (this engine's
 identity, and the validation limits the receiver requires), a positive verdict (ENTAILED,
 CONSISTENT or SATISFIABLE for the query), a verdict on the claim (no E108, E110, E111 or E112),
 with its evidence computed, and resting on established premises only (no ungrounded or
-unverified dependency). Every reason it fails is listed.
+unverified dependency). Two more conditions come from contract 0.4 (section 10):
+- **Rule 8:** no named defect at warning or error by effective severity. A capped diagnostic
+  still blocks.
+- **Rule 9:** the result was diagnosed by this build's rules, so `argument_rules` equals
+  `argdiag-2`. A result verified with `diagnose=False` is refused, and so is one whose diagnosis
+  did not finish or ran under other rules (`argdiag-1` included).
+
+Every reason it fails is listed.
 
 ## 6. Provenance and integrity
 
@@ -219,9 +260,12 @@ Each result is bound to exactly what produced it:
     `limits_digest` is present;
   - `smt2`: the SMT-LIB 2 text, for audit.
 - **`versions`:** `ir_version`, `engine_version`, `policy_version`, `z3_version`, and the
-  immutable identity `build_id` (digest of the engine, IR and version source), `schema_id`
-  (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest
-  of the decision policy as data).
+  immutable identity:
+  - `build_id`: digest of the engine, IR and version source, and of the shared
+    argument-diagnosis modules `named.py` and `lexis.py`;
+  - `schema_id`: digest of the problem, limits, configuration and result JSON Schemas;
+  - `policy_id`: digest of the decision policy as data. It binds the argument rules version
+    and the digest of the named-code table.
 - **`solver_config`:** the configuration the solver ran with.
 - **`limits`:** the non-default validation limits the problem was validated under.
 
@@ -231,9 +275,11 @@ non-default limits are recorded and their digest is part of the binding digest, 
 `rlimit` cap is part of the configuration digest, and `engine.policies.named_policy_of(result.limits)`
 names the policy back (`None` is `linear`). The same problem decided under the same named policy and
 configuration binds identically in process and over HTTP. A caller replaying a problem the pipeline
-decided names the policy its pipeline result's `limits` record stands for, and resets any
-`verified: true` the pipeline set (the service refuses it, E505), so the HTTP result has the same
-decision and lists those premises as unverified dependencies.
+decided names the policy its pipeline result's `limits` record stands for, resets any
+`verified: true` the pipeline set (the service refuses it, E505) and leaves the server-controlled
+options (`memory_max_mb`, `model_completion`) out of the configuration it sends (the service refuses
+them, E100, and its values are the pipeline's), so the HTTP result has the same decision and lists
+those premises as unverified dependencies.
 
 **Staleness.** A result is current-policy evidence only for the build that produced it and for a
 receiver that requires the limits it was decided under (`engine.provenance.stale_reasons`;
@@ -243,13 +289,30 @@ displayed as a verdict (the outcome composer shows INTERNAL_ERROR) and never rel
 until the problem is verified again.
 
 **Signing.** With a key, the result carries an HMAC-SHA256 `signature` over the canonical
-result and a `signature_key_id`. Tampering with any field makes `verify_signature` fail.
+result and a `signature_key_id`. Tampering with any field makes `verify_signature` fail. The
+signature covers `signature_key_id` (only `signature` itself is left out of the signed text), so a
+result relabelled to another key id fails `verify_signature`. A result of an earlier build, signed
+without its key id, still verifies as a historical record; that form is never accepted for a result
+of the current build. That earlier form attests who holds the key, never the key id the result names
+(repair round 3, INV-6): `engine.provenance.signature_form` reports `bound` or `legacy` (or `None`
+for no valid signature), `verify_signature(result, key, key_id=...)` accepts only the bound form for
+a receiver that trusts by key id, `release_check` with a `key_id` adds the reason "key id not
+attested: ..." for a legacy-form result (which is stale anyway), and `POST
+/v1/results/verify-signature` answers `{"valid": true, "key_id_attested": false, "reason": ...}` for
+such a record (a current result still answers `{"valid": true}`). `verify_signature` never raises: a signature that is not 64 lower-case hex
+digits is refused (HTTP: `valid: false`, `eligible: false`). A result dumped with `exclude_none`
+reads an absent `solver_config.memory_max_mb` back as `None`, so it keeps its binding and its
+signature; a dump that also leaves out a configuration field that is never `None` (an
+`exclude_defaults` or `exclude_unset` dump) reads it back as its default, 512, so every single dump
+mode of a genuine result verifies (repair round 1, re-run review security-5 variant). A dump that
+excludes both `None` values and defaults cannot be told apart from a default configuration's and is
+no round trip.
 
 ## 7. Resource bounds
 
 | Setting | Default and range | Notes |
 | --- | --- | --- |
-| `timeout_ms` | 2,000 ms; 1–120,000 | Applies to each solver call, so entailment may take up to twice the timeout. |
+| `timeout_ms` | 2,000 ms; 1–120,000 | Applies to each solver call, so entailment may take up to twice the timeout. The E110/E111 coverage checks run inside the same bound (they share the decision's deadline; each gets what is left, at most `timeout_ms` per call; one with nothing left is skipped and decides nothing) and are timed in `timings` (`coverage_probe_figure`, `coverage_probe_reason`). The argument diagnosis has its own bound (section 10). |
 | `rlimit` | none | Optional Z3 resource limit, for deterministic cut-offs. |
 | `memory_max_mb` | 512; at least 128 | Z3's memory limit is process-wide. The engine therefore scales it with the number of verifications running at once and never lowers it while any run. |
 | `random_seed` | 0 | |
@@ -259,7 +322,8 @@ Each verification uses a fresh Z3 context.
 ## 8. Examples, produced by running the baseline
 
 The inputs are the cases in `tests/engine/test_procedures_verify.py`. They were run again
-through the CLI on 2026-10-12 with z3-solver 5.1.0.0. Volatile fields are elided.
+through the CLI on 2026-10-17 with z3-solver 5.1.0.0 (engine 0.5.0), and again on 2026-10-24 for the
+rules version of close round 3 (`argdiag-2`; nothing else in them changed). Volatile fields are elided.
 
 ### Success: transitivity is entailed (`test_entailment_transitivity`)
 
@@ -280,13 +344,23 @@ Output (abridged; the identity digests change with every build and are elided):
  "unsat_core": {"premise_ids": ["P1", "P2"], "includes_negated_conclusion": true},
  "premises_relied_on": ["P1", "P2"],
  "ungrounded_dependencies": ["P1", "P2"], "unverified_dependencies": [],
- "counterexample": null, "diagnostics": [],
- "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.10-v4", "z3_version": "5.1.0",
+ "counterexample": null, "diagnostics": [], "argument_rules": "argdiag-2",
+ "named_diagnostics": [{"code": "ARG-FACT-001", "defect": "lack_of_evidence", "severity": "info", "layer": "engine",
+   "claim_ids": ["c1"], "assertion_ids": ["P1", "P2"], "derivation": "engine_recheck",
+   "derived_problem_digests": ["…", "…", "…"], "rule_version": "argdiag-2",
+   "message": "the proof also needs fact premise(s) that no check established: P1; P2 (P1, P2 relate quantities: a figure relation states no step from a reason to the point, so it gives no missing link); the evidence rules grade them"}],
+ "versions": {"ir_version": "1.0", "engine_version": "0.5.0", "policy_version": "2026.10-v5", "z3_version": "5.1.0",
               "build_id": "…", "schema_id": "…", "policy_id": "…"}}
 ```
 
 `ungrounded_dependencies` lists both premises because they carry no grounding metadata. The
-entailment holds for the encoding only, and `release_check` refuses it:
+argument diagnosis ran (`argument_rules`) and recorded one info diagnostic: the proof needs
+both premises and no check established them, so they are listed for the evidence rules
+(ARG-FACT-001). Each is a figure relation (a comparison of two quantities, no implication),
+so neither is named a missing link (repair round 5, INV-LINK-1). An info record never blocks
+or permits anything by itself. `argument_rules` with no `named_diagnostics` would mean that
+the diagnosis ran and named nothing. The entailment holds for the encoding only, and
+`release_check` refuses it:
 `{"eligible": false, "reasons": ["unresolved dependencies (ungrounded): P1, P2"]}` (signed with
 a key and checked under it).
 
@@ -303,7 +377,8 @@ Output (abridged):
  "binding": {"smt2": null}, "unsat_core": null, "counterexample": null}
 ```
 
-No solver call was made. The same test also shows that a payload `{"op": "exec"}` becomes
+No solver call was made, so the result carries no `argument_rules`: the diagnosis was not
+computed. The same test also shows that a payload `{"op": "exec"}` becomes
 INVALID_FORMALIZATION and is never executed.
 
 ## 9. Report level: English specialist output to IR (implemented, narrower than it sounds)
@@ -331,7 +406,17 @@ Above the engine, the package turns specialist reports into IR. This translation
   verifier that declares a `task` parameter receives the task record of the request the report
   answers (`fn(claim, report, task=...)`); a two-argument verifier is called as before.
 
-### Translation records (contract 0.2; `translate/contracts.py`, translator `0.4.0`)
+### Translation records (contract 0.2, extended in 0.4; `translate/contracts.py`, translator `0.5.1`)
+
+A record this translator did not make (another `translator_version`, or no `claim_text_sha256`) is displayed
+INTERNAL_ERROR whatever its status and is never released (`outcome.translation_staleness`). A report's notes are
+bounded: at most 10,000 characters per assumption, assessment criterion or unresolved issue, and 1,000,000 for a
+report's notes together; an oversized report is REJECTED (INT-REQ-009). A plan, request, report or claim that states
+`course_level` as `null` reads it as `"unknown"` (the same meaning), so it reads back from its canonical dump as it was
+written. Provider output over 64 KiB (`parsing.MAX_PROVIDER_TEXT_BYTES`) is refused before it is parsed, and the
+translation is TRANSLATION_FAILED with no retry ("provider output too large"). A report or synthesis the channel
+receives as a mapping is validated strictly, as the JSON it is: `"yes"` is no boolean and `"1"` no integer, and a
+mapping with a coerced value is REJECTED with INT-REQ-009 naming the field.
 
 Every field below is defaulted, so a translation record from before 0.2 still parses; such a
 record carries none of them and must be translated and verified again, not trusted.
@@ -351,9 +436,27 @@ record carries none of them and must be translated and verified again, not trust
   figure so that it establishes that comparison (`numeric_in_task`); any other numeric content, a
   relation that combines symbols (`speed = distance / 8`), only when a record states that same
   formula as a given (`relation_in_source`, read by a closed formula reader: nothing is
-  evaluated). The figures of a relation occurring in a record are no evidence for the relation:
-  an unstated relation stays an unverified dependency whatever its grounding label (also when a
-  located excerpt supports the premise's quotation), and the release assessment lists it.
+  evaluated), or, for a rule of literals, when a record states it in words as a conditional, a
+  universal rule or a biconditional (`translate/stated_rules.py`). The figures of a relation
+  occurring in a record are no evidence for the relation: an unstated relation stays an unverified
+  dependency whatever its grounding label (also when a located excerpt supports the premise's
+  quotation), and the release assessment lists it. A figureless task premise is refuted when no task
+  record holds its words (read from its label or its meanings), and validated
+  (`GroundingCheck.method == "content_in_task"`, repair round 2) when one asserted sentence or clause
+  of the task record states each of its literals with its polarity, by their meanings or by the
+  premise's label, or when the label writes that sentence's notation in words; a question, a hedged
+  or suspended sentence and a condition state nothing.
+- **Content of an excerpt** (`GroundingCheck.method == "content_in_excerpt"`, contract 0.4, repair
+  round 1): a located excerpt that states a conjunction of the premise's literals verifies it
+  (`verified=True`); a located excerpt that states neither the premise's literal nor its point (the
+  point dressed as a quotation, a placeholder) refuses it (`verified=False`), so the premise is the
+  writer's own for every authority rule. An excerpt about another named subject or another quantity
+  does not ground a figure (`figures_in_excerpt`, `verified=False`).
+- **Figures the answer derived** (`check_problem_grounding(..., answer_texts=...)`, passed by the
+  pipeline: the claim's text, its supporting claims' texts and, since repair round 2, the report's
+  original response): a figure the answer's own written
+  calculation derived from stated figures grounds where an excerpt is demanded; the divisor of a
+  mean of stated addends is no figure the excerpts must state.
 - **`GroundingSupport`** (`TranslationResult.grounding_support`): per target, the references
   located, refuted and unchecked, and the support level `complete`, `partial`, `failed` or
   `uncheckable`. Only complete support verifies a grounding; every reference keeps its own check
@@ -398,15 +501,144 @@ record carries none of them and must be translated and verified again, not trust
   is bound to those inputs (`ReviewBinding`); `review.review_currency` says `current`, `stale`
   (a supporting claim, supplied text, task or problem changed, even with the claim text
   unchanged), `unbound` or `without_evidence`. A review never changes the display status.
-- **`ReleaseAssessment`** (`ClaimVerificationOutcome.release`, `outcome.assess_release`, policy
-  `release-v1`): formal status and permission to release are separate. Release needs the passing
-  status for the query, the engine's release check of the signed result under the composer's key
-  (section 5), every relied-on premise established, no failed grounding check, no partial
-  reference support, no unvalidated task authority, no retry that changed the claim, no
-  structural error, and a `faithful` review that is current and was made with the evidence. Every
-  unresolved item is listed; nothing in the channel or hub releases an answer by itself.
+- **`ReleaseAssessment`** (`ClaimVerificationOutcome.release`, `outcome.assess_release`; policy
+  `release-v2` since contract 0.4, `release-v1` before): formal status and permission to release
+  are separate. Release needs all of these:
+  - the passing status for the query;
+  - the engine's release check of the signed result under the composer's key (section 5);
+  - every relied-on premise established;
+  - no failed grounding check, no partial reference support and no unvalidated task authority;
+  - no retry that changed the claim;
+  - no structural error;
+  - no named defect on the claim at warning or error by effective severity (section 10);
+  - a diagnosis that finished: any `diagnosis_incomplete` entry is unresolved ("argument diagnosis
+    incomplete (not computed is never read as none found): ..."), as rule 9 is for the engine;
+  - a `faithful` review that is current and was made with the evidence.
 
-## 10. PROPOSED (not implemented)
+  Every unresolved item is listed; nothing in the channel or hub releases an answer by itself.
+
+## 10. Named diagnostics (argument diagnosis, rules `argdiag-2`; contract 0.4)
+
+A named diagnostic uses a closed vocabulary to say what is wrong with how an answer argues,
+cites or calculates. It says only what deterministic code can tell from the engine result, the
+IR, the grounding records and closed reference data. Like every result, it concerns the encoding
+and this code only. It never says that a premise is true, that a translation is faithful or that
+an interpretation is right.
+
+- **The record** (`epinoic_logic.named.NamedDiagnostic`; the module imports neither z3 nor the
+  engine). Empty optional fields are left out of a dump.
+  - `code`: a key of `named.NAMED_CODES`, or an existing finding code given a label.
+  - `defect`: one of the 28 canonical labels in `named.DEFECT_LABELS`. The key name is fixed.
+  - `severity`: never above the code's maximum.
+  - `capped_from` and `cap_reason`: the cap reason is `ambiguous_translation` or
+    `not_source_bound`.
+  - `layer`: `engine`, `claim`, `report`, `stem` or `channel`.
+  - `claim_ids` and `assertion_ids`.
+  - `missing_link`: `premise_ids`, `antecedent`, `consequent`, `text`, and `expr`. `expr` is an
+    IR expression, validated against the IR schema and never evaluated.
+  - `evidence`: at most 8 spans.
+  - `derivation`: from a closed list.
+  - `derived_problem_digests`: at most 24.
+  - `related_result_ids`, `rule_version`, and `message` (at most 600 characters).
+- **Where it appears:**
+  - `VerificationResult.named_diagnostics` holds the engine layer and is set only when non-empty.
+  - `VerificationResult.argument_rules` is set whenever the diagnosis ran: `argdiag-2`, or
+    `argdiag-2/incomplete:<reason>` when it did not finish (`argdiag-1` before close round 3).
+  - The signature covers both fields. Both are left out of every dump while `None`, so a result
+    of an earlier release still re-serialises byte-identically.
+  - An absent `argument_rules` means "not computed", never "none found".
+  - The translation record gains `premise_roles` and `asserted_verified`. A premise role records
+    the role, the authority, the marking and the connective.
+  - The claim outcome gains `named_diagnostics` and `diagnosis_incomplete`. The outcome's
+    diagnostics are the trusted engine result's merged with the claim layer's.
+  - `StructuralFinding`, `IntegrityFinding` and the branch `FormalCheck` gain `defect`.
+  - The receipt gains `named_diagnostics`: every outcome's, the report-level ones, and one for
+    each labelled finding.
+- **Severity and caps:**
+  - A cap is applied where a diagnostic is made and is recorded in `capped_from`, so each
+    diagnostic has one severity everywhere.
+  - An ambiguous translation caps every ARG-* and EVD-* code at info, except the equivocation
+    codes. The translator passes `severity_cap=("info", "ambiguous_translation")`, which is
+    applied before signing.
+  - A code whose warning needs a source-bound task is capped at info outside one.
+  - Release reads the effective severity: the higher of `severity` and `capped_from`. A cap
+    therefore changes what is shown, never what is permitted.
+- **Receipt findings:**
+  - Each warning or error diagnostic on a material claim becomes one `INT-ARG-001` finding that
+    carries its `defect`. This covers diagnostics of an outcome and of the report level.
+  - No `INT-ARG-001` is added for a condition that another finding already states:
+    ARG-CONTRA-001 is stated by INT-REQ-007.
+  - Info diagnostics never reach `findings`, so they never change the receipt status.
+  - When the receipt is built, existing codes are labelled through `named.DEFECT_OF_CODE`.
+    INT-SUBJ-001 and INT-SUBJ-004 take the FormalCheck's own `defect` first.
+- **Display:**
+  - Every line of the summary is one line (`named.one_line`), and the model text a summary line or a
+    diagnostic message shows has its forgery words written "[...]" (`named.model_text`,
+    `named.FORGERY_WORDS`); evidence spans keep the text as written.
+  - The outcome summary has a section headed "Argument diagnosis (advisory; the status above is
+    unchanged; rules argdiag-2)", directly after the verification lines.
+  - The section has at most six lines. Otherwise it reads "none found", "incomplete" or "not
+    computed".
+  - The scope statement stays last.
+  - A diagnostic never changes a display status.
+- **Release:**
+  - `release_check` applies rules 8 and 9 (section 5).
+  - The outcome's release assessment is policy `release-v2` and lists "named defect on this
+    claim: <codes>" and "argument diagnosis incomplete ..." for a rule that did not finish; the
+    engine release check's own "named defect" reason is kept when the claim's list names no
+    blocking diagnostic.
+  - The dependency rule already refuses a load-bearing premise that is the writer's own or that
+    no check supports.
+  - The diagnosis can only make a result less releasable, never more.
+- **Which runs are diagnosed:**
+  - The claim's own verification is diagnosed: `verify_claim`, `POST /v1/verify` and the CLI.
+  - These pass `diagnose=False`, so their results are never release-eligible: the translator's
+    internal probes, the integrity cross checks, and the channel's code-built checks (branch
+    formal checks and constraint bounds).
+
+**The rules** are implemented; `docs/ARGUMENT_DIAGNOSTICS.md` gives every label with its derivation,
+code, example and clean control, and the measured results.
+- **Engine layer** (`engine.argument`, `engine/ARGUMENT.md`): ARG-CONTRA-001, ARG-VAC-001 and
+  ARG-CIRC-001 from the engine's own status; on an ENTAILED point with no no-verdict code, R0
+  decides the point again from the premises a check established and names the writer's links
+  (ARG-LINK-001, info, each with its `missing_link`), the unestablished facts and figure relations
+  (ARG-FACT-001, info; a figure relation, "x > y", states no step and is never named a leap)
+  and the pattern rules over them (ARG-CIRC-002, ARG-CIRC-003, ARG-AC-001, ARG-DA-001, ARG-FD-001,
+  ARG-HG-001, ARG-CL-001, ARG-EQ-003); on a COUNTEREXAMPLE, its shape (ARG-REFUTE-001, ARG-AC-001,
+  ARG-DA-001, ARG-HG-001, ARG-NS-001, ARG-PART-001, ARG-NS-002, ARG-EQ-002, ARG-INV-001). Derived
+  runs are data-built subsets of the bound problem: at most 24 per result, each under
+  `min(timeout_ms, 1000)` ms and at most `min(4 × timeout_ms, 8000)` ms in all.
+- **Claim and report layers** (`translate.diag_argument`, `translate.diag_evidence`): ARG-EQ-001,
+  the claim form of ARG-CIRC-001, ARG-NS-003 (repair round 3: an unbridged leap between two named
+  things joined only by a connective; repair round 4: a sentence that only names the two things does
+  not bridge it) and ARG-BARE-001; EVD-SRC-001, EVD-SRC-003, EVD-SRC-004,
+  EVD-SRC-005 (repair round 1: a task-authority premise with no excerpt that the task material does
+  not hold, a warning in every task), EVD-LACK-001, EVD-FIG-001, EVD-AUTH-001 and EVD-CHERRY-001;
+  the report rules EVD-SRC-002 and EVD-LACK-002, info only ("not checked", never "false").
+- **STEM layer** (`stem.reference`, the STEM checks): ST-REF-001, ST-REF-002, ST-RANGE-001,
+  ST-WORK-001, ST-GIVEN-002, ST-GIVEN-003, ST-GIVEN-004, ST-SCOPE-002, ST-STEP-002 and ST-STEP-003
+  (repair round 3: a rewrite inside a chain whose sides differ at a sample point) are findings; ST-UNIT-003, ST-STEP-001 and
+  ST-ROUND-001 are engine-decided checks whose failure (INT-SUBJ-001, or INT-SUBJ-004 for a reading
+  the report did not state) carries the defect.
+- **Channel**: INT-ARG-001 (above); INT-REQ-017, an answer built on a peer report that hands a
+  system check result to the reader as subject content; INT-XENC-001, two encodings of one claim
+  that reach opposite definitive answers (neither verdict is withdrawn).
+- **Pack findings that name a label** (`named.DEFECT_OF_CODE`): besides the codes of
+  `docs/ARGUMENT_DIAGNOSTICS.md`, section 3.3, CORE-SRC-007 (repair round 4, warning): a figure the
+  answer credits to a named data table for a year that the table states otherwise; its message says
+  "for no year" (`invented_figure`) or names the other year (`source_mismatch`).
+
+The response gate (`channel.gate.assess_response`) counts a claim with a named diagnostic at warning
+or error by effective severity as unresolved, never as passed, and an INT-ARG-001 finding as
+unresolved, never as failed. A positive display passes only when the engine's diagnosis ran to the end
+on its result (`argument_rules` is the rule version), no rule of the outcome is listed in
+`diagnosis_incomplete`, and a release assessment was made and permits release (repair round 3,
+INV-7); a finding carried from an earlier receipt (INT-HIST-001) is recognised only by making it again
+from the receipt's structured history with the channel's own constructor
+(`channel.contracts.carried_finding`), never by reading its message (ADV3-02). Every status and dependency list stays exactly what it was: the
+diagnosis only adds records and findings, and can only make a result less releasable.
+
+## 11. PROPOSED (not implemented)
 
 - Non-zero CLI exit codes for non-definitive statuses. Today the exit code is always 0.
 - A published JSON Schema for `Problem` and `VerificationResult`, generated from the models.
@@ -417,7 +649,7 @@ record carries none of them and must be translated and verified again, not trust
   `pydantic>=2.6`.
 - A frozen, versioned list of report-level finding codes for the receiving side.
 
-## 11. Changes to this contract
+## 12. Changes to this contract
 
 - A change to the IR schema bumps `IR_VERSION`.
 - A change to compilation or procedures bumps `ENGINE_VERSION`.
@@ -428,6 +660,159 @@ record carries none of them and must be translated and verified again, not trust
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.3 to 0.4** (engine 0.5.0, policy 2026.10-v5, translator 0.5.0, rules argdiag-1; IR 1.0
+unchanged; section 10):
+- `VerificationResult` gains `named_diagnostics` and `argument_rules`. Both are signed and
+  absent while `None`.
+- `verify` gains `diagnose=True` and `severity_cap=None`.
+- The outcome gains `named_diagnostics` and `diagnosis_incomplete`.
+- The translation record gains `premise_roles` and `asserted_verified`.
+- Structural, integrity and formal-check findings gain `defect`.
+- The receipt gains `named_diagnostics` and the `INT-ARG-001` finding.
+- `release_check` gains rule 8 (no named defect by effective severity) and rule 9 (diagnosed by
+  these rules). The release assessment is `release-v2`.
+- The build identity covers `named.py` and `lexis.py`. The policy identity binds the argument
+  rules version and the named-code table.
+- A result of engine 0.4.0 still parses and its signature still verifies. It is stale, and it
+  is not release-eligible until the problem is verified again.
+- The rules of section 10 are implemented (engine, claim, report, STEM and channel layers).
+- Only a check in this process confers authority, for circularity too (E112, section 4); a
+  restatement is also read in the engine's normal form.
+- The same release carries the re-run review fixes, with no further version change (the build
+  identity already separates this build's results): the signature covers `signature_key_id` and
+  `verify_signature` never raises (section 6); both coverage shapes are checked on every
+  COUNTEREXAMPLE, inside the decision's time bound (sections 4 and 7); a vacuous ENTAILED carries
+  its empty core record; the CLI takes its signing key from a file or an environment variable and
+  refuses one under 16 bytes (section 2); a translation record of another translator, report notes
+  over their bounds, a `null` `course_level`, provider output over 64 KiB and a coerced value in a
+  mapping are handled as section 9 states.
+- Repair round 1 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`): `GroundingCheck.method` gains `content_in_excerpt`; the named-code table
+  gains EVD-SRC-005, ST-REF-002 and ST-GIVEN-003; `check_problem_grounding` gains `answer_texts`;
+  the release assessment reads `diagnosis_incomplete`; summaries and display lines are one line and
+  mask model text; a coverage probe (E110, E111) that decided nothing withholds the verdict when
+  source-linked evidence bears on its symbols (section 4); a result of every single dump mode
+  verifies (section 6). The channel: an AMBIGUOUS_TRANSLATION or UNSUPPORTED claim leaves no clean
+  receipt; a report's copy of a request text must match its metadata too (INT-REQ-002); a router
+  forward that names no delivery is INT-HANDOFF-018 (warning); an answer delivered as a one-key answer
+  object is read as its text, an answer that is one string in double quotes stays a quotation (checked
+  as one), and a JSON report followed by more text is refused (INT-REQ-009).
+
+- Repair round 2 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`): the engine refuses exact arithmetic beyond `MAX_COEFFICIENT_DIGITS` with
+  `E307` (INVALID_FORMALIZATION, a limit code for the integrity layer's cross checks too), and the
+  policy manifest gains `max_coefficient_digits`; `E112` also reads a restatement Z3 finds
+  equivalent beyond the normal form (section 4); the named-code table gains ARG-LINK-002 (info),
+  EVD-SRC-006 (warning) and ST-GIVEN-004 (warning; 48 codes); a relayed report is a peer document by
+  its id, author or provenance; a mapping report whose original response is one JSON object wrapping
+  the answer has an answer; a request with no visible character is REJECTED (INT-REQ-009); a
+  contract error of one field names the validator's message, never the value. The translation
+  side: `GroundingCheck.method` gains `content_in_task` (above); premises that contradict each other are never refused as circular, so the engine decides
+  INCONSISTENT_PREMISES (consistency before entailment); a provider output refused for its form or
+  policy that asserted `verified=true` keeps the E505 line among the translation's diagnostics
+  beside its refusal; a figureless task premise whose label writes a task sentence's notation in
+  words is validated by that sentence (`content_in_task`).
+
+- Repair round 3 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`, policy 2026.10-v5): the named-code table gains ARG-NS-003 (warning, claim)
+  and ST-STEP-003 (warning; 50 codes); `engine.provenance` gains `signature_form`, and
+  `verify_signature` gains `key_id` (section 6); the verify-signature route answers
+  `key_id_attested: false` for a legacy-form record, and the release check names its key id as not
+  attested; a claim that states its own reason ("A, so B") is eligible with no supporting claim
+  (`translate.eligibility`, policy 2026.10-v5); a figureless task-authority premise with no excerpt
+  is refuted again when a task sentence uses its words without stating it, when the task only
+  reports it as a view or asks it, and when it is an "if", "iff" or "or" no record states (as before
+  repair round 2); a peer document id is compared after normalisation (NFKC, whitespace and format
+  characters dropped, case folded: `translate.grounding.is_peer_id`), in the channel too; the
+  response gate reads `argument_rules`, `diagnosis_incomplete` and the release (section 10).
+
+- Repair round 4 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`, policy 2026.10-v5; the named-code table is unchanged, 50 codes): under a
+  policy that allows nonlinear terms the engine refuses a problem whose products force values beyond
+  `MAX_FORCED_VALUE_DIGITS` (2,000 digits) with `E307` before it compiles, and the policy manifest
+  gains `max_forced_value_digits` (so the policy identity changes with it); `E112` also reads a
+  restatement split across premises of the writer's own, tested together; ARG-VAC-001 is an info
+  record on a proof over no premise at all; the release assessment and the engine's release rule 8
+  list capped diagnostics under their own line, with their cap and no defect label, still blocking;
+  `named.DEFECT_OF_CODE` maps CORE-SRC-007 (above). The translation side: an "or" the task states
+  validates a task-authority disjunction (`GroundingCheck.method` `relation_in_source`), a task
+  sentence in other words validates a task fact (`content_in_task`), a conversion the task gives and
+  the count, total or mean of a stated list ground their figures, and a premise cited only to a
+  peer's report is unvalidated; a relayed report is a peer document when its author or provenance
+  holds an agent word (specialist, agent, combinator) after normalisation. Quotation roles: the
+  correction and suggestion roles are read only in a marking, feedback, correction or editing task,
+  which the channel sets from the plan (`adapters.markdown.quotation_task`); every other quoted span
+  of an analysis is checked as a quotation.
+
+- Repair round 5 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`, policy 2026.10-v5; the named-code table keeps its 50 codes, and ARG-CIRC-003
+  is also made in the report layer: `named.NAMED_CODES["ARG-CIRC-003"].layers` is `("engine",
+  "report")`): a figure relation the proof needs is listed under ARG-FACT-001, never named a
+  writer's link (ARG-LINK-001), so the section 8 example records ARG-FACT-001 at info; the task type
+  a report or a claim states about itself is advisory for the quotation roles and never widens them
+  (`quotation_task(..., advisory=True)` in the claim and report diagnoses and the branch packs);
+  `epinoic-logic check-report` gains `--task-type`, the task type the operator states for the
+  report's quotation roles (an envelope's own `task_type`, the request's metadata, is read as
+  before; a `SpecialistReport` document's own `task_type` never widens the roles). The translation
+  side: an excerpt whose clause contradicts the literal it is cited for refutes it
+  (`GroundingCheck.method` `content_in_excerpt`, `verified=False`); a definition or a closed
+  enumeration a record states is a rule it states; a unit glossed in parentheses is the symbol's
+  declared unit; a relayed agent's text is a peer document under the labels "relay:", "rep-", an AI
+  author or the router. The text intake unwraps envelopes nested up to four levels and one envelope
+  tag, and refuses a structured reply cut off in transit (INT-REQ-009).
+
+- Close round 1 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`, policy 2026.10-v5; the named-code table is unchanged): a source rule a
+  record states only hedged, framed, restricted or with a part of its condition dropped is refuted
+  as the premise that encodes it plainly (`GroundingCheck.method` `relation_in_source`,
+  `verified=False`); a task sentence of another time, tense or direction of change refutes the
+  premise it seems to state (`content_in_task`, `verified=False`); ARG-CIRC-001 is an info record
+  for a claim that only restates the task under the task's authority and gives no reason (the
+  refusal stands); no field, status or code changes.
+
+- Close round 2 of the argument diagnosis, with no further version change (rules `argdiag-1`,
+  release `release-v2`, policy 2026.10-v5; the named-code table is unchanged): a figureless task
+  premise that shares an atom with the point is never validated by a task sentence
+  (`content_in_task` is not recorded for it; the circularity rules, E112, decide it, as before
+  repair round 4); the open precision of a trailing-zero whole number is not read at its last
+  digit for a term that takes only whole values (a count compared over `to_real` is decided as
+  over Int); a span after "unlike", "rather than" or "instead of" is a `quotation` role again; a
+  synthesis receipt carries no INT-HIST-001 for a subject finding about a report's paragraphs or
+  sentence style (ES-STR-, ES-STY-, HI-STR-), which stays in its `history`; no field, status or
+  code changes.
+
+- Close round 3 of the argument diagnosis moves the translator to `0.5.1` and the rules to
+  `argdiag-2` (release `release-v2`, engine 0.5.0, policy 2026.10-v5, contract 0.4; the named-code
+  table is unchanged), so a translation record of an earlier round of the release reads as stale and
+  a result diagnosed under `argdiag-1` is refused by release rule 9. EVD-SRC-001 no longer names a
+  task-authority premise that restates a supposition the task sets ("Assume that ..."); a span right
+  after a reporting verb under a negation ('never says "x"', 'not only writes "x"') is a `quotation`
+  role again; the synthesis ledger's figure readers and the cross-report consistency check give the
+  same answers in linear work (a definitive joint result is cited again for an identical joint
+  problem, so `formal_result_id` of a repeated contradiction is the first check's); no field, status
+  or code changes.
+
+- Accuracy round 1 of the argument diagnosis (versions unchanged: translator 0.5.1, rules `argdiag-2`,
+  engine 0.5.0, policy 2026.10-v5, contract 0.4; the named-code table is unchanged) narrows readings
+  that raised false alarms on correct answers and adds three STEM readings: a forward or relay to a
+  peer specialist, and a synthesis, carry as INT-HIST-001 only errors, the warnings INT-SUBJ-004,
+  INT-ARG-001 and INT-REQ-017 and the subject findings that name a STEM defect (every other warning
+  stays in `history`; a forward to the combinator carries everything); a general-knowledge fact of a request that invites own knowledge is an info
+  record (`not_source_bound`), not EVD-LACK-001 at warning; a generic rule written with "when" is a
+  stated rule; the STEM front end plans a traced `unit` companion for a working that substitutes into
+  no symbol, a `giv` check for a bare value in place of the request's quantity, and an `rnd` check for
+  a rounding worded "which rounds to" or "to the nearest ..."; no field, status or code changes.
+
+- Accuracy round 2 of the argument diagnosis (versions unchanged, as for round 1) reverts or replaces
+  round-1 readings that still raised false alarms: a document's stance is read only where every
+  statement it makes about what the claim's stance is about carries a stance word; a label-only
+  task-authority premise whose words a sentence the task asserts holds is an info record of
+  EVD-SRC-001, not a warning (still unvalidated, so the result stays not releasable); a stated rule
+  applied to the case the question names is the source's rule; a cause phrase that only restates the
+  point is ARG-CIRC-003; the general branches plan the traced `unit` companion of a working of the
+  request's quantities (`core-req-…`); a `giv` check reads only a miscopy, and an `rnd` check is not
+  planned against the value before the rounding; no field, status or code changes.
 
 **0.2 to 0.3** (component versions unchanged; the build and policy identities change with the source):
 - `POST /v1/verify` and `epinoic-logic verify` take a named engine policy (`linear`, `nonlinear`,

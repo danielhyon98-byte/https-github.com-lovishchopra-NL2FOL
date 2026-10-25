@@ -61,7 +61,12 @@ def test_boolean_context_is_computer_science_only():
 
 def test_errors_and_bounds_never_raise():
     assert B("x + y = 2")[2] == ["ST-PARSE-001"]
-    assert B("A = B = C")[2] == ["ST-PARSE-001"]
+    # Rewritten to a stricter rule (repair round 2): a chain of equivalences is no longer refused as a whole; each pair of
+    # neighbouring expressions is one relation the engine checks (an evaluation chain 'NOT (A AND B) = NOT (1 AND 0) = 1'
+    # is checked link by link), and only a chain beyond the link bound, or an expression outside the grammar, is refused.
+    assert B("A = B = C")[1:] == ([("A", "=", "B"), ("B", "=", "C")], [])
+    assert B(" = ".join(["A"] * 18))[2] == ["ST-PARSE-001"]
+    assert B("A = (B ∧ = C")[2] == ["ST-PARSE-001"]
     assert B("A ∧ " * 300 + "A = A")[2] == ["ST-LIM-001"]
     for text in ("A ∧", "(A ∧ B", "¬", "= A", "A ∧ = B", "((((((((((((((((((((((((((((A))))))))))))))))))))))))))) = A", "¬" * 300 + "A = A", ")" * 50):
         _ctx, rels, issues = B(text)

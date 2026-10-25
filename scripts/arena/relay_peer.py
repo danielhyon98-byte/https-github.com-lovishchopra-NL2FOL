@@ -5,9 +5,13 @@ Usage: relay_peer.py <round_dir> <task_id>   (the task must carry "peer_of")
 
 Receives the peer task's genuine reply on the group's channel, relays the DELIVERED
 report to the requesting agent (agent-to-agent hand-off on the same ledger) and writes
-<round_dir>/relayed/<task_id>.json: the relay receipt and the specialist_report/1.0
-payload exactly as delivered. That file is the only thing the peer-dependent agent may
-read of its peer; the agents never see each other's raw output.
+<round_dir>/relayed/<task_id>.json: the specialist_report/1.0 payload exactly as
+delivered, and nothing else of the router's side. That file is the only thing the
+peer-dependent agent may read of its peer; the agents never see each other's raw output.
+The router's record of the relay (the peer request, the receipt of the peer's delivery
+with every finding, the relay record) goes to <round_dir>/relayed/<task_id>.router.json,
+which is never part of a specialist's bundle: a hub finding handed to a specialist reads
+as subject advice, and the specialist may pass it on to the student (E2E B3).
 
 The group's plan is built by run_arena.group_plan, the same function run_arena.run_round
 uses, so the relay and the measured round agree on the selected agents, each agent's
@@ -31,5 +35,6 @@ from run_arena import relay_peer  # noqa: E402
 
 if __name__ == "__main__":
     out = relay_peer(Path(sys.argv[1]).resolve(), sys.argv[2])
-    print(json.dumps({k: v for k, v in out.items() if k != "payload"}, indent=2, default=str))
+    router = out.get("router", {})
+    print(json.dumps({k: v for k, v in router.items() if k != "peer_receipt"} | {"peer_receipt_status": router.get("peer_receipt", {}).get("status")}, indent=2, default=str))
     print("claims delivered:", len(out.get("payload", {}).get("claims", [])))

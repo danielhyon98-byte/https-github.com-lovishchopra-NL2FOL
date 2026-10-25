@@ -98,11 +98,22 @@ def test_si_reading_passes_correct_prose_arithmetic(text, kind):
     "The extension rose from 500 mm to 2 m, a fourfold increase.",
     "The mass rose from 500 g to 1.0 kg, a doubling.",
     "The mass fell from 2 kg to 500 g, a fall of 75 per cent.",
-    "The population fell from 800 to 200: it halved twice.",
 ])
 def test_the_general_reading_misreads_what_the_si_reading_fixes(text):
     # today's reading (unchanged for every non-STEM branch) gets these wrong; the SI reading is what the STEM branches use
     assert any(s == "COUNTEREXAMPLE" for _k, s in _statuses(text, GENERAL))
+
+
+@pytest.mark.parametrize("text", [
+    "The population fell from 800 to 200: it halved twice.",
+    "The colony was doubled three times, growing from 50 to 400.",
+])
+def test_both_readings_read_a_repeated_fold(text):
+    # repair round 2 (stricter than the earlier pin, which listed 'halved twice' among the general reading's misreadings):
+    # a repeated fold is a factor of the fold to the power of the repeats in every reading, so neither reading checks
+    # 'halved' alone against the pair (a false error on correct work)
+    assert _statuses(text, GENERAL) == [("fold_change", "ENTAILED")]
+    assert _statuses(text) == [("fold_change", "ENTAILED")]
 
 
 @pytest.mark.parametrize("text", [

@@ -17,7 +17,8 @@ from epinoic_logic.stem.checks import build_checks
 doc = build_document(answer, request, "physics")
 plan = build_checks(doc, report_id="r1", request_id="q1")   # relay: relay=True (no giv/tgt)
 plan.checks     # PlannedCheck(check_id, kind, description, claim_ids, problem, expected_if_sound,
-                #              policy, failure_severity, inconsistent_is_failure=False, form, readings)
+                #              policy, failure_severity, inconsistent_is_failure=False, form, readings,
+                #              relation_kind, tolerance, defect)
 plan.findings   # CheckFinding(code="ST-...", severity, message, statement_ids, check_id)
 ```
 
@@ -34,7 +35,8 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | `constants.py` | The data-booklet constants table: values, accepted values, units, profiles, ambiguous letters. D3a (`match_written`) and D3b (`booklet_reading`). |
 | `enclosures.py` | The exact-value table (`exact_trig`, `exact_log`). Rational enclosures (`enclose`) for π, e and the trigonometric, inverse trigonometric, ln, log₁₀, log_b and exp functions, by outward-rounded interval arithmetic. `cross_check` against `math`. |
 | `scaling.py` | Decimal-exponent factoring. A `Term` is `⟦expr⟧ × 10^k`. Short literals stay as written, and long ones are split. Frames for comparisons; `LiteralTooLong` → ST-LIM-001. |
-| `tolerance.py` | `STEM_TOLERANCE_RULE` (R1 to R10), `SHORT_RULE` (≤ 300 characters), `STEM_SCOPE`, `half_width`, `tau_for`, `band_expr`. |
+| `tolerance.py` | `STEM_TOLERANCE_RULE` (R1 to R10), `SHORT_RULE` (≤ 300 characters), `STEM_SCOPE`, `half_width`, `tau_for`, `band_expr`; the intent phrases (`exactness_phrase`, `rounding_phrase`) and `approx_qualifies` (an approximation word qualifies a relation only as a whole word among the last words before it, with only linking words between). |
+| `reference.py` | The closed STEM reference read for the checks: `unit_scale` and `as_written_reading` (whether the as-written reading is admissible beside the SI reading, for the ST-UNIT-003 companion). |
 | `to_ir.py` | `Encoder` (AST → IR terms with auxiliaries, guards and enclosures), `ProblemBuilder`, one-to-one `ir_name`, `grounding`, `inspect_ir` (bounds and the nonlinear rule, read from the IR as data). |
 | `checks.py` | `build_checks`: a `PlannedCheck` per planned kind, or an ST finding. |
 
@@ -60,7 +62,11 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | a power of e or of a positive closed base with no unit, its exponent in symbols (`e^(kt)`, `2^(t/3)`, `(1/2)^(t/5)`) | no value: ST-UNDEC-001 ('a symbolic power'), the base and the exponent kept on the node; an `alg` step whose unknown appears only in powers of e reads `u = e^(−k)` (`SIDE_POS`); in a `mod` check, `B^X` with `X = c + Σ qᵢ·mᵢ` is `B^c · Π uᵢ^(qᵢ/sᵢ)` over positive variables `uᵢ = B^(sᵢ·mᵢ)` (`U_POS`; bounded by the enclosure of `B^(sᵢ·range)` when every symbol of mᵢ has a stated value, `U_LO`/`U_HI`), sᵢ the step of mᵢ's coefficients, a power beyond the degree bound ST-LIM-001 | nonlinear when two factors hold variables |
 | function of an unknown, `f(x)`, `Unsupported(reason)` | ST-UNDEC-001 with the reason | — |
 | Boolean `∧ ∨ ¬ ⊕` | `and`, `or`, `not`, `not(iff)` | linear |
-| based numeral | its exact value (Int in `stem-base`) | linear |
+| based numeral | its exact value (Int in `stem-base`); digit groups before a base subscript (`1011 0110₂`) are one numeral | linear |
+| truncated numeral (`2.084429…`, `\ldots`) | its written value with a half-width of one unit in its last digit (`ExactNumber.truncated`): the value it truncates lies in [v, v + u), inside ±u. As a stated value that is its h (R1); as an operand it ranges over the interval (R3) | linear |
+| a numeral with a scale word (`45 million`) | its exact value, scientific (4.5 × 10⁷ with the written significant figures) | linear |
+| `ⁿCᵣ` | the exact binomial coefficient, an integer literal | linear |
+| the Computer Science AND dot (`A.B`) | `and` (the lexer reads a `.` between two Boolean operands as `·`) | linear |
 
 Auxiliary definitions are memoised by the canonical shape of their subtree within one problem
 and one reading. The same quotient, root or function value therefore shares one symbol across
@@ -69,8 +75,13 @@ the premise and the conclusion of a step.
 Angles:
 - An argument written with `°` is in degrees.
 - An argument holding π is in radians.
+- A bare number that the answer or the request writes elsewhere in degrees (or in radians) only, as in "a force at 60°" and
+  `10 cos 60`, takes that unit alone (the angle hint, `checks._angle_hint`), in `eq`, `cmp` and `sub` alike.
 - Otherwise it is ambiguous, and two readings are built: degrees and radians.
 - The result of an inverse function is likewise read in both units.
+- A conversion between degrees and radians written as an equation (`θ = 30° = 0.524 rad`, `180° = π rad`) is compared in SI
+  with π enclosed. It is exact (τ = 0) unless approximate; a whole number on the converted side carries no half-width, and
+  a half-width written in degrees is turned into radians with an upper bound of π/180.
 
 ## Symbols and groundings
 
@@ -144,34 +155,48 @@ The rules for picking them:
 - An unrecognised unit: as written only, with `failure_severity="warning"`.
 
 Numbers in a reading:
-- The affine offset of °C/°F is applied only in an explicit conversion, and not when the
-  statement speaks of a change.
+- A temperature on an offset scale (°C, °F) is decided per relation (`checks._affine_mode`): a
+  difference when the statement speaks of a change; compared on its own scale when every
+  temperature of the relation is written on it; otherwise a temperature, converted once on the
+  value its side states (`Encoder._affine_point`: `25 °C`, `−5 °C`, `(20 + 5) °C` as the evaluated
+  `25 °C`, or a symbol bound to one), never term by term. A side combining it with other terms
+  refuses its SI reading (`AffineUndecided`): undecided, or checked as written only at warning
+  severity.
+- A symbol bound with a unit is compared in SI, as a value written with that unit is.
 - A Given value, a constant the answer states, and an exact coefficient are taken as written.
 
 ## The checks (section 8.1)
 
 | Kind | What the problem decides | Form and expectation |
 | --- | --- | --- |
-| `eq` | `E = S`. τ = 1/100 (1/20 for ≈ or "about"). Exact mode: τ = 0, h = 0. A value set against a value adds its own half-width. A stated value with its absolute uncertainty (`1600 ± 32`, stated for a computed side with no `±`) widens h by the uncertainty. | E or S |
-| `sub` | **Pairs**: each substituted value matches a binding of its symbol, as written or in SI (R7). A value written in another order of the same product or sum also matches. **Evaluation**: the symbolic side under its bindings (or substitution readings, or a booklet reading admitted by a dimension check) against the numeric side. | E (pairs); E or S |
-| `alg` | `PREV` (with guards and the principal-root side condition) entails the next relation. Bindings, substitution readings (a line that writes the preceding relation with values put in) and up to 8 stated formulas are included for the symbols that appear on one side only. A rounded decimal in the step is compared within its band. Warning when the step brings in symbols that nothing connects. A step whose unknown appears only in powers of e (`e^(−8k)`) is decided in `u = e^(−k)` with the side condition `u > 0` (`SIDE_POS`). An antiderivative (`∫6t dt = 3t²`) is an `alg` check from `D = D` to `D = integrand`, D being the derivative of the stated antiderivative formed by the STEM pack (power rule), so it holds iff the polynomials agree for every value. | E |
+| `eq` | `E = S`. The tolerance policy: exactness the answer states beside the relation, or the request states (per part) for pure numbers, makes it exact (τ = 0, h = 0, every spelling); a rounding the request or the answer states keeps h whatever the spelling (no exact mode: an integer has R1's h, a fraction of two integers the h of its terminating decimal expansion, so `7/3 = 2` passes under "to the nearest integer" and `33/100` is read as `0.33`); 1/20 for ≈ or "about"; 1/100 with a measured operand (a decimal, scientific notation or a unit in the computed expression or in a stated expression, a stated value with a unit, a rounded intermediate or constant); over exact operands a stated decimal gets h alone (τ = 0). Exact mode: τ = 0, h = 0. A value set against a value adds its own half-width. A stated value with its absolute uncertainty (`1600 ± 32`, stated for a computed side with no `±`) widens h by the uncertainty. | E or S |
+| `sub` | **Pairs**: each substituted value matches a binding of its symbol in scope (its own part, stated before it or in its statement; else carried from an earlier part; never a later part), as written, in SI, or in a unit of its dimension that the same working uses (`dm³` beside `mol dm⁻³`), within the larger of the two half-widths, not their sum (R7; an exact integer the answer states in Mathematics has h = 0). A value written in another order of the same product or sum also matches; a numeral opposite a literal coefficient of the law (the 4 of `4x`, the ½ of `½mv²`) is that coefficient, never a substituted value. **Evaluation**: the symbolic side under the value in force of each symbol (the latest in its part; a rebinding in the part makes a failure a warning), or substitution readings, or a booklet reading admitted by a dimension check, against the numeric side; the tolerance policy as for `eq`. | E (pairs); E or S |
+| `alg` | `PREV` (with guards and the principal-root side condition) entails the next relation. Bindings, substitution readings (a line that writes the preceding relation with values put in) and up to 8 stated formulas are included for the symbols that appear on one side only. A rounded value in the step (a decimal, also after a leading `±`, as in `x = ±1.41`; under a stated rounding an integer or a fraction too) is compared within h of its last digit, plus τ = 1/100 only when the step has a measured operand (a decimal, scientific notation or a unit in the preceding relation, the conclusion's other side, a binding or an included formula, or a constant or function): over exact operands `2x = 1 ⇒ x = 0.51` fails as `x = 51/100` does (R2). Warning when the step brings in symbols that nothing connects. A step whose unknown appears only in powers of e (`e^(−8k)`) is decided in `u = e^(−k)` with the side condition `u > 0` (`SIDE_POS`). An antiderivative (`∫6t dt = 3t²`) is an `alg` check from `D = D` to `D = integrand`, D being the derivative of the stated antiderivative formed by the STEM pack (power rule), so it holds iff the polynomials agree for every value. A step the prose cues as factorising, expanding or simplifying ("Factorising, x² + 5x + 6 = (x + 2)(x + 3)") is an identity in the same way: an `alg` check from `P = P` to the stated equality, which holds iff the two sides agree for every value. | E |
 | `mod` | A model evaluation: an equality that applies an exponential model of the answer or the request at an argument (`P(t + 4) = P₀e^(k(t + 1))` after `P = P₀e^(kt)`; the model's letter glued to its bracket, `models.py`). The model's expression stands at the written argument; some value of the variables, and of the stated symbols within their stated values, must satisfy the relation, every power of an exponent in symbols read through positive variables (above). The relaxation only widens the solutions: UNSATISFIABLE proves that no value satisfies the relation; SATISFIABLE never shows that it holds. A letter defined as two models gives one pair of sides per definition (at most 4 combinations), as a disjunction: the relation must hold under one of them. Planned only when the relaxation fits (planning-time `relaxation_fits`); a written decimal, a unit, the model's own definition, a space before the bracket and the sciences reading of e keep the old reading. | S, SATISFIABLE |
-| `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value. | E; S for membership of decimal roots |
-| `cnv` | `|C − S| ≤ h(S) + h(C)` in SI, τ = 0 (R5). Unknown unit atoms that are the same on both sides cancel. | E |
-| `cmp` | Values: `l op r` exactly (R6). Bound symbols with several values: some admissible values satisfy it. Steps: as `alg`. | E (or S) |
-| `res` | `|S − S′| ≤ h(S) + h(S′)` (R8). | E |
-| `giv` | The Given value matches a request value of the same symbol or dimension (R7). Warning. | E |
-| `tgt` | The final value matches the show-that target (τ = 1/20 when the target says "about"). Warning. | E |
+| `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed; under stated exactness a decimal root is the value it states. Under a stated rounding a root written as an integer or a fraction is still checked as an exact root (a rounding of an irrational root to an integer is not recognised). A step from the equation to one member of a stated set of two or more roots is not checked on its own (the set is checked here). A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value, whatever exactness is stated. | E; S for membership of decimal roots |
+| `cnv` | `|C − S| ≤ h(S) + h(C)` in SI, τ = 0 (R5); h = 0 when the answer states the conversion is exact. Unknown unit atoms that are the same on both sides cancel. | E |
+| `cmp` | Values: `l op r` exactly (R6). Bound symbols: the value in force (planned only when the symbol has a value of its own part, or one value elsewhere). Steps: as `alg`. A comparison the answer says fails ("the final test (2 <= 1) fails") is checked negated: `not (l op r)`. | E (or S) |
+| `res` | `|S − S′| ≤ max(h(S), h(S′))` (R8): one value must be a rounding of the other. The chain in the restatement's own statement comes first; a value in a named scale (pH) restates only a value in that scale. | E |
+| `giv` | The Given value matches a request value of the same symbol or dimension, within the larger of the two half-widths (R7). Warning. Also built for a bare value the working uses in place of the request's one quantity of that dimension its other values leave unused (`relations._bare_givens`, accuracy round 1: a symbol the reference fixes and the answer binds nowhere else, in a substitution whose other values repeat the request's quantities, or an end of a written change `ΔT = 80 − 30`), the value read in that quantity's unit and the request's whole number read to its other quantities' significant figures. Only a miscopy of the quantity is read so (`relations._miscopied`, accuracy round 2): the same number of significant digits, one digit changed or the digits in another order, the same sign and a size within a factor of ten ('7.0' for 4.0, '4.75' for 7.45); a value of another size is the answer's own, often one the subject supplies ('100' beside a room at 25 °C, '340' beside a car at 20 m s⁻¹). | E |
+| `tgt` | The final value matches the show-that target within the larger of the two half-widths (τ = 1/20 when the target says "about"). Warning. | E |
 | `chem` | Coefficients pinned (Int, or Real for fractional ones); tallies `t_<el>_l`, `t_<el>_r` and `t_charge_*`. Conclusion: every tally balances. | E |
 | `bool` | `NEG: ¬(lhs ⇔ rhs)`. A witness distinguishes the sides. | satisfiability, UNSATISFIABLE |
 | `tt` | Stated outputs pinned per row; every output `⇔` its expression on the row's inputs. | E |
 | `base` | Exact Int arithmetic on based numerals. | E |
+| `unit` (`stem-<kind>-<n>u`, ST-UNIT-003) | The companion of a comparing check. *Written*: the check's two readings genuinely differ (units of one dimension with different factors, or a per cent on one side only); the companion holds unless the relation holds as written and fails in SI, and the check beside it decides both readings. *Traced*: bare numerals of the working repeat the numbers of bindings stated in non-SI units; the companion reads each in its binding's unit (`checks._with_units`). A working that substitutes into no symbol is traced when every numeral repeats one of the request's quantities (or states it in SI) and the stated value has a unit (`relations._request_traced_companion`), and a bare result worked from the request's quantities alone is read in the unit they give it (`relations._derived_binding`: 'A = 20 × 20 = 400' for sides of 20 cm is 400 cm²; accuracy round 1). The check carries `defect="stem_unit_error"`; the traced case fails at warning severity. Not built in Computer Science or on the request. On the general branches' worked equations only the traced companion of a working whose every traced number is a quantity the request states is built (`branches.packs.request_unit_formal_checks`, ids `core-req-…`, accuracy round 2: 'Total distance = 2.4 + 450 = 452.4 m' for 2.4 km and 450 m); a number of the answer's own, a conversion factor or a rate per 1,000 builds none. | E (or S) |
+| `op` (ST-STEP-001) | The operation the prose states before a step (add or subtract k on both sides, multiply or divide both sides by k, square both sides) applied to each side of the preceding equation equals the next line's sides, in either order, for every value of the unknowns (an identity). `defect="stem_invalid_step"`; failure at warning severity. | E |
+| `sys` | A stated solution of a system of two or more unknowns satisfies every equation of the system (the part's equations, or the request's): exact values exactly, a decimal value within its rounding interval (R10). The steps from one equation to one value are context. | E |
+| `rnd` (ST-ROUND-001) | A comparison against a threshold made with a value the working rounded (`… = 0.246 s ≈ 0.25 s`) keeps its truth with the value before the rounding; both comparisons exact (R6). A rounding worded 'which rounds to', 'to the nearest whole number is' or '… to 2 s.f.' is read too, of a chain's value or of the value the prose states right before it, and a limit the answer names is the request's condition when the request states it as one ('is unsafe if … exceeds 50 mg dm⁻³', 'can safely carry … at most 13 A'; accuracy round 1). Not planned when the comparison's other side states the value before the rounding itself ('802.8 kg, which rounds to 800 kg; but 802.8 kg exceeds 800 kg': `relations._restates_unrounded`, accuracy round 2): the comparison is made with that value. `defect="stem_rounding_changes_conclusion"`; failure at warning severity. | E |
 
 Every check has these fields:
 - `inconsistent_is_failure=False` (D13).
 - `failure_severity`: `error` unless a reading the report did not state was used, in which case
   `warning`. Such readings: a booklet value, an unknown unit, symbol identity across texts, a
-  show-that target, or a step with unconnected symbols.
+  show-that target, a step with unconnected symbols, the value in force of a symbol rebound in
+  the same part, or an SI reading refused for an offset temperature combined with other terms.
+- `tolerance`: the tolerance policy that decided the check and where it came from (the request,
+  the answer's own words, the written form, or the kind's fixed rule); it is also written into
+  the description and the problem's `notes`.
 - `policy`: `nonlinear` exactly when the IR has a `mul` with two factors that hold variables
   (the validator's rule). `inspect_ir` reads it from the data, and the tests compare it with
   `engine.policies.required_policy`.
@@ -187,9 +212,11 @@ id named) when any of these holds:
   `+ y = …`).
 - An operand opens with a sign right after a symbol-like token or a stray character, rather
   than after a line start, a relation sign, a bracket, a separator or a prose word.
+- An operand is glued to a dot between two letters (`A.B` outside Computer Science, where the dot is
+  AND).
 - Prose stands between the two sides of one link (`3 and ａ = 5` read as `3 = 5`). The relation
-  sign, LaTeX commands, alignment marks and the words of verbal arithmetic (`equals`, `is equal
-  to`, `gives`) are allowed there.
+  sign, LaTeX commands, alignment marks, markup the front end set apart (a mark annotation such as
+  `[1]`) and the words of verbal arithmetic (`equals`, `is equal to`, `gives`) are allowed there.
 
 Operands read from the request (targets, request equations) and single prose values (`res`,
 `giv`) are not looked at. These guards only ever withhold a check; none decides one.
@@ -199,7 +226,7 @@ Operands read from the request (targets, request equations) and single prose val
 | Code | When |
 | --- | --- |
 | ST-UNDEF-001 | Division by an exact zero, an even root of a negative value, the logarithm of a non-positive value, 0⁰, tan at a pole, arcsin/arccos outside [−1, 1]. No problem is built. |
-| ST-UNDEC-001 | A function of an unknown, an enclosure argument beyond its bound, a divisor whose admissible values include zero, a construct outside the encodings (with the reason). |
+| ST-UNDEC-001 | A function of an unknown, an enclosure argument beyond its bound, a divisor whose admissible values include zero, a temperature on an offset scale combined with other terms against another scale, a construct outside the encodings (with the reason). |
 | ST-UNDEC-002 | A symbol with no stated value and no admissible booklet reading. |
 | ST-LIM-001 | A literal still over 40 digits after factoring; IR bounds (48 symbols, 128 premises, 2,000 nodes, depth 40, polynomial degree 24); more than 6 interval operands. |
 | ST-PARSE-002 | More than 4 readings. |

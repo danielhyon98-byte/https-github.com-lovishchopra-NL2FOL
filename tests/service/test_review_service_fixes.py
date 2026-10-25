@@ -114,10 +114,14 @@ def test_another_build_or_an_earlier_release_is_never_eligible_over_http():
     entry = json.loads((DATA / "release_0_3_0_signed_results.json").read_text())["trusted_kind_chain"]
     client = make_client(make_settings(signing_key=b"upgrade-test-key-0123456789abcdef", signing_key_id="upgrade"))
     sig = client.post("/v1/results/verify-signature", json={"result": entry["result"]}, headers=AUTH).json()
-    assert sig == {"valid": True}                                              # inspectable: a genuine record of 0.3.0
+    # inspectable: a genuine record of 0.3.0. Rewritten to the stricter rule of repair round 3 (INV-6): the earlier form never
+    # covered the key id, so the answer now says the id is not attested (it was a bare {"valid": True})
+    assert sig == {"valid": True, "key_id_attested": False,
+                   "reason": "signed in an earlier build's form, which does not cover the key id: the key id is not attested"}
     check = release(client, entry["result"], entry["problem"])
     assert not check["eligible"] and any(why.startswith("stale:") for why in check["reasons"])
     assert not any(why.startswith("unauthenticated") for why in check["reasons"])
+    assert any(why.startswith("key id not attested") for why in check["reasons"])
 
 
 def test_unchanged_versions_with_another_build_identity_are_stale_over_http(client):

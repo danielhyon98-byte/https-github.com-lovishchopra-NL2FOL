@@ -25,22 +25,76 @@ conclusion is NOT an established premise: it is given a forced grounding of kind
 ``specialist_inference`` so the engine always reports reliance on it, and a
 synthesis that rests on one is flagged (INT-SYNTH-008) unless a prior ENTAILED
 result for that exact source formalization is supplied.
+
+A figure two claims derive by different routes and state at a precision (``R = 230/9.57`` and ``R = 230²/2200``, each
+stated as 24.0 Ω, so each concludes ``23.95 <= R < 24.05``) is pooled at that precision, not exactly
+(:func:`split_by_precision`): each later route gets its own copy of the symbol, linked to the first by
+``|R1 - R2| <= h1 + h2`` (h the half-width of each claim's stated interval), and the one figure the claims state must lie
+in every stated interval. Routes that agree at their stated precision (24.033 and 24.045, both stated 24.0) never
+contradict each other; claims whose stated intervals do not meet (24.0 against 24.1, or against 26.0) still do.
 """
 from __future__ import annotations
 
+import hashlib
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Optional
 
 from ..engine.errors import NO_VERDICT_CODES
 from ..engine.policies import JOINT_LIMITS
 from ..engine.provenance import binding_inconsistencies, stale_reasons, verify_signature
 from ..engine.results import SolverConfig, VerificationResult
-from ..engine.runner import is_ungrounded, verify
+from ..engine.runner import is_ungrounded
+from ..engine.runner import verify as _engine_verify
 from ..engine.statuses import VerificationStatus as S
+from ..engine.statuses import is_definitive
 from ..ir.canonical import problem_digest, sha256_hex
 from ..ir.schema import ASSERTION_ID_RE, Assertion, Grounding, Limits, Problem, Symbol
 from .contracts import IntegrityFinding, Synthesis
+
+#: The joint checks of this module are code-built problems decided with ``diagnose=False``. One channel decides the same
+#: joint problem again on every later transmission (the pool of every report so far, its attribution re-run claim by claim,
+#: the rest after a contradiction is set aside), so a definitive answer is kept for the identical problem, configuration,
+#: limits and signing key, and the same signed result is cited again (close round 3, DV2-07: 190 joint checks of one r7
+#: answer group held 29 distinct problems). An undecided answer is never kept: it is decided again. Bounded; one lock.
+_JOINT_MEMO_SIZE = 512
+_joint_memo: "OrderedDict[str, VerificationResult]" = OrderedDict()
+_joint_lock = threading.Lock()
+
+
+def _joint_key(problem: Problem, config: SolverConfig, limits: Limits, signing_key: Optional[bytes], key_id: Optional[str]) -> str:
+    h = hashlib.sha256()
+    for part in (problem_digest(problem), config.model_dump_json(), limits.model_dump_json(), key_id or "",
+                 hashlib.sha256(signing_key).hexdigest() if signing_key else "-"):
+        h.update(part.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def verify(problem: Problem, config: SolverConfig, limits: Limits, *, signing_key: Optional[bytes] = None, key_id: Optional[str] = None,
+           diagnose: bool = False) -> VerificationResult:
+    """The engine's ``verify`` for a joint check, with a definitive answer kept per identical call (see
+    :data:`_JOINT_MEMO_SIZE`). Only code-built checks without the argument stage are kept (``diagnose=False``)."""
+    if diagnose or not isinstance(problem, Problem):
+        return _engine_verify(problem, config, limits, signing_key=signing_key, key_id=key_id, diagnose=diagnose)
+    key = _joint_key(problem, config, limits, signing_key, key_id)
+    with _joint_lock:
+        kept = _joint_memo.get(key)
+        if kept is not None:
+            _joint_memo.move_to_end(key)
+            return kept.model_copy()
+    result = _engine_verify(problem, config, limits, signing_key=signing_key, key_id=key_id, diagnose=False)
+    if is_definitive(result.status):
+        with _joint_lock:
+            _joint_memo[key] = result
+            _joint_memo.move_to_end(key)
+            while len(_joint_memo) > _JOINT_MEMO_SIZE:
+                _joint_memo.popitem(last=False)
+        return result.model_copy()
+    return result
 
 SEP = "::"
 # Joint problems union many claims; the per-claim shape limits would make cross-agent checks silently stop working at
@@ -48,7 +102,7 @@ SEP = "::"
 # result records them and binds their digest: a receiver checking it must name JOINT_LIMITS as its required policy.
 _ALIAS_RE = re.compile(r"^c\d+:")
 _PREMISE_PATH_RE = re.compile(r"^premises\[(\d+)\]")
-_LIMIT_CODES = frozenset({"E300", "E301", "E302", "E303", "E304", "E305", "E306"})
+_LIMIT_CODES = frozenset({"E300", "E301", "E302", "E303", "E304", "E305", "E306", "E307"})
 _UNDECIDED = frozenset({S.TIMEOUT, S.UNKNOWN, S.INTERNAL_ERROR})
 
 
@@ -243,6 +297,181 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
     return out, splits
 
 
+def _literal(node) -> Optional[Fraction]:
+    op = getattr(node, "op", None)
+    if op not in ("real", "int"):
+        return None
+    try:
+        return Fraction(str(node.value))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _interval_bounds(problem: Problem, name: str) -> list[tuple[str, dict]]:
+    """The literal bounds the claim's conclusion states for ``name`` (the conjuncts :func:`stated_interval` reads), each as
+    ``(op, literal)`` with the symbol on the left (``23.95 <= R`` is ``("ge", 23.95)``, ``R < 24.05`` is ``("lt", 24.05)``):
+    IR data, never evaluated, so the strictness of each end is kept."""
+    if problem.conclusion is None:
+        return []
+    flip = {"ge": "le", "gt": "lt", "le": "ge", "lt": "gt"}
+    out: list[tuple[str, dict]] = []
+    stack = [problem.conclusion.expr]
+    seen = 0
+    while stack and seen < 4096:
+        seen += 1
+        n = stack.pop()
+        op = getattr(n, "op", None)
+        if op == "and":
+            stack.extend(n.args)
+            continue
+        if op not in flip:
+            continue
+        if getattr(n.left, "op", None) == "var" and n.left.name == name and _literal(n.right) is not None:
+            out.append((op, n.right.model_dump(mode="json", exclude_none=True)))
+        elif getattr(n.right, "op", None) == "var" and n.right.name == name and _literal(n.left) is not None:
+            out.append((flip[op], n.left.model_dump(mode="json", exclude_none=True)))
+    return out
+
+
+def stated_interval(problem: Problem, name: str) -> Optional[tuple[Fraction, Fraction]]:
+    """The tightest interval ``[lo, hi]`` the claim's conclusion states for ``name`` by literal bounds (``23.95 <= R`` and
+    ``R < 24.05``, conjuncts of the conclusion at any depth of ``and``), or None when it states no lower and upper bound."""
+    if problem.conclusion is None:
+        return None
+    lo: Optional[Fraction] = None
+    hi: Optional[Fraction] = None
+    stack = [problem.conclusion.expr]
+    seen = 0
+    while stack and seen < 4096:
+        seen += 1
+        n = stack.pop()
+        op = getattr(n, "op", None)
+        if op == "and":
+            stack.extend(n.args)
+            continue
+        if op not in ("ge", "gt", "le", "lt"):
+            continue
+        left, right = n.left, n.right
+        if getattr(left, "op", None) == "var" and left.name == name and _literal(right) is not None:
+            v, upper = _literal(right), op in ("le", "lt")
+        elif getattr(right, "op", None) == "var" and right.name == name and _literal(left) is not None:
+            v, upper = _literal(left), op in ("ge", "gt")
+        else:
+            continue
+        if upper:
+            hi = v if hi is None else min(hi, v)
+        else:
+            lo = v if lo is None else max(lo, v)
+    if lo is None or hi is None or hi <= lo:
+        return None
+    return lo, hi
+
+
+def split_by_precision(problems: list[Problem]) -> tuple[list[Problem], dict[str, list[tuple[str, str, str]]]]:
+    """Pool a figure that several claims derive by their own routes at its stated precision (B7). A Real symbol that two or
+    more claims both use in their premises (each derives it) and bound in their conclusions by a stated interval (each
+    states it at a precision) is read apart: the first such claim keeps the name, each later one gets ``<name>_r<k>`` and
+    one premise ``|name - name_r<k>| <= h_first + h_k`` (``h`` half the width of each claim's interval) with the symbol
+    ``name`` declared beside it. The routes then contradict each other only when their derived values differ by more than
+    their stated precisions allow. The figure the claims state must also be one value at every stated precision: each
+    later route adds that one figure ``<name>_stated`` lies in the first claim's and in its own stated interval, each end
+    as strict as the claim states it, so claims whose stated intervals do not meet (24.0 Ω, read [23.95, 24.05), against
+    24.1 Ω, [24.05, 24.15)) still contradict each other, as they did before the pooling (repair round 1, re-run review
+    INV-3). Returns the problems (unchanged when no figure is so derived) and, per split name, ``(name used, claim id,
+    half-width)`` for each route."""
+    holders: dict[str, list[int]] = {}
+    sorts: dict[str, set[str]] = {}
+    for i, p in enumerate(problems):
+        for sym in p.symbols:
+            holders.setdefault(sym.name, []).append(i)
+            sorts.setdefault(sym.name, set()).add(sym.sort)
+    taken = {sym.name for p in problems for sym in p.symbols}
+    plan: dict[int, list[tuple[str, str, Fraction]]] = {}
+    routes: dict[str, list[tuple[str, str, str]]] = {}
+    for name, idxs in holders.items():
+        if len(idxs) < 2 or sorts[name] != {"Real"}:
+            continue
+        derived: list[tuple[int, Fraction]] = []
+        for i in idxs:
+            iv = stated_interval(problems[i], name)
+            if iv is None or not any(name in _needed_symbols(a) for a in problems[i].premises):
+                continue
+            derived.append((i, (iv[1] - iv[0]) / 2))
+        if len(derived) < 2:
+            continue
+        first, h_first = derived[0]
+        routes[name] = [(name, problems[first].claim_id, str(h_first))]
+        stated = f"{name[:56]}_stated"
+        m = 1
+        while stated in taken:
+            m += 1
+            stated = f"{name[:54]}_stated{m}"
+        taken.add(stated)
+        for k, (i, h) in enumerate(derived[1:], start=2):
+            new = f"{name[:58]}_r{k}"
+            m = k
+            while new in taken:
+                m += 1
+                new = f"{name[:58]}_r{m}"
+            taken.add(new)
+            plan.setdefault(i, []).append((name, new, h_first + h, stated, _interval_bounds(problems[i], name)))
+            routes[name].append((new, problems[i].claim_id, str(h)))
+        # the first claim states the figure too: its interval is its own premise, so a contradiction between the stated
+        # intervals needs both claims (INT-CONFLICT-001), never one claim alone
+        plan.setdefault(first, []).append((name, None, None, stated, _interval_bounds(problems[first], name)))
+    if not plan:
+        return list(problems), {}
+    out: list[Problem] = []
+    for i, p in enumerate(problems):
+        steps = plan.get(i)
+        if not steps:
+            out.append(p)
+            continue
+        q = _renamed(p, {name: new for name, new, _h, _t, _b in steps if new is not None})
+        data = q.model_dump(mode="json", exclude_none=True)
+        originals = {sym.name: sym for sym in p.symbols}
+        for name, new, width, stated, bounds in steps:
+            orig = originals[name]
+            if new is None:  # the first route: only the interval it states for the one figure
+                _state_interval(data, orig, name, name, stated, bounds)
+                continue
+            data["symbols"].append(orig.model_dump(mode="json", exclude_none=True))
+            for sym in data["symbols"]:
+                if sym["name"] == new:
+                    sym["meaning"] = ((orig.meaning or name) + " (this claim's own route to the figure)")[:1000]
+            bound = {"op": "real", "value": f"{width.numerator}/{width.denominator}" if width.denominator != 1 else str(width.numerator)}
+            diff = lambda a, b: {"op": "sub", "left": {"op": "var", "name": a}, "right": {"op": "var", "name": b}}  # noqa: E731
+            pid = f"precision_{new}"[:64]
+            data["premises"].append({
+                "id": pid,
+                "expr": {"op": "and", "args": [{"op": "le", "left": diff(name, new), "right": bound}, {"op": "le", "left": diff(new, name), "right": bound}]},
+                "label": f"the figure '{name}' derived by this claim's route agrees with the first route within the stated precisions "
+                         f"(|difference| <= {bound['value']})",
+                "grounding": {"kind": "arithmetic_fact", "source_refs": [], "certainty": "established",
+                              "note": "integrity rule B7: a figure derived by two routes is pooled at its stated precision"},
+                "materiality": "material"})
+            _state_interval(data, orig, name, new, stated, bounds)
+        out.append(Problem.model_validate(data))
+    return out, routes
+
+
+def _state_interval(data: dict, orig, name: str, route: str, stated: str, bounds: list[tuple[str, dict]]) -> None:
+    """Add to one claim's problem (``data``, its dump) the premise that the one figure ``stated`` the claims state lies in
+    the interval this claim states for it (``bounds``, :func:`_interval_bounds`), declaring ``stated`` beside it."""
+    if not bounds:
+        return
+    if not any(sym["name"] == stated for sym in data["symbols"]):
+        data["symbols"].append({"name": stated, "sort": "Real", "meaning": ((orig.meaning or name) + " (the one value every claim states at its precision)")[:1000]})
+    data["premises"].append({
+        "id": f"stated_{route}"[:64],
+        "expr": {"op": "and", "args": [{"op": op, "left": {"op": "var", "name": stated}, "right": lit} for op, lit in bounds]}
+        if len(bounds) > 1 else {"op": bounds[0][0], "left": {"op": "var", "name": stated}, "right": bounds[0][1]},
+        "label": f"the figure '{name}' this claim states lies in the interval it states (one value for every claim that states it)",
+        "grounding": {"kind": "arithmetic_fact", "source_refs": [], "certainty": "established",
+                      "note": "integrity rule B7: claims that state one figure agree at their stated precisions"},
+        "materiality": "material"})
+
+
 def _renamed(problem: Problem, table: dict[str, str]) -> Problem:
     """``problem`` with its symbols renamed by ``table`` (declarations and every ``var`` node)."""
     data = problem.model_dump(mode="json", exclude_none=True)
@@ -431,7 +660,7 @@ def _check_pool(problems: list[Problem], *, request_id: str, joint_id: str, cfg:
     joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id=joint_id)
     if joint is None:
         return None, jmap
-    return verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity"), jmap
+    return verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False), jmap
 
 
 def _attribute_contradiction(problems: list[Problem], result: VerificationResult, jmap: JointMap, *, request_id: str, cfg: SolverConfig, limits: Limits,
@@ -552,7 +781,14 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     because a contradiction without the conflicting claim ids is not actionable.
     ``assumed_readings`` names pooled claims whose translation is AMBIGUOUS_TRANSLATION: a self-refutation of one of
     them exists only under the translator's assumed reading and is INT-CONFLICT-005 as a warning, not an error. Returns the result of the joint check
-    over every problem; the findings cite the runs that established them."""
+    over every problem; the findings cite the runs that established them.
+
+    A formalization that is invalid inside the joint problem (INT-GLOSSARY-007, charged to its claim) does not keep the
+    other claims from being checked together: when every diagnostic of an INVALID_FORMALIZATION or UNSUPPORTED joint
+    result is charged to identified claims, those claims are set aside and the rest are checked again (their findings
+    cite that run), so a contradiction among them is still named."""
+    given = list(problems)
+    problems, _routes = split_by_precision(problems)  # B7: a figure derived by two routes is pooled at its stated precision
     apart, splits = split_by_gloss(problems)
     joint, findings, jmap = joint_problem(apart, request_id=request_id, joint_id="cross-report")
     if splits:  # the glossary findings are those of the claims as translated, each saying the symbol was read apart
@@ -561,11 +797,19 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
-    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if result.status is S.INCONSISTENT_PREMISES:
         findings += _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
     elif result.status is not S.CONSISTENT:
-        findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
+        failure = _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
+        findings += failure
+        invalid = {c for f in failure if f.code == "INT-GLOSSARY-007" for c in f.claim_ids}
+        if invalid and result.status not in _UNDECIDED and all(f.code == "INT-GLOSSARY-007" for f in failure):
+            rest = [p for p in given if p.claim_id not in invalid]
+            if len(rest) >= 2:  # each pass sets at least one claim aside, so this ends
+                _sub, more = check_cross_report_consistency(rest, request_id=request_id, config=config, signing_key=signing_key, limits=limits,
+                                                            assumed_readings=assumed_readings)
+                findings += [f for f in more if f.code not in ("INT-GLOSSARY-005",)]
     elif splits:
         findings += _glossary_only_contradiction(problems, splits, result, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key)
     return result, findings
@@ -580,7 +824,7 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
     joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id="cross-report-pooled")
     if joint is None:
         return []
-    pooled = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    pooled = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if pooled.status is not S.INCONSISTENT_PREMISES:
         return []
     claims = claim_ids_from_core(pooled.premises_relied_on, jmap) or sorted(set(jmap.claim_ids))
@@ -643,11 +887,14 @@ def check_synthesis_entailment(
     INT-SYNTH-008 are emitted only when that second run no longer proves the claim,
     so 'follows only via ...' is literally true."""
     unformalized = sorted(set(unformalized_source_ids))
-    joint, findings, jmap = joint_problem(source_problems, request_id=request_id, joint_id=synthesized_claim_id, query="entailment", conclusion=synthesized_conclusion)
+    # B7: a figure two sources derive by their own routes is pooled at its stated precision (the stored results of the
+    # sources are still matched against the sources as formalized, below)
+    pooled_sources, _routes = split_by_precision(source_problems)
+    joint, findings, jmap = joint_problem(pooled_sources, request_id=request_id, joint_id=synthesized_claim_id, query="entailment", conclusion=synthesized_conclusion)
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
-    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     pooled = sorted(set(jmap.claim_ids))
     coverage = f"checked against {len(pooled)} of {len(pooled) + len(unformalized)} cited sources; unformalized: {unformalized}"
     if result.status is S.COUNTEREXAMPLE:
@@ -661,7 +908,7 @@ def check_synthesis_entailment(
             findings.append(IntegrityFinding(code="INT-SYNTH-001", severity="error", message=f"synthesized claim is NOT entailed by the cited source claims {pooled} (counterexample found): the combinator strengthened or invented content", claim_ids=[synthesized_claim_id] + pooled, formal_result_id=result.result_id, deterministic=False))
         return result, findings
     if result.status is S.INCONSISTENT_PREMISES:
-        findings += _attribute_contradiction(source_problems, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=synthesized_claim_id)
+        findings += _attribute_contradiction(pooled_sources, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=synthesized_claim_id)
     elif result.status is S.ENTAILED:
         findings += _reliance_findings(joint, result, jmap, source_problems, cfg, limits, signing_key, synthesized_claim_id, prior_results)
     else:
@@ -684,7 +931,7 @@ def _refutation(joint: Problem, cfg: SolverConfig, limits: Limits, signing_key: 
         prob = Problem.model_validate(data)
     except Exception:
         return None
-    return verify(prob, cfg, limits, signing_key=signing_key, key_id="integrity")
+    return verify(prob, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
 
 
 def _is_ungrounded(a: Assertion) -> bool:
@@ -700,13 +947,13 @@ def _reliance_findings(joint: Problem, result: VerificationResult, jmap: JointMa
     if not result.ungrounded_dependencies:
         return []
     ungrounded_all = {a.id for a in joint.premises if _is_ungrounded(a)}
-    grounded_only = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in ungrounded_all]}), cfg, limits, signing_key=signing_key, key_id="integrity")
+    grounded_only = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in ungrounded_all]}), cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if grounded_only.status is S.ENTAILED:
         return []  # the claim follows from grounded premises alone; the ungrounded proof was incidental
     related = [grounded_only.result_id]
     pooled_all = {i for i in ungrounded_all if i in jmap.assertions and jmap.assertions[i][2]}
     if pooled_all:
-        no_pooled = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in pooled_all]}), cfg, limits, signing_key=signing_key, key_id="integrity")
+        no_pooled = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in pooled_all]}), cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
         related.append(no_pooled.result_id)
     else:
         no_pooled = result
@@ -747,7 +994,7 @@ def check_paraphrase_coverage(source_problem: Problem, synthesized_conclusion: A
         prob = Problem.model_validate(data)
     except Exception as exc:
         return None, [IntegrityFinding(code="INT-GLOSSARY-004", severity="error", message=f"coverage problem could not be built for {synthesized_claim_id!r} from {source_problem.claim_id!r}: {type(exc).__name__}: {str(exc)[:500]}", claim_ids=[synthesized_claim_id, source_problem.claim_id])]
-    result = verify(prob, config.model_copy(update={"produce_unsat_core": True}), limits, signing_key=signing_key, key_id="integrity")
+    result = verify(prob, config.model_copy(update={"produce_unsat_core": True}), limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     findings: list[IntegrityFinding] = []
     if result.status is S.COUNTEREXAMPLE:
         findings.append(IntegrityFinding(code="INT-SYNTH-007", severity="warning", message=f"synthesized claim is strictly WEAKER than its source {source_problem.claim_id!r}: the source's conclusion does not follow from the synthesized statement, so content was removed under a 'carried'/'paraphrased' label", claim_ids=[synthesized_claim_id, source_problem.claim_id], formal_result_id=result.result_id, deterministic=False))

@@ -392,6 +392,15 @@ H11_COUNTEREXAMPLE_FIXTURE = {
                        "glossary": [{"symbol": "largest_city", "meaning": "largest city in Europe", "grounding": None},
                                     {"symbol": "near_million", "meaning": "close to a million inhabitants", "grounding": None}]},
     "ambiguous": False, "unsupported_reason": None}
+#: The same claim translated with its point unlinked as a whole: the conclusion is the census figure alone, which no premise
+#: mentions, and the claim gives no reason clause the encoding left out, so the COUNTEREXAMPLE is a verdict on the encoding
+#: of the claim (a non sequitur shape, ARG-NS-001) and is displayed.
+H11_UNLINKED_POINT_FIXTURE = {
+    **H11_COUNTEREXAMPLE_FIXTURE,
+    "problem": {**H11_COUNTEREXAMPLE_FIXTURE["problem"],
+                "conclusion": {"id": "concl", "expr": {"op": "var", "name": "near_million"},
+                               "label": "London was the largest city in Europe, with close to a million inhabitants."}},
+}
 FALSE_ARITHMETIC = " Its population rose from 800,000 in 1781 to 960,000 in 1801, an increase of 50 per cent."
 
 
@@ -399,11 +408,14 @@ def test_round_states_error_receipts_under_the_headline_and_names_each_counterex
     """Through the hub: a genuine History answer with a false percentage (a true INT-SUBJ-001 error on the genuine
     receipt) and a translation of h1.1 that the engine answers with a COUNTEREXAMPLE. The genuine record is counted
     functional, and summary.md says so under the headline; the COUNTEREXAMPLE is listed in results.json and summary.md with
-    claim id h1.1, the problem's premises, the counterexample and the conclusion."""
+    claim id h1.1, the problem's premises, the counterexample and the conclusion. Rewritten for the merged argument rules:
+    the translation is ``H11_UNLINKED_POINT_FIXTURE`` (the point unlinked as a whole, whose COUNTEREXAMPLE is displayed),
+    because the earlier fixture's counterexample falsifies only a conjunct its encoding left unlinked, which is no verdict
+    on the claim (end-to-end B8; pinned by the next test). Every assertion is the earlier one."""
     (tmp_path / "specialists").mkdir()
     (tmp_path / "translations").mkdir()
     (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps({**HISTORY_ITEM, "response_text": HISTORY_ITEM["response_text"] + FALSE_ARITHMETIC}))
-    (tmp_path / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": H11_COUNTEREXAMPLE_FIXTURE}}))
+    (tmp_path / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": H11_UNLINKED_POINT_FIXTURE}}))
     out = ra.run_round(tmp_path)
     genuine = next(r for r in out["records"] if r["variant"] == "genuine")
     err = [f for f in genuine["findings"] + genuine["subject_findings"] if f["severity"] == "error"]
@@ -423,6 +435,24 @@ def test_round_states_error_receipts_under_the_headline_and_names_each_counterex
     assert "The rate does not judge whether a finding is true" in lines[4]
     row = next(x for x in lines if x.startswith(f"  - {TASK}.json h1.1: COUNTEREXAMPLE"))
     assert "rests on the problem's 1 premise(s), 1 ungrounded and 0 unverified" in row and "counterexample: largest_city=true, near_million=false" in row
+
+
+def test_a_counterexample_over_an_unlinked_conjunct_is_no_verdict_and_is_not_listed(tmp_path):
+    """The merged argument rules (end-to-end B8): ``H11_COUNTEREXAMPLE_FIXTURE`` concludes 'largest_city and near_million'
+    from 'largest_city' alone, so its COUNTEREXAMPLE falsifies only the conjunct no premise links (the census figure the
+    encoding left out) while the linked part follows. That is an artefact of the encoding, not a verdict on the claim: the
+    claim is displayed AMBIGUOUS_TRANSLATION (never verified, never released), the engine names the unlinked judgement
+    (ARG-PART-001, info), and the round lists no definitive verdict for it."""
+    (tmp_path / "specialists").mkdir()
+    (tmp_path / "translations").mkdir()
+    (tmp_path / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    (tmp_path / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": H11_COUNTEREXAMPLE_FIXTURE}}))
+    out = ra.run_round(tmp_path)
+    genuine = next(r for r in out["records"] if r["variant"] == "genuine")
+    o = next(x for x in genuine["outcomes"] if x["claim_id"] == "h1.1")
+    assert o["display_status"] == "AMBIGUOUS_TRANSLATION" and o["engine_status"] == "COUNTEREXAMPLE"
+    assert any(f["code"] == "UNLINKED_CONJUNCT" for f in o["ambiguity_flags"]) and o["release_permitted"] is False
+    assert [e for e in out["displayed_non_entailed_definitive_outcomes"] if e["claim_id"] == "h1.1"] == []
 
 
 # --- round 7: one synthesis record per group whatever happened to its members; evidence references; altered quotation --

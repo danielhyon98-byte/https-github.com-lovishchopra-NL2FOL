@@ -24,6 +24,19 @@ entailment run may take up to twice the timeout. ``rlimit`` gives a deterministi
 cutoff independent of wall-clock. A solver answer of ``unknown`` is classified as
 TIMEOUT when Z3's reason mentions a timeout, cancellation or resource limit, and
 as UNKNOWN otherwise. Neither is ever a success.
+
+Models. Building a model's text happens after ``check`` returns, outside the timeout and the
+rlimit, so it is bounded separately:
+
+* the entailment's consistency precheck builds no model (its model was always discarded);
+* every model is extracted with model completion, whatever ``SolverConfig.model_completion``
+  says: a counterexample's values are always literals, never symbol names (the option has no
+  effect on evidence, and the service refuses it from clients);
+* each value is compared with :data:`MAX_MODEL_VALUE_DIGITS` inside Z3 before it is turned into
+  text, since converting a numeral of tens of thousands of digits takes seconds. A model with a
+  value beyond the bound is not reported: the status becomes UNKNOWN (``E401``) with the reason,
+  never a counterexample whose values are cut or approximated;
+* the extraction is timed as its own stage (``model``), so the timings account for it.
 """
 from __future__ import annotations
 
@@ -51,6 +64,11 @@ _applied_memory_mb: Optional[int] = None
 #: Verifications currently between apply_global_memory_limit and release_global_memory_limit.
 _active_verifications = 0
 _TIMEOUT_REASONS = ("timeout", "canceled", "cancelled", "resource", "interrupted", "max. resource")
+#: The most decimal digits a reported model value (an integer, or each part of a rational) may have. The IR's literals
+#: have at most 40 digits; products of them can reach tens of thousands, whose text alone takes seconds to build.
+MAX_MODEL_VALUE_DIGITS = 400
+#: The reason an UNKNOWN result gives when a model was not reported because of :data:`MAX_MODEL_VALUE_DIGITS`.
+MODEL_TOO_LARGE_REASON = f"model not reported: a value has more than {MAX_MODEL_VALUE_DIGITS} digits (the reporting bound)"
 _MEMOUT_REASONS = ("memout", "memory")
 
 
@@ -154,12 +172,60 @@ def format_value(value: z3.ExprRef) -> str:
     return str(value)
 
 
-def extract_model(compiled: Compiled, model: z3.ModelRef, completion: bool) -> dict[str, str]:
-    """Exact values for every declared symbol, in declaration order."""
-    out: dict[str, str] = {}
-    for name, sym in compiled.symbols.items():
-        out[name] = format_value(model.eval(sym, model_completion=completion))
-    return out
+class ModelTooLarge(Exception):
+    """A model value is beyond :data:`MAX_MODEL_VALUE_DIGITS`; the model is not reported."""
+
+
+def _within_bound(value: z3.ExprRef, ctx: z3.Context) -> bool:
+    """Whether a numeral's magnitude is below 10**MAX_MODEL_VALUE_DIGITS, decided by Z3 on the numerals themselves (no text
+    of the value is built). Booleans and algebraic numbers are within the bound."""
+    parts: list[z3.ExprRef]
+    if z3.is_int_value(value):
+        parts = [value]
+    elif z3.is_rational_value(value):
+        parts = [value.numerator(), value.denominator()]
+    else:
+        return True
+    bound: Optional[z3.ExprRef] = None
+    for part in parts:
+        if _fits_int64(part, ctx):
+            continue  # a numeral of at most 19 digits: far below the bound (repair round 2, ADV2-03: the bound was the costliest step of a model)
+        if bound is None:
+            bound = z3.IntVal(10 ** MAX_MODEL_VALUE_DIGITS, ctx)
+        if not z3.is_true(z3.simplify(z3.And(part < bound, part > -bound, ctx))):
+            return False
+    return True
+
+
+def _fits_int64(numeral: z3.ExprRef, ctx: z3.Context) -> bool:
+    """Whether Z3 can read an integer numeral as a 64-bit integer (Z3's own test on the numeral; no text is built)."""
+    import ctypes
+    try:
+        return bool(z3.Z3_get_numeral_int64(ctx.ref(), numeral.as_ast(), ctypes.byref(ctypes.c_longlong())))
+    except Exception:  # noqa: BLE001 - an API refusal falls back to the bound check in Z3
+        return False
+
+
+def extract_model(compiled: Compiled, model: z3.ModelRef, completion: bool = True) -> dict[str, str]:
+    """Exact values for every declared symbol, in declaration order. Always with model completion (``completion`` is
+    kept for callers and ignored: a value is never left as a symbol name). Raises :class:`ModelTooLarge` when a value is
+    beyond :data:`MAX_MODEL_VALUE_DIGITS`, before any value is turned into text."""
+    values = [(name, model.eval(sym, model_completion=True)) for name, sym in compiled.symbols.items()]
+    for _name, value in values:
+        if not _within_bound(value, compiled.ctx):
+            raise ModelTooLarge(MODEL_TOO_LARGE_REASON)
+    return {name: format_value(value) for name, value in values}
+
+
+def _timed_model(compiled: Compiled, solver: z3.Solver, timings: list[StageTiming]) -> Optional[dict[str, str]]:
+    """The model of the last ``sat`` answer, extracted and timed as its own stage; None when it is beyond the bound."""
+    start = time.perf_counter()
+    try:
+        return extract_model(compiled, solver.model())
+    except ModelTooLarge:
+        return None
+    finally:
+        timings.append(StageTiming(stage="model", ms=(time.perf_counter() - start) * 1000.0))
 
 
 def _tracked_assertions(solver: z3.Solver, compiled: Compiled, negate_conclusion: bool) -> list[tuple[str, z3.BoolRef]]:
@@ -197,12 +263,17 @@ def _smt2_or_none(compiled: Compiled, config: SolverConfig, negate_conclusion: b
 
 
 def _check_premises(compiled: Compiled, config: SolverConfig, stage: str, sat_status: VerificationStatus,
-                    unsat_status: VerificationStatus, timings: list[StageTiming]) -> ProcedureOutcome:
+                    unsat_status: VerificationStatus, timings: list[StageTiming], want_model: bool = True) -> ProcedureOutcome:
     solver = _make_solver(compiled, config)
     tracks = _tracked_assertions(solver, compiled, negate_conclusion=False)
     result = _timed_check(solver, tracks, stage, timings)
     if result == z3.sat:
-        return ProcedureOutcome(status=sat_status, model=extract_model(compiled, solver.model(), config.model_completion), timings=timings)
+        if not want_model:
+            return ProcedureOutcome(status=sat_status, timings=timings)
+        model = _timed_model(compiled, solver, timings)
+        if model is None:
+            return ProcedureOutcome(status=VerificationStatus.UNKNOWN, reason_unknown=MODEL_TOO_LARGE_REASON, timings=timings)
+        return ProcedureOutcome(status=sat_status, model=model, timings=timings)
     if result == z3.unsat:
         return ProcedureOutcome(status=unsat_status, core=_core_ids(solver, tracks), timings=timings)
     status, reason, memout = _classify_unknown(solver)
@@ -232,7 +303,9 @@ def run_entailment(compiled: Compiled, config: SolverConfig) -> ProcedureOutcome
     timings: list[StageTiming] = []
     smt2 = _smt2_or_none(compiled, config, negate_conclusion=True)
 
-    first = _check_premises(compiled, config, "consistency", VerificationStatus.CONSISTENT, VerificationStatus.INCONSISTENT_PREMISES, timings)
+    # the precheck builds no model: its witness is never reported, and building one is outside every solver bound
+    first = _check_premises(compiled, config, "consistency", VerificationStatus.CONSISTENT, VerificationStatus.INCONSISTENT_PREMISES, timings,
+                            want_model=False)
     if first.status is not VerificationStatus.CONSISTENT:
         first.smt2 = smt2
         first.model = None  # no witness is reported for a failed or inconsistent precheck
@@ -250,10 +323,9 @@ def run_entailment(compiled: Compiled, config: SolverConfig) -> ProcedureOutcome
             timings=timings, smt2=smt2,
         )
     if result == z3.sat:
-        return ProcedureOutcome(
-            status=VerificationStatus.COUNTEREXAMPLE,
-            model=extract_model(compiled, solver.model(), config.model_completion),
-            timings=timings, smt2=smt2,
-        )
+        model = _timed_model(compiled, solver, timings)
+        if model is None:
+            return ProcedureOutcome(status=VerificationStatus.UNKNOWN, reason_unknown=MODEL_TOO_LARGE_REASON, timings=timings, smt2=smt2)
+        return ProcedureOutcome(status=VerificationStatus.COUNTEREXAMPLE, model=model, timings=timings, smt2=smt2)
     status, reason, memout = _classify_unknown(solver)
     return ProcedureOutcome(status=status, reason_unknown=reason, timings=timings, smt2=smt2, memout=memout)

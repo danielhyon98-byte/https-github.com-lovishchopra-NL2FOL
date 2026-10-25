@@ -175,6 +175,30 @@ def test_every_recorded_translation_is_served_or_lost_with_a_reason():
     assert (rc["recorded"], rc["served"], rc["lost"]) == (5, 0, 5) and rc["lost_by_reason"] == {"report_not_delivered": 5}
 
 
+def test_a_bare_recorded_id_serves_the_agent_qualified_id_of_the_same_claim_and_nothing_else():
+    """Repair round 2, I5: since B17 the STEM and generic parsers qualify claim ids by agent on a multi-agent task
+    (``s1.1@ess-specialist``), so run1's ess-e1b fixtures, recorded under ``s1.1`` ..., matched no delivered claim. A bare
+    recorded id now serves the qualified id the same parser gives the same claim (bound to its text by its digest, as
+    before). Controls: a qualified recorded id serves only itself, another agent's qualifier is never served, and a
+    recorded id the parse does not deliver in either form is still lost by name."""
+    aliases = ra.fixture_claim_ids(["s1.1", "s2.1", "g1.1@economics-specialist"], "ess-specialist")
+    assert aliases == {"s1.1": "s1.1", "s2.1": "s2.1", "g1.1@economics-specialist": "g1.1@economics-specialist",
+                       "s1.1@ess-specialist": "s1.1", "s2.1@ess-specialist": "s2.1"}
+    assert "s1.1@chemistry-specialist" not in aliases and ra.fixture_claim_ids(["s1.1"], "") == {"s1.1": "s1.1"}
+    qualified = [c.model_copy(update={"claim_id": f"{c.claim_id}@history-specialist"}) for c in _claims().values()]
+    recorded = {"h1.1": _fixture("h1.1"), "h9.9": _fixture("h1.1")}
+    outcomes = [_outcome("h1.1@history-specialist", "ENTAILED")]
+    cov = ra.fixture_coverage(recorded, {}, qualified, outcomes, [], ra.fixture_claim_ids(recorded, "history-specialist"))
+    assert cov["served"] == ["h1.1"] and cov["lost"] == {"matching_no_delivered_claim": ["h9.9"]}
+    # without the aliases (the earlier harness) the same fixtures match no delivered claim
+    bare = ra.fixture_coverage(recorded, {}, qualified, outcomes, [])
+    assert bare["served"] == [] and bare["lost"] == {"matching_no_delivered_claim": ["h1.1", "h9.9"]}
+    # another agent's qualified claim is not served by a bare fixture of this agent
+    other = [c.model_copy(update={"claim_id": f"{c.claim_id}@english-specialist"}) for c in _claims().values()]
+    cov = ra.fixture_coverage(recorded, {}, other, [_outcome("h1.1@english-specialist", "ENTAILED")], [], ra.fixture_claim_ids(recorded, "history-specialist"))
+    assert cov["served"] == [] and cov["lost"] == {"matching_no_delivered_claim": ["h1.1", "h9.9"]}
+
+
 def test_a_replay_that_loses_recorded_translations_is_qualified_in_the_title_and_results_and_transport_does_not_move(tmp_path):
     """Through the hub: h1.1's translation is served, h1.2's claim is not eligible, g9.9 matches no delivered claim. The
     unserved translations are counted in the title and the Measures section (never only at the bottom), the run is
@@ -358,3 +382,21 @@ def test_percentile_is_nearest_rank():
 @pytest.mark.parametrize("value", [{"b": 1, "a": [1, 2]}, '{"a": [1, 2], "b": 1}'])
 def test_fixture_digest_is_stable(value):
     assert len(ra.fixture_sha256(value)) == 64 and ra.fixture_sha256(value) == ra.fixture_sha256(value)
+
+
+def test_a_fixture_served_to_the_qualified_id_names_that_id_and_any_other_claim_is_still_refused():
+    """Repair round 2, I5 (found by the round's own arena replay): a translation recorded under a bare id names that id in
+    its problem, so served to the qualified id of the same claim the translator refused it ("problem request_id/claim_id do
+    not match the claim being translated": 44 r7 records and run1's ess-e1b). Served through its alias, its problem now
+    names the id the claim carries, as a provider asked for that claim writes it. Controls: a fixture served to its own id
+    is unchanged; a recorded problem about another claim, and a fixture that is not a JSON object, are served unchanged,
+    so the translator's check still refuses them."""
+    fx = _fixture("h1.1")
+    served = ra.fixture_for_claim(fx, "h1.1", "h1.1@history-specialist")
+    assert served["problem"]["claim_id"] == "h1.1@history-specialist" and fx["problem"]["claim_id"] == "h1.1"   # the record is not changed
+    assert {k: v for k, v in served["problem"].items() if k != "claim_id"} == {k: v for k, v in fx["problem"].items() if k != "claim_id"}
+    assert ra.fixture_for_claim(json.dumps(fx), "h1.1", "h1.1@history-specialist")["problem"]["claim_id"] == "h1.1@history-specialist"
+    assert ra.fixture_for_claim(fx, "h1.1", "h1.1") is fx
+    other = _fixture("h1.2")
+    assert ra.fixture_for_claim(other, "h1.1", "h1.1@history-specialist") is other
+    assert ra.fixture_for_claim("not json", "h1.1", "h1.1@history-specialist") == "not json"

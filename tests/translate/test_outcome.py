@@ -19,7 +19,8 @@ from epinoic_logic.translate import (
     display_status_for,
     verify_claim,
 )
-from epinoic_logic.translate.contracts import EligibilityDecision, ProviderInfo, SemanticFidelityReview, TranslationResult
+from epinoic_logic.translate.contracts import EligibilityDecision, ProviderInfo, SemanticFidelityReview, TranslationResult, sha256_text
+from epinoic_logic.version import TRANSLATOR_VERSION
 from epinoic_logic.translate.outcome import SUMMARY_MAX_CHARS, _fit
 from epinoic_logic.translate.providers import FixtureReviewProvider, FixtureTranslationProvider
 
@@ -29,11 +30,14 @@ CFG = SolverConfig(timeout_ms=5000, memory_max_mb=None)
 
 
 def make_translation(status: T, problem: Problem | None = None, **over) -> TranslationResult:
+    # A record as this translator makes it: its version and the digest of the claim text it read (contract 0.2). Any other
+    # record is displayed INTERNAL_ERROR whatever its status (re-run review finding correctness-5; see
+    # tests/translate/test_rerun_review_records.py).
     data = dict(
         translation_id="tr-test", claim_id="c-point", request_id="req-1", report_id="rep-1", status=status,
         eligibility=EligibilityDecision(eligibility_class="PROPOSITIONAL_ARGUMENT", eligible=True, decided_by="deterministic", reasons=["r"], policy_version="p"),
-        problem=problem, provider=ProviderInfo(provider_name="fixture"), translator_version="t", policy_version="p",
-        diagnostics=["d1"], created_at="2026-10-11T00:00:00Z",
+        problem=problem, provider=ProviderInfo(provider_name="fixture"), translator_version=TRANSLATOR_VERSION, policy_version="p",
+        claim_text_sha256=sha256_text(make_claim().claim_text), diagnostics=["d1"], created_at="2026-10-11T00:00:00Z",
     )
     data.update(over)
     return TranslationResult(**data)

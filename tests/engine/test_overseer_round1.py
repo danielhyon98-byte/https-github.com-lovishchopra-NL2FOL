@@ -81,10 +81,15 @@ def test_vacuous_entailment_and_empty_consistency_carry_e108():
     empty = make_problem("consistency", [("p", "Bool")], [])
     r2 = verify(Problem.model_validate(empty), CFG)
     assert r2.status is S.CONSISTENT and [d.code for d in r2.diagnostics] == ["E108"]
-    # a proof that uses a premise is not vacuous
+    # a proof that uses a premise is not vacuous. Rewritten to the stricter rule of policy 2026.10-v5 (issue 1): the premise
+    # restates the conclusion with only its supplied_text label behind it (no check verified it), so it is circular (E112),
+    # though still not vacuous; verified by a check in this process it is a transcription and carries nothing
     data = make_problem("entailment", [("p", "Bool")], [("P", V("p"), {"grounding": {"kind": "supplied_text"}})], ("C", V("p")))
     r3 = verify(Problem.model_validate(data), CFG)
-    assert r3.status is S.ENTAILED and r3.premises_relied_on == ["P"] and r3.diagnostics == [] and r3.unverified_dependencies == ["P"]
+    assert r3.status is S.ENTAILED and r3.premises_relied_on == ["P"] and [d.code for d in r3.diagnostics] == ["E112"] and r3.unverified_dependencies == ["P"]
+    checked = make_problem("entailment", [("p", "Bool")], [("P", V("p"), {"grounding": {"kind": "supplied_text", "verified": True}})], ("C", V("p")))
+    r4 = verify(Problem.model_validate(checked), CFG)  # an in-process Problem: its verified flag stands for a check made here
+    assert r4.status is S.ENTAILED and r4.premises_relied_on == ["P"] and r4.diagnostics == [] and r4.unverified_dependencies == []
 
 
 def test_closed_conclusion_is_invalid_formalization():

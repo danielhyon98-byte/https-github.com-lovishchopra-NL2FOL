@@ -340,9 +340,18 @@ STEM_ENCODING_GUIDANCE = (
 )
 
 
+#: Model-facing guidance for argued subjects (every profile that is not a STEM profile; TRANSLATOR_VERSION 0.5.0, with the
+#: prompt translate_v3): the words the argument diagnosis reads in a meaning are kept as the writer uses them.
+ARGUMENT_MARKING_GUIDANCE = (
+    "Argued claims: keep scope words (all, every, each, some, most, never, always) and causal verbs (caused, led to, resulted in) in each "
+    "meaning exactly as the writer uses them, and keep an instance fact's instance (the study, the case, the year), never a generality of it. "
+    "Mark each step the writer asserts as its own specialist_inference premise with the note 'link: <the connective as written>'. "
+)
+
+
 def prompt_profile_text(profile: SubjectProfile) -> str:
     """Short, model-facing description injected into translation prompts (STEM profiles add
-    :data:`STEM_ENCODING_GUIDANCE`)."""
+    :data:`STEM_ENCODING_GUIDANCE`; every other profile, an argued subject, adds :data:`ARGUMENT_MARKING_GUIDANCE`)."""
     classes = ", ".join(sorted(c.value for c in profile.eligible_classes))
     return (
         f"Subject: {profile.display_name} (IB group: {profile.group}). "
@@ -352,5 +361,5 @@ def prompt_profile_text(profile: SubjectProfile) -> str:
         + ("Numeric claims are not expected in this subject; encode argument structure only. "
            if profile.argument_only else
            f"Numeric sorts in use: {', '.join(sorted(profile.numeric_sorts))}; keep Int and Real distinct and write numerals as exact strings. ")
-        + (STEM_ENCODING_GUIDANCE if profile.key in STEM_PROFILE_KEYS else "")
+        + (STEM_ENCODING_GUIDANCE if profile.key in STEM_PROFILE_KEYS else ARGUMENT_MARKING_GUIDANCE)
     )

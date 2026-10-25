@@ -24,6 +24,7 @@ from epinoic_logic.translate.contracts import (
     ClaimRecord, ClaimVerificationOutcome, EligibilityClass, EligibilityDecision, SpecialistReport, SuppliedText,
     TranslationResult, TranslationStatus, sha256_text,
 )
+from .history_support import assert_forwards_to_a_peer_exactly
 
 KEY = b"round2-channel-test-key-0123456789"
 CFG = SolverConfig(timeout_ms=3000, memory_max_mb=None)
@@ -107,7 +108,7 @@ def outcome(claim: ClaimRecord, rep: SpecialistReport, problem: Problem, *, stat
 def test_a_specialist_cannot_relay_a_colleagues_report_or_overwrite_the_held_copy():
     hub = RouterHub(signing_key=KEY, config=CFG)
     ch = hub.open_task(two_subject_plan())
-    _, _, reply, _ = deliver_history(hub)
+    _, _, reply, arrival = deliver_history(hub)
     held = SpecialistReport.model_validate(reply.payload)
     forged = consistent_copy(held, replace=("80 shillings", "60 shillings"))
     fwd, fr = ch.relay("english-specialist", AgentRole.SPECIALIST, "dummy-combinator", AgentRole.COMBINATOR, forged)
@@ -117,7 +118,18 @@ def test_a_specialist_cannot_relay_a_colleagues_report_or_overwrite_the_held_cop
     assert any(f.code == "INT-HANDOFF-015" for f in fr.errors)
     assert "80 shillings" in ch.transmitted_reports["rep-hi"].original_response  # the delivered copy is untouched
     good, gr = ch.relay("router", AgentRole.ROUTER, "english-specialist", AgentRole.SPECIALIST, held, in_reply_to=reply.message_id)
-    assert good is not None and gr.status is TransmissionStatus.ACCEPTED, [f.model_dump() for f in gr.findings]
+    # Rewritten for the STEM review (relay history), as strict as before and stricter: the faithful forward of the held
+    # copy is delivered and adds no finding of its own; it carries exactly what the arrival left unresolved and
+    # references it (the refused relay above is no part of the history: it was never delivered).
+    # Rewritten again in accuracy round 1 (DV2-05) to the correct outcome: a forward to a peer specialist carries the
+    # arrival's errors and the faults its content was found to have, not its heuristic coverage warning (INT-REQ-004 on
+    # this correct answer), which stays listed in the history the forward references (assert_forwards_to_a_peer).
+    # Made exact as a literal set in accuracy round 2 (V1-TEST-INVERTED): nothing carried, the one warning listed.
+    assert good is not None
+    assert [f.code for f in arrival.findings if f.severity in ("error", "warning")] == ["INT-REQ-004"]
+    assert_forwards_to_a_peer_exactly(gr, arrival, carried=[], listed=[("INT-REQ-004", "warning")])
+    assert gr.status is TransmissionStatus.ACCEPTED
+    assert [h.receipt_id for h in gr.history] == [arrival.receipt_id]
     bad, br = ch.relay("router", AgentRole.ROUTER, "english-specialist", AgentRole.SPECIALIST, forged)
     assert bad is None and any(f.code == "INT-HANDOFF-013" and "altered in transit" in f.message for f in br.errors)
     ghost = consistent_copy(held, replace=("80 shillings", "60 shillings"), report_id="rep-ghost")
@@ -347,10 +359,19 @@ def test_per_agent_task_types_travel_on_requests_and_reports():
 def test_supersession_names_forwards_and_quoting_reports_and_a_synthesis_citing_the_old_report():
     hub = RouterHub(signing_key=KEY, config=CFG)
     ch = hub.open_task(two_subject_plan())
-    _, _, reply, _ = deliver_history(hub, "rep-hi-1")
+    _, _, reply, arrival = deliver_history(hub, "rep-hi-1")
     old = SpecialistReport.model_validate(reply.payload)
     fwd, fr = ch.relay("router", AgentRole.ROUTER, "english-specialist", AgentRole.SPECIALIST, old, in_reply_to=reply.message_id)
-    assert fwd is not None and fr.status is TransmissionStatus.ACCEPTED
+    # Rewritten for the STEM review (relay history), as strict as before and stricter: delivered, nothing of its own,
+    # exactly the arrival's unresolved findings carried, the arrival referenced.
+    # Rewritten again in accuracy round 1 (DV2-05) to the correct outcome: to a peer specialist, exactly the arrival's
+    # errors and decided faults are carried (none here: its one unresolved finding is a heuristic coverage warning on a
+    # correct answer), and the rest stays listed in the history the forward references (assert_forwards_to_a_peer).
+    # Made exact as a literal set in accuracy round 2 (V1-TEST-INVERTED): nothing carried, the one warning listed.
+    assert fwd is not None
+    assert [f.code for f in arrival.findings if f.severity in ("error", "warning")] == ["INT-REQ-004"]
+    assert_forwards_to_a_peer_exactly(fr, arrival, carried=[], listed=[("INT-REQ-004", "warning")])
+    assert fr.status is TransmissionStatus.ACCEPTED
     peer = SuppliedText(document_id="peer:hi", title="History report relayed through the hub", text=old.original_response)
     m2, _, _ = hub.dispatch(TASK, "english-specialist", ASK_EN, [POEM, peer])
     en = ('The boast "King of Kings" is read against a sonnet that, as the History specialist notes, "was printed in January 1818". '

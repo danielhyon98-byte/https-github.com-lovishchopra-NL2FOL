@@ -144,12 +144,16 @@ def test_other_language_a_labels_resolve_to_language_a_other(label):
 
 
 def _translated(problem: Problem, claim):
-    from epinoic_logic.translate.contracts import EligibilityDecision, ProviderInfo, TranslationResult
+    from epinoic_logic.translate.contracts import EligibilityDecision, ProviderInfo, TranslationResult, sha256_text
+    from epinoic_logic.version import TRANSLATOR_VERSION
 
+    # A record as this translator makes it (its version, bound to the claim text it read): any other record is displayed
+    # INTERNAL_ERROR whatever the engine says (re-run review finding correctness-5), which would hide what this test checks.
     return TranslationResult(
         translation_id="tr-sig", claim_id=claim.claim_id, request_id=claim.request_id, report_id=claim.report_id, status=T.TRANSLATED,
         eligibility=EligibilityDecision(eligibility_class="PROPOSITIONAL_ARGUMENT", eligible=True, decided_by="deterministic", reasons=["r"], policy_version="p"),
-        problem=problem, provider=ProviderInfo(provider_name="fixture"), translator_version="t", policy_version="p", created_at="2026-10-11T00:00:00Z",
+        claim_text_sha256=sha256_text(claim.claim_text),
+        problem=problem, provider=ProviderInfo(provider_name="fixture"), translator_version=TRANSLATOR_VERSION, policy_version="p", created_at="2026-10-11T00:00:00Z",
     )
 
 
@@ -206,5 +210,25 @@ def test_unverified_dependencies_are_named_and_never_summarised_as_none(english_
         "premises": [{"id": "P", "expr": V("p"), "label": "the point, asserted", "grounding": {"kind": "supplied_text"}}],
         "conclusion": {"id": "C", "expr": V("p"), "label": "the point"},
     }
+    # Rewritten to the stricter rule of policy 2026.10-v5 (issue 1: only a check in this process confers authority). The
+    # restating premise carries only the label supplied_text (no excerpt, so no check located it): it is the writer's own
+    # for circularity, so p proves p is refused as circular (E112), never displayed ENTAILED. Before, the label alone made
+    # it a "transcription" and the circle cleared with an unverified dependency.
     circ = verify_claim(english_claims["c-point"], english_report, Translator(FixtureTranslationProvider({"c-point": provider_output(circular, glossary=[])})), config=CFG)
-    assert circ.display_status is S.ENTAILED and circ.verification.unverified_dependencies == ["P"] and "Unverified dependencies" in circ.summary
+    assert circ.display_status is not S.ENTAILED and circ.translation.status is T.INVALID_FORMALIZATION
+    assert any("E112" in d and "circular" in d for d in circ.translation.diagnostics)
+    # the same premise with an excerpt that a check locates is a transcription of the text: no circle, nothing unverified.
+    # Rewritten to the stricter rule of repair round 1 (re-run review ADV-01): the located excerpt must also state the point
+    # it is cited for, so the point here means what the excerpt says; the placeholder meaning "the point", which the excerpt
+    # does not state, is a point dressed as a quotation, refuted and refused as circular below.
+    located = json.loads(json.dumps(circular))
+    located["symbols"][0]["meaning"] = "the lamp stays unlit"
+    located["premises"][0]["grounding"] = {"kind": "supplied_text", "source_refs": [{"document_id": DOC_ID, "excerpt": "The lamp stays unlit"}]}
+    ok = verify_claim(english_claims["c-point"], english_report, Translator(FixtureTranslationProvider({"c-point": provider_output(located, glossary=[])})), config=CFG)
+    assert ok.display_status is S.ENTAILED and ok.verification.unverified_dependencies == [] and ok.verification.ungrounded_dependencies == []
+    assert "E112" not in {d.code for d in ok.verification.diagnostics}
+    dressed = json.loads(json.dumps(located))
+    dressed["symbols"][0]["meaning"] = "the point"
+    bad = verify_claim(english_claims["c-point"], english_report, Translator(FixtureTranslationProvider({"c-point": provider_output(dressed, glossary=[])})), config=CFG)
+    assert bad.display_status is not S.ENTAILED and bad.translation.status is T.INVALID_FORMALIZATION
+    assert any(c.method == "content_in_excerpt" and c.verified is False for c in bad.translation.grounding_checks)

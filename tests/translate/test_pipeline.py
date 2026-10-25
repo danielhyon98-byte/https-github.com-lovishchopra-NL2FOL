@@ -30,8 +30,9 @@ def test_translated_sets_verified_flags_and_bookkeeping(english_claims, english_
     assert any(c.method == "verbatim_match" and c.verified for c in result.grounding_checks)
     assert result.provider.provider_name == "fixture" and result.provider.attempts == 1
     # rewritten (12 Oct 2026 review fixes): the prompt changed, so its version did; the rule is the same, the record names
-    # the prompt in use (translate_v2), and translate_v1 stays packaged unchanged (test_stem_subjects pins its digest)
-    assert result.provider.prompt_version == prompts.TRANSLATE_PROMPT_VERSION == "translate_v2"
+    # the prompt in use (translate_v3 since the argument diagnosis, rules argdiag-1), and translate_v1 and translate_v2 stay
+    # packaged unchanged (test_stem_subjects pins their digests)
+    assert result.provider.prompt_version == prompts.TRANSLATE_PROMPT_VERSION == "translate_v3"
     assert result.translator_version == TRANSLATOR_VERSION and result.policy_version == POLICY_VERSION
     assert result.eligibility.eligibility_class is C.PROPOSITIONAL_ARGUMENT
     assert result.claim_id == "c-point" and result.request_id == "req-1" and result.report_id == "rep-1"

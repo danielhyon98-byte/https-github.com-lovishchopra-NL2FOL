@@ -74,9 +74,9 @@ from ...ir.schema import SourceRef
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, is_self_certification, split_list_items,  # noqa: F401
+from ..markdown import (MEMORY_LABEL_RE, cited_quotation_spans, in_quotation_task, concludes_from_earlier, dangling_quote_offset, find_quotation_spans, is_memory_label, is_self_certification, opens_with_conclusion, split_list_items,  # noqa: F401
                         split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
-from ..sources import attribute_excerpt, check_excerpt  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
+from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuation  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
 from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
 from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
 from .sentences import split_sentences as _split_sentences, strip_json_spans
@@ -327,7 +327,7 @@ def is_note_paragraph(paragraph: str) -> bool:
     """The paragraph opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:',
     'Limit:'), whatever its length, dates or figures; or all sentences are labels (from-memory
     disclaimers, task notes, source caveats, self-reports, JSON fragments); or the paragraph is a
-    short undated aside with no argument cue. One
+    short undated aside with no argument cue, unless it is the answer's only prose (``classify_paragraphs``). One
     self-report inside a substantive paragraph does NOT make the paragraph a note: only
     that sentence is demoted (see ``parse_response``)."""
     sentences = split_sentences(paragraph)
@@ -339,6 +339,27 @@ def is_note_paragraph(paragraph: str) -> bool:
         return True
     low = paragraph.lower()
     return len(sentences) == 1 and _word_count(paragraph) < _MAX_ASIDE_WORDS and not has_dated_item(paragraph) and not any(c in low for c in _ARGUMENT_CUES)
+
+
+#: Closing remarks that are no answer even when they are an answer's only line ("Hope this helps.").
+SIGN_OFF_CUES: tuple[str, ...] = ("hope this helps", "hope that helps", "good luck", "best of luck", "let me know", "feel free", "thanks", "thank you",
+                                  "happy to help", "any questions", "any other questions", "cheers", "you're welcome", "you are welcome")
+_MIN_SOLE_WORDS = 4
+
+
+def _states_something(paragraph: str) -> bool:
+    """A sole line that can be an answer: at least four words and no closing remark (:data:`SIGN_OFF_CUES`)."""
+    low = paragraph.lower()
+    return _word_count(paragraph) >= _MIN_SOLE_WORDS and not any(c in low for c in SIGN_OFF_CUES)
+
+
+def _aside_only(paragraph: str) -> bool:
+    """A paragraph that :func:`is_note_paragraph` reads as a note only because it is a short undated line with no
+    argument cue (no note lead, and its sentence is no label)."""
+    sentences = split_sentences(paragraph)
+    if not sentences or has_note_lead(sentences[0]) or all(is_note_sentence(s) for s in sentences):
+        return False
+    return is_note_paragraph(paragraph)
 
 
 def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool = False) -> str:
@@ -443,6 +464,12 @@ def classify_paragraphs(text: str) -> list[tuple[ParagraphKind, str]]:
     module docstring). The structural checks use the same classification."""
     blocks = [p.strip() for p in re.split(r"\n\s*\n", strip_markup(text).strip()) if p.strip()]
     kinds: list[ParagraphKind] = ["note" if is_note_paragraph(b) else "body" for b in blocks]
+    if "body" not in kinds:
+        # an answer whose only prose is one short line: that line is the answer, not an aside beside it (re-run review
+        # A-INF-BARE: "Stalin's Five-Year Plans were a complete success." alone is a bare judgement, never a note)
+        sole = next((i for i, b in enumerate(blocks) if _aside_only(b) and _states_something(b)), None)
+        if sole is not None:
+            kinds[sole] = "body"
     prose = [i for i, k in enumerate(kinds) if k == "body"]
     substantive = [i for i in prose if _word_count(blocks[i]) >= _MIN_SUBSTANTIVE_WORDS or has_dated_item(blocks[i])]
     if len(substantive) >= 3:
@@ -465,7 +492,7 @@ def quotations_in(sentence: str) -> list[str]:
     """Quoted excerpts of ``sentence`` in order: straight, curly or mixed double marks,
     guillemets, and single marks around two or more words; at least four characters.
     Strings of a JSON fragment pasted into the sentence are not quotations."""
-    return [inner.strip() for _s, _e, inner in find_quotation_spans(_without_json(sentence)) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
+    return [inner.strip() for _s, _e, inner in cited_quotation_spans(_without_json(sentence)) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
 
 
 def _mask_quotations(sentence: str) -> str:
@@ -495,6 +522,7 @@ class HistorySpecialistAdapter:
         from .structural import structural_checks
         return structural_checks(report)
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`
@@ -518,6 +546,7 @@ class HistorySpecialistAdapter:
             point_id: Optional[str] = None
             body_index = 0
             after_counter_case = False
+            para_bodies: list[str] = []   # the paragraph's substantive sentences so far (a conclusion drawn from them is a link)
             for si, sent in enumerate(sentences):
                 cid = f"h{pi + 1}.{si + 1}"
                 core, notes = split_note_clauses(sent)
@@ -538,8 +567,16 @@ class HistorySpecialistAdapter:
                 else:
                     role = classify(body, body_index, True, after_counter_case=after_counter_case)
                     body_index += 1
+                    if role in ("analysis", "evidence") and body_index > 1 and (concludes_from_earlier(body, para_bodies) or opens_with_conclusion(body)):
+                        # 'Because the delegate objected to the terms, Source A suggests ...' after 'Source A shows that the delegate
+                        # objected ...': the sentence draws its conclusion from the claims before it, so it is a link resting on them,
+                        # as a structured report records it (repair round 2, NAME-LINK-NONDISCRIMINATING: text and report deliveries agree);
+                        # so does a sentence that opens with a conclusion lead ('So Britain was certain to win.', 'This shows that ...':
+                        # repair round 3, ADV3-01)
+                        role = "link"
                 if not note:
                     after_counter_case = role == "counter_evidence" and is_counter_case_statement(body)
+                    para_bodies.append(body)
                 refs: list[SourceRef] = []
                 assumptions: list[str] = []
                 quoted = False
@@ -551,7 +588,9 @@ class HistorySpecialistAdapter:
                     # the reporting clause's outer speaker or the nearest named text is credited (sources.governing_document), never none
                     doc, notes_for_excerpt = attribute_excerpt(excerpt, named, docs, sentence=plain)
                     if doc:
-                        refs.append(SourceRef(document_id=doc, excerpt=excerpt[:2000]))
+                        # punctuation written inside the closing mark is the writer's ("... for too long." quoting "for too long, and"),
+                        # as the English parser reads it (repair round 2)
+                        refs.append(SourceRef(document_id=doc, excerpt=(strip_trailing_punctuation(excerpt) or excerpt)[:2000]))
                     assumptions.extend(notes_for_excerpt)
                     if role in ("analysis", "evidence"):
                         role = "evidence"

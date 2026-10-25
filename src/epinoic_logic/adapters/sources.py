@@ -45,13 +45,15 @@ the text, so caching never changes it.
 """
 from __future__ import annotations
 
+import bisect
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal, Mapping, Optional, Sequence
 
 from ..translate.contracts import SuppliedText
 from ..translate.grounding import (
-    BoundedLRU, locate_long_elision, locate_quotation, locate_quotation_inexact, normalize_quote, normalized_text, text_sha256,
+    BoundedLRU, is_peer_document, is_peer_id, locate_long_elision, locate_quotation, locate_quotation_inexact, normalize_quote, normalized_text, text_sha256,
 )
 
 __all__ = [
@@ -59,6 +61,7 @@ __all__ = [
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
     "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
+    "unwrap_emphasis",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -154,8 +157,32 @@ def check_excerpt(excerpt: Optional[str], document_id: Optional[str], docs: Mapp
     cached = _CHECKS.get(key)
     if cached is None:
         cached = _check_in_document(excerpt or "", cleaned, document_id, doc.text)
+        bare = unwrap_emphasis(cleaned)
+        if cached.status == "not_found" and bare != cleaned:
+            # Emphasis markup wrapped inside the quotation marks ('"*una mujer muy simpático*"') is markup, not quoted
+            # words: the words themselves are looked for, and only when the marked form is not found.
+            unwrapped = _check_in_document(bare, strip_trailing_punctuation(bare), document_id, doc.text)
+            if unwrapped.status != "not_found":
+                cached = ExcerptCheck(unwrapped.status, document_id, f"{unwrapped.detail} (its emphasis markup set aside)", unwrapped.excerpt_checked)
         _CHECKS.put(key, cached, weight=len(key[0]) + len(cached.detail) + len(cached.excerpt_checked) + 1)
     return cached
+
+
+#: Emphasis markers that may wrap a whole quoted excerpt: ``*``, ``**``, ``***``, ``_``, ``__``, ``___``.
+_WRAPPING_EMPHASIS_RE = re.compile(r"^(\*{1,3}|_{1,3})(?=\S)(.*?\S)\1$", re.DOTALL)
+
+
+def unwrap_emphasis(excerpt: str) -> str:
+    """``excerpt`` without emphasis markup that wraps all of it ("*una mujer muy simpático*" -> "una mujer muy simpático",
+    "**_x_**" -> "x"). Markup inside the excerpt, or markup on one side only, is kept: only a pair that opens and closes
+    the whole excerpt is set aside. At most three levels; linear."""
+    text = excerpt.strip()
+    for _ in range(3):
+        m = _WRAPPING_EMPHASIS_RE.match(text)
+        if m is None:
+            break
+        text = m.group(2).strip()
+    return text
 
 
 def clear_excerpt_cache() -> None:
@@ -261,23 +288,113 @@ def specialist_names(author: str) -> list[str]:
     return names
 
 
+#: The kinds of text a title may name ("Council leaflet", "(newspaper article, The Northern Courier, 2021)", "(table from
+#: the student's History textbook)"): a sentence that names the kind ("the newspaper", "the bread price table") names that
+#: text (:func:`quotation_credit`; repair round 1, re-run review cf-5 variant).
+_TEXT_KINDS = ("poem", "play", "novel", "sonnet", "extract", "passage", "monologue", "story", "leaflet", "article", "advert", "advertisement",
+               "table", "textbook", "blog", "post", "speech", "newspaper", "magazine", "editorial", "letter", "diary", "pamphlet", "brochure",
+               "website", "interview", "cartoon", "poster", "memoir", "transcript")
+#: Kinds of document a title may name (repair round 3, rerun-combinator-faults-5: "The report says ...", "The minutes record
+#: ..."): a sentence that names one credits the one text whose title names it, never another text by default.
+_DOCUMENT_KINDS = ("report", "document", "minutes", "memo", "memorandum", "statement", "survey", "accounts", "review", "bulletin", "notice")
+#: Words that mark an author as an organisation ("Northwind Shipping Ltd", "Riverside Hospital Trust"): its leading words name
+#: it too ("Northwind Shipping", "Northwind"), and a sentence names it by its kind ("the company", "the trust").
+_ORG_WORDS = frozenset({"ltd", "limited", "plc", "inc", "llc", "corp", "corporation", "company", "co", "group", "holdings", "trust", "council",
+                        "hospital", "university", "college", "school", "bank", "authority", "agency", "foundation", "institute", "association",
+                        "society", "board", "committee", "department", "ministry", "government", "commission", "charity", "union", "partnership"})
+#: The suffixes of a company: its author is named "the company", "the firm", "the business" as well.
+_COMPANY_WORDS = frozenset({"ltd", "limited", "plc", "inc", "llc", "corp", "corporation", "company", "co", "group", "holdings"})
+_COMPANY_KINDS = ("company", "firm", "business", "corporation", "organisation", "organization", "enterprise")
+#: Leading words that do not name an organisation by themselves ("National", "Royal", "City").
+_GENERIC_NAME_WORDS = frozenset({"national", "royal", "british", "american", "international", "general", "united", "central", "city", "county",
+                                 "state", "federal", "new", "first", "global", "world", "north", "south", "east", "west", "northern", "southern",
+                                 "eastern", "western", "great", "the", "local", "public", "private", "independent", "regional"})
+_ORG_KINDS = tuple(sorted((_ORG_WORDS - _COMPANY_WORDS) | set(_COMPANY_KINDS)))
+_TEXT_KIND_SET = frozenset(_TEXT_KINDS + _DOCUMENT_KINDS)
+#: Kinds named only by the text that carries them (its title or its author): no other text is credited by default.
+_MATCH_ONLY_KINDS = frozenset(_DOCUMENT_KINDS) | frozenset(_ORG_KINDS)
+
+
+def _org_words(author: str) -> list[str]:
+    return [w.casefold().strip(".,") for w in author.split()]
+
+
+def _author_kinds(doc: SuppliedText) -> frozenset[str]:
+    """The kinds of organisation a text's author is ("Riverside Hospital Trust": hospital, trust, organisation; "Northwind
+    Shipping Ltd": company, firm, business, organisation, ...), none for a person."""
+    author = re.sub(r"\s*\([^()]{0,200}\)\s*$", "", (doc.author or "").strip())
+    words = _org_words(author)
+    org = set(words) & _ORG_WORDS
+    if not org:
+        return frozenset()
+    kinds = (org - _COMPANY_WORDS) | {"organisation", "organization"}
+    if org & _COMPANY_WORDS:
+        kinds |= set(_COMPANY_KINDS)
+    return frozenset(kinds)
+_TITLE_PAREN_RE = re.compile(r"\(([^()]{1,200})\)")
+#: A proper name in a title's parenthetical: capitalised words, with the small words of a name between them ("The
+#: Northern Courier", "Journal of Economic History"); no digit (a year is no name).
+_TITLE_NAME_RE = re.compile(r"(?:[A-Z][\w'’.&-]*)(?:\s+(?:of|the|and|for|on|in|de|la|le|du|des|[A-Z][\w'’.&-]*))*")
+#: Words that describe a text rather than name it ("Supplied Text", "Source A"): a name made only of them is none.
+_NOT_A_TITLE_NAME = frozenset({"the", "a", "supplied", "text", "source", "document", "extract", "table", "figure", "appendix", "student", "students"})
+
+
+def _title_parts(doc: SuppliedText) -> tuple[list[str], frozenset[str]]:
+    """``(names, kinds)`` a non-peer text's title gives beside its main part: the proper names in its parentheticals (a
+    publication, "The Northern Courier", also without its article) and the kinds of text it names anywhere
+    (:data:`_TEXT_KINDS`: "newspaper", "article", "table", "leaflet")."""
+    title = doc.title or ""
+    names: list[str] = []
+    for inner in _TITLE_PAREN_RE.findall(title):
+        for seg in re.split(r"[,;]", inner):
+            seg = seg.strip()
+            if len(seg) < 4 or re.search(r"\d", seg) or not _TITLE_NAME_RE.fullmatch(seg):
+                continue
+            words = seg.split()
+            if all(w.casefold().strip(".") in _NOT_A_TITLE_NAME for w in words):
+                continue
+            names.append(seg)
+            if words[0] in ("The", "the") and len(words) >= 3:
+                names.append(" ".join(words[1:]))
+    kinds = frozenset(w for w in re.findall(r"[a-z]+", title.casefold()) if w in _TEXT_KIND_SET)
+    return names, kinds
+
+
 def _names_of(doc: SuppliedText) -> list[str]:
     """How a sentence names ``doc``: its author (full name and surname; a specialist agent by :func:`specialist_names`:
     "history-specialist" also as "history specialist", "mathematics-aa-specialist" also as "mathematics specialist"), and
-    the title of a non-peer text up to any parenthesis, colon or comma."""
+    the title of a non-peer text up to any parenthesis, colon or comma, and the proper names in the title's parentheticals
+    (:func:`_title_parts`: "The Northern Courier" of "Plastic waste rising (newspaper article, The Northern Courier,
+    2021)"). A trailing parenthetical of the author is a description, not part of the name ("Kestrelford Borough Council
+    (a fictional council)" is named "Kestrelford Borough Council", surname "Council"), as a title's is."""
     names: list[str] = []
     author = (doc.author or "").strip()
+    stripped = re.sub(r"\s*\([^()]{0,200}\)\s*$", "", author).strip()
+    if stripped and stripped != author:
+        author = stripped
     if author:
         names.append(author)
         names.extend(specialist_names(author))
         parts = author.split()
         if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
             names.append(parts[-1])
-    peer = doc.document_id.startswith("peer:") or author.endswith("-specialist")
+        words = _org_words(author)
+        first_org = next((k for k, w in enumerate(words) if k > 0 and w in _ORG_WORDS), None)
+        if first_org is not None:
+            # an organisation is named by its leading words too: "Northwind Shipping Ltd" as "Northwind Shipping" and "Northwind",
+            # "Riverside Hospital Trust" as "Riverside" (repair round 3, rerun-combinator-faults-5)
+            lead = parts[:first_org]
+            if lead and all(w[:1].isupper() for w in lead):
+                if len(lead) > 1:
+                    names.append(" ".join(lead))
+                if len(lead[0]) >= 4 and lead[0].casefold() not in _GENERIC_NAME_WORDS:
+                    names.append(lead[0])
+    peer = is_peer_document(doc)  # one rule with the grounding checks (repair round 4, rerun-security-2 variant)
     if doc.title and not peer:
         title = re.split(r"[(:,]", doc.title)[0].strip()
         if len(title) >= 3:
             names.append(title)
+        names.extend(_title_parts(doc)[0])
     return [n for n in names if len(n) >= 3]
 
 
@@ -408,27 +525,128 @@ _CREDIT_VERBS = (r"(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claim
                  r"reveals?|revealed|confirms?|confirmed|acknowledges?|acknowledged|exclaims?|exclaimed|protests?|protested|replies|replied|announces?|announced|"
                  r"dates?|dated|counts?|counted|gives?|gave|records?|recorded|estimates?|estimated|places?|placed|puts?|sees?|saw|treats?|treated|"
                  r"interprets?|interpreted|attributes?|attributed|traces?|traced|finds?|found|judges?|judged|holds?|held|names?|named|uses?|used|employs?|employed|"
-                 r"suppl(?:y|ies|ied)|provides?|provided|offers?|offered|frames?|framed)")
-#: Nouns a possessive may govern before the verb: "Hardy's speaker admits", "the English specialist's paragraph identifies".
+                 r"suppl(?:y|ies|ied)|provides?|provided|offers?|offered|frames?|framed|"
+                 # verbs of showing and stressing credit their subject's words too ("The table shows that '...'", "the article
+                 # indicates that '...'": repair round 2, combinator-faults-5 variant)
+                 r"shows?|showed|shown|indicates?|indicated|demonstrates?|demonstrated|illustrates?|illustrated|highlights?|highlighted|"
+                 r"emphasi[sz]es|emphasi[sz]ed|emphasi[sz]e|stresses|stressed|stress|warns?|warned|asserts?|asserted|implies|implied|"
+                 r"proclaims?|proclaimed|reminds?|reminded|lists?|listed|summari[sz]es|summari[sz]ed|documents?|documented|"
+                 r"proposes?|proposed|recommends?|recommended|urges?|urged|predicts?|predicted|makes? clear|made clear)")
+#: Nouns a possessive may govern before the verb: "Hardy's speaker admits", "the English specialist's paragraph identifies",
+#: and every kind of text a title may name ("Churchill's speech states", "the council's leaflet states": repair round 4,
+#: rerun-combinator-faults-5 variant).
 _CREDIT_NOUNS = (r"(?:speaker|narrator|persona|poem|poet|line|lines|words?|phrase|phrasing|text|voice|monologue|paragraph|reading|account|verse|"
-                 r"stanza|soldier|man|character|report|analysis|essay|view|argument|claim|note|sonnet|novel|play|story)")
+                 r"stanza|soldier|man|character|report|analysis|essay|view|argument|claim|note|sonnet|novel|play|story|"
+                 + "|".join(k for k in _TEXT_KINDS + _DOCUMENT_KINDS if k not in ("poem", "play", "novel", "sonnet", "story", "report")) + r")")
 _CREDIT_ADVERBS = r"(?:himself|herself|itself|themselves|also|then|even|openly|plainly|bluntly|simply|directly|explicitly|rightly|famously|later|here|still)"
 #: The words between a credited name and its quotation: a bare possessive ("Hardy's '...'"), or an optional possessive
 #: noun, adverbs and a crediting verb, then the rest of the clause.
+#: (security round 1) The white space of the gap is read possessively, each run once: what follows each run (a comma or colon,
+#: 'own', a noun, an adverb, a verb, the gap's end) cannot begin with white space, and a comma may still stand anywhere in the
+#: space before the verb ('\s*,?\s+' is a run with at most one comma that white space follows), so every gap is read as before.
+#: Split between two or three quantifiers, a run of 1,000 spaces in a gap took 0.9 s and grew with its square (the base's
+#: pattern alike) (tests/adapters/test_security_round1_credit.py).
 _CREDIT_GAP_RE = re.compile(
-    r"^(?:['’]s?\s*[,:]?\s*$"
-    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b)",
+    r"^(?:['’]s?\s*+[,:]?+\s*+$"
+    r"|(?:['’]s?(?:\s++own)?(?:\s++" + _CREDIT_NOUNS + r")?)?(?:\s*+,)?+\s++(?:" + _CREDIT_ADVERBS + r"\s++)*" + _CREDIT_VERBS + r"\b)",
     re.IGNORECASE)
+#: :data:`_CREDIT_GAP_RE` read where a name ends, within the gap to its quotation (``match(sentence, end, quote_start)``).
+_CREDIT_GAP_AT_RE = re.compile(_CREDIT_GAP_RE.pattern[1:], _CREDIT_GAP_RE.flags)
 #: Where a clause ends, so a verb never credits a quotation of the next clause ("Hardy's speaker calls the war 'quaint',
 #: and the casualness 'exposes ...'": the second quotation is not the speaker's).
 _CREDIT_CLAUSE_END_RE = re.compile(r"[;!?]|\.\s|:\s|,\s+(?:and|but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
-#: A text named by kind rather than by name: "the poem", "the poet", "the speaker".
-_GENERIC_LITERARY_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story)\b", re.IGNORECASE)
+#: A text named by kind rather than by name: "the poem", "the poet", "the speaker", and the non-literary kinds of the
+#: other subjects ("the leaflet", "the article", "the table", "the textbook", "the case study", "the speech", "the
+#: newspaper", "the letter"), with up to three words before the kind ("the bread price table", "the student's History
+#: textbook"; never a specialist's or a report's, "the History specialist's table", which credits the colleague). It
+#: resolves to the one non-peer text whose title names that kind, else to the one non-peer text supplied
+#: (:func:`quotation_credit`); a hyphen or a letter after the kind is another word ("the post-war era", "the textbooks'"),
+#: never the kind.
+_GENERIC_LITERARY_RE = re.compile(
+    r"\b(?:the|this)\s+(?:(?!(?:the|this|a|an|and|or|of|in|on|at|to|for|by|with|from|that|which|who|is|was|are|were|specialist['’]?s?|report['’]?s?|"
+    r"colleague['’]?s?)\b)[\w'’-]+\s+){0,3}?"
+    r"(?P<kind>poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story"
+    r"|leaflet|article|advert|advertisement|text|source|table|textbook|case\s+study|blog|post|speech|newspaper|magazine|editorial|letter|diary|pamphlet"
+    r"|brochure|website|interview|cartoon|poster|memoir|transcript"
+    # a person named by role rather than by name (repair round 5, rerun-combinator-faults-5 variant: "The Prime Minister
+    # declares that ..." for a speech by Winston Churchill): the one non-peer text supplied, as for "the speaker"
+    r"|author|writer|orator|novelist|playwright|dramatist|essayist|minister|president|chancellor|king|queen|emperor|empress"
+    r"|monarch|premier|statesman|leader"
+    r"|" + "|".join(_DOCUMENT_KINDS) + "|" + "|".join(_ORG_KINDS) + r")(?![\w-])", re.IGNORECASE)
 _LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IGNORECASE)
+#: "In Shelley's words, '...'", "in the poem's own words: '...'": "in" before the name, its words after it.
+_IN_WORDS_BEFORE_RE = re.compile(r"\bin\s+$", re.IGNORECASE)
+_IN_WORDS_GAP_RE = re.compile(r"['’]s?\s+(?:own\s+)?words\s*+[,:]?+\s*+", re.IGNORECASE)
+#: A name or a kind that opens its sentence ("The poem: '...'"), and the colon that hands it the quotation.
+_SENTENCE_OPEN_RE = re.compile(r"(?:^|[.!?]\s+|\n)\s*$")
+
+
+def _opens_sentence(before: str) -> bool:
+    """Whether ``_SENTENCE_OPEN_RE`` finds ``before`` ending where a sentence opens, read from its end (security round 1):
+    nothing but white space, or white space after an end mark, or a line break in the white space at its end. The pattern
+    was searched from every end mark and line break, each start reading the white space after it (quadratic: 0.06 s on
+    4,000 spaces, for each name before a quotation); the white space at the end is read once
+    (tests/adapters/test_security_round1_credit.py)."""
+    text = before.rstrip()
+    tail = before[len(text):]
+    return not text or (bool(tail) and text[-1] in ".!?") or "\n" in tail
+
+
+def _space_run_start(text: str, end: int) -> int:
+    """Where the run of white space that ends at ``end`` starts (``end`` when none does): ``len(text[:end].rstrip())``."""
+    k = end
+    while k > 0 and text[k - 1].isspace():
+        k -= 1
+    return k
+
+
+def _opens_sentence_at(text: str, end: int, k: int) -> bool:
+    """``_opens_sentence(text[:end])``, ``k`` the start of the white space at its end (:func:`_space_run_start`)."""
+    return k == 0 or (k < end and text[k - 1] in ".!?") or text.find("\n", k, end) >= 0
+_LABEL_COLON_GAP_RE = re.compile(r"\s*:\s*")
+#: Nothing but white space and a comma between a name after 'according to' and its quotation; each run read once (security
+#: round 2: split around the optional comma, a long run with a word after it was read again for every split).
+_LEADING_GAP_RE = re.compile(r"\s*+,?+\s*+")
+#: What may stand between a reporting verb and a quotation it introduces with a colon: "it" ("puts it:") and the colon.
+_VERB_COLON_REST_RE = re.compile(r"(?:\s+it)?\s*:\s*", re.IGNORECASE)
 #: Verbs that present what their subject supplies ("The History specialist supplies the frame: ...") and the noun phrase
 #: and colon that introduce it: the colon does not end the credit.
 _PRESENTING_RE = re.compile(r"\b(?:suppl(?:y|ies|ied)|provides?|provided|offers?|offered|gives?|gave|frames?|framed)$", re.IGNORECASE)
 _PRESENTED_NOUN_RE = re.compile(r"^\s+(?:the|a|an|its|their|this|that)\s+[^\W\d_]+(?:\s+[^\W\d_]+)?\s*:\s", re.IGNORECASE)
+#: The same read where the verb ends, and what :func:`quotation_credit` reads of the rest of the gap after it is replaced by one
+#: space: a spaced dash right after that space, the rest of the gap after a verb ('puts it:'), and 'that' after a verb.
+_PRESENTED_NOUN_AT_RE = re.compile(_PRESENTED_NOUN_RE.pattern[1:], _PRESENTED_NOUN_RE.flags)
+_DASH_AFTER_SPACE_RE = re.compile(r"[-–—]\s")
+_VERB_COLON_AFTER_SPACE_RE = re.compile(r"(?:\s*it)?\s*:\s*", re.IGNORECASE)
+_THAT_AFTER_RE = re.compile(r"\s+that\b", re.IGNORECASE)
+
+
+#: Credits written after the quotation they credit (repair round 4, rerun-combinator-faults-5 variant). Between the
+#: closing mark and the name: nothing but a comma or a dash ('"...", the leaflet says.', '"...," Churchill says.').
+_AFTER_GAP_RE = re.compile(r"\s*[,–—-]?\s*$")
+#: The reporting verbs a credit written after its quotation uses, the subject before ('"...", Churchill says') or after it
+#: ('"...", says the leaflet').
+_AFTER_VERBS = (r"(?:says|said|writes|wrote|notes|noted|argues|argued|claims|claimed|declares|declared|states|stated|observes|observed|"
+                r"explains|explained|adds|added|insists|insisted|continues|continued|remarks|remarked|replies|replied|asks|asked|"
+                r"concludes|concluded|warns|warned|announces|announced|admits|admitted|recalls|recalled|reports|reported|suggests|"
+                r"suggested|exclaims|exclaimed|proclaims|proclaimed|puts it|put it|reads|read)")
+_AFTER_INVERTED_RE = re.compile(r"\s*[,–—-]?\s*(?:" + _CREDIT_ADVERBS + r"\s+)*" + _AFTER_VERBS + r"\s+$", re.IGNORECASE)
+_AFTER_ACCORDING_RE = re.compile(r"\s*[,–—-]?\s*(?:according\s+to|in\s+the\s+words\s+of|as\s+(?:reported|stated|given|recorded|noted|written|put)\s+(?:by|in))\s+$",
+                                 re.IGNORECASE)
+_AFTER_AS_RE = re.compile(r"\s*[,–—-]?\s*as\s+$", re.IGNORECASE)
+#: An attribution dash after the closing mark ('"..." — Shelley.', '"..." – Churchill, 1940.'), and the end of the sentence
+#: right after the name: a year or a locator at most.
+_AFTER_DASH_RE = re.compile(r"\s*[,]?\s*(?:[—–]|\s-)\s*")
+_AFTER_DASH_END_RE = re.compile(r"\s*(?:,\s*(?:(?:lines?|ll?\.|pp?\.|pages?|stanza|chapter|act|scene)\s*)?[\w.–-]{1,12})?\s*(?:[.!?](?:\s|$)|$|\n)", re.IGNORECASE)
+_AFTER_VERB_RE = re.compile(r"(?:['’]s(?:\s+" + _CREDIT_NOUNS + r"))?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _AFTER_VERBS + r"\b", re.IGNORECASE)
+#: What may follow such a credit in its clause: the clause's end, or a short phrase of place or occasion ("Churchill says in
+#: the speech."), never a reported clause of its own ("Churchill says that ...": the credit is then for what follows).
+_AFTER_END_RE = re.compile(r"\s*(?:[.,;:!?)\]]|$)|\s+(?:in|of|on|at|to|before|after|during)\s+[^.,;:!?\"“”]{1,60}?(?:[.,;:!?]|$)", re.IGNORECASE)
+#: A citation in brackets right after the closing mark: '"..." (Churchill, 1940).', '"..." (council leaflet).'
+_AFTER_CITATION_RE = re.compile(r"\s*\(([^()]{1,80})\)")
+#: Words of a bracketed citation besides the text it names: numbers, years and locators.
+_CITATION_WORDS = frozenset({"line", "lines", "l", "ll", "p", "pp", "page", "pages", "para", "paragraph", "paragraphs", "stanza", "chapter", "section",
+                             "act", "scene", "verse", "et", "al", "ed", "eds", "see", "cf", "the", "a", "an", "supplied", "text", "source", "extract"})
 
 
 @dataclass(frozen=True)
@@ -441,9 +659,10 @@ class Credit:
 
 
 def is_peer_text(doc: SuppliedText) -> bool:
-    """A relayed specialist's report supplied as a document ('peer:<task>', or an author '<subject>-specialist')."""
-    author = (doc.author or "").strip().lower()
-    return doc.document_id.startswith("peer:") or author.endswith("-specialist") or author.endswith(" specialist")
+    """A relayed specialist's report supplied as a document ('peer:<task>', or an author '<subject>-specialist'). One rule
+    with the grounding checks (:func:`epinoic_logic.translate.grounding.is_peer_document`), which never let such a report
+    verify a premise."""
+    return is_peer_document(doc)
 
 
 def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, SuppliedText], *, other_sources: Sequence[str] = ()) -> Optional[Credit]:
@@ -457,9 +676,15 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
     (an author a colleague's report discusses, "Hardy") that credit a text not among ``docs``: a credit with no document."""
     from .markdown import find_quotation_spans
     spans = [(a, b) for a, b, _inner in find_quotation_spans(sentence)]
+    ordered = sorted(spans)
+    span_starts = [a for a, _b in ordered]
+    reach: list[int] = []   # the furthest end of the spans that start at or before each one (security round 2: a scan of
+    for _a, b in ordered:   # every span for every name)
+        reach.append(max(b, reach[-1]) if reach else b)
 
     def quoted(pos: int) -> bool:
-        return any(a <= pos < b for a, b in spans)
+        i = bisect.bisect_right(span_starts, pos)
+        return i > 0 and reach[i - 1] > pos
 
     mentions: list[tuple[int, int, Optional[str], bool]] = []
     for doc_id, doc in docs.items():
@@ -470,29 +695,125 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
     literary = sorted({d for d, t in docs.items() if not is_peer_text(t) and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
     for m in _GENERIC_LITERARY_RE.finditer(sentence):
         if not quoted(m.start()):
-            mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
+            kind = " ".join(m.group("kind").casefold().split())
+            of_kind = [d for d in literary if kind in _title_parts(docs[d])[1] or kind in _author_kinds(docs[d])]
+            if kind in _MATCH_ONLY_KINDS:
+                # a document or an organisation named by kind credits only the text that carries the kind (repair round 3)
+                if len(of_kind) == 1:
+                    mentions.append((m.start(), m.end(), of_kind[0], True))
+                continue
+            doc_id = of_kind[0] if len(of_kind) == 1 else literary[0] if len(literary) == 1 else None
+            mentions.append((m.start(), m.end(), doc_id, True))
     before = sorted((m for m in mentions if m[1] <= quote_start), key=lambda m: (m[1], m[0]), reverse=True)
     credits: list[tuple[Credit, bool]] = []  # nearest first; True when the verb opens a reported clause ("argues that")
+    # Each name is read where it stands, never through a copy of the text before it or of the gap to the quotation
+    # (security round 2: a copy and a scan of both for every name, quadratic in a sentence of many names): the text before
+    # the name is read from its end, the gap with the patterns' own bounds, and the clause ends up to the quotation once.
+    clause_ends: list[tuple[list[int], list[int]]] = []
+
+    def clause_ends_after(x: int) -> bool:
+        """``_CREDIT_CLAUSE_END_RE.search(sentence[x:quote_start]) is not None``."""
+        if not clause_ends:
+            found = list(_CREDIT_CLAUSE_END_RE.finditer(sentence, 0, quote_start))
+            clause_ends.append(([f.start() for f in found], [f.end() for f in found]))
+        starts, ends = clause_ends[0]
+        i = bisect.bisect_left(starts, x)
+        if i < len(starts):
+            return True   # the pattern reads nothing before a match, so a match of the scan after x is one of the gap's
+        # a match of the scan that stands across x: another may start inside it, after x (none starts after it)
+        return bool(i) and ends[i - 1] > x and any(_CREDIT_CLAUSE_END_RE.match(sentence, y, quote_start) for y in range(x, ends[i - 1]))
+
     for a, b, doc_id, generic in before:
-        gap = sentence[b:quote_start]
-        if _LEADING_CREDIT_RE.search(sentence[:a]) and re.fullmatch(r"\s*,?\s*", gap):
+        k = _space_run_start(sentence, a)   # the text before the name ends at k, the white space after it aside
+        if k < a and _LEADING_CREDIT_RE.search(sentence, max(0, k - 16), a) and _LEADING_GAP_RE.fullmatch(sentence, b, quote_start):
             credits.append((Credit(doc_id, sentence[a:b], generic), False))
             continue
-        m = _CREDIT_GAP_RE.match(gap)
+        # "In Shelley's words, '...'", and a name or a kind that opens its sentence with a colon before the words ("The
+        # poem: '...'"): repair round 5, rerun-combinator-faults-5 variant
+        if (k < a and _IN_WORDS_BEFORE_RE.search(sentence, max(0, k - 3), a) and _IN_WORDS_GAP_RE.fullmatch(sentence, b, quote_start)) or (
+                _opens_sentence_at(sentence, a, k) and _LABEL_COLON_GAP_RE.fullmatch(sentence, b, quote_start)):
+            gap = sentence[b:quote_start]
+            credits.append((Credit(doc_id, sentence[a:b + len(gap.rstrip())].strip(), generic), False))
+            continue
+        m = _CREDIT_GAP_AT_RE.match(sentence, b, quote_start)
         if m is None:
             continue
-        rest = gap[m.end():]
-        if _PRESENTING_RE.search(gap[:m.end()]):  # "supplies the frame: the closure '...'": the colon introduces what is supplied
-            rest = _PRESENTED_NOUN_RE.sub(" ", rest, count=1)
-        if _CREDIT_CLAUSE_END_RE.search(rest):
+        rest = m.end()
+        pm = _PRESENTED_NOUN_AT_RE.match(sentence, rest, quote_start) if _PRESENTING_RE.search(sentence, b, rest) else None
+        if pm is None:
+            ends_clause = clause_ends_after(rest)
+            colon_rest = _VERB_COLON_REST_RE.fullmatch(sentence, rest, quote_start) is not None
+        else:  # "supplies the frame: the closure '...'": the colon introduces what is supplied; the rest is read as ' ' + the text after it
+            ends_clause = _DASH_AFTER_SPACE_RE.match(sentence, pm.end(), quote_start) is not None or clause_ends_after(pm.end())
+            colon_rest = _VERB_COLON_AFTER_SPACE_RE.fullmatch(sentence, pm.end(), quote_start) is not None
+        # "As the sonnet puts it: '...'", "Shelley writes: '...'": the colon right after the reporting verb introduces the
+        # words it credits, it ends no clause (repair round 5, rerun-combinator-faults-5 variant)
+        if ends_clause and not colon_rest:
             continue
-        credits.append((Credit(doc_id, sentence[a:b + m.end()].strip(), generic), bool(re.match(r"\s+that\b", gap[m.end():], re.IGNORECASE))))
+        credits.append((Credit(doc_id, sentence[a:rest].strip(), generic), _THAT_AFTER_RE.match(sentence, rest, quote_start) is not None))
     if not credits:
-        return None
+        return _credit_after(sentence, quote_start, spans, mentions, docs, literary)
     # A reporting clause credits its OUTER speaker: in "The English specialist argues that Blake presents ... '...'" the
     # words are the English specialist's report, not Blake's. The nearest speaker whose verb opens a reported clause wins.
     reporting = [c for c, opens_report in credits if opens_report]
     return reporting[0] if reporting else credits[0][0]
+
+
+def _credit_after(sentence: str, quote_start: int, spans: Sequence[tuple[int, int]], mentions: Sequence[tuple[int, int, Optional[str], bool]],
+                  docs: Mapping[str, SuppliedText], literary: Sequence[str]) -> Optional[Credit]:
+    """The credit written after the quotation that opens at ``quote_start``, when none stands before it (repair round 4,
+    rerun-combinator-faults-5 variant): a name and a reporting verb ('"...", the leaflet says.', '"...," Churchill says'),
+    the verb first ('"...", says the leaflet.'), "according to" or "in the words of" ('"...", according to the leaflet.'),
+    "as" and a reporting verb ('"...", as Churchill put it.'), each closing its clause or followed only by a short phrase of
+    place ("in the speech"), and a bracketed citation right after the closing mark that names the text ('"..." (Churchill,
+    1940).', '"..." (council leaflet).': a name, or a kind of text exactly one non-peer text carries, with numbers and
+    locators besides). Nothing crosses a clause: only a comma or a dash may stand between the closing mark and the
+    credit."""
+    end = next((b for a, b in spans if a == quote_start), None)
+    if end is None:
+        return None
+    after = sorted((m for m in mentions if m[0] >= end), key=lambda m: m[0])
+    for a, b, doc_id, generic in after[:4]:
+        gap = sentence[end:a]
+        if len(gap) > 60:
+            break
+        tail = sentence[b:b + 200]
+        if _AFTER_DASH_RE.fullmatch(gap) and _AFTER_DASH_END_RE.match(tail):
+            # '"..." — Shelley.': a dash and the name alone closing the sentence, with a locator at most (repair round 5,
+            # rerun-combinator-faults-5 variant)
+            return Credit(doc_id, sentence[a:b].strip(), generic)
+        if _AFTER_GAP_RE.fullmatch(gap):
+            m = _AFTER_VERB_RE.match(tail)
+            if m is not None and _AFTER_END_RE.match(tail[m.end():]):
+                return Credit(doc_id, sentence[a:b + m.end()].strip(), generic)
+            continue
+        if _AFTER_INVERTED_RE.fullmatch(gap) or _AFTER_ACCORDING_RE.fullmatch(gap):
+            if _AFTER_END_RE.match(tail):
+                return Credit(doc_id, sentence[end:b].strip(" ,\u2013\u2014-"), generic)
+            continue
+        if _AFTER_AS_RE.fullmatch(gap):
+            m = _AFTER_VERB_RE.match(tail)
+            if m is not None and _AFTER_END_RE.match(tail[m.end():]):
+                return Credit(doc_id, sentence[end:b + m.end()].strip(" ,\u2013\u2014-"), generic)
+    cite = _AFTER_CITATION_RE.match(sentence, end)
+    if cite is None:
+        return None
+    c0, c1 = cite.span(1)
+    inside = [m for m in mentions if c0 <= m[0] and m[1] <= c1 and m[2] is not None]
+    named = {m[2] for m in inside}
+    words = [w.casefold() for w in re.findall(r"[^\W\d_]+", cite.group(1))]
+    for w in words:
+        of_kind = [d for d in literary if w in _title_parts(docs[d])[1] or w in _author_kinds(docs[d])]
+        if (w in _TEXT_KIND_SET or w in _ORG_KINDS) and len(of_kind) == 1:
+            named.add(of_kind[0])
+    if len(named) != 1:
+        return None
+    covered = " ".join(sentence[m[0]:m[1]] for m in inside).casefold()
+    extra = [w for w in words if w not in _CITATION_WORDS and w not in _TEXT_KIND_SET and w not in _ORG_KINDS and w not in covered]
+    if len(extra) > 1:
+        return None  # a parenthesis that says more than a citation is no credit
+    doc_id = next(iter(named))
+    return Credit(doc_id, cite.group(0).strip(), not inside)
 
 
 def peer_prose_span(excerpt: str, doc: SuppliedText) -> bool:
@@ -536,9 +857,9 @@ def _credit_to_unsupplied(sentence: str, excerpt: str, docs: Mapping[str, Suppli
     author the colleague's report discusses, "Hardy's speaker admits that ...", or a text named by kind, "The poem says")
     while its words were located only in a relayed colleague's report, in the colleague's own prose: the credit is
     wrong (``CORE-SRC-005`` / the channel's ``INT-REQ-015``). None when the sentence credits the colleague or nothing."""
-    from .markdown import find_quotation_spans
+    from .markdown import cited_quotation_spans
     key = excerpt.strip().casefold()[:40]
-    span = next((s for s in find_quotation_spans(sentence) if key and key in s[2].casefold()), None)
+    span = next((s for s in cited_quotation_spans(sentence) if key and key in s[2].casefold()), None)
     if span is None:
         return None
     discussed = sorted({m.group(1) for d in located for m in _DISCUSSED_AUTHOR_RE.finditer(docs[d].text) if m.group(1).split()[0] not in _NOT_AN_AUTHOR})
@@ -623,22 +944,30 @@ _FROM_MEMORY_RE = re.compile(r"\bfrom memory\b|\bas I recall\b|\bI recall\b|\bif
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
 
 
+def _fold_word(w: str) -> str:
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
+
+
+@lru_cache(maxsize=32)
+def _folded_vocabulary(text: str) -> frozenset[str]:
+    """The words of a supplied text, case and diacritics folded, read once per text (repair round 2, ADV2-01: every
+    quotation read the whole document again)."""
+    return frozenset(_fold_word(w) for w in _WORD_RE.findall(text))
+
+
 def nearest_text(excerpt: str, docs: Mapping[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
     """The supplied text that holds the most of ``excerpt``'s words (as words, case and diacritics folded), with the words
     of the excerpt it does not hold; a non-relayed text before a relayed specialist's report on a tie, then the order
     given. ``(None, [])`` when no text was supplied. Used to name the text an altered quotation was taken from ("could
     mean that shely has been hurt": all its words but 'shely')."""
-    import unicodedata
-
-    def fold(w: str) -> str:
-        return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
     words = [w for w in _WORD_RE.findall(excerpt)]
     if not docs or not words:
         return (next(iter(docs), None), []) if docs else (None, [])
     best: Optional[tuple[int, int, int, str, list[str]]] = None
     for order, (doc_id, doc) in enumerate(docs.items()):
-        vocab = {fold(w) for w in _WORD_RE.findall(doc.text)}
-        missing = [w for w in words if fold(w) not in vocab]
+        vocab = _folded_vocabulary(doc.text)
+        missing = [w for w in words if _fold_word(w) not in vocab]
         key = (len(words) - len(missing), 0 if not is_peer_text(doc) else -1, -order)
         if best is None or key > best[:3]:
             best = (*key, doc_id, missing)
@@ -649,11 +978,11 @@ def _mention_governs(sentence: str, excerpt: str, doc_id: str, docs: Mapping[str
     """True when the sentence's mention of ``doc_id`` credits the quotation ``excerpt``: a possessive directly before its
     opening mark or a crediting verb with no clause boundary between (:func:`quotation_credit`), or the quotation cannot
     be found in the sentence (then the mention is read as governing it, the conservative reading)."""
-    from .markdown import find_quotation_spans
+    from .markdown import cited_quotation_spans
     key = strip_trailing_punctuation(excerpt).casefold()
-    span = next((sp for sp in find_quotation_spans(sentence) if key and strip_trailing_punctuation(sp[2]).casefold() == key), None)
+    span = next((sp for sp in cited_quotation_spans(sentence) if key and strip_trailing_punctuation(sp[2]).casefold() == key), None)
     if span is None:
-        span = next((sp for sp in find_quotation_spans(sentence) if key[:40] and key[:40] in sp[2].casefold()), None)
+        span = next((sp for sp in cited_quotation_spans(sentence) if key[:40] and key[:40] in sp[2].casefold()), None)
     if span is None:
         return True
     credit = quotation_credit(sentence, span[0], docs)

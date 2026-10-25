@@ -75,6 +75,30 @@ def test_a_proof_from_premises_that_restate_the_conclusion_from_memory_is_circul
     assert set(circular_premises(p)) == set(r.premises_relied_on)
 
 
-def test_a_restated_task_setting_is_a_transcription_not_a_circle():
-    r = verify(fixture("ph-t13", "g1.1"), CFG)
+def _ph_t13_task():
+    from epinoic_logic.translate.contracts import TaskRecord
+    material = json.loads((Path(__file__).parents[1] / "channel" / "data" / "r7_material.json").read_text())
+    return TaskRecord.of("ph-t13", "req-ph-t13", material["specialists"]["ph-t13"]["question"])
+
+
+def test_a_restated_task_setting_the_task_record_validates_is_a_transcription_not_a_circle():
+    """Rewritten to the stricter rule of policy 2026.10-v5 (issue 1: only a check in this process confers authority), test
+    (i). The premise mk1 ('part (a) carries 2 marks, as printed in the question') restates the conclusion. Checked
+    against the task record as the router issued it (the question states "[2]"), it is verified: a transcription of the
+    task, so there is no E112."""
+    from epinoic_logic.translate.grounding import check_problem_grounding
+
+    grounded, _checks = check_problem_grounding(fixture("ph-t13", "g1.1"), [], task=_ph_t13_task())
+    assert grounded.premises[0].grounding.verified is True
+    r = verify(grounded, CFG)
     assert r.status is S.ENTAILED and codes(r) == []
+
+
+def test_a_restated_task_setting_with_only_its_label_is_a_circle():
+    """Rewritten to the stricter rule of policy 2026.10-v5 (issue 1), test (ii). The same problem label-only (no check
+    verified mk1: verified None) restates its conclusion with nothing but its own premise behind it, so it is circular
+    (E112). Before, the task_setting label alone made it a 'transcription' and p proves p cleared."""
+    p = fixture("ph-t13", "g1.1")
+    assert p.premises[0].grounding.verified is None
+    r = verify(p, CFG)
+    assert r.status is S.ENTAILED and codes(r) == ["E112"] and "mk1" in r.diagnostics[0].message

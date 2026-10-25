@@ -433,6 +433,8 @@ class _Parser:
                 return True
             if tok.delta or tok.sub or len(tok.text) == 1 or tok.text in self.ctx.names or tok.text in STEM_NAMES:
                 return True
+            if _quantity_letters(tok.text, self.ctx):
+                return True  # '½ mv', '2π rh': a spaced run of quantity letters is their product (repair round 5, ADV5-06)
             return len(tok.text) <= 3 and tok.text.isalpha() and self.ctx.mode == "latex"
         if tok.kind == "TEXT" and not _connective_word(tok.text) and self.ctx.mode == "latex":
             return False
@@ -1099,6 +1101,11 @@ class _Parser:
         if len(word) == 1 or tok.delta and len(word) == 1 or not word.isascii():
             return self._count(Sym(symbol_name(word, tok.sub, tok.primes, tok.delta), start=tok.start, end=tok.end))
         names = self.ctx.names | STEM_NAMES
+        full = symbol_name(word, tok.sub, tok.primes, tok.delta)
+        if tok.sub and tok.sub.isdecimal() and word.isascii() and full in self.ctx.names:
+            # a letter run with a numeral subscript the answer declares as a name at the head of a relation ('CO₂ = 370 +
+            # 2.0(t − 2000)'): the subscript belongs to the whole name, so it is one symbol, not C·O₂ (repair round 2)
+            return self._count(Sym(full, kind="word", start=tok.start, end=tok.end))
         alternatives = segment(word, names, self.lim)
         if len(alternatives) == 1 and len(word) >= 4 and word.isascii() and word.islower() and not all(p in names for p in alternatives[0]):
             # a word written as a symbol ('actual / theoretical × 100'): one name, not a product of its letters
@@ -1457,6 +1464,25 @@ def _label_content(inner: str) -> Optional[str]:
     if 3 <= len(w) <= 24 and w.isalpha() and w.isascii() and w.islower():
         return w
     return None
+
+
+#: Short words that are never a run of quantity letters, whatever letters they hold.
+_RUN_STOPWORDS = frozenset({"is", "so", "of", "to", "be", "in", "by", "or", "if", "an", "it", "on", "we", "do", "no", "up", "us", "my", "he", "me",
+                            "am", "go", "the", "and", "for", "then", "than", "that", "this", "with", "from", "into", "when", "per", "all", "any",
+                            "can", "may", "our", "out", "own", "too", "via", "who", "why", "how", "yet", "nor", "let", "use", "has", "had",
+                            "not", "but", "are", "was", "its", "one", "two", "each", "both", "some", "such", "what", "will", "were", "have"})
+
+
+def _quantity_letters(word: str, ctx: "ParseContext") -> bool:
+    """A run of two to four ASCII letters, each a quantity letter of the profile's closed reference (or a one-letter name in
+    scope), that is no stopword, no unit atom and no name the text declares: written with a space after a factor it is the
+    product of its letters ("½ mv", "2π rh"), as written glued (repair round 5, ADV5-06)."""
+    if not (2 <= len(word) <= 4) or not (word.isascii() and word.isalpha()) or word.lower() in _RUN_STOPWORDS:
+        return False
+    if word in ctx.names or word in STEM_NAMES or is_unit_atom(word):
+        return False
+    from .reference import quantities_for  # the closed reference reads no parser state
+    return all(c not in ("a", "I") and (c in ctx.names or bool(quantities_for(c, ctx.profile.key))) for c in word)
 
 
 def parse_math(tokens: "tuple[Token, ...] | list[Token]", ctx: ParseContext) -> ParsedMath:

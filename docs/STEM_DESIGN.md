@@ -279,7 +279,11 @@ inside one.
 7. **Tables and data lines.** Markdown tables and bracketed data, vector and list lines
    (`[1, 2]`, `{2, 3}`) become text claims. A truth-table block (section 4.8) is recognised from
    a table's header row and rows of 0/1 or T/F. A JSON receipt shape (string keys) keeps the
-   shared JSON rule.
+   shared JSON rule. A block of lines that open with `|` is a table only when it has a table's
+   structure: a Markdown delimiter row under its header (`|---|---|`), or the shape of a truth
+   table written without one. Bars that only enclose an expression are maths, read like any
+   other line: an absolute value (`|−2| = 2` is checked as `$|−2| = 2$` is), a norm, a
+   determinant written with bars (section 22, S7).
 
 Derivation lines are statements, not spans: a line is a derivation line when at least 60 % of
 its non-space characters lie in one math span, and a line that begins with a relation sign
@@ -445,8 +449,20 @@ ST-UNDEC-001 with the reason):
   A value after `at`, `when` or `if` in the answer (`At x = 1:`) is an evaluation point, not a
   binding. The front end never adds a constant value to scope; see D3 for the guarded booklet
   reading in checks. Rebinding adds a binding (ST-SCOPE-001 info when the value differs beyond
-  rounding). A substituted value passes if it matches any binding of that symbol, so part (b)
-  reusing part (a)'s letter is never flagged.
+  rounding).
+- **Binding scope** (`checks._scoped`; section 22, part scope). A binding holds in its own part
+  from where it is stated. A check uses the bindings of its own part stated before it or in its
+  own statements (`…, where x = 2`); another part's value only when its own part states none
+  before it (a value carried forward from an earlier part); a value stated after it in its own
+  part only when nothing else is in scope; never a later part's value. The request's values hold
+  everywhere. A written substitution (R7) matches any value in that scope, because the written
+  value shows which one was meant. An evaluation that writes no value for the symbol (the
+  symbolic side under its bindings, an order between bound symbols, an equation's parameters)
+  uses the value in force: the latest stated before it in its part (a whole root set when that is
+  the latest). When the answer stated another value of the symbol earlier in the same part,
+  which one was meant is a reading, so the failure of such a check is a warning (INT-SUBJ-004).
+  So part (b) reusing part (a)'s letter for its own value is checked against that value, and a
+  binding of one part never validates a calculation in another part that states its own.
 - **Formulas.** A left-hand symbol or `f(x)` maps to an expression, recorded from definition
   and law links.
 
@@ -477,6 +493,13 @@ in one outcome: `check`, `binding`, `formula`, `context` or `undecided` (section
 | based numerals | `FF₁₆ = 255` | `stem-base` |
 | a relation whose endpoints contain Unsupported | `f′(x) = 3x + 2` | ST-UNDEC-001 (reason) |
 | a numeric relation whose operands include a symbol with no binding and no admissible booklet reading | `E = hf = 3.3e-19` with f unbound | ST-UNDEC-002 |
+
+A stated root set is checked as a set: once `stem-sol` holds two or more roots of an equation
+(`x² = 4 ⇒ x = −2 or x = 2`, or the same set over two lines), a step from that equation to one of
+its members is context (`case`, naming the set), not a step checked on its own under the
+principal-root condition, and no ST-ALG-001 is raised for it, since the other root is stated.
+Every order and spelling of the set (`x = 2 or x = −2`, `x = ±2`) gets the same verdict
+(section 22, S5).
 
 A bare value binding with no relation stated (`The speed is 15 m/s.`, `m = 2.0 kg`) is a
 binding, not a check. That keeps the existing Physics fixtures free of new findings. An order
@@ -589,16 +612,50 @@ value of E. Values are compared under the reading in force (section 6.4).
 - **R1 Half-width h(S).** Half a unit in the last written digit of S's mantissa, times its
   power of ten: 5.0 gives 0.05; 1.20 × 10³ gives 5; 3/4 or a surd gives 0. Section 5.1 gives
   the integer trailing-zero rule.
-- **R2 Relative slack τ.**
-  - `=` with any measured operand (written with a decimal point, in scientific notation, or
-    with a unit) or a decimal S: 1/100. This covers constants written to fewer digits than were
-    used (9.8 against 9.81 is 0.1 %; 3.00 × 10⁸ against 2.998 × 10⁸ is 0.07 %). It stays well
-    below the error classes this design must catch (a wrong formula, substitution, digit or
-    power of ten, typically 5 % or more).
+- **R2 Relative slack τ.** The tolerance policy carries the task's and the answer's intent first,
+  then the written form (section 22, S2):
+  - **Stated exactness.** When the answer states exactness beside the relation ("Exactly 1/2 =
+    0.51.", "= 0.51 exactly"), or the request states it ("Calculate 1/2 exactly, without
+    rounding.", "the exact value", "do not round") for a relation between pure numbers, the
+    comparison is exact: τ = 0 and h = 0 whatever the spelling of S, so `0.51` and `51/100` get
+    the same verdict, a decimal root is the value it states, and written constants and carried
+    values are taken as written. The request's intent is read per part (its own part's
+    statements and those outside any part); a rounding instruction wins when a statement or the
+    applicable statements ask for both ("the exact value, then to 3 s.f."). "Exactly" before a
+    count ("exactly two reasons", "exactly 3 significant figures") or negated ("need not be
+    exact") states no exactness. A quantity with a unit is a measurement: a request's
+    exactness does not make it exact (the answer's own "exactly" still does).
+  - **A rounding the request asks for** ("to 2 decimal places", "correct to 3 s.f."), or that the
+    answer states beside the relation ("(to 2 d.p.)"), keeps the tolerance of the written digits,
+    whatever the spelling of S: exact mode does not apply, an integer S has R1's half-width and a
+    fraction of two written integers the half-width of its terminating decimal expansion (0 when
+    it does not terminate). So under "to the nearest integer" `7/3 = 2` passes and `7/3 = 3` fails,
+    and under "to 2 decimal places" `1/3 = 33/100` gets the verdict of `1/3 = 0.33`; with no rounding
+    stated both `7/3 = 2` and `1/3 = 33/100` remain exact claims and fail.
   - `≈`, `≃` or `~`, or `=` after "approximately", "approx.", "about", "roughly", "estimate",
     "around" or "nearly": 1/20.
-  - **Exact mode** (every operand and S exact, and `=`): τ = 0 and h = 0. So `7/3 = 2` fails,
-    while `√2 = 1.41` (S is a decimal) passes under R1.
+  - `=` with a measured operand: 1/100. Measured: a decimal point, scientific notation or a unit
+    in the computed expression, or in a stated expression of rounded values
+    (`ln 50 / ln 2 = 3.912/0.6931`); a stated value with a unit; a rounded intermediate or a
+    written constant (R3). This covers constants written to fewer digits than were used (9.8
+    against 9.81 is 0.1 %; 3.00 × 10⁸ against 2.998 × 10⁸ is 0.07 %). It stays well below the
+    error classes this design must catch (a wrong formula, substitution, digit or power of ten,
+    typically 5 % or more).
+  - `=` over exact operands with a stated decimal: τ = 0. The decimal is read as rounded to its
+    last digit (h alone), so its spelling never widens the band: `1/3 = 0.33` and `√2 = 1.41`
+    pass, `1/2 = 0.51` and `5/3 = 1.6` fail, as `1/2 = 51/100` does.
+  - **Exact mode** (every operand and S exact, `=`, and no rounding stated): τ = 0 and h = 0. So
+    `7/3 = 2` fails.
+  - **In an algebra step** a rounded value in the conclusion (a decimal, also after a leading `±`,
+    as in `x² = 2 ⇒ x = ±1.41`) is compared within h of its last digit, with τ = 1/100 only when
+    the step has a measured operand (in the preceding relation, the conclusion's other side, a
+    binding or an included formula, or a constant or function): `2x = 1 ⇒ x = 0.51` fails as
+    `x = 51/100` does, and `x² = 2 ⇒ x = ±1.42` fails.
+
+  Each check records the policy that decided it and where it came from (the request, the
+  answer's own words, the written form, or the check kind's fixed rule): `PlannedCheck.tolerance`,
+  the description ("tolerance policy: …", carried to the receipt's formal check) and the
+  problem's `notes`, which the signed result binds.
 - **R3 Interval readings.** These operands may take any value in an interval:
   - a carried intermediate: an operand whose written value is the answer's own earlier result
     (traced by symbol, or by an equal numeral with the same unit), or one marked approximate,
@@ -628,17 +685,22 @@ value of E. Values are compared under the reading in force (section 6.4).
     interval-bounded, or an auxiliary defined by a premise, so a free symbol can never make
     Form S vacuously satisfiable.
 - **R5 Conversions.** `2.5 km = 2500 m`, `72 km h⁻¹ = 20 m s⁻¹` and `25 °C = 298 K` use τ = 0
-  (1/20 when the conversion is marked approximate). The factors are exact, so the only slack is
-  the half-widths of the two written values, `|C − S| ≤ h(S) + h(C)` in SI. Unknown unit atoms
-  that are the same on both sides cancel; otherwise an unknown unit is checked as written only,
-  at warning severity.
+  (1/20 when the conversion is marked approximate; h = 0 when the answer states it is exact).
+  The factors are exact, so the only slack is the half-widths of the two written values,
+  `|C − S| ≤ h(S) + h(C)` in SI. Unknown unit atoms that are the same on both sides cancel;
+  otherwise an unknown unit is checked as written only, at warning severity. A temperature on an
+  offset scale follows section 6.1: `(20 + 5) °C = 298.15 K` is checked like `25 °C = 298.15 K`.
 - **R6 Comparisons** (`<`, `≤`, `>`, `≥`, `≠`) between written values are exact, with no slack,
   as in quant's series checks.
-- **R7 Substitution fidelity.** A substituted numeral w matches a binding b iff `|w − b| ≤ h(b) +
-  h(w)`, in b's written unit or in SI. The two readings are a disjunction, so 2500 and 2.5
-  both match 2.5 km. τ = 0.
+- **R7 Substitution fidelity.** A substituted numeral w matches a binding b iff `|w − b| ≤
+  max(h(b), h(w))`, in b's written unit or in SI: one value must be a rounding of the other. The
+  two readings are a disjunction, so 2500 and 2.5 both match 2.5 km. τ = 0. In Mathematics an exact
+  integer the answer states (`Let x = 3`) has h = 0. A value written in a unit of b's dimension that
+  the same working uses (dm³ for a volume bound in cm³ when the concentration is in mol dm⁻³) also
+  matches. (Section 24.6: until the argument diagnosis the bound was the sum h(b) + h(w), which let
+  3 pass for 2.)
 - **R8 Restated result.** A prose value S′ matches the chain's final value S iff `|S − S′| ≤
-  h(S) + h(S′)`, in SI, with τ = 0.
+  max(h(S), h(S′))`, in SI, with τ = 0 (the sum before section 24.6).
 - **R9 Prose relations** (per cent, fold, share and total) keep quant's `TOLERANCE_RULE`: 5 %
   and the 0.5-point floor. In SI reading the band is made sign-aware (section 12). Those
   statements are approximate by nature; equations are precise statements.
@@ -651,9 +713,9 @@ the check fails. Under quant's 5 % rule it would have passed anything from 4.76 
 
 **Short form** (`tolerance.SHORT_RULE`, the `[rule]` suffix of every description, 300
 characters or fewer): "STEM tolerance: S must lie within h + τ·|C| of the value C computed
-from the written expression; h is half a unit in S's last digit; τ is 1% for '=', 5% for
-'≈'/about, 0 for conversions, comparisons and exact work; rounded intermediates, constants and
-functions range over their intervals." The full rule is `tolerance.STEM_TOLERANCE_RULE`.
+from the written expression; h is half a unit in S's last digit; τ is 1% for '=' over measured
+data, 5% for '≈'/about, else 0; stated exactness makes h and τ 0; rounded values, constants and
+functions range over intervals." The full rule is `tolerance.STEM_TOLERANCE_RULE`.
 
 ---
 
@@ -688,10 +750,26 @@ functions range over their intervals." The full rule is `tolerance.STEM_TOLERANC
   the number (`2 m2`, `H2`), which keep their reading (section 21, item 6).
 - **Factors.** SI conversion factors are exact `Fraction`s. Where no exact rational factor
   exists (the degree, which is π/180 rad, and the parsec) the factor is `None` and the unit still
-  has a dimension. The affine offset (273.15 for °C, 459.67 for °F) is applied only in explicit
-  °C/K conversion checks. It is never applied to a Δ-prefixed symbol, or to a quantity the
-  sentence calls a change, difference, rise or fall. Inside a compound unit (`J kg⁻¹ °C⁻¹`) °C
-  is a temperature interval, like K.
+  has a dimension. Inside a compound unit (`J kg⁻¹ °C⁻¹`) °C is a temperature interval, like K.
+- **Offset scales (°C, °F)** (section 22, S1). Whether a temperature on an offset scale is a
+  temperature (the offset 273.15 for °C, 459.67 for °F applied) or a difference is decided per
+  relation, in every check that compares values (`eq`, `cnv`, `res`, `tgt`, `cmp`, `sub`,
+  `giv`), never only in explicit conversions:
+  - the relation's clause speaks of a change (a Δ-prefixed symbol, change, difference, rise,
+    fall, ...): a difference, the factor alone;
+  - every temperature of the relation is written on the same offset scale: compared on that
+    scale, where an offset cancels (`20 °C + 5 °C = 25 °C`);
+  - otherwise (set against kelvin or the other offset scale) a temperature, converted **once,
+    on the value its side states**, never term by term (`Encoder._affine_point`): a value
+    (`25 °C`, `−5 °C`), a unit written after a group (`(20 + 5) °C` is the evaluated `25 °C`,
+    298.15 K, exactly as the literal is), or a symbol bound to such a temperature (its domain in
+    kelvin). A side that combines such a temperature with other terms (`20 °C + 5 °C`,
+    `2 × 10 °C`, `T₁ + 5 K`) cannot establish whether each term is a temperature or a
+    difference: its SI reading is refused (ST-UNDEC-001 when no other reading remains; a
+    failure of the remaining as-written reading is a warning, INT-SUBJ-004, so `25 °C + 273 =
+    298 K` still passes as written and nothing is decided under a guess).
+  A substituted temperature (R7) is in kelvin with the offset unless the symbol is Δ-prefixed; a
+  Given temperature likewise unless the statement speaks of a change.
 - **Not in the table.** `yr` (a known gap: ST-UNIT-001, see docs/STEM_RESULTS.md) and any unit
   not listed above.
 
@@ -716,7 +794,9 @@ A unit is read only after a number, after a closing group that contains a number
 ### 6.4 Readings: as written or SI
 
 - Every quantity in the link carries a unit, or is a symbol bound with a unit: compare **in
-  SI only**. So `2.0 km / 4.0 s = 0.5 m s⁻¹` fails, as it should.
+  SI only**. So `2.0 km / 4.0 s = 0.5 m s⁻¹` fails, as it should, and symbols bound in different
+  units are compared in SI (`m₁ = 500 g`, `m₂ = 1.0 kg`: `m₁ < m₂` holds; before the review fixes
+  it was compared as written, 500 against 1.0).
 - Some operands are bare numbers and some carry units: **disjunction {as written, SI}**. So
   `v = 72 km h⁻¹ ÷ 3.6 = 20 m s⁻¹` (3.6 is a bare factor) and `4.5/6.0 × 100 = 75 %` both pass.
 - No operand carries a unit: compare as written, and S is read both as its number and in SI
@@ -897,8 +977,8 @@ Every STEM check sets `inconsistent_is_failure=False` (D13).
 | --- | --- | --- | --- | --- |
 | `stem-eq-N` (`stem_arithmetic`) | a numeric link `E = S` (and `≈`) | E: ENTAILED; S: SATISFIABLE | linear unless surds or two interval operands are multiplied | error; warning when a D3b booklet value was used or a unit was unknown |
 | `stem-sub-N` (`stem_substitution`) | substituted numerals against the symbols' bindings (R7). When the symbolic and numeric sides have the same tree shape, each aligned symbol is checked (a value written in another order of the same product or sum also matches, by bounded injective matching); otherwise, if every symbol is bound, the symbolic side under its bindings is checked against the numeric side (Form S over the binding intervals). A symbol with no binding takes a D3b booklet reading admitted by a dimension check, or the relation is ST-UNDEC-002 | E (pairs); E or S (evaluation) | as needed | error; warning when a D3b booklet value was used or a unit was unknown |
-| `stem-alg-N` (`stem_algebra`) | the next relation follows from the preceding one, plus scope bindings of the symbols involved, plus at most 8 recorded formulas mentioning them, plus side conditions: divisors ≠ 0; a principal (non-negative) root in sciences profiles | E: ENTAILED | nonlinear when needed | error when the step is a pure manipulation (its symbols are a subset of the premise's symbols, bound symbols and included formulas); warning when it brings in unrelated symbols (an unstated law may be at work) |
-| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set, the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...). A root may also be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19"; section 21, item 4): membership only, over its rounding interval widened by τ = 1/100 | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
+| `stem-alg-N` (`stem_algebra`) | the next relation follows from the preceding one, plus scope bindings of the symbols involved, plus at most 8 recorded formulas mentioning them, plus side conditions: divisors ≠ 0; a principal (non-negative) root in sciences profiles; a rounded value in the conclusion within its band (R2, R4) | E: ENTAILED | nonlinear when needed | error when the step is a pure manipulation (its symbols are a subset of the premise's symbols, bound symbols and included formulas); warning when it brings in unrelated symbols (an unstated law may be at work) |
+| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set (section 24.11, solution sets), the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...). A root may also be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19"; section 21, item 4): membership only, over its rounding interval widened by τ = 1/100 | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
 | `stem-mod-N` (`stem_model`) | an equality with an application of an exponential model, the model's expression at the written argument against the other side: some value of the variables (the model's variable, every symbol with no stated value) and of the stated symbols within their stated values satisfies it, every power of an exponent in symbols read through positive variables (section 21, item 5) | S: SATISFIABLE (UNSATISFIABLE: no value satisfies the link) | nonlinear | error |
 | `stem-cnv-N` (`stem_conversion`) | an explicit unit conversion (R5) | E | linear | error; warning when a unit was unknown |
 | `stem-cmp-N` (`stem_comparison`) | a stated order or inequality between values (R6); bound symbols with several values pass when some admissible values satisfy it; also inequality-solving steps, checked as `alg` | E (or S) | as needed | error |
@@ -916,9 +996,11 @@ two factors that hold variables (the validator's rule; the tests compare it with
 would exceed polynomial degree 24 is not built (ST-LIM-001).
 
 Each description has the form `<what was checked>: '<statement, ≤ 160 chars>' [claims s2.3,
-s2.4] [<short rule>] <form; policy; readings; details>`, at most 1,200 characters. Descriptions
-name readings, factored exponents, supplied constants and side conditions. `StemPack` rewrites
-the statement ids in a description to the report's own claim ids.
+s2.4] [<short rule>] <form; policy; tolerance policy; readings; details>`, at most 1,200
+characters. Descriptions name the tolerance policy that decided the check and where it came from
+(section 5.2, R2; also `PlannedCheck.tolerance` and the problem's `notes`), readings, factored
+exponents, supplied constants and side conditions. `StemPack` rewrites the statement ids in a
+description to the report's own claim ids.
 
 Withheld relations. The checks stage decides only relations whose two sides are whole, so a
 misreading by the front end can never become an error. A relation is withheld (ST-PARSE-001,
@@ -942,11 +1024,11 @@ from an engine result.
 | INT-SUBJ-001 | error | engine | a check of the report's own STEM statement does not hold, and it rested only on what the report or request states plus exact encoding devices (existing code; now carries `claim_ids`; for a STEM check the message gives the counterexample's computed value `c` and stated value `r`) |
 | INT-SUBJ-002 | warning | engine | such a check is undecided: UNKNOWN, TIMEOUT, UNSUPPORTED, INVALID_FORMALIZATION, INTERNAL_ERROR, a vacuous result (E108), or INCONSISTENT_PREMISES on a check with `inconsistent_is_failure=False`; also (deterministic) an unknown policy name, an exception while deciding the check, or the report's STEM check budget (8 s) spent (existing code; now carries `claim_ids`) |
 | INT-SUBJ-003 | error | deterministic | an error-severity pack finding, escalated (existing; STEM never produces one) |
-| INT-SUBJ-004 | warning | engine | NEW: a check that relied on a reading the report did not state does not hold: a booklet value for an unstated symbol, symbol identity across request and answer, a show-that target, a step bringing in unrelated symbols, or an unknown unit |
+| INT-SUBJ-004 | warning | engine | NEW: a check that relied on a reading the report did not state does not hold: a booklet value for an unstated symbol, symbol identity across request and answer, a show-that target, a step bringing in unrelated symbols, an unknown unit, the value in force of a symbol the answer rebinds in the same part, or a relation whose SI reading is refused because a temperature on an offset scale is combined with other terms |
 | BR-INTERNAL-001 | warning | deterministic | NEW (`SubjectBranch.run_packs`): pack `<name>` failed internally (`<type>`) during `<checks or formal checks>`; its findings are missing from this receipt, and the router must not treat the pack as passed |
 | ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, a symbolic power); its relations are not checked |
 | ST-PARSE-002 | warning | deterministic | an expression has more than 2 readings (or a check more than 4): implicit multiplication or unit/symbol ambiguity; not checked |
-| ST-UNDEC-001 | warning | deterministic | a recognised relation outside the encodings (calculus, limits, Σ, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown, an approximation step such as sin θ ≈ θ, an angle range); the reason is named |
+| ST-UNDEC-001 | warning | deterministic | a recognised relation outside the encodings (calculus, limits, Σ, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown, an approximation step such as sin θ ≈ θ, an angle range, a temperature on an offset scale combined with other terms against another scale); the reason is named |
 | ST-UNDEC-002 | warning | deterministic | a numeric relation depends on a symbol with no stated value and no admissible booklet reading |
 | ST-UNDEF-001 | warning | numeric | a written expression is undefined (division by an exact zero, an even root of a negative value, the logarithm of a non-positive value, 0⁰, tan at a pole, arcsin or arccos outside [−1, 1]); no check is built |
 | ST-UNIT-001 | warning | deterministic | a unit expression is not recognised; the relation is checked as written only, at warning severity |
@@ -956,10 +1038,12 @@ from an engine result.
 | ST-ALG-001 | warning | deterministic | a mathematics step takes only the non-negative square root, and no domain restriction is stated (the algebra is still checked under that side condition) |
 | ST-CHEM-001 | warning | deterministic | a chemical equation cannot be read (unknown element symbol, isotope notation, a bound exceeded); its balance is not checked |
 | ST-CODE-001 | info | deterministic | a code block is present; it was not executed and not checked |
-| ST-SCOPE-001 | info | deterministic | a symbol is rebound to a different value inside the answer; substitutions match any binding |
+| ST-SCOPE-001 | info | deterministic | a symbol is rebound to a different value inside the answer; a calculation is checked against the values in force in its own part, stated before it (section 4.6) |
 | ST-LIM-001 | warning | numeric | an expression or literal exceeds a front-end or IR bound (span, links, nodes, depth, exponent, digits after factoring, symbols, intervals); not checked |
 | ST-LIM-002 | warning | deterministic | more relations than the per-report check cap (128), or more math spans than the per-report reading cap (1,024); the count and the first unchecked ids or statements are named |
 | ST-INTERNAL-001 | warning | deterministic | the STEM pack failed internally while building checks, an enclosure failed its cross-check against `math`, or a built problem was refused by `Problem.model_validate`; the affected checks are missing and must not be read as passed |
+| ST-CLAIM-001 | warning | deterministic | NEW (STEM review S4, section 23.2): a claim id of the report is spelled like a statement id of the STEM reading (`s1.1`, `m1.1`) but its text is another statement's; the statement's checks and findings are attached by text to the claims that hold it, never by the id, and the finding names both |
+| INT-HIST-001 | the carried finding's | deterministic | NEW (relay history, section 11.6): an unresolved finding of an earlier delivered transmission that a relay, forward or synthesis builds on, carried with its own severity, claims and signed result; never blocking |
 | CORE-QNT-001 | warning | deterministic | existing; in SI reading, new reasons: different dimensions, "a relative change on an offset temperature scale is not defined" |
 
 Severity semantics are unchanged:
@@ -1002,7 +1086,11 @@ All of these are content findings: the report is delivered, never REJECTED.
   are planned in the shared document.
 - **Structured reports.** For a report that arrives structured (JSON), `StemPack` maps
   statements to the report's own claims by offset when the claim texts are offset substrings,
-  else by the shared two-way substring rule (`_claims_mentioning`).
+  else by the shared two-way substring rule (`_claims_mentioning`), on the statement as written
+  and as this parser gives it (`statement_claim_text`: interior markup left out). Claim ids never
+  outrank source spans (STEM review S4): a claim whose id is the statement's (`s1.2`, `m1.2`) is
+  its one claim only when its text agrees with the statement; otherwise the statement goes to the
+  claims holding its text and ST-CLAIM-001 names the disagreement (section 23.2).
 
 ### 9.2 Roles (no new `ClaimRole`; D11)
 
@@ -1174,11 +1262,51 @@ unchanged). The channel calls each through a guard: a hook that fails falls back
 channel's own reading, because a hook only ever refines a heuristic.
 - `coverage_terms`, read by `_coverage`: quantity names keyed by the dimensions of the claim's
   quantities (m s⁻² → acceleration; N → force, weight, tension; J → energy, work; …) and of the
-  bound symbols it uses. A claim that holds a planned computation (an engine check of its
+  bound symbols it uses, the names of their units (mm → millimetre, metre; % → percentage), what
+  its relations produce (stated roots → root, solution; an order relation → inequality; a
+  chemical equation → equation, reaction; a truth table → truth, table; a base conversion →
+  binary, denary, hexadecimal; a Boolean identity → Boolean, expression), a derivative written in
+  the claim (f′(2), dy/dx → gradient, derivative) and a component's direction (`F_x` →
+  horizontal component). A claim that holds a planned computation (an engine check of its
   arithmetic, substitution, conversion, algebra, roots, balance, Boolean identity or based
   numeral) also offers the computing command words (calculate, determine, find, convert,
-  solve, …): it does compute. An equation-only correct answer then does not get a heuristic
-  INT-REQ-004 warning. The method stays `lexical_heuristic`.
+  solve, evaluate, …): it does compute. Since the STEM review (S3, section 23.1) the channel never
+  counts a command word as evidence on its own for an item that names what it wants: the shared
+  terms must include one of the item's topic terms (`bus._COMMAND_STEMS` lists the command and form
+  words), or `topic_evidence` must hold, so "2 + 2 = 4" addresses no "Calculate the acceleration"
+  while an equation-only correct answer still addresses its item. An item whose words are all
+  command words but which names what it asks for in notation (`names_notation`: "Solve 3x + 5 =
+  20", "Simplify √50", "Find u₆ and S₅", "Calculate v if d = 120 m and t = 8 s") is addressed only by
+  a claim `topic_evidence` finds about that notation; an item that names neither ("Find the final
+  value") keeps the plain lexical reading. The method stays `lexical_heuristic`.
+- `topic_evidence(item_text, claim_text, report_text, request_text, profile_key, notation_only=False)`,
+  an optional hook read through `getattr` (the `BranchHooks` protocol is unchanged): a computing claim
+  is about an item when it gives a value to a symbol the item asks for, or computes with enough of
+  the item's own figures, unless the units it states name another quantity than any the item names
+  in words (`s = ½ × 20 × 4.0 = 40 m` computes a distance from the data of "the acceleration from
+  20 m/s in 4.0 s" and does not answer it). A line that computes nothing is never evidence.
+  - The symbols an item asks for (normalised as the front end names them): a subscripted name
+    ("Find S₁₀" and `S_{10} = 210`), a symbol right after a command word ("Calculate v if …", "Find
+    the value of k", "Calculate Kc" for `K_c`), a show-that target ("Show that its gradient is m = 1"
+    and `m = …`, read after "show that") and, for an item that asks to solve an equation or names
+    nothing in words, the unknowns of its equations ("Solve 3x + 5 = 20" and `x = 5`). A symbol the
+    item gives a value for ("if d = 120 m and t = 8 s", "Given that t = 8 s, show that …") is an
+    input and never evidence: `t = 2 + 2 = 4` answers neither item. The symbols of a formula the
+    item quotes ("using v = u + at") are not asked either.
+  - The figures: the item's numerals (superscripts read as figures of their own, so `2³ × 2⁴`
+    writes 2, 3 and 4; its opening label, mark annotations such as "[2 marks]" and precision
+    instructions such as "to 3 significant figures" are no figures) shared with the claim must weigh
+    three, where a single-digit whole number weighs one and any other figure two (the gradient
+    through (1, 3) and (5, 7) and `m = (7 − 3)/(5 − 1) = 1` share four), or the item's only figure
+    must be shared and be no single-digit whole number ("Simplify √50"). Two shared single digits are
+    no evidence: `2 + 2 = 4` addresses no "acceleration of a trolley that reaches 4 m/s in 2 s", and
+    `4 − 2 = 2` no "force on a 2 kg mass accelerating at 4 m/s²".
+  - `notation_only` (an item that names nothing in words): the unknowns of its equations count, and
+    the claim's units are set against no word of it ("Calculate v if d = 120 m and t = 8 s" asks for
+    a speed and writes a length and a time).
+- `names_notation(item_text, profile_key)`, optional likewise: the item writes what it asks for in
+  maths (a figure that is no label, mark or precision instruction, or a symbol). A failing or absent
+  hook leaves the item to the plain reading.
 - `echo_exempt`, read by `_request_echo`: a STEM answer containing at least one planned
   computation link (`stem-eq`, `stem-alg` or `stem-sol`) that is absent from the request is
   never INT-REQ-011. This fixes the false error on the correct show-that answer
@@ -1198,23 +1326,71 @@ With extra imperatives, a request line that opens with a part label (`(a)`, `b)`
 
 ### 11.4 Receipts
 
-Receipts are unchanged in shape:
+Receipts keep their shape, with one additive field since the STEM review:
 - `formal_checks` holds `ConstraintResult(constraint_id=check_id, method="formal",
   formal_result_id, formal_status)`;
 - `structural_findings` holds the ST findings;
+- `history` (default empty) references the earlier receipts a relay, forward or synthesis builds
+  on (`ReceiptReference`: receipt and message ids, direction, status, payload, and what each left
+  unresolved), section 11.6;
 - the summary keeps counts "N (ok, FAILED, undecided)", names at most 8 FAILED and 8
-  undecided ids, shows the code histogram (ST-* included), and ends with `_SCOPE_TAIL`.
+  undecided ids, shows the code histogram (ST-* included), says how many earlier receipts the
+  transmission carries and how many left findings unresolved, and ends with `_SCOPE_TAIL`.
 
 Check ids are short and stable, as in section 8.1.
 
 ### 11.5 `integrity/ledger.py`
 
 Synthesis-fidelity figure extraction (INT-LEDGER-0xx) reads scientific notation (`3.0e8`,
-`6.67 × 10⁻¹¹`, `1.2*10**6`) through `stem.numbers.scan_number`. Such a figure is one figure
-whose spellings are its exact decimal value and its normalised mantissa-exponent form, so
-`3.0e8`, `3.0 × 10⁸` and `300000000` are the same figure. Before this change `3.0e8` yielded no
-figure and `6.67 × 10⁻¹¹` yielded 6.67 and 10. A figure beyond the scanner's bounds (an exponent
-over 99) is not read, and neither are its parts. Figures with no exponent are read as before.
+`6.67 × 10⁻¹¹`, `1.2*10**6`) through `stem.numbers.scan_number`, so `6.67 × 10⁻¹¹` is one figure,
+not 6.67 and 10. Since the STEM review (S6 and the ledger-units policy, section 23.3) figures are
+compared as typed quantities (`ledger.figure_changes`):
+- **value and precision are one spelling.** Every numeral, plain or scientific, and every figure in
+  words is spelled `d.ddd e<exponent>` with exactly its significant figures
+  (`canonical_spellings`): `3.0e-2`, `0.030` and `30e-3` are the same figure; `3.0e8`,
+  `3.0 × 10⁸` and `300000000` too, because the trailing zeros of an integer written without a
+  point may be significant. Before the review a scientific figure was spelled by its exact value
+  only, so `0.03 J` passed silently for `3.0e-2 J` while the faithful `0.030 J` was refused;
+- **distinct outcomes.** A figure whose value no cited source states (in any spelling, precision or
+  commensurable unit) is introduced (INT-LEDGER-023) and the source figure dropped
+  (INT-LEDGER-024); a figure with a source's value but other significant figures is a precision
+  change (INT-LEDGER-023, "changes the precision", and nothing dropped); a change of form only is
+  nothing;
+- **units are a separate attribute.** The unit written after a figure (symbols the SI reading
+  accepts after a figure, or unit words; per cent is left out) is read by the STEM unit table. The
+  same numeral with a unit that is not the source's is a unit change (INT-LEDGER-023, "changes the
+  unit": `2.0 kg` for `2.0 g`, `2.0 kJ` for `2.0 J`, `2.0 s` for `2.0 m`); the same quantity in a
+  commensurable unit is a conversion and no finding when it agrees within half a unit in its last
+  written place (`0.0020 kg` for `2.0 g`, `90 min` for `1.5 h`, `298 K` for `25 °C`), a precision
+  change when the significant figures cannot agree (`0.002 kg` for `2.0 g`; not applied across an
+  offset scale), and units of different dimensions never convert; a unit stated on one side only
+  is no change;
+- **beyond the scanner's bounds** (an exponent over 99) a figure has no exact value and is no
+  token, but it is compared by its normalised written form (`1e100` and `1e999` differ, `1e100` and
+  `1.0e100` are a precision change); its parts are never read as figures.
+
+### 11.6 Relay history (`channel/bus.py`)
+
+A relay runs without the request (no Given or show-that check, no coverage, no word bound) and a
+router forward re-checks nothing, so before the STEM review a report delivered with a failed Given
+check could be relayed or forwarded ACCEPTED with no finding. Now every delivered transmission of a
+report or synthesis is recorded (`TranslatorChannel.payload_history`), and:
+- a relay or forward of a report references every earlier delivered transmission of the same
+  report (its arrival first) in `TransmissionReceipt.history`, and carries each unresolved finding
+  of theirs (an error or warning of the receipt's own, a subject finding of warning severity) as
+  INT-HIST-001 with the original severity, claims, reports, agents, documents and signed result,
+  once, unless the new receipt states the same finding itself; a receipt's own carried findings are
+  referenced at the receipt they came from, never carried twice;
+- a synthesis references the transmissions of the reports it cites (listed, or holding a claim it
+  cites) and carries what names a claim it cites; report-level findings stay in the referenced
+  history, and so (close round 2 of the argument diagnosis, DIFF-05) do the subject findings about
+  a report's paragraphs or sentence style (ES-STR-, ES-STY-, HI-STR-: `bus._LAYOUT_PREFIXES`), since
+  a synthesis restates claims, not paragraphs;
+- a refused transmission is no history; a clean arrival is referenced and carries nothing, so its
+  relay stays ACCEPTED; INT-HIST-001 never blocks delivery (a carried error leaves the receipt
+  ACCEPTED_WITH_FINDINGS with that error);
+- at most 32 earlier receipts are referenced (the first always) and 64 findings carried (the last
+  says how many more the history lists).
 
 ---
 
@@ -1722,6 +1898,19 @@ Recorded behaviour changes, for the overseer audit and the user's sign-off:
 
 Every other non-STEM behaviour is unchanged by construction (P5).
 
+Recorded behaviour changes of the STEM review fixes (section 23), which are channel and integrity
+rules and so reach every branch:
+7. A request item's command words never address it alone when it names anything else (INT-REQ-004
+   on any branch: "We calculate 2 + 2 = 4." addresses no "Calculate the profit margin"); on the STEM
+   branches an item that names what it asks for in notation only ("Solve 3x + 5 = 20") needs a claim
+   about that notation.
+8. A relay or forward of a report, and a synthesis, carry the unresolved findings of the earlier
+   receipts they build on (INT-HIST-001) and reference those receipts (`TransmissionReceipt.history`).
+9. The synthesis ledger compares figures by value, significant figures and unit: a precision change
+   is named as one (no INT-LEDGER-024 for it), a unit change is INT-LEDGER-023, and a faithful
+   conversion is no finding.
+10. New codes: ST-CLAIM-001 and INT-HIST-001.
+
 ---
 
 ## 19. Refinements made during implementation
@@ -2137,3 +2326,1021 @@ at its cause (item 1), and the test asserts the error.
   does not cover keep their old reading, consecutive evaluations of a function the text defines are
   no algebra step while a fault in one of them is still named, and a bracket after a letter that is
   no function keeps its product reading and its step).
+
+---
+
+## 22. External review of 12 October 2026: findings S1, S2, S5, S7 and part scope
+
+An external review of the STEM integration (reviewed commit of the published STEM release;
+development source 83e97e9) reported seven findings and a policy concern. Findings S1, S2, S5 and
+S7 and the part-scope policy are fixed here, each at its cause in `stem/`; S3, S4 and S6 (coverage
+verbs, structured claim ids, scientific notation in the ledger) are outside the STEM checks and
+handled separately. Each is pinned with the reviewer's probes and negative controls in
+`tests/stem/test_review_stem_checks.py`: the correct answer still passes, a really wrong answer still
+fails, and run on the source before the fixes 40 of its 63 behavioural tests fail (the other 23 are the controls,
+which pass before and after; the 13 remaining tests exercise the new helpers and the recorded policy). As the
+review recommends, invariance tests pin one verdict for harmless parentheses (around a group, a value, a root, an
+absolute value's argument and a temperature's number), each with its wrong twin still failing.
+
+1. **S1, a grouped temperature lost the Celsius offset.** `T = (20 + 5) °C = 298.15 K` was an error
+   and `= 25 K` passed, while `T = 25 °C = 298.15 K` passed. The planner classifies the grouped side as
+   arithmetic, and the encoder converted `WithUnit` (and its interval) with the factor alone, so the
+   offset was applied only in explicit conversions between two literals. Now (section 6.1) the
+   point-or-difference decision is made per relation in every comparing check, and a temperature is
+   converted once, on the value its side states (`to_ir.Encoder._affine_point`): `(20 + 5) °C` is the
+   evaluated `25 °C`, exactly as the literal is. A side that combines such a temperature with other
+   terms is never converted term by term; its SI reading is refused (`to_ir.AffineUndecided`), so the
+   relation is undecided, or checked in its as-written reading only with failure at warning severity.
+   The same path now keeps the offset for order relations (`30 °C > 295 K`), restatements, Given
+   values, substituted values and symbols bound to a temperature (their domain carries the kelvin
+   value, `SymbolDomain.values_si_abs`). Fahrenheit controls are covered.
+2. **Symbols bound in different units** were compared as written when the relation itself wrote no
+   unit (`m₁ = 500 g`, `m₂ = 1.0 kg`, `m₁ < m₂` was an error). The reading modes now take the units of
+   the symbols' bindings into account (section 6.4). Found while fixing S1; same mechanism.
+3. **S2, explicit exactness was ignored.** With "Calculate 1/2 exactly, without rounding.",
+   `1/2 = 0.51` passed (half a last-digit unit plus 1 %) while `1/2 = 51/100` failed. Now (section 5.2,
+   R2) the tolerance policy carries intent first: exactness stated by the answer beside the relation,
+   or by the request (per part) for a relation between pure numbers, makes the comparison exact for
+   every spelling; a rounding the request asks for keeps the written-digit tolerance; and over exact
+   operands a stated decimal earns no relative slack from its spelling, so `0.51` and `51/100` get the
+   same verdict under every policy (both fail for 1/2) while correct roundings (`1/3 = 0.33`,
+   `√2 = 1.41`) pass. Under a stated rounding the stated value is a rounding whatever its spelling
+   (no exact mode): `7/3 = 2` under "to the nearest integer" and `1/3 = 33/100` under "to 2 decimal
+   places" pass as `1/3 = 0.33` does, and with no rounding stated they remain exact claims and fail.
+   The same rule holds in an evaluation under bindings and in an algebra step, where a rounded value
+   used to earn the 1 % slack over exact operands (`2x = 1 ⇒ x = 0.51` passed while `x = 51/100`
+   failed). Each check records the policy that decided it (`PlannedCheck.tolerance`, its
+   description and the signed problem's notes). The phrases are read by `tolerance.exactness_phrase`
+   and `rounding_phrase` ("exactly two reasons" and "need not be exact" state no exactness).
+4. **S5, a root set's verdict depended on its order.** `x² = 4 ⇒ x = −2 or x = 2` was an error: the
+   chain reading took the connective for a step to the first member alone, checked under the
+   principal-root condition `x ≥ 0`. Now (section 4.7) once a root set of two or more members is
+   recognised, a step from its equation to one member is context (`case`) and its ST-ALG-001 note is
+   withdrawn; `stem-sol` checks the set (membership and completeness), so every order and `±` get the
+   same verdict, and a wrong member still fails. A `±` before a rounded value (`x² = 2 ⇒ x = ±1.41`)
+   is read in the step as two rounded values; the step compared them exactly and was an error,
+   while `x = −1.41 or x = 1.41` passed.
+5. **S7, plain absolute values were masked as a table.** A line opening with `|` and holding two bars
+   was a table, so `|−2| = 2` got no check and an INT-REQ-012 error, and `|−2| = 3` escaped. Now
+   (section 4.2) a block of such lines is a table only with a Markdown delimiter row or the shape of
+   a truth table; `|−2| = 2` is checked as `$|−2| = 2$` is.
+6. **Part scope.** Substitutions matched any binding of a symbol, so in `(a) x = 2, y = x + 1 = 5;
+   (b) x = 4, y = x + 1 = 3` each wrong result matched the other part's binding and both passed. Now
+   (section 4.6) a binding holds in its own part from where it is stated (`checks._scoped`): both
+   checks fail with INT-SUBJ-001, while a value carried forward from an earlier part that states it,
+   a value given in the same statement ("…, where x = 2"), the request's values and a written
+   substitution of any value in scope still pass. An evaluation uses the value in force; a rebinding
+   in the same part makes its failure a warning. An order relation compares stated values only when
+   its symbols have a value of its own part or one value elsewhere (`relations._bound_in_part`); a
+   symbol given several values elsewhere (the request's "at t = 0 and t = 8", then `t > 40` in part
+   (c)) is an unknown. ST-SCOPE-001 stays an informative note, and its message now states the rule.
+
+**Residuals, recorded rather than hidden.** Within one part, a written substitution may still match
+any value stated before it (the written value shows which was meant); a symbolic evaluation after a
+rebinding is checked against the latest value at warning severity. A relation combining an offset
+temperature with other terms against another scale is undecided, not decided. The written-digit
+half-width of an integer with trailing zeros (`300 K` is ±50 when its operands have one significant
+figure, R1) is unchanged. Under a stated rounding a root written as an integer or a fraction is still
+checked as an exact root (`stem-sol`), and a restated fraction (`stem-res`) keeps h = 0.
+
+**Measured on recorded rounds** (copies replayed with `scripts/arena/run_arena.py`): round 3 46/46
+and round 7 177/177, as before the fixes, with all 15 STEM mutations of round 7 named. No receipt of
+either round changed its status, its codes or its findings' codes, severities and claims. Four round-7
+mutation errors changed wording only (the rule's short form; two substitution errors, now entailment
+checks, quote the engine's counterexample instead of an unsatisfiable reading), and two round-7
+answers changed check forms only, with their variants (cs-t13: a substitution decided by entailment
+instead of satisfiability; maa-p7b: an inequality about an unknown no longer planned as a
+comparison). The full suite stays green.
+
+---
+
+## 23. STEM review fixes: request coverage, claim attribution, typed ledger figures, relay history
+
+The external review of the STEM integration (12 October 2026) reported, among others, four integration
+findings and two policy limits that concern the channel, the integrity layer and the claim mapping: S3, S4,
+S6, the ledger's units and the relay history. Each was reproduced with the reviewer's probe on this code,
+fixed at its cause, and turned into regression tests that keep the passing controls passing and the wrong
+answers failing.
+
+### 23.1 Request coverage (S3; `channel/bus.py` `_coverage`, `stem/hub_hooks.py`)
+
+Before: for "Calculate the acceleration. Calculate the force. Calculate the wavelength." the answer
+"2 + 2 = 4." was ACCEPTED with all three items addressed by its one claim; "Find the distance." likewise.
+The STEM hook lent the computing command words to every claim that computes, and one shared word met the
+lexical threshold. Now (section 11.2) an item's command words and the instructions on the form of its
+answer are no evidence on their own: an item that names anything else is addressed only by a claim that
+shares one of its topic terms (its own words, or the words the hook lends: dimensions, unit names, relation
+kinds, a derivative's "gradient", a component's direction) or that the hook finds about the item (a symbol
+the item asks for, enough of the item's own figures). The three items above are now unaddressed (three
+INT-REQ-004); `a = (20 − 0)/4.0 = 5.0 m s⁻²` still addresses "Calculate the acceleration" and the receipt
+stays ACCEPTED. The rule is the channel's, so it holds on every branch ("We calculate 2 + 2 = 4." addresses
+no "Calculate the profit margin").
+
+The same cause had two further forms, fixed with it:
+
+| Item, answer "2 + 2 = 4." | Before | Now |
+| --- | --- | --- |
+| "Solve 3x + 5 = 20.", "Simplify √50.", "Find u₆ and S₅.", "Convert 72 km h⁻¹ into m s⁻¹.", "Given f(x) = x² − 3x, find f(5).", "Calculate v if d = 120 m and t = 8 s." (an item whose words are all command words, naming what it asks for in notation) | addressed, ACCEPTED | unaddressed, INT-REQ-004 |
+| "Calculate the acceleration of a trolley that reaches 4 m/s in 2 s." (two single-digit figures shared by coincidence) | addressed | unaddressed, INT-REQ-004 |
+| "Calculate the speed if d = 120 m and t = 8 s." answered `t = 2 + 2 = 4` (a symbol the item gives a value for) | addressed | unaddressed, INT-REQ-004 |
+
+The genuine answers to each of these items still address them (`3x = 20 − 5 = 15, so x = 15/3 = 5`,
+`√50 = √25 × √2 = 5√2`, `v = d/t = 120/8 = 15 m/s`, `a = 4/2 = 2 m s⁻²`, ...). A computing claim now also
+offers "evaluate", so the correct answers to "Evaluate 16^(3/4) without a calculator", "Evaluate log₁₀ 1000
+exactly" and three more "Evaluate" items, which were wrongly unaddressed, address them.
+
+Calibration on every item of the 558-item corpus and every recorded answer of rounds 1 to 7 (614
+transmissions, 670 items), against the code before the fixes: no item lost its coverage; 13 items that were
+wrongly unaddressed are now addressed (three correct truth tables and their three mutants, which change a
+row and not the coverage; six answers to "Evaluate" items, five correct and one mutant; a differentiation);
+119 attributions were narrowed (a claim that counted for an item only through a shared imperative, such as
+an intermediate step or a restated Given line, no longer does) and 8 changed claims (now through a unit, a
+percentage, a truth-table row, or the computations that evaluate an item instead of the line that restates
+its imperative); nothing changed in rounds 1 to 7. Tests: `tests/channel/test_stem_review_coverage.py`.
+
+### 23.2 Claim attribution (S4; `branches/stem_pack.py` `_ClaimMap`)
+
+Before: a structured report whose claims `s1.2` ("2 + 2 = 5.") and `s1.1` ("3 + 3 = 6.") carry the familiar
+ids in the other order got the failed check and INT-SUBJ-001 on `s1.1`, the correct claim, and the passing
+check on `s1.2`, the false one: the claim map trusted an id that looked like its statement id before any
+span or text. Now statements map by source span and text (section 9.1); an id is the statement's one claim
+only when its text agrees (it overlaps the span, it is the text the parser gives the statement, or the
+two-way substring rule holds), and a disagreeing id is ST-CLAIM-001 (warning) naming both claims. The same
+report now has the failure on `s1.2` and the pass on `s1.1`; with ids `first`/`second`, or with the parser's
+own claims, nothing changes. A repeated line ("x = 2 + 2 = 5" in two parts) maps to its own occurrence.
+Tests: `tests/branches/test_stem_review_claim_map.py`.
+
+### 23.3 Typed ledger figures (S6 and the ledger-units policy; `integrity/ledger.py`)
+
+| Source → synthesis | Before | Now |
+| --- | --- | --- |
+| `3.0e-2 J` → `0.030 J` (notation only) | INT-LEDGER-023 error, INT-LEDGER-024 | nothing |
+| `3.0e-2 J` → `0.03 J` (2 → 1 significant figures) | nothing | INT-LEDGER-023 "changes the precision" |
+| `3.0e-2 J` → `0.031 J` (another value) | INT-LEDGER-023, -024 | INT-LEDGER-023, -024 |
+| `2.0 g` → `2.0 kg`; `2.0 J` → `2.0 kJ` | nothing | INT-LEDGER-023 "changes the unit" |
+| `2.0 g` → `0.0020 kg` (conversion) | INT-LEDGER-023, -024 | nothing |
+| `2.0 g` → `2000 kg` | INT-LEDGER-023, -024 | INT-LEDGER-023, -024 |
+| `1e100` → `1e999` (beyond the scanner's bounds) | nothing | INT-LEDGER-023, -024 |
+
+INT-SYNTH-012 (the paraphrase was not formally checked) stays on every row: number and unit preservation is
+still not a formal check of the claim. Tests: `tests/integrity/test_stem_review_ledger.py`.
+
+### 23.4 Relay history (`channel/bus.py`, `channel/contracts.py`)
+
+Before: with the request "Given v = 20 m/s and t = 4 s, calculate the acceleration.", an answer stating
+`v = 40 m/s` arrived with a failed Given check (`stem-giv-1`) and INT-SUBJ-004, but its relay to the
+combinator was ACCEPTED with no finding (the relay form builds no Given check) and the router's forward
+ACCEPTED with no check. Now (section 11.6) both receipts reference the arrival and carry the INT-SUBJ-004 as
+an INT-HIST-001 warning on `s1.1` with its signed result; a synthesis citing `s1.1` carries it too, one
+citing other claims only references it. Tests: `tests/channel/test_relay_history.py`.
+
+### 23.5 Tests changed by the fixes
+
+Each asserts the same rule as before or a stricter one:
+- `tests/integrity/test_stem_ledger_figures.py::test_spellings_meet_across_notations`: the spellings of
+  `3.0e8`, `3.0 × 10⁸` and `300000000` still meet; the assertion that the less precise `3e8` is a spelling of
+  `3.0e8` became `3.0e8` is one and `3e8` is not (the precision-less spelling is what let `0.03 J` pass for
+  `3.0e-2 J`).
+- `tests/channel/test_peer_exchange.py::test_router_forwards_a_delivered_report_unchanged_and_the_peer_quotes_it_through_the_hub`,
+  `tests/channel/test_round2_fixes.py::test_a_specialist_cannot_relay_a_colleagues_report_or_overwrite_the_held_copy`
+  and `::test_supersession_names_forwards_and_quoting_reports_and_a_synthesis_citing_the_old_report`: each
+  asserted that a faithful forward of a report is ACCEPTED, while the report's arrival had left a heuristic
+  INT-REQ-004 warning open. Each now asserts that the forward is delivered, adds no finding of its own, carries
+  exactly the arrival's unresolved findings as INT-HIST-001 (same severity, claims and message), references
+  the arrival receipt, and is ACCEPTED exactly when the arrival left nothing open
+  (`tests/channel/history_support.assert_carries_exactly`).
+
+### 23.6 Measured
+
+Full suite: 4443 passed, 45 deselected, 4 expected failures (before the fixes: 4353 passed; 90 tests added,
+4 rewritten, none removed); the arena-rule harness tests pass (27). No stress test was run. Arena replays of the recorded rounds on copies, with the code before and after
+the fixes (`scripts/arena/run_arena.py`; functional rate as defined there):
+
+| Round | Functional before | Functional after | STEM mutations named | Genuine records with an error (before → after) | Genuine records with an error or warning | INT-HIST-001 findings |
+| --- | --- | --- | --- | --- | --- | --- |
+| r1 | 30/30 | 30/30 | — | 3 → 3 | 7 → 7 | 4 |
+| r1-adv | 150/151 | 150/151 (the planted empty answer is still REJECTED) | — | 6 → 6 | 21 → 21 | 0 |
+| r2 | 46/46 | 46/46 | — | 2 → 2 | 7 → 7 | 3 |
+| r3 | 46/46 | 46/46 | — | 2 → 2 | 8 → 9 | 7 |
+| r4 | 46/46 | 46/46 | — | 1 → 1 | 9 → 11 | 3 |
+| r5 | 46/46 | 46/46 | — | 2 → 2 | 7 → 7 | 2 |
+| r6 | 46/46 | 46/46 | — | 0 → 0 | 8 → 8 | 4 |
+| r7 | 177/177 | 177/177 | 15/15 | 18 → 19 | 37 → 39 | 11 |
+
+The rises in the last three columns are relays, forwards and syntheses that now carry what their reports'
+arrivals left open (in r7 the router's forward of the History peer report that arrived with an INT-SUBJ-001
+error, and the synthesis citing that claim); no new finding was raised on any answer's own content. The
+functional rate does not judge whether a finding is true; the receipts are judged by the overseers.
+
+---
+
+## 24. Argument diagnosis: STEM reference knowledge, named STEM diagnostics and the STEM false errors
+
+This section records the STEM part of the argument-diagnosis work, which builds on the shared contract of named
+diagnostics (`named.py`, engine 0.5.0). It covers:
+
+- the closed STEM reference;
+- the nine named STEM diagnostics of the code table;
+- the end-to-end false errors of the STEM and general branches (B2, B7, B17, B25, and a psychology grounding alarm);
+- the rerun lens findings on the STEM front end, the prose-arithmetic reader and the cross-report check.
+
+Every diagnostic follows one rule: it only adds information.
+
+- It never upgrades a status, never turns a failed or undecided check into a pass, and never weakens a check.
+- It can make a result not releasable, never more releasable.
+- It is computed deterministically from the engine result, the IR, the document the front end read, the request and
+  the closed reference data. Nothing in the answer or the request is executed.
+- Each diagnostic has a positive test and a clean control.
+
+The scope statement of section 1 is unchanged: a named diagnostic, like a check, is a property of the encoding.
+
+### 24.1 Phase 0: the merge interaction
+
+On the tree that merges the two STEM review branches (sections 22 and 23), 8 tests of
+`tests/stem/test_review_stem_checks.py` failed. Genuine one-line answers left their item unaddressed (INT-REQ-004):
+
+- "1/2 = 0.50" to "Calculate 1/2 exactly, without rounding.";
+- "x² = 4 ⇒ x = ±2" to "Solve the quadratic equation.";
+- "|−2| = 2" to "Calculate the absolute value of negative two.".
+
+The cause: the coverage rule of section 23.1 needs topic evidence, and the STEM hooks lent none for these shapes. The fix
+in `stem/hub_hooks.py`:
+
+- A claim that writes the item's own expression token for token is about the item. This takes one linear pass of the
+  STEM lexer. A lone figure, a sign, a prose word or units set apart write no expression.
+- An equation in one unknown lends its degree ("quadratic" for x² = 4).
+- An operation written in notation lends the words a request uses for it: |x| lends "absolute" and "modulus", log lends
+  "logarithm", and sin and cos lend their names.
+
+Unrelated arithmetic still addresses nothing. Tests: `tests/stem/test_review_merge_interaction.py` (16). The five review
+test files pass unchanged.
+
+### 24.2 The closed STEM reference (`stem/reference_data.py`, `stem/reference.py`)
+
+The reference is exact data in the pattern of `stem/constants.py`. Nothing in it is evaluated, and `stem/reference.py`
+reads it. It holds:
+
+- `QUANTITIES` (70 entries since repair round 1, 24.11; 79 since repair round 2, 24.12): for each symbol, the IB subject profiles, the quantity's name, its dimension (`units.Dimension`), its SI
+  unit and the quantities it is ambiguous with in a profile:
+  - p is momentum in physics and pressure in chemistry, biology and ESS, and each is ambiguous with the other; in physics
+    p and P are pressure too (repair round 2), so a physics p or P is fixed only by its result's unit or the request;
+  - P is power, ambiguous with pressure;
+  - V is potential difference in physics and volume in chemistry, biology and ESS;
+  - Q is heat, ambiguous with charge;
+  - c is specific heat capacity, ambiguous with the speed of light and a concentration;
+  - T is temperature, ambiguous with a period and a tension;
+  - λ, f, ρ, I, R and the guide's other symbols are listed too.
+- `FORMULAS` (15 laws): the data-booklet laws for each quantity and profile, as an exact coefficient and terms:
+  E_k = ½mv², ΔE_p = mgΔh, p = mv, F = ma, W = Fs, P = W/t, V = IR, Q = mcΔT, v = fλ, a = Δv/Δt, I = Δq/Δt, ρ = m/V,
+  n = m/M, f = 1/T and, in physics, the pressure p = F/A (repair round 2).
+- `BOOKLET_LAWS` (94 laws, repair round 1; 102 since repair round 2): the laws of the data booklets of physics, chemistry,
+  biology, sports science, ESS and mathematics, each a law of one quantity, which the front end reads as exact data (`reference.booklet_laws`) for
+  the form check ST-REF-002.
+- The cue tables of the diagnostics below: extrapolation caveats, working cues and commands, change markers,
+  noun-phrase stopwords and comparison phrases.
+
+`fixed_quantity(symbol, profile, result_dims=..., request_text=...)` fixes a symbol's quantity only when the dimension
+guard agrees and one of these holds:
+
+- the symbol is unambiguous in the profile;
+- the units of its stated result decide it;
+- the request names the quantity ("Calculate its kinetic energy").
+
+Otherwise it returns nothing, and no ST-REF-001 can follow. That is a miss, never a false alarm.
+
+`coefficient_free_dimension` reads the dimension of a right-hand side with its numeric coefficients dropped, however they
+are spelled, so `0.5 × m × v`, `m × v / 2` and `½mv` have one dimension. The same rule fixes ST-DIM-001 on such
+coefficients: a decimal factor is dimensionless unless the reference names it a constant.
+
+### 24.3 Named STEM diagnostics
+
+| Code | Defect | Decided by | Failure appears as | Positive | Control |
+| --- | --- | --- | --- | --- | --- |
+| ST-REF-001 | stem_wrong_formula | front end | ST-REF-001 warning naming the booklet formula | s02, s02b | s00; an ambiguous p with no unit |
+| ST-REF-002 | stem_wrong_formula | front end (24.11) | ST-REF-002 warning naming the booklet laws | E_k = mv² (the ½ dropped) | E_k = ½mv² |
+| ST-UNIT-003, *written* case | stem_unit_error | engine (`unit` companion `stem-<kind>-<n>u`) | INT-SUBJ-001 error labelled stem_unit_error | s03b, s03d | s03k, s03dk |
+| ST-UNIT-003, *traced* case | stem_unit_error | engine (`unit` companion) | INT-SUBJ-004 warning (a reading the report did not state) | s03a | s03k |
+| ST-STEP-001 | stem_invalid_step | engine (`op` check, an identity) | INT-SUBJ-004 warning | s05 | s05c |
+| ST-STEP-002 | stem_invalid_step | front end | ST-STEP-002 info | `x² = 3x`, then "Dividing both sides by x: x = 3" | the same with `(x ≠ 0)` stated |
+| ST-ROUND-001 | stem_rounding_changes_conclusion | engine (`rnd` check) | INT-SUBJ-004 warning | s04 | s04c |
+| ST-RANGE-001 | stem_extrapolation | front end | ST-RANGE-001 warning | s07 | s07c; the same answer with a caveat |
+| ST-WORK-001 | stem_missing_working | front end | ST-WORK-001 warning | s08 | s08c |
+| ST-GIVEN-002 | stem_contradictory_givens | front end | ST-GIVEN-002 warning | f05b | c06-givens; a rebinding in part (b) |
+| ST-GIVEN-003 | stem_contradictory_givens | front end (24.11) | ST-GIVEN-003 warning | a probability above 1; "mutually exclusive" against the request's P(A ∩ B) = 0.1 | the addition rule with the stated intersection |
+| ST-SCOPE-002 | stem_symbol_conflict | front end | ST-SCOPE-002 warning | s06 | s06c; a rebinding after "Next," |
+
+What each diagnostic decides:
+
+- **ST-REF-001.** The answer's law for a symbol whose quantity is fixed (24.2) has a right-hand dimension, with
+  coefficients dropped, other than that quantity's. A symbol that appears on both sides is an equation, not a law, and
+  gets nothing. Sciences profiles only.
+- **ST-UNIT-003, written.** Both sides carry units of one dimension with different factors, or a per cent sign
+  converts one side only (`reference.as_written_reading`). The check beside the companion decides the relation under
+  both readings. The companion fails exactly when the numbers hold as written and fail in SI.
+- **ST-UNIT-003, traced.** Bare numbers of the working repeat the numbers of bindings stated in non-SI units
+  (`d = 2.5 km`, `t = 10 min`, then `v = 2.5/10 = 0.25 m s⁻¹`). The companion reads each such number in its binding's
+  unit. Every numeral of the working must be accounted for, and the reading must give the stated unit's dimension.
+  The report never wrote that reading, so a failure is a warning.
+- **ST-STEP-001.** The prose before a step states an operation: "adding 4 to both sides", "dividing both sides by 2",
+  "squaring both sides". Applied to each side of the preceding equation, that operation must give the next line's
+  sides, in either order, for every value of the unknowns. Exactly one stated operation is read; a combined one is not
+  guessed.
+- **ST-STEP-002.** A step divides by an expression of the unknown with no `≠ 0` stated. The step's own check, or the
+  root check, decides whether the solution sets differ.
+- **ST-ROUND-001.** A comparison against a threshold uses a value the working itself rounded (`… = 0.246 s ≈ 0.25 s`).
+  The comparison must keep its truth with the value before the rounding.
+- **ST-RANGE-001.** A model the answer states is evaluated at an input outside [min, max] of a series the request gives
+  (three or more values of one quantity in one unit), with no caveat. Sciences profiles only.
+- **ST-WORK-001.** The request asks for working: "show your working", or a calculate, determine or show item worth two
+  or more marks. The answer states one result with no formula, substitution or working line. Computer Science is
+  exempt.
+- **ST-GIVEN-002.** A symbol of a Given or Data statement is bound again to another value in the same part, with no new
+  symbol, and a later substitution uses it.
+- **ST-SCOPE-002.** A symbol is bound twice in one part to different values whose noun phrases name different
+  quantities ("the car's speed", "the speed of sound"), with no change marker before the second binding, and a later
+  substitution uses it.
+
+An engine-decided diagnostic carries its defect on the check (`PlannedCheck.defect`, copied to `FormalCheck.defect`), so
+the channel's INT-SUBJ-001 or INT-SUBJ-004 for its failure is labelled with that defect. A front-end diagnostic is a
+structural finding, and its defect is the code's canonical label. No severity exceeds the code's maximum
+(`named.NAMED_CODES`).
+
+Check ids gain new kinds: `op`, `sys` (stem-soundness-5 in 24.6) and `rnd`, plus the `u` companions.
+
+Tests:
+
+- `tests/stem/test_reference_formulas.py`
+- `tests/stem/test_units_symbolic.py`
+- `tests/stem/test_steps_operations.py`
+- `tests/stem/test_rounding_range_working.py`
+- `tests/stem/test_givens_symbols.py`
+
+### 24.4 The B2 false errors: eight classes, twelve sentences
+
+The end-to-end run reported twelve false INT-SUBJ-001 errors on correct STEM work. Each is fixed at its cause in the
+reading. `tests/stem/test_e2e_b2_classes.py` pins each sentence with a wrong twin (the same construct, wrong) that still
+fails with INT-SUBJ-001.
+
+| Class | Sentence (case) | Misreading | Fix |
+| --- | --- | --- | --- |
+| a count before an operator | "4 categories − 1 = 3" (bi) | read as `− 1 = 3` | a run reads a count noun's number before it (`spans._count_before`): 4 − 1 = 3 |
+| a mixed-unit compound | "4 min 30 s = (4 × 60 + 30) s = 270 s" (ph) | cut to `30 s = …` | a compound quantity is the sum of its parts, read as (4 min + 30 s) with its own tokens |
+| a value restated in brackets | "= 0.870 (87%)" (ph) | the product 0.870 × 87% | a run stops before a percentage restated in brackets |
+| a chain cut at "…" | "= 2.084429… + 18.420681… = 20.505110…", "= 0.693147… / 2.050511… = 0.338036… months" (maa) | the ellipsis cut the chain | a decimal with a glued ellipsis (`…`, `...`, `\ldots`, `\dots`, `\cdots`) is a truncated numeral (`ExactNumber.truncated`, half-width one unit in its last digit) |
+| a figure from another chain | "so about 26%" after "(1.259 − 1) × 100 = 25.9%" (ch, ess); "= 25.9%" (ess); "a fall of 0.1 pH unit" (ch) | checked against the final value of an earlier chain | a restatement is of the chain in its own statement first, and of the same quantity: a value in a named scale (pH, pOH, pKa) restates only a value in that scale, and pH is a quantity's name, not a unit; a number that is an operand of written arithmetic (the 1 of `(1.259 − 1)`) or stands in a mark annotation (`[1]`) is no stated value |
+| bit groups | "1011 0110₂ = B6₁₆", "(0110 1101₂ = 109)" (cs) | 1011 and 0110₂ read apart | digit groups of 4 or 8 in base 2 (3 in base 8, 2 or 4 in base 16) before a base subscript are one numeral (`numbers.scan_grouped_based`) |
+| a quoted failing test | "the final test (2 <= 1) fails" (cs) | asserted as a comparison | a comparison followed by "fails", "is false" and their kin is negated (`Relation.negated`): the answer asserts that it does not hold |
+| a pair whose end is an expression | "falls from $1.60 to $2.00 − $0.60 = $1.40" (ec) | the pair read as 1.60 → 2.00 | the general reader reads a pair's end after its written arithmetic ($1.40), or withholds the pair (`branches/quant.py`) |
+
+One more cause surfaced with the ess case. "Quote them exactly" asked for the figures as written, yet it made the CO₂
+arithmetic exact. Now `tolerance.exactness_phrase` skips "exactly" after a verb of reproducing (quote, cite, copy,
+reproduce, transcribe, repeat, relay) and in "exactly as given, written or stated". The arithmetic keeps the tolerance
+of its written figures, and a wrong result still fails.
+
+### 24.5 Other end-to-end items
+
+**B7: a figure derived by two routes, pooled at its stated precision** (`integrity/cross_check.py`). Physics s2.1 and
+s2.2 derive R by two routes, 230/9.57 and 230²/2200, and each states it as 24.0 Ω. The exact pooled values 24.033 and
+24.045 contradicted each other (INT-CONFLICT-001).
+
+Now `split_by_precision` handles any Real symbol that two or more claims use in their premises and bound in their
+conclusions by a stated interval:
+
+- the first such claim keeps the name;
+- each later claim gets `<name>_r<k>` and one premise `|name − name_r<k>| ≤ h_first + h_k`, where h is half the width
+  of each claim's stated interval;
+- the premise's grounding is `arithmetic_fact` with no verification, so a result that relies on it lists it as an
+  unverified dependency.
+
+This applies to the cross-report consistency check and to synthesis entailment, where the stored results of the sources
+are still matched against the sources as formalized. Routes that agree at their stated precision never contradict each
+other; 24.0 against 26.0 still does. A synthesis whose sources contradicted only under exact pooling is now checked for
+entailment instead of failing as inconsistent.
+
+Found with it (formal-robustness-4, 24.6): when the only diagnostics of a failed joint check are INT-GLOSSARY-007,
+charged to identified claims, those claims are set aside and the rest are checked again. Each pass sets at least one
+claim aside, so the check ends, and a contradiction among the others is still named. Tests:
+`tests/integrity/test_pooled_precision_b7.py` and `tests/integrity/test_joint_invalid_claim_fr4.py`.
+
+**B17: STEM claim ids by agent** (`adapters/stem_specialist/parser.py`, `branches/stem_pack.py`). Two agents of one
+STEM branch on one task, Chemistry and ESS, held the same ids (`s1.1`), so the channel named the collision
+(INT-REQ-016). The parser now takes the task's agents (`task_agent_ids`; `StemTextParser.accepts_task_agents`):
+
+- with two or more distinct agents, every id, support and self-report note carries the agent's qualifier, as the
+  generic branch's ids do (`s1.1@ess-specialist`);
+- with one agent, ids are unchanged.
+
+The STEM pack's claim map also accepts the qualified spellings. The channel passes the agents (`channel/bus.py`,
+`respond_text`, applied by the integration step):
+
+    if getattr(parser, "accepts_task_agents", False) is True:
+        same_branch = {r.agent_id for r in self.transmitted_reports.values()
+                       if self._branch_for(r.agent_id)[0].key == branch.key}
+        extra["task_agent_ids"] = sorted(same_branch | {agent_id})
+
+The set holds the agents of this agent's branch that delivered on the task, and this agent. Agents of another branch
+number their claims with their own letter (`s`, `m`, `c`), so they cannot collide, and counting them would qualify the
+ids of a physics and a mathematics answer on one task for nothing (`tests/e2e/test_stem_e2e.py`, physics and maths with
+a combinator, expects `m1.1`). The set is delivery-based, so a plan that names a combinator who delivers nothing keeps
+plain ids. Tests: `tests/branches/test_stem_ids_b17.py`, which reproduces INT-REQ-016 with plain ids and shows it gone
+with qualified ones, and `tests/channel/test_stem_task_agents_b17.py`: through the channel, Chemistry and ESS on one task
+get qualified ids and no INT-REQ-016, one agent keeps `s1.1`, and physics with mathematics keeps plain ids.
+
+**B25: worked equations of the general branches through the STEM chain checker** (`branches/packs.py`). Worked lines
+(`=` chains) of Business, Economics, Geography and Psychology were named CORE-QNT-001, "not decided". Now
+`worked_formal_checks` reads them with the STEM front end:
+
+- **The view.** `quant.worked_equations` finds the equations. The view has the same length as the answer and keeps
+  only each equation's phrase. Currency signs are blanked, and line breaks inside a phrase are read as spaces, so one
+  equation never continues another's chain.
+- **The checks.** `stem.build_document` and `build_checks` check the view under the STEM tolerance rule. The checks
+  have ids `core-stem-…` and carry the claims that hold them. An equation decided this way gets no CORE-QNT-001.
+- **The unit companion.** ST-UNIT-003 is a STEM convention and is not built here: '(31 − 11) ÷ 10 = 2.0%' turns a rate
+  per 1,000 into per cent as written.
+
+A derived figure that a supplied text states word for word, with three words of context on each side (four words at
+least), is a transcription, not the writer's arithmetic, and gets no CORE-QNT-001. An example is "fell by 30%" in
+i02c's extract. An invented figure (e02) is still named.
+
+**PS-SRC-001** (`branches/packs.py`). A study attribution is grounded by a supplied text that names it: the surnames
+and the year must stand within 120 characters in one text, as "Loftus and Palmer (1974)" does in c03-psych's summary.
+A named study in no text (e05b) still fires, and so does an attribution with the right authors and a year the text
+does not give. Tests:
+`tests/branches/test_core_equations_b25.py`.
+
+### 24.6 Rerun lens findings
+
+Each finding was reproduced on this code before its fix. Each is pinned in `tests/stem/test_lens_rerun_c.py` or
+`tests/branches/test_lens_rerun_c_branches.py` with the probe and a control.
+
+| Finding | What failed | Fix |
+| --- | --- | --- |
+| stem-soundness-1 | a result off by a prefix or a per cent on one side passed through the as-written reading (`3 × 2.0 kg = 6.0 g`, `300/400 = 0.75 %`, `80 × 25 % = 2000`, `2.0 kW × 3.0 = 6.0 W`) | the written ST-UNIT-003 companion (24.3): each now fails, while the same working with its units right holds |
+| stem-soundness-2 | a substituted (R7), restated (R8) or Given value matched within h(b) + h(w): 3 passed for 2, 30 for 20 | one value must be a rounding of the other: the larger half-width, not the sum; in Mathematics an exact integer the answer states (`Let x = 3`) has h = 0 |
+| stem-soundness-3 | a symbol was matched to a coefficient the law writes | a numeral opposite a literal coefficient of the law (the 4 of 4x, the ½ of ½mv²), aligned as `nodes.align` aligns, is that coefficient, never a substituted value |
+| stem-soundness-4 | the Computer Science AND dot (`A.B`) was a sentence boundary | in the Computer Science profile a `.` between two operands is AND; a full stop after an operand stays a full stop |
+| stem-soundness-5 | a solution of simultaneous equations was checked against one equation plus the answer's own values | a `sys` check of the stated solution against every equation of the system, from the part or the request; the per-equation steps to its values are context |
+| stem-soundness-6 | any earlier approximation word, or a substring ('linearly', 'thoroughly'), gave 5 % slack | `tolerance.approx_qualifies`: a whole word among the last words before the relation, with only linking words between |
+| stem-soundness-8 | `θ = 30° = 0.524 rad` was compared as written (30 against 0.524) | a degree/radian conversion is compared in SI with π enclosed; a conversion is exact (τ = 0) unless approximate, and a whole number on the converted side carries no h |
+| stem-soundness-9 | a trig function of a bare number passed under degrees or radians | an angle the request or the answer writes in degrees (or radians) fixes the reading (the angle hint), for eq, cmp and sub alike |
+| stem-soundness-11 | an incomplete root set on the next line passed (`x² = 3x`, then "Dividing by x, x = 3") | in Mathematics a root line after an equation claims the full set and is checked as after `⇒`; consecutive root lines are one set; the division gets ST-STEP-002 |
+| stem-soundness-12 | common wrong working was dropped silently | a step cued as factorising, expanding or simplifying is an identity check (`alg`); bits and bytes are units; `ⁿCᵣ` is an exact binomial coefficient; an inequality in an absolute value, a chained inequality step in Mathematics and a nuclear equation are named ST-UNDEC-001 |
+| stem-precision-2 | a volume substituted in the unit of the concentration (cm³ bound, dm³ substituted) never matched | a substituted value also matches the binding in a sibling unit that the same working uses (`dm⁻³` of `mol dm⁻³` gives dm³) |
+| stem-precision-11 | a line of grouped or truncated arithmetic counted as 0 words, so INT-REQ-012 | in the word-count view a line of written arithmetic is one maths word; a truncated numeral is read (B2) |
+| parser-safety-1 | an over-long superscript run went to `int()`, raised, and emptied the document | the lexer and the unit reader bound the run (ST-LIM-001), keep the rest of the document, and keep the bad numeral inside its run |
+| parser-safety-2, -7 | the number-word patterns backtracked catastrophically | `_WNUM` is an atomic group; 'and' joins number words only after 'hundred' |
+| parser-safety-5 | the emphasis pattern was quadratic per line | `layout.emphasis_spans` pairs markers in one linear pass and gives the regular expression's spans (compared on 200,000 random strings when written; the test compares 20,000); `plain_line` uses it |
+| parser-safety-8 | the SI total pattern was quadratic on a digit run | a lookbehind `(?<![\d.])` on the mantissa |
+| parser-safety-10 | verbal arithmetic restarted after a failed chain | the scan resumes after the failed chain |
+| parser-safety-11 | list markers were scanned for every line | an index of list-marker ends by line |
+| parser-safety-12 | `worked_equations` rescanned earlier links | one pass finds the first operator link |
+| parser-safety-13 | `2.5e3` and `2.5 × 10³` were read by their mantissa | a lookahead keeps scientific notation out of the general figure patterns |
+| formal-robustness-4 | one formalization invalid in the joint problem hid a contradiction among the others | 24.5 |
+| robustness-and-contracts-7 | a quoted or JSON-wrapped answer paired a chronology cue across its sentences | `history_specialist.sentences.inner_sentences` (used by the core pack, and since repair round 1 by the HI-CHR-001 proxy too) splits the inside of a wrapping quotation or JSON string again |
+
+Two findings no longer reproduced on this code, and their probes are kept as evidence:
+
+- stem-soundness-10: `x² = 2 ⇒ x = ±1.41` holds, and `±1.51` fails.
+- stem-precision-4: the five `(k s.f.)` cases hold, and 2480 fails.
+
+Measured after the fixes, every adversarial input stays linear:
+
+| Input | Time |
+| --- | --- |
+| 200,000-character emphasis storm | 0.42 s |
+| `plain_line` on 400,000 characters | 0.29 s |
+| verbal arithmetic, 200,000 characters | 0.66 s |
+| 200,000 characters of list items | 2.05 s |
+| `_TOTAL_RE` on 20,000 characters | 0.33 s |
+| `_pairs` on 20,000 characters | 0.03 s |
+| SI digit run of 20,000 characters | 0.15 s |
+| `worked_equations` on 20,000 characters | 0.01 s |
+
+### 24.7 Tests changed
+
+Both changes are in `tests/branches/test_r7_quant_packs.py`, and each states a stricter rule than before.
+
+- `test_bm_t13_break_even_is_never_silent_and_its_margins_are_decided` asserted that the wrong worked line
+  "6,000 ÷ 2.00 = 4,000" was named undecided (CORE-QNT-001). It now asserts:
+  - one failed `core-stem` check, a COUNTEREXAMPLE;
+  - an INT-SUBJ-001 error quoting the line, on the same claims;
+  - no CORE-QNT-001 for that line.
+
+  The margin assertions are kept.
+- `test_ge_t13_dependency_ratio_is_named_undecided` became
+  `test_ge_t13_dependency_ratio_is_decided_by_the_stem_checker`. It asserts:
+  - exactly one INT-SUBJ-001 error on the wrong "31 ÷ 69 × 100 = 54.9", with no CORE-QNT-001;
+  - the correct GE_T13 has no error, and every one of its `core-stem` checks is satisfied.
+
+### 24.8 Residuals, recorded rather than hidden
+
+- **stem-soundness-9.** An angle written with no unit, in a request that writes none, keeps both readings.
+- **stem-soundness-12.**
+  - Inequalities in an absolute value, chained inequality steps and nuclear equations are named undecided, not checked.
+  - "1 500 × 2 = 30" (a space-grouped thousand) stays withheld by design, never failed.
+- **parser-safety-1.** The over-long superscript run is bounded, but any other internal failure that empties the
+  document is still the ST-INTERNAL-001 warning of section 8.2, by design. Its checks are missing, and they are never
+  read as passed.
+- **parser-safety-5, in `adapters/markdown.py`.** The same quadratic emphasis pattern was in `strip_markup`
+  (`EMPHASIS_RE`; 3.7 s at 20,000 characters). The integration step applied the linear reading:
+  `strip_markup` now ends with `_strip_emphasis`, which joins the text between the spans of
+  `layout.emphasis_spans(s, ("**", "__", "*", "_", "`"))` and each span's body, exactly as
+  `EMPHASIS_RE.sub(r"\2", s)` did. `test_ps5_the_same_linear_reading_gives_the_markdown_helpers_emphasis_with_backticks`
+  compares the spans and the stripped text with `EMPHASIS_RE` on 20,000 random strings, and
+  `tests/adapters/test_linear_text_readers.py` pins `strip_markup` itself (no longer a residual).
+- **B25, a negative first operand.** A worked line whose first operand is negative after a label the view blanks is
+  withheld as possibly cut from a longer expression (ST-PARSE-001 on the view), so it stays CORE-QNT-001. One example
+  is "Percentage change = −34.50 ÷ 192.00 × 100 = −17.97%" in round 7's ec-p7a.
+- **B17.** The `bus.py` change of 24.5 is applied (no longer a residual).
+
+### 24.9 Measured
+
+**Development corpus.** 101 cases: 44 defects and 57 controls. A warning or error on a control counts as a false alarm.
+Results by tree:
+
+| Tree | Named | Caught, not named | Missed | False alarms | Clean controls |
+| --- | --- | --- | --- | --- | --- |
+| contract (be6723c) | 9 | 25 | 10 | 41 | 16 |
+| Phase 0 (48255f9) | 9 | 26 | 9 | 40 | 17 |
+| this section | 20 | 22 | 2 | 30 | 27 |
+
+- **STEM family.** All 12 defects are named, with 0 false alarms and 8 of 8 controls clean.
+- **End-to-end family.** The false alarms fall from 31 to 21:
+  - the six B2 answers;
+  - three B20 answers;
+  - the B7 physics pair.
+
+  None of the remaining false alarms carries INT-SUBJ-001, PS-SRC-001, INT-CONFLICT-001 or CORE-QNT-001. They come from
+  the channel's coverage and constraints, the ledger, the source checks and the claim display: INT-REQ-003, -004 and
+  -005, constraints, INT-LEDGER-020, GROUNDING:FAILED, DISPLAY:COUNTEREXAMPLE, ES-* and CORE-SRC-003.
+- **Missed.** The two missed defects are f07 and i01b, outside STEM.
+
+**Suite.** 5792 passed, 45 deselected (stress), 4 expected failures, in 278 s (before: 5628 passed). The tests changed as follows:
+
+- 162 tests were added, and the safety scan of section 14 covers the two new reference modules (2 more cases);
+- 2 tests were rewritten to a stricter rule (24.7);
+- none was removed or weakened.
+
+Run against the Phase 0 source:
+
+- 134 of the 162 new tests fail: 54 fail outright, and 80 sit in three modules that import the new readers;
+- the other 28 pass both before and after: they are the controls, the wrong twins and one reading invariant.
+
+No stress test was run.
+
+**Arena replays.** Every recorded round was replayed on copies with `scripts/arena/run_arena.py`, once with the Phase 0
+source and once with this source:
+
+| Round | Functional, Phase 0 | Functional, now | Receipts changed |
+| --- | --- | --- | --- |
+| r1 | 30/30 | 30/30 | none |
+| r1-adv | 150/151 (the planted empty answer is REJECTED) | 150/151 | none |
+| r2, r3, r4, r5, r6 | 46/46 each | 46/46 each | none |
+| r7 | 177/177 | 177/177 | 50 records of 7 answers (all variants) |
+
+In r7:
+
+- **bm-p7a, bm-t13, ec-p7a, ec-t13, ge-t13** (B25). The worked lines are checked by `core-stem` checks, and every
+  check holds on the genuine answers. Their worked-arithmetic CORE-QNT-001 warnings go: bm-t13 and ge-t13 become
+  ACCEPTED, and ec-p7a keeps one, on the line of 24.8 (its CORE-QNT-001 on a derived figure in prose, g8.7, is
+  unchanged). The relay of ec-p7a's report in bm-p7a carries what the arrival leaves open (section 23.4): one
+  INT-HIST-001 instead of four.
+- **mai-t13.** Relations with truncated numerals (`…`), named ST-UNDEC-001 before, are now checked, and all hold. Five
+  ST-UNDEC-001 warnings go, and two lose the words "an ellipsis".
+- **ph-t13.** One restatement check, `stem-res-1`, is added, and it holds. It checks the "so 16 W" of
+  "P = (9.93 V)² / 6.0 Ω = 16.4 W, so 16 W" against the chain in its own statement (24.4).
+
+No record gained an error, and no record gained a warning on anything not already named before. The one CORE-QNT-001
+that is new by its claims narrows an earlier finding: ec-p7a's warning on g8.2 to g8.6, and its INT-HIST-001 in
+bm-p7a's relay, now name only g8.5, the equation still undecided. The mutation variants keep their expected codes.
+Records of genuine traffic with an error or a warning fell from 39 to 37, and records with an error are unchanged at 19. No specialist was called,
+and nothing ran against a live provider or a deployment.
+
+### 24.10 Integrated with the other argument-diagnosis work and the end-to-end fixes
+
+This section's work was merged with the shared contract of named diagnostics, the evidence family, the argument family,
+the channel work and the re-run review fixes, on top of the end-to-end detection fixes of section 21. Every fix of each
+side is kept. Where two of them changed the same STEM reading, both readings are kept:
+
+- **`_eq`** keeps the antilogarithm read as a concentration (section 21; forced SI reading, its label and detail), the
+  affine readings and tolerance labels of the review fixes (section 22), and this section's unit companion, angle hint
+  and degree-radian branch: `_readings(nodes, force="si" if scale_unit else None, affine=_affine_mode(ctx, nodes))`
+  inside this section's general branch.
+- **`_sol`** keeps the review's intent rule (a stated exactness makes a decimal root exact) and section 21's described
+  roots (a value stated in prose for a described quantity is always read through its rounding interval):
+  `exact_roots = [_root_is_exact(r, decimals=ctx.exact_intent) and not rel.described for r in roots]`.
+- **The planner** (`stem/relations.py`) holds section 21's model, function and described-root methods beside this
+  section's stated-operation, failed-comparison and scale readings; `plan_relations` takes the definitions, the reading
+  and the answer text.
+- **Check kinds**: `mod` (section 21) beside `op`, `sys`, `rnd` and the `u` companions; `_BUILDERS` holds every builder.
+
+Two of the changes this section handed over are applied (24.5 and 24.8: the B17 bus line, per branch, and the linear
+emphasis reading of `strip_markup`). A third came from the evidence family's security work: the STEM parser's unit
+reader (`adapters/stem_specialist/parser.py`, `_units`) searched an unanchored accuracy-mark pattern from every start of
+a line, so a STEM answer with 20,000 spaces in a sentence took 3.3 s to parse (about 3.6 s to deliver). `branches/generic_parser.accuracy_marked`
+decides `_ACCURACY_MARK_RE.search(line) is not None` in one linear pass (computed from the right: whether the rest of
+the line is a run of marks, then only the lead of a start); the generic parser's `_logical_lines` and the STEM `_units`
+use it, and the same answer parses in about 0.06 s. It gave the pattern's answer on 300,000 random strings when written;
+`tests/branches/test_accuracy_marks_linear.py` compares 60,000 and bounds four adversarial lines of 200,000 characters.
+
+One test was rewritten to the merged rule, and it states a stricter assertion than before:
+`tests/stem/test_e2e_run1_detection.py::test_a_step_and_its_roots_through_a_rational_power_are_proved_exactly`. Section
+21 asserted a `stem-alg` and a `stem-sol` check for both answers. Under the root-set rule of section 22 (S5), a step from
+the equation to one member of a stated set of two or more roots ("x = 2√2 or x = −2√2") is not checked on its own: the
+`stem-sol` check substitutes each member exactly and, the full set being claimed, decides its completeness, which is the
+step itself. The test now asserts, per answer, the `stem-sol` check and the check that proves the step (`stem-sol` for the
+stated pair, `stem-alg` for the single `±` root), that every check holds, that each root's membership is exact, and, for
+the pair, that completeness is decided. No error is allowed, as before.
+
+Measured on the integrated tree: docs/ARGUMENT_DIAGNOSTICS.md, section 6.
+
+### 24.11 Repair round 1 of the argument diagnosis
+
+The review of the integrated tree re-ran the STEM checks on new probes (`tests/data/repair_round1_cases.json`, the t, u
+and w cases) and on variants of earlier findings. Each change below is fixed at its cause, with a positive case and a
+control (`tests/contract/test_repair_round1_cases.py`, `tests/stem/test_repair_round1_variants.py`):
+
+- **Wrong formulas.** ST-REF-001 drops only pure coefficients (a small integer or a simple fraction); a decimal, a figure
+  in scientific notation or a value equal to a stated quantity is a fitted constant with a unit, so a fitted law
+  ("v = 1.5t", "F = 50x") names nothing. A result's dimension also follows from the last line of its chain and from the
+  request's quantity for a substituted numeral, and ST-DIM-001 compares a law's dimension with its result's. The
+  reference grew to 70 quantities (period, length, energy, work, weight, charge, heat, concentration, molar mass,
+  magnification, BMI, a series' sum and term, ...) and 94 booklet laws, and ST-REF-002 names a law that has exactly the
+  variables of the booklet laws for its quantity and differs from each as a function (interval enclosures of both sides
+  at two sample points do not meet): the dropped ½ of E_k = mv², which keeps the dimension.
+- **Units.** The traced reading of ST-UNIT-003 also accounts for numerals the request states with units (a volume in cm³
+  used as dm³) and for numerals already in SI; a unitless binding (a magnification) is dimensionless as written; a binding
+  in grams or minutes ("m = 500 g ... F = 500 × 2.0 = 1000 N") fails the unit companion. The substitution check's SI
+  tolerance is scaled with the computed value (0.0005 µm was once read as 0.0005 m).
+- **Extrapolation.** ST-RANGE-001 reads the model from a stated law or a binding near the evaluation, the input from a
+  binding, a condition ("At t = 12 min") or the prose, and a series of years only from the request's data statements; a
+  caveat under a negation is none.
+- **Rounding.** The prose number reader glued numbers by the wrong token's spacing; "Since 0.05 is not less than 0.05" is
+  read, so a rounded p-value that reverses the decision is ST-ROUND-001. A rounding labelled with the wrong precision
+  ("4380 = 4400 (1 s.f.)") fails.
+- **Symbol conflict.** ST-SCOPE-002 tells two objects apart by an ordinal ("the second trolley").
+- **Working and steps.** A value binding ("x = 5.") is working for ST-WORK-001, and a check built from the request's own
+  givens or target is not. ST-STEP-001 may take its first step from the request's one equation, and the dollar-delimited
+  gap before a step is read from the right character. A root lost by dividing by x after "Dividing by x," fails its step.
+- **Solution sets.** In Mathematics a root stated for a request that asks to solve the equation, or for all its values,
+  solutions or roots, claims the full solution set ("Solve the equation." answered by "x² = 4^{1.5}, so x = 2√2" loses
+  −2√2 and fails `stem-sol`), as a root after `⇒` or `∴` or on the line after its equation does. Bare values that continue a
+  stated root in its statement are members of the set ("x = 0, 2 or −2", "x = 2 or 3", "x = 0, ±2"), and a set whose
+  members are joined by "or" or "and" claims the full set, as "x = 2 or x = 3" does; so a set in that form is decided on
+  every member it states, where its first member alone was decided before (a correct "x(x² − 4) = 0 ⇒ x = 0, 2 or −2"
+  failed, and "x = 2 or 4" for x² − 5x + 6 = 0 passed). A step to such a set concludes the set, not its first value, so
+  it is context of the set's check like a step to one member of a stated set (section 22, S5), whichever equation it is
+  read from ("x(x² − 4) = 0, so x = 0 or x² = 4, giving x = 0, 2 or −2" failed as the step from x² = 4 to x = 0); a
+  wrong member still fails the set's check. No full set is claimed when the set goes on with a value the
+  reading does not take as a plain number ("x = 2√2 or −2√2", "x = 1.41 or −1.41 (3 s.f.)", "x = 3, 2 marks"): its read
+  members are checked as stated roots only. None is claimed either when the statement calls the root one of several
+  ("x = 3 is one solution"). A concluding word ("so", "hence") claims no full set by itself, written in prose or in LaTeX.
+- **Givens.** ST-GIVEN-002 also names a given that lies outside the enclosure of the value the working computes for it
+  from the other givens; ST-GIVEN-003 names a probability outside [0, 1], and events treated as mutually exclusive or
+  independent against the request's own joint figures.
+- **Readings that were false errors.** A comparison the answer calls false (", which is false") is no asserted
+  comparison; space-grouped thousands beside a sign are read ("1 500 × 2 = 30" fails, "1 500 × 2 = 3 000" holds); a
+  spaced AND dot ("A . B") is the whole product; a direction stated with scientific-notation figures is checked; a
+  simplification of the request's own expression is no restatement of the request; condition items, binary literals and
+  input words after a result cue are read as the statement reader means them.
+
+The STEM front end reads a 400,000-character answer of list items in linear time, about 5 s when measured (the
+README's "under two seconds" covers the adversarial inputs of `tests/stem/test_front_end_safety.py` only).
+
+### 24.12 Repair round 2 of the argument diagnosis
+
+The review of the repair round 1 tree found STEM misses and false errors on its probes and on a second blind hold-out.
+The hold-out's cases were not read: each class below was reproduced on probes written for this round in the shape the
+review names, fixed at its cause, and pinned with a positive case and a clean control (`tests/stem/test_repair_round2_stem.py`,
+28 tests, `tests/stem/test_repair_round2_layouts.py`, 47 tests, and `tests/stem/test_repair_round2_classes.py`, 53 tests, which
+delivers each class through the hub as a specialist's raw answer).
+
+- **A rearrangement substituted with the task's values** (ADV2-02). "V = IR, so R = 6.0 / 0.50 = 12 Ω" was a false
+  `stem_invalid_step`: the step's symbols had no values, so the step was checked for every value of them. The checks
+  stage now binds a step's unbound symbols to the request's quantities of their reference dimension
+  (`checks._request_step_bindings`, numbered siblings in request order, one quantity per symbol), so the step holds,
+  while "R = 0.50 / 6.0" still fails.
+- **A law whose head carries a subscript digit** (MISS-EXTRAP-SUBSCRIPT). A name declared with a numeral subscript
+  ("CO₂") is one symbol, not C times O₂ (`parser`), so its law is a law and ST-RANGE-001 reads it.
+- **Extrapolation by a stepped trend** (ADV2-08). An undecided law of one symbol (a symbolic power) is still a law for
+  ST-RANGE-001, and arithmetic that repeats the request's data or binds a law's variable is evaluated as the trend
+  ("each decade adds 15 ppm, so in 2100 ..."). A data series that writes its unit once ("at 10, 20 and 30 °C") is a
+  series of three values (`document`, the request's shared-unit lists).
+- **Rounding in its other natural shapes** (ADV2-06). A rounding stated in words after a chain's result ("which is 0.7 to
+  one s.f.", "To 1 s.f. this is 0.7", "0.694 (0.69 to 2 d.p.)") is the chain's rounding (`relations._worded_roundings`);
+  a comparison in symbols with the rounded value or the rounded chain's symbol ("so η ≥ 0.70"), and a comparison clause
+  right after the rounded value ("≈ 0.7, which is not less than 0.70"), are `rnd` checks (`_compared_roundings`). A
+  statement that the rounded value meets or misses a target is one too (`_target_roundings`): the clause up to the end of
+  the sentence names a target (`TARGET_NOUNS`), says the value reaches it, goes beyond it or misses it (the reach, exceed
+  and miss verbs, the passive "is met", "falls short of", a negation), and the target's value is the one value the clause
+  states beside the noun or, when it states none, the one value the request states beside a target noun
+  (`RequestReading.values` holds every value of the request's prose for this), with its bound ("at least", "more than",
+  ...; none means at least). "78.96% ≈ 80%, which meets the target" for a target of at least 80% fails; "82.4% ≈ 82%, so
+  the target of at least 80% is met" holds.
+- **Word equations** (ADV2-07). A word equation is read as the formula it spells (`stem/word_formulas.py`: the reading
+  view rewrites the reference quantities' names to their symbols, in the sciences), so a wrong one is ST-REF-002 and a
+  correct one no ST-PARSE-001; "0.5 × m × v" is no magnification suffix (`spans._symbol_factor`).
+- **A time converted inline** (ADV2-12). "E = Pt = 2000 W × (3.0 × 3600 s)": a two-factor law aligns with a product
+  whose factor is bracketed (`nodes.align`), so the law's variable is bound and the value checked.
+- **A condition named, not asserted** (FA-IFF-CS-MENTION). A relation after "condition", "test", "guard" and their kin
+  is a named condition (context), unless the words right after it state its truth value ("(2 <= 1) fails"), which is
+  checked as before (`document._names_a_condition`). In the arena's r7, "The passes test mid = 4, 1 and 2" is read so,
+  and its info rebinding note (ST-SCOPE-001) goes.
+- **A value after a preposition.** "in 2000 C = 340 + 1.75 × 20 = 375 ppm" and "At 60 °C R = …" were read as 2000
+  coulombs, or 60 °C times R, equal to the result. A numeral right after a preposition, then only its unit, then a symbol
+  directly before "=" says when or where the equation is evaluated: the run starts at the head (`spans._adverbial_value`,
+  `adverbial_heads`).
+- **Magnification.** A bare ratio of one kind of quantity given in two units (I = 40 mm, A = 20 µm, M = I/A = 40/20 = 2)
+  gets the traced unit companion; the times sign of the magnification notation "= ×2" is read as the number it marks in
+  the reading view, which `_truncated_operand` now reads, so it adjoins no operator.
+- **Inverted formulas.** The ESS reference holds the Lincoln index (N = MC/R; N is the population size, a count), and the
+  chemistry reference a dilution (c₁V₁ = c₂V₂, solved for each of its four symbols, with c₁, c₂ as ambiguous as c and V₁,
+  V₂ as V), so "N = MR/C" and "c₂ = c₁V₂/V₁" are ST-REF-002 and the correct forms are clean.
+- **A computation set out over lines** (own probes). "v = 8.4 / 2.0", then "v = 5.2 m/s" on the next line was read as a
+  computation and a separate binding, so nothing checked the value. A chain that states a value for the symbol heading
+  the previous chain, whose last operand is a computation that chain left unevaluated (closed, no value), continues it
+  as "= 5.2 m/s" would (`relations._repeats_head`): same part, at most two statements on, equalities only, the same head
+  symbol. The checks stage reads the gap between the two sides without the repeated head (`Relation.head_gap`), and the
+  unit companion follows the chain across the lines. A law ("v = d/t") ends in symbols and is substituted as before.
+- **The law on a line of its own** (holdout2 unit class). "E = ½kx²", then "E = ½ × 250 × 4.0² = 2000 J" with x given in
+  cm: the traced companion counts the law's coefficients (½ and the exponent) as accounted for, as it already did when
+  the law and the substitution share a chain, so the missing conversion is named.
+- **A spaced product** (own probes). "E = ½ k x² = …" was cut to "E = ½": the working was never read and the request item
+  looked unaddressed (INT-REQ-004), and "F = k x" was read as the law "F = k" (ST-REF-001). A single quantity letter of the
+  profile's reference (or a name in scope, never "a" or "I") written with a space after a factor is a factor of the
+  product when it carries a glued power or subscript, or when what follows continues the product (a relation sign, an
+  operator, another such letter), and a bare letter may end the product at punctuation after another quantity letter
+  (`spans._spaced_factor`). A bare letter after a number at the end ("E = 5 k.") and letters outside the reference stay
+  unread.
+- **Two objects told apart by a label** (holdout2 symbol-conflict class). The noun phrase of a binding keeps an object's
+  label after its noun ("trolley A", "car 2") and, in chemistry, an element symbol; it is read in the binding's own clause
+  (after punctuation that is no decimal point, a relation sign or a joining conjunction), and after the value when nothing
+  before the symbol names a quantity ("Let m = 2.0 kg be the mass of trolley A", "m = 2.0 kg (trolley A)"), the value's
+  own unit left out (`relations._phrase_words`). One symbol for two labelled trolleys is ST-SCOPE-002; m₁ and m₂ are
+  clean.
+- **Long answers** (parser-safety-11). Per-line work is bounded: an emphasis fast path, a no-marker path for the furniture
+  reader, an index of mark ranges for prose numbers (it was one scan of every marker per statement), a first-character
+  test before the relation-sign reader, and blanking and masking per line. A 400,000-character list answer now takes about
+  3 to 3.5 s on this machine (it took about 4 s; 100,000 characters take about 1 s), still not under 2 s; the faster
+  readers give exactly the old readings (`tests/translate/test_repair_round2_perf.py`, which pins readings, not times).
+
+- **An equation after a condition** (own probes). "At t = 5.0 min T = 80 − 4 × 5.0 = 60 °C" read "min T" as one unit
+  (minute tesla), a false arithmetic error, and in "At t = 2.0 s v = 3.0 m/s" the equation after the condition was never
+  read. When a run is one binding opened by a preposition or "when", "if", a single letter (or a subscripted name) after
+  its value and directly before "=" heads the equation the condition evaluates: the run ends before it and the next run
+  starts at it (`spans._condition_head`). A compound unit of a plain value ("2.0 N m = 2.0 J") opens no condition and is
+  read as before.
+
+- **Givens that cannot all hold** (holdout2 contradictory-givens class; ST-GIVEN-004, `stem_contradictory_givens`). (a) The
+  values the answer states for the symbols of one part fix every variable of a law of uniform motion (`GIVENS_LAWS`:
+  v = u + at, s = ut + ½at², s = ½(u + v)t), the request or the answer says the motion is uniform, and the law fails
+  beyond the rounding of the stated values and beyond 2% (`relations._overdetermined_givens`, outside Mathematics and
+  Computer Science: the right side is enclosed over the corners of the stated values' rounding intervals in SI): "from rest at 2.0 m s⁻² for 5.0 s, reaching 12 m s⁻¹"
+  (u + at is 10). A free fall ("dropped", "falls freely", "released from rest", "under gravity") is uniform motion too,
+  unless the request or the answer says air resistance, drag or friction acts and does not say to neglect it
+  (`_RESISTED_MOTION_RE`, `_RESISTANCE_NEGLECTED_RE`; own probes: "a stone is dropped from rest and falls for 2.0 s,
+  reaching 25 m/s" with g = 9.8 m/s² is named, a skydiver "against air resistance" is not). (b) The request's counts of
+  two sets in one sentence (a total, a count for each of exactly two named sets, one "both" and one "neither") do not
+  add up, or "both" exceeds a set's count, and the answer computes with them (`_set_counts`: whole numbers compared
+  exactly). Either is silent when the answer says the givens disagree ("inconsistent", "cannot all hold": the answer
+  states the contradiction itself).
+- **One symbol rebound with nothing saying which object each value is about** (holdout2 givens and symbol-conflict
+  classes; `relations._unlabelled_rebindings`). Two bindings of one symbol in one part to different values, neither with a
+  noun phrase, a scope phrase or a change marker before the second: (a) ST-GIVEN-002 when the request states the first
+  value and not the second (`_request_states`: a request binding of the symbol, or a request quantity of the same
+  dimension, equal within rounding) and a later substitution uses the second, written as a pair or inside an evaluation
+  ("t = 3.0 s, and t = 2.0 s. a = (v − u)/t = 6.0 / 2.0" for a request that gives 3.0 s: `_uses_value`); (b)
+  ST-SCOPE-002 when two symbols are each bound so twice, in parallel ("m = 0.50 kg and v = 4.0 m/s, and m = 0.20 kg and
+  v = 6.0 m/s"), and one substitution takes one symbol from the first set and the other from the second
+  (`_mixed_groups`; one finding per pair of symbols). Two values are different as written, in SI when both units read
+  exactly (`relations._distinct`): "R = 10 Ω" and "R = 20 Ω" are two values even though a whole number with a trailing
+  zero, read at one significant figure, would let them meet within rounding, and "t = 5.0 s" and "t = 5000 ms" are one.
+  A substitution that keeps to one set of values, a symbol used twice in one substitution (a collision's m u + m u), and
+  two times the request itself states are clean.
+- **A model the request states, past the range it states** (holdout2 extrapolation class; ST-RANGE-001,
+  `relations._request_law_ranges`). A law in the request ("the regression line s = 6.5h + 30", "the line A = 3.5N + 10")
+  with the range of its input in words ("hours of practice h (from 1 to 8 hours)", "concentrations between 2 mg/l and 12
+  mg/l"), and the answer's substitution of a value of that input outside the range with no caveat, in any STEM profile.
+  A range belongs to the law's variable when it follows the variable's symbol within 40 characters, carries the unit the
+  request states for it, or is the request's only range and the law's only variable.
+- **A dated trend in Mathematics** (own probes; ST-RANGE-001, `_extrapolation`, `_dated_years`). Mathematics reads the
+  years of a dated series as data: a request that dates two or more years with a time word ("in 2010", "from 2010 to
+  2020", "between 2018 and 2021", "by 2020", or a year range) and a model evaluated at a year outside them ("estimate the
+  population in 2060" from 2010 and 2020) is named; a year inside them and a stated caveat name nothing, and an amount of
+  money ("1000 dollars") or the terms of a sequence ("2010, 2015, 2020, ...") are no dated years, so nothing is read from
+  them. Its other series (a sequence's terms, a function's inputs) are still never data.
+- **A mass or current given in a submultiple and put into a law unconverted** (own probes; ST-UNIT-003, traced). A
+  substitution may introduce numbers for symbols bound nowhere else ("ΔEp = mgΔh = 250 × 9.8 × 2.0" with only g bound:
+  m and Δh introduce 250 and 2.0); they are recorded as substitution bindings, not as the check's pairs, and are now
+  traced too (`_unit_companion`, `introduced`), so 250 is read as the request's 250 g and the missing conversion is named,
+  while "0.250 × 9.8 × 2.0" is clean. The same holds for "V = IR = 300 × 20" with 300 mA.
+- **Pressure in the closed reference** (ADV2 probe; ST-REF-001, ST-REF-002). Physics pressure (p or P = F/A, in Pa) is
+  in `QUANTITIES`, `FORMULAS` and `BOOKLET_LAWS`; as p is also momentum and P power, the quantity is fixed only by the
+  result's unit or the request, so "P = F × A = 600 × 0.30 = 180 Pa" is a wrong formula, while "P = W/t = 5.0 W" and
+  "p = mv = 6.0 kg m/s" are clean.
+- **A rounded value said to satisfy the request's condition** (own probes; ST-ROUND-001, `_target_roundings`,
+  `_request_condition`). Besides a target noun, the condition a request sets on a value is a target: a predicate made
+  conditional ("The method is acceptable only if the mean titre is at least 24.45 cm³", "provided that", "as long as")
+  with the one value later in that sentence and its bound. When the clause after the rounded value asserts the predicate
+  or denies it ("so the method is acceptable", "so the bridge is not safe", "unsafe": a word sharing the predicate's first
+  five letters, a negation within the four words before it or the prefix "un" denying it: `_predicate_said`), the `rnd`
+  check asks whether the comparison it rests on keeps its truth with the value before the rounding. A request with two
+  such conditions, or two values in the condition's sentence, plans nothing.
+- **The unit of the value before the rounding** (own probes; `checks._rnd`). A chain that writes its unit or its per cent
+  sign once, after the rounded value ("= 24.447 ≈ 24.45 cm³", "× 100 = 78.96 ≈ 79%"), has the value before the rounding
+  in that unit too; it was read as a bare number in SI against the threshold in m³, so a near-threshold rounding met
+  every target and a correct "≈ 24.4 cm³, so the target is not met" failed. The bare value now takes the rounded value's
+  unit or per cent sign when it is within a tenth of the rounded value as written; a value of another scale ("= 0.7896 ≈
+  79%", a conversion in the rounding step) keeps its own reading.
+- **Two's complement and Boolean evaluation chains** (holdout2 Computer Science class). A 0-and-1 numeral that the
+  request or the answer calls a two's complement number ("the 8-bit two's complement number 11010011") is read with its
+  leading digit weighing −2ⁿ⁻¹, exactly (`relations._binary_literals`, `_TWOS_NAMED_RE`), so "11010011 = −128 + 64 + 16 +
+  2 + 1 = −45" holds and "= −47" is an arithmetic slip; a Boolean chain "NOT (A AND B) = NOT (1 AND 0) = NOT 0 = 1" is
+  read as one relation per pair of neighbouring expressions, as an arithmetic chain is (`boolean._chain_links`, at most
+  16 links; it was refused whole as ST-PARSE-001), so a wrong link is named.
+
+- **An item answered in notation** (own probes; `stem/hub_hooks.py`, `channel/bus.py`). "Calculate the pH" answered by
+  "pH = −log₁₀[H⁺] = 2.60", "verify that NOT (A AND B) = (NOT A) OR (NOT B)" answered by evaluating both sides, and
+  "Calculate Simpson's diversity index D = 1 − Σn(n − 1)/(N(N − 1))" answered by "D = 1 − 132/380 = 0.653" shared no
+  topic word with their items and were INT-REQ-004 (unaddressed). The hook now finds a claim about the item when it gives
+  a value to a reference quantity the item names in words (`named_quantity_symbols`: "the pH" is pH), to a symbol the
+  item defines by a formula it states (`_formula_subjects`), or checks a Boolean relation for a Boolean item, and the
+  channel lets that evidence stand in for the shared terms; an answer that does not address the item ("The solution is
+  acidic because it contains hydrogen ions.") is still INT-REQ-004 (`tests/translate/test_repair_round2_readings.py`).
+
+Left undecided by this round, each a miss and never a false alarm: a precision note inside a chain ("79.0% (3 s.f.) ≈
+80%") ends the chain; a rounding to "the nearest 10%" is not read as a rounding.
+
+### 24.13 Repair round 3 of the argument diagnosis
+
+The review of the repair round 2 tree found STEM misses on its supplementary hold-out (V3-H2-STEM-MISSES), contradictory
+givens over a reference relation and a rounding before a comparison written with the symbol (ADV3-09), a cancellation that
+lost a root unnoticed (rerun-stem-soundness-11) and a unit companion charged on a percentage rounding (ADV3-03). Each is
+fixed at its cause; the tests are `tests/stem/test_repair_round3_stem.py`, each class with its control, in wording of
+their own.
+
+- **A rewrite that is no identity** (ST-STEP-003, warning; `relations._false_rewrite`, `reference.difference_witness`). In
+  a chain `A = B = C`, two neighbouring expressions of the unknown that hold the same unbound symbols, with a further link
+  after them, are a rewrite step; the step is invalid when rational interval enclosures of the two sides at a sample point
+  of the unknown do not meet ("log₁₀ x + log₁₀ 2 = log₁₀(x + 2) = 1"). The same witness serves the formula comparison
+  (`reference.differs_as_function`). It is planned before the "a function of an unknown" coverage note, so the note
+  stays for the relations the encodings cannot decide. Controls: "log₁₀(2x)", "(x + 3)² = x² + 6x + 9".
+- **Givens against a definition law** (ST-GIVEN-004; `relations._overdetermined_givens`,
+  `reference_data.DEFINITION_GIVENS_LAWS`). The answer's given ρ, V and m are read against ρ = m/V, with the laws'
+  dimensions checked, and a uniform motion's givens against every motion law they fix (the uniform flag of the request or
+  the answer); an integer written with trailing zeros ("2000 kg m⁻³") beside a given written with a decimal point is read to
+  its last digit (±0.5), not to its first significant figure.
+  Controls: consistent givens.
+- **A rounding before a comparison written with the symbol** (ST-ROUND-001, the `rnd` check;
+  `relations._symbol_prose_comparisons`). "R = 2.0 + 1.96 = 3.96 ≈ 4.0 Ω. R is not below 4.0 Ω, so the component fails"
+  compares the rounded value through its symbol in the next sentence; the comparison is planned like the prose ones, so
+  the value before the rounding (3.96) decides it. Control: the comparison read from the unrounded value.
+- **A model the request states, outside its range, in any subject** (ST-RANGE-001; `branches/packs.request_model_extrapolation`).
+  The core pack reads the request's fitted line and the range of its input in words ("For nine storms with rainfall
+  totals between 5 mm and 35 mm ... Q = 2.5R + 6") through the STEM document of the answer, so a Geography answer that
+  substitutes 120 mm is named. Control: an estimate inside the range.
+- **Missing working** (ST-WORK-001; `relations._working`, `reference_data.WORKING_CUES`). Computer Science is no longer
+  exempt when the request asks for the method in words ("showing your method"); a "Show that" answered with the result
+  alone, whose values are all the request's numerals, is missing working. Controls: the worked conversion, the request
+  with no method asked, the derivative and second-derivative test written.
+- **A cancellation is a division** (ST-STEP-002 and the root check). "Cancelling x," "cancelling a factor of x" divide
+  both sides by the unknown, as "Dividing by x" does, so the root line after the equation claims the full set and a lost
+  root fails it. Control: the factorised working.
+- **One quantity written once** (ADV3-03; `reference.unit_written_once`, shared by `checks._rnd` and
+  `relations._unit_companion`). A percentage written bare and rounded with its sign ("131 / 250 × 100 = 52.4 ≈ 52%") is
+  one quantity in one unit, so no unit companion charges the bare 52.4 against 0.52. A rounding to another value is still
+  an arithmetic error.
+
+Left by this round (each documented in `docs/ARGUMENT_DIAGNOSTICS.md`, section 7): the ST-UNDEC-001 coverage notes on
+correct work with a derivative, a logarithm or a Σ stay (they state what was not checked).
+
+### 24.14 Repair round 4 of the argument diagnosis
+
+The review of the repair round 3 tree found a missing conversion to the absolute temperature (ADV4-01), times given only in
+the request substituted unconverted (ADV4-02), a wrong area formula and a correct period over values the request gives
+(ADV4-11), a false identity checked only under a cue word (rerun-stem-soundness-12), and STEM readings outside the STEM
+pack (rerun-stem-precision-11, rerun-parser-safety-13, ADV4-12). Each is fixed at its cause; the tests are
+`tests/stem/test_repair_round4_stem.py` and the files named in each item, each class with its control, in wording of
+their own.
+
+- **The absolute temperature** (ADV4-01; `reference_data.ABSOLUTE_TEMPERATURE_LAWS`,
+  `relations.applies_absolute_temperature_law`, `relations._kelvin_binding`, wrapper `KELVIN_READING`). In a law whose
+  T is the thermodynamic temperature (pV = nRT and the combined gas laws, ΔG = ΔH − TΔS, E = (3/2)kT, the
+  Stefan-Boltzmann and Wien laws: a law of the working is one of these when its symbols, subscripts aside, are among one
+  row's and include T), a temperature written in °C or °F is read in kelvin, so "V₂ = V₁ × T₂/T₁ = 3.0 × 117/17" for 17 °C
+  and 117 °C fails its unit check (INT-SUBJ-004, `stem_unit_error`). In any other law a temperature on an offset scale is
+  left unread (it may be a difference). Control: the same law with the temperatures in kelvin.
+- **A quantity already written in SI** (ADV4-02; `relations._si_form_binding`). A bare numeral that is the request's
+  quantity converted to SI ("240 000" for "240 kJ", "2000" for "2.0 kW") is accounted for as that binding, so the other
+  numerals of the working are read with the request's units: a time given in minutes or hours and substituted as written
+  into P = E/t or E = Pt fails its unit check. Control: the working with the time in seconds.
+- **Values the request gives** (ADV4-11; the substitutions of `relations._Planner`, `nodes._rounded_constant`). A bare numeral
+  substituted for a symbol the request states with an SI unit ("radius 5.0 m", "a mass of 0.20 kg") carries the request's
+  unit, so the law's dimension is read and A = 2πr for an area is named (ST-DIM-001); π or e written as a rounded decimal
+  of three or more significant figures ("3.14", "2.718") aligns with the symbol, so a correct T = 2π√(m/k) raises no
+  ST-UNDEC-002 (a false alarm on the base tip too). Controls: A = πr²; the correct period. The inverted period is still
+  named (ST-REF-001).
+- **An identity under any request** (rerun-stem-soundness-12; `relations._identity_shape`, `_factorised`,
+  `_exact_degree`, `_cued_identity(shape_only=True)`). An equation of polynomial sides whose shape is an expansion or a
+  factorisation ("(p + q)² = p² + q²", "y² − 16 = (y − 4)(y − 4)") is checked as an identity whatever the request says,
+  with its failure a warning (the reading is inferred); a request that asks for values or solves the equation, and an
+  equation the answer solves later, are no identity claim; a rewrite that keeps the previous equation's right side is a
+  step. Controls: the true identities.
+- **Answer words outside the STEM pack** (rerun-stem-precision-11; `channel/bus.py`, `_worked_calculations`). A line of
+  worked arithmetic is answer proper in Economics, Business Management, Geography and Psychology too, in every notation, so
+  such an answer is not "no answer" (INT-REQ-012). Controls: a note alone, a quoted calculation
+  (`tests/channel/test_repair_round4_answer_words.py`).
+- **The general figure reader** (rerun-parser-safety-13; `branches/quant.py`). Space-grouped figures and a scale word
+  against scientific notation are read whole, and a figure with a scale word is compared with a whole figure of the same
+  noun phrase ("2.5 million tonnes" against "1,800,000 tonnes", `_same_noun_phrase`, `_sci_pair_number`); an unknown unit
+  word still makes the pair incomparable (`tests/branches/test_repair_round4_quant.py`).
+- **A chained trend read link by link** (ADV4-12; `quant._CONT_ADVERB`, `_unread_figure_between`, `_Patterns.figure`).
+  A continuation with a manner adverb ("then rose sharply to 11.4%") is read in both readings (the SI patterns are
+  composed as the general ones), and a continuation is never chained across an unread level of its own unit and currency
+  (a year, a stated change of the link before, and a figure of another unit do not break the chain). A figure the answer
+  credits to a named data table for a year that the table states otherwise is CORE-SRC-007
+  (`tests/branches/test_repair_round4_table_figures.py`).
+
+### 24.15 Repair round 5 of the argument diagnosis
+
+The review of the repair round 4 tree found a unit given only in the request missed in the specific-heat law (ADV5-03),
+contradictory givens written inline (ADV5-04), conclusions drawn from rounded values in common shapes (ADV5-05), formulas
+written as adjacent letters (ADV5-06), one symbol for two quantities (ADV5-07), missing-working warnings on reasoned
+proofs (ADV5-10), an extrapolation hidden by a unit homograph (ADV5-16), a count stated in a sentence read as no value
+(ADV5-18) and a '±' step inside a chain charged as an error (rerun-stem-soundness-10). Each is fixed at its cause; the
+tests are `tests/stem/test_repair_round5_stem.py`, each class with its control, in wording of their own, and each positive
+case fails on the tree before the round.
+
+- **A unit given only in the request** (ADV5-03; `relations._unit_companion`, `_request_difference_for`, `_written_change`).
+  The request's unit of a quantity ("c = 900 J kg⁻¹ K⁻¹", "a 300 g block") is traced through the working's differences
+  (a Δ the request's figures give) and through the values the working computes, so "Q = mcΔT = 300 × 900 × 20" with the
+  mass in grams fails its unit check (ST-UNIT-003, `stem_unit_error`). Control: the mass in kilograms.
+- **Inline givens** (ADV5-04; `relations._inline_givens`). A value with its unit written inside a substitution ("F = ma =
+  4.0 kg × 3.0 m s⁻²") is a given of the working: when it contradicts the value the request states for the same quantity it
+  is a contradictory given (`stem_contradictory_givens`), as a "Given" line was. The request's own value written inline is
+  clean.
+- **Rounding that decides** (ADV5-05; `relations._target_roundings`, `_CONDITION_RE`, `_target_verb`). A conclusion drawn
+  from a rounded value in the common shapes ("20.4 kN ≈ 20 kN, so the beam is safe" against "at most 20 kN"; "30 m s⁻¹ to 2
+  s.f., so it reached the limit"; a percentage rounded onto a pass mark) is ST-ROUND-001: a rounding stated in words after
+  the rounded value ("to 2 s.f.") ends no clause, a value "at the limit" reaches it, and a condition the request states
+  with "only if", "provided", "as long as", or a copula with "if" or "when" ("A beam is safe when the load on it is at most
+  20 kN") is a target. Control: the conclusion drawn from the unrounded value.
+- **Adjacent letters** (ADV5-06; `spans._quantity_run`, `parser._juxtaposable`, `_quantity_letters`, `_NUMBER_GLYPHS`). Letters
+  written together or spaced ("mv", "½ m v", "2πrh") that are each a quantity of the profile are a product, never one
+  unknown symbol, so "E_k = ½mv" is checked against the reference law (`stem_wrong_formula`); the Mathematics profile gains
+  the volume, area, radius and height quantities and the booklet's volume and area laws. Control: ½mv².
+- **One symbol, two quantities** (ADV5-07; `relations._dimension_rebindings`). A symbol bound to a value in one dimension
+  (P = 400 Pa) and later to another (P = 300 W), then substituted in the first sense, is ST-SCOPE-002
+  (`stem_symbol_conflict`). Control: two symbols kept apart (p and P).
+- **Reasoned proofs** (ADV5-10; `relations._PROPERTY_SHOW_RE`, `_REASONED_RE`). A "show that" request about a property
+  (prime, even, irrational, ...) answered with a reason, and a yes/no "calculate whether" answered with the request's own
+  figures, is no missing working; a bare property ("14 is even.") or a bare result is still ST-WORK-001, as the round-3 pin
+  requires.
+- **Unit homographs** (ADV5-16; `spans._UNIT_HOMOGRAPHS`). A unit symbol that also writes a short English word ("as", "at",
+  "am", "us", "an", "in", "das") never continues a unit already begun ("mol dm⁻³ s⁻¹ at 5.0 ..."), so a prediction far
+  beyond the measured range is read and named (ST-RANGE-001, `stem_extrapolation`); "5 as" alone is still an attosecond
+  (`tests/stem/test_units.py`). Control: an interpolation.
+- **A count stated in a sentence** (ADV5-18; `checks._request_count`). "A sample contains 600 undecayed nuclei" gives N₀ its
+  value, so a correct N = N₀ × (½)³ = 600 / 8 raises no ST-UNDEC-002. Control: a wrong count is still charged.
+- **'±' inside a chain** (rerun-stem-soundness-10; `relations._roots_candidate`, `_root_set_members`, `checks._sol`). An
+  equation with '±' ("x + 2 = ±3") is read as two equations, and a root set derived from it is checked against both, so
+  "(x + 2)² = 9 ⇒ x + 2 = ±3 ⇒ x = 1 or x = −5" holds. Control: a wrong root after the '±' step is charged.
+
+### 24.16 Close round 1 of the argument diagnosis
+
+The regression review of the repair round 5 tree against the committed base found two STEM readings worse than the base on
+correct work; each is narrowed at its cause (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.4 and 12). Tests:
+`tests/stem/test_close1_stem.py`, each shape with its control, in wording of their own; each positive case fails on the tree
+before the round.
+
+- **A magnitude after its own signed chain** (ADV6-02; `relations._Planner._results`). The end-to-end B2 fix lets a prose
+  value restate a chain of its own statement; a value of the other sign than that chain ("a = (0 − 16)/4.0 = −4.0 m s⁻², so
+  the deceleration is 4.0 m s⁻²"; "= −8.0 J, so friction does 8.0 J of work against the motion") states the magnitude in the
+  words of a direction and is no restatement, so no `res` check is planned for it. Control: a restatement of the same sign
+  is checked, and a wrong one ("so the acceleration is −5.0 m s⁻²") fails.
+- **The model's evaluation point** (ADV6-07; `relations._INPUT_BEFORE_RE`, `_RATE_AFTER_RE`). A value in prose is where a
+  model is evaluated (ST-RANGE-001) only when an input cue stands before it ("at", "for", "when", "if", "with", with at most
+  a determiner and three words between) and no rate or step follows it ("per year", "a year", "/", "each", "every"): a rate
+  in an interpolation ("rises by 0.05 °C per year") and a sum's result restated in prose ("13.4 A, which is 13 A to 2 s.f.")
+  are no evaluation points. Control: "At 90 °C, rate = 0.30 × 90 = 27 units" beyond data at 10 to 30 °C is still named.
+  Given up: an evaluation written as an attribute ("a 40 N load ...") is not read; the request's series that takes a year
+  into a unit's range only widens the range (misses, never a false alarm) and is unchanged.
+
+### 24.17 Close round 2 of the argument diagnosis
+
+The regression review of the close round 1 tree against the committed base found one STEM reading worse than the base
+(`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.4, 7 and 13). Test: `tests/stem/test_close2_boolean_dot.py`, in wording of its
+own; its positive case fails on the tree before the round.
+
+- **The AND dot and Boolean constants** (DIFF-04; `lexer.writes_constant_dot`, `lexer.lex`, `checks._truncated_operand`).
+  The AND-dot reading of stem-soundness-4 reads a full stop between two operands as AND, but the lexer reads a dot before a
+  digit as a decimal point, so in a step written with a constant ("Since A.0 = A, we get A.B + A.0 = A.B + A = A") the
+  expression was read only in part and the guard against a relation glued to a dot between letters withheld what was
+  left: a wrong step went unchecked, where the committed base, whose full stops are full stops, charged it (INT-SUBJ-001).
+  An answer that writes a Boolean constant with the AND dot (an operand of one or two capitals that ends no longer word, or
+  a closing bracket, glued by a full stop to a lone 0 or 1) is now read without the AND dot and without that guard, as
+  before both readings; every other answer keeps the AND dot. Control: a correct absorption written with the AND dot ("A.B
+  + A = A") stays checked and clean, and the correct step "Since A.0 = 0, we get A.B + A.0 = A.B + 0 = A.B" raises no
+  error. Given up: the base's reading of
+  those full stops also charges a correct step written with a constant and the AND dot ("Since A.1 = A, we get A.B + A.1 =
+  A.B + A = A"), as on the base; the constant identity itself is checked in neither tree.

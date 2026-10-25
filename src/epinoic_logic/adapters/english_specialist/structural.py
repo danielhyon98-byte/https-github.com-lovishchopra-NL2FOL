@@ -53,7 +53,11 @@ Source integrity
 
 Structure (paragraphs.md)
 * ``ES-STR-001`` warning a body paragraph with fewer than two quotations of at least two
-                          words: proxy for P7, one idea carried by two strands.
+                          words: proxy for P7, one idea carried by two strands. P7 is a rule of
+                          the analytical paragraph and the essay, so it applies only when the task
+                          type is one (``ARGUED_TASK_RE``) or the request text passed to
+                          :func:`structural_checks` asks for a paragraph or an essay; a short
+                          answer that quotes once is not held to it.
 * ``ES-STR-002`` info    a body paragraph outside 230-390 words: proxy for P13 ("the model
                           runs about 350 words. Paragraphs the user accepted ran from
                           roughly 230 to 390 words"). Not raised when the request text
@@ -92,7 +96,7 @@ from .parser import (
 
 __all__ = [
     "structural_checks", "RULE_SOURCES", "MIN_STRAND_QUOTATIONS", "MIN_QUOTATION_WORDS",
-    "BODY_WORDS_MIN", "BODY_WORDS_MAX", "OUTLINE_TASK_RE", "WORD_BOUND_RE", "citation_schemes", "find_citations",
+    "BODY_WORDS_MIN", "BODY_WORDS_MAX", "OUTLINE_TASK_RE", "ARGUED_TASK_RE", "WORD_BOUND_RE", "citation_schemes", "find_citations", "strands_apply",
     "attribution_findings", "memory_findings", "source_findings",
 ]
 
@@ -122,6 +126,12 @@ BODY_WORDS_MAX = 390
 _EXCERPT_CHARS = 80
 #: Deliverables whose blocks are not prose paragraphs; P7 and P13 do not apply to them.
 OUTLINE_TASK_RE = re.compile(r"outline|plan|bullet|notes?", re.IGNORECASE)
+#: Deliverables P7 (two strands per body paragraph) governs: an analytical paragraph or an essay, named by the task type or
+#: asked for by the request: a verb of writing or answering before "paragraph" or "essay" in the same sentence ("Write an
+#: analytical paragraph", "Can you write ONE paragraph", "Answer in a short essay"). A request that only mentions the
+#: student's own paragraph ("Please mark my paragraph") asks for no paragraph.
+ARGUED_TASK_RE = re.compile(r"paragraph|essay", re.IGNORECASE)
+_ARGUED_REQUEST_RE = re.compile(r"\b(?:write|writing|compose|produce|draft|give|answer|respond)\b[^.?!\n]{0,60}?\b(?:paragraphs?|essays?)\b", re.IGNORECASE)
 #: A word count set by the request ("no more than 300 words", "about 250 words", "250-300 words"): P13 then yields to it.
 WORD_BOUND_RE = re.compile(r"\b\d{2,4}(?:\s*(?:-|–|to)\s*\d{2,4})?\s+words\b", re.IGNORECASE)
 
@@ -639,12 +649,21 @@ def bare_quotation_findings(report: SpecialistReport, paragraphs: tuple[Paragrap
     return out
 
 
+def strands_apply(task_type: Optional[str], request_text: Optional[str] = None) -> bool:
+    """Whether P7 (ES-STR-001) governs the deliverable: an analytical paragraph or an essay, by its task type or because
+    the request asks for one. Outline, plan and bullet deliverables are exempt whatever the request says."""
+    if OUTLINE_TASK_RE.search(task_type or ""):
+        return False
+    return bool(ARGUED_TASK_RE.search(task_type or "") or (request_text and _ARGUED_REQUEST_RE.search(request_text)))
+
+
 def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Paragraph, ...]] = None, request_text: Optional[str] = None) -> list[StructuralFinding]:
     """All English specialist structural findings for ``report`` (see module docstring).
 
     ``paragraphs`` may be passed when the caller already segmented the answer;
     otherwise ``report.original_response`` is segmented here. The paragraph working
-    rules (P7, P13) are skipped for outline, plan and bullet deliverables, and the
+    rules (P7, P13) are skipped for outline, plan and bullet deliverables; the strand rule
+    (P7) applies only to an analytical paragraph or essay (:func:`strands_apply`), and the
     length rule (P13) yields to a word count set in ``request_text`` when given.
     """
     if paragraphs is None:
@@ -655,7 +674,8 @@ def structural_checks(report: SpecialistReport, paragraphs: Optional[tuple[Parag
     findings += citation_findings(report, paragraphs)
     findings += memory_findings(report, paragraphs)
     if not OUTLINE_TASK_RE.search(report.task_type or ""):
-        findings += strand_findings(report, paragraphs)
+        if strands_apply(report.task_type, request_text):
+            findings += strand_findings(report, paragraphs)
         if not (request_text and WORD_BOUND_RE.search(request_text)):
             findings += length_findings(report, paragraphs)
     findings += meta_findings(report, paragraphs)

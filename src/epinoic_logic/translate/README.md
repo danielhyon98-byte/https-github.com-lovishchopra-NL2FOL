@@ -29,9 +29,9 @@ only that: every premise it adds must follow from the earlier premises with the 
 asserted (the stated figure, the atom, a reformulation of the definition) or be established by a grounding
 check (`precision.added_premise_support`); anything else makes the translation AMBIGUOUS_TRANSLATION
 (`retry_added_premise`), never a verdict, and the release assessment names it → circularity: an
-encoding whose premises restate its conclusion from the writer's own assertions (the engine's `E112`; an
-`arithmetic_fact` no record validates, or a grounding a check refuted, counts as the writer's own) is
-INVALID_FORMALIZATION, fed back once → stated precision and exactness (`precision.py`, read from the
+encoding whose premises restate its conclusion from the writer's own assertions (the engine's `E112`; a
+premise no check in this process established counts as the writer's own whatever kind its grounding claims,
+`engine.authority.assumed_grounding`, policy 2026.10-v5) is INVALID_FORMALIZATION, fed back once → stated precision and exactness (`precision.py`, read from the
 wording by `quantities.py`, never from the solver): every figure the encoding compares is tied to the span
 that states it (`TranslationResult.figure_readings`). A figure stated exactly ("exactly", "without
 rounding") or given by the task is encoded with `eq` and never widened (an interval in its place is
@@ -170,13 +170,74 @@ current, stale (a supporting claim, supplied text, task or problem changed, even
 unchanged), unbound, or made without evidence. `outcome.py` composes the Overseer-facing
 `ClaimVerificationOutcome` (display status derived from the signed engine result; release assessment kept
 separate; summary ends with the scope statement) and offers `verify_claim` as the one-call path translate →
-verify → review → compose.
+verify → review → compose. A translation record this translator did not make is displayed INTERNAL_ERROR whatever
+its status and never released (`translation_staleness`): one of another `translator_version`, or one bound to no claim
+text (no `claim_text_sha256`, which every record of contract 0.2 and later carries), must be translated and verified
+again (integration contract, section 9); the engine result verified for its problem is rejected with it, and the
+summary and the release assessment say why. A report's notes are bounded by its contract (`contracts.NOTE_MAX_CHARS`
+per assumption, assessment criterion or unresolved issue; `REPORT_NOTES_MAX_CHARS` for a report's notes together), so
+an oversized report is refused (the channel's INT-REQ-009) instead of being held and copied into every receipt. A
+report or claim that states no `course_level` (`None`) reads it as `"unknown"`, the same meaning, so a report re-read
+from its delivered payload is the report delivered and its faithful forward is not refused as altered in transit.
+
+Argument diagnosis (rules `argdiag-2`; the record and its rules are in `named.py`):
+- `roles.py` records how each premise is marked, in `TranslationResult.premise_roles`:
+  - the role: `fact`, `link`, `either_or`, `definition` or `figure_relation`;
+  - the authority, read from the grounding check and never from the label: `established`,
+    `unverified`, `refuted` or `writer_own`;
+  - the marking: `translator_link`, `translator_rule`, `source_link`, `unmarked_link`,
+    `label_conflict` or `fact`;
+  - the writer's connective, when one is given.
+- `diag_core.py` builds the context of one claim and runs the claim-layer rules
+  (`diag_argument.RULES`, `diag_evidence.RULES`; `claim_diagnostics`). It also runs the
+  report-layer rules once per delivered report (`report_diagnostics`).
+  - Every rule is guarded: one that raises or returns anything else fires nothing and is named in
+    `diagnosis_incomplete`.
+  - Caps, the suppression of dominated generic diagnostics, ordering and the bounds apply in both
+    entry points: 32 per claim and 256 per report.
+  - `diag_evidence.RULES` and `REPORT_RULES` hold the evidence family: `EVD-SRC-001` (a needed fact premise whose
+    text or task authority no check verified), `EVD-SRC-003` (its grounding check failed), `EVD-SRC-004` (the provider
+    wrote its own `verified: true`, discarded; info), `EVD-LACK-001` (a needed fact premise that claims no source),
+    `EVD-FIG-001` (a figure no supplied text or task record states, no written calculation's result, no from-memory
+    label), `EVD-AUTH-001` (an unattributed authority or data cue), `EVD-CHERRY-001` (a period's own end values reverse
+    the point; months and recoveries too), `EVD-SRC-005` (a task-authority premise the task material does not hold; a
+    label that spells a task sentence's notation in words is none: `grounding.spells_notation`, which the grounding
+    check also reads, so such a premise is validated by that sentence and never refuted by absent words), and the report rules `EVD-SRC-006` (a source credited
+    with the opposite stance of what it states; warning, repair round 2), `EVD-SRC-002` and `EVD-LACK-002` (info: "not
+    checked", never "false"). A premise whose every failed check is a form difference is no `EVD-SRC-003`. The
+    source-bound warnings are warnings only when the request names supplied material as the basis of the answer
+    (`source_bound`, `supplies_data_texts`), info with `capped_from` otherwise. The content stems of a supplied text are
+    computed once per text (`_text_stems`), so the report rules cost one pass per claim and document.
+  - `diag_argument.RULES` and `REPORT_RULES` hold the argument family's claim and report rules: `ARG-EQ-001` (the
+    translation flagged one word read in two senses; never capped), the claim form of `ARG-CIRC-001` (the translation
+    was refused as circular; info when it only restated a bare fact stated from subject knowledge with no reason) and
+    `ARG-BARE-001` (a judgement the request asks to be reasoned, by its command term, "recommend" included, or by "with
+    reasons", stands with no reason in its answer section; a judgement whose sentence quotes a supplied text is none).
+    The pipeline's circularity refusal also reads a restatement in other terms (`runner.equivalent_premises`), and
+    yields when the premises contradict each other (`runner.premises_inconsistent`: the engine then decides
+    INCONSISTENT_PREMISES, consistency before entailment; repair round 2), and the answer texts it gives the grounding
+    checks include the report's original response, so a figure derived in an earlier sentence grounds. The rules,
+    the encoding flags (`UNLINKED_CONJUNCT`, `UNENCODED_REASON`, `PARTIAL_ENCODING`) and the precision readings of the
+    same release are in `ARGUMENT_DIAGNOSTICS.md`; every label is described in `docs/ARGUMENT_DIAGNOSTICS.md`.
+- `outcome.py` puts the trusted engine result's named diagnostics, merged with the claim layer's,
+  into `ClaimVerificationOutcome.named_diagnostics`.
+  - Only an engine result that binds, is current and has a verified signature counts as trusted.
+    Without one, the engine layer is "not computed".
+  - The summary shows them in a section after the verification lines, and the status is never
+    changed.
+  - `assess_release` (`release-v2`) lists "named defect on this claim: <codes>" by effective
+    severity.
+  - `verify_claim` passes `severity_cap=("info", "ambiguous_translation")` for an
+    AMBIGUOUS_TRANSLATION.
+- The translator's internal probes (`precision.py`, the figure probe in `pipeline.py`) pass
+  `diagnose=False`, so their results are never release-eligible.
 
 `providers/` holds the provider interface, a fixture provider for tests, and
 Anthropic / OpenAI-compatible adapters (implemented, untested live). `prompts/`
 holds versioned prompt texts; the version string is bound into each result. A
-changed prompt is a new file and version: `translate_v2` and `review_v2` are in
-use; `translate_v1` and `review_v1` stay packaged unchanged.
+changed prompt is a new file and version: `translate_v3` (which marks the writer's own
+links, `ARGUMENT_DIAGNOSTICS.md`) and `review_v2` are in use; `translate_v1`, `translate_v2` and
+`review_v1` stay packaged unchanged.
 
 `grounding.py` locates a quotation in tiers (verbatim; typographic normalisation, with
 quote marks folded, every dash variant read as one dash with the spaces on both sides of it dropped, in the text and
@@ -192,7 +253,18 @@ an assignment's figures, each stated so that it establishes the comparison (the 
 0, ±1, 10, 100 and 1000 aside unless the premise assigns one): a premise `it1 = 3` grounded in "scores = [12, 19, 23" is not verified
 (`GroundingCheck.method` `figures_in_excerpt`), while `0.325 <= x < 0.335` grounded in "x is 0.33 to 2 decimal places" is (the
 interval that rounded figure states, its derivation in the check's detail); a relation only when the located span states that same formula as a given (`relation_in_source`),
-never because its figures occur there. A form difference never verifies a
+never because its figures occur there. A located excerpt verifies a proposition only as a literal (an atom or its negation):
+joined to the writer's own proposition with "and", "or", "if" or "iff" it stays unverified and the connective is named as
+the writer's. A relayed specialist's report confers no authority (`peer_report`): it is recognised by its id (`peer:`,
+`peer-`, `peer_`, `report:`), its author (an agent or a `<subject>-specialist`) or its provenance ("relayed", "peer"),
+whatever its title (`is_peer_document`, repair round 2). The subject words that tell one entity or quantity from another
+leave out units and scale words and split compounds and possessives, and two figures in one unseparated clause belong
+to their own subjects. A figure grounds as derived only when the closed reader of written arithmetic gives it from the
+answer's own calculation, exactly or rounded to its last place (`answer_derived_figures`). A figure stated for another year than the symbol's ("252 residents" in 2020 for the 2010 count) grounds
+nothing. A figure written as a calculation's result or after "≈" states the half-unit enclosure of its last written place,
+in superscript and caret notation alike. A figure the request states as a given, cited to a supplied document that does not
+hold it, is re-checked against the task record (B23: "stated by the request, cited as <document>"); a figure inside the
+request's question, condition, negation or answer requirement is no given. A form difference never verifies a
 grounding but is reported as one ("differs in form", the channel's INT-REQ-010), never as an
 invented quotation; accents encoded differently (precomposed against combining) are the same
 letters and a normalised match. Each supplied text's normalised forms and offset maps are
@@ -203,3 +275,93 @@ thread-safe and `clear_grounding_caches()` empties them. Hashing agent text neve
 (like `ir.canonical.sha256_hex` and the grounding cache's `text_sha256`) encodes a lone UTF-16 surrogate with
 `surrogatepass`, so valid text hashes exactly as before and the channel can refuse such text (INT-REQ-009) instead of
 raising.
+
+`parsing.py` reads provider text as data only: it refuses text over `MAX_PROVIDER_TEXT_BYTES` (64 KiB) before parsing
+(`ProviderOutputTooLarge`, which the pipeline makes TRANSLATION_FAILED with no retry, "provider output too large": a retry
+would ask for the same output again; "nesting is too deep" when its first 64 KiB already nest past `MAX_JSON_DEPTH`) and text
+holding a lone surrogate, finds a Markdown fence with one linear scan (`strip_code_fences`; a run of backticks is one
+step), and reports every grounding where the provider wrote `verified: true` (`asserted_verified_paths`, E505). The
+pipeline records those E505 lines on a refused output too (`Translator._process` around `_process_object`: the refusal
+keeps its own reason and the self-certification is added beside it; repair round 2).
+
+**Repair round 3** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.2 and 9). Grounding (`grounding.py`): a figureless
+task-authority premise with no excerpt is refuted, as before repair round 2, when a sentence the task states as a given
+holds its words in another order or polarity (`_task_sentence_misread`), when the task only asks it or reports it as a
+view (`_asserted_task_sentences`, `_asserted_roots`), and when it is an "if", "iff" or "or" no record states; a rule
+premise is validated only by a stated sentence, never a question or a supposition. A quoted conjunction is stated
+conjunct by conjunct, each with its own polarity and its distinguishing word (`_conjunction_in_spans`). An excerpt's figure
+belongs to its own quantity, entity and period (`_subject_conflict`, `OPPOSED_QUALIFIERS`); a figure after "compared
+with" to its own clause; a bound states the figure of a symbol that names it. `assignment_support` and `worked_results`
+say how an assignment's figures are supported (date, stated, answer_stated, worked, not_in_answer, introduced), read by
+EVD-FIG-001 and EVD-LACK-001. Peer document ids are normalised (`normalized_document_id`, `is_peer_id`). Eligibility
+(`eligibility.py`, policy 2026.10-v5): a claim that states its own reason ("A, so B", "..., which shows that ...") is an
+argument with no supporting claim. Claim rules: ARG-NS-003 (`diag_argument.unbridged_leap`); ARG-BARE-001 reads a report
+that links nothing (`RANKING_WORDS`); EVD-CHERRY-001 reads a reversal after the window used; EVD-SRC-001 names a link that
+rests on located excerpts stating no link (`_cites_words_not_the_link`). Known regression, found by measuring and left
+for the next round: `quantities._DECL_UNIT_RE` now reads "in <unit>" before a parenthesis, so a meaning such as "peak
+discharge in A (m³/s)" declares amperes and a correct quoted figure fails its grounding check (section 7 there).
+
+**Repair round 4** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.2 and 10). Grounding (`grounding.py`): an "or" the task
+states validates a disjunction premise, an exclusive one with a word of exclusion (`stated_rules.disjunction_shape`,
+`stated_disjunction`; a near statement is unvalidated: `_disjunction_near_records`); a task sentence restated with its
+pronoun resolved or in the passive states the premise (`_role_pattern`, `_active_order`); a conversion the task gives in an
+instruction validates the premise that applies it (`relations.stated_conversion`); the count, total and mean of a stated
+list, and an indexed lookup over it, ground their figures (`_list_aggregates_cached`, `_closing_list_gap`,
+`_aggregate_source`, `_index_lookup`, `_position_in`); one sentence that states two quantities gives each its own figure
+(`_subject_conflict`, `_period_conflict`); a premise cited only to a peer's report is unvalidated; author and provenance
+labels are read as words for the peer test (`names_an_agent`, `AGENT_WORDS`); the answer's working is read once per text
+and the records' figures once per value (`_calculation_steps`, `_records_state`). Eligibility: a pronoun conclusion
+states its own reason (`adapters.markdown.states_own_reason`). Claim rules: ARG-NS-003 is no longer bridged by a sentence
+that only names the two things (`diag_argument._states_connection`, `_capitalised_roots`). Outcome: the release
+assessment lists capped diagnostics under their own line with no defect label (`named.blocking_release_lines`). Tests:
+`tests/translate/test_repair_round4_*.py`.
+
+**Repair round 5** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.1, 3.2 and 11). Grounding (`grounding.py`): an excerpt whose
+clause contradicts the literal it is cited for (the opposite polarity, another figure, a planted checker note, no content
+word) refutes it (`_literal_in_spans`, `content_in_excerpt`); an excerpt that gives several quantities their figures
+grounds only the figure of a premise's own quantity (list items, comma-cut qualifiers, table cells: `_subject_conflict`,
+`_table_cell`); a relayed agent's text is a peer document under "relay:", "rep-", an AI author or the router
+(`is_peer_document`, `names_an_ai_system`). Stated rules (`stated_rules.py`): definitions ("defined as", "means", "is
+called", a genus and its differentia) and closed enumerations are rules a record states (`_definition_readings`,
+`stated_enumeration`); only negation words negate a stated list (`lexis.negation_words`). Quantities: a unit glossed in
+parentheses is the declared unit (`declared_reading`); `stated_exactness` is cached. Precision (`precision.py`): a ratio
+encoded cross-multiplied is a precision site (`_bound`, `_scaled`). Claim and report rules (`diag_argument.py`): two more
+unbridged-leap shapes (`_leap_shape`: ranked, recommended), a linear sentence splitter (`_sentence_spans`), ARG-BARE-001
+read only in the parts that ask for reasons (`_reason_parts`), and ARG-CIRC-003 for a claim whose reason clause restates
+its point (`own_reason_circle`, report layer); the claim and report diagnoses read the record's task type as advisory.
+Tests: `tests/translate/test_repair_round5_translate.py`.
+
+**Close round 1** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.1, 3.2 and 12). Stated rules (`stated_rules.py`): a rule the
+record states only hedged, framed or denied, as a question, restricted, limited by an opening phrase, with an "or" in its
+consequence or a part of its condition the premise drops is not the source's own (`rule_qualifier`, `StatedRule.qualifier`);
+its excerpt refutes the premise that encodes it plainly (`relation_in_source` False) and a record sentence of it validates
+no task-authority rule. Grounding (`grounding.py`): a task sentence of another time, tense or direction of change does not
+state a premise and refutes it when it states the conflict (`_task_conflict`, `content_in_task`); the month "May" is no
+modal (`_suspending_tokens`); an excerpt of the words a literal quotes or names is no placeholder (`_names_words`); another figure
+of the same value, or of the opposite part, is no other figure for a premise's quantity (`_subject_conflict`). Claim rules
+(`diag_argument.py`): a heading that only restates the task is an info record of ARG-CIRC-001, not a circle
+(`circular_refusal`, `_restates_task_words`). Tests: `tests/translate/test_close1_*.py`.
+
+**Close round 2** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.2, 7 and 13). Grounding (`grounding.py`): a figureless task
+premise that shares an atom with the point is never validated by a task sentence (`_literals_in_task`): the stricter
+reading of repair round 4 (ADV4-06) also validated a proposition the task quotes for the student to weigh ("'X.' Discuss."),
+so 'X, as the question states; therefore X' cleared; it is reverted to the committed base's reading, under the round's
+convergence rule, and such a premise is left to the circularity rules (E112). Precision (`precision.py`): the open
+precision of a trailing-zero whole number ("about 300") is not read at its last digit for a term that takes only whole
+values (`_takes_whole_values`: Int symbols, integer literals and their sums, differences, products, negations, integer
+quotients and remainders, perhaps cast to a real), since that reading is the exact count the approximation word denies;
+the same count compared over Int or over `to_real` is decided the same way, and a ratio keeps both readings. Left by the
+round: a plainly stated source rule with a qualifier word elsewhere in its sentence is still refuted by `rule_qualifier`
+(DIFF-01), and an excerpt that negates a rule's consequence leaves the premise unvalidated (DIFF-03); section 7 there gives
+the reasons. Tests: `tests/translate/test_close2_task_proposition.py`, `tests/translate/test_close2_precision_counts.py`.
+
+**Close round 3** (`docs/ARGUMENT_DIAGNOSTICS.md`, sections 3.2, 7 and 14). Claim rules (`diag_evidence.py`): EVD-SRC-001 does
+not name a task-authority premise that restates a supposition the task sets ("Assume that ...", "Suppose ...", "Imagine
+that ...": one task sentence whose opening is a supposition, by `assertion.sentence_cue_at`, holds every content root of the
+premise with its polarity; `_supposed_by_task`, `_task_suppositions`), DV2-04: correct work that takes the supposition as
+given was named `unchecked_source` at warning where the committed base names nothing. A plain restriction of the rule's
+trigger set; the grounding record is unchanged, so the answer stays not releasable on the supposed premise. The translator
+version is 0.5.1 and the rules `argdiag-2` (`version.py`), so a translation record of an earlier round of this release reads
+as stale. Left, with the reasons in section 7 there: a plainly stated source rule with a qualifier word elsewhere in its
+sentence (`rule_qualifier`, DV2-03) and "about 300 g" for 260 g (the open precision, DV2-08). Tests:
+`tests/translate/test_close3_task_suppositions.py`.

@@ -686,13 +686,22 @@ def test_a_wrong_rational_power_shows_the_exact_value_beside_the_stated_one():
     assert hits and "c = 9, r = 6" in hits[0].message
 
 
-@pytest.mark.parametrize("answer", ["x² = 4^{1.5}, so x = 2√2 or x = −2√2.", "x² = 16^{3/4}\nx = ±2√2"])
-def test_a_step_and_its_roots_through_a_rational_power_are_proved_exactly(answer):
+@pytest.mark.parametrize("answer, step_check", [("x² = 4^{1.5}, so x = 2√2 or x = −2√2.", "stem-sol"), ("x² = 16^{3/4}\nx = ±2√2", "stem-alg")])
+def test_a_step_and_its_roots_through_a_rational_power_are_proved_exactly(answer, step_check):
     """16^(3/4) is exactly 8: the step x² = 8 ⇒ x = ±2√2 and its roots are proved, as they are for x² = 8 (an enclosure
-    of 8 could never be shown equal to (2√2)², which made both checks false errors)."""
+    of 8 could never be shown equal to (2√2)², which made both checks false errors). Rewritten to the merged root-set rule
+    (the STEM review fixes, design section 22, S5): a step from the equation to one member of a stated set of two or more
+    roots ("x = 2√2 or x = −2√2") is not checked on its own, because the set is checked as a whole by stem-sol: each
+    member substituted exactly and, the full set being claimed, the completeness of the set, which is the step itself.
+    So the step is proved by stem-sol there and by stem-alg for the single ± root; every check holds and each root's
+    membership is exact."""
     _r, rc = receive("x", answer, subject=MATH_AA, request="Solve the equation.", docs=[])
     kinds = {fc.constraint_id.rsplit("-", 1)[0] for fc in rc.formal_checks}
-    assert {"stem-alg", "stem-sol"} <= kinds and all(fc.formal_status == "ENTAILED" for fc in rc.formal_checks), [(fc.constraint_id, fc.formal_status) for fc in rc.formal_checks]
+    assert {"stem-sol", step_check} <= kinds and all(fc.formal_status == "ENTAILED" for fc in rc.formal_checks), [(fc.constraint_id, fc.formal_status) for fc in rc.formal_checks]
+    sol = [fc for fc in rc.formal_checks if fc.constraint_id.startswith("stem-sol")]
+    assert sol and all("membership: each exact root substituted into the equation (exact)" in fc.detail for fc in sol)
+    if step_check == "stem-sol":
+        assert all("completeness: the equation entails the disjunction of the stated roots" in fc.detail for fc in sol)
     assert not [f for f in rc.findings if f.severity == "error"]
 
 

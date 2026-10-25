@@ -23,9 +23,12 @@ signature with their digest in the binding, the `rlimit` cap is in the configura
 `engine.policies.named_policy_of(result.limits)` names the policy back, and the release check
 treats the result as current only for a receiver that names the same policy (one allowlist for
 both routes). A backend replaying a problem the pipeline decided names the policy its pipeline
-result's `limits` record stands for, and resets any `verified: true` the pipeline set (the
+result's `limits` record stands for, resets any `verified: true` the pipeline set (the
 service refuses a client-asserted verification, so the result lists those premises as
-unverified dependencies). An unknown name, a case or whitespace variant, null, a number or an
+unverified dependencies), and sends the configuration without the server-controlled options
+(`SERVER_CONTROLLED_CONFIG_KEYS`: `memory_max_mb` and `model_completion`; a request that names
+one is 400 `E100`, and the server's values are the pipeline's), so the same problem gets the
+same decision (`tests/service/test_named_policy_over_http.py`). An unknown name, a case or whitespace variant, null, a number or an
 object of limits is 400 `E100` before anything runs; authentication, the rate limit, the
 body-size limit (which, not the policy, bounds how large a problem can be sent), the per-call
 timeout and the concurrency limit apply under every policy.
@@ -43,3 +46,26 @@ rejection of any top-level self-certification field such as `verified` or
 `advisory_verification_status` (400), generic error bodies with a request id and
 no stack traces, verification run off the event loop. The signing key and token
 come from environment variables; the browser never talks to this service directly.
+
+Hardening (review round 8, policy 2026.10-v5):
+
+- `POST /v1/outcomes` takes a client's `fixture_responses` only when
+  `ServiceSettings.allow_client_fixtures` is set (environment `EPINOIC_ALLOW_CLIENT_FIXTURES`,
+  off by default). Otherwise it answers 403 `E506` before the body is read, since the client
+  would choose what the translation says.
+- `config` is validated strictly: `true` is no timeout and `"100"` no integer (400 `E100`).
+  `model_completion` is server-controlled like `memory_max_mb` (400 `E100`); the engine always
+  completes models, so a counterexample's values are always literals.
+- A body that holds a lone surrogate (`"\ud800"`: valid JSON, not Unicode text) is refused as
+  400 `E100` on every route, before anything encodes it, so it can never become a 500.
+- `adapter_id` is looked up in a closed allowlist built from the registered adapters when the
+  app is created. An unknown, overlong or ill-formed id is refused, and no module is imported
+  for it.
+- Every logged field (on the service's logger and on the translation pipeline's) has its
+  control characters, line separators, lone surrogates and backslashes escaped, and is cut to
+  128 characters, so a claim id cannot forge a log line.
+- The argument diagnosis (`diagnose`, `severity_cap`) is reachable from Python only: the service
+  always diagnoses, and its release check refuses an undiagnosed result.
+- `POST /v1/results/verify-signature` answers `{"valid": true}` for a result signed in the current form and
+  `{"valid": true, "key_id_attested": false, "reason": ...}` for a record of an earlier build, whose signature attests who
+  holds the key but not the key id it names (repair round 3, INV-6); the release check names that key id as not attested.

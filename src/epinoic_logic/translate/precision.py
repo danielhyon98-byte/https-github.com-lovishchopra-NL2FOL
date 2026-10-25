@@ -27,6 +27,23 @@ supporting claim, a supplied text or the task record, in that order) and read as
 * ``conflicting`` (cues of both kinds) is treated as unstated; ``unsourced`` (no source states the figure)
   is read as written.
 
+Three readings refine the interval rule (:func:`decide_precision`); none relaxes it for an interval that is genuinely
+wider or narrower than a figure it reads:
+
+* an open precision: a whole number written with trailing zeros and a bare approximation word or sign, with no stated
+  precision ("about 100%"), reads at half a unit of its last written digit or, its trailing zeros not significant, of
+  its first significant digit. An encoding at either is accepted; when the two readings give different verdicts the
+  translation is AMBIGUOUS_TRANSLATION, so neither the wide nor the narrow reading is forced;
+* an enclosure (B22): an interval no source states, inside the one stated figure of the claim or a supporting claim
+  whose stated interval contains it ([2,294,000, 2,298,000) for "2.3 × 10⁶"), is rejected when the probe at the stated
+  interval changes the verdict;
+* a closure variant (B16): an interval equal to the stated one except for the closure of an end is accepted when the
+  probe at the stated closure gives the same verdict, and rejected otherwise.
+
+:func:`reference_reading` reads each such interval at its stated bounds, so a retry that encodes exactly what a
+stated-precision rejection asked for keeps the claim; a rejection names the figure as written, never an interval's
+midpoint.
+
 A precision reading may be proposed (in a retry diagnostic) only when the wording supports it, and it is
 never chosen because it makes the claim easier to prove. :func:`compare_conclusions` classifies a retry's
 conclusion against the earlier one read as its source states it, so a retry that weakens the claim cannot
@@ -104,11 +121,21 @@ class Site:
     hi_incl: bool = False
     arg_indices: tuple = ()
     split: bool = False  # the two bounds are two top-level premises (``arg_indices`` are premise indices)
+    #: the term the bounds multiply when the interval is written cross-multiplied (``term >= lo * scale and term < hi *
+    #: scale``, a ratio ``term / scale`` kept linear): the site reads the ratio, and a rewrite keeps the written form
+    scale: Optional[dict] = None
 
 
 @dataclass
 class Reading:
-    """How the source states a site's figure."""
+    """How the source states a site's figure.
+
+    ``bounds`` is the interval a rounded figure states; ``alt_bounds`` the second interval the same wording also states
+    when its precision is open: a whole number written with trailing zeros and an approximation word with no stated
+    precision ("about 100%") reads at half a unit of its last written digit ([99.5, 100.5)) or, its trailing zeros not
+    significant, at half a unit of its first significant digit ([50, 150)); neither reading is forced. ``enclosed`` marks
+    an interval tied to the one figure of the claim (or a supporting claim) whose stated interval contains it, though the
+    figure itself lies outside it (B22: [2,294,000, 2,298,000) for "2.3 × 10⁶")."""
     site: Site
     exactness: Literal["exact", "rounded", "unstated", "given", "conflicting", "unsourced"]
     figure: Optional[StatedFigure] = None
@@ -117,6 +144,22 @@ class Reading:
     bounds: Optional[tuple[Fraction, Fraction, bool, bool]] = None
     written_bounds: Optional[tuple[Fraction, Fraction, bool, bool]] = None
     source: Optional[SourceText] = None
+    alt_bounds: Optional[tuple[Fraction, Fraction, bool, bool]] = None
+    enclosed: bool = False
+    #: the approximation word denies the last written digit's precision (``alt_bounds``) for this figure: its significant
+    #: digits are not a lone 1 (:func:`read_sites`). An encoding at ``bounds`` then stands on its own; one at ``alt_bounds``
+    #: is still probed at ``bounds``
+    alt_denied: bool = False
+
+    @property
+    def stated_bounds(self) -> Optional[tuple[Fraction, Fraction, bool, bool]]:
+        """The interval the wording states: a rounded figure's tolerance, else (for an enclosed tie) the half-unit
+        enclosure of the figure at its written precision."""
+        return self.bounds if self.bounds is not None else (self.written_bounds if self.enclosed else None)
+
+    def written(self) -> str:
+        """The figure as the source writes it (never an interval's midpoint)."""
+        return self.figure.written if self.figure is not None else decimal_text(self.site.value)
 
     def where(self) -> str:
         return self.figure.where() if self.figure is not None else "no source text states it"
@@ -142,15 +185,35 @@ class PrecisionDecision:
 # ------------------------------------------------------------------ sites
 
 
-def _bound(arg: Any) -> Optional[tuple[str, str, Fraction, bool, dict, str]]:
-    """``(term key, 'lower'|'upper', value, inclusive, term, literal)`` for a comparison of a term with a literal."""
+def _scaled(node: Any) -> Optional[tuple[dict, dict]]:
+    """``(literal, scale)`` for a product of one literal and other factors that are no literal (``5 * p20``,
+    ``250 * to_real(e0)``): the literal is the figure, the rest the term it multiplies."""
+    if not isinstance(node, dict) or node.get("op") != "mul" or not isinstance(node.get("args"), list) or len(node["args"]) < 2:
+        return None
+    lits = [a for a in node["args"] if isinstance(a, dict) and a.get("op") in _LITERAL_OPS]
+    rest = [a for a in node["args"] if not (isinstance(a, dict) and a.get("op") in _LITERAL_OPS)]
+    if len(lits) != 1 or not rest:
+        return None
+    return lits[0], (rest[0] if len(rest) == 1 else {"op": "mul", "args": rest})
+
+
+def _bound(arg: Any) -> Optional[tuple[str, str, Fraction, bool, dict, str, Optional[dict]]]:
+    """``(term key, 'lower'|'upper', value, inclusive, term, literal, scale)`` for a comparison of a term with a literal,
+    or with a literal times another term, the cross-multiplied form of a ratio (``p22 >= 5 * p20``: the ratio ``p22 /
+    p20`` bounded below by 5, ``scale`` the divisor; repair round 5, rerun-fidelity-2 variant: an interval written that
+    way was never compared with the figure's stated precision)."""
     if not isinstance(arg, dict) or arg.get("op") not in _BOUND_OPS:
         return None
     left, right, op = arg.get("left"), arg.get("right"), arg["op"]
+    scale: Optional[dict] = None
     if isinstance(right, dict) and right.get("op") in _LITERAL_OPS and not (isinstance(left, dict) and left.get("op") in _LITERAL_OPS):
         term, lit, flipped = left, right, False
     elif isinstance(left, dict) and left.get("op") in _LITERAL_OPS and not (isinstance(right, dict) and right.get("op") in _LITERAL_OPS):
         term, lit, flipped = right, left, True
+    elif _scaled(right) is not None and isinstance(left, dict) and left.get("op") not in _LITERAL_OPS:
+        (lit, scale), term, flipped = _scaled(right), left, False
+    elif _scaled(left) is not None and isinstance(right, dict) and right.get("op") not in _LITERAL_OPS:
+        (lit, scale), term, flipped = _scaled(left), right, True
     else:
         return None
     try:
@@ -161,7 +224,8 @@ def _bound(arg: Any) -> Optional[tuple[str, str, Fraction, bool, dict, str]]:
     if flipped:
         lower = not lower
     inclusive = op in ("ge", "le")
-    return _canonical(term), ("lower" if lower else "upper"), value, inclusive, term, lit["value"]
+    key = _canonical(term) if scale is None else _canonical(term) + "/" + _canonical(scale)
+    return key, ("lower" if lower else "upper"), value, inclusive, term, lit["value"], scale
 
 
 def _walk(node: Any, path: tuple, aid: str, in_concl: bool, out: list[Site]) -> None:
@@ -183,19 +247,20 @@ def _walk(node: Any, path: tuple, aid: str, in_concl: bool, out: list[Site]) -> 
                 out.append(Site(path, aid, in_concl, "eq", term, value, lit["value"], term.get("name") if term.get("op") == "var" else None))
                 break
     if op == "and" and isinstance(node.get("args"), list):
-        groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict, str]]]] = {}
+        groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict, str, Optional[dict]]]]] = {}
         for i, arg in enumerate(node["args"]):
             b = _bound(arg)
             if b is not None:
-                key, side, value, incl, term, lit = b
-                groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term, lit))
+                key, side, value, incl, term, lit, scale = b
+                groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term, lit, scale))
         for key, g in groups.items():
             if len(g["lower"]) == 1 and len(g["upper"]) == 1:
-                (li, lo, lo_incl, term, _l), (hi_i, hi, hi_incl, _t, _h) = g["lower"][0], g["upper"][0]
+                (li, lo, lo_incl, term, _l, scale), (hi_i, hi, hi_incl, _t, _h, _s) = g["lower"][0], g["upper"][0]
                 if _reading_interval(lo, hi):
                     mid = (lo + hi) / 2
-                    out.append(Site(path, aid, in_concl, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
-                                    lo, hi, lo_incl, hi_incl, (li, hi_i)))
+                    out.append(Site(path, aid, in_concl, "interval", term, mid, decimal_text(mid),
+                                    term.get("name") if term.get("op") == "var" and scale is None else None,
+                                    lo, hi, lo_incl, hi_incl, (li, hi_i), scale=scale))
     for k, v in node.items():
         if isinstance(v, (dict, list)):
             _walk(v, path + (k,), aid, in_concl, out)
@@ -209,20 +274,21 @@ def collect_sites(problem: Problem) -> list[Site]:
     premises = data.get("premises", [])
     for i, pr in enumerate(premises):
         _walk(pr.get("expr"), ("premises", i, "expr"), pr.get("id", "?"), False, out)
-    groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict]]]] = {}
+    groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict, Optional[dict]]]]] = {}
     for i, pr in enumerate(premises):
         b = _bound(pr.get("expr"))
         if b is not None:
-            key, side, value, incl, term, _lit = b
-            groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term))
+            key, side, value, incl, term, _lit, scale = b
+            groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term, scale))
     for key, g in groups.items():
         if len(g["lower"]) == 1 and len(g["upper"]) == 1:
-            (li, lo, lo_incl, term), (hi_i, hi, hi_incl, _t) = g["lower"][0], g["upper"][0]
+            (li, lo, lo_incl, term, scale), (hi_i, hi, hi_incl, _t, _s) = g["lower"][0], g["upper"][0]
             if _reading_interval(lo, hi):
                 mid = (lo + hi) / 2
                 aid = f"{premises[li].get('id', '?')}+{premises[hi_i].get('id', '?')}"
-                out.append(Site(("premises",), aid, False, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
-                                lo, hi, lo_incl, hi_incl, (li, hi_i), split=True))
+                out.append(Site(("premises",), aid, False, "interval", term, mid, decimal_text(mid),
+                                term.get("name") if term.get("op") == "var" and scale is None else None,
+                                lo, hi, lo_incl, hi_incl, (li, hi_i), split=True, scale=scale))
     if data.get("conclusion") is not None:
         _walk(data["conclusion"].get("expr"), ("conclusion", "expr"), data["conclusion"].get("id", "?"), True, out)
     return out
@@ -286,9 +352,66 @@ def _reading_of(site: Site, value: Fraction, sources: Sequence[SourceText], decl
     reading = Reading(site, kind, m.figure, m, ex, source=src)  # type: ignore[arg-type]
     if kind == "rounded" and ex is not None:
         reading.bounds = tolerance_bounds(value, ex, m.factor)
+        if reading.bounds is not None and _open_trailing_zeros(m.figure, ex):
+            half = Fraction(1, 2) * m.factor
+            reading.alt_bounds = (value - half, value + half, True, False)
     if m.figure.has_point and m.figure.half_width:
         h = m.figure.half_width * m.factor
         reading.written_bounds = (value - h, value + h, True, False)
+    return reading
+
+
+#: Words of a rounding cue that state a precision ("to the nearest ten", "2 s.f."): a cue with none of them, and no
+#: digit, is a bare approximation word or sign ("about", "≈", "roughly").
+_PRECISION_WORDS = frozenset({"nearest", "significant", "sig", "decimal", "place", "places", "dp", "sf", "d", "p", "s", "f", "figure", "figures", "whole",
+                              "integer", "unit", "units", "ten", "tens", "hundred", "hundreds", "thousand", "thousands", "million", "millions", "down", "up"})
+
+
+def _open_trailing_zeros(figure: StatedFigure, exactness: Exactness) -> bool:
+    """Whether a rounded figure's precision is open between its last written digit and its first significant digit: a
+    whole number written with trailing zeros and no point ("100", "1,000", "30%"), stated with a bare approximation word
+    or sign and no stated precision, read at the trailing-zero tolerance (wider than half a unit of the last digit)."""
+    if exactness.mode != "nearest" or not exactness.half_width or figure.has_point or figure.word:
+        return False
+    digits = figure.numeral.replace(",", "").replace(" ", "").replace(" ", "").replace(" ", "").lstrip("+-−")
+    if not digits.isdecimal() or not digits.endswith("0") or exactness.half_width <= Fraction(1, 2):
+        return False
+    cue = (exactness.cue or "").casefold()
+    if any(ch.isdigit() for ch in cue):
+        return False
+    words = set(cue.replace(".", " ").replace("-", " ").split())
+    return not (words & _PRECISION_WORDS)
+
+
+def _enclosing_figure(site: Site, sources: Sequence[SourceText], declared: DeclaredReading) -> Optional[Reading]:
+    """For an interval no source states and no stated figure lies inside: the one figure of the claim or a supporting claim
+    whose stated interval (its tolerance when rounded, else its half-unit enclosure at its written precision) strictly
+    contains the interval, in the unit the symbol declares (B22). None when no figure, or more than one, encloses it."""
+    if site.lo is None or site.hi is None or not _reading_interval(site.lo, site.hi):
+        return None
+    found: dict[tuple, Reading] = {}
+    negative = site.hi <= 0
+    for src in sources:
+        if src.kind not in ("claim", "supporting_claim"):
+            continue
+        for f in figures_in(src):
+            for value in {f.value, f.scaled, f.scaled * (f.unit_factor or 1) if f.is_percent_like else f.value}:
+                if value == 0:
+                    continue
+                value = -abs(value) if negative else abs(value)
+                reading = _reading_of(site, value, sources, declared)
+                if reading is None or reading.figure is None:
+                    continue
+                stated = reading.bounds if reading.exactness == "rounded" else reading.written_bounds
+                if stated is None:
+                    continue
+                lo, hi, _li, _hi = stated
+                if lo <= site.lo and site.hi <= hi and (site.hi - site.lo) < (hi - lo):
+                    found.setdefault((reading.figure.source_kind, reading.figure.source_id, reading.figure.start), reading)
+    if len(found) != 1:
+        return None
+    reading = next(iter(found.values()))
+    reading.enclosed = True
     return reading
 
 
@@ -314,8 +437,58 @@ def _contained_figure(site: Site, sources: Sequence[SourceText], declared: Decla
     return None
 
 
+#: Operations whose result is a whole number when their operands are (a count: :func:`_takes_whole_values`).
+_WHOLE_OPS = frozenset({"add", "sub", "mul", "neg", "idiv", "mod"})
+_MAX_TERM_NODES = 256
+
+
+def _takes_whole_values(term: Any, symbols: dict[str, Symbol]) -> bool:
+    """Whether a site's term takes only whole values: a symbol of sort Int, an integer literal, or a sum, difference,
+    product, negation, integer quotient or remainder of such terms, perhaps cast to a real (``to_real``): a count. A
+    bounded walk over the validated term; nothing is evaluated."""
+    stack = [term]
+    seen = 0
+    while stack:
+        seen += 1
+        if seen > _MAX_TERM_NODES:
+            return False
+        node = stack.pop()
+        if not isinstance(node, dict):
+            return False
+        op = node.get("op")
+        if op == "var":
+            sym = symbols.get(node.get("name"))
+            if sym is None or sym.sort != "Int":
+                return False
+        elif op == "int":
+            continue
+        elif op == "to_real":
+            stack.append(node.get("arg"))
+        elif op in _WHOLE_OPS:
+            if isinstance(node.get("args"), list):
+                stack.extend(node["args"])
+            else:
+                stack.extend(node.get(k) for k in ("left", "right", "arg") if node.get(k) is not None)
+        else:
+            return False
+    return True
+
+
 def read_sites(problem: Problem, sources: Sequence[SourceText], sites: Optional[list[Site]] = None) -> list[Reading]:
-    """The reading of every site's figure (see :func:`_reading_of`); ``unsourced`` when no source states it."""
+    """The reading of every site's figure (see :func:`_reading_of`); ``unsourced`` when no source states it.
+
+    The open precision of a trailing-zero whole number (``alt_bounds``) is not read for a count (a term that takes only
+    whole values, :func:`_takes_whole_values`, whatever the sort it is compared in): half a unit of its last written digit
+    is then the exact count ("about 300 visitors" as exactly 300), which the approximation word denies, so only the reading
+    at its first significant digit is stated, as for the same count compared over Int (close round 2, DIFF-06: "about 300"
+    for a stated 260, encoded over to_real, was AMBIGUOUS_TRANSLATION and not releasable, where the committed base, and the
+    same claim over Int, showed it ENTAILED). For a measured quantity whose significant digits are not a lone 1 the last-digit
+    reading is denied as an alternative (``Reading.alt_denied``; accuracy round 1, DV2-08: "about 300 g" for a stated 260 g,
+    encoded at [250, 350), was AMBIGUOUS_TRANSLATION where the committed base showed it ENTAILED): the first significant
+    digit's interval is then exactly the values that round to the figure there, and "about" denies the last digit's
+    precision. An encoding at that interval stands on its own; an encoding at the last written digit is still probed at it
+    (ambiguous when the two disagree, as before). A power of ten ("about 100%") keeps both readings
+    (:func:`_power_of_ten_numeral`)."""
     symbols: dict[str, Symbol] = {s.name: s for s in problem.symbols}
     out: list[Reading] = []
     for site in collect_sites(problem) if sites is None else sites:
@@ -327,8 +500,29 @@ def read_sites(problem: Problem, sources: Sequence[SourceText], sites: Optional[
         if reading is None and site.kind == "interval":
             # the stated figure the interval lies around; its bounds are computed at that figure's value and scale
             reading = _contained_figure(site, sources, declared)
+        if reading is None and site.kind == "interval":
+            # an interval inside one stated figure's interval, though the figure lies outside it (B22)
+            reading = _enclosing_figure(site, sources, declared)
+        if reading is not None and reading.alt_bounds is not None and site.scale is None and _takes_whole_values(site.term, symbols):
+            reading.alt_bounds = None  # a count: the last-digit reading is the exact count, which "about" denies
+        elif reading is not None and reading.alt_bounds is not None and not _power_of_ten_numeral(reading.figure):
+            # the first significant digit's interval is exactly the values that round to the figure there ("about 300 g" is [250,
+            # 350) for 260 g), and the approximation word denies the last written digit's precision: that reading is no
+            # alternative to it (accuracy round 1, DV2-08); a power of ten keeps both ("about 100%": [50, 150) reaches into a
+            # decade where one significant figure is finer, so the last-digit reading stays as its check)
+            reading.alt_denied = True
         out.append(reading if reading is not None else Reading(site, "unsourced"))
     return out
+
+
+def _power_of_ten_numeral(figure: Optional[StatedFigure]) -> bool:
+    """Whether a figure's significant digits, its trailing zeros set aside, are a lone 1 ("100", "1,000", "10%"): its
+    trailing-zero tolerance then reaches below into a decade where one significant figure is a finer step. True when the
+    figure is unknown (both readings are then kept, as before)."""
+    if figure is None:
+        return True
+    digits = figure.numeral.replace(",", "").replace(" ", "").replace(" ", "").replace(" ", "").lstrip("+-−")
+    return not digits.isdecimal() or digits.rstrip("0").lstrip("0") == "1"
 
 
 def _bounds_text(b: tuple[Fraction, Fraction, bool, bool]) -> str:
@@ -358,7 +552,7 @@ def figure_records(readings: Sequence[Reading]) -> list[FigureReading]:
             start=f.start if f else None, end=f.end if f else None, written=f.written if f else None, exactness=r.exactness,
             cue=(ex.cue[:300] if ex is not None and ex.cue else None), mode=ex.mode if ex is not None else "nearest",
             precision=ex.precision if ex is not None and r.exactness == "rounded" else None,
-            lower=decimal_text(r.bounds[0]) if r.bounds else None, upper=decimal_text(r.bounds[1]) if r.bounds else None,
+            lower=decimal_text(r.stated_bounds[0]) if r.stated_bounds else None, upper=decimal_text(r.stated_bounds[1]) if r.stated_bounds else None,
             unit=f.unit if f else None, derivation=r.match.derivation[:500] if r.match else None,
             encoded_as="exact_equality" if r.site.kind == "eq" else "interval",
             calculated=(fraction_text(ex.computed)[:200] if ex is not None and ex.computed is not None else None),
@@ -380,30 +574,52 @@ def _set(data: Any, path: tuple, value: Any) -> None:
     parent[path[-1]] = value
 
 
-def _interval_node(term: dict, b: tuple[Fraction, Fraction, bool, bool]) -> dict:
+def _figure_node(value: Fraction, scale: Optional[dict] = None) -> dict:
+    """A bound's right side: the literal, or the literal times the site's scale (the cross-multiplied form kept)."""
+    lit = {"op": "real", "value": decimal_text(value)}
+    return lit if scale is None else {"op": "mul", "args": [lit, scale]}
+
+
+def _interval_node(term: dict, b: tuple[Fraction, Fraction, bool, bool], scale: Optional[dict] = None) -> dict:
     lo, hi, lo_incl, hi_incl = b
-    return {"op": "and", "args": [{"op": "ge" if lo_incl else "gt", "left": term, "right": {"op": "real", "value": decimal_text(lo)}},
-                                  {"op": "le" if hi_incl else "lt", "left": term, "right": {"op": "real", "value": decimal_text(hi)}}]}
+    return {"op": "and", "args": [{"op": "ge" if lo_incl else "gt", "left": term, "right": _figure_node(lo, scale)},
+                                  {"op": "le" if hi_incl else "lt", "left": term, "right": _figure_node(hi, scale)}]}
 
 
-def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = (), narrow: Sequence[Reading] = ()) -> Optional[Problem]:
-    """``problem`` with each ``widen`` equality read as its interval and each ``narrow`` interval read as an equality at
-    its midpoint; None when the rewritten data is not a valid problem."""
+def _bound_nodes(term: dict, b: tuple[Fraction, Fraction, bool, bool], scale: Optional[dict] = None) -> tuple[dict, dict]:
+    lo, hi, lo_incl, hi_incl = b
+    return ({"op": "ge" if lo_incl else "gt", "left": term, "right": _figure_node(lo, scale)},
+            {"op": "le" if hi_incl else "lt", "left": term, "right": _figure_node(hi, scale)})
+
+
+def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = (), narrow: Sequence[Reading] = (),
+            retarget: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = ()) -> Optional[Problem]:
+    """``problem`` with each ``widen`` equality read as its interval, each ``narrow`` interval read as an equality at
+    its midpoint and each ``retarget`` interval given other bounds (its two bounds replaced in place, so the other
+    conjuncts of its conjunction stay); None when the rewritten data is not a valid problem."""
     data = problem.model_dump(mode="json", exclude_none=True)
+    for r, b in retarget:
+        lower, upper = _bound_nodes(r.site.term, b, r.site.scale)
+        li, hi_i = r.site.arg_indices
+        if r.site.split:
+            data["premises"][li]["expr"], data["premises"][hi_i]["expr"] = lower, upper
+        else:
+            node = _get(data, r.site.path)
+            node["args"][li], node["args"][hi_i] = lower, upper
     for r, b in widen:
-        _set(data, r.site.path, _interval_node(r.site.term, b))
+        _set(data, r.site.path, _interval_node(r.site.term, b, r.site.scale))
     by_and: dict[tuple, list[Reading]] = {}
     for r in narrow:
         if r.site.split:  # two bound premises: each becomes the equality (a repeated premise is harmless)
             for i in r.site.arg_indices:
-                data["premises"][i]["expr"] = {"op": "eq", "left": r.site.term, "right": {"op": "real", "value": decimal_text(r.site.value)}}
+                data["premises"][i]["expr"] = {"op": "eq", "left": r.site.term, "right": _figure_node(r.site.value, r.site.scale)}
             continue
         by_and.setdefault(r.site.path, []).append(r)
     for path in sorted(by_and, key=len, reverse=True):
         node = _get(data, path)
         drop = {i for r in by_and[path] for i in r.site.arg_indices}
         args = [a for i, a in enumerate(node["args"]) if i not in drop]
-        args += [{"op": "eq", "left": r.site.term, "right": {"op": "real", "value": decimal_text(r.site.value)}} for r in by_and[path]]
+        args += [{"op": "eq", "left": r.site.term, "right": _figure_node(r.site.value, r.site.scale)} for r in by_and[path]]
         _set(data, path, args[0] if len(args) == 1 else {"op": "and", "args": args})
     try:
         return Problem.model_validate(data)
@@ -415,12 +631,40 @@ def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fra
 
 
 def _verdict(problem: Problem, config: SolverConfig) -> Optional[VerificationStatus]:
-    status = engine_verify(problem, config).status
+    status = engine_verify(problem, config, diagnose=False).status  # an internal probe: no argument diagnosis
     return status if status in DEFINITIVE else None
 
 
+def _site_bounds(r: Reading) -> tuple[Fraction, Fraction, bool, bool]:
+    return r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl  # type: ignore[return-value]
+
+
+def _stated_text(r: Reading) -> str:
+    """The interval(s) the wording states for ``r``, with the operators to encode them."""
+    primary = r.alt_bounds if r.alt_bounds is not None else r.stated_bounds
+    if primary is None:
+        return "no interval"
+    text = f"{_bounds_text(primary)} ({_bound_ops(primary)})"
+    if r.alt_bounds is not None and r.bounds is not None:
+        text += (f", half a unit of its last written digit; or, its trailing zeros read as not significant, {_bounds_text(r.bounds)} "
+                 f"({_bound_ops(r.bounds)})")
+    return text
+
+
 def decide_precision(problem: Problem, readings: Sequence[Reading], config: SolverConfig, tag: str) -> PrecisionDecision:
-    """Reject, flag or accept the encoding's figures (see the module docstring)."""
+    """Reject, flag or accept the encoding's figures (see the module docstring).
+
+    An interval in place of a rounded figure must be the interval the wording states. Three readings refine that rule,
+    and none relaxes it for a genuinely wider or narrower interval of a figure it reads:
+
+    * an interval equal to the stated one except for the closure of an end ("[1.545, 1.555]" for "≈ 1.55", stated
+      "[1.545, 1.555)") is accepted when one probe at the stated closure gives the same verdict, and rejected otherwise;
+    * an interval tied to a figure only because the figure's stated interval contains it (B22) is rejected when the probe
+      at the stated interval changes the verdict;
+    * a whole number with trailing zeros and a bare approximation word ("about 100%") states its precision openly: half a
+      unit of its last written digit or of its first significant digit. An encoding at either is accepted; when the two
+      readings give different verdicts the translation is AMBIGUOUS_TRANSLATION, never a verdict (neither reading is
+      forced, and the wider one never earns a proof on its own)."""
     decision = PrecisionDecision(readings=figure_records(readings))
     weakened = [r for r in readings if r.site.kind == "interval" and r.exactness in ("exact", "given")]
     if weakened:
@@ -430,22 +674,78 @@ def decide_precision(problem: Problem, readings: Sequence[Reading], config: Solv
                                         "exactly (or given exactly by the task) is encoded with 'eq' and never widened; if the claim then does not follow, its "
                                         "counterexample is the verdict. An interval is only for a figure the source itself states as rounded")
         return decision
-    mismatched = [r for r in readings if r.site.kind == "interval" and r.exactness == "rounded" and r.bounds is not None
-                  and (r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl) != r.bounds]
+    cache: dict[str, Optional[VerificationStatus]] = {}
+
+    def base_verdict() -> Optional[VerificationStatus]:
+        if "base" not in cache:
+            cache["base"] = _verdict(problem, config)
+        return cache["base"]
+
+    mismatched: list[Reading] = []
+    checked: list[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = []
+    duals: list[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = []
+    for r in readings:
+        if r.site.kind != "interval":
+            continue
+        site = _site_bounds(r)
+        if r.enclosed:
+            stated = r.stated_bounds
+            if stated is not None and site != stated:
+                checked.append((r, stated))
+            continue
+        if r.exactness != "rounded" or r.bounds is None:
+            continue
+        options = [r.bounds] + ([r.alt_bounds] if r.alt_bounds is not None else [])
+        if site in options:
+            # an encoding at the first significant digit of a figure whose last-digit reading is denied stands on its own
+            # (accuracy round 1, DV2-08); one at the last written digit is still probed at the stated interval
+            if r.alt_bounds is not None and not (r.alt_denied and site == r.bounds):
+                duals.append((r, r.alt_bounds if site == r.bounds else r.bounds))
+            continue
+        closure = next((o for o in options if o[:2] == site[:2]), None)
+        if closure is not None:
+            checked.append((r, closure))
+            continue
+        mismatched.append(r)
     if mismatched:
-        shown = "; ".join(f"{decimal_text(r.site.value)} in {r.site.assertion_id} is encoded as {_bounds_text((r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl))} "  # type: ignore[arg-type]
-                          f"but {r.describe()} states {_bounds_text(r.bounds)} ({_bound_ops(r.bounds)})" for r in mismatched[:6])  # type: ignore[arg-type]
+        shown = "; ".join(f"{r.written()} in {r.site.assertion_id} is encoded as {_bounds_text(_site_bounds(r))} but {r.describe()} states {_stated_text(r)}"
+                          for r in mismatched[:6])
         decision.reject = ("stated_precision", f"{tag}: stated precision: the interval does not match the precision the source states: {shown}. Encode exactly the "
                                                "stated interval: a wider one weakens the claim and a narrower one strengthens it")
         return decision
-    base: Optional[VerificationStatus] = None
-    have_base = False
+    if checked:
+        alt = rewrite(problem, retarget=checked)
+        stated_verdict = _verdict(alt, config) if alt is not None else None
+        base = base_verdict()
+        if base is None or stated_verdict is None or base is not stated_verdict:
+            outcome = (f"it is {base.value} as encoded but {stated_verdict.value} at the stated interval" if base is not None and stated_verdict is not None
+                       else "the verdict at the stated interval could not be compared")
+            shown = "; ".join(f"{r.written()} in {r.site.assertion_id} is encoded as {_bounds_text(_site_bounds(r))} but {r.describe()} states {_bounds_text(b)} "
+                              f"({_bound_ops(b)})" for r, b in checked[:6])
+            decision.reject = ("stated_precision", f"{tag}: stated precision: the interval does not match the precision the source states, and {outcome}: "
+                                                   f"{shown}. Encode exactly the stated interval")
+            return decision
+    if duals:
+        alt = rewrite(problem, retarget=duals)
+        other = _verdict(alt, config) if alt is not None else None
+        base = base_verdict()
+        if base is not None and other is not None and base is not other:
+            names = ", ".join(f"{r.written()} ({r.where()})" for r, _b in duals[:6])
+            decision.ambiguity = AmbiguityFlag(
+                code="stated_precision",
+                message=(f"(deterministic) the source writes {names} as a whole number with trailing zeros and an approximation word that states no "
+                         f"precision: read to half a unit of its last written digit or of its first significant digit, the problem is {base.value} "
+                         f"as encoded and {other.value} the other way. The wording does not fix which, so neither reading is shown as a verdict")[:2000],
+                alternatives=[f"the figure at the precision encoded: {base.value}"[:200], f"the figure at the other reading: {other.value}"[:200]],
+            )
+            return decision
     rounded_eq = [r for r in readings if r.site.kind == "eq" and r.exactness == "rounded" and r.bounds is not None]
     explicit = [r for r in rounded_eq if r.stated is not None and not r.stated.by_convention]
     convention = [r for r in rounded_eq if r not in explicit]
 
-    def reject_with(stated: VerificationStatus, figures: list[Reading]) -> PrecisionDecision:
-        shown = "; ".join(f"{r.site.literal} in {r.site.assertion_id} ({r.describe()}: {_bound_ops(r.bounds)})" for r in figures[:8])  # type: ignore[arg-type]
+    def reject_with(stated: VerificationStatus, figures: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]]) -> PrecisionDecision:
+        base = base_verdict()
+        shown = "; ".join(f"{r.site.literal} in {r.site.assertion_id} ({r.describe()}: {_bound_ops(b)})" for r, b in figures[:8])
         decision.reject = ("stated_precision", f"{tag}: stated precision: the problem is {base.value} as encoded, but {stated.value} once each figure the source "  # type: ignore[union-attr]
                                                f"states as rounded is read at its stated precision: {shown}. Encode each such figure at its stated precision "
                                                "(those bounds), and keep 'eq' for every figure the source states exactly")
@@ -453,23 +753,39 @@ def decide_precision(problem: Problem, readings: Sequence[Reading], config: Solv
 
     if explicit:
         # an explicit rounding cue states the tolerance: whichever way it moves the verdict, the exact equality misstates it
-        base, have_base = _verdict(problem, config), True
-        alt = rewrite(problem, widen=[(r, r.bounds) for r in explicit])  # type: ignore[misc]
+        base = base_verdict()
+        wide = [(r, r.bounds) for r in explicit]
+        alt = rewrite(problem, widen=wide)  # type: ignore[arg-type]
         stated = _verdict(alt, config) if alt is not None else None
-        if base is not None and stated is not None and base is not stated:
-            return reject_with(stated, explicit)
+        if any(r.alt_bounds is not None for r in explicit):
+            narrow_pairs = [(r, r.alt_bounds if r.alt_bounds is not None else r.bounds) for r in explicit]
+            alt2 = rewrite(problem, widen=narrow_pairs)  # type: ignore[arg-type]
+            stated2 = _verdict(alt2, config) if alt2 is not None else None
+            if stated is not None and stated2 is not None and stated is not stated2:
+                names = ", ".join(f"{r.written()} ({r.where()})" for r in explicit if r.alt_bounds is not None)
+                decision.ambiguity = AmbiguityFlag(
+                    code="stated_precision",
+                    message=(f"(deterministic) the source writes {names} as a whole number with trailing zeros and an approximation word that states "
+                             f"no precision: read to half a unit of its last written digit the problem is {stated2.value}, read to half a unit of its "
+                             f"first significant digit it is {stated.value}. The wording does not fix which, so neither reading is shown as a verdict")[:2000],
+                    alternatives=[f"half a unit of the last written digit: {stated2.value}"[:200], f"half a unit of the first significant digit: {stated.value}"[:200]],
+                )
+                return decision
+            if base is not None and stated2 is not None and base is not stated2:
+                return reject_with(stated2, narrow_pairs)  # type: ignore[arg-type]
+        elif base is not None and stated is not None and base is not stated:
+            return reject_with(stated, wide)  # type: ignore[arg-type]
     if convention:
         # the convention of written calculation, for a calculation the reader cannot compute, is a presumption: it may
         # explain a failure (a correct rounded result read as exact), but it never refutes a proof on its own, since the
         # written result may be exact (2³ × 0.5 = 4.0)
-        if not have_base:
-            base, have_base = _verdict(problem, config), True
+        base = base_verdict()
         alt = rewrite(problem, widen=[(r, r.bounds) for r in rounded_eq])  # type: ignore[misc]
         stated = _verdict(alt, config) if alt is not None else None
         passing = _PASSING_STATUS.get(problem.query)
         if base is not None and stated is not None and base is not stated:
             if base is not passing:
-                return reject_with(stated, rounded_eq)
+                return reject_with(stated, [(r, r.bounds) for r in rounded_eq])  # type: ignore[misc]
             names = ", ".join(f"{r.site.literal} ({r.where()})" for r in convention[:6])
             decision.ambiguity = AmbiguityFlag(
                 code="stated_precision",
@@ -478,14 +794,13 @@ def decide_precision(problem: Problem, readings: Sequence[Reading], config: Solv
                          "which the wording does not state, so it is not shown as verified")[:2000],
                 alternatives=[f"figures read exactly as written: {base.value}"[:200], f"figures read at their written precision: {stated.value}"[:200]],
             )
-    loose = [r for r in readings if r.exactness in ("unstated", "conflicting")
+    loose = [r for r in readings if not r.enclosed and r.exactness in ("unstated", "conflicting")
              and ((r.site.kind == "eq" and r.written_bounds is not None) or r.site.kind == "interval")]
     if loose and decision.ambiguity is None:
         widen = [(r, r.written_bounds) for r in loose if r.site.kind == "eq"]
         narrow = [r for r in loose if r.site.kind == "interval"]
         alt = rewrite(problem, widen=widen, narrow=narrow)  # type: ignore[arg-type]
-        if not have_base:
-            base = _verdict(problem, config)
+        base = base_verdict()
         other = _verdict(alt, config) if alt is not None else None
         if base is not None and other is not None and base is not other:
             enc = "as written" if not narrow else "as encoded"
@@ -507,12 +822,27 @@ def decide_precision(problem: Problem, readings: Sequence[Reading], config: Solv
 
 def reference_reading(problem: Problem, readings: Sequence[Reading]) -> Problem:
     """``problem`` read as its source states it: rounded equalities widened to their stated tolerance, exact or given
-    figures written as intervals narrowed back to equalities. The reference a retry's conclusion is compared with."""
-    widen = [(r, r.bounds) for r in readings if r.site.kind == "eq" and r.exactness == "rounded" and r.bounds is not None]
+    figures written as intervals narrowed back to equalities, and an interval of a rounded or enclosing figure that differs
+    from the interval the wording states given that interval (for an open precision, the reading at the last written
+    digit, the prompt's rule). The reference a retry's conclusion is compared with: a retry that encodes exactly what a
+    stated-precision rejection asked for keeps the claim."""
+    widen = [(r, r.alt_bounds if r.alt_bounds is not None else r.bounds) for r in readings
+             if r.site.kind == "eq" and r.exactness == "rounded" and r.bounds is not None]
     narrow = [r for r in readings if r.site.kind == "interval" and r.exactness in ("exact", "given")]
-    if not widen and not narrow:
+    retarget: list[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = []
+    for r in readings:
+        if r.site.kind != "interval" or r in narrow:
+            continue
+        site = _site_bounds(r)
+        if r.enclosed and r.stated_bounds is not None and site != r.stated_bounds:
+            retarget.append((r, r.stated_bounds))
+        elif not r.enclosed and r.exactness == "rounded" and r.bounds is not None:
+            options = [r.bounds] + ([r.alt_bounds] if r.alt_bounds is not None else [])
+            if site not in options:
+                retarget.append((r, r.alt_bounds if r.alt_bounds is not None else r.bounds))
+    if not widen and not narrow and not retarget:
         return problem
-    return rewrite(problem, widen=widen, narrow=narrow) or problem  # type: ignore[arg-type]
+    return rewrite(problem, widen=widen, narrow=narrow, retarget=retarget) or problem  # type: ignore[arg-type]
 
 
 def _entails(premise_expr: Any, conclusion_expr: Any, symbols: list[dict], config: SolverConfig) -> Optional[bool]:
@@ -521,7 +851,7 @@ def _entails(premise_expr: Any, conclusion_expr: Any, symbols: list[dict], confi
                                         "symbols": symbols, "premises": [{"id": "NEW", "expr": premise_expr}], "conclusion": {"id": "REF", "expr": conclusion_expr}})
     except (ValidationError, ValueError):
         return None
-    status = engine_verify(probe, config).status
+    status = engine_verify(probe, config, diagnose=False).status  # an internal probe: no argument diagnosis
     if status is VerificationStatus.ENTAILED:
         return True
     if status in (VerificationStatus.COUNTEREXAMPLE, VerificationStatus.INCONSISTENT_PREMISES):
@@ -607,7 +937,7 @@ def added_premise_support(before: Problem, after: Problem, asserted_atoms: Seque
                 probe = Problem.model_validate({"problem_id": "retry-support", "request_id": "retry-support", "claim_id": "retry-support",
                                                 "query": "entailment", "symbols": [{"name": n, "sort": t} for n, t in sorts.items()],
                                                 "premises": givens, "conclusion": {"id": "ADDED", "expr": p.expr.model_dump(mode="json", exclude_none=True)}})
-                status = engine_verify(probe, config).status
+                status = engine_verify(probe, config, diagnose=False).status  # an internal probe: no argument diagnosis
             except (ValidationError, ValueError):
                 status = None
         if status is VerificationStatus.ENTAILED:

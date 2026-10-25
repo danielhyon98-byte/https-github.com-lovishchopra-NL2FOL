@@ -35,6 +35,9 @@ GroundingKind = Literal[
 ]
 Certainty = Literal["established", "probable", "possible"]
 
+#: The documented patterns of identifiers, assertion ids and numeric literals. They are always applied with
+#: ``fullmatch``: with ``match`` a trailing ``$`` also matches before a final newline, so ``"x\n"`` would be a symbol
+#: distinct from ``"x"`` and ``"P\n"`` an assertion id that impersonates ``"P"``. The whole text must match.
 IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 ASSERTION_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
 INT_RE = re.compile(r"^-?(0|[1-9][0-9]*)$")
@@ -53,7 +56,7 @@ class Var(_Node):
     @field_validator("name")
     @classmethod
     def _ident(cls, v: str) -> str:
-        if not IDENT_RE.match(v):
+        if not IDENT_RE.fullmatch(v):
             raise ValueError(f"invalid identifier {v!r}: must match {IDENT_RE.pattern}")
         return v
 
@@ -70,7 +73,7 @@ class IntConst(_Node):
     @field_validator("value")
     @classmethod
     def _int(cls, v: str) -> str:
-        if not INT_RE.match(v):
+        if not INT_RE.fullmatch(v):
             raise ValueError(f"invalid integer literal {v!r}")
         return v
 
@@ -82,7 +85,7 @@ class RealConst(_Node):
     @field_validator("value")
     @classmethod
     def _real(cls, v: str) -> str:
-        if not (INT_RE.match(v) or RATIONAL_RE.match(v) or DECIMAL_RE.match(v)):
+        if not (INT_RE.fullmatch(v) or RATIONAL_RE.fullmatch(v) or DECIMAL_RE.fullmatch(v)):
             raise ValueError(f"invalid real literal {v!r}: use integer, fraction a/b or decimal text")
         return v
 
@@ -229,7 +232,7 @@ class Symbol(BaseModel):
     @field_validator("name")
     @classmethod
     def _ident(cls, v: str) -> str:
-        if not IDENT_RE.match(v):
+        if not IDENT_RE.fullmatch(v):
             raise ValueError(f"invalid symbol name {v!r}")
         return v
 
@@ -245,7 +248,7 @@ class Assertion(BaseModel):
     @field_validator("id")
     @classmethod
     def _aid(cls, v: str) -> str:
-        if not ASSERTION_ID_RE.match(v):
+        if not ASSERTION_ID_RE.fullmatch(v):
             raise ValueError(f"invalid assertion id {v!r}")
         return v
 

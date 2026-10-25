@@ -34,6 +34,7 @@ shown as success. Every STEM problem carries this statement in its `notes`:
 | Relations on correct answers named undecided | 18 of 767 (2.3 %); 8 of 745 (1.1 %) on the items whose gold lists no out-of-scope relation |
 | Evaluation of agent text | none: no path evaluates agent text (section 6) |
 | Review rounds and the STEM arena with live specialists | **not run in this build** (section 1); results will go to section 10 |
+| Argument diagnosis (design section 24), development corpus of 101 cases | STEM family: 12 of 12 defects named with their defect label (2 before), 0 false alarms, 8 of 8 controls clean; whole corpus: named 9 → 20, missed 10 → 2, false alarms 41 → 30 (section 11) |
 
 ## 1. What was run in this build, and what was not
 
@@ -518,3 +519,106 @@ bundle), with no MyLib or textbook library. Record each round here, from measure
 - relations named undecided on genuine answers, by reason and subject;
 - notations or readings the specialists used that the front end did not read;
 - the STEM fixer's fixes, each with the test that pins it, and the suite after them.
+
+## 11. Argument diagnosis (design section 24)
+
+These figures were measured on 2026-10-17 in this development container. They are replays of recorded or written
+answers. No specialist was called, and nothing ran against a live provider or a deployment. The scope statement above
+applies: a named diagnostic, like a check, is a property of the encoding.
+
+### 11.1 The development corpus of the argument diagnosis
+
+The corpus has 101 cases: 44 planted defects and 57 controls, in five families. The scoring:
+
+- A defect is *named* when a flag on it maps to its expected defect label, or to one the case accepts (the corpus
+  runner's code table). It is *caught, not named* when it is flagged without such a label.
+- A warning or an error on a control is a false alarm.
+- End-to-end cases are scored on the claims and checks they concern.
+
+| Family (cases) | Named | Caught, not named | Missed | False alarms | Clean controls |
+| --- | --- | --- | --- | --- | --- |
+| STEM (20: 12 defects, 8 controls) | 2 → 12 | 3 → 0 | 7 → 0 | 1 → 0 | 7 → 8 |
+| formal (21) | 3 → 4 | 10 → 10 | 2 → 1 | 3 → 3 | 3 → 3 |
+| end to end (35 controls) | — | — | — | 31 → 21 | 4 → 14 |
+| evidence (17) | 4 → 4 | 8 → 8 | 0 → 0 | 5 → 5 | 0 → 0 |
+| informal (8) | 0 → 0 | 4 → 4 | 1 → 1 | 1 → 1 | 2 → 2 |
+| **total** | **9 → 20** | **25 → 22** | **10 → 2** | **41 → 30** | **16 → 27** |
+
+The table compares the contract commit with this tree. The Phase 0 tree in between scored 9, 26, 9, 40 and 17.
+
+| STEM case | Defect label | Before | Now: named by |
+| --- | --- | --- | --- |
+| s01 | stem_arithmetic_slip | named | INT-SUBJ-001 (stem-eq) |
+| s02, s02b | stem_wrong_formula | missed | ST-REF-001 |
+| s03a | stem_unit_error | missed | INT-SUBJ-004 on the traced companion stem-eq-1u |
+| s03b | stem_unit_error | caught, not named | INT-SUBJ-001 on the written companion stem-eq-1u |
+| s03c | stem_dimension_error | named | ST-DIM-001 |
+| s03d | stem_unit_error | missed | INT-SUBJ-001 on the written companion stem-sub-1u |
+| s04 | stem_rounding_changes_conclusion | caught, not named | INT-SUBJ-004 on stem-rnd |
+| s05 | stem_invalid_step | missed | INT-SUBJ-004 on stem-op |
+| s06 | stem_symbol_conflict | missed | ST-SCOPE-002 |
+| s07 | stem_extrapolation | caught, not named | ST-RANGE-001 |
+| s08 | stem_missing_working | missed | ST-WORK-001 |
+| f05b (formal family) | stem_contradictory_givens | missed | ST-GIVEN-002 |
+
+The eight STEM controls are clean: s00, s03k, s04c, s05c, s06c, s07c, s08c, and s03dk, whose false INT-SUBJ-001 on a
+correct substitution with symbolic bindings is gone. The two STEM controls of the formal family, c05 and c06, stay
+clean.
+
+The end-to-end false alarms that are gone:
+
+- the six B2 answers (bi, ch, cs, ess, maa, ph; design section 24.4);
+- the three B20 answers (bi, cs, ph);
+- the B7 physics pair.
+
+The 30 false alarms that remain carry none of INT-SUBJ-001, PS-SRC-001, INT-CONFLICT-001 or CORE-QNT-001. They are the
+channel's coverage and constraint findings, the ledger's INT-LEDGER-020, grounding, the claim display and the source
+checks of other packs. The two missed defects (f07, i01b) are outside STEM.
+
+### 11.2 Suite
+
+The full suite: 5792 passed, 45 deselected (stress), 4 expected failures, in 278 s. On the Phase 0 tree it was 5628
+passed.
+
+- 162 tests were added, and the safety scan covers the two new reference modules.
+- Two tests were rewritten to a stricter rule (design section 24.7). None was removed or weakened.
+
+Run on the Phase 0 source, 134 of the 162 new tests fail:
+
+- 54 fail outright;
+- 80 sit in the three modules that import the new readers.
+
+The other 28 pass before and after: they are the controls, the wrong twins and one reading invariant. No stress test
+was run.
+
+### 11.3 Arena replays of the recorded rounds
+
+Each recorded round was replayed on copies with `scripts/arena/run_arena.py`, with the Phase 0 source and with this
+source. The functional counts are unchanged:
+
+- r1: 30/30;
+- r1-adv: 150/151 (the planted empty answer is REJECTED);
+- r2 to r6: 46/46 each;
+- r7: 177/177.
+
+No receipt of r1 to r6 changed. In r7, 50 records of 7 answers changed:
+
+- **bm-p7a, bm-t13, ec-p7a, ec-t13, ge-t13.** Their worked lines are decided by `core-stem` checks, and every one holds
+  on the genuine answers. bm-t13 and ge-t13 become ACCEPTED.
+- **mai-t13.** Relations with truncated numerals are checked, and they hold, instead of being named undecided.
+- **ph-t13.** One restatement check is added, and it holds.
+
+No record gained an error. The one warning that is new by its claims narrows an earlier one: ec-p7a's CORE-QNT-001,
+and its INT-HIST-001 in a relay, now name only the equation still undecided. Genuine records with an error or a
+warning fell from 39 to 37, and those with an error stayed at 19. Design section 24.9 lists the changes.
+
+### 11.4 What remains open
+
+Design section 24.8 records the residuals:
+
+- an angle written in no unit keeps both readings;
+- inequalities in an absolute value, chained inequality steps and nuclear equations are named, not checked;
+- a worked line whose first operand is negative after a blanked label stays CORE-QNT-001;
+- the two changes in files this work did not own are applied by the integration step (design section 24.10): the
+  channel passes the task's agents of the same branch to the STEM parser (`channel/bus.py`), and `strip_markup` in
+  `adapters/markdown.py` reads emphasis with `stem.layout.emphasis_spans`, the backtick among its markers.

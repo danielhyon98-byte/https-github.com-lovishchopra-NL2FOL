@@ -86,6 +86,20 @@ Integrity properties the channel holds on every transmission and relay:
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
 - A synthesis carrying a value outside the synthesis contract's closed vocabularies, such as a transformation written as a description of the edit instead of one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming the claims, whether it arrives as JSON or as an object built around validation; it is never delivered with the ledger rules those values select skipped, and never an exception (`integrity.contracts.TRANSFORMATION_MEANINGS`).
+- A relayed or forwarded report, and a synthesis, carry the history they build on: the receipt references the earlier receipts, and what those left unresolved (a failed Given check, a warning) travels with its own severity (INT-HIST-001), so a relay without the request never reads cleaner than the report's arrival.
+- A request item that names what it wants ("Calculate the acceleration", or in notation only: "Solve 3x + 5 = 20") is addressed only by a claim about it (its name, unit, symbol or the item's own figures), never by a shared imperative alone (INT-REQ-004).
+- Checks attach to claims by their source spans and texts, never by the spelling of a claim id; an id that disagrees with its text is named (ST-CLAIM-001).
+- The synthesis ledger compares figures by value, significant figures and unit: "0.030 J" restates "3.0e-2 J", "0.03 J" changes its precision and "2.0 kg" changes the unit of "2.0 g" (INT-LEDGER-023), while "0.0020 kg" converts it faithfully.
+- A word bound is measured on the span the request sets it on: a named part, each listed part, the answer proper without a plan, or the paragraph it asks for (`Constraint.scope`); notes, word counts and footers about the answer are no paragraphs and no words of a bound (INT-REQ-005).
+- A peer-dependent specialist sees its colleague's delivered report and nothing of the router's receipts (a peer document must be that report word for word, INT-HANDOFF-013), and an answer that passes a system check result to the student as subject advice is named (INT-REQ-017).
+- Two encodings of one claim that reach opposite answers (a failed check of one of its clauses beside an ENTAILED translation) are named with both results (INT-XENC-001); neither verdict is withdrawn.
+- A receipt is ACCEPTED only when every claim outcome is a verdict it can stand on: a vacuous, circular or refused result makes it ACCEPTED_WITH_FINDINGS.
+
+The response gate (`channel/gate.py`, `assess_response`) decides what the student is shown from the receipts alone:
+VERIFIED only when every check the receipts carry passed, one of them formal; otherwise the answer is delivered labelled
+"not verified" when its accuracy (passed / (passed + failed)) is above 0.90, and withheld at or below it. Unresolved checks
+(heuristic findings, warnings, claims without a verdict, a verdict resting on an unestablished premise) are never counted
+as passed. It is a library decision over receipts, tested in process; no deployed service runs it.
 
 ## STEM subjects: equations and prose (`src/epinoic_logic/stem/`)
 
@@ -211,6 +225,7 @@ The result is signed and bound to the exact problem, and the report is still del
 | ST-CHEM-001 | warning | a chemical equation that cannot be read; its balance is not checked |
 | ST-CODE-001 | info | a code block: never run, never checked |
 | ST-SCOPE-001 | info | a symbol rebound to a different value; substitutions match any binding |
+| ST-CLAIM-001 | warning | a claim id spelled like a statement id whose text is another statement's; checks attach to claims by text, never by id |
 | ST-LIM-001 / ST-LIM-002 | warning | a bound exceeded (expression, literal, IR size; more than 128 checks or 1,024 math spans per answer) |
 | ST-INTERNAL-001 | warning | the STEM pack failed internally; its checks are missing and must not be read as passed |
 | BR-INTERNAL-001 | warning | a pack of any branch raised; its findings are missing and must not be read as passed |
@@ -237,7 +252,7 @@ arena that merges this branch.
 | Claim-record input | Works on structured claims from a specialist report (ids, role, subject, source refs, assumptions), not on raw student text. | `contracts.py` |
 | Deterministic eligibility | Code, not the model, decides whether a claim may be formalized: argument structure (point + supporting claims), structural counts, exact numeric claims. Interpretive, factual and rubric judgements are routed elsewhere. | `eligibility.py` |
 | IB subject policy | Per-subject profiles say which claim classes are allowed (quantitative claims in Mathematics, Sciences, Economics, Business; argument structure only in Literature, History, Arts, TOK). The profile text is injected into the prompt so the model knows what cannot be established in that subject. | `subjects.py` |
-| Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. The prompt in use is `translate_v2` (exactness, task authority, definitions); `translate_v1` stays packaged unchanged. | `prompts/translate_v2.md` |
+| Staged decomposition | The prompt asks the model to list grounded atomic propositions first, then the specialist's inferential links, then assemble the problem. Inspired by the NL2FOL method; no code or prompt text copied. The prompt in use is `translate_v3`: `translate_v2` (exactness, task authority, definitions) with one section that marks every step the writer asserts as the writer's own premise, with the connective as written; `translate_v1` and `translate_v2` stay packaged unchanged. | `prompts/translate_v3.md` |
 | Grounding checks | Quotations cited as grounding are matched verbatim (then with typographic normalization, and through stated form-difference tiers such as a long elision or different accents) against the supplied text; `verified` is set only by this code. Every reference of a grounding is checked and keeps its own outcome; only complete support verifies it, so a matching excerpt beside an unknown document is `partial`, never verified. Each text's normalised forms and each located excerpt are cached in bounded caches keyed by the text's digest, so an answer never depends on the cache. | `grounding.py` |
 | Task authority | `arithmetic_fact`, `task_setting` and `rubric_rule` are the translator's proposal, never a validation: a premise of such a kind is validated, refuted (an invented 160 km where the source says 120 km is an evidence failure) or left unvalidated against the supplied texts and the task record as the router issued it (`TaskRecord`). The engine lists every unvalidated or refuted premise the proof relies on. | `grounding.py`, `contracts.py` |
 | Typed quantities | Figures are exact values with unit, scale and written precision; `20%` states `0.2` and `1/5` alike through one recorded derivation, and a symbol's declared reading is respected. A figure stated as rounded ("x is 0.33 to 2 decimal places") states the interval of its tolerance, so its exact transcription and the interval at exactly that tolerance both ground, and no wider or narrower interval does. | `quantities.py` |
@@ -248,6 +263,7 @@ arena that merges this branch.
 | Ambiguity flags | The model must declare materially different readings; the result becomes AMBIGUOUS_TRANSLATION and is never shown as verified. | `pipeline.py` |
 | Replaceable providers | Fixture provider for tests; Anthropic and OpenAI-compatible adapters behind one interface (untested live here). | `providers/` |
 | Advisory semantic review | An independent reviewer rates translation fidelity with the evidence: the original task, the supporting claims, the supplied texts, their identities and the premise-to-source mapping. The review is bound to those inputs, so a changed source or supporting claim makes it stale; the verdict is labelled advisory and never changes the formal status. | `review.py` |
+| Argument diagnosis | Named diagnostics (rules `argdiag-2`) say in a closed vocabulary of 28 defect labels what is wrong with how an answer argues, cites or calculates: a missing link the writer wrote in as a premise, affirming the consequent, a false dilemma, a circle, an unchecked source label, an invented figure, a wrong formula, a unit error and so on. Each is computed deterministically from the engine result, the IR, this process's grounding records and closed reference data; none changes a status, and a warning keeps the claim from release. `docs/ARGUMENT_DIAGNOSTICS.md` gives every label with its derivation, code, example and clean control. | `diag_argument.py`, `diag_evidence.py`, `engine/argument.py`, `stem/reference.py` |
 | Outcome for the Overseer | One record per claim: translation, signed engine result, structural findings, review, a derived display status, a release assessment kept apart from the formal status (release needs the engine's release check, established premises and a current, faithful review made with the evidence), and a plain-language summary ending with the scope statement. A result of an earlier release is displayed INTERNAL_ERROR until verified again. | `outcome.py` |
 
 ## Communication between agents (`src/epinoic_logic/integrity/`)
@@ -293,7 +309,7 @@ earlier release stays inspectable but is never current.
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `tests/` — unit, end-to-end, service and `stress/` suites
-- `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
+- `docs/` — audit, plan, design (`DESIGN.md`), the named diagnostics (`ARGUMENT_DIAGNOSTICS.md`), the integration contract, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 
 ## Running
 

@@ -106,9 +106,23 @@ def test_premises_that_restate_the_conclusion_from_memory_are_rejected_as_circul
 
 
 def test_a_transcription_of_the_task_is_no_circle():
-    obj = fixture("ph-t13", "g1.1")  # 'part (a) carries 2 marks' from the task setting: a transcription check
+    """Rewritten to the stricter rule of policy 2026.10-v5 (issue 1: only a check in this process confers authority).
+    'part (a) carries 2 marks' restates the conclusion: it is a transcription only when a check verified it against the
+    task record (the question states "[2]"); with only its task_setting label it is circular (E112)."""
+    import json as _json
+    from pathlib import Path
+
+    from epinoic_logic.translate.contracts import TaskRecord
+    from epinoic_logic.translate.grounding import check_problem_grounding
+
+    obj = fixture("ph-t13", "g1.1")
     problem = Problem.model_validate(obj["problem"])
-    assert not [d for d in verify(problem, CFG).diagnostics if d.code == "E112"]
+    assert [d.code for d in verify(problem, CFG).diagnostics if d.code == "E112"] == ["E112"]  # label only: a circle
+    material = _json.loads((Path(__file__).parents[1] / "channel" / "data" / "r7_material.json").read_text())
+    task = TaskRecord.of("ph-t13", "req-ph-t13", material["specialists"]["ph-t13"]["question"])
+    grounded, _checks = check_problem_grounding(problem, [], task=task)
+    assert grounded.premises[0].grounding.verified is True
+    assert not [d for d in verify(grounded, CFG).diagnostics if d.code == "E112"]  # validated by the task: a transcription
 
 
 # ------------------------------------------------------------------ eligibility

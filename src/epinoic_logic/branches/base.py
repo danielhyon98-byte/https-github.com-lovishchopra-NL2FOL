@@ -43,7 +43,9 @@ class FormalCheck:
     too. ``policy``: the named engine policy the channel verifies it under (``engine.policies``).
     ``failure_severity``: the severity of a definitive failure (``error`` is INT-SUBJ-001,
     ``warning`` INT-SUBJ-004). ``inconsistent_is_failure``: whether INCONSISTENT_PREMISES counts
-    as a failure (True for every pre-STEM check) or as undecided (STEM checks, design D13)."""
+    as a failure (True for every pre-STEM check) or as undecided (STEM checks, design D13). ``defect``: the canonical
+    defect label (``named.DEFECT_LABELS``) a failure of this check names; the channel puts it on the INT-SUBJ-001 /
+    INT-SUBJ-004 finding, and without it labels the finding by the check's kind (``named.DEFECT_OF_CHECK_KIND``)."""
     check_id: str
     kind: str
     description: str
@@ -53,6 +55,7 @@ class FormalCheck:
     policy: str = "linear"
     failure_severity: Literal["error", "warning"] = "error"
     inconsistent_is_failure: bool = True
+    defect: Optional[str] = None
 
 
 @runtime_checkable
@@ -111,6 +114,13 @@ class SubjectBranch:
         findings and formal checks still reach the receipt, so one failing check never discards the rest and the router never
         reads the missing findings as a pass. A pack's ``formal_checks_for(report, request_text)`` is preferred when the pack
         defines one (the request's bindings and show-that targets matter to STEM checks); ``formal_checks(report)`` otherwise."""
+        from ..adapters.markdown import quotation_task
+        # quotation roles in the enclosing task (the channel's plan, or what the caller states); the report's own task type is
+        # advisory and never widens them (repair round 5, INV-QROLE-1)
+        with quotation_task(report.task_type, advisory=True):
+            return self._run_packs(report, request_text)
+
+    def _run_packs(self, report: SpecialistReport, request_text: Optional[str] = None) -> tuple[list[StructuralFinding], list[FormalCheck]]:
         findings: list[StructuralFinding] = []
         formal: list[FormalCheck] = []
         for p in self.packs:

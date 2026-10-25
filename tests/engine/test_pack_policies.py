@@ -27,6 +27,7 @@ What is pinned here:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import time
 from types import SimpleNamespace
@@ -54,7 +55,7 @@ from epinoic_logic.engine.policies import (
     required_policy,
 )
 from epinoic_logic.engine.procedures import ProcedureOutcome
-from epinoic_logic.engine.provenance import config_digest, sign_result, signable_text, verify_signature
+from epinoic_logic.engine.provenance import config_digest, legacy_signable_text, sign_result, signable_text, verify_signature
 from epinoic_logic.engine.results import (
     Binding,
     Counterexample,
@@ -322,9 +323,12 @@ class _Box(BaseModel):
     results: list[VerificationResult] = []
 
 
-def test_the_result_model_gained_exactly_one_field():
-    assert set(VerificationResult.model_fields) == OLD_FIELDS | {"limits"}
-    assert VerificationResult.model_fields["limits"].default is None
+def test_the_result_model_gained_exactly_the_limits_and_argument_diagnosis_fields():
+    """Rewritten for the argument diagnosis (rules argdiag-1): the field set is still pinned exactly, now with the two
+    contract fields beside ``limits``, and every added field still defaults to None (left out of every dump while None)."""
+    assert set(VerificationResult.model_fields) == OLD_FIELDS | {"limits", "named_diagnostics", "argument_rules"}
+    for name in ("limits", "named_diagnostics", "argument_rules"):
+        assert VerificationResult.model_fields[name].default is None
 
 
 @pytest.mark.parametrize("limits", [DEFAULT_LIMITS, Limits(), Limits(allow_nonlinear=False), DEFAULT_LIMITS.model_copy(), LINEAR_LIMITS])
@@ -377,14 +381,40 @@ GOLDEN = {
 }
 
 
+#: sha256(model_dump_json of the signed result), signature: the same results signed since the signature covers its key id
+#: (re-run review finding security-7: a result relabelled to another key id no longer verifies).
+GOLDEN_KEY_BOUND = {
+    "entailed": ("a807f794b168f40323ebff4a925f821f0eddb21a1b00183445f5da0241605959",
+                 "74c21146acd153b46e02fa66618bd695106db7dd27f6ed8e601cc2985cc854fd"),
+    "counter": ("ba1c0619fb3d9823b9f4e50e567d5bc842b241fcf71b95a0cffc109892425970",
+                "8fbccc1af537c4a78cc9bc61e2c155c630ec77eb3f8c10dc679d7d7d25afbf00"),
+    "unparsed": ("8d1ee324014e9e6073ac5104f5a38b45fcaa93c71708f930b60bebb4c1a0bc66",
+                 "ee538609559f6371877afc9aa688df35513e9390a1e0609e9f577ea397f7c9d3"),
+}
+
+
 @pytest.mark.parametrize("name", sorted(GOLDEN))
 def test_default_results_are_byte_identical_to_the_pre_record_model(name: str):
+    """Rewritten to the stricter rule of the re-run review (security-7): the signature now covers the key id, so the value
+    a signer issues changed, and every value pinned before is still asserted, as the form an earlier build signed. The
+    result's canonical text is unchanged, the earlier signature is exactly the HMAC of that text without the key id, a
+    result carrying it re-serialises byte-identically and, being a result of another build, still verifies (inspectable,
+    never current), while the new signature binds the key id."""
+    key = b"golden-key-0123456789abcdef01234"
     result = _golden_results()[name]
-    signed = sign_result(result, b"golden-key-0123456789abcdef01234", "k1")
+    signed = sign_result(result, key, "k1")
     text_digest, dump_digest, signature = GOLDEN[name]
     assert hashlib.sha256(signable_text(result).encode()).hexdigest() == text_digest
-    assert hashlib.sha256(signed.model_dump_json().encode()).hexdigest() == dump_digest
-    assert signed.signature == signature
+    assert hashlib.sha256(legacy_signable_text(result).encode()).hexdigest() == text_digest
+    # the form an earlier build signed: unchanged, byte for byte
+    assert hmac.new(key, legacy_signable_text(signed).encode(), hashlib.sha256).hexdigest() == signature
+    legacy = signed.model_copy(update={"signature": signature})
+    assert hashlib.sha256(legacy.model_dump_json().encode()).hexdigest() == dump_digest
+    assert verify_signature(legacy, key)
+    # the form this build signs: the key id is covered
+    new_dump, new_signature = GOLDEN_KEY_BOUND[name]
+    assert signed.signature == new_signature and hashlib.sha256(signed.model_dump_json().encode()).hexdigest() == new_dump
+    assert verify_signature(signed, key) and not verify_signature(signed.model_copy(update={"signature_key_id": "k2"}), key)
 
 
 # =========================================================================== the record: non-default results
@@ -728,10 +758,6 @@ def test_malformed_payloads_are_rejected_without_raising(text: Any):
         assert (r.limits is None) == (name == LINEAR)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-existing IR schema defect, outside this stage (no IR schema change): IDENT_RE, ASSERTION_ID_RE and the numeric "
-    "literal patterns end in '$', which also matches before a trailing newline, so 'x\\n' is accepted as a symbol distinct "
-    "from 'x' and '1\\n' as a literal. Fix: anchor with \\Z or use fullmatch; then remove this marker."))
 @pytest.mark.parametrize("field", ["identifier", "assertion id", "literal"])
 def test_trailing_newline_is_not_part_of_an_identifier_or_literal(field: str):
     name, pid, literal = ("x\n", "P", "1") if field == "identifier" else (("x", "P\n", "1") if field == "assertion id" else ("x", "P", "1\n"))
@@ -747,9 +773,5 @@ def test_a_lone_surrogate_in_a_text_payload_is_never_a_success():
         assert not is_definitive(r.status) and r.status in (S.INVALID_FORMALIZATION, S.INTERNAL_ERROR) and verify_signature(r, KEY)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-existing validator defect, outside this stage (no validator change): _decode_text encodes a str payload with "
-    "UTF-8 and lets UnicodeEncodeError escape parse_and_validate, so a lone surrogate is INTERNAL_ERROR (E900) instead of "
-    "INVALID_FORMALIZATION (E100). Fix: catch UnicodeEncodeError there; then remove this marker."))
 def test_a_lone_surrogate_in_a_text_payload_is_an_invalid_formalization():
     assert run_policy("\ud800", LINEAR).status is S.INVALID_FORMALIZATION

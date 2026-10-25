@@ -84,6 +84,7 @@ report's claim limit are merged into one ``other`` claim with an unresolved issu
 from __future__ import annotations
 
 import itertools
+import bisect
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -92,10 +93,11 @@ from typing import Optional
 from ..adapters.base import AdapterError
 from ..adapters.english_specialist.parser import documents_named
 from ..adapters.markdown import (
-    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, mask_quotations, split_json_spans,
+    NOTE_LEAD_RE, cited_quotation_spans, concludes_from_earlier, in_quotation_task, dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, mask_quotations,
+    opens_with_conclusion, split_json_spans, states_own_reason,
     split_note_clauses, strip_markup, truncate_claim_text,
 )
-from ..adapters.sources import attribute_excerpt
+from ..adapters.sources import attribute_excerpt, strip_trailing_punctuation
 from ..ir.schema import SourceRef
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
@@ -106,6 +108,14 @@ _NUM_RE = re.compile(r"\d")
 _LETTER_RE = re.compile(r"[^\W\d_]")
 _MIN_QUOTE_CHARS = 4
 _JUDGE = ("therefore", "overall", "to a large extent", "on balance", "in conclusion", "recommend", "should", "outweigh")
+#: A check the answer hands its reader: a sentence opened by a purpose clause or a lead that sets up a check ("To check your
+#: method, binary_search(scores, 41) should print (8, 4).", "As a check, the frequencies should add up to 1000.", "If your
+#: working is right, ..."). Its "should" is the result the check expects, not a judgement (repair round 4,
+#: E2E-CS-FALSE-BARE-ASSERTION); the other judgement cues keep their reading.
+_CHECK_TIP_RE = re.compile(
+    r"^\W*(?:to\s+(?:check|verify|test|confirm)\b|as\s+an?\s+(?:quick\s+|final\s+|further\s+)?(?:check|test)\b"
+    r"|(?:you\s+(?:can|could|may|might)\s+)?(?:check|verify|test)\s+(?:this|that|it|your|the\s+(?:answer|result|working|method|code|trace))\b"
+    r"|if\s+(?:your|the)\s+(?:[\w-]+\s+){0,2}(?:is|are)\s+(?:right|correct)\b)", re.IGNORECASE)
 _MAX_CLAIMS = 512
 _TAIL_CLAIM_ID = "g.tail"
 _SELF_REPORT = "self-certified in the response text"
@@ -179,11 +189,184 @@ def _is_working(masked: str) -> bool:
 
 
 def _strip_annotations(text: str) -> str:
-    return _TRAILING_ANNOTATION_RE.sub("", text).rstrip()
+    """``_TRAILING_ANNOTATION_RE.sub("", text).rstrip()``, decided in one linear pass. The pattern searched from every start
+    is quadratic on a long run of white space inside a sentence (8 s for 20,000 spaces; parser-safety-3). Its matches all
+    end at ``q``, the one place after which only ``[.;,]?\\s*`` remains and before which an annotation can close (an
+    annotation never ends in white space or punctuation), so at most one span is removed: from the leftmost start whose
+    rest up to ``q`` is a run of annotations. ``ok[p]`` says whether ``text[p:q]`` is such a run, computed once from the
+    right. An annotation's own white space reaches the end of its run because its body opens with a bracket or a capital,
+    so a start only reads the body after that run, which is read once per body start. White space and digits are those of
+    the pattern (``str.isspace``, ``str.isdecimal``)."""
+    start, q = _trailing_annotation_span(text)
+    return (text if start is None else text[:start] + text[q:]).rstrip()
 
 
-#: An accuracy mark ("A1", "(A1)") closing a line of working: the markscheme credits that line's result.
+def _trailing_annotation_span(text: str) -> tuple[Optional[int], int]:
+    """The span ``_TRAILING_ANNOTATION_RE`` removes from ``text``: ``(start, q)``, ``start`` None when it removes nothing."""
+    n = len(text)
+    w = n
+    while w > 0 and text[w - 1].isspace():
+        w -= 1
+    q = w - 1 if w > 0 and text[w - 1] in ".;," else w
+    if q <= 0:
+        return None, q
+    last = text[q - 1]
+    if last not in "])G" and not last.isdecimal():
+        # every annotation ends in a closing bracket, a digit or the G of "AG", and the last one ends at q: none can end
+        # here (the common sentence ending in a word), so nothing is built (repair round 5, ADV5-13)
+        return None, q
+    ws_run = [0] * (q + 1)                # white space from p, inside text[:q]
+    for p in range(q - 1, -1, -1):
+        if text[p].isspace():
+            ws_run[p] = ws_run[p + 1] + 1
+
+    def skip_ws(i: int) -> int:
+        return i + ws_run[i] if i < q else i
+
+    def digits_end(i: int) -> Optional[int]:
+        """The end of a run of one or two digits at ``i`` that no third digit follows (``\\d{1,2}`` then a non-digit)."""
+        j = i
+        while j < q and j - i < 3 and text[j].isdecimal():
+            j += 1
+        return j if 1 <= j - i <= 2 and not (j < n and text[j].isdecimal()) else None
+
+    def word_end(i: int, words: tuple[str, ...]) -> Optional[int]:
+        for word in words:
+            if text.startswith(word, i) and i + len(word) <= q:
+                return i + len(word)
+        return None
+
+    def alloc_end(b: int) -> Optional[int]:
+        """``\\[\\s*\\d{1,2}(?:\\s*(?:marks?|spare))?\\s*\\]`` or ``\\(\\s*\\d{1,2}\\s*marks?\\s*\\)`` at ``b``."""
+        opening = text[b]
+        if opening not in "[(":
+            return None
+        j = digits_end(skip_ws(b + 1))
+        if j is None:
+            return None
+        k = skip_ws(j)
+        if opening == "[":
+            if k < q and text[k] == "]":
+                return k + 1
+            m = word_end(k, ("marks", "mark", "spare"))
+            close = "]"
+        else:
+            m = word_end(k, ("marks", "mark"))
+            close = ")"
+        if m is None:
+            return None
+        m = skip_ws(m)
+        return m + 1 if m < q and text[m] == close else None
+
+    def code_end(i: int) -> Optional[int]:
+        """``[MARN]\\d{1,2}|AG`` at ``i``."""
+        if text.startswith("AG", i) and i + 2 <= q:
+            return i + 2
+        if i < q and text[i] in "MARN":
+            return digits_end(i + 1)
+        return None
+
+    def bracketed_code_end(b: int) -> Optional[int]:
+        """``\\(`` code ``\\)`` at ``b``."""
+        if text[b] != "(":
+            return None
+        e = code_end(b + 1)
+        return e + 1 if e is not None and e < q and text[e] == ")" else None
+
+    def bare_code_end(b: int) -> Optional[int]:
+        """``\\(?`` code ``\\)?`` at ``b``: a closing bracket right after the code is part of it (nothing else can follow)."""
+        e = code_end(b + 1 if text[b] == "(" else b)
+        if e is None:
+            return None
+        return e + 1 if e < q and text[e] == ")" else e
+
+    ok = [False] * (q + 1)
+    ok[q] = True
+    bodies: dict[int, tuple[bool, bool]] = {}
+    start: Optional[int] = None
+    for p in range(q - 1, -1, -1):
+        lead = ws_run[p]
+        b = p + lead
+        if b >= q:
+            continue
+        if b not in bodies:
+            any_lead = any(e is not None and e <= q and ok[e] for e in (alloc_end(b), bracketed_code_end(b)))
+            spaced = bare_code_end(b)
+            bodies[b] = (any_lead, spaced is not None and spaced <= q and ok[spaced])
+        any_lead, spaced_ok = bodies[b]
+        if any_lead or (spaced_ok and (lead >= 2 or (lead == 1 and text[p] == "\t"))):
+            ok[p] = True
+            start = p
+    return start, q
+
+
+#: An accuracy mark ("A1", "(A1)") closing a line of working: the markscheme credits that line's result. The pattern is the
+#: definition; :func:`accuracy_marked` reads it in linear time, and is what the parsers call.
 _ACCURACY_MARK_RE = re.compile(r"(?:(?:\s{2,}|\t)\(?A\d{1,2}\)?|\s*\(A\d{1,2}\))(?:\s*(?:\(?[MARN]\d{1,2}\)?|AG))*[.;,]?\s*$")
+
+
+def _mark_digits_end(line: str, p: int) -> list[int]:
+    """The ends of one or two decimal digits (``\\d{1,2}``) at ``p``."""
+    n = len(line)
+    if p >= n or not line[p].isdecimal():
+        return []
+    return [p + 1, p + 2] if p + 1 < n and line[p + 1].isdecimal() else [p + 1]
+
+
+def accuracy_marked(line: str) -> bool:
+    """``_ACCURACY_MARK_RE.search(line) is not None``, decided in one linear pass. The pattern searched from every start is
+    quadratic on a long run of white space or of marks that never reaches the end of the line (seconds for 20,000
+    characters; parser-safety-1 remainder). Here ``rest[p]`` says whether ``line[p:]`` is a run of marks (``(?:\\s*(?:\\(?
+    [MARN]\\d{1,2}\\)?|AG))*``) then ``[.;,]?\\s*`` to the end, computed once from the right; a start then only needs the
+    lead (white space and an ``A1`` or ``(A1)`` mark), whose white space must reach the end of its run because a mark
+    follows it. White space and digits are those of the pattern (``str.isspace``, ``str.isdecimal``)."""
+    n = len(line)
+    w = len(line.rstrip())
+    end = w - 1 if w > 0 and line[w - 1] in ".;," else w
+    if end <= 0 or (line[end - 1] not in ")G" and not line[end - 1].isdecimal()):
+        # the marks run to the end of the line, and each ends in a digit, a closing bracket or the G of "AG": a line that
+        # ends otherwise holds none (repair round 5, ADV5-13: most lines end in a word)
+        return False
+    ws_run = [0] * (n + 1)          # length of the white-space run starting at p
+    tail_ws = [False] * (n + 1)     # line[p:] is white space only
+    tail_ws[n] = True
+    for p in range(n - 1, -1, -1):
+        if line[p].isspace():
+            ws_run[p] = ws_run[p + 1] + 1
+            tail_ws[p] = tail_ws[p + 1]
+    rest = [False] * (n + 1)
+    for p in range(n, -1, -1):
+        if tail_ws[p] or (p < n and line[p] in ".;," and tail_ws[p + 1]):
+            rest[p] = True
+            continue
+        q = p + ws_run[p]                                  # the marks' own white space, then a mark
+        if q >= n:
+            continue
+        ends: list[int] = []
+        if line.startswith("AG", q):
+            ends.append(q + 2)
+        r = q + 1 if line[q] == "(" else q
+        if r < n and line[r] in "MARN":
+            for e in _mark_digits_end(line, r + 1):
+                ends.append(e)
+                if e < n and line[e] == ")":
+                    ends.append(e + 1)
+        rest[p] = any(rest[e] for e in ends if e > p)
+    for i in range(n):
+        run = ws_run[i]
+        if run >= 2 or (run == 1 and line[i] == "\t"):      # (?:\s{2,}|\t)\(?A\d{1,2}\)?
+            s = i + run
+            r = s + 1 if s < n and line[s] == "(" else s
+            if r < n and line[r] == "A":
+                for e in _mark_digits_end(line, r + 1):
+                    if rest[e] or (e < n and line[e] == ")" and rest[e + 1]):
+                        return True
+        s = i + run                                          # \s*\(A\d{1,2}\)
+        if s + 1 < n and line[s] == "(" and line[s + 1] == "A":
+            for e in _mark_digits_end(line, s + 2):
+                if e < n and line[e] == ")" and rest[e + 1]:
+                    return True
+    return False
 
 
 def _logical_lines(paragraph: str) -> list[tuple[str, bool, bool]]:
@@ -194,7 +377,7 @@ def _logical_lines(paragraph: str) -> list[tuple[str, bool, bool]]:
     for line in raw:
         if not line.strip():
             continue
-        accuracy = bool(_ACCURACY_MARK_RE.search(line))
+        accuracy = accuracy_marked(line)
         line = _strip_annotations(line) if not _ANNOTATION_ONLY_RE.fullmatch(line) else line
         if _TABLE_SEPARATOR_RE.match(line) and "-" in line:
             if out and _TABLE_ROW_RE.match(out[-1][0]):
@@ -339,7 +522,7 @@ def quotations_in(sentence: str) -> list[str]:
     """The quoted excerpts of ``sentence``: double marks of any kind (paired around the
     dangling mark of an unbalanced sentence, two adjacent marks as one nested mark) and
     single marks around two or more words; the strings of a pasted JSON span are not quotations."""
-    return [inner for _s, _e, inner in find_quotation_spans(sentence) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
+    return [inner for _s, _e, inner in cited_quotation_spans(sentence) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
 
 
 def _lead_shape(text: str) -> str:
@@ -378,6 +561,11 @@ class RoleAssignment:
     unresolved: list[str]
 
 
+#: How many sentences before it a reason clause or a ground phrase may restate (repair round 5, rerun-parser-safety-11 variant:
+#: every sentence of a paragraph was read against every sentence before it, quadratic in a long list).
+_EARLIER_REACH = 64
+
+
 def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssignment:
     """The roles, materiality and supports of segmented units (see the module docstring), by paragraph: notes, then the
     cue roles (a consequence or a judgement cue: judgement; a quotation, ``quoted[i]``: evidence; a figure:
@@ -412,6 +600,7 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
                               f"the other sentences of the paragraph keep their roles: {'; '.join(demoted)[:600]}")
         elif demoted and len(sents) > 1:
             unresolved.append(f"paragraph {pi + 1} is nothing but notes and verification-status language; the whole paragraph was treated as a note and none of its sentences counts as material")
+        earlier_texts: list[str] = []  # the paragraph's sentences so far that are no notes, grown as it is read (one pass)
         for k, u in enumerate(units):
             i = start + k
             sent = u.text
@@ -419,11 +608,22 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
             if note_paragraph or notes_flags[k]:
                 roles[i] = "other"
                 continue
+            prior = earlier_texts[-_EARLIER_REACH:]
+            earlier_texts.append(core or sent)
             low = (core or sent).lower()
             opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
-            consequence[i] = not opening_command and bool(_CONSEQUENCE_RE.match(mask_quotations(core or sent)))
+            # a consequence cue ('Therefore ...', 'So ...'), or a reason clause that restates a claim before it ('Household borrowing
+            # fell ... . Since households borrowed less, the rate rise reduced spending.'): the sentence concludes from what came
+            # before, so it rests on it (repair round 2, NAME-LINK-NONDISCRIMINATING: the text delivery reads it as a report does)
+            # an evidential lead after the paragraph's first sentence ('This shows that ...', 'These figures suggest that ...') draws its
+            # conclusion from what came before in the same way (repair round 3, ADV3-01)
+            consequence[i] = not opening_command and (bool(_CONSEQUENCE_RE.match(mask_quotations(core or sent))) or (
+                k > 0 and (concludes_from_earlier(core or sent, prior) or opens_with_conclusion(core or sent))))
             caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
-            if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command):
+            cues = [kw for kw in _JUDGE if kw in low]
+            if cues == ["should"] and _CHECK_TIP_RE.match(mask_quotations(core or sent)):
+                cues = []  # the result a check expects (_CHECK_TIP_RE)
+            if consequence[i] or (cues and not opening_command):
                 roles[i] = "judgement"
             elif quoted[i]:
                 roles[i] = "evidence"
@@ -441,6 +641,7 @@ class GenericTextParser:
     def __init__(self, agent_id: str = "specialist") -> None:
         self.agent_id = agent_id
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str, task_type: str, supplied_texts: list[SuppliedText] = (),
                        course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         if not text or not text.strip():
@@ -468,7 +669,8 @@ class GenericTextParser:
             for ex in excerpts:
                 doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
                 if doc:
-                    refs_of[i].append(SourceRef(document_id=doc, excerpt=ex[:2000]))
+                    # punctuation written inside the closing mark is the writer's, as the English parser reads it (repair round 2)
+                    refs_of[i].append(SourceRef(document_id=doc, excerpt=(strip_trailing_punctuation(ex) or ex)[:2000]))
                 assumptions_of[i].extend(notes_for_excerpt)
             if not u.is_json and dangling_quote_offset(sent) is not None:
                 assumptions_of[i].append("the sentence has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
@@ -528,6 +730,13 @@ class GenericTextParser:
         plain claims after it. Two labelled answers opening the paragraph are coordinate points. A line-structured block
         (working, label-led lines, list items, table rows) has no point of its own."""
         live = [start + k for k, u in enumerate(units) if roles[start + k] != "other"]
+        if len(live) == 1 and roles[live[0]] != "point":
+            # a paragraph whose one claim argues, stating its own reason ("The town opened a library in 2015, and pollution fell
+            # in 2016, so the library caused the fall"), is its own point: material, as the History and English parsers read it
+            # (repair round 4, ADV4-10: it stayed 'supporting', so a warning named on it reached the receipt as no INT-ARG-001)
+            only = units[live[0] - start]
+            if not only.working and states_own_reason(split_note_clauses(only.text)[0] or only.text) is not None:
+                material[live[0]] = True
         if len(units) < 2 or not live:
             return
         lines = {u.line for u in units}
@@ -543,10 +752,19 @@ class GenericTextParser:
                 roles[i], material[i] = "point", True
             return
         first = live[0]
-        if leads[first] in ("assumption", "diagram") or roles[first] == "judgement":
+        if leads[first] in ("assumption", "diagram"):
+            return
+        later = [i for i in live[1:] if roles[i] not in ("judgement",) and not consequence[i] and not caveat[i] and leads[i] not in ("assumption",)]
+        if roles[first] == "judgement":
+            # a judgement that opens its paragraph ('The email should receive 10 out of 12. The rubric awards ... . The email has
+            # only ...') is the paragraph's point: the plain sentences after it are its reasons, as on the English branch
+            # (repair round 2, MISS-UNCH-RUBRIC-TEXT); a consequence ('So ...') opening a paragraph still rests on nothing later
+            if not consequence[first] and later:
+                material[first] = True
+                supports[first] = later
             return
         roles[first], material[first] = "point", True
-        supports[first] = [i for i in live[1:] if roles[i] not in ("judgement",) and not consequence[i] and not caveat[i] and leads[i] not in ("assumption",)]
+        supports[first] = later
 
     @staticmethod
     def _part_answers(flat: list[_Unit], roles: list[str], material: list[bool], supports: dict[int, list[int]], answer: list[bool],
@@ -558,6 +776,31 @@ class GenericTextParser:
             if u.part:
                 parts.setdefault(u.part, []).append(i)
         leads = [u.lead for u in flat]
+        # the units of each line and the lines of each paragraph, read once for every part (repair round 5, rerun-parser-safety-11
+        # variant: each part rebuilt both over every unit of the answer, O(parts × units) at the response bound)
+        lines_of: dict[int, list[int]] = {}
+        para_lines: dict[int, set[int]] = {}
+        for i, u in enumerate(flat):
+            lines_of.setdefault(u.line, []).append(i)
+            para_lines.setdefault(u.para, set()).add(u.line)
+        # the claims each claim supports, so a closing answer leaves the support lists that hold it without a scan of every list
+        # (an entry may go stale when a list is replaced; it is checked before use)
+        holders: dict[int, set[int]] = {}
+        for p, ss in supports.items():
+            for s_ in ss:
+                holders.setdefault(s_, set()).add(p)
+
+        def drop_support(i: int) -> None:
+            for p in holders.pop(i, ()):
+                ss = supports.get(p)
+                if ss and i in ss:
+                    supports[p] = [s_ for s_ in ss if s_ != i]
+
+        def set_supports(i: int, ss: list[int]) -> None:
+            supports[i] = ss
+            for s_ in ss:
+                holders.setdefault(s_, set()).add(i)
+
         for _part, members in parts.items():
             live = [i for i in members if roles[i] != "other"]
             if not live:
@@ -568,7 +811,7 @@ class GenericTextParser:
                 # the sentence that carries the lead is the answer; the sentences after it on its line keep their roles
                 closing = results
             else:
-                run = GenericTextParser._first_working_run(flat, live)
+                run = GenericTextParser._first_working_run(flat, live, lines_of, para_lines)
                 if run:
                     last = run[-1]
                     closing = [*reversed(_parallel_rows(flat, last, run)), last]
@@ -590,20 +833,22 @@ class GenericTextParser:
             for i in closing + opening_answers:
                 answer[i] = True
                 material[i] = True
+            # the claims a closing answer may rest on, in order, once per part (no answer, no diagram, no note): each closing
+            # answer reads those before it (repair round 5, rerun-parser-safety-11 variant: every closing answer scanned the
+            # whole part, quadratic in a part of parallel rows)
+            eligible = [j for j in live if not answer[j] and leads[j] != "diagram" and roles[j] != "other"] if closing else []
             for i in closing:
                 # a closing answer rests on the claims before it in its paragraph and on the part's earlier lines of working and
                 # the quotations they use, not on every remark the part made before it
-                earlier = [j for j in live if j < i and not answer[j] and leads[j] != "diagram" and roles[j] != "other"
-                           and (flat[j].para == flat[i].para or flat[j].working or roles[j] == "evidence")]
+                earlier = [j for j in eligible[:bisect.bisect_left(eligible, i)]
+                           if flat[j].para == flat[i].para or flat[j].working or roles[j] == "evidence"]
                 # a closing answer rests on what came before it; it is no other claim's support
-                for p, ss in supports.items():
-                    if i in ss:
-                        supports[p] = [s for s in ss if s != i]
+                drop_support(i)
                 if roles[i] == "point" and i in supports:
                     supports.pop(i)
                 if earlier:
                     roles[i] = "point"
-                    supports[i] = earlier
+                    set_supports(i, earlier)
             for i in opening_answers:
                 if i in closing:
                     continue
@@ -614,28 +859,31 @@ class GenericTextParser:
                 pool = [j for j in live if j > i and (alone or flat[j].para == para)]
                 later = [j for j in pool if not answer[j] and roles[j] != "judgement" and (alone or roles[j] != "point") and not consequence[j]
                          and not caveat[j] and leads[j] not in ("assumption", "diagram")]
-                for p, ss in supports.items():
-                    if i in ss:
-                        supports[p] = [s for s in ss if s != i]
+                drop_support(i)
                 roles[i] = "point" if later or roles[i] in ("point", "analysis") else roles[i]
-                supports[i] = later
+                set_supports(i, later)
                 for j in later:
                     if roles[j] == "point":
                         roles[j], material[j] = ("quantitative" if _NUM_RE.search(flat[j].text) else "analysis"), False
                         supports.pop(j, None)
 
     @staticmethod
-    def _first_working_run(flat: list[_Unit], live: list[int]) -> list[int]:
+    def _first_working_run(flat: list[_Unit], live: list[int], lines_of: Optional[dict[int, list[int]]] = None,
+                           para_lines: Optional[dict[int, set[int]]] = None) -> list[int]:
         """The part's first run of working: the working claims of the consecutive paragraphs, from the first that holds a line
         of working, that each hold one. A line of working stands on a line of its own or in a line-structured block; an
-        equation inside a sentence of a prose paragraph is the prose's, and a diagram line is description, not working."""
+        equation inside a sentence of a prose paragraph is the prose's, and a diagram line is description, not working.
+        ``lines_of`` (the units of each line) and ``para_lines`` (the lines of each paragraph) are the answer's, read once
+        by the caller; they are built here when not given."""
         by_para: dict[int, list[int]] = {}
         for i in live:
             by_para.setdefault(flat[i].para, []).append(i)
-        lines_of: dict[int, list[int]] = {}
-        for i, u in enumerate(flat):
-            lines_of.setdefault(u.line, []).append(i)
-        structured = {p for p in by_para if len({flat[i].line for i in range(len(flat)) if flat[i].para == p}) > 1}
+        if lines_of is None or para_lines is None:
+            lines_of, para_lines = {}, {}
+            for i, u in enumerate(flat):
+                lines_of.setdefault(u.line, []).append(i)
+                para_lines.setdefault(u.para, set()).add(u.line)
+        structured = {p for p in by_para if len(para_lines.get(p, ())) > 1}
         run: list[int] = []
         started = False
         for para in sorted(by_para):

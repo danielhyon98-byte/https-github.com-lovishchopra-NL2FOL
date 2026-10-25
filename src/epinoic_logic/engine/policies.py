@@ -25,6 +25,18 @@ Two engine bounds go with the nonlinear policy:
   exceeds this bound (UNSUPPORTED, ``E201``) before it compiles. Under the linear policy
   every degree is at most 1, so the bound never applies there.
 
+One engine bound goes with every policy, linear ones included:
+
+* :data:`MAX_COEFFICIENT_DIGITS`. Z3 checks its timeout between steps of exact arithmetic, and
+  one step on numbers of tens of thousands of digits runs for seconds: a chain of 40 linear
+  equations, each multiplying the previous term by a product of 25 thirty-digit literals,
+  held one solver call for 5 s under a 2000 ms timeout (repair round 2, formal-robustness-1
+  variant). :func:`coefficient_digits` bounds, from the IR alone, the digits of every number
+  the exact linear arithmetic of a problem can reach (a Hadamard bound: the sum of the
+  coefficient digits of the largest rows, one row per comparison, as many rows as the
+  problem has numeric unknowns plus one), and the runner refuses a problem above the bound
+  before it compiles (INVALID_FORMALIZATION, ``E307``, a limit like ``E305``).
+
 Named engine policies a caller may request (:data:`NAMED_POLICIES`): the pack policies and
 ``joint``, the integrity layer's joint bounds (:data:`JOINT_LIMITS`). A caller outside this
 process (``POST /v1/verify``, ``epinoic-logic verify --policy``) names one of them; it can
@@ -68,6 +80,10 @@ __all__ = [
     "required_policy",
     "polynomial_degree",
     "max_degree",
+    "MAX_COEFFICIENT_DIGITS",
+    "MAX_FORCED_VALUE_DIGITS",
+    "forced_value_digits",
+    "coefficient_digits",
 ]
 
 LINEAR = "linear"
@@ -100,6 +116,21 @@ NONLINEAR_RLIMIT: int = 2_000_000
 #: under 1 s, while from degree 384 the solver overran a 2000 ms timeout (2.3 s), growing to
 #: about 20 s at degree 1024.
 NONLINEAR_MAX_DEGREE: int = 24
+
+#: Highest bound (:func:`coefficient_digits`) on the decimal digits of the numbers one problem's exact arithmetic can
+#: reach. Measured on the chain of the policy docstring, at a 2000 ms timeout: about 15,200 digits (20 links) decide in
+#: 0.4 s and 18,800 (24 links) in 1.2 s, 21,800 (28 links) reach the timeout, and from about 24,800 (32 links) one solver
+#: call overruns it (3.3 s, growing to 5 s at 40 links). Every problem within the default limits whose literals are not
+#: multiplied together stays far below the bound (128 rows of 40-digit literals are about 5,300 digits).
+MAX_COEFFICIENT_DIGITS: int = 16_000
+
+#: Highest bound (:func:`forced_value_digits`) on the decimal digits of a value the products of a nonlinear problem force.
+#: Z3 checks neither its timeout nor its ``rlimit`` inside nonlinear arithmetic on such values: a chain of squarings of a
+#: variable fixed to a 40-digit literal (degree 2 per assertion, within :data:`NONLINEAR_MAX_DEGREE`) decided at a 2000 ms
+#: timeout in 0.09 s for 640 forced digits, 0.17 s for 960, about 0.4 s for 1,280 to 2,048, about 2 s for 2,560 and 3.1 s
+#: for 5,120, and held one solver call for 37 s for 10,240 (repair round 4, formal-robustness-1 variant). The STEM shapes
+#: force at most a few hundred digits (integer powers up to 12 of a literal of at most 30 digits).
+MAX_FORCED_VALUE_DIGITS: int = 2_000
 
 _MAX_NAME_CHARS = 64
 
@@ -222,3 +253,172 @@ def max_degree(problem: Problem) -> tuple[int, Optional[str]]:
         if where is None or degree > best:
             best, where = degree, f"{base}.expr"
     return best, where
+
+
+_COMPARISONS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
+
+
+def _literal_digits(text: str) -> tuple[int, int, int]:
+    """``(numerator digits, power-of-ten exponent, other denominator digits)`` of a literal's exact value: "1.25" is 125/10^2
+    (3, 2, 0), "7/3" is (1, 0, 1), "40" is (2, 0, 0). Read from the literal's characters only."""
+    body = text.strip().lstrip("+-−")
+    if "/" in body:
+        num, _, den = body.partition("/")
+        return _numeral_digits(num), 0, _numeral_digits(den)
+    whole, _, frac = body.partition(".")
+    return _numeral_digits(whole + frac), len(frac), 0
+
+
+def _numeral_digits(digits: str) -> int:
+    return max(1, len(digits.lstrip("0")))
+
+
+def _sum_digits(kids: list[tuple[int, int, int]]) -> tuple[int, int, int]:
+    """The digit triple of a sum (or difference) of linear forms: over the common denominator (the largest power of ten
+    times the product of the other denominators), each numerator grows by the denominators it is scaled by, and a sum of
+    ``n`` terms by at most the digits of ``n``."""
+    t = max(k[1] for k in kids)
+    g = sum(k[2] for k in kids)
+    c = max(k[0] + (t - k[1]) + (g - k[2]) for k in kids) + len(str(len(kids)))
+    return c, t, g
+
+
+def _equalities(expr: Any, path: str, out: list[tuple[str, Any, str]], budget: list[int]) -> None:
+    """The ``var = expr`` equalities an assertion states outright (itself, or a conjunct of a top-level conjunction), with
+    their paths. Iterative over nested conjunctions; at most ``budget[0]`` are collected."""
+    stack = [(expr, path)]
+    while stack and budget[0] > 0:
+        node, where = stack.pop()
+        op = getattr(node, "op", None)
+        if op == "and":
+            stack.extend((arg, f"{where}.args[{i}]") for i, arg in enumerate(getattr(node, "args", None) or ()))
+            continue
+        if op != "eq":
+            continue
+        left, right = node.left, node.right
+        for var, other in ((left, right), (right, left)):
+            if getattr(var, "op", None) == "var":
+                out.append((var.name, other, where))
+                budget[0] -= 1
+
+
+def forced_value_digits(problem: Problem) -> tuple[int, Optional[str]]:
+    """An upper bound on the decimal digits of the values the equalities of ``problem`` force through products, with the
+    path of the equality that reaches it (``(0, None)`` when no equality forces a numeric value).
+
+    Read from the IR alone (nothing is evaluated): each premise's ``var = expr`` equalities (outright or as conjuncts) give
+    ``var`` the digits of ``expr``, where a literal has its own digits (numerator and denominator), a variable the bound
+    found so far (none until an equality gives it one), a product the sum of its factors' digits, a quotient the sum of
+    its operands', a sum or difference the largest term's digits plus the digits of the term count, a negation its
+    operand's, an ``ite`` its larger branch's. The bounds are propagated to a fixed point (at most as many rounds as there
+    are equalities, a variable keeping the smallest bound any of its equalities gives it, so a cycle never grows), and the
+    largest digits of any equality's expression is returned: what the solver may have to compute. A chain of squarings
+    doubles the digits at each link ("x = <40 digits>, y1 = x·x, ..., y8 = y7·y7" forces 10,240 digits)."""
+    from .validator import walk_postorder as _walk
+    sorts = {s.name: s.sort for s in problem.symbols}
+    eqs: list[tuple[str, Any, str]] = []
+    budget = [4096]
+    for i, a in enumerate(problem.premises):
+        _equalities(a.expr, f"premises[{i}].expr", eqs, budget)
+    eqs = [(v, e, w) for v, e, w in eqs if sorts.get(v) in ("Int", "Real")]
+    if not eqs:
+        return 0, None
+    bound: dict[str, int] = {}
+
+    def digits_of(expr: Any) -> Optional[int]:
+        vals: dict[str, Optional[int]] = {}
+        for node, node_path, _depth, kid_paths in _walk(expr, "e"):
+            kids = [vals.pop(kp, None) for kp in kid_paths]
+            op = getattr(node, "op", None)
+            value: Optional[int] = None
+            if op == "var":
+                value = bound.get(node.name)
+            elif op in ("int", "real"):
+                c, t, g = _literal_digits(str(node.value))
+                value = c + t + g
+            elif op == "mul" and kids and all(k is not None for k in kids):
+                value = sum(kids)  # type: ignore[arg-type]
+            elif op == "div" and len(kids) == 2 and all(k is not None for k in kids):
+                value = kids[0] + kids[1]  # type: ignore[operator]
+            elif op in ("add", "sub") and kids and all(k is not None for k in kids):
+                value = max(kids) + len(str(len(kids)))  # type: ignore[type-var]
+            elif op in ("neg", "to_real", "idiv", "mod") and kids and kids[0] is not None:
+                value = kids[0]
+            elif op == "ite" and len(kids) == 3 and kids[1] is not None and kids[2] is not None:
+                value = max(kids[1], kids[2])
+            vals[node_path] = value
+        return vals.get("e")
+
+    best, where = 0, None
+    for _round in range(len(eqs) + 1):
+        changed = False
+        for var, expr, path in eqs:
+            d = digits_of(expr)
+            if d is None:
+                continue
+            if d > best:
+                best, where = d, path
+            if var not in bound or d < bound[var]:
+                bound[var] = d
+                changed = True
+        if not changed:
+            break
+    return best, where
+
+
+def coefficient_digits(problem: Problem) -> tuple[int, Optional[str]]:
+    """An upper bound on the decimal digits of every number the exact linear arithmetic of ``problem`` can reach, with the
+    path of the comparison whose row has the most coefficient digits (``(0, None)`` when it compares no numbers).
+
+    Each comparison of numbers is one row of the linear system. A numeric expression is read, by an iterative post-order
+    walk over the IR (nothing is evaluated), as a digit triple: the digits of the largest integer numerator of its
+    coefficients over a common denominator, that denominator's power of ten, and the digits of its other factors. A
+    variable is (1, 0, 0), a literal its own digits; a product adds its factors' digits, a division by a constant moves
+    the divisor's digits across, a sum scales each term to the common denominator; an ``ite`` term, an integer division
+    and a remainder are fresh unknowns with rows of their own. The numbers the simplex can reach are quotients of minors of
+    the rows, so by Hadamard's bound none has more digits than the sum, over as many of the largest rows as the problem
+    has unknowns plus one, of each row's digits plus the digits of that count."""
+    sorts = {s.name: s.sort for s in problem.symbols}
+    rows: list[tuple[int, str]] = []
+    fresh = 0
+    items = [(f"premises[{i}]", a) for i, a in enumerate(problem.premises)]
+    if problem.conclusion is not None:
+        items.append(("conclusion", problem.conclusion))
+    for base, assertion in items:
+        vals: dict[str, Optional[tuple[int, int, int]]] = {}
+        for node, node_path, _depth, kid_paths in walk_postorder(assertion.expr, f"{base}.expr"):
+            kids = [vals.pop(kp, None) for kp in kid_paths]
+            op = getattr(node, "op", None)
+            value: Optional[tuple[int, int, int]] = None
+            if op == "var":
+                value = (1, 0, 0) if sorts.get(node.name) in ("Int", "Real") else None
+            elif op in ("int", "real"):
+                value = _literal_digits(str(node.value))
+            elif op in ("add", "sub") and all(k is not None for k in kids) and kids:
+                value = _sum_digits(kids)  # type: ignore[arg-type]
+            elif op in ("neg", "to_real") and kids and kids[0] is not None:
+                value = kids[0]
+            elif op == "mul" and all(k is not None for k in kids) and kids:
+                value = (sum(k[0] for k in kids), sum(k[1] for k in kids), sum(k[2] for k in kids))  # type: ignore[index]
+            elif op == "div" and len(kids) == 2 and kids[0] is not None and kids[1] is not None:
+                (c, t, g), (rc, rt, rg) = kids  # type: ignore[misc]
+                value = (c + rt + rg, t, g + rc)
+            elif op in ("idiv", "mod") and len(kids) == 2 and kids[0] is not None and kids[1] is not None:
+                # q = l div r and m = l mod r are fresh unknowns: the row l - r*q - m = 0 holds l's and r's digits
+                rows.append((_sum_digits([kids[0], (kids[1][0], 0, 0), (1, 0, 0)])[0], node_path))
+                fresh += 2
+                value = (1, 0, 0)
+            elif op == "ite" and len(kids) == 3 and kids[1] is not None and kids[2] is not None:
+                for branch in kids[1:]:  # the term v and the rows v - then = 0, v - else = 0
+                    rows.append((_sum_digits([(1, 0, 0), branch])[0], node_path))  # type: ignore[list-item]
+                fresh += 1
+                value = (1, 0, 0)
+            elif op in _COMPARISONS and len(kids) == 2 and kids[0] is not None and kids[1] is not None:
+                rows.append((_sum_digits(kids)[0], node_path))  # type: ignore[arg-type]
+            vals[node_path] = value
+    if not rows:
+        return 0, None
+    unknowns = sum(1 for sort in sorts.values() if sort in ("Int", "Real")) + fresh + 1
+    rows.sort(key=lambda r: -r[0])
+    top = rows[:unknowns]
+    return sum(d for d, _p in top) + len(top) * len(str(len(top))), rows[0][1]

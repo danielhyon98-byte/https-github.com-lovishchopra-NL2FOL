@@ -31,7 +31,8 @@ Inputs (one round directory):
   of another subject its own branch (WorkPlan.agent_subjects) and each agent set a different task type its own task type
   (WorkPlan.agent_task_types), so a History peer asked for a short_answer on an analytical_paragraph task carries
   short_answer on its request, report and forward (INT-HANDOFF-010 compares against it). relay_peer.py builds the same plan
-  through group_plan() and writes <round>/relayed/<task_id>.json, the only thing the peer-dependent agent may read.
+  through group_plan() and writes <round>/relayed/<task_id>.json, the only thing the peer-dependent agent may read (the
+  delivered payload; the router's receipt of the relay goes to relayed/<task_id>.router.json, never to a specialist).
   A re-run never delivers that recorded payload in place of the peer task's reply: the genuine pass parses the raw
   response_text with the code as it stands, like every other task, so a fix to a parser shows on the re-run's receipts.
   The recording is used only for the document the peer-dependent agent read (peer:<task_id> is its original_response),
@@ -176,11 +177,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
 
 from epinoic_logic.branches import RouterHub
+from epinoic_logic.branches.generic_parser import agent_claim_tag
 from epinoic_logic.channel import TransmissionStatus
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
 from epinoic_logic.integrity import AgentRole, WorkPlan
+from epinoic_logic.integrity.contracts import ConflictRecord, LedgerEntry, Synthesis, SynthesizedClaim
 from epinoic_logic.translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.outcome import verify_claim
@@ -527,8 +530,18 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
 
 
 def relay_peer(round_dir: Path, task_id: str) -> dict:
-    """Receive the peer task's genuine reply, relay the delivered report to the requesting agent and write
-    <round>/relayed/<task_id>.json: the delivered payload is all that agent may read of its peer."""
+    """Receive the peer task's genuine reply, relay the delivered report to the requesting agent and write two files:
+
+    - ``<round>/relayed/<task_id>.json``, the only thing that agent may read of its peer: the specialist_report/1.0
+      payload exactly as delivered (with the task ids and the peer document id it is supplied under), and nothing of
+      the router's side;
+    - ``<round>/relayed/<task_id>.router.json``, the router's record of the relay: the plan as used, the peer request's
+      status, the receipt of the peer's delivery (every finding with its message, subject finding, constraint and formal
+      check) and the relay record. It is never part of a specialist's bundle: a finding of the hub is the router's to
+      weigh, and handed to a specialist it reads as subject advice that may be false (E2E B3; the channel names an
+      answer that passes one on as INT-REQ-017).
+
+    Returns both: ``{**specialist file, "router": router file}``."""
     items = load_items(round_dir / "specialists", include_pending=True)
     item = next(it for it in items if it["task_id"] == task_id)
     peer = item["peer_of"]
@@ -538,27 +551,29 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
     plan = group_plan(items, group)
     ch = hub.open_task(plan)
     m, _req, rq = hub.dispatch(group, peer_item["agent_id"], peer_item["question"], supplied(peer_item))
-    out = {"task_id": task_id, "peer_of": peer, "plan": {"task_type": plan.task_type, "agent_task_types": dict(plan.agent_task_types), "agent_subjects": dict(plan.agent_subjects)},
-           "request": {"status": rq.status.value, "codes": sorted(f.code for f in rq.findings)}}
+    shown = {"task_id": task_id, "peer_of": peer, "delivered": False}
+    router = {"task_id": task_id, "peer_of": peer, "plan": {"task_type": plan.task_type, "agent_task_types": dict(plan.agent_task_types), "agent_subjects": dict(plan.agent_subjects)},
+              "request": {"status": rq.status.value, "codes": sorted(f.code for f in rq.findings)}, "delivered": False}
     if m is None:
-        out.update(delivered=False, error="request to the peer was rejected")
+        router["error"] = "request to the peer was rejected"
     else:
         reply, rc = hub.receive(group, m.message_id, peer_item["response_text"], agent_id=peer_item["agent_id"], report_id=f"rep-{peer}-0")
-        # the recipient sees what the hub attached to the delivery: every finding with its message, not just the codes
-        out["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary,
-                               "findings": [{"code": f.code, "severity": f.severity, "message": f.message, "claim_ids": list(f.claim_ids)} for f in rc.findings],
-                               "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
-                               "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
-                               "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
+        # the router's record of what the hub attached to the delivery: every finding with its message, not just the codes
+        router["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary,
+                                  "findings": [{"code": f.code, "severity": f.severity, "message": f.message, "claim_ids": list(f.claim_ids)} for f in rc.findings],
+                                  "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
+                                  "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
+                                  "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
         rec, text, relayed = relay_from_peer(ch, items, item, {peer_item["_path"].stem: reply} if reply is not None else {}, item["_path"].name)
-        out["relay"] = {k: v for k, v in rec.items() if k != "file"}
-        out["delivered"] = relayed is not None
+        router["relay"] = {k: v for k, v in rec.items() if k != "file"}
+        router["delivered"] = shown["delivered"] = relayed is not None
         if relayed is not None:
-            out["document_id"] = text.document_id
-            out["payload"] = relayed.payload  # the specialist_report/1.0 payload exactly as delivered
+            shown["document_id"] = text.document_id
+            shown["payload"] = relayed.payload  # the specialist_report/1.0 payload exactly as delivered
     (round_dir / "relayed").mkdir(exist_ok=True)
-    (round_dir / "relayed" / f"{task_id}.json").write_text(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-    return out
+    (round_dir / "relayed" / f"{task_id}.json").write_text(json.dumps(shown, indent=2, ensure_ascii=False, default=str))
+    (round_dir / "relayed" / f"{task_id}.router.json").write_text(json.dumps(router, indent=2, ensure_ascii=False, default=str))
+    return {**shown, "router": router}
 
 
 def _quote_fold(s: str) -> str:
@@ -614,6 +629,70 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else [] if value is None else [value]
 
 
+#: The fields of a syntheses file (the dummy combinator's format): the file, each synthesized claim, each dropped entry and
+#: each conflict record (the synthesis contract's ``ConflictRecord``: a disagreement between the sources the synthesis
+#: discloses, citing the source claim ids; repair round 1, re-run review cf-2).
+SYNTHESIS_FILE_FIELDS = frozenset({"report_id", "claims", "dropped", "conflicts"})
+SYNTHESIS_CLAIM_FIELDS = frozenset({"text", "source_claim_ids", "certainty", "transformation", "evidence_refs"})
+SYNTHESIS_DROPPED_FIELDS = frozenset({"source_claim_ids", "reason"})
+SYNTHESIS_CONFLICT_FIELDS = frozenset(ConflictRecord.model_fields)
+
+
+class SynthesisFormatError(ValueError):
+    """A syntheses file carries fields the combinator format does not hold. They are refused, never dropped silently: a
+    field the synthesis cannot carry (a self-certifying ``verified``, a conflict record, a materiality) would otherwise
+    never reach the hub, and the receipt would read as if the combinator had not said it. ``group_synthesis`` carries
+    every such field into the mapping it relays, so the hub refuses the synthesis with a receipt (the contract forbids
+    unknown fields: INT-REQ-009), and ``synthesis_record`` names the fields on the record with this error's message."""
+
+    def __init__(self, unknown: dict[str, list[str]]) -> None:
+        self.unknown = unknown
+        super().__init__("syntheses file field(s) the combinator format does not hold, refused rather than dropped: "
+                         + "; ".join(f"{where}: {sorted(set(keys))}" for where, keys in unknown.items()))
+
+
+def synthesis_format_problems(stem: str, syn: dict) -> dict[str, list[str]]:
+    """``{where: [unknown field, ...]}`` for one syntheses file (empty when it holds only the format's fields)."""
+    out: dict[str, list[str]] = {}
+    if not isinstance(syn, dict):
+        return {f"syntheses/{stem}.json": ["(not an object)"]}
+    extra = sorted(k for k in syn if k not in SYNTHESIS_FILE_FIELDS)
+    if extra:
+        out[f"syntheses/{stem}.json"] = extra
+    for i, c in enumerate(syn.get("claims", []) or []):
+        extra = sorted(k for k in c if k not in SYNTHESIS_CLAIM_FIELDS) if isinstance(c, dict) else ["(not an object)"]
+        if extra:
+            out[f"syntheses/{stem}.json claims[{i}]"] = extra
+    for i, d in enumerate(syn.get("dropped", []) or []):
+        extra = sorted(k for k in d if k not in SYNTHESIS_DROPPED_FIELDS) if isinstance(d, dict) else ["(not an object)"]
+        if extra:
+            out[f"syntheses/{stem}.json dropped[{i}]"] = extra
+    for i, c in enumerate(_as_list(syn.get("conflicts"))):
+        extra = sorted(k for k in c if k not in SYNTHESIS_CONFLICT_FIELDS) if isinstance(c, dict) else ["(not an object)"]
+        if extra:
+            out[f"syntheses/{stem}.json conflicts[{i}]"] = extra
+    return out
+
+
+#: The fields the synthesis contract itself holds at each level of a syntheses file (``synthesis_format_problems`` names
+#: the level): a field the format does not hold but the contract does would be accepted by the hub if relayed.
+_CONTRACT_FIELDS = {"file": frozenset(Synthesis.model_fields), "claims": frozenset(SynthesizedClaim.model_fields), "dropped": frozenset(LedgerEntry.model_fields),
+                    "conflicts": frozenset(ConflictRecord.model_fields)}
+
+
+def contract_held_fields(unknown: dict[str, list[str]]) -> dict[str, list[str]]:
+    """The fields of ``unknown`` (``synthesis_format_problems``) that the synthesis contract holds at their level
+    (``materiality``, ``formal_conclusion`` or ``conflicts``): relayed as written they would reach the router although the
+    format given to the combinator does not define them, so the harness refuses such a synthesis without relaying it."""
+    out: dict[str, list[str]] = {}
+    for where, keys in unknown.items():
+        level = "claims" if " claims[" in where else "dropped" if " dropped[" in where else "conflicts" if " conflicts[" in where else "file"
+        held = [k for k in keys if k in _CONTRACT_FIELDS[level]]
+        if held:
+            out[where] = held
+    return out
+
+
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None):
     """The dummy combinator's synthesis for a hub task, as the JSON the router receives (a mapping of the synthesis/1.0
     shape): the per-report syntheses of every delivered member of the group, merged, citing each delivered report (a
@@ -625,7 +704,9 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     file that is not JSON (``UnreadableSynthesis``) is what the router would receive for the group: its text is
     returned as the payload. Synthesized claim ids, the cited ids a delivered report holds and the merged student-facing
     text are the harness's (the format leaves them to it); a missing certainty or transformation keeps the defaults it
-    always had ("established", "paraphrased").
+    always had ("established", "paraphrased"). A field the syntheses format does not hold (``SYNTHESIS_*_FIELDS``) is
+    carried as written, at the file level too, so the hub refuses it and it is never dropped silently; the record names
+    it (``synthesis_record``, ``synthesis_format_problems``).
 
     Evidence references: a synthesized claim of the syntheses format may carry ``evidence_refs`` ([{document_id,
     locator?, excerpt?}]), passed on as written. When it carries none, the claim keeps the references of its cited
@@ -640,7 +721,9 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
         return str(unreadable)
     s_claims: list = []
     ledger: list = []
+    conflicts: list = []
     source_ids: list[str] = []
+    extra_fields: dict = {}
     copied: dict[str, list[dict]] = {}
     for it in members:
         tid, syn, reply = it["task_id"], syntheses[it["_path"].stem], delivered[it["_path"].stem]
@@ -667,13 +750,17 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
             s_claims.append(claim)
         for d in _as_list(syn.get("dropped")):  # the 'dropped' list's entries are ledger entries whose transformation is 'dropped'
             ledger.append({**d, "transformation": "dropped"} if isinstance(d, dict) else d)
+        for c in _as_list(syn.get("conflicts")):  # disclosed conflicts, as written; with several members the ids are qualified like the claims'
+            conflicts.append({**c, "conflict_id": f"{prefix}{c['conflict_id']}"} if prefix and isinstance(c, dict) and isinstance(c.get("conflict_id"), str) else c)
+        # a file-level field the format does not hold ('verified', 'conflicts'): carried as written, so the hub refuses it
+        extra_fields.update({k: v for k, v in syn.items() if k not in SYNTHESIS_FILE_FIELDS})
         source_ids.append(reply.payload["report_id"])
     if notes is not None:
         notes["evidence_refs_copied"] = copied
     s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
-    return {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
-            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
-            "created_at": "2026-10-11T15:00:00Z"}
+    return {**extra_fields, "synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
+            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, **({"conflicts": conflicts} if conflicts else {}), "text": s_text,
+            "text_sha256": sha256_text(s_text), "created_at": "2026-10-11T15:00:00Z"}
 
 
 def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:
@@ -754,7 +841,14 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
     ``evidence_refs_copied`` (group_synthesis). The synthesis is relayed as the JSON the router receives, so the hub's
     contract validation decides it: a malformed synthesis is a REJECTED receipt (INT-REQ-009; INT-SYNTH-014 for a value
     outside a closed vocabulary, such as a transformation written as free text) recorded with its findings, and, being
-    genuine traffic that was not delivered, a failure. Never raises: a crash is recorded as a non-functional record."""
+    genuine traffic that was not delivered, a failure. A field a syntheses file carries that the combinator format does not
+    hold is refused, never dropped silently, and named on the record (``unknown_synthesis_fields``, and the
+    :class:`SynthesisFormatError` message among the ``failure_reasons``; the record is not functional): a field the
+    synthesis contract has no place for either is relayed as written, so the hub refuses the synthesis with a receipt
+    (INT-REQ-009, the contract forbids unknown fields); a field the contract holds but the format does not define
+    (``contract_held_fields``: materiality, formal_conclusion, conflicts) would be accepted if relayed, so the synthesis
+    is refused here, not relayed, and the message is also the record's ``error``. Never raises: a crash is recorded as a
+    non-functional record."""
     plan = ch.plan
     members = [it for it in items if group_of(it) == group]
     undelivered = [it["task_id"] for it in members if it["_path"].stem not in delivered]
@@ -776,6 +870,19 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
             return rec
         if notes.get("evidence_refs_copied"):
             rec["evidence_refs_copied"] = notes["evidence_refs_copied"]
+        unknown: dict[str, list[str]] = {}
+        for it in members:
+            stem = it["_path"].stem
+            if stem in delivered and isinstance(syntheses.get(stem), dict):
+                unknown.update(synthesis_format_problems(stem, syntheses[stem]))
+        held = contract_held_fields(unknown)
+        if held:
+            # a field the format does not define but the contract holds (materiality, formal_conclusion, conflicts): relayed,
+            # the hub would accept it, so the synthesis is refused here, not relayed, and the fields are named
+            exc = SynthesisFormatError(unknown)
+            rec.update(functional=False, delivered=False, error=str(exc), unknown_synthesis_fields=exc.unknown, contract_held_fields=held,
+                       failure_reasons=[str(exc) + f"; the synthesis contract would accept {held} if relayed, so the synthesis was not relayed"])
+            return rec
         relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, synthesis)
         findings = [finding_dict(f) for f in rr.findings]
         subject = [finding_dict(sf) for sf in rr.structural_findings]
@@ -789,6 +896,11 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
                    status=rr.status.value, branch=rr.branch, delivered=relayed is not None,
                    codes=sorted({f["code"] for f in findings} | {sf["code"] for sf in subject}), findings=findings, subject_findings=subject,
                    formal_result_ids=list(rr.formal_result_ids), latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rr.summary[:400])
+        if unknown:
+            # the combinator's file says more than the format carries: relayed as written, refused by the hub with its receipt
+            # (the harness did not fail, so no ``error``), and named here
+            reasons.append(str(SynthesisFormatError(unknown)))
+            rec.update(functional=False, unknown_synthesis_fields=unknown)
         if reasons:
             rec["failure_reasons"] = reasons
     except Exception as exc:  # a crash is a translator bug
@@ -1174,21 +1286,63 @@ def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: li
             "eligible_not_attempted": [cid for cid in eligible if cid not in set(attempted)], "eligibility_disagreements": disagreements}
 
 
-def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict]) -> dict:
+def fixture_claim_ids(recorded_ids, agent: str) -> dict[str, str]:
+    """``{claim id a delivery may carry: the recorded fixture id that serves it}``. Each recorded id serves itself; a
+    recorded id with no agent qualifier also serves the same claim as the parsers number it on a task with two or more
+    agents (``<id>@<agent>``: since B17 the STEM and generic parsers qualify claim ids by agent there). So a translation
+    recorded under the bare id before that change still reaches the claim it was produced for, and stays bound to that
+    claim's text by its digest (repair round 2, I5: run1's ess-e1b fixtures matched no delivered claim)."""
+    recorded_ids = list(recorded_ids)
+    out = {rid: rid for rid in recorded_ids}
+    tags = sorted({agent, agent_claim_tag(agent)}) if agent else []
+    for rid in recorded_ids:
+        if "@" in rid:
+            continue
+        for tag in tags:
+            out.setdefault(f"{rid}@{tag}", rid)
+    return out
+
+
+def fixture_for_claim(recorded, recorded_id: str, claim_id: str):
+    """The translation recorded under ``recorded_id`` as served to ``claim_id`` (one of its ids, :func:`fixture_claim_ids`):
+    served to its own id, it is unchanged; served to the agent-qualified id of the same claim, its problem names that id,
+    as a provider asked for the claim under its new id writes it, so the translator's check that a problem is about the
+    claim being translated still holds and still refuses a problem about any other claim. A translation whose problem
+    names another claim, or that is not a JSON object, is served unchanged (and refused as before)."""
+    if claim_id == recorded_id:
+        return recorded
+    try:
+        obj = json.loads(recorded) if isinstance(recorded, str) else recorded
+    except ValueError:
+        return recorded
+    problem = obj.get("problem") if isinstance(obj, dict) else None
+    if not isinstance(problem, dict) or problem.get("claim_id") != recorded_id:
+        return recorded
+    return {**obj, "problem": {**problem, "claim_id": claim_id}}
+
+
+def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict],
+                     aliases: dict[str, str] | None = None) -> dict:
     """What became of each translation recorded for a task (``recorded``: the translations file's claims) in this run:
     ``served`` (the pipeline translated its claim with it and an outcome came back) or lost under one of LOST_REASONS.
     A served fixture is bound to its claim's text by the digest the translations file recorded
     (``served_with_recorded_digest``) or, when none was recorded, by claim id only (``served_by_claim_id_only``: the
     harness binds it to whatever text that id carries in this run, which may not be the sentence it was produced for).
-    ``translation_sha256`` gives each recorded fixture's digest, by which an adjudication names what it judged."""
+    ``translation_sha256`` gives each recorded fixture's digest, by which an adjudication names what it judged.
+    ``aliases`` (:func:`fixture_claim_ids`) gives the delivered ids each recorded id serves; without it, its own id only."""
     delivered = {c.claim_id for c in claims}
     by_id = {o["claim_id"]: o for o in outcomes}
     dropped, failed = _claims_named(findings, "INT-STALE-011"), _claims_named(findings, "INT-REQ-006")
+    delivered_as: dict[str, str] = {}  # recorded id -> the delivered id it serves (its own id first)
+    for did, rid in (aliases or {cid: cid for cid in recorded}).items():
+        if did in delivered and (rid not in delivered_as or did == rid):
+            delivered_as[rid] = did
     served: list[str] = []
     lost: dict[str, list[str]] = {k: [] for k in LOST_REASONS}
     for cid in sorted(recorded):
-        o = by_id.get(cid)
-        if cid not in delivered:
+        did = delivered_as.get(cid)
+        o = by_id.get(did) if did is not None else None
+        if did is None:
             lost["matching_no_delivered_claim"].append(cid)
         elif o is not None and o.get("stale_fixture_refused"):
             lost["refused_stale"].append(cid)
@@ -1196,9 +1350,9 @@ def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimR
             lost["not_eligible"].append(cid)
         elif o is not None:
             served.append(cid)
-        elif cid in dropped:
+        elif did in dropped:
             lost["dropped_by_channel"].append(cid)
-        elif cid in failed:
+        elif did in failed:
             lost["failed_internally"].append(cid)
         else:
             lost["no_outcome"].append(cid)
@@ -1517,16 +1671,24 @@ def run_round(round_dir: Path) -> dict:
     for it in items:
         last_in_group[group_of(it)] = it["task_id"]
 
-    def make_verify_fn(stem: str, capture: bool):
+    def make_verify_fn(stem: str, capture: bool, agent: str = ""):
         """Translator agent output -> fixture provider; verify eligible claims of the task ``stem`` through the real
-        pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for."""
+        pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for. A
+        fixture recorded under a bare claim id also serves the id the parsers give that claim on a multi-agent task
+        (:func:`fixture_claim_ids`; ``agent`` is the task's agent)."""
         tr = translations.get(stem)
         if not tr:
             return None
         digests = fixture_digests.setdefault(stem, {})
-        provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in tr["claims"].items()}, claim_text_sha256=digests)
+        aliases = fixture_claim_ids(tr["claims"], agent)
+        for did, rid in aliases.items():
+            if did != rid and rid in digests and did not in digests:
+                digests[did] = digests[rid]  # a digest recorded under the bare id binds the qualified id to the same text
+        provider = FixtureTranslationProvider({did: json.dumps(obj) if not isinstance(obj, str) else obj for did, rid in aliases.items()
+                                               for obj in [fixture_for_claim(tr["claims"][rid], rid, did)]},
+                                              claim_text_sha256=digests)
 
-        def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None):
+        def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(aliases), _capture=digests if capture else None):
             if claim.claim_id not in _ids:
                 return None
             if _capture is not None and claim.claim_id not in _capture:
@@ -1550,7 +1712,7 @@ def run_round(round_dir: Path) -> dict:
         ch = channels[group]
         plan = ch.plan
         tr = translations.get(sp.stem)
-        verify_fn = make_verify_fn(sp.stem, pass_kind == "genuine")
+        verify_fn = make_verify_fn(sp.stem, pass_kind == "genuine", agent)
         ch.verify_claim_fn = verify_fn
         # The genuine pass always parses the raw text with the current code. A relay relay_peer.py recorded for a task
         # that depends on this one is compared with that parse after delivery (recorded_relay_checks); its payload is
@@ -1595,7 +1757,7 @@ def run_round(round_dir: Path) -> dict:
                         peer_payload = delivered.get(peer_item["_path"].stem)
                         # verified with the peer's own translations, as in the genuine pass, so the cross-agent pool the
                         # mutated reply is checked against holds the peer's formalizations too (not an empty peer share)
-                        vch.verify_claim_fn = make_verify_fn(peer_item["_path"].stem, False)
+                        vch.verify_claim_fn = make_verify_fn(peer_item["_path"].stem, False, peer_item["agent_id"])
                         preply, _ = hub.receive(hub_key, pm_.message_id, SpecialistReport.model_validate(peer_payload.payload) if peer_payload is not None else peer_item["response_text"],
                                                 agent_id=peer_item["agent_id"], report_id=f"rep-{peer_item['task_id']}-0")
                         vch.verify_claim_fn = verify_fn
@@ -1674,9 +1836,11 @@ def run_round(round_dir: Path) -> dict:
                 if kind == "genuine" and tr:
                     rec["fixture_claim_text_sha256"] = dict(fixture_digests.get(sp.stem, {}))
                     # fixtures recorded under claim ids this parse does not deliver are never served: say which
-                    rec["fixtures_matching_no_delivered_claim"] = sorted(set(tr["claims"]) - {c["claim_id"] for c in (reply.payload["claims"] if reply else [])})
+                    aliases = fixture_claim_ids(tr["claims"], agent)
+                    delivered_ids = {c["claim_id"] for c in (reply.payload["claims"] if reply else [])}
+                    rec["fixtures_matching_no_delivered_claim"] = sorted(set(tr["claims"]) - {rid for did, rid in aliases.items() if did in delivered_ids})
                     # what became of every recorded translation: served, or lost and why
-                    rec["fixture_coverage"] = fixture_coverage(tr["claims"], tr.get("claim_text_sha256") or {}, delivered_claims, outcomes, found)
+                    rec["fixture_coverage"] = fixture_coverage(tr["claims"], tr.get("claim_text_sha256") or {}, delivered_claims, outcomes, found, aliases)
             except Exception as exc:  # a crash is a translator bug
                 rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
             records.append(rec)

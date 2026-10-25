@@ -13,7 +13,9 @@ rule needs from a written numeral:
 * ``half_width``: half a unit in the last written digit (``5.0`` -> 0.05, ``1.20 × 10³``
   -> 5); a bare ``0`` is exact zero (0); an integer written without a point uses its
   trailing zeros (``1200`` -> 50) unless :meth:`half_width_for` is given the expression's
-  smallest significant-figure count;
+  smallest significant-figure count; a decimal written with a trailing ellipsis (``2.084429…``,
+  ``truncated``) shows only a prefix of its digits, so its half-width is a full unit in the last
+  written digit;
 * ``exact``: the written form has no decimal point anywhere (an integer, a vulgar
   fraction, a based numeral, an integer mantissa). This describes the WRITTEN FORM only:
   a number that carries a unit is a measurement, and the checks never put it in exact
@@ -28,7 +30,8 @@ digits after it, when the caller allows it), and every scientific form of sectio
 ``1.2*10**6``, ``1.2e6``, ``6.0E-3``, ``2.250 \\times 10^{-3}``, a bare power of ten
 (``10^(−3)``, ``10⁻³``), with a Unicode or ASCII minus in mantissa and exponent.
 :func:`scan_based` reads base-marked integers (``0xFF``, ``0b1010``, ``0o17``, ``FF₁₆``,
-``1010₂``, ``1010_2``, ``FF_{16}``).
+``1010₂``, ``1010_2``, ``FF_{16}``); :func:`scan_grouped_based` reads one written in digit groups
+(``1011 0110₂`` is one binary numeral, 182, not the numbers 1011 and 6).
 
 Safety: only ASCII digits are accepted (``str.isdigit`` would accept other scripts), a
 ``Fraction`` is built only from validated digit strings or integer pairs, and the digit
@@ -46,7 +49,7 @@ from .limits import DEFAULT_LIMITS, StemLimits
 
 __all__ = [
     "ExactNumber", "NumberScan", "SUPERSCRIPT_DIGITS", "SUBSCRIPT_DIGITS", "VULGAR_FRACTIONS", "exact_based", "exact_integer", "exact_vulgar",
-    "is_ascii_digit", "scan_based", "scan_number", "superscript_int",
+    "is_ascii_digit", "scan_based", "scan_grouped_based", "scan_number", "superscript_int",
 ]
 
 _DIGITS = "0123456789"
@@ -99,6 +102,10 @@ class ExactNumber:
     power_of_ten: bool = False
     #: written with a base marker (``FF₁₆``, ``0b1010``, ``255₁₀``, ``(255)₁₀``): an exact integer
     based: bool = False
+    #: a decimal written with a trailing ellipsis glued to its last digit (``2.084429…``, ``0.6931...``, ``4787.58\\ldots``): the
+    #: digits shown are a prefix of the value (truncated or rounded), so it may differ from them by up to a full unit in the last
+    #: written digit
+    truncated: bool = False
 
     @property
     def is_zero(self) -> bool:
@@ -115,6 +122,8 @@ class ExactNumber:
             return Fraction(0)
         if not self.has_point and not self.scientific:
             return Fraction(1, 2) * Fraction(10) ** self.trailing_zeros
+        if self.truncated:
+            return Fraction(10) ** self.last_place  # '2.084429…': a full unit in the last written digit
         return Fraction(1, 2) * Fraction(10) ** self.last_place
 
     def half_width_for(self, min_sig_figs: Optional[int]) -> Fraction:
@@ -347,6 +356,10 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
                 parts.append(s[first:e])
                 sep_kind = kind
                 k = e
+            if len(parts) == 1:
+                k = _space_groups_end(s, i, j, n)
+                if k > j:
+                    parts = [int_digits] + s[j:k].split()
             if len(parts) > 1:
                 int_digits = "".join(parts)
                 j = k
@@ -383,6 +396,35 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
     if not build and exp_text is None and len(int_digits) + len(frac_digits) <= limits.max_number_digits:
         return NumberScan(start, j, None)  # the extent only, within the digit bound (what _finish returns for it)
     return _finish(s, start, j, int_digits, frac_digits, has_point, exp_text, sci, limits, build=build)
+
+
+#: the signs a numeral written in space-separated thousands groups stands beside ("1 500 × 2", "= 3 231.40", "18 000.00 −")
+_GROUP_NEIGHBOURS = frozenset("=×÷+−-*/·()≈<>≤≥")
+
+
+def _space_groups_end(s: str, start: int, j: int, n: int) -> int:
+    """The end of the thousands groups a numeral writes with single plain spaces (``1 500``, ``21 131.40``, ``5 000 000``): an
+    integer part of 1 to 3 digits (``s[start:j]``), then groups of exactly three digits each after one space, no digit glued
+    to the last; read so only when the numeral stands beside an arithmetic or relation sign (``1 500 × 2 = 30``), so a list
+    of values set apart by spaces ("100 200 300") stays three numbers. Returns ``j`` when there are no such groups."""
+    k = j
+    groups = 0
+    while groups < 6 and k + 4 <= n and s[k] == " " and s[k + 1:k + 4].isdigit() and s[k + 1:k + 4].isascii() \
+            and not (k + 4 < n and s[k + 4].isdigit()):
+        k += 4
+        groups += 1
+    if not groups:
+        return j
+    end = k
+    if end < n and s[end] == "." and end + 1 < n and s[end + 1].isdigit():
+        end += 1
+        while end < n and s[end].isdigit():
+            end += 1
+    before = s[max(0, start - 3):start].strip()
+    after = s[end:end + 3].strip()
+    if (before and before[-1] in _GROUP_NEIGHBOURS) or (after and after[0] in _GROUP_NEIGHBOURS):
+        return k
+    return j
 
 
 def _finish(s: str, start: int, end: int, int_digits: str, frac_digits: str, has_point: bool, exp_text: Optional[str], sci: bool,
@@ -471,6 +513,55 @@ def scan_based(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS) -> Option
     if end < n and (s[end].isalnum() or s[end] in SUBSCRIPT_DIGITS):
         return None
     if not all(int(c, 16) < base for c in digits):
+        return None
+    return end, _based(s[i:end], digits, base), digits
+
+
+#: digit-group sizes of a based numeral written in groups (``1011 0110₂``, ``3F A2₁₆``, ``377 104₈``)
+_GROUP_SIZES = {2: (4, 8), 8: (3,), 16: (2, 4)}
+_MAX_GROUPS = 16
+
+
+def scan_grouped_based(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS) -> Optional[tuple[int, ExactNumber, str]]:
+    """Read a based numeral written in digit groups separated by single spaces, the base subscript after the last group:
+    ``1011 0110₂`` (one binary numeral, 182), ``0110 1101₂``, ``3F A2₁₆``. The groups after the first all have one size of
+    the base (4 or 8 bits, 2 or 4 hexadecimal digits, 3 octal digits) and the first at most that size; with two groups both
+    have the full size, so ``1 0110₂`` stays two numerals. Every digit must be valid in the base. Returns ``(end, number,
+    digits)`` or None. Bounded: at most 16 groups of at most 8 characters are looked at."""
+    n = len(s)
+    if i >= n or s[i] not in _HEX or (i > 0 and (s[i - 1].isalnum() or s[i - 1] in "._")):
+        return None
+    groups: list[str] = []
+    k = i
+    while k < n and len(groups) < _MAX_GROUPS:
+        j = k
+        while j < n and s[j] in _HEX and j - k <= 8:
+            j += 1
+        if j == k or j - k > 8:
+            return None
+        groups.append(s[k:j])
+        if j < n and s[j] == " " and j + 1 < n and s[j + 1] in _HEX:
+            k = j + 1
+            continue
+        k = j
+        break
+    if len(groups) < 2:
+        return None
+    base = 0
+    end = k
+    for sub, b in sorted(_BASE_SUBSCRIPTS.items(), key=lambda kv: -len(kv[0])):
+        if s.startswith(sub, k):
+            base, end = b, k + len(sub)
+            break
+    if base not in _GROUP_SIZES or (end < n and (s[end].isalnum() or s[end] in SUBSCRIPT_DIGITS)):
+        return None
+    size = len(groups[-1])
+    if size not in _GROUP_SIZES[base] or any(len(g) != size for g in groups[1:]) or len(groups[0]) > size:
+        return None
+    if len(groups) == 2 and len(groups[0]) != size:
+        return None
+    digits = "".join(groups)
+    if len(digits) > limits.max_based_digits or not all(int(c, 16) < base for c in digits):
         return None
     return end, _based(s[i:end], digits, base), digits
 

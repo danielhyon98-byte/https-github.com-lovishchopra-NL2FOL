@@ -150,7 +150,7 @@ class GenericStructuredAdapter:
             document["supplied_texts"] = []
         if document.get("created_at") is None:
             document["created_at"] = utc_now_rfc3339()
-        elif not isinstance(document["created_at"], str) or not RFC3339_RE.match(document["created_at"]):
+        elif not isinstance(document["created_at"], str) or not RFC3339_RE.fullmatch(document["created_at"]):
             raise AdapterError("created_at is not an RFC 3339 timestamp")
         original = document.get("original_response")
         if not isinstance(original, str) or not original:

@@ -73,8 +73,8 @@ from .tolerance import STEM_SCOPE, abs_expr
 from .units import UnitExpr
 
 __all__ = [
-    "EncodeError", "Encoder", "IR_LIMITS", "IntervalLeaf", "ProblemBuilder", "Reading", "SymbolDomain", "grounding", "inspect_ir", "ir_name",
-    "PI_DEGREE", "real_power_value",
+    "AffineUndecided", "EncodeError", "Encoder", "IR_LIMITS", "IntervalLeaf", "ProblemBuilder", "Reading", "SymbolDomain", "affine_role", "grounding", "inspect_ir",
+    "ir_name", "is_affine_unit", "PI_DEGREE", "real_power_value",
 ]
 
 #: IR bounds the builder enforces before a problem leaves the pack (the engine's ``Limits`` defaults, and the
@@ -95,6 +95,17 @@ class EncodeError(Exception):
         super().__init__(reason)
         self.code = code
         self.reason = reason
+
+
+class AffineUndecided(EncodeError):
+    """The SI reading of a side that combines a temperature on an offset scale with other terms: whether each is a
+    temperature or a difference cannot be established, so that reading is refused (section 6.1). A check left with
+    other readings only (as written) relied on that refusal, so its failure is a warning."""
+
+    def __init__(self) -> None:
+        super().__init__("ST-UNDEC-001", "a temperature on an offset scale (°C, °F) combined with other terms in arithmetic: whether each is a "
+                                         "temperature or a temperature difference cannot be established, and the offset is never applied term by "
+                                         "term, so this side is not converted to kelvin")
 
 
 # --------------------------------------------------------------------------- symbol names
@@ -400,10 +411,15 @@ class SymbolDomain:
     groundings: list[dict] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     booklet: bool = False
+    #: for a value on an offset scale (°C, °F): the absolute temperature in kelvin, ``f·(v + o)`` (``values_si`` is then the
+    #: difference reading ``f·v``); None for every other value
+    values_si_abs: list[Optional[tuple[Fraction, Fraction]]] = field(default_factory=list)
 
-    def add(self, lo_aw: Fraction, hi_aw: Fraction, si: Optional[tuple[Fraction, Fraction]], ground: dict, label: str) -> None:
+    def add(self, lo_aw: Fraction, hi_aw: Fraction, si: Optional[tuple[Fraction, Fraction]], ground: dict, label: str,
+            si_abs: Optional[tuple[Fraction, Fraction]] = None) -> None:
         self.values_aw.append((lo_aw, hi_aw))
         self.values_si.append(si)
+        self.values_si_abs.append(si_abs)
         self.groundings.append(ground)
         self.labels.append(label)
 
@@ -411,16 +427,26 @@ class SymbolDomain:
     def is_interval(self) -> bool:
         return any(lo != hi for lo, hi in self.values_aw) or any(v is not None and v[0] != v[1] for v in self.values_si)
 
-    def ranges(self, si: bool) -> list[tuple[Fraction, Fraction]]:
+    @property
+    def affine(self) -> bool:
+        """Some value of the symbol is a temperature on an offset scale."""
+        return any(v is not None for v in self.values_si_abs)
+
+    def ranges(self, si: bool, absolute: bool = False) -> list[tuple[Fraction, Fraction]]:
+        """The ranges as written, or in SI; ``absolute`` reads a temperature on an offset scale as a temperature (in kelvin,
+        with the offset), else as a difference (the factor alone)."""
         if not si:
             return list(self.values_aw)
         out = []
-        for aw, s in zip(self.values_aw, self.values_si):
-            out.append(s if s is not None else aw)
+        for aw, s, sa in zip(self.values_aw, self.values_si, self.values_si_abs):
+            if absolute and sa is not None:
+                out.append(sa)
+            else:
+                out.append(s if s is not None else aw)
         return out
 
-    def hull(self, si: bool) -> Interval:
-        rs = self.ranges(si)
+    def hull(self, si: bool, absolute: bool = False) -> Interval:
+        rs = self.ranges(si, absolute)
         return Interval(min(r[0] for r in rs), max(r[1] for r in rs))
 
 
@@ -555,7 +581,8 @@ class Encoder:
 
     def __init__(self, builder: ProblemBuilder, reading: Reading, *, env: Optional[dict[str, Term]] = None,
                  intervals: Optional[dict[tuple[int, int], IntervalLeaf]] = None, symbol_hulls: Optional[dict[str, Interval]] = None,
-                 interval_symbols: frozenset[str] = frozenset(), cache: Optional[dict] = None, tag: str = "") -> None:
+                 interval_symbols: frozenset[str] = frozenset(), cache: Optional[dict] = None, tag: str = "",
+                 affine_symbols: frozenset[str] = frozenset()) -> None:
         self.b = builder
         self.r = reading
         self.env = env or {}
@@ -564,6 +591,8 @@ class Encoder:
         self.interval_symbols = interval_symbols
         self.cache = cache if cache is not None else {}
         self.tag = tag
+        #: symbols bound to a temperature on an offset scale (°C, °F): under an absolute reading their domain is in kelvin
+        self.affine_symbols = affine_symbols
         self.uses_intervals = False
         self.enclosures: list[str] = []
         self.exact_used: list[str] = []
@@ -571,14 +600,56 @@ class Encoder:
 
     # ------------------------------------------------------------------ public
     def term(self, node: Node, depth: int = 0) -> Term:
+        """The IR term of ``node``. Called with ``depth`` 0, ``node`` is one whole side of the relation: under an absolute
+        temperature reading (``Reading.affine``) a side that is one temperature on an offset scale is converted as a whole
+        (:meth:`_affine_point`), and a side that combines such a temperature with other terms is refused (section 6.1)."""
         if depth > _MAX_ENCODE_DEPTH:
             raise EncodeError("ST-LIM-001", "an expression nested too deeply to encode")
         try:
+            if depth == 0 and self.r.si and self.r.affine:
+                role = affine_role(node, self.affine_symbols)
+                if role == "point":
+                    return self._affine_point(node)
+                if role == "nested":
+                    raise AffineUndecided()
             return self._term(node, depth)
         except LiteralTooLong as exc:
             raise EncodeError("ST-LIM-001", str(exc)) from None
         except EnclosureError as exc:
             raise EncodeError(exc.code, exc.reason) from None
+
+    def _affine_point(self, node: Node) -> Term:
+        """One temperature on an offset scale, as a whole side: the value written on the scale (a numeral, its rounding
+        interval, a group such as ``(20 + 5) °C``, or a symbol's absolute domain), converted once with the scale's
+        factor and offset, ``f·(E + o)`` (section 6.1). A unit written after a group is the evaluated group's unit, exactly as
+        a unit written after the literal it evaluates to: ``(20 + 5) °C`` is ``25 °C``, 298.15 K."""
+        sign = 1
+        core = node
+        while isinstance(core, Neg):
+            sign, core = -sign, core.arg
+        if isinstance(core, Sym):
+            return self._symbol(core)  # the domain installed for an absolute reading is already in kelvin
+        assert isinstance(core, (Quantity, WithUnit))
+        unit = core.unit
+        idx = min(self.r.unit_index(getattr(core, "start", 0)), len(unit.readings) - 1)
+        rd = unit.readings[idx]
+        if rd.affine is None:  # this reading of the unit has no offset: an ordinary quantity
+            return self._term(node, 0)
+        factor, offset = rd.affine
+        if isinstance(core, Quantity):
+            leaf = self.intervals.get((core.start, core.end))
+            if leaf is None:
+                return lit(factor * (sign * core.number.value + offset))
+            inner = self._interval_leaf(leaf, core.number, None, core)
+        else:
+            inner = self.term(core.arg, 1)
+        if sign < 0:
+            inner = neg_term(inner)
+        t = add_terms([inner, lit(offset)])
+        if factor != 1:
+            t, nl = mul_terms([lit(factor), t])
+            self.b.nonlinear |= nl
+        return t
 
     def free(self, node: Node) -> bool:
         """True when ``node`` holds a symbol with no value domain here (a free variable) or an ``f(x)``."""
@@ -586,16 +657,15 @@ class Encoder:
 
     # ------------------------------------------------------------------ leaves
     def _unit_factor(self, unit: UnitExpr, start: int, value: Fraction) -> Fraction:
-        """The SI value of ``value`` written in ``unit`` under this reading."""
+        """The SI value of ``value`` written in ``unit`` under this reading, by the unit's factor alone: a temperature on an
+        offset scale reached here is a term inside arithmetic, a difference (an absolute temperature is a whole side,
+        converted by :meth:`_affine_point`, and an offset is never applied term by term)."""
         if not self.r.si:
             return value
         if unit.unknown or not unit.readings:
             raise EncodeError("ST-UNIT-001", f"the unit '{unit.text}' is not recognised")
         idx = min(self.r.unit_index(start), len(unit.readings) - 1)
         rd = unit.readings[idx]
-        if rd.affine is not None and self.r.affine:
-            factor, offset = rd.affine
-            return factor * (value + offset)
         if rd.factor is None:
             if rd.is_angle and rd.atoms and rd.atoms[0].unit is not None and rd.atoms[0].unit.angle_degrees is not None:
                 raise EncodeError("ST-UNDEC-001", f"an angle in '{unit.text}' compared in SI (radians need π)")
@@ -1083,6 +1153,41 @@ class Encoder:
             if name in ("ln", "log", "log10", "exp"):
                 return enclose(name, rec(node.arg), base=node.base)
         raise EncodeError("ST-UNDEC-001", f"a construct outside the encodings ({type(node).__name__})")
+
+
+def is_affine_unit(unit: Optional[UnitExpr]) -> bool:
+    """A temperature on an offset scale: a unit expression that is exactly °C or °F (a reading of it carries an offset).
+    Inside a compound unit (``J kg⁻¹ °C⁻¹``) °C is an interval and carries none."""
+    return unit is not None and not unit.unknown and any(r.affine is not None for r in unit.readings)
+
+
+def _holds_units(node: Node) -> bool:
+    return any(isinstance(n, (Quantity, WithUnit, Percent)) for n in walk(node))
+
+
+def affine_role(node: Node, affine_symbols: frozenset[str] = frozenset()) -> str:
+    """How one whole side of a relation holds temperatures on an offset scale (°C, °F), section 6.1:
+
+    * ``point``: the side is one such temperature, which converts to kelvin as a whole: a value (``25 °C``, ``−5 °C``), a
+      group with the unit written after it (``(20 + 5) °C``, the evaluated quantity), or a symbol bound to one;
+    * ``nested``: such a temperature is a term of wider arithmetic (``20 °C + 5 °C``, ``2 × 10 °C``, ``T₁ + 5 K``), where
+      whether it is a temperature or a difference cannot be established;
+    * ``none``: the side holds none."""
+    core = node
+    while isinstance(core, Neg):
+        core = core.arg
+    if isinstance(core, (Quantity, WithUnit)) and is_affine_unit(core.unit):
+        if isinstance(core, WithUnit) and _holds_units(core.arg):
+            return "nested"
+        return "point"
+    if core is node and isinstance(core, Sym) and core.name in affine_symbols:
+        return "point"
+    for n in walk(node):
+        if isinstance(n, (Quantity, WithUnit)) and is_affine_unit(n.unit):
+            return "nested"
+        if isinstance(n, Sym) and n.name in affine_symbols:
+            return "nested"
+    return "none"
 
 
 def _round_out(x: Fraction, direction: str) -> Fraction:

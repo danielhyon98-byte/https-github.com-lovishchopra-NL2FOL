@@ -39,7 +39,9 @@ SYNTHESIS_FORMAT = {
     "file": "<round>/syntheses/<task_id>.json",
     "shape": {"report_id": "the report_id printed here",
               "claims": "2 to 4 of {text, source_claim_ids, certainty, transformation}",
-              "dropped": "{source_claim_ids, reason} for every material claim left out, with a meaningful reason"},
+              "dropped": "{source_claim_ids, reason} for every material claim left out, with a meaningful reason",
+              "conflicts": "optional: {conflict_id, claim_ids, description, status, basis} for each disagreement between the sources the synthesis "
+                           "discloses (claim_ids: the source claim ids; status 'unresolved', or 'resolved_with_basis' with a meaningful basis)"},
     "transformation": {v: TRANSFORMATION_MEANINGS[v] for v in SYNTHESIZED_CLAIM_TRANSFORMATIONS},
     "certainty": sorted(CERTAINTY_RANK, key=CERTAINTY_RANK.get, reverse=True),
     "rules": ["transformation is exactly one of the words above: a category, never a description of the edit; any other value "

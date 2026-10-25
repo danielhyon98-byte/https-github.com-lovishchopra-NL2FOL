@@ -16,18 +16,18 @@ from __future__ import annotations
 import re
 from fractions import Fraction
 from functools import lru_cache
-from typing import Optional
+from typing import Iterator, Optional
 
 from ..adapters.history_specialist.chronology import chronology_relations
-from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
-from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes
+from ..adapters.history_specialist.sentences import inner_sentences as _inner_sentences, split_sentences as _split_sentences, strip_json_spans
+from ..adapters.markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, cited_quotation_spans, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes, uncited_quotation_spans
 from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from ..translate.subjects import resolve_profile
 from .base import FormalCheck
-from .quant import GENERAL, WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements
+from .quant import GENERAL, WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements, worked_equations
 
 _PARA_RE = re.compile(r"\n\s*\n")
 #: The most formal checks the core pack sends to the engine for one transmission (arithmetic first, then chronology). An answer far
@@ -41,8 +41,6 @@ _QUOTE_MEMORY_LABEL_RE = re.compile(r"quot(?:ation|e)s?[^.;\n]{0,60}\bfrom memor
 #: Shortest quoted span the core pack reports as an unverifiable quotation (a title or a single term is not one).
 _MIN_QUOTE_CHARS = 12
 _EXCERPT_CHARS = 80
-#: A peer agent's report supplied as a document: 'peer:<task>' or an author of the form '<subject>-specialist'.
-_PEER_AUTHOR_RE = re.compile(r"^[a-z]+(?:[-_ ][a-z]+)*[-_ ]specialist$")
 #: 'the poem', 'the extract': the one non-peer supplied text, when there is exactly one; 'the colleague', 'the peer': the one peer text.
 _GENERIC_SOURCES = ("poem", "sonnet", "extract", "passage", "text", "novel", "play", "speech", "source", "document", "story", "essay", "article")
 _GENERIC_PEERS = ("peer", "colleague", "other specialist", "peer agent", "peer specialist")
@@ -225,7 +223,8 @@ def _chronology_units(text: str, reading: QuantReading = GENERAL) -> list[tuple[
     containment list (one cue, one outer period: 'including A in d1, B in d2 and C in d3') are one unit, so a list costs one engine
     call; every other relation is a unit of its own. ``reading``: the sentences of :func:`_sentences_for`."""
     units: list[tuple[str, str, list]] = []
-    for _pi, _si, sent, para in _sentences_for(text, reading):
+    sentences = [(sent, para) for _pi, _si, whole, para in _sentences_for(text, reading) for sent in _inner_sentences(whole)]
+    for sent, para in sentences:
         lists: dict[tuple, list] = {}
         for rel in chronology_relations(sent, para):
             if not rel.decided:
@@ -332,7 +331,11 @@ def _chronology_claims(report: SpecialistReport, sent: str, rel, reading: QuantR
 
 
 def _is_peer_text(t: SuppliedText) -> bool:
-    return t.document_id.startswith("peer:") or bool(t.author and _PEER_AUTHOR_RE.match(t.author.strip().lower()))
+    """One rule with the grounding checks and the channel (:func:`epinoic_logic.translate.grounding.is_peer_document`): an
+    id, an author or a provenance that names a relayed agent's report (repair round 4, rerun-security-2 variant: the
+    pack read only an author of the form '<subject>-specialist')."""
+    from ..translate.grounding import is_peer_document
+    return is_peer_document(t)
 
 
 def _source_names(texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
@@ -599,6 +602,10 @@ class CorePack:
         f += self._guarded("arithmetic", lambda: self._undecided_arithmetic(report, r), f) or []
         f += self._guarded("support links", lambda: self._support_cycles(report), f) or []
         f += self._guarded("check limit", lambda: self._formal_overflow(report, r), f) or []
+        if not r.si and request_text:
+            f += self._guarded("model range", lambda: request_model_extrapolation(report, request_text), f) or []
+        if report.supplied_texts:
+            f += self._guarded("table figures", lambda: table_figure_mismatches(report, request_text), f) or []
         return f
 
     @staticmethod
@@ -673,7 +680,7 @@ class CorePack:
             if c.claim_role == "other":
                 continue
             text, _removed = strip_json_spans(c.claim_text)
-            quotes = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= 4]
+            quotes = [inner.strip() for _s, _e, inner in cited_quotation_spans(text) if len(inner.strip()) >= 4]
             if not quotes:
                 continue
             refs = [r for x in [c, *(by_id[i] for i in c.supporting_claim_ids if i in by_id)] for r in x.source_refs if r.excerpt and r.document_id in docs]
@@ -728,8 +735,10 @@ class CorePack:
         quotation view is read (code and number marks masked)."""
         source = si_quote_view(report.original_response, reading.profile) if reading.si else report.original_response
         text, _removed = strip_json_spans(source)
-        spans = find_quotation_spans(text)
-        mentions = {_quote_key(q) for q in _absent_mentions(text, spans)}
+        spans = cited_quotation_spans(text)
+        # a quoted span whose role is no quotation (a correction, a suggestion, a mention such as a quoted function word)
+        # is the writer's own words: a parser's uncredited-quotation record of it is no unverifiable quotation either
+        mentions = {_quote_key(q) for q in _absent_mentions(text, spans)} | {_quote_key(inner.strip()) for _s, _e, inner, _role in uncited_quotation_spans(text)}
         quoted = [inner.strip() for _s, _e, inner in spans if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         texts = list(report.supplied_texts)
         recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text, whatever its length, texts or none
@@ -793,7 +802,7 @@ class CorePack:
         rule = "source integrity (attribute every quotation to the text that holds it; a colleague's words are not the author's and the author's are not the colleague's)"
         for _pi, _si, sent, _para in _sentences_for(report.original_response, reading, "quote"):
             sent, _removed = strip_json_spans(sent)
-            spans = [(s, e, inner.strip()) for s, e, inner in find_quotation_spans(sent) if len(inner.strip()) >= 4]
+            spans = [(s, e, inner.strip()) for s, e, inner in cited_quotation_spans(sent) if len(inner.strip()) >= 4]
             if not spans:
                 continue
             sentence_names = _with_unsupplied_credits(sent, spans, names, texts)
@@ -890,9 +899,17 @@ class CorePack:
         out: list[StructuralFinding] = []
         grouped: dict[tuple[int, int, str], list] = {}
         decided = pack_decided_equations(report)
-        for u in undecided_quant_statements(report.original_response, reading=reading):
-            if u.reason == WORKED_EQUATION_REASON and any(u.phrase and (u.phrase in d or d.startswith(u.phrase)) for d in decided):
-                continue  # decided by the subject pack (an elasticity or a margin worked as a division)
+        if not reading.si:
+            decided |= worked_formal_checks(report)[1]  # decided by the STEM chain checker (B25)
+        units = undecided_quant_statements(report.original_response, reading=reading)
+        # every derived figure's transcription test in one pass over the sentences and the supplied texts (security round 2)
+        transcribed = iter(_transcribed_all([(u.sentence_text, u.phrase) for u in units if u.reason != WORKED_EQUATION_REASON], report.supplied_texts))
+        for u in units:
+            if u.reason == WORKED_EQUATION_REASON:
+                if any(u.phrase and (u.phrase in d or d.startswith(u.phrase)) for d in decided):
+                    continue  # decided by the subject pack (an elasticity or a margin worked as a division) or by the STEM chain checker
+            elif next(transcribed):
+                continue  # 'fell by 30%' as the supplied extract states it: a transcription, not the writer's arithmetic (B25)
             grouped.setdefault((u.paragraph, u.sentence, u.reason), []).append(u)
         for (pi, si, reason), items in grouped.items():
             names = list(dict.fromkeys(u.phrase[:120] for u in items))
@@ -946,6 +963,23 @@ class CorePack:
                 out += build(report, "core", MAX_FORMAL_CHECKS - len(out), r)
             except Exception:  # noqa: BLE001 - checks() names the failing extractor (CORE-INTERNAL-001)
                 continue
+        if not r.si:  # the general reading: the worked equations go through the STEM chain checker (B25)
+            try:
+                out += worked_formal_checks(report)[0][:max(0, MAX_FORMAL_CHECKS - len(out))]
+            except Exception:  # noqa: BLE001 - checks() names the failing reader (CORE-INTERNAL-001); its equations stay undecided
+                pass
+        return out[:MAX_FORMAL_CHECKS]
+
+    def formal_checks_for(self, report: SpecialistReport, request_text: Optional[str]) -> list[FormalCheck]:
+        """:meth:`formal_checks`, and with the request's text the unit companions of the worked equations that combine the
+        request's quantities (accuracy round 2, V1I-06: :func:`request_unit_formal_checks`), within the same cap. A failure of
+        :meth:`formal_checks` propagates as before (the hub names the pack's failing call)."""
+        out = self.formal_checks(report)
+        if request_text and not self._reading(report).si and len(out) < MAX_FORMAL_CHECKS:
+            try:
+                out += request_unit_formal_checks(report, request_text)[:MAX_FORMAL_CHECKS - len(out)]
+            except Exception:  # noqa: BLE001 - the companions are additional readings; their equations' arithmetic is checked above
+                pass
         return out[:MAX_FORMAL_CHECKS]
 
 
@@ -1021,6 +1055,24 @@ class EnglishPack:
         return []
 
 
+def _attribution_in_texts(names: str, year: str, texts) -> bool:
+    """A study attribution ('Loftus and Palmer (1974)') is grounded by a supplied text that names it: every surname of the
+    attribution and its year stand within 120 characters of the first surname in one text (the study summary the task
+    supplies). A named study no supplied text mentions stays ungrounded (PS-SRC-001)."""
+    surnames = [w for w in re.findall(r"[A-Z][a-z]+", names) if w not in ("And",)]
+    if not surnames or not texts:
+        return False
+    year_re = re.compile(rf"(?<!\d){re.escape(year)}(?!\d)")
+    first = re.compile(rf"\b{re.escape(surnames[0])}\b")
+    for t in texts:
+        body = t.text or ""
+        for m in first.finditer(body[:400_000]):
+            window = body[m.start(): m.start() + 120]
+            if year_re.search(window) and all(re.search(rf"\b{re.escape(w)}\b", window) for w in surnames[1:]):
+                return True
+    return False
+
+
 class PsychologyPack:
     """Studies must be grounded (name + year is an attribution, not evidence); figures must be self-consistent."""
     name = "psychology"
@@ -1029,7 +1081,7 @@ class PsychologyPack:
         f: list[StructuralFinding] = []
         for c in report.claims:
             for m in _STUDY_RE.finditer(c.claim_text):
-                if not c.source_refs:
+                if not c.source_refs and not _attribution_in_texts(m.group(1), m.group(2), report.supplied_texts):
                     f.append(StructuralFinding(code="PS-SRC-001", severity="warning", message=f"study attribution {m.group(0)!r} has no knowledge-document or library grounding", claim_ids=[c.claim_id], rule_source="blueprint core operation (Psychology: Claim -> Study -> Link -> Evaluation); sources.md L5 (working rule)"))
             if re.search(r"\b(significant(?:ly)?|statistically)\b", c.claim_text, re.IGNORECASE) and not _PCT_RE.search(c.claim_text) and not re.search(r"\bp\s*[<=>]\s*0?\.\d+", c.claim_text):
                 f.append(StructuralFinding(code="PS-STR-001", severity="info", message="'significant' used without a figure or p-value", claim_ids=[c.claim_id], rule_source="command terms C7 (quantities checked in parts; working rule)"))
@@ -1116,6 +1168,503 @@ def pack_decided_equations(report: SpecialistReport) -> set[str]:
     if key == "business_management":
         return {chain for chain, *_rest in margin_equations(report.original_response)}
     return set()
+
+
+#: currency signs blanked in the worked view: the STEM reader would take '$' for a TeX delimiter, and a sign is no operand
+_CURRENCY_RE = re.compile(r"(?:US|A|C|NZ|HK)?\$|[£€¥₹]")
+#: the most worked equations of one report read by the STEM chain checker (the rest stay named by CORE-QNT-001)
+_MAX_WORKED = 120
+
+
+def _phrase_span(text: str, start: int, end: int, phrase: str) -> Optional[tuple[int, int]]:
+    """Where ``phrase`` (written with single spaces) stands in ``text[start:end]``, whose own spacing may differ (line breaks
+    and runs of spaces between its words), as offsets of ``text``; None when it does not occur."""
+    words = phrase.split()
+    if not words:
+        return None
+    pattern = r"\s+".join(re.escape(w) for w in words[:200])
+    m = re.compile(pattern).search(text, start, end)
+    return (m.start(), m.end()) if m else None
+
+
+def _transcribed(sentence: str, phrase: str, texts) -> bool:
+    """The derived figure stands in a supplied text word for word, with its context: the phrase and up to three words of
+    its sentence on each side (at least four words in all, at least two of them context) occur in the text as one run of
+    words, case, punctuation and quotation marks aside ('burglaries fell by 30% on the CCTV streets' in the extract;
+    'domestic sales grew by 8% in 2024' against 'In 2024 its domestic sales grew by 8%': the context may be shorter on one
+    side, re-run review A-FA-QNT). The figure is then a transcription of the text, not the writer's arithmetic. The phrase is
+    placed at its first occurrence in the sentence's words; a text is read on its first 400,000 characters. One test of
+    :func:`_transcribed_all`."""
+    return _transcribed_all([(sentence, phrase)], texts)[0]
+
+
+class _PhraseFinder:
+    """Every occurrence of a set of word sequences in a sequence of words, found in one pass over the words (a trie of the
+    sequences with failure links, so no word of the text is read again for another sequence or another start)."""
+
+    def __init__(self, phrases) -> None:
+        self._next: list[dict[str, int]] = [{}]
+        self._ends: list[Optional[tuple[str, ...]]] = [None]
+        for phrase in phrases:
+            state = 0
+            for word in phrase:
+                child = self._next[state].get(word)
+                if child is None:
+                    child = len(self._next)
+                    self._next[state][word] = child
+                    self._next.append({})
+                    self._ends.append(None)
+                state = child
+            self._ends[state] = phrase
+        self._fail = [0] * len(self._next)
+        self._out = [0] * len(self._next)   # the nearest state on the failure chain (itself excluded) where a sequence ends
+        level = list(self._next[0].values())
+        while level:
+            below: list[int] = []
+            for state in level:
+                for word, child in self._next[state].items():
+                    f = self._fail[state]
+                    while f and word not in self._next[f]:
+                        f = self._fail[f]
+                    target = self._next[f].get(word, 0)
+                    self._fail[child] = target if target != child else 0
+                    self._out[child] = target if self._ends[target] is not None else self._out[target]
+                    below.append(child)
+            level = below
+
+    def occurrences(self, words) -> Iterator[tuple[int, tuple[str, ...]]]:
+        """``(start, sequence)`` for every occurrence of every sequence in ``words``, in order of where each ends."""
+        state = 0
+        nxt, fail, ends, out = self._next, self._fail, self._ends, self._out
+        for i, word in enumerate(words):
+            while state and word not in nxt[state]:
+                state = fail[state]
+            state = nxt[state].get(word, 0)
+            hit = state if ends[state] is not None else out[state]
+            while hit:
+                phrase = ends[hit]
+                yield i - len(phrase) + 1, phrase
+                hit = out[hit]
+
+
+def _transcribed_all(items, texts) -> list[bool]:
+    """:func:`_transcribed` for every ``(sentence, phrase)`` of ``items``, in order, in one pass over the distinct sentences
+    and one over each supplied text (security round 2, SEC-V1: one test per derived figure read the figure's whole sentence
+    and every supplied text again, so many figures beside a long text cost the product of the two).
+
+    The test is read on words: a phrase or a window of the sentence's words stands in a text's words, joined by single
+    spaces, exactly when it is a run of the text's words, since no word is empty or holds white space (``lexis.tokens``).
+    So each sentence's words are read once for the first place of each phrase, and each text's words once for every place
+    of every phrase that needs one, with the words around it; a window is found when the words on its two sides at one
+    such place are the window's."""
+    out = [False] * len(items)
+    if not items or not texts:
+        return out
+    from .. import lexis
+    sentence_words: dict[str, tuple[str, ...]] = {}
+    phrase_words: dict[str, tuple[str, ...]] = {}
+    for sentence, phrase in items:
+        if phrase:
+            if sentence not in sentence_words:
+                sentence_words[sentence] = tuple(lexis.tokens(sentence))
+            if phrase not in phrase_words:
+                phrase_words[phrase] = tuple(lexis.tokens(phrase))
+    wanted = {ph for ph in phrase_words.values() if ph}
+    if not wanted:
+        return out
+    finder = _PhraseFinder(wanted)
+    first: dict[str, dict[tuple[str, ...], int]] = {}
+    for sentence, words in sentence_words.items():
+        places: dict[tuple[str, ...], int] = {}
+        for start, ph in finder.occurrences(words):
+            if ph not in places:
+                places[ph] = start   # occurrences come in order of their ends: the earliest start of a phrase comes first
+        first[sentence] = places
+    needed: dict[tuple[str, ...], set[tuple[tuple[str, ...], tuple[str, ...]]]] = {}
+    windows: list[Optional[tuple[tuple[str, ...], list[tuple[tuple[str, ...], tuple[str, ...]]]]]] = []
+    for sentence, phrase in items:
+        ph = phrase_words.get(phrase, ()) if phrase else ()
+        k = first[sentence].get(ph, -1) if ph else -1
+        if k < 0:
+            windows.append(None)
+            continue
+        sent = sentence_words[sentence]
+        keys = []
+        for left in (3, 2, 1, 0):
+            for right in (3, 2, 1, 0):
+                if left + right < 2 or left > k or k + len(ph) + right > len(sent) or len(ph) + left + right < 4:
+                    continue
+                keys.append((sent[k - left:k], sent[k + len(ph):k + len(ph) + right]))
+        windows.append((ph, keys))
+        if keys:
+            needed.setdefault(ph, set()).update(keys)
+    if not needed:
+        return out
+    found: dict[tuple[str, ...], set] = {ph: set() for ph in needed}
+    text_finder = _PhraseFinder(needed)
+    for t in texts:
+        if not t.text:
+            continue
+        body = lexis.tokens(t.text[:400_000])
+        for j, ph in text_finder.occurrences(body):
+            want, got = needed[ph], found[ph]
+            if len(got) == len(want):
+                continue
+            e = j + len(ph)
+            for left in range(min(3, j) + 1):
+                before = body[j - left:j]
+                for right in range(min(3, len(body) - e) + 1):
+                    key = (before, body[e:e + right])
+                    if key in want:
+                        got.add(key)
+    for i, entry in enumerate(windows):
+        if entry is not None:
+            ph, keys = entry
+            got = found.get(ph)
+            out[i] = bool(got) and any(key in got for key in keys)
+    return out
+
+
+#: An equation written inside a bracket of another one ('$8,100 + ($1.80 × 3,500 = $6,300) = $14,400'): its expression, its '=' and its
+#: result, with no bracket, '=' or line break inside.
+_NESTED_EQ_RE = re.compile(r"\((?P<expr>[^()=≈\n]{1,200}?)(?P<eq>[=≈])(?P<res>[^()=≈\n]{1,60})\)")
+
+
+def _nested_equations(text: str, a: int, b: int) -> list[tuple[int, int, int]]:
+    """``(expression start, '=' position, result end)`` of every equation written inside a bracket of the equation at ``a``-``b``
+    whose expression puts an operator between two figures and whose result is a figure ('($1.80 × 3,500 = $6,300)')."""
+    from .quant import _OPERATOR_BETWEEN_RE, _RESULT_START_RE
+    out: list[tuple[int, int, int]] = []
+    for m in _NESTED_EQ_RE.finditer(text, a, b):
+        expr, res = m.group("expr"), m.group("res")
+        if _OPERATOR_BETWEEN_RE.search(" ".join(expr.split())) and _RESULT_START_RE.match(" " + res.strip()):
+            out.append((m.start("expr"), m.start("eq"), m.end("res")))
+    return out
+
+
+@lru_cache(maxsize=16)
+def _worked_view(text: str, skipped: frozenset[str]) -> tuple[str, tuple[tuple[int, int, str], ...], str]:
+    """The worked equations of ``text`` (but those in ``skipped``, which the subject pack decides) as a view of the same
+    length: each equation's arithmetic (its phrase, from the first link that computes to the stated result, with the further
+    links of its chain) kept with its currency signs blanked and its own line breaks read as spaces (one equation is one line,
+    so it never continues another equation's chain: '= $8,100 ÷ $2.70' under a label line whose words are blanked), every other
+    character blank but line breaks. An equation written in a bracket of another ('$8,100 + ($1.80 × 3,500 = $6,300) =
+    $14,400') is read twice: the outer equation with the inner result blanked ('8,100 + (1.80 × 3,500) = 14,400'), and the
+    inner one in a second view of the same length that keeps only it (repair round 2, I1). Returns the view, ``(start, end,
+    chain)`` per equation kept, and the second view ('' when no equation holds another)."""
+    keep = bytearray(len(text))
+    inner = bytearray(len(text))
+    spans: list[tuple[int, int, str]] = []
+    quoted = [(qa, qb) for qa, qb, _inner in find_quotation_spans(text)] if ('"' in text or "“" in text or "'" in text or "‘" in text) else []
+    for eq in worked_equations(text)[:_MAX_WORKED]:
+        if any(eq.phrase and (eq.phrase in d or d.startswith(eq.phrase)) for d in skipped):
+            continue
+        span = _phrase_span(text, eq.start, eq.end, eq.phrase)
+        if span is None:
+            continue
+        a, b = span
+        signs = [k for k in (text.find("=", a, b), text.find("≈", a, b)) if k >= 0]
+        sign = min(signs) if signs else a
+        if any((qa <= a and b <= qb) or qa <= sign < qb for qa, qb in quoted):
+            # an equation inside quotation marks is a mention: another report's line the answer quotes ('its written lines "ln 8.04 +
+            # 8 ln 10 = 2.084429" ... do not hold'), not the answer's own arithmetic (repair round 2, I3); CORE-QNT-001 still names it.
+            # The phrase may open on the words before the quotation ('... flag its written lines "ln 8.04 + ...'): the equation is
+            # quoted when its relation sign stands inside the quotation (repair round 4, E2E-HI-MENTION-READ-AS-OWN-ARITHMETIC)
+            continue
+        if eq.tail:
+            # the further links of the chain ('= 95.0' after '= 92.0') are read with it: a check of the first result alone would leave
+            # them unchecked while the equation counted as decided (repair round 2, I1)
+            whole = _phrase_span(text, eq.start, eq.end, f"{eq.phrase} {eq.tail}")
+            if whole is None or whole[0] != a:
+                continue  # the tail cannot be located with the phrase: the equation stays undecided (CORE-QNT-001)
+            b = whole[1]
+        for i in range(a, b):
+            keep[i] = 1
+        for e0, q, e1 in _nested_equations(text, a, b):
+            for i in range(q, e1):
+                keep[i] = 0  # the outer equation reads the bracket's expression, not its stated result
+            for i in range(e0, e1):
+                inner[i] = 1
+        spans.append((a, b, eq.chain))
+
+    # each equation ends its statement: the character after it (its ';' or full stop, or a blank) is a line break in the view, so two
+    # equations of one line ('... = $15,750; total costs ...') are never read as one chain (repair round 2, I1)
+    ends = {b for _a, b, _ph in spans if b < len(text)}
+
+    def _view(mask: bytearray) -> str:
+        out = "".join((" " if ch == "\n" else ch) if mask[i] else ("\n" if ch == "\n" or i in ends else " ") for i, ch in enumerate(text))
+        return _CURRENCY_RE.sub(lambda m: " " * len(m.group(0)), out)
+    return _view(keep), tuple(spans), (_view(inner) if any(inner) else "")
+
+
+_WORKED_CACHE: dict[tuple, tuple[list[FormalCheck], set[str]]] = {}
+#: A request that states a relation between two quantities ("fits the line Q = 1.6R + 4"): a letter, a relation sign, an operand.
+#: (security round 1) Read as a yes or no only, and from the start of a word only: a name ends where its word ends, so a letter
+#: inside a word has the relation sign the word's start has. A search from every letter of a long word read the word again to
+#: its end (quadratic: 3.5 s on a 19,000-letter request); from the word's start, once, with the name read possessively. The
+#: request states a relation exactly when it did (tests/branches/test_security_round1_request_relation.py).
+_REQUEST_RELATION_RE = re.compile(r"(?<![\w₀-₉])(?=[\w₀-₉]*?[A-Za-z])[\w₀-₉]++\s*+=\s*+[-−]?[\w(.√]")
+
+
+#: A figure the answer states for a year: the figure, a per cent sign, scale word or unit of up to two words, then "in
+#: <year>" ("rose sharply to 11.4% in 2020", "was 2.4 million in 2010"). A change ("by 3.2 points in 2020", "a 3% rise in
+#: 2020", "a rise of 3% in 2020") states no level of the year and is not read.
+_DATED_FIGURE_RE = re.compile(
+    r"(?<![\w.,])(?P<n>\d+(?:\.\d+)?)(?P<u>\s*%|\s+per\s*cent|\s+percent)?(?P<w>(?:\s+(?!in\b)[a-z]+){0,2}?)\s+in\s+(?P<y>1[6-9]\d{2}|20\d{2})\b", re.IGNORECASE)
+#: Words that make the figure before them a change, not a level of its year.
+_DATED_CHANGE_WORDS = frozenset({"rise", "fall", "increase", "decrease", "growth", "drop", "decline", "change", "gain", "loss", "points", "point",
+                                 "percentage", "jump", "cut", "reduction"})
+#: Words a clause of a trend may hold besides its quantity: the clause inherits the sentence's quantity then.
+_TREND_WORDS = frozenset("""
+rose rise rising risen fell fall falling fallen reached reaching climbed climbing grew growing dropped dropping declined declining
+increased increasing decreased decreasing jumped jumping soared soaring sank sinking slumped recovered recovering peaked peaking
+then before after later sharply steeply rapidly slightly gradually dramatically again back further finally stood standing was were
+had its their it they level highest lowest value period year years
+""".split())
+#: Words of a table's title that name no quantity.
+_TABLE_TITLE_STOP = frozenset({"table", "figure", "fig", "graph", "chart", "data", "source", "extract", "supplied", "text", "in", "of", "the", "a",
+                               "an", "and", "for", "by", "per", "cent", "percent", "millions", "thousands", "billions"})
+
+
+#: A line of a dated series: a year, an optional separator, one figure and an optional unit word. (security round 1) Every
+#: quantifier is possessive: each one's longest reading is the only one the rest of the line can follow (white space before
+#: a separator, digits before white space or a unit), so a line that is no series line fails in one pass. Read with
+#: backtracking, a year followed by a long run of spaces and a word was quadratic in the run, and one line of a supplied text
+#: can be 400,000 characters (tests/branches/test_security_round1_dated_series.py).
+_DATED_LINE_RE = re.compile(r"\s*+(1[6-9]\d{2}|20\d{2})\s*+[:=\-–|,]?+\s*+(-?\d++(?:\.\d++)?+)\s*+(?:%|[a-z]{0,12}+)?+\s*+$", re.IGNORECASE)
+
+
+def _dated_series(text: str) -> dict[int, list[tuple[Fraction, str]]]:
+    """``{year: [(value, as written)]}`` of a supplied data text written one year a line ("2020: 8.9", "2020 - 8.9",
+    "2020 8.9"): the lines whose first token is a year followed by one figure. Bounded: the first 400 lines."""
+    out: dict[int, list[tuple[Fraction, str]]] = {}
+    for line in text.splitlines()[:400]:
+        m = _DATED_LINE_RE.match(line)
+        if m:
+            try:
+                out.setdefault(int(m.group(1)), []).append((Fraction(m.group(2)), m.group(2)))
+            except (ValueError, ZeroDivisionError):
+                continue
+    return out
+
+
+def _half_unit(written: str) -> Fraction:
+    """Half a unit of the last digit of a figure as written ("8.9": 0.05)."""
+    return Fraction(1, 2 * 10 ** len(written.partition(".")[2]))
+
+
+def _table_matches(answer: Fraction, written: str, table: Fraction, table_written: str) -> bool:
+    """Whether the answer's figure states the table's: equal within half a unit of the last digit either writes (a rounding
+    either way: "9%" for 8.9, "8.9" for 8.94), in the same scale or in another one (a power of 1,000: "2,400,000" for 2.4
+    millions; or per cent as a fraction: "0.089" for 8.9 %)."""
+    eps = Fraction(1, 10 ** 9)
+    for factor in (1, 100, 1000, 10 ** 6, 10 ** 9):
+        if abs(answer - table * factor) <= max(_half_unit(written), _half_unit(table_written) * factor) + eps:
+            return True
+        if abs(answer * factor - table) <= max(_half_unit(written) * factor, _half_unit(table_written)) + eps:
+            return True
+    return False
+
+
+def table_figure_mismatches(report: SpecialistReport, request_text: Optional[str]) -> list[StructuralFinding]:
+    """CORE-SRC-007 (warning; repair round 4, ADV4-12): a figure the answer states for a year ("rose sharply to 11.4% in
+    2020") in a claim about the quantity of a supplied data text written one year a line ("Table 1: Unemployment rate in
+    Country P (%)" ... "2020: 8.9"), where the request or the claim's sentence names that text ("Using Table 1", "According
+    to Table 1"), while the text states another figure for that year. The figure is invented when the text states it for
+    no year (``invented_figure``), else the claim states another year's figure (``source_mismatch``). The claim's clause
+    must name the text's quantity (a word of its title), or hold only trend words and take the sentence's quantity, so a
+    figure of another quantity ("while inflation fell to 1.2% in 2020") is never read against the table. A figure equal to
+    the table's within half a unit of the last digit either writes, or in another scale (millions, per cent as a fraction),
+    states it. Bounded: 64 claims, 16 figures each."""
+    from ..adapters.sources import document_mentions
+    from ..translate.grounding import is_peer_document
+    tables = []
+    for doc in report.supplied_texts:
+        if is_peer_document(doc):
+            continue
+        series = _dated_series(doc.text or "")
+        if len(series) < 3:
+            continue
+        title = (doc.text or "").splitlines()[0] if doc.text else ""
+        words = {w for w in re.findall(r"[a-z]+", (title + " " + (doc.title or "")).casefold()) if w not in _TABLE_TITLE_STOP and len(w) > 2}
+        tables.append((doc, series, words))
+    if not tables:
+        return []
+    out: list[StructuralFinding] = []
+    for c in [c for c in report.claims if c.claim_role != "other"][:64]:
+        sentence = c.claim_text or ""
+        for doc, series, words in tables:
+            named = bool(document_mentions(sentence, doc)) or bool(request_text and document_mentions(request_text[:20000], doc))
+            if not named or not words:
+                continue
+            sentence_words = set(re.findall(r"[a-z]+", sentence.casefold()))
+            for m in list(_DATED_FIGURE_RE.finditer(sentence))[:16]:
+                year = int(m.group("y"))
+                stated = series.get(year)
+                if not stated:
+                    continue
+                gap_words = set(re.findall(r"[a-z]+", (m.group("w") or "").casefold()))
+                before = sentence[max(0, m.start() - 24):m.start()].casefold()
+                if gap_words & _DATED_CHANGE_WORDS or re.search(r"\b(?:by|of)\s*$", before):
+                    continue
+                clause = re.split(r"[;,]|\bwhile\b|\bwhereas\b|\bbut\b|\band\b", sentence[:m.start()], flags=re.IGNORECASE)[-1]
+                clause_words = {w for w in re.findall(r"[a-z]+", clause.casefold()) if len(w) > 2} - _TREND_WORDS - _TABLE_TITLE_STOP
+                about = bool(clause_words & words) or (not clause_words and bool(sentence_words & words))
+                if not about:
+                    continue
+                written = m.group("n")
+                try:
+                    value = Fraction(written)
+                except (ValueError, ZeroDivisionError):
+                    continue
+                if any(_table_matches(value, written, v, w) for v, w in stated):
+                    continue
+                elsewhere = sorted(y for y, vs in series.items() if y != year and any(_table_matches(value, written, v, w) for v, w in vs))
+                shown = ", ".join(w for _v, w in stated)
+                where = (f"and states {written} for {', '.join(map(str, elsewhere[:3]))}: another year's figure" if elsewhere
+                         else f"and states {written} for no year")
+                out.append(StructuralFinding(
+                    code="CORE-SRC-007", severity="warning", claim_ids=[c.claim_id], rule_source="source integrity (figures read from a supplied table)",
+                    message=(f"claim {c.claim_id} states {written}{m.group('u') or ''} for {year}, read from {doc.document_id} ({(doc.title or doc.document_id)[:60]}), "
+                             f"which states {shown} for {year} {where}")[:600]))
+    return out
+
+
+def request_model_extrapolation(report: SpecialistReport, request_text: str) -> list[StructuralFinding]:
+    """ST-RANGE-001 (stem_extrapolation) on a general branch (repair round 3, V3-H2-STEM-MISSES): the request states a model
+    and the range of the data it was fitted on ("For eleven storms with rainfall totals between 10 mm and 40 mm, the peak
+    discharge fits the line Q = 1.6R + 4"), and the answer evaluates the model outside that range ("Q = 1.6 × 150 + 4 = 244")
+    with no caveat. The STEM front end reads it (its request-model reading, ``stem.relations``) on the answer as written
+    and the request, under the general science profile; only that finding is kept, mapped to the claims of its statement.
+    Silent when the request states no relation."""
+    if not _REQUEST_RELATION_RE.search(request_text[:20000]) or not any(ch.isdigit() for ch in report.original_response[:200_000]):
+        return []
+    from ..stem.document import build_document
+    from .stem_pack import _ClaimMap, _finding
+    doc = build_document(report.original_response, request_text, "stem")
+    claim_map = _ClaimMap(report, doc)
+    return [_finding(x.code, x.severity, claim_map.relabel(x.message), claim_map.ids(x.statement_ids)) for x in doc.findings if x.code == "ST-RANGE-001"]
+
+
+def worked_formal_checks(report: SpecialistReport) -> tuple[list[FormalCheck], set[str]]:
+    """The worked equations of a report on a general (non-STEM) branch, decided by the STEM chain checker (B25): the
+    equations' arithmetic is read by ``stem.build_document`` on a same-length view that keeps only it (currency signs
+    blanked, offsets kept; an equation inside a bracket of another is read in a second view, :func:`_worked_view`) and checked
+    by ``stem.checks.build_checks`` under the STEM tolerance rule, one engine problem per link, each naming the claims that hold
+    it, in the readings the STEM checker gives a figure (as written, or in SI). Its SI-unit companion (ST-UNIT-003) is a STEM
+    convention and is not built here: a geography rate per 1,000 divided by 10 is per cent as written (the companion of a
+    working of the request's own quantities is :func:`request_unit_formal_checks`). Returns the formal checks
+    (ids ``core-stem-…``, ``core-nested-stem-…`` for the second view) and the chains of the equations they decide: an equation is
+    decided only when every link of its chain ('=' or '≈') has a check whose relation stands inside it and no link of it is
+    named undecided by the chain checker; any other equation stays named by CORE-QNT-001 (repair round 2, I1: a check of the
+    first link alone, or of another equation of the same statement, decided nothing else). The STEM front end's own findings
+    on the view are not reported (its prose is blank by construction)."""
+    key = (report.report_id, report.request_id, report.response_sha256, report.subject, tuple((c.claim_id, c.claim_text) for c in report.claims))
+    hit = _WORKED_CACHE.get(key)
+    if hit is not None:
+        return hit
+    from dataclasses import replace as _replace
+    from ..stem.checks import build_checks
+    from ..stem.document import build_document
+    from ..ir.schema import Problem
+    from ..named import DEFECT_LABELS
+    from .stem_pack import _ClaimMap
+    text = report.original_response
+    view, spans, nested_view = _worked_view(text, frozenset(pack_decided_equations(report)))
+    checks: list[FormalCheck] = []
+    decided: set[str] = set()
+    built: dict[tuple[int, int], int] = {}  # equation span -> the checks built over it (one per link of the chain at least)
+    open_spans: set[tuple[int, int]] = set()
+    for prefix, one_view in (("core-", view), ("core-nested-", nested_view)):
+        if not spans or not one_view.strip():
+            continue
+        doc = build_document(one_view, None, "stem")
+        plan = build_checks(doc, report_id=report.report_id, request_id=report.request_id, relay=True)
+        claim_map = _ClaimMap(report, _replace(doc, text=text))  # claims are found in the answer as written (currency signs included)
+        # each planned check reads one relation of the view, found by its check id with its characters: an equation is covered by
+        # the checks whose relations stand inside it, not by every check of the statement that holds it; a link the chain checker
+        # could not build a check for (an ST finding at warning) leaves the equation undecided
+        where = {rel.check_id: (rel.start, rel.end) for rel in doc.checks if rel.check_id}
+        unbuilt = [where[f.check_id] for f in plan.findings if f.severity != "info" and f.check_id in where]
+        open_spans |= {(a, b) for a, b, _ph in spans if any(s0 < b and a < e0 for s0, e0 in unbuilt)}
+        for pc in plan.checks:
+            if pc.relation_kind == "unit":
+                continue  # the STEM SI-unit companion: '(31 − 11) ÷ 10 = 2.0%' turns a rate per 1,000 into per cent as written
+            at = where.get(pc.check_id)
+            if at is None:
+                continue
+            covered = [(a, b, ph) for a, b, ph in spans if at[0] < b and a < at[1]]
+            if not covered:
+                continue
+            try:
+                problem = Problem.model_validate(pc.problem)
+            except Exception:  # noqa: BLE001 - a problem the IR refuses is never run; its equation stays undecided
+                continue
+            checks.append(FormalCheck(check_id=f"{prefix}{pc.check_id}", kind=pc.kind, description=claim_map.relabel(pc.description), problem=problem,
+                                      expected_if_sound=pc.expected_if_sound, claim_ids=tuple(claim_map.ids(pc.claim_ids, limit=None)), policy=pc.policy,
+                                      failure_severity="warning" if pc.failure_severity == "warning" else "error",
+                                      inconsistent_is_failure=pc.inconsistent_is_failure, defect=pc.defect if pc.defect in DEFECT_LABELS else None))
+            for a, b, _ph in covered:
+                built[(a, b)] = built.get((a, b), 0) + 1
+    # an equation is decided when every link of its chain has a check: '= 92.0 = 2^k = 95.0' has three links and one check
+    decided.update(ph for a, b, ph in spans if (a, b) not in open_spans and built.get((a, b), 0) >= max(1, text[a:b].count("=") + text[a:b].count("≈")))
+    out = (checks, decided)
+    if len(_WORKED_CACHE) > 32:
+        _WORKED_CACHE.clear()
+    _WORKED_CACHE[key] = out
+    return out
+
+
+_REQUEST_UNIT_CACHE: dict[tuple, list[FormalCheck]] = {}
+
+
+def request_unit_formal_checks(report: SpecialistReport, request_text: str) -> list[FormalCheck]:
+    """:func:`_request_unit_checks` of a report on a general branch, on the same view of its worked equations as
+    :func:`worked_formal_checks` reads (accuracy round 2, V1I-06); cached per report and request."""
+    key = (report.report_id, report.request_id, report.response_sha256, report.subject, tuple((c.claim_id, c.claim_text) for c in report.claims),
+           request_text)
+    hit = _REQUEST_UNIT_CACHE.get(key)
+    if hit is not None:
+        return list(hit)
+    text = report.original_response
+    view, spans, _nested = _worked_view(text, frozenset(pack_decided_equations(report)))
+    out = _request_unit_checks(report, text, view, request_text) if spans and view.strip() else []
+    if len(_REQUEST_UNIT_CACHE) > 32:
+        _REQUEST_UNIT_CACHE.clear()
+    _REQUEST_UNIT_CACHE[key] = out
+    return list(out)
+
+
+def _request_unit_checks(report: SpecialistReport, text: str, view: str, request_text: str) -> list[FormalCheck]:
+    """The traced unit companions (ST-UNIT-003, ``stem_unit_error``, warning) of the worked equations whose every numeral
+    repeats a quantity the request states with its unit, or states it in SI (accuracy round 2, V1I-06: 'Total distance = 1.2 +
+    300 = 301.2 m' for a walk of 1.2 km and 300 m, 'V = 50 × 12 = 600 m³' for 12 mm of rain on 50 m², which the general
+    branches checked as plain arithmetic). The view is read again with the request (``stem.build_document``) and only these
+    companions are kept: every traced number of one is a request's quantity (``stem.relations``, the companion of a working that
+    substitutes into no symbol), so a number of the answer's own, a conversion factor or a rate per 1,000 builds none. Each
+    reads the numerals in the request's units: the numbers combined without their conversion fail it."""
+    from dataclasses import replace as _replace
+    from ..stem.checks import build_checks
+    from ..stem.document import build_document
+    from ..ir.schema import Problem
+    from .stem_pack import _ClaimMap
+    doc = build_document(view, request_text, "stem")
+    plan = build_checks(doc, report_id=report.report_id, request_id=report.request_id, relay=False)
+    claim_map = _ClaimMap(report, _replace(doc, text=text))
+    traced = {rel.check_id for rel in doc.checks if rel.check_id and rel.kind == "unit" and rel.unit_case == "traced" and rel.traced
+              and all(bd.source == "request" and not bd.symbol for _a, _b, bd in rel.traced)}
+    out: list[FormalCheck] = []
+    for pc in plan.checks:
+        if pc.relation_kind != "unit" or pc.check_id not in traced or pc.defect != "stem_unit_error":
+            continue
+        try:
+            problem = Problem.model_validate(pc.problem)
+        except Exception:  # noqa: BLE001 - a problem the IR refuses is never run
+            continue
+        out.append(FormalCheck(check_id=f"core-req-{pc.check_id}", kind=pc.kind, description=claim_map.relabel(pc.description), problem=problem,
+                               expected_if_sound=pc.expected_if_sound, claim_ids=tuple(claim_map.ids(pc.claim_ids, limit=None)), policy=pc.policy,
+                               failure_severity="warning", inconsistent_is_failure=pc.inconsistent_is_failure, defect="stem_unit_error"))
+    return out
 
 
 def _ratio_check(check_id: str, kind: str, report: SpecialistReport, n: int, statement: str, phrase: str, a: Fraction, b: Fraction, stated: Fraction,

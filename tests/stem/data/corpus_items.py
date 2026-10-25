@@ -502,8 +502,8 @@ _PROBE_DATA = [
      ("prose_percent_change", "a rise of 25 per cent", ["INT-SUBJ-001"], [], "(300 − 250)/250 = 20 per cent; stated 25 [computed: |25 - 20| = 5 > 5 % of 20 + 0.5]")),
     ("B1-magnification-err", "Biology", "Calculate the magnification of a cell whose image is 25 mm long and whose actual length is 50 µm.",
      "Magnification = image size / actual size = 25 mm / 50 µm = 25 000 µm / 50 µm = 50×.",
-     ("arithmetic_slip", "25 mm / 50 µm = 25 000 µm / 50 µm = 50×", ["ST-PARSE-001"], [], "25 mm / 50 µm = 500; stated 50. '25 000' with a plain space is an ambiguous "
-                                                                                       "numeral, so the relation is named unreadable (ST-PARSE-001)")),
+     ("arithmetic_slip", "25 mm / 50 µm = 25 000 µm / 50 µm = 50×", ["INT-SUBJ-001"], ["eq"], "25 mm / 50 µm = 500; stated 50. '25 000', written in thousands "
+                                                                                              "groups beside an operator, is read as 25000, so the arithmetic is refuted")),
     ("E1-ess-efficiency-ok", "Environmental Systems and Societies", "Calculate the efficiency of energy transfer between the trophic levels.",
      "Efficiency = 150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100 = 10%. About 10% of the energy passes to the next level.", None),
     ("CS1-binary-err", "Computer Science", "Convert 1011 in binary to denary and FF in hexadecimal to denary.",

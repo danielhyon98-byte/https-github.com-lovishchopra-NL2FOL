@@ -35,7 +35,10 @@ def test_spellings_meet_across_notations():
     keys_a = dict(figure_spellings("c = 3.0e8 m/s"))["3.0e8"]
     keys_b = dict(figure_spellings("c = 3.0 × 10⁸ m/s"))["3.0 × 10⁸"]
     keys_c = dict(figure_spellings("c = 300000000 m/s"))["300000000"]
-    assert keys_a & keys_b and keys_a & keys_c and "3e8" in keys_a
+    # Rewritten for the STEM review (S6), as strict as before: the spellings still meet across notations, and the
+    # normalised mantissa-exponent spelling now keeps the written significant figures ("3.0e8"), so the less precise
+    # "3e8" is no spelling of "3.0e8" (it let "0.03 J" pass for "3.0e-2 J" while "0.030 J" was refused).
+    assert keys_a & keys_b and keys_a & keys_c and "3.0e8" in keys_a and "3e8" not in keys_a
 
 
 @pytest.mark.parametrize("text,tokens", [

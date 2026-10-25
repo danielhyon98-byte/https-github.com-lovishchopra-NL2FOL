@@ -50,25 +50,33 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from .boolean import truth_table_shape
 from .chem import ELEMENTS, find_equations
 from .lexer import Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .layout import annotation_ranges, label_only_rest, plain_line
 from .normalize import blank_ranges, reading_view
 from .parser import STEM_NAMES
-from .units import is_unit_atom, unit_group
+from .reference import quantities_for
+from .units import is_unit_atom, parse_unit, unit_group
 
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
 SpanKind = Literal["code_block", "code_inline", "latex_display", "latex_inline", "chem", "math_run", "verbal", "quantity", "table", "data_line"]
 DISPLAY_ENVIRONMENTS = ("equation*", "equation", "align*", "align", "gather*", "gather")
 _INNER_WRAPPERS = ("\\begin{aligned}", "\\end{aligned}", "\\begin{split}", "\\end{split}", "\\begin{gathered}", "\\end{gathered}")
+#: Prepositions after which a value says when or where an equation is evaluated ('in 2000 C = …', 'at 60 °C R = …').
+_ADVERBIAL_PREPOSITIONS = frozenset({"in", "at", "by", "after", "before", "during", "until", "till", "since", "on", "for"})
 _STOPWORDS = frozenset({"is", "so", "of", "to", "be", "in", "by", "or", "if", "an", "it", "on", "we", "do", "no", "up", "us", "my", "he", "me", "am", "go",
                         "the", "and", "for", "then", "than", "that", "this", "with", "from", "into", "when", "only", "also", "here", "there", "each",
                         "both", "some", "such", "what", "which", "will", "were", "have", "has", "had", "not", "but", "are", "was", "its", "one", "two",
                         "per", "all", "any", "can", "may", "our", "out", "own", "too", "via", "who", "why", "how", "yet", "nor", "let", "use", "using",
                         "take", "taking", "given", "where", "since", "thus", "hence", "gives"})
 _ARTICLES = frozenset({"the", "a", "an", "of", "all", "some", "this", "that", "each"})
+#: English words that are also a prefixed unit ('as' attosecond, 'at' attotonne, 'am' attometre, 'us' microsecond): read as a
+#: unit right after a value ('5 as'), never as the next atom of a unit already begun, so '0.50 mol dm⁻³ as 0.012' keeps the
+#: unit 'mol dm⁻³' (repair round 5, ADV5-16: the request's series was read in 'mol dm⁻³ as' and the extrapolation past it hid)
+_UNIT_HOMOGRAPHS = frozenset({"as", "at", "am", "us", "das", "an", "in"})
 #: bracket depth up to which a relation inside brackets that open a run is read from inside them
 _MAX_ASIDE_DEPTH = 3
 _VERBAL_OPS = {"plus": "+", "minus": "-", "times": "×", "multiplied": "×", "divided": "/"}
@@ -491,20 +499,28 @@ def _markup(view: str, lines: tuple[Line, ...], covered: "_Cover") -> tuple[list
 def _furniture(view: str, ln: Line, markup: list[tuple[int, int]], covered: "_Cover", annotations_only: bool = False) -> list[tuple[int, int]]:
     """The rest of a label-only line and the mark annotations of one line (``layout.py``), as offsets of ``view``. The
     line is read as the generic branch reads it: with its emphasis markers removed (``**Part (a) — find — 3 marks**``)."""
-    line, rel = plain_line(view[ln.start:ln.end])
+    raw = view[ln.start:ln.end]
+    if "*" in raw or "_" in raw:
+        line, rel = plain_line(raw)
+        index: Optional[list[int]] = [ln.start + k for k in rel]
+    else:  # no emphasis marker: the line is read as written, each character at its own offset
+        line, index = raw, None
     if not line.strip():
         return []
-    index = [ln.start + k for k in rel]
+
+    def at(k: int) -> int:
+        return index[k] if index is not None else ln.start + k
+
     out: list[tuple[int, int]] = []
     if not annotations_only and label_only_rest(line) is not None:
         # the whole line is furniture: the label (also recorded as structure when it is one) and its mark allocation
         first = len(line) - len(line.lstrip())
-        out.append((index[first], ln.end))
+        out.append((at(first), ln.end))
         return out
     for pa, pb in annotation_ranges(line):
         if pb <= pa:
             continue
-        a, b = index[pa], index[pb - 1] + 1
+        a, b = at(pa), at(pb - 1) + 1
         if not _inside(a, covered) and not _inside(b - 1, covered):
             out.append((a, b))
     return out
@@ -530,6 +546,11 @@ class _Run:
     label: str = ""
     has_rel: bool = False
     quantity: bool = False
+    #: the tokens the run is read as when they differ from its text: a count before the run ('4 categories − 1 = 3' is
+    #: read as 4 − 1 = 3) or a compound quantity ('4 min 30 s' is read as (4 min + 30 s)); empty otherwise
+    tokens: tuple[Token, ...] = ()
+    #: the token index the run's text starts at (a count before the run starts it); -1 for ``first``
+    text_first: int = -1
 
 
 def _is_d_variable(w: str) -> bool:
@@ -559,6 +580,10 @@ class _RunFinder:
         self.scanned = 0
         #: the shallowest bracket depth of a relation sign in the last extended run (0: none inside brackets)
         self.inner_rel = 0
+        #: the numerals of the last extended run that continue a compound quantity ('30' in '4 min 30 s')
+        self.joints: list[int] = []
+        #: equation heads after an adverbial value ('C' in 'in 2000 C = …', :meth:`_adverbial_value`): a run may start there
+        self.adverbial_heads: set[int] = set()
 
     def mathy_start(self, t: Token) -> bool:
         if t.kind != "IDENT":
@@ -599,6 +624,16 @@ class _RunFinder:
         a, b = self.t[k - 1], self.t[k + 1]
         return a.kind == "IDENT" and b.kind == "IDENT" and not b.space and a.text in ELEMENTS and b.text in ELEMENTS and not a.sub and not b.sub
 
+    def _symbol_factor(self, k: int) -> bool:
+        """The identifier at ``k`` after a value and '×' is a factor of a product, not a word after a magnification ('0.5 × m × v²',
+        '2.0 × a'): a symbol (:meth:`mathy_start`) that the maths goes on after (an operator, a relation sign, a power or the end
+        of the run), and no unit (repair round 2: the suffix reading cut '0.5 × m × v = …' after 'm')."""
+        t = self.t[k]
+        if not self.mathy_start(t) or (not t.sub and not t.delta and self.unit_here(k) and len(t.text) > 1):
+            return False
+        nxt = self.t[k + 1] if k + 1 < len(self.t) else None
+        return nxt is None or nxt.kind in ("OP", "REL", "SUP", "CARET", "DSTAR", "RPAR", "PUNCT", "COMMA", "SEMI")
+
     def mathy_operand(self, k: int) -> bool:
         t = self.t[k]
         if self.mathy_start(t):
@@ -619,6 +654,70 @@ class _RunFinder:
             return True  # a word symbol closing a bracketed word formula: '(final − initial) ÷ initial × 100'
         return False
 
+    def _condition_head(self, i: int, k: int) -> bool:
+        """The symbol at ``k`` heads the equation a condition evaluates: the run at ``i`` is one binding opened by a preposition
+        or "when", "if" ('At t = 5.0 min', 'For x = 2.0 m'), and the symbol after its value is a single letter (or a name
+        with a subscript) directly followed by '=' or '≈' ('At t = 5.0 min T = 80 − 4 × 5.0 = 60 °C': T is the temperature,
+        not tesla; 'At t = 2.0 s v = 3.0 m/s'). The run ends before it and the next run starts at it. A compound unit of a
+        plain value ('2.0 N m = 2.0 J') opens no condition and is read as before (repair round 2, own probes: the unit was
+        continued into the head, a false arithmetic error, or the equation after it was never read)."""
+        toks = self.t
+        n = len(toks)
+        t = toks[k]
+        if k + 1 >= n or toks[k + 1].kind != "REL" or toks[k + 1].text not in ("=", "≈") or not (len(t.text) == 1 or t.sub):
+            return False
+        if i < 1 or toks[i - 1].kind != "IDENT" or toks[i - 1].text.lower() not in _ADVERBIAL_PREPOSITIONS | {"when", "if", "where"}:
+            return False
+        rels = [j for j in range(i, k) if toks[j].kind == "REL"]
+        return len(rels) == 1 and toks[i].kind == "IDENT" and rels[0] == i + 1
+
+    def _quantity_letter(self, k: int) -> bool:
+        """A single ASCII letter that names a quantity: a symbol of the profile's closed reference ('k', 'x' in physics) or a
+        name in scope; never 'a' or 'I', which are also words. (A unit letter right after a value never gets here: the run
+        reads it as the value's unit first.)"""
+        t = self.t[k]
+        w = t.text
+        if t.kind != "IDENT" or len(w) != 1 or not (w.isascii() and w.isalpha()) or w in ("a", "I"):
+            return False
+        return w in self.names or bool(quantities_for(w, self.profile.key))
+
+    def _quantity_run(self, k: int) -> bool:
+        """A run of two to four ASCII letters, each a quantity letter of the profile's closed reference (or a one-letter name in
+        scope), that is no stopword, no unit atom and no name the text declares ('mv', 'mgh', 'rh': written with a space after
+        a factor, '½ mv', '2π rh'): the product of those letters (repair round 5, ADV5-06)."""
+        t = self.t[k]
+        w = t.text
+        if t.kind != "IDENT" or t.sub or t.delta or t.primes or not (2 <= len(w) <= 4) or not (w.isascii() and w.isalpha()):
+            return False
+        if w.lower() in _STOPWORDS or w in self.names or w in STEM_NAMES or self.unit_here(k):
+            return False
+        return all(c not in ("a", "I") and (c in self.names or bool(quantities_for(c, self.profile.key))) for c in w)
+
+    def _spaced_factor(self, k: int, depth: int = 0) -> bool:
+        """A quantity letter written after a factor with a space ('E = ½ k x²', 'F = k x = 250 × 0.040 = 10 N') is a factor of
+        the product when it carries a glued power or subscript ('x²', 'v₀': a factor whatever follows it, as in 'E_p = ½ k
+        x²,'), or when what follows it continues the product: a relation sign, an arithmetic operator, or another such letter
+        that is itself a factor (bounded look-ahead). A bare letter may also end the product at a comma, sentence punctuation
+        or the end of the text when it follows another quantity letter ('F = k x.'). A bare letter followed by prose is not
+        read, and neither is a bare letter after a number at the end ('E = 5 k.'): the run stops before it, as before (repair
+        round 2, holdout2 unit class: '½ k x²' was cut to 'E = ½', so the working was never read and the request item looked
+        unaddressed, and 'F = k x' was read as the law 'F = k')."""
+        toks = self.t
+        n = len(toks)
+        if depth > 4 or not toks[k].space or not (self._quantity_letter(k) or self._quantity_run(k)):
+            return False
+        j = k + 1
+        while j < n and j <= k + 3 and not toks[j].space and toks[j].kind in ("SUP", "SUB", "CARET", "NUM"):
+            j += 1  # the letter's own power or subscript: 'x²', 'x^2', 'v₀'
+        if j > k + 1:
+            return True
+        if j >= n or toks[j].kind in ("COMMA", "SEMI", "PUNCT"):
+            return toks[k - 1].kind == "IDENT" and self._quantity_letter(k - 1)
+        nxt = toks[j]
+        if nxt.kind == "REL" or (nxt.kind == "OP" and nxt.text in ("×", "/", "÷", "·", "*", "+", "-", "−")):
+            return True
+        return nxt.kind == "IDENT" and self._spaced_factor(j, depth + 1)
+
     def unit_here(self, k: int) -> bool:
         t = self.t[k]
         if t.kind == "DEGREE" and t.text in ("°C", "°F"):
@@ -636,7 +735,7 @@ class _RunFinder:
         return False
 
     def clean_before(self, k: int, rel_start: bool) -> bool:
-        if k == 0:
+        if k == 0 or k in self.adverbial_heads:
             return True
         p = self.t[k - 1]
         if p.kind in ("PUNCT", "COMMA", "SEMI", "COLON", "QUOTE", "OTHER", "ERROR", "BANG"):
@@ -682,6 +781,7 @@ class _RunFinder:
         toks = self.t
         n = len(toks)
         k = i
+        self.joints = []
         stack: list[str] = []
         operand = True  # expecting an operand
         last_good = i
@@ -759,7 +859,8 @@ class _RunFinder:
                             if not stack:
                                 last_good = k
                             continue
-                    if t.text == "×" and prev_value and (k + 1 >= n or toks[k + 1].kind in ("PUNCT", "COMMA", "SEMI", "QUOTE") or (toks[k + 1].space and toks[k + 1].kind == "IDENT")):
+                    if t.text == "×" and prev_value and (k + 1 >= n or toks[k + 1].kind in ("PUNCT", "COMMA", "SEMI", "QUOTE")
+                                                         or (toks[k + 1].space and toks[k + 1].kind == "IDENT" and not self._symbol_factor(k + 1))):
                         k += 1  # a magnification suffix '50×'
                         if not stack:
                             last_good = k
@@ -769,6 +870,8 @@ class _RunFinder:
                     operand = True
                 elif kind in ("SUP", "SUB") and not t.space:
                     pass
+                elif kind == "NUMERR" and not t.space and toks[k - 1].kind in ("NUM", "IDENT", "RPAR"):
+                    pass  # an over-long superscript exponent glued to its base: kept in the run, so the parser names it (ST-LIM-001)
                 elif kind in ("PERCENT", "DEGREE") or (kind in ("PRIME", "BANG") and not t.space):
                     if kind == "DEGREE" and t.text in ("°C", "°F"):
                         in_unit = True
@@ -787,7 +890,15 @@ class _RunFinder:
                     else:
                         break
                 elif kind == "IDENT":
-                    if (prev_value or in_unit) and t.space and self.unit_here(k):
+                    if (prev_value or in_unit) and t.space and self._condition_head(i, k):
+                        # 'At t = 5.0 min T = …', 'At t = 2.0 s v = …': the symbol heads the equation the condition evaluates (no
+                        # unit of the condition's value); the next run starts at it
+                        self.adverbial_heads.add(k)
+                        break
+                    if (prev_value and not in_unit) and t.space and self.unit_here(k) and self._quantity_letter(k) and k + 1 < n \
+                            and toks[k + 1].kind == "IDENT" and not self.unit_here(k + 1) and self._spaced_factor(k + 1):
+                        in_unit = False  # a unit letter that is a quantity letter before another factor: '½ m v =' is ½·m·v, never ½ metre (repair round 5, ADV5-06)
+                    elif (prev_value or in_unit) and t.space and self.unit_here(k) and not (in_unit and t.text in _UNIT_HOMOGRAPHS):
                         in_unit = True
                     elif in_unit and len(t.text) >= 2 and k + 1 < n and not toks[k + 1].space and toks[k + 1].kind in ("SUP", "CARET"):
                         in_unit = True  # an unknown unit atom with an exponent: 'yr⁻¹'
@@ -805,6 +916,8 @@ class _RunFinder:
                         in_unit = False
                     elif len(t.text) == 1 and k + 1 < n and not toks[k + 1].space and toks[k + 1].kind in ("CARET", "SUP") and not self.unit_here(k):
                         in_unit = False  # a power after a value: '1600 e^(−8k)', 'C0 e^(−kt)', '3 x²' (a factor, not a unit)
+                    elif not in_unit and self._spaced_factor(k):
+                        in_unit = False  # a product of quantity letters written with spaces: '½ k x²', 'F = k x = 250 × 0.040'
                     else:
                         break
                 elif kind in ("FUNC", "LATEX"):
@@ -812,12 +925,17 @@ class _RunFinder:
                 elif kind == "LPAR":
                     if t.space and in_unit:
                         break  # an aside after a quantity: 'm = 100.0 g (100.0 cm³ × 1.00 g cm⁻³)'
+                    if t.space and prev_value and toks[k - 1].kind == "NUM" and self._percent_aside(k):
+                        break  # a value restated as a percentage: '= 0.870 (87%)' is no product
                     stack.append(t.text)
                     operand = True
                 elif kind in ("UNSUP", "INF"):
                     pass
                 elif kind == "BOOL":
                     operand = True
+                elif kind == "NUM" and in_unit and t.space and self._compound_part(k):
+                    self.joints.append(k)  # '4 min 30 s': the next part of a compound quantity
+                    prev_value, in_unit = True, False
                 else:
                     break
             k += 1
@@ -828,6 +946,33 @@ class _RunFinder:
         has_rel = any(r < last_good for r in has_rel_at)
         return last_good, has_rel
 
+    def _adverbial_value(self, i: int) -> int:
+        """The index of the equation head after the value at ``i`` when the value is an adverbial of the prose before it, else
+        -1: a numeral right after a preposition ("in 2000", "at 60 °C", "after 5.0 s"), then only its unit, then a symbol of the
+        answer directly followed by '=' or '≈' ('so in 2000 C = 340 + 1.75 × 20 = 375 ppm'). The value says when or where the
+        equation is evaluated; it is no operand of it, so the run starts at the head (repair round 2: '2000 C' was read as
+        2000 coulombs equal to the result, and '2000 CO₂' as a product)."""
+        toks = self.t
+        n = len(toks)
+        if i < 1 or toks[i].kind != "NUM" or not toks[i].space:
+            return -1
+        prev = toks[i - 1]
+        if prev.kind != "IDENT" or prev.text.lower() not in _ADVERBIAL_PREPOSITIONS:
+            return -1
+        j = i + 1
+        while j < n and j <= i + 4 and toks[j].space is False and toks[j].kind in ("SUP", "DEGREE", "PERCENT"):
+            j += 1
+        if j < n and toks[j].kind == "DEGREE":
+            j += 1
+        while j < n and j <= i + 4 and toks[j].kind == "IDENT" and self.unit_here(j) and not (j + 1 < n and toks[j + 1].kind == "REL"):
+            j += 1  # the value's unit ('at 60 °C', 'after 5.0 s'), never the head itself
+        if j + 1 >= n or toks[j].kind != "IDENT" or not toks[j].space or toks[j + 1].kind != "REL" or toks[j + 1].text not in ("=", "≈"):
+            return -1
+        head = toks[j]
+        if head.text.lower() in _STOPWORDS or not (head.text in self.names or head.sub or head.delta or len(head.text) == 1):
+            return -1
+        return j
+
     def runs(self) -> list[_Run]:
         out: list[_Run] = []
         n = len(self.t)
@@ -837,6 +982,11 @@ class _RunFinder:
         while i < n:
             if match[i] < 0 and toks[i].kind in ("LPAR", "LGROUP"):
                 i += 1  # a bracket that never closes: ``extend`` would stop on it at once
+                continue
+            head = self._adverbial_value(i)
+            if head > i:
+                self.adverbial_heads.add(head)
+                i = head  # 'in 2000 C = …': the run starts at the equation's head; the value stays prose (the input)
                 continue
             if not self.can_start(i):
                 i += 1
@@ -850,6 +1000,11 @@ class _RunFinder:
                 i += 1  # a bracketed relation ('(x = 2)', an aside): read again from inside the bracket (bounded depth: linear)
                 continue
             run = _Run(i, end, lead=self.t[i].kind == "REL", has_rel=has_rel)
+            joints = [j for j in self.joints if j < end]
+            count = self._count_before(i) if has_rel else -1
+            if joints or count >= 0:
+                run.tokens = self._read_as(i, end, joints, count)
+                run.text_first = count
             if has_rel:
                 if run.lead:
                     run.label = self._label(i)
@@ -859,6 +1014,89 @@ class _RunFinder:
                 out.append(run)
             i = end
         return out
+
+    def _percent_aside(self, k: int) -> bool:
+        """A bracket after a value that holds only a percentage (``0.870 (87%)``, ``0.25 (25 %)``): the value restated, not a
+        factor."""
+        c = self.match[k]
+        inner = self.t[k + 1:c] if c > k else ()
+        return len(inner) == 2 and inner[0].kind == "NUM" and inner[1].kind == "PERCENT"
+
+    def _compound_part(self, k: int) -> bool:
+        """``30`` in ``4 min 30 s``, ``20`` in ``1 h 20 min``, ``5`` in ``1 m 5 cm``: a numeral after a quantity whose single
+        unit word is followed by a smaller unit of the same dimension, each a plain unit atom with one exact reading (no
+        exponent, no offset scale). The two parts are one quantity, their sum."""
+        toks = self.t
+        n = len(toks)
+        if k < 2 or k + 1 >= n or toks[k - 2].kind != "NUM" or toks[k - 1].kind != "IDENT" or toks[k + 1].kind != "IDENT" or not toks[k + 1].space:
+            return False
+        if k + 2 < n and not toks[k + 2].space and toks[k + 2].kind in ("SUP", "CARET", "IDENT"):
+            return False  # 's⁻¹', 'm^2': no single unit atom ('s.f.' is no unit at all: unit_here)
+        if not self.unit_here(k + 1):
+            return False
+        big, small = self._atom_scale(toks[k - 1].text), self._atom_scale(toks[k + 1].text)
+        return big is not None and small is not None and big[0] == small[0] and big[1] > small[1]
+
+    def _atom_scale(self, word: str):
+        u = parse_unit(word, bare_m=self.profile.bare_m, tonne=self.profile.tonne)
+        if u is None or u.unknown or len(u.readings) != 1:
+            return None
+        r = u.readings[0]
+        if r.factor is None or r.affine is not None or r.dim is None:
+            return None
+        return r.dim, r.factor
+
+    def _count_before(self, i: int) -> int:
+        """The index of a count written before a run that opens with a binary minus or plus: ``4 categories − 1 = 3`` (an
+        integer, then one plural noun naming what it counts, then the operator with a space on both sides). The run would
+        otherwise read ``− 1 = 3`` and drop the operand that carries the word; read with the count it is ``4 − 1 = 3``.
+        -1 when there is no such count."""
+        toks = self.t
+        if i < 2 or i + 1 >= len(toks):
+            return -1
+        op, word, num = toks[i], toks[i - 1], toks[i - 2]
+        if op.kind != "OP" or op.text not in ("-", "+") or not op.space or not toks[i + 1].space or toks[i + 1].kind != "NUM":
+            return -1
+        w = word.text
+        if word.kind != "IDENT" or not word.space or word.sub or word.delta or word.primes or not (w.isascii() and w.isalpha() and w.islower()) \
+                or len(w) < 3 or not w.endswith("s") or w in _STOPWORDS or w in _VERBAL_OPS or w in self.names or w in STEM_NAMES \
+                or self.unit_here(i - 1):
+            return -1
+        if num.kind != "NUM" or not num.text.isdigit() or not self.clean_before(i - 2, False):
+            return -1
+        return i - 2
+
+    def _read_as(self, i: int, end: int, joints: list[int], count: int) -> tuple[Token, ...]:
+        """The tokens of the run ``[i, end)`` as read: the count before it, then the run, each compound quantity bracketed
+        with a ``+`` before each of its later parts (synthetic tokens carry the offsets of the text they stand for; a
+        bracket has none of its own and is zero-width)."""
+        toks = self.t
+        out: list[Token] = []
+        if count >= 0:
+            out.append(toks[count])
+        opens = {}
+        closes = {}
+        k = 0
+        while k < len(joints):
+            first = joints[k]
+            last = first
+            while k + 1 < len(joints) and joints[k + 1] == last + 2:
+                k += 1
+                last = joints[k]
+            opens[first - 2] = True
+            closes[last + 1] = True
+            k += 1
+        joint_set = set(joints)
+        for j in range(i, end):
+            t = toks[j]
+            if j in opens:
+                out.append(Token("LPAR", "(", t.start, t.start, t.space))
+            if j in joint_set:
+                out.append(Token("OP", "+", toks[j - 1].end, t.start, True))
+            out.append(t if j not in opens else t._replace(space=False))
+            if j in closes:
+                out.append(Token("RPAR", ")", t.end, t.end, False))
+        return tuple(out)
 
     def _is_quantity(self, i: int, end: int) -> bool:
         toks = self.t[i:end]
@@ -949,7 +1187,9 @@ def _verbal(toks: tuple[Token, ...]) -> list[tuple[int, int, tuple[Token, ...]]]
                 done = True
             break
         if not done:
-            i += 1
+            # a chain that never reaches its equals word is skipped whole: a later numeral of it meets the same stop, so
+            # starting again at each one would only repeat the scan (quadratic on '5 plus 5 plus …')
+            i = max(i + 1, k)
     return out
 
 
@@ -970,7 +1210,11 @@ def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover") -> l
             j = i
             while j + 1 < n and view[lines[j + 1].start:lines[j + 1].end].strip().startswith("|") and not _inside(lines[j + 1].start, covered):
                 j += 1
-            out.append(Span("table", lines[i].start, lines[j].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, j + 1)), line=i))
+            block = [view[lines[k].start:lines[k].end] for k in range(i, j + 1)]
+            if _is_table(block):
+                out.append(Span("table", lines[i].start, lines[j].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, j + 1)), line=i))
+            # else: bars that open a line are maths, not a table (|−2| = 2, |a + b| ≤ |a| + |b|, ‖v‖ = 5): the lines stay unmasked
+            # and are read like any other line, so the claim is checked as its $…$ twin is
             i = j + 1
             continue
         if text[0] in "[{" and text[-1] in "]}" and "," in text and _data_like(text):
@@ -983,6 +1227,23 @@ def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover") -> l
 def _data_like(text: str) -> bool:
     letters = sum(1 for c in text if c.isalpha())
     return letters <= max(2, len(text) // 4)
+
+
+def _is_delimiter_row(line: str) -> bool:
+    """A Markdown table's delimiter row: bars, dashes, alignment colons and spaces only, with a dash (``|---|:--:|``).
+    One linear pass, no pattern."""
+    s = line.strip()
+    return "-" in s and "|" in s and all(c in "|-: \t" for c in s)
+
+
+def _is_table(block: list[str]) -> bool:
+    """A block of lines that open with ``|`` is a table only when it has a table's structure: a Markdown delimiter row
+    under its header (``| x | y |`` then ``|---|---|``), or the shape of a truth table written without one (a header of
+    single capital letters and output expressions over rows of 0/1 or T/F). Bars that only enclose an expression are
+    maths: an absolute value (``|−2| = 2``), a norm or a determinant written with bars. Linear in the block's length."""
+    if len(block) >= 2 and any(_is_delimiter_row(ln) for ln in block[1:]):
+        return True
+    return truth_table_shape(block)
 
 
 # ----------------------------------------------------------------------------------------- assembly
@@ -1032,16 +1293,18 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
             finder = _RunFinder(toks, scan, names, profile)
             taken: list[tuple[int, int]] = []
             for run in finder.runs():
-                a = toks[run.first].start
+                first = run.text_first if run.text_first >= 0 else run.first
+                a = toks[first].start
                 b = toks[run.last - 1].end
                 if run.quantity:
-                    spans.append(Span("quantity", a, b, rows=((a, b),), line=ln.index))
+                    spans.append(Span("quantity", a, b, rows=((a, b),), line=ln.index, tokens=run.tokens))
                     continue
                 err, code = "", ""
                 if b - a > limits.max_span_chars:
                     err, code = f"a math run of {b - a} characters exceeds the span bound of {limits.max_span_chars}", "ST-LIM-001"
-                spans.append(Span("math_run", a, b, rows=((a, b),), lead=run.lead, label=run.label, line=ln.index, error=err, code=code))
-                taken.append((run.first, run.last))
+                spans.append(Span("math_run", a, b, rows=((a, b),), lead=run.lead, label=run.label, line=ln.index, error=err, code=code,
+                                  tokens=run.tokens))
+                taken.append((first, run.last))
             for first, last, synth in _verbal(toks):
                 if any(f <= first < l for f, l in taken):
                     continue

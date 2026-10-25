@@ -26,10 +26,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal, Mapping, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 
 from ..ir.canonical import canonical_json, sha256_hex
 from ..ir.schema import Assertion, Certainty, SourceRef
+from ..named import DefectLabel
 
 MESSAGE_MAX_CHARS = 2000
 _ELLIPSIS = " ...[truncated]"
@@ -195,11 +196,19 @@ def sign_message(msg: AgentMessage, key: bytes, key_id: str) -> AgentMessage:
     return msg.model_copy(update={"signature": mac, "signature_key_id": key_id})
 
 
+#: The only form an envelope signature takes: HMAC-SHA256 as 64 lower-case hex digits.
+_ENVELOPE_SIGNATURE_RE = re.compile(r"[0-9a-f]{64}")
+
+
 def verify_message(msg: AgentMessage, key: bytes) -> bool:
-    if not msg.signature or not key:
+    """Whether ``msg`` carries a signature ``key`` issued over its envelope. Never raises: a signature that is not 64
+    lower-case hex digits (a forged non-ASCII text made ``hmac.compare_digest`` raise on two text values) or a key that is
+    not bytes is no valid signature, and the digests are compared as bytes."""
+    signature = msg.signature
+    if not key or not isinstance(key, (bytes, bytearray)) or not isinstance(signature, str) or _ENVELOPE_SIGNATURE_RE.fullmatch(signature) is None:
         return False
-    expected = hmac.new(key, envelope_signable_text(msg).encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, msg.signature)
+    expected = hmac.new(bytes(key), envelope_signable_text(msg).encode("utf-8", errors="surrogatepass"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected.encode("ascii"), signature.encode("ascii"))
 
 
 # --------------------------------------------------------------------------- #
@@ -233,6 +242,13 @@ class WorkPlan(BaseModel):
         "task type set for a selected agent when it differs from the plan's task_type (a peer asked for a short_answer on an "
         "analytical_paragraph task): the channel puts it on that agent's requests and parsed reports, and INT-HANDOFF-010 "
         "compares the report against it"))
+
+    @field_validator("course_level", mode="before")
+    @classmethod
+    def _no_level_is_unknown(cls, value):
+        """A stated ``None`` is ``"unknown"`` (both mean no level is known), so the canonical dump, which leaves ``None`` out,
+        reads back as the same record instead of as the default."""
+        return "unknown" if value is None else value
 
     @field_validator("deadline_at")
     @classmethod
@@ -359,6 +375,10 @@ class IntegrityFinding(BaseModel):
     formal_result_id: Optional[str] = Field(default=None, description="VerificationResult.result_id when Z3 established the finding")
     related_result_ids: list[str] = Field(default_factory=list, description="further engine results consulted for this finding")
     deterministic: bool = True
+    defect: Optional[DefectLabel] = Field(default=None, description=(
+        "the canonical defect label the finding names (named.DEFECT_LABELS): set by the channel through named.DEFECT_OF_CODE "
+        "when it builds the receipt (INT-SUBJ-001 and INT-SUBJ-004 take the FormalCheck's own defect first), and carried by "
+        "INT-ARG-001 from its named diagnostic; left out of every dump while None"))
 
     @field_validator("message", mode="before")
     @classmethod
@@ -366,6 +386,13 @@ class IntegrityFinding(BaseModel):
         if isinstance(v, str) and len(v) > MESSAGE_MAX_CHARS:
             return v[: MESSAGE_MAX_CHARS - len(_ELLIPSIS)] + _ELLIPSIS
         return v
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_defect(self, handler: SerializerFunctionWrapHandler) -> Any:
+        data = handler(self)
+        if isinstance(data, dict) and data.get("defect", "") is None:
+            del data["defect"]
+        return data
 
     def has_identifier(self) -> bool:
         return bool(self.claim_ids or self.message_ids or self.report_ids or self.agent_ids or self.document_ids or self.formal_result_id)

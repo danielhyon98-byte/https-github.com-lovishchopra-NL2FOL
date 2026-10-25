@@ -54,7 +54,9 @@ def nonlinear_problem() -> dict[str, Any]:
 
 
 def make_settings(**overrides: Any) -> ServiceSettings:
-    values: dict[str, Any] = dict(service_token=TOKEN, signing_key=KEY, signing_key_id=KEY_ID)
+    # The outcomes route of this build serves only the fixture provider, so the boundary tests opt in to client fixtures;
+    # the production default (off: 403 E506 before the body is read) is pinned by tests/service/test_security_round8.py.
+    values: dict[str, Any] = dict(service_token=TOKEN, signing_key=KEY, signing_key_id=KEY_ID, allow_client_fixtures=True)
     values.update(overrides)
     return ServiceSettings(**values)
 

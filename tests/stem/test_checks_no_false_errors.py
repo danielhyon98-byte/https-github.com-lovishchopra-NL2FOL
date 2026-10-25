@@ -18,6 +18,7 @@ from epinoic_logic.engine.policies import policy_config, policy_limits
 from epinoic_logic.engine.results import SolverConfig
 from epinoic_logic.engine.runner import verify
 from epinoic_logic.ir.schema import Problem
+from epinoic_logic.stem.nodes import Num
 from epinoic_logic.stem import build_document
 from epinoic_logic.stem.checks import build_checks
 
@@ -148,15 +149,23 @@ def test_booklet_and_unknown_unit_readings_fail_only_as_warnings():
         assert plan.checks and all(pc.failure_severity == "warning" for pc in plan.checks if pc.relation_kind in ("sub", "eq"))
 
 
-def test_a_space_grouped_thousand_is_withheld_never_failed():
-    # the front end reads '126 000' as 126 (a plain space is no thousands separator in its grammar): the check is withheld
+def test_a_space_grouped_thousand_is_read_and_never_failed():
+    # Rewritten to a stricter rule (argument-diagnosis repair round 1, ss12): '126 000' written in thousands groups beside a
+    # relation or an operator sign is read as 126000 and checked, where it was withheld (ST-PARSE-001) before; correct
+    # working still never fails, and the same working with a wrong grouped value now fails instead of being withheld
     for text in ("Using Q = mcΔT = 0.50 × 4200 × (80 − 20) = 126 000 J ≈ 1.3 × 10⁵ J.",
                  "ΔH = −q/n = −(50.0 × 4.18 × 5.0)/0.0250 = −41 800 J mol⁻¹ = −41.8 kJ mol⁻¹",
                  "KE = ½mv² = 0.5 × 1200 × 25² = 375 000 J = 375 kJ = 3.75 × 10⁵ J"):
         plan = build_checks(build_document(text, None, "physics"), report_id="r", request_id="q")
+        assert plan.checks
         for pc in plan.checks:
             assert _decide(pc)[0], (text, pc.check_id)
-        assert any(f.code == "ST-PARSE-001" and "digits" in f.message for f in plan.findings)
+        assert not any(f.code == "ST-PARSE-001" for f in plan.findings), text
+    wrong = build_checks(build_document("Q = 0.50 × 4200 × 60 = 136 000 J", None, "physics"), report_id="r", request_id="q")
+    assert any(_decide(pc)[0] is False for pc in wrong.checks)
+    # a list of values set apart by spaces, with no sign beside them, stays three numbers
+    listed = build_document("The values were 100 200 300 in total.", None, "physics")
+    assert not any(isinstance(n, Num) and n.number.value == 100200300 for it in listed.items for ch in it.chains for op in ch.operands for n in op.readings)
 
 
 def test_a_wrong_substituted_value_in_a_step_is_still_caught():

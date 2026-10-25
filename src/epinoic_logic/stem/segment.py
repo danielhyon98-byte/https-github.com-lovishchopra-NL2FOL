@@ -196,7 +196,12 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
     blocks_sorted = sorted(blocks, key=lambda s: s.start)
     part_at = {p.start: p for p in spans.part_labels}
     part_by_line = {p.line: p for p in spans.part_labels}
-    list_lines = {_line_of(lines, a) for a, _b in spans.list_markers}
+    #: line index -> the end of the last list marker on it (one pass: a list line looks its marker up, never scans them all)
+    list_marker_end: dict[int, int] = {}
+    for a, b0 in spans.list_markers:
+        li0 = _line_of(lines, a)
+        list_marker_end[li0] = max(list_marker_end.get(li0, b0), b0)
+    list_lines = set(list_marker_end)
     heading_lines = set(spans.heading_lines)
     line_spans = _line_math_spans(spans)
     math_ends = frozenset(sp.end for sp in spans.spans if sp.is_math)
@@ -320,9 +325,7 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
         is_list = ln.index in list_lines and seg_start == ln.start
         if is_list:
             flush()
-            for a0, b0 in spans.list_markers:
-                if ln.start <= a0 < ln.end:
-                    content_start = max(content_start, b0)
+            content_start = max(content_start, list_marker_end.get(ln.index, content_start))
             p2 = part_at.get(_first_nonspace(rview, content_start, ln.end))
             if p2 is not None and p2.line == ln.index:
                 b.part = p2.text
@@ -405,12 +408,18 @@ def _line_of(lines: tuple, offset: int) -> int:
     return lo
 
 
+_RELATION_SIGNS = ("=", "≈", "≃", "≠", "<", ">", "≤", "≥", "⇒", "\\approx", "\\neq", "\\leq", "\\geq", "\\Rightarrow", "\\implies", "→", "\\to ")
+_RELATION_FIRST = frozenset(sign[0] for sign in _RELATION_SIGNS)
+
+
 def _starts_with_relation(view: str, a: int, b: int) -> bool:
-    s = view[a:b].lstrip(" \t&")
-    for sign in ("=", "≈", "≃", "≠", "<", ">", "≤", "≥", "⇒", "\\approx", "\\neq", "\\leq", "\\geq", "\\Rightarrow", "\\implies", "→", "\\to "):
-        if s.startswith(sign):
-            return True
-    return False
+    k = a
+    while k < b and view[k] in " \t&":
+        k += 1
+    if k >= b or view[k] not in _RELATION_FIRST:
+        return False  # the first character opens no relation sign: no substring is built (most lines)
+    s = view[k:min(b, k + 16)]
+    return any(s.startswith(sign) for sign in _RELATION_SIGNS)
 
 
 def _line_math_spans(spans: SpanSet) -> dict[int, list[Span]]:

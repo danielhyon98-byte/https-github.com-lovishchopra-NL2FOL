@@ -106,7 +106,7 @@ class StatedFigure:
 
     @property
     def scaled(self) -> Fraction:
-        return self.value * self.scale
+        return self.value if self.scale == 1 else self.value * self.scale
 
     @property
     def is_percent_like(self) -> bool:
@@ -486,6 +486,11 @@ def is_definitional(text: str) -> bool:
 # ------------------------------------------------------------------ reading figures
 
 
+#: A unit of two or three space-separated words right after a numeral: each word a unit symbol of up to four letters with an
+#: optional power ("m³ s⁻¹", "J kg⁻¹ K⁻¹", "km h⁻¹").
+_MULTI_WORD_UNIT_RE = re.compile(r"\s?([A-Za-zµμ°]{1,4}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*(?: [A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*){1,2})")
+
+
 def _figure_unit(text: str, end: int) -> tuple[int, Optional[str], Optional[Fraction], Optional[str], int, Optional[str]]:
     """What follows a numeral: ``(new end, unit, factor, dimension, scale, scale word)``."""
     scale, scale_word = 1, None
@@ -512,12 +517,16 @@ def _figure_unit(text: str, end: int) -> tuple[int, Optional[str], Optional[Frac
         lowered = token.lower().rstrip(".,;:)")
         if lowered in _CURRENCY_WORDS:
             return u.start("u") + len(token.rstrip(".,;:)")), lowered, None, "currency", scale, scale_word
-        # a two-word unit ("km h⁻¹", "m s⁻¹") before a one-word one
-        two = re.match(r"\s?([A-Za-zµμ°]{1,4}\s[A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*)", text[end:end + 24])
-        if two is not None:
-            reading = _unit_reading(two.group(1))
-            if reading is not None:
-                return end + two.end(1), reading[0], reading[1], reading[2], scale, scale_word
+        # a unit of two or three words ("km h⁻¹", "m s⁻¹", "m³ s⁻¹", "J kg⁻¹ K⁻¹"; a first word may carry its power) before a
+        # one-word one, the longest that reads as a unit first (repair round 2: "21 m³ s⁻¹" was read as 21 m³)
+        many = _MULTI_WORD_UNIT_RE.match(text[end:end + 40])
+        if many is not None:
+            words = many.group(1).split(" ")
+            for n in range(len(words), 1, -1):
+                candidate = " ".join(words[:n])
+                reading = _unit_reading(candidate)
+                if reading is not None:
+                    return end + many.start(1) + len(candidate), reading[0], reading[1], reading[2], scale, scale_word
         reading = _unit_reading(token)
         if reading is not None:
             return u.start("u") + len(reading[0]), reading[0], reading[1], reading[2], scale, scale_word
@@ -593,6 +602,9 @@ def _figures(kind: str, ident: str, text: str) -> tuple[StatedFigure, ...]:
             continue
         num = scan.number
         end = scan.end
+        grouped = _grouped_thousands(text, i, scan)
+        if grouped is not None:
+            num, end = grouped  # '€18 000', '12 500', '1 250.75': one figure grouped in thousands by spaces (repair round 3)
         start, sign, currency = _sign_and_currency(text, i)
         value, has_point, places, half = num.value, num.has_point, max(0, -num.last_place) if num.has_point else 0, num.half_width
         numeral = num.text
@@ -623,6 +635,48 @@ def _figures(kind: str, ident: str, text: str) -> tuple[StatedFigure, ...]:
                                 value=value, has_point=False, places=0, half_width=Fraction(0), unit=unit, unit_factor=factor, unit_dim=dim,
                                 scale=scale, scale_word=scale_word, word=True))
     return tuple(sorted(out, key=lambda f: f.start))
+
+
+#: The separators that group a numeral's thousands in the SI and IB style: a space, a thin space, a no-break space, a narrow
+#: no-break space, and LaTeX's thin space (``18\,000``).
+_GROUP_SEPARATORS = (" ", "\u2009", "\u00a0", "\u202f", "\\,")
+
+
+def _grouped_thousands(text: str, i: int, scan) -> Optional[tuple[Any, int]]:
+    """``(the number, its end)`` when the whole numeral of one to three digits at ``i`` is followed by groups of exactly three
+    digits, each after one thousands separator (:data:`_GROUP_SEPARATORS`), and then by no further digit ("€18 000", "12 500",
+    "1 250.75", "18\\,000"): one figure grouped in thousands, as the SI and the IB write it (repair round 3, V3-E2E: a task's
+    "€18 000" was read as 18 and 0). None otherwise, so "in 2019 500 people" (a four-digit first group) is two figures."""
+    num = scan.number
+    head = text[i:scan.end]
+    if num.has_point or getattr(num, "scientific", False) or not head.isdigit() or not 1 <= len(head) <= 3 or (i > 0 and text[i - 1].isdigit()):
+        return None
+    digits = head
+    j = scan.end
+    groups = 0
+    while groups < 6:
+        sep = next((g for g in _GROUP_SEPARATORS if text.startswith(g, j)), None)
+        if sep is None:
+            break
+        k = j + len(sep)
+        block = text[k:k + 3]
+        if len(block) != 3 or not block.isdigit() or (k + 3 < len(text) and text[k + 3].isdigit()):
+            break
+        digits += block
+        j = k + 3
+        groups += 1
+    if not groups:
+        return None
+    if j + 1 < len(text) and text[j] == "." and text[j + 1].isdigit():
+        k = j + 1
+        while k < len(text) and text[k].isdigit() and k - j <= 30:
+            k += 1
+        digits += text[j:k]
+        j = k
+    again = _scan_numeral(digits, 0)
+    if again is None or again.number is None or again.end != len(digits):
+        return None
+    return again.number, j
 
 
 def figures_in(source: SourceText) -> tuple[StatedFigure, ...]:
@@ -1336,7 +1390,13 @@ def stated_exactness(figure: StatedFigure, text: str) -> Exactness:
     places"; "then x is 0.33, without rounding"); an approximation cue counts only where it governs the figure
     (:func:`_approximation_cues`). With no cue, a figure written as the result of a calculation that ends at its '='
     is read from that calculation (exact when it gives exactly the figure, rounded when the figure rounds it) and is
-    otherwise rounded by convention."""
+    otherwise rounded by convention. A pure function of the figure and the text (both immutable), so it is cached: the
+    grounding and evidence readings ask it of the same figure many times (repair round 5, ADV5-13)."""
+    return _stated_exactness(figure, text)
+
+
+@lru_cache(maxsize=8192)
+def _stated_exactness(figure: StatedFigure, text: str) -> Exactness:
     sentence = sentence_of(text, figure.start, figure.end)
     clause = _clause_of(text, sentence, figure.start, figure.end)
 
@@ -1422,6 +1482,31 @@ def rounded_intervals(figure: StatedFigure, text: str, declared: Optional[Declar
     ex = stated_exactness(figure, text)
     if ex.kind != "rounded" or ex.by_convention:
         return []
+    return _intervals_of(figure, ex, declared)
+
+
+def written_precision_intervals(figure: StatedFigure, text: str, declared: Optional[DeclaredReading] = None
+                                ) -> list[tuple[tuple[Fraction, Fraction, bool, bool], Match, Exactness]]:
+    """The intervals a figure states at its WRITTEN precision, for the grounding checks: those of :func:`rounded_intervals`
+    (a figure stated as rounded by a cue, "≈ 1.55", "about 30%", "to 2 d.p.", or by a calculation it rounds), and, for a
+    figure written as the result of a calculation the closed reader does not compute (a power, a root, a decimal power
+    of ten: rounded only by the convention of written calculation, with no computed value), the half-unit enclosure of
+    its last written place ("10^(−8.2) = 6.31 × 10⁻⁹" states [6.305 × 10⁻⁹, 6.315 × 10⁻⁹); "… = 1.259" states
+    [1.2585, 1.2595)). The source wrote that result to that many places, so the enclosure is what it states; whether a
+    claim may use the interval rather than the figure itself is the precision decision's (:mod:`.precision`), not this
+    reading's. A given figure with no cue and no calculation ("x is 0.33."), an exact figure, and a figure its own
+    written calculation contradicts (a slip: "1.90 − 0.30 = 1.61") state no interval."""
+    out = rounded_intervals(figure, text, declared)
+    if out:
+        return out
+    ex = stated_exactness(figure, text)
+    if ex.kind == "rounded" and ex.by_convention and ex.computed is None and ex.mode == "nearest" and ex.half_width:
+        return _intervals_of(figure, ex, declared if declared is not None else DeclaredReading("none"))
+    return []
+
+
+def _intervals_of(figure: StatedFigure, ex: Exactness, declared: DeclaredReading) -> list[tuple[tuple[Fraction, Fraction, bool, bool], Match, Exactness]]:
+    """The intervals the exactness ``ex`` gives ``figure``, one per derivation the declared reading admits."""
     centres = {figure.value, figure.scaled}
     if figure.is_percent_like:
         centres.add(figure.scaled * (figure.unit_factor or Fraction(1, 100)))
@@ -1476,7 +1561,7 @@ _DECL_FRACTION_RE = re.compile(r"\bdimensionless\b|\bas\s+a\s+(?:decimal|fractio
 #: A scale the meaning declares for the symbol's unit ("in millions", "(million litres)", "$ billion"); a scale word that
 #: follows a numeral ("about 13 billion dollars") glosses a value and declares nothing.
 _DECL_SCALE_RE = re.compile(r"(?<![\d.,])(?<![\d.,]\s)\b(?:in\s+)?(?P<w>thousand|million|billion|trillion)s?\b", re.IGNORECASE)
-_DECL_UNIT_RE = re.compile(r"\bin\s+(?P<u>[A-Za-zµμ°][A-Za-z0-9µμ°⁻¹²³/·^\- ]{0,14}?)(?=[,);.]|$)|\((?P<p>[^(),]{1,20})[,)]", re.IGNORECASE)
+_DECL_UNIT_RE = re.compile(r"\bin\s+(?P<u>[A-Za-zµμ°][A-Za-z0-9µμ°⁻¹²³/·^\- ]{0,14}?)(?=\s*[(,);.]|$)|\((?P<p>[^(),]{1,20})[,)]", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1024)
@@ -1492,12 +1577,19 @@ def declared_reading(meaning: Optional[str]) -> DeclaredReading:
         return DeclaredReading("fraction", factor=Fraction(1), dim="dimensionless", scale=scale, text=meaning)
     if _DECL_PERCENT_RE.search(meaning):
         return DeclaredReading("percent", factor=Fraction(1, 100), dim="dimensionless", scale=scale, text=meaning)
+    found: list[tuple[bool, tuple[str, Fraction, str]]] = []
     for m in _DECL_UNIT_RE.finditer(meaning):
         token = (m.group("u") or m.group("p") or "").strip()
         token = re.sub(r"^(?:thousand|million|billion|trillion)s?\s+", "", token, flags=re.IGNORECASE)
         reading = _unit_reading(token) if token else None
         if reading is not None and reading[2] != "dimensionless":
-            return DeclaredReading("unit", factor=reading[1], dim=reading[2], scale=scale, text=meaning)
+            found.append((m.group("p") is not None, reading))
+    if found:
+        # a unit glossed in parentheses ("peak discharge in A (m³/s)") is the declaration, and an "in X" phrase before it is a
+        # qualifier: a place, a group or a label ("in A", "in C") whose letter the unit table also reads (repair round 5, DA-5);
+        # with no parenthesised unit the first "in X" unit declares, as before
+        reading = next((r for glossed, r in found if glossed), found[0][1])
+        return DeclaredReading("unit", factor=reading[1], dim=reading[2], scale=scale, text=meaning)
     return DeclaredReading("none", scale=scale, text=meaning)
 
 

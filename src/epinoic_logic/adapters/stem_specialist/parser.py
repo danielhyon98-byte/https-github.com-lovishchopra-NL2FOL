@@ -11,8 +11,11 @@ numbers and check ids cannot diverge:
   ``s<paragraph>.<n>`` in the ``sciences`` branch, and the same numbering with the branch's own
   letter in the other two (``m<paragraph>.<n>`` for mathematics, ``c<paragraph>.<n>`` for
   Computer Science), so a Physics and a Mathematics report on one task never share a claim id
-  (the combinator's ledger refuses shared ids, INT-LEDGER-014; two agents of one branch share the
-  numbering, as two agents of any other branch do). Its text is the statement's stretch of the
+  (the combinator's ledger refuses shared ids, INT-LEDGER-014). When the task has two or more
+  agents (the channel passes ``task_agent_ids``, :attr:`StemTextParser.accepts_task_agents`), every
+  id also carries the agent's qualifier, as on the generic branch (``s1.1@chemistry-specialist``),
+  so two agents of one branch (Chemistry and ESS) never share one either (INT-REQ-016); a
+  single-agent task keeps ``s1.1``. Its text is the statement's stretch of the
   original answer with the markup inside it left out (emphasis markers, closing mark annotations),
   cut to the contract's 4,000 characters, never rewritten; a statement with no markup inside is an
   offset substring.
@@ -57,11 +60,11 @@ from ...translate.subjects import resolve_profile
 from ...ir.schema import SourceRef
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, split_note_clauses
-from ..sources import attribute_excerpt
+from ..markdown import MAX_CLAIM_TEXT_CHARS, cited_quotation_spans, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification, split_note_clauses
+from ..sources import attribute_excerpt, strip_trailing_punctuation
 from ...stem.layout import ANNOTATION_ONLY_RE, LABEL_ONLY_REST_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, plain_line
 
-__all__ = ["StemTextParser", "MODE_PROFILES", "ID_PREFIXES", "claim_id_for", "stem_profile_key", "TAIL_CLAIM_ID", "CHECKS_ASSUMPTION"]
+__all__ = ["StemTextParser", "MODE_PROFILES", "ID_PREFIXES", "claim_id_for", "stem_profile_key", "statement_claim_text", "TAIL_CLAIM_ID", "CHECKS_ASSUMPTION"]
 
 #: the STEM profile a branch mode falls back to when the subject label names no STEM profile
 MODE_PROFILES = {"sciences": "stem", "mathematics": "mathematics", "computer_science": "computer_science"}
@@ -142,6 +145,18 @@ def _claim_text(text: str, start: int, end: int, markup: list[tuple[int, int]] =
     return "".join(parts)[:MAX_CLAIM_TEXT_CHARS].rstrip()
 
 
+def _markup(text: str, doc: StemDocument) -> list[tuple[int, int]]:
+    """The markup spans the claim texts leave out (none when the front end read another text than ``text``)."""
+    return sorted(doc.spans.markup) if len(doc.reading) == len(text) else []
+
+
+def statement_claim_text(text: str, doc: StemDocument, start: int, end: int) -> str:
+    """The claim text this parser gives the statement at ``[start, end)`` of ``text`` (its stretch of the answer with the
+    markup inside it left out, cut to the contract's claim length): what a claim that carries the statement's id must
+    say, so a claim id is checked against its text, never trusted alone (docs/STEM_DESIGN.md, section 9.1)."""
+    return _claim_text(text, start, end, _markup(text, doc))
+
+
 def _units(text: str, rows: list[dict]) -> list:
     """One generic-branch unit per statement, with what the generic parser records for a unit of the same line
     (``generic_parser._units_of``): its paragraph (the blank-line paragraphs of the answer), its logical line, the
@@ -149,8 +164,8 @@ def _units(text: str, rows: list[dict]) -> list:
     line closes on an accuracy mark, and the line's heading status (a short line closing on a colon, a short title, a
     table's header row). The lead (note, heading, question, result, ...) is the generic classification."""
     g = _generic()
-    _PART_LEAD_RE, _Unit, _classify, _line_heading, _ACCURACY_MARK_RE, _NOT_OPENING = (
-        g._PART_LEAD_RE, g._Unit, g._classify, g._line_heading, g._ACCURACY_MARK_RE, g._NOT_OPENING)
+    _PART_LEAD_RE, _Unit, _classify, _line_heading, accuracy_marked, _NOT_OPENING = (
+        g._PART_LEAD_RE, g._Unit, g._classify, g._line_heading, g.accuracy_marked, g._NOT_OPENING)
     starts = [0]
     for m in _PARAGRAPH_CUT_RE.finditer(text):
         starts.append(m.end())
@@ -200,7 +215,7 @@ def _units(text: str, rows: list[dict]) -> list:
     # lines that continue one, and every sentence of a line shares it)
     last_lines = [line_of(max(r["a"], r["b"] - 1)) for r in rows]
     logical: list[int] = [min(r["line"], line_of(r["a"])) for r in rows]
-    accuracy_lines = {li for li, pl in enumerate(plains) if _ACCURACY_MARK_RE.search(pl)}
+    accuracy_lines = {li for li, pl in enumerate(plains) if accuracy_marked(pl)}  # linear (generic_parser.accuracy_marked)
     units: list[_Unit] = []
     paras = [paragraph(r["a"]) for r in rows]
     # heading status per logical line: the line's own text (its statements), and whether a line follows it in its paragraph
@@ -256,7 +271,7 @@ def _quotations(text_st: str, view_st: str) -> list[tuple[int, int, str]]:
     """``(start, end, excerpt)`` of the quotations of one statement, found on the quotation view and
     read back from the original characters (the view only masks code and number marks)."""
     out: list[tuple[int, int, str]] = []
-    for start, end, inner in find_quotation_spans(view_st):
+    for start, end, inner in cited_quotation_spans(view_st):
         k = view_st.find(inner, start, end) if inner else -1
         excerpt = text_st[k:k + len(inner)] if k >= 0 else inner
         if len(excerpt.strip()) >= _MIN_QUOTE_CHARS:
@@ -270,17 +285,26 @@ class StemTextParser:
     document (bindings, show-that targets, planned check ids) as the STEM pack."""
 
     accepts_request_text = True
+    #: the channel passes the task's agents (``task_agent_ids``): with two or more, claim ids carry the agent qualifier
+    accepts_task_agents = True
 
     def __init__(self, agent_id: str = "science-specialist", mode: str = "sciences") -> None:
         self.agent_id = agent_id
         self.mode = mode if mode in MODE_PROFILES else "sciences"
+        #: the agent qualifier of the claim ids of the report being parsed ('' on a single-agent task)
+        self._qualifier = ""
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str, task_type: str,
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None,
-                       agent_id: Optional[str] = None, request_text: Optional[str] = None) -> SpecialistReport:
+                       agent_id: Optional[str] = None, request_text: Optional[str] = None,
+                       task_agent_ids: Optional[list[str]] = None) -> SpecialistReport:
+        """``task_agent_ids``: the agents of the task (the channel's plan); with two or more distinct agents every claim id
+        is qualified by this agent (``s1.1@ess-specialist``), with one (or none given) it is the statement's own id."""
         if not text or not text.strip():
             raise AdapterError("the specialist answer is empty")
         agent = agent_id or self.agent_id
+        self._qualifier = "@" + _generic().agent_claim_tag(agent) if len({a for a in (task_agent_ids or ()) if a}) >= 2 else ""
         base = dict(request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version, subject=subject,
                     course_level=course_level, task_type=task_type)
         doc = build_document(text, request_text, stem_profile_key(subject, self.mode))
@@ -322,7 +346,7 @@ class StemTextParser:
         statements, unresolved = self._statements(text, doc)
         docs = {t.document_id: t for t in supplied}
         view = si_quote_view(text, doc.profile.key) if len(doc.reading) == len(text) else text
-        markup = sorted(doc.spans.markup) if len(doc.reading) == len(text) else []
+        markup = _markup(text, doc)
         prose_valued = {pv.statement_id for pv in doc.prose_values}
         report_assumptions: list[str] = []
         rows: list[dict] = []
@@ -343,7 +367,7 @@ class StemTextParser:
                 for _s, _e, excerpt in quotes:
                     doc_id, notes_for_excerpt = attribute_excerpt(excerpt, named, docs, sentence=text_st)
                     if doc_id:
-                        refs.append(SourceRef(document_id=doc_id, excerpt=excerpt[:2000]))
+                        refs.append(SourceRef(document_id=doc_id, excerpt=(strip_trailing_punctuation(excerpt) or excerpt)[:2000]))  # as English reads it
                     assumptions.extend(notes_for_excerpt)
             if kind not in ("code", "table") and dangling_quote_offset(view[a:b]) is not None:
                 assumptions.append("the statement has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
@@ -361,10 +385,12 @@ class StemTextParser:
         for r in rows:
             if r["role"] == "analysis" and _ASSUMPTION_RE.search(split_note_clauses(r["text"])[0] or ""):
                 report_assumptions.append(r["text"][:500])
-        unresolved += self._self_report_notes(rows, self.mode)
+        unresolved += self._self_report_notes(rows, self.mode, self._qualifier)
         if doc.overflow:
-            unresolved.append(f"{doc.overflow} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {claim_id_for(TAIL_CLAIM_ID, self.mode)} and were not individually roled or checked")
-        cid = lambda sid: claim_id_for(sid, self.mode)  # noqa: E731
+            unresolved.append(f"{doc.overflow} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim "
+                              f"{claim_id_for(TAIL_CLAIM_ID, self.mode)}{self._qualifier} and were not individually roled or checked")
+        qualifier = self._qualifier
+        cid = lambda sid: claim_id_for(sid, self.mode) + qualifier  # noqa: E731
         pending = [dict(claim_id=cid(r["sid"]), claim_text=r["text"], claim_role=r["role"], proposed_claim_kind=r["claim_kind"], source_refs=r["refs"],
                         assumptions=r["assumptions"], materiality=r["materiality"], supporting_claim_ids=[cid(x) for x in r["supports"]],
                         advisory_verification_status=_SELF_REPORT if r["self_report"] else None) for r in rows[:_MAX_CLAIMS]]
@@ -511,10 +537,10 @@ class StemTextParser:
         return "analysis", "unknown", False
 
     @staticmethod
-    def _self_report_notes(rows: list[dict], mode: str) -> list[str]:
+    def _self_report_notes(rows: list[dict], mode: str, qualifier: str = "") -> list[str]:
         out: list[str] = []
         demoted = [r for r in rows if r["self_report"]]
         if demoted:
-            shown = "; ".join(f"{claim_id_for(r['sid'], mode)} ('{r['text'][:80]}')" for r in demoted)
+            shown = "; ".join(f"{claim_id_for(r['sid'], mode)}{qualifier} ('{r['text'][:80]}')" for r in demoted)
             out.append(f"{len(demoted)} statement(s) carrying verification-status language were roled other and count as no material claim: {shown[:600]}")
         return out

@@ -52,8 +52,52 @@ History of the review-fix bumps (external review of 12 October 2026):
   evidence-carrying, bound fidelity review; the release assessment (``release-v1``); the
   prompts ``translate_v2`` and ``review_v2`` (``translate_v1`` and ``review_v1`` stay
   packaged unchanged).
+
+History of the argument-diagnosis bumps (named diagnostics, rules ``argdiag-1``). Every
+change of this release ships under the versions below; the contract step sets them once:
+
+* ENGINE_VERSION 0.5.0: the argument stage of ``verify`` (``engine.argument``): named
+  diagnostics and the rule version that produced them (``argument_rules``) are part of a
+  result and of its signature; the keywords ``diagnose`` and ``severity_cap`` are Python
+  only; the release check refuses a named defect at warning or error (effective severity)
+  and a result whose diagnosis was not computed by this build.
+* POLICY_VERSION 2026.10-v5: the named-code table (``named.NAMED_CODES``, bound by digest)
+  and the argument rules version in the policy manifest; release rules 8 and 9.
+* TRANSLATOR_VERSION 0.5.0: premise roles in the translation record, the provider's
+  asserted ``verified`` paths, claim and report diagnostics on outcomes and receipts, and
+  the release assessment ``release-v2``.
+* ARG_RULES_VERSION ``argdiag-1``: the rule version every named diagnostic carries
+  (``named.NamedDiagnostic.rule_version``) and every diagnosed result records.
+
+The five repair rounds and close rounds 1 and 2 of the argument diagnosis shipped under
+these same versions (the release is not yet published); the build identity separated their
+engine results, but a translation record of an earlier round read as current (INV7-2 in
+docs/ARGUMENT_DIAGNOSTICS.md, section 7). Repair round 3 adds ARG-NS-003 and ST-STEP-003 to
+the named-code table (bound by digest in the policy identity) and widens the eligibility
+policy of 2026.10-v5: a claim that states its own reason ("A, so B") is an argument with no
+supporting claim (``translate.eligibility``).
+
+Close round 3 bumps the two versions whose rules changed under unchanged stamps, so that a
+result of an earlier round of this release never reads as current:
+
+* TRANSLATOR_VERSION 0.5.1: the translation-pipeline and claim-rule changes of the repair
+  rounds and close rounds 1 to 3 (a translation record of an earlier round now reads as
+  stale: ``outcome`` checks the translator version).
+* ARG_RULES_VERSION ``argdiag-2``: the argument and evidence rules as the close rounds left
+  them (EVD-SRC-001 no longer names a premise that restates a supposition the task sets). A
+  result diagnosed under ``argdiag-1`` is refused by release rule 9 (another rule version),
+  and the policy manifest, which binds the rules version, changes with it.
+
+ENGINE_VERSION and POLICY_VERSION stay: no compilation, procedure, limit, allowlist or
+eligibility rule changed in close round 3, and the build and policy identities already
+separate every earlier engine result (``version.py`` and the rules version are bound into
+them).
+
+IR_VERSION stays 1.0: no field, operator or sort of the IR changes.
 """
 IR_VERSION = "1.0"
-ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.10-v4"
-TRANSLATOR_VERSION = "0.4.0"
+ENGINE_VERSION = "0.5.0"
+POLICY_VERSION = "2026.10-v5"
+TRANSLATOR_VERSION = "0.5.1"
+#: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
+ARG_RULES_VERSION = "argdiag-2"

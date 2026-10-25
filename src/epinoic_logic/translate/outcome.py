@@ -36,6 +36,15 @@ Display rules (never relaxed):
 * ``INVALID_FORMALIZATION``  -> ``INVALID_FORMALIZATION``
 * ``TRANSLATION_FAILED``     -> ``INTERNAL_ERROR``
 
+Whatever its status, a translation record this translator did not make is displayed
+``INTERNAL_ERROR`` and never released (:func:`translation_staleness`): a record of another
+translator version, or one bound to no claim text (no ``claim_text_sha256``: every record of
+contract 0.2 and later carries it), must be translated and verified again, not trusted
+(integration contract, section 9). Its fields come from an older, weaker pipeline (grounding,
+coverage, figure readings, repairs), so neither its own verdict nor an engine result verified
+for its problem is shown. The review binding cannot catch it, since it is computed from the same
+record.
+
 Release (``ReleaseAssessment``, :func:`assess_release`) is a separate record: whether the
 claim's checks permit releasing the answer automatically. A formal ENTAILED never grants it on
 its own: the engine's own release check must pass (``engine.release.release_check``: an
@@ -48,11 +57,22 @@ retry may have changed the claim beyond its source, and the required fidelity re
 ``faithful``, made with the evidence and bound to the current inputs (a changed source or
 supporting claim makes it stale). The model's review never changes the display status.
 
+Argument diagnosis (rules ``argdiag-2``): every outcome, NOT_ELIGIBLE included, carries the claim's
+named diagnostics (``named_diagnostics``: the trusted engine result's own, merged with the claim
+layer's, :mod:`.diag_core`) and the rules that did not finish (``diagnosis_incomplete``). They are
+advisory and never change the display status; release (``release-v2``) refuses a claim with a named
+defect at warning or error by effective severity, so a capped warning still blocks it, and an info
+diagnostic never blocks or permits anything on its own. The summary shows them in their own section,
+directly after the verification lines, under "Argument diagnosis (advisory; the status above is
+unchanged; rules argdiag-2)", or says "none found", "incomplete" or "not computed". For an ambiguous
+translation the engine run is capped (``verify(..., severity_cap=("info", "ambiguous_translation"))``),
+so its diagnostics have one severity in the signed result and in the outcome.
+
 The summary always ends with the engine's scope statement verbatim.
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 from ..engine.errors import ADVISORY_CODES, NO_VERDICT_CODES, DiagnosticCode
 from ..engine.provenance import stale_reasons, verify_signature
@@ -62,6 +82,8 @@ from ..engine.runner import verify as engine_verify
 from ..engine.statuses import DEFINITIVE, SCOPE_STATEMENT, VerificationStatus
 from ..ir.canonical import problem_digest
 from ..ir.schema import Problem
+from ..named import NamedDiagnostic, blocking_release_lines, diagnosis_section, is_blocking, model_text, one_line, rules_state
+from ..version import TRANSLATOR_VERSION
 from .common import new_id, truncate, utc_now_rfc3339
 from .contracts import (
     ClaimRecord,
@@ -77,17 +99,25 @@ from .contracts import (
     sha256_text,
 )
 from .coverage import coverage_digest
+from .diag_core import build_context, claim_diagnostics
 from .pipeline import Translator
 from .review import SemanticReviewer, review_currency
 
-__all__ = ["compose_outcome", "display_status_for", "verify_claim", "assess_release", "STATUS_MEANING", "SUMMARY_MAX_CHARS", "RELEASE_POLICY"]
+__all__ = ["compose_outcome", "display_status_for", "verify_claim", "assess_release", "translation_staleness", "STATUS_MEANING", "SUMMARY_MAX_CHARS",
+           "RELEASE_POLICY"]
 
-#: The release rule's version (bump on any change to :func:`assess_release`).
-RELEASE_POLICY = "release-v1"
+#: The release rule's version (bump on any change to :func:`assess_release` in a later release). ``release-v2`` (the
+#: argument-diagnosis release, rules argdiag-2): a named defect on the claim (warning or error by effective severity) is
+#: unresolved; a claim-layer diagnosis that did not finish is unresolved too (not computed is never read as none found:
+#: re-run review INV-5), and the engine release check's "named defect" reason is listed whenever the claim's own list
+#: names no blocking diagnostic.
+RELEASE_POLICY = "release-v2"
 #: The status that passes the formal check, per query kind.
 _PASSING = {"entailment": VerificationStatus.ENTAILED, "consistency": VerificationStatus.CONSISTENT, "satisfiability": VerificationStatus.SATISFIABLE}
 
 SUMMARY_MAX_CHARS = 4000
+#: Longest diagnosis line of a summary (the record itself keeps the whole message).
+_DIAGNOSIS_LINE_CHARS = 400
 _LABEL_CHARS = 160
 _DIAG_CHARS = 300
 _MAX_LISTED = 8
@@ -123,6 +153,20 @@ _TRANSLATION_DISPLAY: dict[TranslationStatus, VerificationStatus] = {
 }
 
 
+def translation_staleness(translation: TranslationResult) -> Optional[str]:
+    """Why ``translation`` is not a record this translator made, or ``None`` when it is one: its ``translator_version`` must
+    be this build's (:data:`~epinoic_logic.version.TRANSLATOR_VERSION`) and it must be bound to the claim text it read
+    (``claim_text_sha256``, which every record of contract 0.2 and later carries). Any other record is displayed
+    INTERNAL_ERROR and never released: it must be translated and verified again (integration contract, section 9)."""
+    reasons: list[str] = []
+    if translation.translator_version != TRANSLATOR_VERSION:
+        reasons.append(f"it was made by translator {truncate(str(translation.translator_version), 40)!r}, not by this translator ({TRANSLATOR_VERSION})")
+    if translation.claim_text_sha256 is None:
+        reasons.append("it is bound to no claim text (no claim_text_sha256: a record from before contract 0.2, or one no translator of this "
+                       "release made)")
+    return "; ".join(reasons) or None
+
+
 def _binding_problem(
     translation: TranslationResult,
     verification: Optional[VerificationResult],
@@ -131,10 +175,14 @@ def _binding_problem(
 ) -> Optional[str]:
     """Why ``verification`` cannot be trusted for ``translation``; ``None`` when it binds.
 
-    With ``signing_key`` the result must also carry a signature that verifies under
-    that key (and, when ``key_id`` is given, name that key); a result whose status or
-    content was altered after signing is rejected here rather than displayed.
+    A translation record this translator did not make (:func:`translation_staleness`) binds no result: the engine result
+    of its problem is rejected with it. With ``signing_key`` the result must also carry a signature that verifies under
+    that key (and, when ``key_id`` is given, name that key); a result whose status or content was altered after signing is
+    rejected here rather than displayed.
     """
+    stale = translation_staleness(translation)
+    if stale is not None:
+        return f"the translation record is not current ({stale}); translate and verify the claim again"
     if verification is None:
         return "no engine result was produced for the translated problem"
     problem = translation.problem
@@ -152,7 +200,7 @@ def _binding_problem(
             return f"the engine result is unsigned although a signing key is configured ({DiagnosticCode.SIGNATURE_INVALID.value})"
         if key_id is not None and verification.signature_key_id != key_id:
             return f"the engine result is signed with an unexpected key id ({DiagnosticCode.SIGNATURE_INVALID.value})"
-        if not verify_signature(verification, signing_key):
+        if not verify_signature(verification, signing_key, key_id=key_id):
             return f"the engine result's signature does not verify ({DiagnosticCode.SIGNATURE_INVALID.value})"
     return None
 
@@ -202,7 +250,10 @@ def display_status_for(
     signing_key: Optional[bytes] = None,
     key_id: Optional[str] = None,
 ) -> VerificationStatus:
-    """Deterministic display status for a translation plus optional engine result."""
+    """Deterministic display status for a translation plus optional engine result. A translation record this translator did
+    not make is INTERNAL_ERROR whatever its status (:func:`translation_staleness`)."""
+    if translation_staleness(translation) is not None:
+        return VerificationStatus.INTERNAL_ERROR
     if translation.status is TranslationStatus.TRANSLATED:
         if _binding_problem(translation, verification, signing_key, key_id) is not None:
             return VerificationStatus.INTERNAL_ERROR
@@ -217,11 +268,12 @@ def display_status_for(
 
 
 def _label(problem: Problem, assertion_id: str) -> str:
+    """An assertion's label as the summary shows it: model text on one line, its forgery words masked (``named.model_text``)."""
     for p in problem.premises:
         if p.id == assertion_id:
-            return truncate(p.label or "(no label)", _LABEL_CHARS)
+            return model_text(p.label or "(no label)", _LABEL_CHARS)
     if problem.conclusion is not None and problem.conclusion.id == assertion_id:
-        return truncate(problem.conclusion.label or "(no label)", _LABEL_CHARS)
+        return model_text(problem.conclusion.label or "(no label)", _LABEL_CHARS)
     return "(not in problem)"
 
 
@@ -244,6 +296,14 @@ def _listed(items: list[str]) -> str:
     return "; ".join(shown) + (f"; and {more} more" if more > 0 else "")
 
 
+def _currency_lines(translation: TranslationResult) -> list[str]:
+    stale = translation_staleness(translation)
+    if stale is None:
+        return []
+    return [f"Translation record not current: {stale}. It is displayed INTERNAL_ERROR, never as a verdict, and the claim must be translated "
+            "and verified again."]
+
+
 def _eligibility_lines(translation: TranslationResult) -> list[str]:
     e = translation.eligibility
     state = "eligible for the formal check" if e.eligible else f"not eligible; routed to {e.route_to or 'unresolved'}"
@@ -259,7 +319,7 @@ def _checked_lines(translation: TranslationResult) -> list[str]:
         f"Checked: {problem.query} query over {len(problem.symbols)} symbol(s) and {len(problem.premises)} premise(s)"
     )
     if problem.conclusion is not None:
-        text += f"; conclusion '{problem.conclusion.id}': {truncate(problem.conclusion.label or '(no label)', _LABEL_CHARS)}"
+        text += f"; conclusion '{problem.conclusion.id}': {model_text(problem.conclusion.label or '(no label)', _LABEL_CHARS)}"
     lines = [text + "."]
     # the label is shown beside the verdict, so a figure it states that the expression does not check is named with it
     lines += [f"Note: the {truncate(d, _DIAG_CHARS)}." for d in translation.diagnostics if d.startswith("conclusion label states figure(s)")][:1]
@@ -382,7 +442,7 @@ def _ambiguity_lines(translation: TranslationResult) -> list[str]:
     if not flags:
         return ["Ambiguity: the provider marked the claim ambiguous without listing specific flags."]
     return ["Ambiguity: " + _listed([
-        f"{f.code}: {truncate(f.message, _DIAG_CHARS)}" + (f" (alternatives: {' | '.join(truncate(a, 80) for a in f.alternatives)})" if f.alternatives else "")
+        f"{f.code}: {model_text(f.message, _DIAG_CHARS)}" + (f" (alternatives: {' | '.join(model_text(a, 80) for a in f.alternatives)})" if f.alternatives else "")
         for f in flags
     ]) + "."]
 
@@ -410,7 +470,7 @@ def _review_lines(review: Optional[SemanticFidelityReview], currency: Optional[t
         return []
     text = f"Advisory semantic-fidelity review: {review.verdict} (advisory only; not a verification)."
     if review.issues:
-        text += " Issues: " + _listed([truncate(i, _DIAG_CHARS) for i in review.issues]) + "."
+        text += " Issues: " + _listed([model_text(i, _DIAG_CHARS) for i in review.issues]) + "."
     if currency is not None:
         state, changed = currency
         if state == "stale":
@@ -429,7 +489,7 @@ def _repair_lines(translation: TranslationResult) -> list[str]:
     if not semantic:
         return []
     return ["Semantic changes on retry (recorded apart from syntax repairs): " + _listed([
-        f"attempt {r.attempt} after {r.after_attempt} ({', '.join(r.rejected_for)}): conclusion {r.conclusion}; " + "; ".join(truncate(c, 160) for c in r.changes[1:4])
+        f"attempt {r.attempt} after {r.after_attempt} ({', '.join(r.rejected_for)}): conclusion {r.conclusion}; " + "; ".join(model_text(c, 160) for c in r.changes[1:4])
         for r in semantic]) + "."]
 
 
@@ -441,6 +501,37 @@ def _release_lines(release: Optional[ReleaseAssessment]) -> list[str]:
                 "passed, evidence resolved, fidelity review faithful and current)."]
     return [f"Release ({release.policy}): NOT permitted; formal status {release.formal_status.value} is reported separately. Unresolved: "
             + _listed([truncate(u, _DIAG_CHARS) for u in release.unresolved]) + "."]
+
+
+def _diagnosis_lines(named: Sequence[NamedDiagnostic], engine_state: str, incomplete: Sequence[str], *, room: Optional[int] = None) -> list[str]:
+    """The diagnosis section (``named.diagnosis_section``), each line cut to its summary length. It says nothing about the
+    status, which it never changes. Blocking diagnostics (warning or error by effective severity) are listed before the
+    info records, each group in its own order, so a section shortened for length never hides a warning behind a record.
+
+    ``room`` is what the summary's other lines leave (:func:`build_summary`): the advisory section never displaces a line
+    the summary shows without it (failed grounding checks, structural findings, the review). It is fitted by showing
+    fewer lines ("- and N more"; the outcome's ``named_diagnostics`` keeps every one), then shorter ones; the heading,
+    the count and a note that the diagnosis is incomplete always stay, and only when even they do not fit is the summary
+    cut as before."""
+    items = list(named)
+    shown = [d for d in items if is_blocking(d)] + [d for d in items if not is_blocking(d)]
+
+    def section(max_lines: int, line_chars: int) -> list[str]:
+        return [truncate(line, line_chars) for line in diagnosis_section(shown, engine_state=engine_state, incomplete=list(incomplete), max_lines=max_lines)]
+
+    full = section(6, _DIAGNOSIS_LINE_CHARS)
+    if room is None or len("\n".join(full)) <= room:
+        return full
+    for line_chars in (_DIAGNOSIS_LINE_CHARS, _FITTED_LINE_CHARS):
+        for max_lines in range(6, 0, -1):
+            candidate = section(max_lines, line_chars)
+            if len("\n".join(candidate)) <= room:
+                return candidate
+    return section(1, _FITTED_LINE_CHARS)
+
+
+#: The length diagnosis lines are cut to when the section must also be shortened line by line to fit (:func:`_diagnosis_lines`).
+_FITTED_LINE_CHARS = 160
 
 
 def _fit(body: str, tail: str, limit: int = SUMMARY_MAX_CHARS) -> str:
@@ -466,27 +557,41 @@ def build_summary(
     key_id: Optional[str] = None,
     release: Optional[ReleaseAssessment] = None,
     review_state: Optional[tuple[str, list[str]]] = None,
+    named: Sequence[NamedDiagnostic] = (),
+    engine_state: str = "not_computed",
+    incomplete: Sequence[str] = (),
 ) -> str:
     """Deterministic plain-language summary; ends with ``SCOPE_STATEMENT`` verbatim. The release line comes third, so a
-    long summary is cut elsewhere."""
+    long summary is cut elsewhere. The argument diagnosis section follows the verification lines; ``engine_state`` is
+    ``named.rules_state`` of the trusted engine result (``not_computed`` without one). Every line is one line
+    (``named.one_line``) and the model text it shows (labels, ambiguity flags, review issues, retry changes) has its
+    forgery words masked (``named.model_text``), so no model text can write a status, a release line or a section."""
     lines: list[str] = [
         f"Claim {claim.claim_id} (role {claim.claim_role}, subject {claim.subject}): "
         f"translation {translation.status.value}; display status {display.value}.",
         f"Status meaning: {STATUS_MEANING[display]}.",
     ]
     lines += _release_lines(release)
+    lines += _currency_lines(translation)
     lines += _eligibility_lines(translation)
     lines += _checked_lines(translation)
     lines += _verification_lines(translation, verification, signing_key, key_id)
     if translation.status is TranslationStatus.TRANSLATED and verification is None:
         lines.append("Engine result rejected: no engine result was produced for the translated problem.")
-    lines += _grounding_lines(translation)
-    lines += _ambiguity_lines(translation)
-    lines += _repair_lines(translation)
-    lines += _translation_diagnostic_lines(translation)
-    lines += _structural_lines(structural)
-    lines += _review_lines(review, review_state)
-    return _fit("\n".join(lines), SCOPE_STATEMENT)
+    after: list[str] = []
+    after += _grounding_lines(translation)
+    after += _ambiguity_lines(translation)
+    after += _repair_lines(translation)
+    after += _translation_diagnostic_lines(translation)
+    after += _structural_lines(structural)
+    after += _review_lines(review, review_state)
+    # the advisory section gets the room the other lines leave: it is fitted into it, so it never pushes them out
+    # every line is one line: no label, meaning, note or message interpolated into it can start a summary line of its own
+    lines = [one_line(line) for line in lines]
+    after = [one_line(line) for line in after]
+    others = len("\n".join(lines + after)) + 1 + len(SCOPE_STATEMENT)
+    section = [one_line(line) for line in _diagnosis_lines(named, engine_state, incomplete, room=SUMMARY_MAX_CHARS - others - 1)]
+    return _fit("\n".join(lines + section + after), SCOPE_STATEMENT)
 
 
 def assess_release(
@@ -497,6 +602,8 @@ def assess_release(
     display: VerificationStatus,
     review_state: Optional[tuple[str, list[str]]] = None,
     engine_check: Optional[ReleaseCheck] = None,
+    named_diagnostics: Sequence[NamedDiagnostic] = (),
+    diagnosis_incomplete: Sequence[str] = (),
 ) -> ReleaseAssessment:
     """Whether this claim's checks permit releasing the answer automatically (see :class:`~.contracts.ReleaseAssessment`).
     Deterministic; the formal status is reported, never upgraded or downgraded, and anything unresolved is listed.
@@ -504,11 +611,21 @@ def assess_release(
     ``engine_check`` is the engine's own release check of ``verification`` (``engine.release.release_check``, under the
     composer's key): release needs it to pass. Its reasons that this assessment does not state in its own terms
     (authentication, binding, currency, missing dependency evidence) are listed here; without it a passing formal check
-    cannot permit release, since nothing confirmed that the result is authentic and current."""
+    cannot permit release, since nothing confirmed that the result is authentic and current.
+
+    ``named_diagnostics`` are the claim's named diagnostics (every layer): any whose effective severity is warning or error
+    is unresolved, so a capped warning still blocks release; info never blocks. Those shown at warning or error are listed
+    as "named defect on this claim: <code> (<defect>)", the capped ones, shown at info, under their own line with their cap
+    and no defect label (:func:`~epinoic_logic.named.blocking_release_lines`).
+    ``diagnosis_incomplete`` names the diagnosis rules that did not finish (a rule that raised, an overflow, an incomplete
+    engine stage): any is unresolved, since a diagnosis that was not computed is never read as "none found"."""
     unresolved: list[str] = []
     problem = translation.problem
     passing = _PASSING.get(problem.query) if problem is not None else None
-    formal_ok = translation.status is TranslationStatus.TRANSLATED and passing is not None and display is passing
+    stale = translation_staleness(translation)
+    formal_ok = stale is None and translation.status is TranslationStatus.TRANSLATED and passing is not None and display is passing
+    if stale is not None:
+        unresolved.append(f"translation record not current ({stale}): translate and verify the claim again")
     if translation.status is not TranslationStatus.TRANSLATED:
         unresolved.append(f"translation {translation.status.value}: no encoding was accepted as the claim's")
     elif not formal_ok:
@@ -527,7 +644,9 @@ def assess_release(
             unresolved.append("the engine's release check was not run on this result")
         elif not engine_check.eligible:
             # what the formal status and the dependency lists above already state is not repeated
-            stated = ("no positive verdict", "no verdict on the claim", "unresolved dependencies")
+            # the engine's "named defect" is stated below only when the claim's own list names a blocking diagnostic
+            claim_names = any(is_blocking(d) for d in named_diagnostics)
+            stated = ("no positive verdict", "no verdict on the claim", "unresolved dependencies") + (("named defect", "capped diagnostic") if claim_names else ())
             extra = [r for r in engine_check.reasons if not r.startswith(stated)]
             if extra:
                 unresolved.append("engine release check: " + "; ".join(extra[:4]))
@@ -552,6 +671,9 @@ def assess_release(
     errors = [f.code for f in structural if f.severity == "error"]
     if errors:
         unresolved.append("structural errors: " + ", ".join(sorted(set(errors))[:8]))
+    unresolved.extend(blocking_release_lines(named_diagnostics, "named defect on this claim", 8))
+    if diagnosis_incomplete:
+        unresolved.append("argument diagnosis incomplete (not computed is never read as none found): " + "; ".join(list(diagnosis_incomplete)[:4]))
     if review is None:
         fidelity = "missing"
         unresolved.append("no semantic-fidelity review: translation fidelity is unresolved")
@@ -615,8 +737,10 @@ def compose_outcome(
     trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
     engine_check = (release_check(trusted, translation.problem, signing_key=signing_key, key_id=key_id)
                     if trusted is not None and translation.problem is not None else None)
-    release = assess_release(translation, trusted, review, findings, display, review_state, engine_check)
-    summary = build_summary(claim, translation, verification, review, findings, display, signing_key, key_id, release, review_state)
+    named, incomplete, engine_state = _diagnosis(claim, translation, verification, display, signing_key, key_id, report, task)
+    release = assess_release(translation, trusted, review, findings, display, review_state, engine_check, named, incomplete)
+    summary = build_summary(claim, translation, verification, review, findings, display, signing_key, key_id, release, review_state,
+                            named=named, engine_state=engine_state, incomplete=incomplete)
     return ClaimVerificationOutcome(
         outcome_id=new_id("oc"),
         request_id=claim.request_id,
@@ -630,7 +754,26 @@ def compose_outcome(
         summary=summary,
         created_at=utc_now_rfc3339(),
         release=release,
+        named_diagnostics=named,
+        diagnosis_incomplete=incomplete,
     )
+
+
+def _diagnosis(claim: ClaimRecord, translation: TranslationResult, verification: Optional[VerificationResult], display: VerificationStatus,
+               signing_key: Optional[bytes], key_id: Optional[str], report: Optional[SpecialistReport], task: Optional[TaskRecord]
+               ) -> tuple[list[NamedDiagnostic], list[str], str]:
+    """``(named diagnostics, incomplete rules, engine state)`` of one claim. Only an engine result that binds to the translated
+    problem, is current and (with the key) carries a signature that verifies contributes its diagnostics; anything else is
+    "not computed" for the engine layer. Never raises: a failure is recorded as incomplete and names nothing."""
+    trusted = (verification if verification is not None and translation.problem is not None
+               and _binding_problem(translation, verification, signing_key, key_id) is None else None)
+    try:
+        ctx, missing = build_context(claim, translation, display, verification=trusted, report=report, task=task)
+        diagnosis = claim_diagnostics(ctx, missing)
+    except Exception as exc:  # noqa: BLE001 - the diagnosis only adds; its failure is named, never raised
+        return [], [f"diag_core: {type(exc).__name__}"], rules_state(trusted.argument_rules)[0] if trusted is not None else "not_computed"
+    engine_state = rules_state(trusted.argument_rules)[0] if trusted is not None else "not_computed"
+    return list(diagnosis.diagnostics), list(diagnosis.incomplete), engine_state
 
 
 def verify_claim(
@@ -649,7 +792,9 @@ def verify_claim(
     The engine runs only for ``TRANSLATED`` and ``AMBIGUOUS_TRANSLATION`` results
     that carry a problem. For an ambiguous claim the best-reading problem is still
     verified so reviewers can inspect it, but the display status stays
-    ``AMBIGUOUS_TRANSLATION``. The reviewer, when given, runs whenever a problem exists,
+    ``AMBIGUOUS_TRANSLATION``, and the engine's argument diagnosis is capped at info
+    on that assumed reading (``capped_from`` keeps the uncapped severity, which
+    release still reads). The reviewer, when given, runs whenever a problem exists,
     with the report's evidence (and ``task``, the task record, when the caller holds it).
     """
     translation = translator.translate(claim, report, task=task)
@@ -658,7 +803,8 @@ def verify_claim(
         TranslationStatus.TRANSLATED,
         TranslationStatus.AMBIGUOUS_TRANSLATION,
     ):
-        verification = engine_verify(translation.problem, config, signing_key=signing_key, key_id=key_id)
+        cap = ("info", "ambiguous_translation") if translation.status is TranslationStatus.AMBIGUOUS_TRANSLATION else None
+        verification = engine_verify(translation.problem, config, signing_key=signing_key, key_id=key_id, severity_cap=cap)
     review: Optional[SemanticFidelityReview] = None
     if reviewer is not None and translation.problem is not None:
         review = reviewer.review(claim, translation, report=report, task=task)

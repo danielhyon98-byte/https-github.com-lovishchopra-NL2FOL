@@ -17,8 +17,9 @@ so an offset in any view is the same offset in the original.
       an operator, ``(`` or a relation sign and before a digit or a letter; ``3–5 s``
       between two numbers stays a dash (a range, named unsupported) and so does ``H–H``;
     * U+2011 NON-BREAKING HYPHEN becomes ``-``;
-    * ``×`` stays its own token; superscript and subscript digits and signs stay as they
-      stand (nothing is expanded). Letters of other scripts are left alone, so a Cyrillic
+    * ``×`` stays its own token, except the magnification notation ``×2`` right after a relation sign
+      (``M = 40 / 20 = ×2``), which reads as the number it marks (repair round 2); superscript and subscript
+      digits and signs stay as they stand (nothing is expanded). Letters of other scripts are left alone, so a Cyrillic
       ``а`` that looks like a Latin ``a`` is never read as one: the lexer rejects it.
 
 :func:`masked_view` replaces given ranges by a same-length placeholder: an upper-case
@@ -56,6 +57,8 @@ def reading_view(text: str) -> str:
         rep = _SIMPLE.get(ch)
         if rep is not None:
             out[i] = rep
+        elif ch == "×" and i + 1 < n and text[i + 1].isdigit() and text[:i].rstrip(" \t")[-1:] in ("=", "≈"):
+            out[i] = " "  # '= ×2': a magnification written with its times sign, the number it marks
         elif ch in _DASHES:
             prev = text[i - 1] if i > 0 else " "
             nxt = text[i + 1] if i + 1 < n else ""
@@ -85,17 +88,8 @@ def masked_view(text: str, ranges: Iterable[tuple[int, int]]) -> str:
     pos = 0
     for a, b in merged:
         parts.append(text[pos:a])
-        seg = text[a:b]
-        filled = []
-        head = True
-        for ch in seg:
-            if ch == "\n":
-                filled.append("\n")
-                head = True
-            else:
-                filled.append(MASK_HEAD if head else MASK_FILL)
-                head = False
-        parts.append("".join(filled))
+        # each line of the range: a head placeholder, then fill (one string operation per line, not per character)
+        parts.append("\n".join((MASK_HEAD + MASK_FILL * (len(line) - 1)) if line else "" for line in text[a:b].split("\n")))
         pos = b
     parts.append(text[pos:])
     return "".join(parts)
@@ -112,7 +106,7 @@ def blank_ranges(text: str, ranges: Iterable[tuple[int, int]]) -> str:
     pos = 0
     for a, b in merged:
         parts.append(text[pos:a])
-        parts.append("".join("\n" if ch == "\n" else " " for ch in text[a:b]))
+        parts.append("\n".join(" " * len(line) for line in text[a:b].split("\n")))  # one string operation per line
         pos = b
     parts.append(text[pos:])
     return "".join(parts)

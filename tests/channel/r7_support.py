@@ -116,7 +116,9 @@ def verify_fn_pooled(task_id: str, fixture_ids: list[str]):
     fixtures = [TRANSLATIONS[task_id]["claims"][cid] for cid in fixture_ids]
     bound: dict[str, dict] = {}
 
-    def fn(claim, report):
+    def fn(claim, report, task=None):
+        # The channel passes the task record of the request (as it does to every task-aware verifier): since policy
+        # 2026.10-v5 a restated task setting is a transcription only when a check validated it against that record.
         as_quantity = claim.model_copy(update={"claim_role": "quantitative", "proposed_claim_kind": "arithmetic"})
         if claim.claim_id not in bound and len(bound) < len(fixtures) and decide_eligibility(as_quantity).eligible:
             bound[claim.claim_id] = fixtures[len(bound)]
@@ -126,7 +128,8 @@ def verify_fn_pooled(task_id: str, fixture_ids: list[str]):
         obj = json.loads(json.dumps(obj))
         obj["problem"]["claim_id"] = claim.claim_id
         obj["problem"]["request_id"] = claim.request_id
-        outcome = verify_claim(as_quantity, report, Translator(FixtureTranslationProvider({claim.claim_id: json.dumps(obj)})), config=CFG, signing_key=KEY)
+        outcome = verify_claim(as_quantity, report, Translator(FixtureTranslationProvider({claim.claim_id: json.dumps(obj)})), config=CFG, signing_key=KEY,
+                               task=task)
         return outcome
     return fn
 

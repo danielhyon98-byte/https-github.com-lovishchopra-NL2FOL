@@ -6,6 +6,6 @@ Used by the ``sciences``, ``mathematics`` and ``computer_science`` branches
 """
 from __future__ import annotations
 
-from .parser import CHECKS_ASSUMPTION, ID_PREFIXES, MODE_PROFILES, TAIL_CLAIM_ID, StemTextParser, claim_id_for, stem_profile_key
+from .parser import CHECKS_ASSUMPTION, ID_PREFIXES, MODE_PROFILES, TAIL_CLAIM_ID, StemTextParser, claim_id_for, statement_claim_text, stem_profile_key
 
-__all__ = ["CHECKS_ASSUMPTION", "ID_PREFIXES", "MODE_PROFILES", "StemTextParser", "TAIL_CLAIM_ID", "claim_id_for", "stem_profile_key"]
+__all__ = ["CHECKS_ASSUMPTION", "ID_PREFIXES", "MODE_PROFILES", "StemTextParser", "TAIL_CLAIM_ID", "claim_id_for", "statement_claim_text", "stem_profile_key"]

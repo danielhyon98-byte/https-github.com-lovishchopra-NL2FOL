@@ -490,7 +490,7 @@ def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[
     another event and is not used. Returns the token and the sentence it stands in, or None and a
     reason (no mention, or several dates)."""
     found: dict[int, tuple[DateToken, str]] = {}
-    target = " ".join(sentence.split())
+    target = _normalized(sentence)
     for other, normalized, tokens in _paragraph_sentences(context):
         if normalized == target or target in normalized:
             continue
@@ -592,7 +592,7 @@ def _previous_sentence_date(sentence: str, context: Optional[str]) -> tuple[Opti
     if not context:
         return None, ""
     sentences = _paragraph_sentences(context)
-    target = " ".join(sentence.split())
+    target = _normalized(sentence)
     for i, (_s, normalized, _tokens_of) in enumerate(sentences):
         if normalized == target:
             if i == 0:
@@ -656,6 +656,31 @@ def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[
     return out
 
 
+#: A cue orders the events of its own clause: each cue reads at most this many characters of its sentence on either side
+#: (cut back to a word boundary). A sentence of prose lies inside it whole, so it is read exactly as before; a run-on text of
+#: thousands of cues is read in time linear in its length, never each cue against the whole text (repair round 3, ADV3-10).
+_CUE_WINDOW = 1000
+
+
+def _cue_window(sentence: str, start: int, end: int) -> tuple[int, int]:
+    """The bounds ``(lo, hi)`` of the text a cue at ``start:end`` reads: :data:`_CUE_WINDOW` characters on either side, the
+    left bound moved forward and the right bound back to the nearest whitespace, so no word or date is cut."""
+    lo, hi = max(0, start - _CUE_WINDOW), min(len(sentence), end + _CUE_WINDOW)
+    if lo > 0:
+        cut = sentence.find(" ", lo, start)
+        lo = cut + 1 if cut >= 0 else start
+    if hi < len(sentence):
+        cut = sentence.rfind(" ", end, hi)
+        hi = cut if cut >= 0 else end
+    return lo, hi
+
+
+@lru_cache(maxsize=256)
+def _normalized(text: str) -> str:
+    """``text`` with its whitespace runs collapsed, memoised: every cue of a long sentence asks for the same sentence."""
+    return " ".join(text.split())
+
+
 def _cue_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
     out: list[ChronologyRelation] = []
     cues = list(_CUE_RE.finditer(sentence))
@@ -684,6 +709,7 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
         emit(ChronologyRelation(cue, later_txt, earlier_txt, None, None, False, reason, sentence))
 
     cue_start = 0
+    view, view_start = sentence, 0   # the text the current cue reads (_cue_window) and where it starts in the sentence
 
     def across(cue: str, left_tok: Optional[DateToken], right_tok: Optional[DateToken], left_text: str, right_text: str) -> None:
         """A cue with a side that carries no date in the sentence: look the side's event up in the paragraph."""
@@ -693,16 +719,16 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
         l_cross = r_cross = False
         l_pron = False   # the left side is a pronoun dated by the clause before it (same sentence: not stated across sentences)
         if left_tok is None:
-            left_tok, l_phrase, l_anaphor, lhow = _side_date(left_text, trailing=True, context=context, sentence=sentence)
+            left_tok, l_phrase, l_anaphor, lhow = _side_date(left_text, trailing=True, context=context, sentence=view)
             l_cross = left_tok is not None
             if left_tok is None:
                 # '..., and it came before ...': the pronoun is the subject of the clause before it, dated there once
-                pron = _pronoun_subject_date(sentence, cue_start, left_text)
+                pron = _pronoun_subject_date(view, cue_start - view_start, left_text)
                 if pron is not None:
                     left_tok, lhow = pron
                     l_pron = True
         if right_tok is None:
-            right_tok, r_phrase, r_anaphor, rhow = _side_date(right_text, trailing=False, context=context, sentence=sentence)
+            right_tok, r_phrase, r_anaphor, rhow = _side_date(right_text, trailing=False, context=context, sentence=view)
             r_cross = right_tok is not None
         if left_tok is not None and right_tok is not None:
             later, earlier = _orient_cue(cue, left_tok, right_tok)
@@ -713,7 +739,7 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
         # a side named by a proper name dated elsewhere in the sentence or the paragraph ('..., the Great Western reached Bristol in
         # 1841, three years before the London and Birmingham opened', the London and Birmingham dated 1838 earlier in the sentence)
         named_tok, named_how, named_phrase = _named_event_date(right_text if left_tok is not None else left_text, trailing=left_tok is None,
-                                                               sentence=sentence, context=context, cue_start=cue_start)
+                                                               sentence=view, context=context, cue_start=cue_start - view_start)
         if named_tok is not None:
             later, earlier = _orient_cue(cue, left_tok if left_tok is not None else named_tok, right_tok if right_tok is not None else named_tok)
             emit(resolve(cue, later, earlier, named_how))
@@ -751,7 +777,9 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
     for m in cues:
         cue = _cue_name(m)
         cue_start = m.start()
-        left_text, right_text = sentence[: m.start()], sentence[m.end():]
+        view_start, view_end = _cue_window(sentence, m.start(), m.end())
+        view = sentence[view_start:view_end]
+        left_text, right_text = sentence[view_start: m.start()], sentence[m.end(): view_end]
         if _NOT_A_CUE_BEFORE_RE.search(left_text):
             continue
         if cue in ("later than", "earlier than", "sooner than") and re.search(r"\b(?:no|not|nothing|none)\s+$", left_text, re.IGNORECASE):

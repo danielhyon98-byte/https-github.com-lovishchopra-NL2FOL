@@ -163,8 +163,8 @@ from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, Sup
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
-    is_self_certification, mask_json_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
+    cited_quotation_spans, find_json_spans, find_quotation_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence,
+    is_peer_attribution, is_self_certification, mask_json_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
 from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
@@ -217,6 +217,39 @@ _ALPHA_RE = re.compile(r"[^\W\d_]")
 #: pasted JSON fragment, when the next word starts with a capital or a digit ("... dissent. 258 words.") or opens a JSON
 #: object (``{"``). An abbreviation before a figure ("l. 4", "p. 12", "c. 1900", "No. 5") is still not a boundary.
 _BOUNDARY_RE = re.compile(r"(?:[.!?]+[\"”’')\]»]*|[}\]])(?=\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\"))")
+#: The candidates of :data:`_BOUNDARY_RE` and what must follow one, read in one pass by :func:`_boundaries`: the pattern itself,
+#: through ``finditer``, retries a run of end marks from every position of it when no white space follows the run (a
+#: 20,000-character run of '!' took minutes), so it is kept only as the definition :func:`_boundaries` reproduces.
+_BOUNDARY_CANDIDATE_RE = re.compile(r"[.!?}\]]")
+_END_MARK_RUN_RE = re.compile(r"[.!?]+")
+_BOUNDARY_CLOSERS_RE = re.compile(r"[\"”’')\]»]*")
+_BOUNDARY_NEXT_RE = re.compile(r"\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\")")
+
+
+def _boundaries(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of every match of :data:`_BOUNDARY_RE` in ``text``, in order, read in one pass: a run of end marks
+    with the closing marks after it, or one ``}`` or ``]``, followed by white space and an opening capital, digit or JSON
+    opener. Each run of marks is read once and the white space after a candidate is read by one anchored match."""
+    out: list[tuple[int, int]] = []
+    i, n = 0, len(text)
+    while i < n:
+        hit = _BOUNDARY_CANDIDATE_RE.search(text, i)
+        if hit is None:
+            break
+        i = hit.start()
+        if text[i] in ".!?":
+            run_end = _END_MARK_RUN_RE.match(text, i).end()
+            end = _BOUNDARY_CLOSERS_RE.match(text, run_end).end()
+            if _BOUNDARY_NEXT_RE.match(text, end):
+                out.append((i, end))
+                i = end
+            else:
+                i = run_end  # no position inside the run can match either: the run's end is the same from each
+            continue
+        if _BOUNDARY_NEXT_RE.match(text, i + 1):
+            out.append((i, i + 1))
+        i += 1
+    return out
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
@@ -311,8 +344,14 @@ class Paragraph:
 
 
 def _iter_quotes(text: str) -> Iterator[tuple[int, int, str]]:
-    """Yield ``(start, end, inner)`` for every delimited quotation span of ``text`` in order."""
+    """Yield ``(start, end, inner)`` for every delimited quotation span of ``text`` in order (masking, splitting and counting)."""
     yield from find_quotation_spans(text)
+
+
+def _iter_cited_quotes(text: str) -> Iterator[tuple[int, int, str]]:
+    """Yield ``(start, end, inner)`` for every delimited span of ``text`` whose role is a quotation (``markdown.cited_quotation_spans``):
+    the spans an evidence reference is built from."""
+    yield from cited_quotation_spans(text)
 
 
 def find_quotations(sentence: str) -> tuple[Quotation, ...]:
@@ -321,7 +360,7 @@ def find_quotations(sentence: str) -> tuple[Quotation, ...]:
     When the sentence holds the paragraph's dangling double mark, the text it opens
     (or closes) is returned too, as an undelimited quotation (``delimited=False``)."""
     found: list[Quotation] = []
-    for start, end, inner in _iter_quotes(sentence):
+    for start, end, inner in _iter_cited_quotes(sentence):
         excerpt = strip_trailing_punctuation(inner)
         if not excerpt or len(excerpt) > _MAX_EXCERPT_CHARS:
             continue
@@ -454,19 +493,19 @@ def split_sentences(paragraph: str) -> list[str]:
     json_cuts = sorted({c for a, b in json_spans for c in (a, b)})
     cuts: set[int] = set(json_cuts)
     last_cut = 0  # the latest boundary cut so far; boundaries are visited in order, so it is the nearest one
-    for m in _BOUNDARY_RE.finditer(masked):
-        if spans and bisect_left(starts, m.start()) > 0 and furthest_end[bisect_left(starts, m.start()) - 1] > m.end():
+    for m_start, m_end in _boundaries(masked):
+        if spans and bisect_left(starts, m_start) > 0 and furthest_end[bisect_left(starts, m_start) - 1] > m_end:
             continue  # inside an open quotation
-        if json_spans and bisect_left(json_starts, m.start()) > 0 and json_furthest[bisect_left(json_starts, m.start()) - 1] > m.start():
+        if json_spans and bisect_left(json_starts, m_start) > 0 and json_furthest[bisect_left(json_starts, m_start) - 1] > m_start:
             continue  # inside a pasted JSON span
-        k = bisect_right(json_cuts, m.start())
+        k = bisect_right(json_cuts, m_start)
         prev = max(last_cut, json_cuts[k - 1] if k else 0)
-        if _is_abbreviation(masked[prev:m.start()], m.group(0), masked[m.end():m.end() + 8]):
+        if _is_abbreviation(masked[prev:m_start], masked[m_start:m_end], masked[m_end:m_end + 8]):
             continue
-        if m.group(0).startswith(".") and _INLINE_LIST_NUMBER_RE.search(masked[prev:m.start()].strip()):
+        if masked[m_start:m_end].startswith(".") and _INLINE_LIST_NUMBER_RE.search(masked[prev:m_start].strip()):
             continue  # "Fix it: 1. Choose ...": the list number opens the item
-        cuts.add(m.end())
-        last_cut = m.end()
+        cuts.add(m_end)
+        last_cut = m_end
     pieces: list[str] = []
     start = 0
     for cut in sorted(cuts):
@@ -781,7 +820,8 @@ def _closing_link(sentences: list[Sentence]) -> list[Sentence]:
 
 def is_peer_document(doc: SuppliedText) -> bool:
     """True for a colleague's report relayed through the hub (``peer:<task>``, authored by a specialist agent)."""
-    return doc.document_id.startswith(_PEER_DOCUMENT_PREFIX) or bool(doc.author and doc.author.endswith("-specialist"))
+    from ...translate.grounding import is_peer_id
+    return is_peer_id(doc.document_id) or bool(doc.author and doc.author.endswith("-specialist"))
 
 
 def _document_names(doc: SuppliedText) -> list[str]:
@@ -946,6 +986,7 @@ def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[
     return pruned, [issue]
 
 
+@in_quotation_task
 def parse_response(
     text: str,
     *,

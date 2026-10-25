@@ -7,7 +7,7 @@ import pytest
 
 from epinoic_logic.translate.contracts import EligibilityClass
 from epinoic_logic.translate.subjects import (
-    PROFILES, SCIENCE_SUBJECTS, STEM_ENCODING_GUIDANCE, STEM_PROFILE_KEYS, UNKNOWN, prompt_profile_text, resolve_profile,
+    ARGUMENT_MARKING_GUIDANCE, PROFILES, SCIENCE_SUBJECTS, STEM_ENCODING_GUIDANCE, STEM_PROFILE_KEYS, UNKNOWN, prompt_profile_text, resolve_profile,
 )
 from epinoic_logic.version import POLICY_VERSION, TRANSLATOR_VERSION
 
@@ -50,6 +50,9 @@ def test_stem_profile_text_carries_the_encoding_guidance(key):
 
 @pytest.mark.parametrize("key", ["history", "english_a_literature", "economics", "philosophy", "tok"])
 def test_non_stem_profile_text_is_unchanged(key):
+    # rewritten (argument diagnosis, rules argdiag-1), as strict as before: the text is still pinned exactly. It is the
+    # earlier text unchanged with one line added at its end, the marking guidance of argued subjects (scope words and
+    # causal verbs kept as written, the writer's steps marked 'link: <connective>'), which the translate_v3 prompt reads
     p = PROFILES[key]
     text = prompt_profile_text(p)
     assert STEM_ENCODING_GUIDANCE not in text
@@ -58,7 +61,7 @@ def test_non_stem_profile_text_is_unchanged(key):
                 f"It can never establish: {p.cannot_check}. "
                 + ("Numeric claims are not expected in this subject; encode argument structure only. " if p.argument_only else
                    f"Numeric sorts in use: {', '.join(sorted(p.numeric_sorts))}; keep Int and Real distinct and write numerals as exact strings. "))
-    assert text == expected
+    assert text == expected + ARGUMENT_MARKING_GUIDANCE
 
 
 def test_versions_are_bumped_and_the_pinned_prompt_is_unchanged():
@@ -67,13 +70,18 @@ def test_versions_are_bumped_and_the_pinned_prompt_is_unchanged():
     from epinoic_logic.translate import prompts
     # The STEM bump (0.3.0, 2026.10-v3) was followed by the review-fix bump of 2026-10-12 (version.py history); the pin
     # moves with each release and stays exact.
-    assert TRANSLATOR_VERSION == "0.4.0" and POLICY_VERSION == "2026.10-v4"
+    # the argument-diagnosis release (rules argdiag-1) moved them again, once, and its close round 3 moved the translator to
+    # 0.5.1 (rules argdiag-2); the pin stays exact
+    assert TRANSLATOR_VERSION == "0.5.1" and POLICY_VERSION == "2026.10-v5"
     # rewritten (12 Oct 2026 review fixes), stricter: the prompt in use moved to translate_v2 (exactness, task authority,
     # definitions), and the pinned translate_v1 the STEM work left unchanged is still packaged byte for byte, so every
     # recorded prompt_version names the exact instructions it was produced with
-    assert prompts.TRANSLATE_PROMPT_VERSION == "translate_v2"
+    # rewritten again (argument diagnosis, rules argdiag-1), stricter: the prompt in use is translate_v3 (v2 plus the rules
+    # that mark the writer's own links), and translate_v2 is now pinned byte for byte as well
+    assert prompts.TRANSLATE_PROMPT_VERSION == "translate_v3"
     digest = hashlib.sha256(prompts.load_prompt("translate_v1").encode("utf-8")).hexdigest()
     assert digest == "02c40eaf48709c838359763725fd2ac4c931e2e9b52272020565d198a9cc469b"
+    assert hashlib.sha256(prompts.load_prompt("translate_v2").encode("utf-8")).hexdigest() == "5fc96b9c2ac0bd1137a5562a0c94ea44c9e1a44c2632cf58184e6cbccdc7ba93"
     assert hashlib.sha256(prompts.load_prompt("review_v1").encode("utf-8")).hexdigest() == "224f42bf0bf6c1f6cde358b9f48c7050156447ef7af8af8827c2b15fdbed8f9b"
 
 

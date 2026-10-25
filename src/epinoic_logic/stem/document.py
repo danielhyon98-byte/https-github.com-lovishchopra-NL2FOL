@@ -18,7 +18,10 @@ ST-INTERNAL-001 finding on an otherwise empty document).
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 import hashlib
+import re
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from types import MappingProxyType
@@ -30,20 +33,54 @@ from .lexer import Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
 from .nodes import Neg, Num, Percent, Sym, is_value, value_of
 from .normalize import reading_view
+from .word_formulas import word_formula_view
 from .numbers import scan_number
 from .parser import ParseContext, parse_math
-from .relations import FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, named_quantities, plan_relations
+from .relations import FrontEndFinding, MathItem, ProseValue, Relation, RequestIntent, RequestReading, ShowThatTarget, ST_SEVERITY, named_quantities, plan_relations
 from .scope import Binding, Formula, Scope, prescan_names
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
+from .tolerance import exactness_phrase, rounding_phrase
 
 __all__ = ["StemDocument", "build_document", "clear_document_cache", "document_cache_info"]
 
 _GIVEN_HEADS = ("given", "data", "known", "we know")
 _LET_WORDS = frozenset({"taking", "take", "let", "using", "use", "with", "assume", "assuming", "where"})
 #: a value after these words in an answer is an evaluation point ('At x = 1:'), not a binding of the symbol
-_CONDITION_WORDS = frozenset({"at", "when", "if", "whenever"})
-_RESTRICT = ("positive", "x > 0", "x ≥ 0", "non-negative", "nonnegative", "length", "time", "> 0", "≥ 0")
+_CONDITION_WORDS = frozenset({"at", "when", "if", "whenever", "iff", "unless", "provided", "while"})
+#: Nouns that name a condition, a test or a constraint: a relation right after one is the condition named, not a claim that it
+#: holds ('A while loop with the condition n > 0', 'the loop condition is i < 10'; repair round 2, FA-IFF-CS-MENTION).
+_CONDITION_NOUNS = frozenset({"condition", "conditions", "criterion", "criteria", "test", "guard", "requirement", "constraint", "constraints",
+                              "restriction", "predicate", "invariant"})
+
+
+#: Words right after a named condition that state its truth value ('the final test (2 <= 1) fails', 'the condition x > 0
+#: holds'): the sentence asserts the condition, so the relation is checked, not read as a mention.
+_EVALUATED = frozenset({"fails", "failed", "fail", "passes", "passed", "pass", "holds", "held", "hold", "succeeds", "succeeded", "true",
+                        "false", "evaluates", "evaluated", "returns", "returned", "gives", "gave", "met", "satisfied", "violated"})
+
+
+def _names_a_condition(gap: str, after: str = "") -> bool:
+    """The prose right before a maths span ends by naming a condition: 'the condition', 'the loop condition is', 'a guard:';
+    unless the prose right after it states the condition's truth value ('the final test (2 <= 1) fails': the sentence
+    asserts that the comparison is false, which is checked)."""
+    words = "".join(ch.lower() if ch.isalpha() else " " for ch in gap[-48:]).split()
+    if not words:
+        return False
+    following = "".join(ch.lower() if ch.isalpha() else " " for ch in after[:48]).split()
+    if any(w in _EVALUATED for w in following[:4]):
+        return False
+    if words[-1] in _CONDITION_NOUNS and not gap.rstrip().endswith((".", "!", "?")):
+        return True
+    return len(words) >= 2 and words[-1] in ("is", "was", "being") and words[-2] in _CONDITION_NOUNS
+
+
+#: A list of bare numbers right before a value with a unit, which shares the unit ('10, 20 and 30 °C'), read in a bounded window.
+_SHARED_UNIT_LIST_RE = re.compile(r"(?<![\w.,])((?:\d{1,12}(?:\.\d{1,12})?\s*,\s*){0,24}\d{1,12}(?:\.\d{1,12})?)\s*,?\s+(?:and|or)\s+$")
+_NUMERAL_RE = re.compile(r"\d{1,12}(?:\.\d{1,12})?")
+_SHARED_UNIT_WINDOW = 240
+
+_RESTRICT = ("positive", "x > 0", "x ≥ 0", "non-negative", "nonnegative", "length", "time", "> 0", "≥ 0", "≠ 0", "≠0", "non-zero", "nonzero", "not zero")
 
 
 @dataclass(frozen=True)
@@ -148,6 +185,10 @@ def document_cache_info():
     return _cached.cache_info()
 
 
+#: a nuclide written with its mass number and proton number before the symbol ('²³⁸₉₂U', '⁴₂He', '⁰₋₁e')
+_NUCLIDE_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3}[₋]?[₀₁₂₃₄₅₆₇₈₉]{1,3}[A-Za-z]")
+
+
 def _with_values(tokens: tuple[Token, ...], reading: str, text: str, profile: StemProfile, limits: StemLimits) -> tuple[Token, ...]:
     """The synthetic tokens of a verbal span with their numerals read: the span finder lexes for
     extents only, so each numeral is lexed again over its own range (the one numeral reader)."""
@@ -200,6 +241,7 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
     given_paragraph: Optional[int] = None
     skipped = 0
     skipped_ids: list[str] = []
+    markup_index: Optional[_MarkupIndex] = None
     for k, st in enumerate(seg.statements):
         st_text = reading[st.start:st.end]
         head = _strip_label(st_text).lower()
@@ -222,7 +264,7 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
             last_word = _last_word(gap)
             if item_source == "statement" and last_word in _LET_WORDS:
                 item_source = "let"
-            elif item_source == "statement" and last_word in _CONDITION_WORDS and not request:
+            elif item_source == "statement" and (last_word in _CONDITION_WORDS or _names_a_condition(gap, reading[sp.end:st.end])) and not request:
                 item_source = "condition"
             base = dict(index=len(items), statement_id=st.id, statement_index=k, part=st.part, stmt_kind=st.kind, span_kind=sp.kind, start=a, end=b,
                         label=sp.label, gap_before=gap, source=item_source, statement_text=st_text, statement_start=st.start, statement_end=st.end)
@@ -260,7 +302,9 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 cursor = max(cursor, sp.end)
                 continue
             mode = "latex" if sp.mode == "latex" else "plain"
-            if sp.kind == "verbal":
+            if sp.kind == "verbal" or sp.tokens:
+                # verbal arithmetic, and a run the span finder read with its own tokens ('4 categories − 1 = 3' read as 4 − 1 = 3,
+                # '4 min 30 s' read as (4 min + 30 s)): the span's tokens with their numerals read
                 toks: tuple[Token, ...] = _with_values(sp.tokens, reading, text, profile, limits)
                 overflow = False
             else:
@@ -291,7 +335,9 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                                                _prose_after(seg.prose, sp.end, st.end)))
             cursor = max(cursor, sp.end)
         # bare numbers written in prose (outside every span) are prose values too
-        for node, a0, b0 in _prose_numbers(reading, text, st, spans, profile, limits):
+        if markup_index is None:
+            markup_index = _MarkupIndex(spans.markup)
+        for node, a0, b0 in _prose_numbers(reading, text, st, spans, profile, limits, markup_index):
             prose_values.append(ProseValue(st.id, k, st.part, node, a0, b0, _prose_before(seg.prose, st.start, a0), _prose_after(seg.prose, b0, st.end)))
     prose_values.sort(key=lambda pv: pv.start)
     return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids))
@@ -359,7 +405,10 @@ def _lone_value(pm):
 
 
 def _quantity_node(reading: str, text: str, sp: Span, profile: StemProfile, limits: StemLimits, names: frozenset[str]):
-    toks = lex(reading, sp.start, sp.end, mode="plain", orig=text, cs=profile.computer_science, limits=limits).tokens
+    if sp.tokens:
+        toks = _with_values(sp.tokens, reading, text, profile, limits)  # a compound quantity: '4 min 30 s' read as (4 min + 30 s)
+    else:
+        toks = lex(reading, sp.start, sp.end, mode="plain", orig=text, cs=profile.computer_science, limits=limits).tokens
     pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits))
     if len(pm.chains) != 1 or pm.chains[0].links or not pm.chains[0].operands or not pm.chains[0].operands[0].readings:
         return None
@@ -367,12 +416,40 @@ def _quantity_node(reading: str, text: str, sp: Span, profile: StemProfile, limi
     return node if is_value(node) else None
 
 
-def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profile: StemProfile, limits: StemLimits) -> list:
-    """Numbers written in the statement's prose, outside every span (``is 120 snails``)."""
-    covered = [(spans.spans[si].start, spans.spans[si].end) for si, _r in st.spans]
+class _MarkupIndex:
+    """The markup ranges of a span set sorted by start, so the ranges overlapping one statement are found by bisection, not
+    by a scan of every range (repair round 2, parser-safety-11: each of 512 statements scanned 50,000 list markers)."""
+
+    def __init__(self, markup) -> None:
+        self.ranges = sorted(markup)
+        self.starts = [a for a, _b in self.ranges]
+        self.longest = max((b - a for a, b in self.ranges), default=0)
+
+    def _first_at(self, x: int) -> int:
+        """The index of the first range that starts at or after ``x`` (a binary search over the sorted starts)."""
+        lo, hi = 0, len(self.starts)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if self.starts[mid] < x:
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo
+
+    def overlapping(self, start: int, end: int) -> list[tuple[int, int]]:
+        lo, hi = self._first_at(start - self.longest), self._first_at(end)
+        return [(a, b) for a, b in self.ranges[lo:hi] if a < end and b > start]
+
+
+def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profile: StemProfile, limits: StemLimits,
+                   markup: Optional[_MarkupIndex] = None) -> list:
+    """Numbers written in the statement's prose, outside every span (``is 120 snails``) and outside the answer's mark
+    annotations (``[1]``, ``M1``, ``(A1)``: furniture, never a value)."""
     out = []
     if st.kind not in ("sentence", "list_item"):
         return out
+    covered = [(spans.spans[si].start, spans.spans[si].end) for si, _r in st.spans]
+    covered.extend((markup or _MarkupIndex(spans.markup)).overlapping(st.start, st.end))
     toks = lex(reading, st.start, st.end, mode="plain", orig=text, cs=profile.computer_science, limits=limits, max_tokens=2000, values=False).tokens
     for i, t in enumerate(toks):
         if t.kind != "NUM" or any(a <= t.start < b for a, b in covered):
@@ -387,11 +464,15 @@ def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profi
         if prev is not None and not t.space and prev.kind == "OP" and prev.text in ("-", "−") and (prev.space or i == 1) \
                 and not (i >= 2 and toks[i - 2].kind in ("NUM", "IDENT") and not prev.space):
             signed = True  # 'is therefore −0.70': a minus written before a prose number is its sign
-        elif prev is not None and not prev.space and prev.kind in ("IDENT", "OP", "OTHER"):
-            continue  # 'helium-4', 'H2', '$5000'
+        elif prev is not None and not t.space and prev.kind in ("IDENT", "OP", "OTHER") and (prev.kind == "IDENT" or not prev.space):
+            # 'helium-4', 'H2': the numeral is glued to a word or to a sign glued to one; a currency sign set apart ('is €352.19')
+            # leaves a value, and a numeral set apart from the word before it is one ('Since 0.05 is not less than 0.05')
+            continue
         nxt = toks[i + 1] if i + 1 < len(toks) else None
         if nxt is not None and not nxt.space and nxt.kind in ("IDENT",):
             continue
+        if not signed and (_arith_neighbour(toks, i - 1, -1) or _arith_neighbour(toks, i + 1, 1)):
+            continue  # an operand of written arithmetic the span finder did not take ('(1.259 − 1)' in prose): never a prose value
         node: object = Num(t.value, t.start, t.end)
         if signed:
             node = Neg(node, prev.start, t.end)
@@ -399,6 +480,20 @@ def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profi
             node = Percent(node, getattr(node, "start", t.start), nxt.end)
         out.append((node, getattr(node, "start", t.start), getattr(node, "end", t.end)))
     return out
+
+
+_ARITH_OPS = frozenset({"+", "-", "×", "÷", "/", "*", "·"})
+
+
+def _arith_neighbour(toks, k: int, step: int) -> bool:
+    """The token at ``k`` is an arithmetic operator with an operand beyond it (a numeral or a bracket), so the numeral beside
+    it is an operand of written arithmetic: ``1.259 − 1`` (the operator after 1.259 and 1 after it), ``(x − 1)``."""
+    if not 0 <= k < len(toks) or toks[k].kind != "OP" or toks[k].text not in _ARITH_OPS:
+        return False
+    j = k + step
+    if not 0 <= j < len(toks):
+        return False
+    return toks[j].kind in (("NUM", "LPAR") if step > 0 else ("NUM", "RPAR"))
 
 
 def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str]) -> tuple[RequestReading, Scope]:
@@ -451,16 +546,78 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
             approx = any(w in low for w in ("about", "approximately", "roughly", "≈", "~")) or "≈" in st_text
             targets.append(ShowThatTarget(node=node, approx=approx, text=st_text, start=getattr(node, "start", pos), end=getattr(node, "end", pos)))
     restricts = any(w in request_text.lower() for w in _RESTRICT)
+    # data series: three or more values written with one unit in one statement ("measured at 10 °C, 20 °C and 30 °C")
+    per_statement: dict[tuple[str, str], set] = {}
+    unit_text: dict[str, str] = {}
+    for item in rd.items:
+        for ch in item.chains:
+            for op in ch.operands:
+                node = op.node
+                v = value_of(node) if node is not None and is_value(node) else None
+                if v is not None and v[2] is not None and not v[2].unknown and not v[3]:
+                    key = " ".join(v[2].text.split())
+                    per_statement.setdefault((item.statement_id, key), set()).add(v[0])
+                    unit_text[key] = v[2].text
+    starts = {st.id: st.start for st in rd.seg.statements}
+    for pv in rd.prose_values:
+        v = value_of(pv.node)
+        if v is not None and v[2] is not None and not v[2].unknown and not v[3]:
+            key = " ".join(v[2].text.split())
+            per_statement.setdefault((pv.statement_id, key), set()).add(v[0])
+            unit_text[key] = v[2].text
+            # a list of bare numbers that ends in this value shares its unit ('at 10, 20 and 30 °C': 10 °C, 20 °C and 30 °C;
+            # repair round 2: the series reader saw one value, so a trend stepped past the data was never read as one)
+            lo = max(starts.get(pv.statement_id, 0), pv.start - _SHARED_UNIT_WINDOW)
+            m = _SHARED_UNIT_LIST_RE.search(rd.reading[lo:pv.start])
+            if m is not None:
+                for numeral in _NUMERAL_RE.findall(m.group(1)):
+                    per_statement[(pv.statement_id, key)].add(Fraction(numeral))
+    series = tuple((unit_text[key], tuple(sorted(vals))) for (_sid, key), vals in per_statement.items() if len(vals) >= 3)
+    # the years the data name ("14.2 °C in 2000, 14.4 °C in 2005", "from 2000 to 2020"): bare four-digit integers of a statement that
+    # names two years or more, or a year and a value with a unit; the question's own year ("estimate it in 2100") is no data
+    per_year: dict[str, set[Fraction]] = {}
+    per_unit_values: dict[str, int] = {}
+
+    def _year(v) -> bool:
+        return v is not None and v[2] is None and not v[3] and v[1] is not None and not v[1].has_point and not v[1].scientific \
+            and v[0].denominator == 1 and 1000 <= v[0] <= 2999
+
+    for pv in rd.prose_values:
+        v = value_of(pv.node)
+        if _year(v):
+            per_year.setdefault(pv.statement_id, set()).add(v[0])
+        elif v is not None and v[2] is not None:
+            per_unit_values[pv.statement_id] = per_unit_values.get(pv.statement_id, 0) + 1
+    for item in rd.items:
+        for ch in item.chains:
+            for op in ch.operands:
+                v = value_of(op.node) if op.node is not None and is_value(op.node) else None
+                if _year(v):
+                    per_year.setdefault(item.statement_id, set()).add(v[0])
+                elif v is not None and v[2] is not None:
+                    per_unit_values[item.statement_id] = per_unit_values.get(item.statement_id, 0) + 1
+    years = tuple(sorted({y for sid, ys in per_year.items() if len(ys) >= 2 or per_unit_values.get(sid, 0) >= 1 for y in ys}))
+    intents: list[RequestIntent] = []
+    for st in rd.seg.statements:
+        st_text = rd.reading[st.start:st.end]
+        rounded, exact = rounding_phrase(st_text), exactness_phrase(st_text)
+        if rounded:
+            intents.append(RequestIntent(st.part, "rounded", rounded))
+        elif exact:
+            intents.append(RequestIntent(st.part, "exact", exact))
+    values = tuple((pv.node, pv.start, pv.end) for pv in rd.prose_values[:256])
     return RequestReading(bindings=bindings, quantities=tuple(quantities), relations=tuple(req_relations), targets=tuple(targets), text=request_text,
-                          restricts_domain=restricts), scope
+                          restricts_domain=restricts, intents=tuple(intents), series=series, years=years, values=values), scope
 
 
-def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimits) -> StemDocument:
+def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimits, *, reference_checks: bool = True) -> StemDocument:
     key = (_sha(text), _sha(request_text) if request_text else "", profile.key)
     if len(text) > limits.max_response_chars:
         return _empty(text, request_text, profile, limits, f"the response has {len(text)} characters; the report contract allows {limits.max_response_chars}",
                       code="ST-LIM-001")
     reading = reading_view(text)
+    if profile.mode == "sciences" and reference_checks:
+        reading = word_formula_view(reading, profile.key)  # word equations read in symbols (repair round 2, ADV2-07)
     names = prescan_names(reading, limits=limits, cs=profile.computer_science)
     req_names = prescan_names(reading_view(request_text), limits=limits, cs=profile.computer_science) if request_text else frozenset()
     all_names = names | req_names
@@ -481,7 +638,14 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     definitions = [(rd.order[st.id], st.part, sym, variants, st.id) for st in rd.seg.statements if st.kind in ("sentence", "list_item")
                    for sym, variants in named_quantities(reading[st.start:st.end])]
     relations, findings, _ = plan_relations(rd.items, rd.prose_values, scope, request, profile, limits=limits, statement_order=rd.order,
-                                            code_items=rd.code_items, definitions=definitions, reading=rd.reading)
+                                            code_items=rd.code_items, definitions=definitions, reading=rd.reading, answer_text=text,
+                                            reference_checks=reference_checks)
+    nuclear = [st.id for st in rd.seg.statements if "→" in reading[st.start:st.end] and _NUCLIDE_RE.search(reading[st.start:st.end])][:8]
+    if nuclear:
+        # '²³⁸₉₂U → ²³⁴₉₁Th + ⁴₂He': a nuclear equation is outside the encodings; named, never dropped silently
+        findings.append(FrontEndFinding("ST-UNDEC-001", ST_SEVERITY.get("ST-UNDEC-001", "warning"),
+                                        "a relation outside the encodings: a nuclear equation (mass and proton numbers written before the symbols); "
+                                        f"the relation in {', '.join(nuclear)} is not checked", tuple(nuclear)))
     if rd.skipped:
         findings.append(FrontEndFinding("ST-LIM-002", ST_SEVERITY["ST-LIM-002"], f"{rd.skipped} math spans beyond the per-report bound of "
                                         f"{limits.max_math_items} were not read; their relations are not checked (first statements: {', '.join(rd.skipped_ids)})",

@@ -44,7 +44,7 @@ from typing import Literal, Optional, Sequence
 from .quantities import MAX_TEXT_CHARS, SourceText
 
 __all__ = ["NumericShape", "numeric_shape", "assignment_parts", "relation_key", "StatedRelation", "stated_relation", "writes_relation",
-           "formulas_in", "MAX_FORMULA_TOKENS", "GIVEN_WORDS", "TEST_WORDS"]
+           "formulas_in", "MAX_FORMULA_TOKENS", "GIVEN_WORDS", "TEST_WORDS", "STIPULATION_WORDS", "stated_conversion"]
 
 NumericShape = Literal["none", "assignment", "relation"]
 
@@ -559,4 +559,113 @@ def stated_relation(expr, sources: Sequence[SourceText], *, within: Optional[tup
                 continue
             if _given(src.text, f):
                 return StatedRelation(source=src, start=f.start, end=f.end)
+    return None
+
+
+# ------------------------------------------------------------------------------------------ a stated unit conversion
+# (repair round 4, E2E-MAA-TASK-INSTRUCTION-GIVEN-UNCHECKED): "(take 1 month = 30 days)" inside an instruction states the
+# conversion between the two units as the task's given, so a premise that converts a quantity in months into the same
+# quantity in days by that factor (days = 30 × t) states nothing beyond it.
+
+#: Words that open a stipulation inside any sentence, a question or an instruction included: "(take 1 month = 30 days)",
+#: ", assuming 1 year = 365 days", "(use g = 9.8 m s⁻²)".
+STIPULATION_WORDS = frozenset("""
+take taking assume assuming use using let with where given treat treating approximate approximating set setting consider considering
+""".split())
+#: "1 month = 30 days", "one month is 30 days", "a year has 365 days", "take 1 month to be 30 days"; and "30 days in a month",
+#: "30 days per month".
+#: (security round 1) The white space read possessively: each run is followed by a token that cannot begin with white space (a
+#: letter, a digit, '='), or, after 'in', 'per' or 'to', by an optional article and a second run, which together read what the one
+#: run read; so each run's longest reading is the only one the rest can follow, and the same conversions are read. The space
+#: after 'in' was split between two quantifiers before failing (quadratic in the run) (tests/translate/test_security_round1_conversion.py).
+_CONVERSION_RE = re.compile(
+    r"\b(?:1|one|a|an|each|every)\s++(?P<a>[A-Za-z]+)\s*+(?:=|is|equals|is\s+equal\s+to|to\s+be|as|has|have|contains?|makes?)\s*+"
+    r"(?P<n>\d+(?:\.\d+)?)\s*+(?P<b>[A-Za-z]+)"
+    r"|\b(?P<n2>\d+(?:\.\d+)?)\s*+(?P<b2>[A-Za-z]+)\s++(?:in|per|to)\s++(?:a|an|one|each|every|the)?\s*+(?P<a2>[A-Za-z]+)", re.IGNORECASE)
+#: The unit a symbol's meaning declares by "in <unit>" ("the doubling time in days", "t, the time in months for the price to
+#: double"); a parenthesis that itself writes an equation is no declaration.
+_MEANING_UNIT_RE = re.compile(r"\bin\s+(?P<u>[A-Za-z]+)\b", re.IGNORECASE)
+
+
+def _unit_root(word: str) -> str:
+    w = word.lower()
+    for suffix, keep in (("ies", "y"), ("es", ""), ("s", "")):
+        if w.endswith(suffix) and len(w) > len(suffix) + 2:
+            stem = w[: -len(suffix)] + keep
+            if suffix == "es" and not stem.endswith(("ch", "sh", "x", "s", "z")):
+                continue
+            return stem
+    return w
+
+
+def _meaning_units(meaning: str) -> set[str]:
+    text = re.sub(r"\([^()]*=[^()]*\)", " ", meaning or "")
+    return {_unit_root(m.group("u")) for m in _MEANING_UNIT_RE.finditer(text)}
+
+
+def _conversion_sides(expr) -> Optional[tuple[str, Fraction, str]]:
+    """``(y, c, x)`` when the premise states y = c × x (or y = x × c, x = y / c, either side first), else None."""
+    if getattr(expr, "op", None) != "eq":
+        return None
+    for left, right in ((expr.left, expr.right), (expr.right, expr.left)):
+        if getattr(left, "op", None) != "var":
+            continue
+        op = getattr(right, "op", None)
+        if op == "mul" and len(right.args) == 2:
+            nums = [a for a in right.args if getattr(a, "op", None) in ("int", "real")]
+            vars_ = [a for a in right.args if getattr(a, "op", None) == "var"]
+            if len(nums) == 1 and len(vars_) == 1:
+                try:
+                    return left.name, Fraction(nums[0].value), vars_[0].name
+                except (ValueError, ZeroDivisionError):
+                    return None
+        if op == "div" and getattr(right.left, "op", None) == "var" and getattr(right.right, "op", None) in ("int", "real"):
+            try:  # x = y / c: y = c × x
+                return right.left.name, Fraction(right.right.value), left.name
+            except (ValueError, ZeroDivisionError):
+                return None
+    return None
+
+
+def _stipulated(text: str, pos: int) -> bool:
+    """Whether the characters at ``pos`` stand in a stipulation: a parenthesis or a clause (after a comma, a semicolon or a
+    colon) opened by a word of :data:`STIPULATION_WORDS`, or a sentence the assertion reader reads as asserted."""
+    from .assertion import assertion_at
+    start = max(text.rfind("(", 0, pos), text.rfind(",", 0, pos), text.rfind(";", 0, pos), text.rfind(":", 0, pos),
+                text.rfind(". ", 0, pos), text.rfind("\n", 0, pos))
+    lead = text[start + 1:pos].strip().split()
+    if lead and lead[0].lower().strip("(") in STIPULATION_WORDS:
+        return True
+    return assertion_at(text, pos, min(len(text), pos + 1)).asserted
+
+
+def stated_conversion(expr, symbols: dict, sources: Sequence[SourceText]) -> Optional[StatedRelation]:
+    """Where a record states, as a given, the unit conversion a premise applies: y = c × x where y's meaning declares one
+    unit ("the doubling time in days"), x's meaning another ("the time in months"), and a record states that one of x's unit
+    is c of y's ("take 1 month = 30 days", "a year has 365 days", "30 days per month"), in a stipulation or an asserted
+    sentence (:func:`_stipulated`); None otherwise. Read from the record's characters with a closed pattern; nothing is
+    evaluated."""
+    sides = _conversion_sides(expr)
+    if sides is None:
+        return None
+    y, c, x = sides
+    sy, sx = symbols.get(y), symbols.get(x)
+    uy = _meaning_units(getattr(sy, "meaning", None) or "")
+    ux = _meaning_units(getattr(sx, "meaning", None) or "")
+    if not uy or not ux or uy & ux:
+        return None
+    for src in sources:
+        text = src.text[:MAX_TEXT_CHARS]
+        for m in _CONVERSION_RE.finditer(text):
+            a = m.group("a") or m.group("a2")
+            b = m.group("b") or m.group("b2")
+            n = m.group("n") or m.group("n2")
+            try:
+                value = Fraction(n)
+            except (ValueError, ZeroDivisionError):
+                continue
+            if value != c or _unit_root(a) not in ux or _unit_root(b) not in uy:
+                continue
+            if _stipulated(text, m.start()):
+                return StatedRelation(source=src, start=m.start(), end=m.end())
     return None

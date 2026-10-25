@@ -46,7 +46,7 @@ from epinoic_logic.engine.statuses import VerificationStatus as S
 from epinoic_logic.integrity.handoff import check_result_binding
 from epinoic_logic.ir.canonical import problem_digest
 from epinoic_logic.ir.schema import DEFAULT_LIMITS, Limits, Problem
-from epinoic_logic.translate.contracts import EligibilityDecision, TranslationResult
+from epinoic_logic.translate.contracts import EligibilityDecision, TranslationResult, sha256_text
 from epinoic_logic.translate.outcome import display_status_for
 from epinoic_logic.version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 
@@ -69,9 +69,12 @@ def codes(result: VerificationResult) -> list[str]:
 
 
 def translated(problem: Problem) -> TranslationResult:
+    # A record as this translator makes it: its version and the digest of the claim text it read (contract 0.2). A record
+    # without that digest is from before 0.2 and is displayed INTERNAL_ERROR (re-run review finding correctness-5).
     return TranslationResult(translation_id="tr", request_id=problem.request_id, report_id="rep1", claim_id=problem.claim_id, status="TRANSLATED",
                              eligibility=EligibilityDecision(eligibility_class="PROPOSITIONAL_ARGUMENT", eligible=True, decided_by="deterministic",
                                                              policy_version=POLICY_VERSION),
+                             claim_text_sha256=sha256_text(f"the claim {problem.claim_id} encodes"),
                              problem=problem, translator_version=TRANSLATOR_VERSION, policy_version=POLICY_VERSION, created_at="2026-10-12T00:00:00Z")
 
 
@@ -290,7 +293,10 @@ BASELINE_KEY = b"probe-signing-key-0123456789012345"
 
 
 def test_the_component_versions_are_bumped_by_the_version_rules():
-    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.4.0", "2026.10-v4", "0.4.0")
+    # the pin moves with each release and stays exact: the argument-diagnosis release (rules argdiag-1) bumped the engine,
+    # the policy and the translator once, and left the IR unchanged; close round 3 of that release moved the translator to
+    # 0.5.1 with the rules (argdiag-2), so a translation record of an earlier round reads as stale
+    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.5.0", "2026.10-v5", "0.5.1")
     v = compute_versions()
     assert v.engine_version == ENGINE_VERSION and v.policy_version == POLICY_VERSION
     assert all(isinstance(getattr(v, k), str) and len(getattr(v, k)) == 64 for k in ("build_id", "schema_id", "policy_id"))
@@ -374,22 +380,33 @@ def test_unchanged_version_strings_cannot_make_another_build_current():
 
 
 def test_the_build_identity_changes_with_any_decision_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # rewritten for the argument diagnosis, stricter: the copy holds every entry of BUILD_SOURCES (the shared named.py and
+    # lexis.py included, which the engine's diagnosis depends on), and a change to the engine source and a change to the
+    # named-code module each change the build id
     package = Path(identity_mod.__file__).resolve().parent.parent
     copy = tmp_path / "epinoic_logic"
     copy.mkdir()
-    shutil.copy(package / "version.py", copy / "version.py")
-    for sub in ("ir", "engine"):
-        shutil.copytree(package / sub, copy / sub, ignore=shutil.ignore_patterns("__pycache__"))
+    for entry in identity_mod.BUILD_SOURCES:
+        if (package / entry).is_dir():
+            shutil.copytree(package / entry, copy / entry, ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            shutil.copy(package / entry, copy / entry)
+    assert {"version.py", "named.py", "lexis.py", "ir", "engine"} <= set(identity_mod.BUILD_SOURCES)
     monkeypatch.setattr(identity_mod, "_PACKAGE", copy)
     identity_mod.build_id.cache_clear()
     try:
         same = identity_mod.build_id()
-        assert same == identity_mod.build_id.__wrapped__()
+        assert same == identity_mod.build_id.__wrapped__() and len(same) == 64
         runner = copy / "engine" / "runner.py"
         runner.write_text(runner.read_text() + "\n# a change to the engine source\n")
         identity_mod.build_id.cache_clear()
         changed = identity_mod.build_id()
         assert changed != same and len(changed) == 64
+        named = copy / "named.py"
+        named.write_text(named.read_text() + "\n# a change to the named-code table module\n")
+        identity_mod.build_id.cache_clear()
+        again = identity_mod.build_id()
+        assert again not in (same, changed) and len(again) == 64
     finally:
         identity_mod.build_id.cache_clear()
     monkeypatch.undo()

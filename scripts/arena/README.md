@@ -6,7 +6,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | File | What it does |
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
-| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`) |
+| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload only) and the router's record of it (`<round>/relayed/<task>.router.json`: the peer's receipt with every finding, the relay record; never part of a specialist's bundle) |
 | `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`, built from the synthesis contract) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
@@ -25,8 +25,13 @@ The combinator writes `<round>/syntheses/<task_id>.json` for each report it synt
 {"report_id": "<the report_id list_claims.py prints>",
  "claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
              "transformation": "carried" | "paraphrased" | "merged" | "narrowed" | "generalized"}],   (2 to 4)
- "dropped": [{"source_claim_ids": ["..."], "reason": "..."}]}
+ "dropped": [{"source_claim_ids": ["..."], "reason": "..."}],
+ "conflicts": [{"conflict_id": "...", "claim_ids": ["...", "..."], "description": "...", "status": "unresolved" | "resolved_with_basis", "basis": "..."}]}
 ```
+
+- `conflicts` (optional) discloses a disagreement between the sources: `claim_ids` are the source claim ids, and a
+  `resolved_with_basis` record needs a meaningful `basis` (INT-CONFLICT-003). The records are relayed as written (with
+  several reports in a group, each `conflict_id` is qualified by its task id), so a disclosed conflict reaches the hub.
 
 - `transformation` is exactly one of those five words, a category of what was done to the cited sources, never a
   description of the edit: `carried` (one source, its text unchanged), `paraphrased` (one source reworded),
@@ -38,7 +43,10 @@ The combinator writes `<round>/syntheses/<task_id>.json` for each report it synt
   are kept exactly as the source states them; a material claim left out goes in `dropped` with a meaningful reason.
 - Any other value (free text, an alias such as "joined", another spelling) is refused by the hub: the synthesis is
   REJECTED with INT-REQ-009 and INT-SYNTH-014 naming each claim, and it is not delivered. So is a file that is not JSON,
-  a claim that is not an object, a missing field or a field the synthesis contract does not have.
+  a claim that is not an object, a missing field or a field the synthesis contract does not have. A field the syntheses
+  format above does not hold (at the file level, in a claim, in a dropped entry or in a conflict record: a
+  self-certifying `verified`, a `materiality`) is carried to the hub as written, so the hub refuses the synthesis, and the
+  synthesis record names it (`unknown_synthesis_fields`) and is not functional: it is refused, never dropped silently.
 
 A workflow that briefs a combinator agent should give it these instructions, or tell it to read `synthesis_format` from
 `list_claims.py --json`. The end-to-end simulation of 16 October 2026 named the field without its values, and its
@@ -50,6 +58,12 @@ combinator's fields on as written; it never builds the contract models itself), 
 it. A malformed synthesis is a REJECTED receipt recorded with its findings, and, being genuine traffic that was not
 delivered, a failed synthesis record whose `failure_reasons` name the codes; it is never an exception that stops the
 round or leaves the record without a receipt.
+
+A peer-dependent agent is given `relayed/<task>.json` and nothing else of its peer: the specialist_report/1.0 payload as
+the hub delivered it, with the peer document id it is supplied under. The receipt of that delivery (the hub's findings,
+which are the router's to weigh and may be false) is written to `relayed/<task>.router.json` and is never put in a
+specialist's bundle (E2E B3: a specialist that was shown a false formal-check finding repeated it to the student; the
+channel now names an answer that hands a system check result to the reader as INT-REQ-017).
 
 ```
 python scripts/arena/run_arena.py <round>                           # results.json, summary.md; exit 0
@@ -117,6 +131,9 @@ A run is qualified when its translation figures cannot stand for the recorded ro
 results.json carries `qualified` and `qualifications`:
 
 - `TRANSLATIONS_LOST`: recorded translations were not served (for example, claim ids changed after the parser changed);
+  a translation recorded under a bare claim id is served to the agent-qualified id the parsers give the same claim on a
+  task with two or more agents (`<id>@<agent>`, end-to-end B17), with its problem naming that id (`fixture_claim_ids`,
+  `fixture_for_claim`; repair round 2), so the qualification alone loses nothing;
 - `FIXTURES_UNBOUND`: served translations carry no recorded claim-text digest, so each is bound to whatever text its claim
   id carries in this run;
 - `ADJUDICATIONS_NOT_APPLIED`: adjudications that do not apply to this run (their translation was not served, or a digest

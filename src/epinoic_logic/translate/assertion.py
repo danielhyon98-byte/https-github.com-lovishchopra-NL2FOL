@@ -132,7 +132,7 @@ from typing import Iterable, Literal, Optional
 
 from .quantities import LOWER_CASE_ABBREVIATIONS, MAX_TEXT_CHARS, _sentences, in_precision_cue, sentence_of
 
-__all__ = ["AssertionReading", "Target", "assertion_at", "asserting_clause", "relation_at", "relation_implies", "stated_as", "link", "content_words",
+__all__ = ["AssertionReading", "Target", "assertion_at", "asserting_clause", "relation_at", "relation_implies", "stated_as", "names_a_bound", "BOUND_NOUNS", "link", "content_words",
            "mentions", "units_of", "describing_units", "sentence_cue_at"]
 
 Mood = Literal["asserted", "question", "instruction", "condition", "supposition", "definition", "possibility", "negation", "quantified",
@@ -609,6 +609,9 @@ _OPTION_BEFORE_RE = re.compile(r"(?:\d[\d,.]*|" + _NUMBER_WORDS + r")(?:\s*[%a-z
 _BETWEEN_RE = re.compile(r"\bbetween\s+(?:[$£€¥]?\s?)?$", _FLAGS)
 _BETWEEN_AND_RE = re.compile(r"\bbetween\s+[$£€¥]?\s?(?:\d[\d,.]*|" + _NUMBER_WORDS + r")[^,;:.]{0,24}\band\s+(?:[$£€¥]?\s?)?$", _FLAGS)
 _FROM_RE = re.compile(r"\bfrom\s+(?:[$£€¥]?\s?)?$", _FLAGS)
+#: "from <figure> in <year>" right before the second end: a change between dated figures ("from 42% in 2014 to ...").
+_FROM_DATED_RE = re.compile(r"\bfrom\s+[$£€¥]?\s?\d[\d,.]*\s*(?:%|per\s?cent|[a-zA-Z]{0,8})?\s+(?:in|during|by|at)\s+$", _FLAGS)
+_YEAR_NUMERAL_RE = re.compile(r"(?:1[0-9]{3}|20[0-9]{2}|21[0-9]{2})")
 #: A figure negated or excluded where it stands.
 _EXCLUDED_BEFORE_RE = re.compile(r"(?:≠|!=|=/=|\bother\s+than|\bexcept(?:\s+for)?|\bapart\s+from|\bbesides|\bexcluding|\bdiffer(?:s|ed)?\s+from"
                                  r"|\bdifferent\s+from)\s*(?:[$£€¥]\s?)?$", _FLAGS)
@@ -647,8 +650,12 @@ def _figure_mood(text: str, start: int, end: int, unit: tuple[int, int]) -> Opti
         word = joiner.group(1).lower() if joiner is not None else ""
         if word == "or":
             return ("disjunction", b.group(0).strip(), start - len(before) + b.start())
-        prior = text[max(unit[0], start - len(before) + b.start() - 24):start - len(before) + b.start()]
-        if not _FROM_RE.search(prior):
+        prior = text[max(unit[0], start - len(before) + b.start() - 40):start - len(before) + b.start()]
+        lead = re.match(r"\d[\d,.]*", b.group(0))
+        year_end = lead is not None and _YEAR_NUMERAL_RE.fullmatch(lead.group(0)) is not None and not _YEAR_NUMERAL_RE.fullmatch(text[start:end].strip())
+        # a year before "to" dates the figure before it ("fell from 42% in 2014 to 18% in 2024": a change from one dated
+        # figure to another, never the range "2014 to 18%": re-run review A-FA-RANGE)
+        if not _FROM_RE.search(prior) and not year_end and not _FROM_DATED_RE.search(prior):
             return ("range", b.group(0).strip(), start - len(before) + b.start())
     return None
 
@@ -1374,7 +1381,25 @@ _RELATION_WORDS = {"eq": "the figure itself", "approx": "an approximate figure",
                    "gt": "a strict lower bound", "ge": "a lower bound"}
 
 
-def stated_as(text: str, start: int, end: int, required: str) -> Optional[str]:
+#: Nouns that name a bound itself: a symbol whose meaning names one stands for the bound's value, so a figure stated as a
+#: strict bound ("keep youth unemployment below 10%") states it ("the government's unemployment ceiling" = 10): repair round
+#: 3, V3-FALSE-SRCMISMATCH-THRESHOLD.
+BOUND_NOUNS: frozenset[str] = frozenset({
+    "target", "targets", "ceiling", "ceilings", "limit", "limits", "cap", "caps", "threshold", "thresholds", "maximum", "minimum",
+    "floor", "cutoff", "benchmark", "goal", "goals", "requirement", "standard", "quota", "criterion", "bound", "bounds",
+})
+
+
+def names_a_bound(text: Optional[str]) -> bool:
+    """Whether ``text`` (a symbol's meaning or a premise's label) names a bound itself (:data:`BOUND_NOUNS`; "pass mark" and
+    "cut-off" too)."""
+    toks = re.findall(r"[a-z]+", (text or "").lower()[:1000])
+    if any(t in BOUND_NOUNS for t in toks):
+        return True
+    return any(a == "pass" and b == "mark" or a == "cut" and b == "off" for a, b in zip(toks, toks[1:]))
+
+
+def stated_as(text: str, start: int, end: int, required: str, *, bound_symbol: bool = False) -> Optional[str]:
     """None when the figure at ``start``-``end`` of ``text``, as the text states it, establishes the comparison an
     assignment premise states about its symbol (``required``: ``eq``, ``lt``, ``le``, ``gt`` or ``ge``, read from the
     symbol's side); otherwise why it does not. Used by grounding (:mod:`.relations`), where a record's framing (a question,
@@ -1383,7 +1408,9 @@ def stated_as(text: str, start: int, end: int, required: str) -> Optional[str]:
     disjunction or one end of a range
     ("17 or 18", "between 15 and 17") establishes nothing; an equality needs the figure stated plainly, approximately or as
     an inclusive bound (the bound's own value: "at most 350 words" states ``limit = 350``), never as a strict bound ("more
-    than 17" states no ``n = 17``); a bound needs a statement that implies it (:func:`relation_implies`)."""
+    than 17" states no ``n = 17``), except for a symbol that is the bound itself (``bound_symbol``: its meaning names a
+    target, ceiling, limit, threshold, pass mark, ...: "below 10%" states a ceiling of 10); a bound needs a statement that
+    implies it (:func:`relation_implies`)."""
     idx = _index(text)
     k = _unit_index(idx, start)
     unit = (idx.unit_starts[k], idx.unit_ends[k]) if idx.unit_starts else (0, len(text))
@@ -1392,6 +1419,8 @@ def stated_as(text: str, start: int, end: int, required: str) -> Optional[str]:
         return f"stated as {'one option of a disjunction' if own[0] == 'disjunction' else 'one end of a range' if own[0] == 'range' else 'negated or excluded'} ({own[1]!r})"
     stated = relation_at(text, start, end)
     if required == "eq":
+        if stated in ("lt", "gt") and bound_symbol:
+            return None  # the symbol is the bound itself: the bound's value is the figure ("below 10%" states a ceiling of 10)
         return None if stated in ("eq", "approx", "le", "ge") else f"stated as {_RELATION_WORDS[stated]}, which establishes no equality"
     if relation_implies(stated, required):
         return None

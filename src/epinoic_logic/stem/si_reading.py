@@ -165,7 +165,7 @@ def si_digits_pattern() -> str:
     """Regex alternation (no groups) of a figure in scientific notation: ``1.5e-6``, ``6.0E3``,
     ``6.67 × 10⁻¹¹``, ``3.0 x 10^8``, ``1.2×10^{6}``, ``1.2*10**6``. Exponents of one or two
     digits; :func:`si_number` reads the value exactly and enforces the bounds."""
-    mant = r"\d+(?:\.\d+)?"
+    mant = r"(?<![\d.])\d+(?:\.\d+)?"  # never starting inside a digit run: one attempt per run keeps every pattern on it linear
     exp = rf"(?:\^\{{?-?\d{{1,2}}\}}?|\*\*-?\d{{1,2}}|⁻?[{_SUPER}]{{1,2}})"
     return rf"{mant}(?:[eE][-+]?\d{{1,2}}(?![\d.])|\s?[×xX*·]\s?10{exp}(?![\d{_SUPER}]))"
 

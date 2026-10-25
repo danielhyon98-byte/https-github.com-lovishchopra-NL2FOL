@@ -29,6 +29,12 @@ a digit or an opening mark); ``split_clauses`` is the arithmetic extractor's rea
 strings are never read as quotations; it reads every bracket's match from one linear pass
 (``markdown.bracket_match_ends``), so thousands of nested or unclosed brackets cost one read of
 the text. The JSON cuts of the splitter are memoised per text.
+
+Every scan is linear in the length of the text. The end marks are read by :func:`_end_marks`, one
+pass over the runs of ``.``, ``?`` and ``!`` (and ``;`` for clauses): it gives exactly the matches of
+the pattern ``[.?!]+[closers]*(?=\\s+\\S)``, which itself retries a long run of marks from every
+position of it when no white space follows the run (``x = 9!!!…!``), and so took quadratic time
+(6.5 s for a run of 20,000, minutes at the 400,000-character bound of an answer).
 """
 from __future__ import annotations
 
@@ -38,7 +44,8 @@ from functools import lru_cache
 
 from ..markdown import DOUBLE_QUOTE_MARKS, JSON_KEY_RE, bracket_match_ends, find_json_spans, find_quotation_spans, is_json_block  # noqa: F401
 
-__all__ = ["ABBREVIATIONS", "abbreviation_ends_at", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences", "strip_json_spans"]
+__all__ = ["ABBREVIATIONS", "abbreviation_ends_at", "inner_sentences", "is_abbreviation_before", "sentence_boundaries", "split_clauses", "split_sentences",
+           "strip_json_spans"]
 
 #: Tokens after which a full stop is an abbreviation, not a sentence end (lower-case, without the stop).
 ABBREVIATIONS = frozenset({
@@ -50,7 +57,12 @@ ABBREVIATIONS = frozenset({
 #: ("Kennedy's.") is not an initial, so the sentence ends there.
 _LAST_WORD_RE = re.compile(r"(?:^|(?<=[\s(\[\"“‘«„]))([^\W\d_](?:[^\W\d_]|\.(?=[^\W\d_]))*)\.?$")
 _CLOSERS = "\"”’')\\]»"
-_END_RE = re.compile(rf"[.?!]+[{_CLOSERS}]*(?=\s+\S)")
+#: A run of sentence-end marks, and of clause-end marks (with ``;``): each run is found once, with no lookahead to retry.
+_END_MARK_RUN_RE = re.compile(r"[.?!]+")
+_CLAUSE_MARK_RUN_RE = re.compile(r"[.?!;]+")
+#: The closing marks that may follow the end marks: the characters of :data:`_CLOSERS` except the backslash (in the
+#: character class the end pattern was written with, ``[...\\]...]``, the backslash only escaped the bracket).
+_CLOSER_RUN_RE = re.compile(r"[\"”’')\]»]*")
 _JSON_END_RE = re.compile(r"[}\]](?=\s+[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
 _STARTS_SENTENCE_RE = re.compile(r"[A-ZÀ-ÖØ-Þ0-9\"'(“‘«„\[{]")
 _WS_RE = re.compile(r"\s+")
@@ -140,6 +152,21 @@ def _json_cuts_cached(text: str) -> tuple[str, tuple[tuple[int, int], ...]]:
     return "".join(chars), tuple(spans)
 
 
+def _end_marks(text: str, clauses: bool) -> list[tuple[int, int, int]]:
+    """``(start, end, next_start)`` for every run of end marks (``.``, ``?``, ``!``, and ``;`` with ``clauses``), with the
+    closing marks after it, that white space and then a character that is not white space follow: ``start``-``end`` is the
+    match ``re.finditer(r"[.?!]+[closers]*(?=\\s+\\S)", text)`` gives there, and ``next_start`` the offset after the white
+    space. One pass: each run of marks, of closing marks and of white space is read once."""
+    out: list[tuple[int, int, int]] = []
+    n = len(text)
+    for run in (_CLAUSE_MARK_RUN_RE if clauses else _END_MARK_RUN_RE).finditer(text):
+        end = _CLOSER_RUN_RE.match(text, run.end()).end()
+        space = _WS_RE.match(text, end)
+        if space is not None and space.end() < n:
+            out.append((run.start(), end, space.end()))
+    return out
+
+
 def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bool = True) -> list[int]:
     """Offsets in ``text`` at which a new sentence (or, with ``semicolons``, a new
     clause) starts. A boundary inside a quotation is ignored, as is one after an
@@ -158,17 +185,13 @@ def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bo
         after = nxt.end() if nxt else b
         if after < len(original):
             out.append(after)
-    pattern = re.compile(rf"[.?!;]+[{_CLOSERS}]*(?=\s+\S)") if semicolons else _END_RE
-    for m in pattern.finditer(text):
-        if spans and _inside_any(starts, furthest_end, m.start(), m.end()):
+    for m_start, m_end, start in _end_marks(text, semicolons):
+        if spans and _inside_any(starts, furthest_end, m_start, m_end):
             continue
-        if m.group(0)[0] != ";" and abbreviation_ends_at(text, m.end()):
+        first = text[m_start]
+        if first != ";" and abbreviation_ends_at(text, m_end):
             continue
-        nxt = _WS_RE.match(text, m.end())
-        start = nxt.end() if nxt else m.end()
-        if start >= len(text):
-            continue
-        if capital_next and m.group(0)[0] != ";" and not _STARTS_SENTENCE_RE.match(text, start):
+        if capital_next and first != ";" and not _STARTS_SENTENCE_RE.match(text, start):
             continue
         out.append(start)
     for m in _JSON_END_RE.finditer(text):
@@ -199,6 +222,30 @@ def split_sentences(text: str) -> list[str]:
     """Sentences of ``text`` (one paragraph or list item), abbreviation-aware; the next
     sentence must open with a capital, a digit or an opening mark."""
     return _pieces(text, sentence_boundaries(text))
+
+
+#: a quotation or a JSON string wrapped round a whole sentence: '"The crash of 1929 came after …. Banks failed in 1930."',
+#: '{"answer": "…"}' (the opening, and the closing at the end)
+_WRAP_OPEN_RE = re.compile(r"^\s*(?:\{\s*\"[A-Za-z_ -]{1,40}\"\s*:\s*)?[\"“‘'«]+")
+#: (security round 1) The closing is read from the start of a run of closing marks only, and possessively: the leftmost match always
+#: starts a run (a mark before it would start a longer match), and each quantifier's longest reading is the only one that can
+#: reach the end. Read from every mark of a long run, with the white space after it read again for each split, the search was
+#: quadratic on a sentence of closing marks (tests/adapters_history/test_security_round1_wrap.py).
+_WRAP_CLOSE_RE = re.compile(r"(?<![\"”’'»])[\"”’'»]++\s*+\}?+\s*+$")
+
+
+def inner_sentences(sentence: str) -> list[str]:
+    """The sentences inside one sentence of :func:`split_sentences`: a quotation or a JSON string wrapped round two
+    sentences is one sentence to the splitter, and a cue in the first ('came after') must never be paired with a date of
+    the second. The wrapping marks are set aside and the inside split again (a sentence with no wrapping is returned as
+    it is). The core pack's formal chronology check and the History pack's chronology proxy (HI-CHR-001) both read
+    sentences through it, so the two agree on a wrapped answer."""
+    m_open, m_close = _WRAP_OPEN_RE.match(sentence), _WRAP_CLOSE_RE.search(sentence)
+    if not m_open or not m_close or m_close.start() <= m_open.end():
+        return [sentence]
+    inner = sentence[m_open.end():m_close.start()]
+    parts = [p.strip() for p in split_sentences(inner) if p.strip()]
+    return parts if len(parts) > 1 else [sentence]
 
 
 def split_clauses(text: str) -> list[str]:

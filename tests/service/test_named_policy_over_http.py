@@ -55,6 +55,14 @@ def sanitize(obj: Any) -> Any:
     return obj
 
 
+def client_config(config: dict[str, Any]) -> dict[str, Any]:
+    """What a backend sends of the configuration the pipeline ran: the server-controlled options
+    (``SERVER_CONTROLLED_CONFIG_KEYS``: the process-wide memory budget, and model completion, which the engine always
+    applies) are the server's, and a request that names one is refused (400 E100), so they are left out; the server's
+    values are the pipeline's (``model_completion`` true)."""
+    return {k: v for k, v in config.items() if k not in app_module.SERVER_CONTROLLED_CONFIG_KEYS}
+
+
 def decision(result: dict[str, Any]) -> dict[str, Any]:
     """The fields of a result that carry its decision (ids, timestamps, timings, dependency lists and signature aside)."""
     core = result.get("unsat_core") or {}
@@ -95,10 +103,15 @@ def test_each_recorded_problem_decides_over_http_as_in_the_pipeline_under_its_na
     assert pipeline["status"] == entry["pipeline_status"]
     sent = sanitize(entry["problem"])
 
-    before = post(client, {"problem": sent, "config": entry["config"]})
+    refused = post(client, {"problem": sent, "config": entry["config"], "policy": name})
+    assert refused.status_code == 400 and refused.json()["code"] == "E100", "a server-controlled option is never the client's to send"
+    config = client_config(entry["config"])
+    assert SolverConfig(**config) == SolverConfig(**entry["config"]), "the server's values of those options are the pipeline's"
+
+    before = post(client, {"problem": sent, "config": config})
     assert before.status_code == 200 and before.json()["status"] == entry["http_status"], "without a policy nothing changed"
 
-    r = post(client, {"problem": sent, "config": entry["config"], "policy": name})
+    r = post(client, {"problem": sent, "config": config, "policy": name})
     assert r.status_code == 200
     body = r.json()
     assert decision(body) == decision(pipeline), "the same problem gets the same decision in process and over HTTP"
@@ -274,7 +287,7 @@ def test_a_recorded_stem_problem_decides_as_in_the_pipeline_over_a_real_socket(l
     lim, cfg = named_policy("nonlinear", SolverConfig(**entry["config"]))
     pipeline = json.loads(verify(Problem.model_validate(entry["problem"]), cfg, lim).model_dump_json())
     with httpx.Client(base_url=live_base_url, timeout=60.0, trust_env=False) as http:
-        sent = {"problem": sanitize(entry["problem"]), "config": entry["config"]}
+        sent = {"problem": sanitize(entry["problem"]), "config": client_config(entry["config"])}
         assert http.post("/v1/verify", json=sent, headers=AUTH).json()["status"] == "UNSUPPORTED"
         r = http.post("/v1/verify", json={**sent, "policy": "nonlinear"}, headers=AUTH)
         assert r.status_code == 200 and r.headers.get("x-request-id")

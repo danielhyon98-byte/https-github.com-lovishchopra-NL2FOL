@@ -13,8 +13,10 @@ channel finds in a different form (``INT-REQ-010``) is a WARNING here, an excerp
 nowhere is an error, and both name the excerpt and the documents searched.
 
 ``HI-CHR-001`` reads the sentence's dated orderings from the same extractor as the core
-pack's formal chronology check (``history_specialist.chronology``), with the paragraph
-as context for a day-month date whose year the sentence does not state.
+pack's formal chronology check (``history_specialist.chronology``), over the same sentences
+(a quotation wrapped round two sentences is read as those sentences:
+``sentences.inner_sentences``), with the paragraph as context for a day-month date whose
+year the sentence does not state.
 
 ``HI-STR-003`` (opens with evidence rather than a claim) is decided from the parsed role of
 the paragraph's first claim that is not a note: evidence or counter evidence opens with
@@ -37,11 +39,22 @@ from ...translate.contracts import SpecialistReport, StructuralFinding
 from ...translate.grounding import check_claim_sources
 from ..markdown import MEMORY_LABEL_RE as _MEMORY_LABEL_RE
 from .chronology import chronology_relations
+from .sentences import inner_sentences
 from .parser import COUNTER_CUES, CRITERION_CUES, JUDGEMENT_CUES, VERDICT_CUES, classify_paragraphs, has_dated_item, is_source_caveat, opens_with_fact, split_sentences
 
 # Name tokens are Unicode-aware: 'Jürgen Falter argued' is an attribution exactly as 'Karl Bracher argued' is.
 _NAME = r"[A-ZÀ-ÖØ-Þ][^\W\d_]+"
-_HISTORIAN_RE = re.compile(rf"\b([A-Z]\.(?:\s?[A-Z]\.)*\s?{_NAME}|{_NAME}\s{_NAME})\s+(?:has\s+)?(?:argue[sd]|prove[sd]|show[s]?|claim[s]?|concluded|demonstrated)\b")
+#: The verbs of a historian's position (repair round 1, re-run review A-EVD-AUTH: "has shown", "showed", "found" were missing,
+#: so "The historian Margaret Hale has shown ..." went unread). The verbs of historical actors ("believed", "wrote", "said")
+#: are not among them: "Neville Chamberlain believed ..." reports a person of the period, not a historian's verdict.
+_HISTORIAN_VERBS = (r"argue[sd]?|argued|prove[sd]?|proven|show(?:s|ed|n)?|claim(?:s|ed)?|conclude[sd]?|demonstrate[sd]?|establishe[sd]|established"
+                    r"|found|finds|contend(?:s|ed)?|maintain(?:s|ed)?|suggest(?:s|ed)?|interpret(?:s|ed)?")
+#: (security round 1) A name of initials ('A. J. P. Taylor') starts only at its first initial: an initial that follows an initial
+#: (with at most one space between, at a word's start) is read by the name that starts at the initial before it, which the search
+#: tries first and which reads every name and verb this one could. Searched from every initial of a long run of them, the pattern
+#: read the run again from each (quadratic: 0.5 s on one 4,000-character claim, the base's pattern alike); a claim names a
+#: historian exactly when it did (tests/adapters_history/test_security_round1_historian.py).
+_HISTORIAN_RE = re.compile(rf"\b((?<!\b[A-Z]\.)(?<!\b[A-Z]\.\s)[A-Z]\.(?:\s?[A-Z]\.)*\s?{_NAME}|{_NAME}\s{_NAME})\s+(?:has\s+|have\s+)?(?:{_HISTORIAN_VERBS})\b")
 _RULE = "history_specialist/{} (working rule, not an official IB rule)"
 _FORM_DIFFERS = "differs in form"
 #: The paragraph-level vocabulary of the judgement move (counter-case weighed by a criterion), searched when the roles do not settle it.
@@ -133,9 +146,10 @@ def structural_checks(report: SpecialistReport) -> list[StructuralFinding]:
         evidence_first, first_ids, how = _opening(sents[0], para_claims) if sents else (False, [], "")
         if evidence_first:
             f.append(StructuralFinding(code="HI-STR-003", severity="info", message=f"body paragraph {pi + 1} opens with evidence rather than a claim: {how}", claim_ids=first_ids or ids[:1], rule_source=_RULE.format("structures.md P6")))
-        for s in sents:
-            # The same extractor decides the core pack's formal chronology check, so the proxy and the engine agree.
-            for rel in chronology_relations(s, para):
+        for s, inner in ((s, inner) for s in sents for inner in inner_sentences(s)):
+            # The same extractor decides the core pack's formal chronology check, over the same sentences (a quotation wrapped
+            # round two sentences is read as those sentences, as the core pack reads it), so the proxy and the engine agree.
+            for rel in chronology_relations(inner, para):
                 if rel.violated:
                     if rel.kind == "order":
                         what = f"a sentence says one dated event came after another ('{rel.cue}'), but the dates it gives are not in that order: {rel.later_text} is not later than {rel.earlier_text}"

@@ -18,9 +18,11 @@
   checks stage may take, at warning severity (design D3).
 * Rebinding adds a binding; when the value differs beyond rounding from every earlier one
   (``|w − b| ≤ h(w) + h(b)``, in SI when both units are known), an ST-SCOPE-001 info note is
-  recorded. A substituted value matches ANY binding of its symbol, so part (b) reusing part
-  (a)'s letter is never flagged. Only the last ``max_bindings_per_symbol`` bindings are kept
-  for matching; dropping older ones is also noted (ST-SCOPE-001).
+  recorded. Which bindings a check uses is decided by the checks stage (``checks._scoped``): a
+  binding holds in its own part from where it is stated, so part (b) reusing part (a)'s letter
+  for its own value is checked against that value, and a binding of one part never validates a
+  calculation in another part that states its own. Only the last ``max_bindings_per_symbol``
+  bindings are kept for matching; dropping older ones is also noted (ST-SCOPE-001).
 * Formulas: a left-hand symbol (or ``f(x)``) maps to the expressions stated for it by
   definition and law links (``F = ma``, ``a = Δv/Δt``), most recent last.
 * Models: a function of one variable defined with a power of e (or of a positive closed base)
@@ -161,14 +163,14 @@ class Scope:
             first = prior[-1]
             note = ScopeNote("ST-SCOPE-001", f"'{b.symbol}' is rebound to {b.number.text}{' ' + b.unit.text if b.unit else ''} in {b.statement_id} "
                                              f"(earlier {first.number.text}{' ' + first.unit.text if first.unit else ''} in {first.statement_id}); "
-                                             f"a substituted value matches any binding of the symbol", b.symbol,
+                                             f"a calculation is checked against the values in force in its own part, stated before it", b.symbol,
                              tuple(dict.fromkeys((first.statement_id, b.statement_id))))
             self.notes.append(note)
         elif prior and b.source == "result" and not any(p.same_as(b) for p in prior) and all(p.statement_id != b.statement_id for p in prior):
             first = prior[-1]
             note = ScopeNote("ST-SCOPE-001", f"'{b.symbol}' takes the value {b.number.text}{' ' + b.unit.text if b.unit else ''} in {b.statement_id} "
                                              f"(earlier {first.number.text}{' ' + first.unit.text if first.unit else ''} in {first.statement_id}); "
-                                             f"a substituted value matches any binding of the symbol", b.symbol,
+                                             f"a calculation is checked against the values in force in its own part, stated before it", b.symbol,
                              tuple(dict.fromkeys((first.statement_id, b.statement_id))))
             self.notes.append(note)
         prior.append(b)
@@ -215,6 +217,8 @@ class Scope:
 _GREEK_LETTERS = frozenset("αβγδεζηθικλμνξοπρστυφχψωΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩµϕϵϑ")
 _SUBSCRIPT_CHARS = frozenset("₀₁₂₃₄₅₆₇₈₉ₐₑₒₓₕₖₗₘₙₚₛₜᵢⱼᵣ∥⊥½")
 _BLOCKING = frozenset("+-−×·*/÷^=<>≤≥≈≠~0123456789)]}⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻|√")
+#: Number glyphs a letter run may be glued to as a factor ('½mv', '¼πd²').
+_NUMBER_GLYPHS = frozenset("½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
 #: subscript characters as they appear in a symbol name
@@ -312,6 +316,10 @@ def _name_before(text: str, k: int) -> str:
         j -= 1
     if j >= 0 and ("a" <= text[j] <= "z" or "A" <= text[j] <= "Z" or text[j].isdigit()):
         return ""  # the run is part of a longer word or follows a digit
+    if j >= 0 and not delta and (text[j] in _NUMBER_GLYPHS or (text[j] in _GREEK_LETTERS and text[j] != "Δ")):
+        # glued to a number glyph or a Greek letter ('½mv =', '2πrh ='): a product of the letters, never a name the text
+        # declares (repair round 5, ADV5-06: 'mv' declared as one unknown symbol hid the wrong formula E_k = ½mv)
+        return ""
     # what opens the relation: skip spaces and look at the previous character or word
     while j >= 0 and text[j] in " \t":
         j -= 1

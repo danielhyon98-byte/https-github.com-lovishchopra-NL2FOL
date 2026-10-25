@@ -21,6 +21,13 @@ Every premise a result relies on therefore lands in exactly one place:
 
 These rules decide what a result reports as resting on unresolved premises; they never change its status. Formal
 entailment and permission to release an answer stay separate (:mod:`.release`).
+
+Circularity (``E112``, and the translation layer's circularity refusal, which reads the same rule) follows the same
+principle: a premise that restates the conclusion is the writer's own unless a check in this process established it
+(:func:`assumed_grounding` is ``not has_authority``). Restating a task setting, a rubric rule or a text excerpt that a check
+verified is a transcription; restating one that only carries the label (a ``task_setting`` with no record checked, a
+``supplied_text`` with no excerpt, a ``knowledge_document``) is a circle, since nothing but the claim's own premise
+supports it. A label never confers authority, here or anywhere else.
 """
 from __future__ import annotations
 
@@ -82,12 +89,14 @@ def is_unverified(grounding: Optional[Grounding]) -> bool:
 
 
 def assumed_grounding(grounding: Optional[Grounding]) -> bool:
-    """A premise the claim's writer (or the translator) supplies itself: an ungrounded kind (:func:`is_ungrounded`) or an
-    ``arithmetic_fact`` no check verified (a figure the report states, asserted as a fact). A premise grounded in the task
-    (``task_setting``, ``rubric_rule``) or a text (``supplied_text``, ``knowledge_document``, ``library_source``, a
-    verified quotation) is a transcription: restating it is a check of the claim against that source, not a circle
-    (an unchecked one is still listed as an unverified dependency)."""
-    return is_ungrounded(grounding) or (grounding is not None and grounding.kind == "arithmetic_fact" and grounding.verified is not True)
+    """A premise the claim's writer (or the translator) supplies itself, for circularity: every premise that no check in
+    this process established (``not has_authority``), whatever kind it claims. A premise a check verified against the task
+    record or a text (a ``task_setting`` the request states, a located excerpt) is a transcription: restating it is a
+    check of the claim against that source, not a circle. One that only carries a task or text label (no excerpt, an
+    excerpt no check located, a ``knowledge_document``) is supported by nothing but the claim itself, so restating it is
+    circular. Until policy 2026.10-v5 only the ungrounded kinds and an unverified ``arithmetic_fact`` counted, so a
+    label-only ``task_setting`` that restated the conclusion cleared the check."""
+    return not has_authority(grounding)
 
 
 def ungrounded_dependencies(problem: Problem, relied_on: list[str]) -> list[str]:
@@ -113,5 +122,5 @@ def dependency_policy() -> dict[str, Any]:
         "checkable_kinds": sorted(CHECKABLE_KINDS),
         "authority": "verified-in-process-only",
         "unchecked_task_or_source_kind": "unverified_dependency",
-        "assumed_for_circularity": sorted(UNGROUNDED_KINDS | {"arithmetic_fact:unverified"}),
+        "assumed_for_circularity": "not_established",
     }

@@ -5,6 +5,6 @@ premises. It never establishes that the premises are factually true or that a
 natural-language claim was translated faithfully. See
 ``epinoic_logic.engine.statuses.SCOPE_STATEMENT``.
 """
-from .version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
+from .version import ARG_RULES_VERSION, ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
 
-__all__ = ["ENGINE_VERSION", "IR_VERSION", "POLICY_VERSION", "TRANSLATOR_VERSION"]
+__all__ = ["ARG_RULES_VERSION", "ENGINE_VERSION", "IR_VERSION", "POLICY_VERSION", "TRANSLATOR_VERSION"]
