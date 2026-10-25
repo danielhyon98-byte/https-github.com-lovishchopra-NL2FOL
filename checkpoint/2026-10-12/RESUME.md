@@ -1,3 +1,8 @@
+> 25 Oct ~15:15 UTC, Daniel: "just aim to finish phase 2 merger and do not proceed with round 8 testing until after the weekly
+> reset. then following that prepare handoff for updated integration of new z3 into the website". Phase 2 returns {paused} after
+> the argument-diagnostics merge; resume it (remove the pause return in phase2-pipeline.js) only after Fri 30 Oct 16:00 UTC.
+> Then the handoff refresh (task #160). See KNOWLEDGE/01-STATE.md, entries of 25 Oct 15:00-15:15.
+
 # Resume after the weekly limit of 25 Oct 2026 (final checkpoint ~08:05 UTC; limit resets Fri 30 Oct 16:00 UTC)
 
 Read KNOWLEDGE/01-STATE.md (entries 00:00-08:00 of 25 Oct) first. Where everything stood:
