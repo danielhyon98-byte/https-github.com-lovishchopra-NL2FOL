@@ -963,3 +963,12 @@ Work in progress after it is labelled as such.
 - Phase 2 is merging the overseer rebuild into the integrated line.
 - Argument diagnostics: the second security round is running; an accuracy round follows for the false alarms on correct
   answers and three common STEM misses, then the commit.
+
+### Progress, 00:00 UTC (25 October)
+
+- Overseer rebuild: committed (suite 7956 passed, 358 of 358 tamperings detected, 0 false alarms on 138 genuine
+  transfers). Its upload still waits on the test-name rule of the upload gate.
+- Phase 2 is still merging the overseer rebuild into the integrated line.
+- Argument diagnostics: the second security round is still fixing the five slow-pattern findings of the first round's
+  review (the first round made 17 patterns linear; suite 9014 passed, corpus and arena outcomes unchanged). The accuracy
+  round and the commit follow.
