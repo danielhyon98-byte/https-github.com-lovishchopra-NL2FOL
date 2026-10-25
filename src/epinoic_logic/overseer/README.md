@@ -490,7 +490,7 @@ and the signed results decide.
 | --- | --- | --- |
 | Codes | `codes.py` | every `OVS-*` code with one severity and one stage (`OVS-AGENT-*` included) |
 | Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`, `TranslationAudit`; the audit scope sentence |
-| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation) |
+| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation, delivery) |
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
@@ -511,6 +511,7 @@ and the signed results decide.
 | Repeated faults | `repeats.py` | a deterministic signature for every error-level fault of an answer (code, normalised offending claim or quoted phrase, figures); `detect_repeats` over a task's answers: `OVS-REP-001`, counts per agent |
 | Consolidation | `consolidate.py` | `consolidate`: ONE signed `consolidated_response/1.0` for answers several agents gave to one input (groups, representative, exclusions, conflicts disclosed); `delivery_decision`, `check_consolidation` (`OVS-CONS-*`) |
 | Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack |
+| Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget, else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
 
 The observer hook itself lives outside this package, which the channel never imports: `channel/events.py`
 (`ChannelEvent`, `snapshot_event`, `observe_call`), the private decorator on the four entry points of
@@ -596,6 +597,19 @@ units (a repeated-fault dossier counts twice) exceed the per-instance quota; at 
 fault (it goes to two independent instances, combined by `combine_verdicts`); never more than `max_instances` (default
 4). Every instance is an `OverseerAgentRunner` from the pool's one loaded pack, deployed on the cheapest model tier;
 instances never certify anything or change a status. Design section 19.
+
+## The delivery policy
+
+`delivery_policy.py` decides what the router may hand on for one deliverable and records why in a signed
+`delivery_receipt/1.0`. The formal path: within `translation_budget_s` (240 s, the founder's limit, on an injectable
+monotonic clock) every material eligible claim clean (translated, definitive, the release rule re-derived from the journal
+and the signed result, no `OVS-TRN-*` finding naming it, the clearance actionable). Otherwise the fallback: the policy's
+`OverseerPool` reviews the task through `hub.review_pool`, every verdict validated as in production; a verdict that
+contradicts a signed result is rejected; each candidate's accuracy is the share of its material claims counted verdicts
+examined with no fault pinned down, no check naming them and no signed refutation; the best acceptable candidate is
+delivered only strictly above 0.90 (exact fractions), never one with a signed-refuted material claim while another has
+none. The overseer stage has its own deadline (withheld by default). Labels other than FORMALLY CHECKED say "not formally
+checked, not verified"; the payload is the journaled one, byte for byte. See `docs/DELIVERY.md`.
 
 ## Contained harness
 

@@ -1,3 +1,8 @@
+> 25 Oct ~17:55 UTC: the argument-diagnostics merge FAILED (argdiag-final forked 17 Oct; contradictory duplicate fixes). Daniel decided:
+> over-limit requests are REJECTED (INT-REQ-009); STEM tolerance keeps the sum rule h(b)+h(w); now upload 404aee2 and refresh the
+> handoff; AFTER the reset port argument diagnostics onto the dev head (dev behaviour wins every contradiction), re-run its corpora,
+> then phase 2's integration, gate and round 8.
+
 > 25 Oct ~15:15 UTC, Daniel: "just aim to finish phase 2 merger and do not proceed with round 8 testing until after the weekly
 > reset. then following that prepare handoff for updated integration of new z3 into the website". Phase 2 returns {paused} after
 > the argument-diagnostics merge; resume it (remove the pause return in phase2-pipeline.js) only after Fri 30 Oct 16:00 UTC.

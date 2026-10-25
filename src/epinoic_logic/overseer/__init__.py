@@ -41,7 +41,12 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
   repeated-fault signatures and detection (:func:`detect_repeats`, :class:`RepeatReport`, OVS-REP-001); and the overseer
   pool (:class:`OverseerPool`, :func:`plan_pool`, :class:`PoolPlan`) that decides how many overseer-agent instances,
   all from one loaded pack, review a batch. The hub's entry points are ``RouterHub.consolidate``, ``repeats`` and
-  ``review_pool``.
+  ``review_pool``;
+* the delivery policy (``docs/DELIVERY.md``): :class:`DeliveryPolicy` decides, for one deliverable, between the formal
+  path (every material eligible claim clean within the four-minute translation budget: ``formally_checked``), the
+  overseer-selected fallback (the candidate whose validated accuracy is highest and above 0.90:
+  ``overseer_selected``), ``not_checked`` (only when an operator configures it) and ``withheld``, and records why in a
+  signed :class:`DeliveryReceipt` (``delivery_receipt/1.0``, key id ``overseer-delivery``).
 
 A verdict is advisory and decides nothing: only a deterministic check's ``OVS-*`` finding reaches the router, and
 ``OVS-AGENT-*`` findings never change a clearance.
@@ -97,6 +102,13 @@ from .consolidate import (  # noqa: F401,E402
 )
 from .pool import DEFAULT_MAX_INSTANCES, MODEL_TIER, OverseerPool, PoolConfig, PoolItem, PoolPlan, plan_pool  # noqa: F401,E402
 from .keys import CONSOLIDATION_KEY_ID  # noqa: F401,E402
+# ---------------------------------------------------------------------------------------- the delivery policy
+from .delivery_policy import (  # noqa: F401,E402
+    DELIVERY_CONTRACT, DELIVERY_MODES, DELIVERY_POLICY_VERSION, FOUNDER_MIN_SELECTED_ACCURACY, FOUNDER_TRANSLATION_BUDGET_S, DeliveredAnswer,
+    DeliveryConfig, DeliveryDecision, DeliveryPolicy, DeliveryReceipt, DeliverySession, accuracy_above, is_fallback_label_honest,
+    verify_delivered_answer, verify_delivery_receipt,
+)
+from .keys import DELIVERY_KEY_ID  # noqa: F401,E402
 
 _EXPORTER_NAMES = frozenset({"export_pack", "verify_export", "ExportError", "ExportResult"})
 

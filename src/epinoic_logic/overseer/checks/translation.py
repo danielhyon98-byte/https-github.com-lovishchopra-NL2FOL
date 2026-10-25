@@ -722,15 +722,24 @@ def overseer_grounding(problem: Problem, report: SpecialistReport) -> tuple[Prob
     return rerun, checks, accepted
 
 
-def grounding_faults(tr: TranslationResult, report: SpecialistReport) -> tuple[list[str], list[tuple[str, Optional[str], str]]]:
+def grounding_faults(tr: TranslationResult, report: SpecialistReport, task: Optional[TaskRecord] = None) -> tuple[list[str], list[tuple[str, Optional[str], str]]]:
     """``(overstated, absent)``. ``overstated``: verifications the re-run of the grounding check does not reproduce
     (TRN-003). ``absent``: ``(target, document id, detail)`` for every excerpt the re-run does not find in the document it
     names, or that does not state the figures of its assertion (TRN-004), but for a figure the located excerpt states in
-    the unit without its prefix (rule ``excerpt-prefix-units``)."""
+    the unit without its prefix (rule ``excerpt-prefix-units``).
+
+    Rule ``task-record-rerun`` (the delivery policy's formal path): the re-run is given exactly the inputs the
+    translator's own check had. The pipeline validates task authority against the task record the channel issued
+    (``check_problem_grounding(problem, supplied_texts, task=...)``) and records that record's digest
+    (``tr.task_sha256``); ``task`` is the task record of the journaled request the report answers, used only when its
+    digest is the one the translation records. A re-run without it could not reproduce a ``numeric_in_task`` or
+    ``relation_in_source`` validation and named every genuine task-validated premise as overstated (a false OVS-TRN-003
+    error). A translation naming another task, or none, is re-run without one, as before."""
     problem = tr.problem
     if problem is None:
         return [], []
-    rerun, checks = check_problem_grounding(problem, list(report.supplied_texts))
+    same_task = task if (task is not None and tr.task_sha256 is not None and task.text_sha256 == tr.task_sha256) else None
+    rerun, checks = check_problem_grounding(problem, list(report.supplied_texts), task=same_task)
     _again, _checks, accepted = overseer_grounding(problem, report)
     again = {key: g for key, _name, g in _targets(rerun)}
     overstated: list[str] = []
@@ -3426,8 +3435,11 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     states: list[Optional[tuple[str, list[str]]]] = [None]
     if review is not None:
         states = []
-        for rep in dict.fromkeys((report, None)):
-            for tk in dict.fromkeys((task, None)):
+        # the alternatives are listed, never hashed: a SpecialistReport is a frozen model whose claims are a list, so
+        # ``dict.fromkeys((report, None))`` raised TypeError and the whole translation check of every reviewed outcome
+        # failed internally (OVS-AUDIT-001: no reviewed transfer could pass; found by the delivery policy's formal path)
+        for rep in ((report, None) if report is not None else (None,)):
+            for tk in ((task, None) if task is not None else (None,)):
                 try:
                     st = review_currency(review, claim, tr, rep, tk)
                 except Exception:
@@ -3687,7 +3699,7 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                     f"validation: {_listed(faults)}", claim_ids=cid, formal_result_id=rid, **ids)
         # TRN-003 / TRN-004
         if tr.problem is not None:
-            overstated, absent = grounding_faults(tr, report)
+            overstated, absent = grounding_faults(tr, report, task=_task_of(ctx, t))
             if overstated:
                 ctx.ovs(t.seq, "OVS-TRN-003", f"the IR of claim {claim.claim_id} ({path}.translation) states more grounding than the deterministic grounding "
                         f"check gives: {_listed(overstated)}", claim_ids=cid, formal_result_id=rid, **ids)

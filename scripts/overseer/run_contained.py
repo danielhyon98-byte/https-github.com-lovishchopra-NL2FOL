@@ -1185,7 +1185,15 @@ def run_round_contained(name: str, src: Path, out: Path, pack: Any, *, probe_sco
                         adjudications: Optional[dict] = None) -> dict:
     rdir = out / "rounds"
     plain_copy = H.copy_round(src, rdir / "without-auditor", name=name)
-    plain = H.arena().run_round(plain_copy)
+    ra = H.arena()
+    delivery_pass = getattr(ra, "DELIVERY_PASS", None)
+    if delivery_pass is not None:  # the arena's delivery pass measures delivery, not the auditor: off in contained runs
+        ra.DELIVERY_PASS = False
+    try:
+        plain = ra.run_round(plain_copy)
+    finally:
+        if delivery_pass is not None:
+            ra.DELIVERY_PASS = delivery_pass
     copy = H.copy_round(src, rdir, name=name)
     aud = H.new_auditor(H.keyring_for("arena"), replay_mode=replay_mode)
     try:
