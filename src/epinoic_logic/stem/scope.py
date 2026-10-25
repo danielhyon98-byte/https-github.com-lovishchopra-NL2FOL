@@ -138,6 +138,11 @@ class Scope:
     limits: StemLimits = DEFAULT_LIMITS
     bindings: dict[str, list[Binding]] = field(default_factory=dict)
     substitutions: dict[str, list[Binding]] = field(default_factory=dict)
+    #: rule changed-value (STEM repair 4): the value the prose gives a symbol's quantity at the end of a change it states ('the current
+    #: from the cell falls, from 4.1 A to 2.7 A'), source ``change``: a substitution stated after it, in its statement or in its part may
+    #: take it, as it takes a binding;
+    #: never a premise of its own check, never a binding of the scope (no rebinding note, no carried value)
+    changes: dict[str, list[Binding]] = field(default_factory=dict)
     formulas: dict[str, list[Formula]] = field(default_factory=dict)
     models: dict[str, list[Model]] = field(default_factory=dict)
     functions: set[str] = field(default_factory=set)
@@ -178,6 +183,16 @@ class Scope:
                                                         f"({dropped.number.text} in {dropped.statement_id}) is no longer matched", b.symbol,
                                         (dropped.statement_id,)))
         return note
+
+    def add_change(self, b: Binding) -> None:
+        """Rule ``changed-value`` (STEM repair 4): record the value the prose gives ``b.symbol`` after a change it states."""
+        self._order += 1
+        lst = self.changes.setdefault(b.symbol, [])
+        if any(x.statement_id == b.statement_id and x.start == b.start for x in lst):
+            return
+        lst.append(Binding(b.symbol, b.value, b.number, b.unit, "change", b.statement_id, b.start, b.end, self._order, b.wrapper))
+        if len(lst) > self.limits.max_bindings_per_symbol:
+            lst.pop(0)
 
     def add_formula(self, f: Formula) -> None:
         self.names.add(f.name)

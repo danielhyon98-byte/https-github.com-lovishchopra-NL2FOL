@@ -41,25 +41,43 @@ STEM_TOLERANCE_RULE = (
     "STEM tolerance rule. E is the written expression, S the written value it is said to equal, C the exact value of E under the reading in force. "
     "R1 half-width h(S): half a unit in the last written digit of S's mantissa times its power of ten (5.0 gives 0.05, 1.20 × 10³ gives 5); an exact "
     "fraction or surd gives 0; the trailing zeros of an integer written without a point count only up to the smallest significant-figure count of the "
-    "expression's measured operands (1200 with 2-s.f. operands gives 50). "
-    "R2 relative slack τ: 1/100 for '=' with any decimal or measured operand or a decimal S; 1/20 for '≈', '≃', '~' or '=' after approximately, about, "
-    "roughly, estimate; exact mode (every operand and S exact, '='): τ = 0 and h = 0. "
+    "expression's measured operands (1200 with 2-s.f. operands gives 50), and none count for a value set against a value with no operands (a "
+    "conversion's or a restatement's two values: 600 gives 50). "
+    "R2 relative slack τ: 1/20 for '≈', '≃', '~' or '=' after approximately, about, roughly, estimate, whatever the check (a conversion included) "
+    "but a restated result (R8: an approximation word before a restated value names its rounding, STEM repair 12); "
+    "otherwise 1/100 for '=' in written arithmetic with any decimal or measured operand or a decimal S, and 0 for the checks R5 to R10 name; exact mode "
+    "(every operand and S exact, '='): τ = 0, and h = 0 unless S closes rational written arithmetic with two or more significant figures: then h(S) is "
+    "half a unit in its last written digit, every trailing zero counting, so a whole computed value is stated exactly and one that is not whole may be "
+    "stated to S's last digit ('(92 − 18) ÷ 18 × 100 = 411%'; '7/3 = 2' fails; STEM repair 11, rule exact-rounding). "
     "R3 interval readings: a carried intermediate (the answer's own earlier rounded result) ranges over [w − h(w), w + h(w)]; a written constant matching "
     "the data booklet at its written precision ranges over the hull of its rounding interval and the booklet value; an unbound standard-constant symbol "
     "admitted by a dimension check ranges over its accepted values (warning on failure); π, e and function values range over their enclosures. "
     "Given data, constants whose value the answer states and exact coefficients are taken as written. "
     "R4 band: the check passes iff some admissible reading gives |C − S| ≤ h(S) + τ·|C| (Form E, entailment, when no operand has an interval reading; "
     "Form S, satisfiability, otherwise); a value set against a value also adds the left value's own half-width. "
-    "R5 conversions: exact table factors, τ = 0. R6 comparisons (<, ≤, >, ≥, ≠) between written values are exact. "
-    "R7 substitution: a substituted numeral w matches a binding b iff |w − b| ≤ h(b) + h(w), in b's written unit or in SI. "
-    "R8 restated result: |S − S′| ≤ h(S) + h(S′) in SI. R9 prose relations keep the quant tolerance rule. "
-    "R10 roots: a decimal root r passes iff a real root lies in [r − h(r), r + h(r)]; an exact root passes iff it satisfies the equation exactly."
+    "R5 conversions: exact table factors, τ = 0 (1/20 after '≈' or about, R2). R6 comparisons (<, ≤, >, ≥, ≠) between written values are exact. "
+    "R7 substitution: a substituted numeral w matches a binding b iff |w − b| ≤ h(b) + h(w), in b's written unit or in SI; a value the request "
+    "or a text supplied with it states, and a Given that restates one, is data taken as written: w (a substituted numeral or a Given value) matches it "
+    "iff one of the two is the other rounded to its own last written digit, |w − b| ≤ max(h(w), h(b)) (STEM repair 11, rule given-data: '0.49 Ω' "
+    "for the request's 0.50 ohm fails, '0.5 Ω' holds). "
+    "R8 restated result: |S − S′| ≤ h(S) + h(S′) in SI, with no τ, also after an approximation word ('= 2.67 A, which is about 2.7 A'); a rounding "
+    "the prose states for S gives h(S) ('to the nearest whole "
+    "number' 1/2, 'to 2 s.f.', 'to 1 d.p.'), which says which trailing zeros of a whole number count, never less than half a unit in S's last "
+    "written digit; so does a rounding stated for a line's own result ('= 34% to 2 s.f.', STEM repair 11, rule result-rounding). R9 prose "
+    "relations keep the quant tolerance rule; a value the prose takes from a table supplied with "
+    "the request matches the table's cells (or the difference of two rows) taken as written: |S − D| ≤ h(S). "
+    "R10 roots: a decimal root r passes iff a real root lies in [r − h(r), r + h(r)]; an exact root passes iff it satisfies the equation exactly. "
+    "R11 central value: a stated value written with its absolute uncertainty, S ± u, is set against C at its central value S under R1 to R4; u never "
+    "widens the band and is not itself checked (STEM repair 3: u had been added to h, so a slip within it passed)."
 )
 
+#: the ``[rule]`` suffix of every check description: the rule as the checks apply it (STEM repair 1: the earlier short form said
+#: "h is half a unit in S's last digit" and "0 for conversions", while R1's trailing-zero rule, R2's precedence of '≈' over
+#: every check kind and R4's second half-width for a value set against a value were applied)
 SHORT_RULE = (
-    "STEM tolerance: S must lie within h + τ·|C| of the value C computed from the written expression; h is half a unit in S's last digit; "
-    "τ is 1% for '=', 5% for '≈'/about, 0 for conversions, comparisons and exact work; rounded intermediates, constants and functions range "
-    "over their intervals."
+    "STEM tolerance: |C − S| ≤ h + τ·|C|; h: half a unit in S's last digit (integer trailing zeros only to the operands' s.f.), plus C's own h "
+    "if C is a stated value; τ: 1/20 for ≈/about, any check; else 1/100 for = in arithmetic, 0 for conversions, comparisons, substitutions, "
+    "restatements, exact work."
 )
 assert len(SHORT_RULE) <= 300
 
@@ -79,8 +97,12 @@ def half_width(number: ExactNumber, *, min_sig_figs: Optional[int] = None, exact
 
 def tau_for(kind: str, *, approx: bool, exact_mode: bool) -> Fraction:
     """R2/R5/R6/R7/R8: the relative slack for a check kind. ``approx`` (``≈`` or an approximation word)
-    always gives 1/20; conversions, comparisons, substitutions, restatements, givens and roots
-    use none; an arithmetic link uses 1/100 unless it is in exact mode."""
+    gives 1/20 whatever the kind (a conversion included) but a restated result: R8 bands a restatement
+    with no τ, an approximation word before it naming its rounding (the restatement check has always
+    applied that; STEM repair 12 states it here too); otherwise conversions, comparisons, substitutions,
+    restatements, givens and roots use none, and an arithmetic link uses 1/100 unless it is in exact mode."""
+    if kind == "res":
+        return Fraction(0)
     if approx:
         return TAU_APPROX
     if kind in ("cnv", "cmp", "res", "giv", "sub-match", "sol-root", "tgt"):

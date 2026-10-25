@@ -1335,7 +1335,7 @@ ValidationError. No live agent or provider was called for these replays.
 
 ## Both end-to-end fixes integrated: detection, channel and service
 
-The detection fixes for the simulation's bugs 1 to 6 (`docs/STEM_DESIGN.md`, section 21) and the channel and service
+The detection fixes for the simulation's bugs 1 to 6 (`docs/STEM_DESIGN.md`, section 33) and the channel and service
 fixes above were merged into the development branch together, on 22d6a5b. The two branches change no common file under
 `src/`, and they extend different functions of `scripts/arena/run_arena.py`.
 
@@ -1344,12 +1344,12 @@ and mai-e1 substitutions "not applicable" (outside the transport count) through 
 for unstated unless an "x = value" binding stated it. Its probe round showed the rule excusing real misses: a
 substitution of the request's g in `E = m × 6.81 × 20 = 98.1 J`, with the mass stated only as "a ball of mass 0.50 kg",
 and a slip in `E = 0.5 × k × 0.15² = 5.25 J`, with k stated only as "a spring of constant 200 N m⁻¹", went from 27 of
-29 on 22d6a5b to 27 of 27. The rule is withdrawn (`docs/STEM_DESIGN.md`, section 21.3): every injection no finding names
+29 on 22d6a5b to 27 of 27. The rule is withdrawn (`docs/STEM_DESIGN.md`, section 33.3): every injection no finding names
 is a miss, and when the receipt names the injected claim undecided the failure reason quotes it. The two substitutions
 were then traced to their causes. The mai-e1 one is now named: an integer power beyond 12 of a closed value
 (`(1 + 0.065/12)^{-60}`) is one value, and a decimal the answer states in prose for the quantity it named by a symbol
 ("Let $M$ be the monthly payment in euros." … "Her monthly payment is €352.19.") is a stated root of the equation in it.
-The maa-e1a one stayed a miss in this repair: deciding it needed readings outside the encodings then (section 21.2,
+The maa-e1a one stayed a miss in this repair: deciding it needed readings outside the encodings then (section 33.2,
 item 7). A second verification rejected two of this repair's results, and the second repair below supersedes them.
 
 Measured once on the repaired tree, on fresh copies, with no live agent or provider called:
@@ -1404,7 +1404,7 @@ A second independent verification of the repaired tree rejected three of its res
   were read as subtractions. That misreading is older than the repairs (`v = 6 ÷ 2 = 3 m s-1` was an error at 22d6a5b); reading the
   decimal powers exposed it.
 
-Each is fixed at its cause (`docs/STEM_DESIGN.md`, section 21, items 1, 5 and 6, and 21.3). The injection is the base one again
+Each is fixed at its cause (`docs/STEM_DESIGN.md`, section 33, items 1, 5 and 6, and 33.3). The injection is the base one again
 (the leading digit of every figure moves by 3, an exponent of ten included), and an antilogarithm stated as a concentration is the
 concentration in mol dm⁻³, the unit of the pH scale, so the recorded fault is UNSATISFIABLE and the test asserts the error. An
 application of an exponential model that the answer or the request defines is checked as a model evaluation (`stem-mod`). A unit
@@ -1420,7 +1420,7 @@ Measured once on the staged tree, on fresh copies of every round, with no live a
   `tests/integrity/test_integrity_round1.py` that carries a UUID drawn at collection. There are 403 new ones: 165 detection tests in
   `tests/stem/test_e2e_run1_detection.py`, 56 in `tests/stem/test_model_evaluations.py`, 50 in
   `tests/stem/test_ascii_unit_exponents.py`, 1 front-end safety case for the new `stem/models.py`, and the 131 channel and service
-  tests. In the detection file, the tests that the verification rejected are replaced by stricter ones (section 21.4). The arena rule
+  tests. In the detection file, the tests that the verification rejected are replaced by stricter ones (section 33.4). The arena rule
   tests (`scripts/arena/test_arena_rules.py`, run by path) give 39 passed.
 - **Recorded rounds**, compared record by record with 22d6a5b (findings and messages compared with ids masked): r1 30/30, r1-adv
   150/151, r2 to r6 46/46 and r7 177/177, as on 22d6a5b. Rounds r1 to r6 are identical. In r7, 18 records differ. The nine records

@@ -8,6 +8,10 @@ that the two polynomials are the same (an algebra check from a trivially true pr
 every value). Nothing here evaluates text: the input is a parsed node, the output a node. Anything that is not a
 polynomial with rational coefficients in the variable (a function, a root, a symbol multiplying the variable, a power
 beyond the bound) is refused (None), and the integral stays outside the encodings.
+
+STEM repair 10 (rule definite-integral): a definite integral of a polynomial with whole-number limits set against a value
+(``∫₀¹ 6t dt = 3``) is set against the antiderivative this module forms by the power rule taken the other way
+(:func:`antiderivative`), evaluated between the limits by substitution; the engine decides the closed arithmetic.
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from typing import Optional
 from .nodes import BinOp, Neg, Node, Num, Pow, Sym
 from .numbers import exact_integer
 
-__all__ = ["derivative", "polynomial", "polynomial_node"]
+__all__ = ["antiderivative", "derivative", "polynomial", "polynomial_node"]
 
 #: the largest degree read (the parser's bound on an integer power)
 MAX_DEGREE = 12
@@ -85,6 +89,14 @@ def polynomial(node: Node, x: str, depth: int = 0) -> Optional[tuple[dict[int, F
 def derivative(coeffs: dict[int, Fraction]) -> dict[int, Fraction]:
     """The power rule: ``d/dx Σ c_k x^k = Σ k c_k x^(k−1)``."""
     return {k - 1: k * c for k, c in coeffs.items() if k >= 1 and c}
+
+
+def antiderivative(coeffs: dict[int, Fraction]) -> Optional[dict[int, Fraction]]:
+    """STEM repair 10 (rule definite-integral): the power rule taken the other way, ``∫ Σ c_k x^k dx = Σ c_k/(k+1) x^(k+1)`` (the constant
+    of integration 0, which a definite integral cancels); None beyond the degree bound."""
+    if any(k + 1 > MAX_DEGREE for k, c in coeffs.items() if c):
+        return None
+    return {k + 1: c / (k + 1) for k, c in coeffs.items() if k >= 0 and c}
 
 
 def _number(v: Fraction, start: int, end: int) -> Node:

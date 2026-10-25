@@ -87,7 +87,8 @@ def test_nothing_on_a_bare_value_and_only_info_for_unchecked_code():
 
 
 @pytest.mark.parametrize("subject,mode,text,code", [
-    ("Mathematics: Analysis and Approaches", "mathematics", "f(x) = 3x^2 + 2x, so f'(x) = 6x + 1.", "ST-UNDEC-001"),
+    # STEM repair 11 (rule derivative): a polynomial's derivative is checked now, so the derivative outside the encodings is of a sine
+    ("Mathematics: Analysis and Approaches", "mathematics", "f(x) = sin x, so f'(x) = cos x.", "ST-UNDEC-001"),
     ("Environmental Systems and Societies", "sciences", "Efficiency = 150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100 = 10%.", "ST-UNIT-001"),
     ("Physics", "sciences", "Given v = 20 m s⁻¹ and t = 4.0 s, a = v/t = 5.0 m s⁻¹.", "ST-DIM-001"),
     ("Physics", "sciences", "E = hf = 6.63 × 10⁻³⁴ × f = 3.3 × 10⁻¹⁹ J", "ST-UNDEC-002"),
@@ -174,6 +175,14 @@ def test_statement_ids_in_descriptions_and_messages_name_the_reports_claims():
     rep = parsed("$4a = 20 \\Rightarrow a = 6$", "Mathematics: Analysis and Approaches", None, "mathematics")
     alg = next(fc for fc in StemPack("mathematics").formal_checks_for(rep, None) if fc.kind == "stem_algebra")
     assert alg.claim_ids == ("m1.1",) and "[claims m1.1]" in alg.description and "[claims s1.1]" not in alg.description
-    undec = parsed("f(x) = 3x^2 + 2x, so f'(x) = 6x + 1.", "Mathematics: Analysis and Approaches", None, "mathematics")
+    undec = parsed("f(x) = sin x, so f'(x) = cos x.", "Mathematics: Analysis and Approaches", None, "mathematics")
     found = [f for f in StemPack("mathematics").checks(undec, None) if f.code == "ST-UNDEC-001"]
     assert found and all(f.claim_ids == ["m1.1"] and "s1.1" not in f.message for f in found)
+    # STEM repair 11 (rule derivative): the polynomial's derivative this test had named unchecked is a check naming the report's claim,
+    # failing when wrong (6x + 1) and holding when right (6x + 2), with no ST code
+    for text, status in (("f(x) = 3x^2 + 2x, so f'(x) = 6x + 1.", "COUNTEREXAMPLE"), ("f(x) = 3x^2 + 2x, so f'(x) = 6x + 2.", "ENTAILED")):
+        rep = parsed(text, "Mathematics: Analysis and Approaches", None, "mathematics")
+        der = [fc for fc in StemPack("mathematics").formal_checks_for(rep, None) if fc.kind == "stem_algebra"]
+        assert len(der) == 1 and der[0].claim_ids == ("m1.1",) and "[claims m1.1]" in der[0].description and "[claims s1.1]" not in der[0].description
+        assert decide(der[0]) == status and "rule derivative" in der[0].description, (text, decide(der[0]))
+        assert not [f for f in StemPack("mathematics").checks(rep, None) if f.code.startswith("ST-")], text

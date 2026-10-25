@@ -178,6 +178,16 @@ holds versioned prompt texts; the version string is bound into each result. A
 changed prompt is a new file and version: `translate_v2` and `review_v2` are in
 use; `translate_v1` and `review_v1` stay packaged unchanged.
 
+The completion entry point `providers.base.CompletionProvider` (`complete(system, user, *,
+prompt_version) -> ProviderResponse`) is the public form of the `_complete` the vendor adapters
+already use: the caller supplies both texts and the provider adds nothing, while retries,
+timeouts, `ProviderInfo` (which records `prompt_version`) and `ProviderError` are reused
+unchanged. Both vendor adapters implement it; `propose` and `review` are unchanged. The overseer
+agent runner (`epinoic_logic.overseer.runner`) calls it with a knowledge pack's system text and one
+dossier, and its reply is untrusted data parsed only by the verdict intake.
+`FixtureCompletionProvider` serves canned replies keyed by dossier digest or in order, raises a
+canned `ProviderError` and records every call; no live provider is claimed.
+
 `grounding.py` locates a quotation in tiers (verbatim; typographic normalisation, with
 quote marks folded, every dash variant read as one dash with the spaces on both sides of it dropped, in the text and
 the excerpt alike, so `like - just as I -` typed for the poem's `like—just as I—` is the same quotation, and verse line
@@ -203,3 +213,14 @@ thread-safe and `clear_grounding_caches()` empties them. Hashing agent text neve
 (like `ir.canonical.sha256_hex` and the grounding cache's `text_sha256`) encodes a lone UTF-16 surrogate with
 `surrogatepass`, so valid text hashes exactly as before and the channel can refuse such text (INT-REQ-009) instead of
 raising.
+
+**Overseen like every other agent.** Every translation this package proposes reaches the router inside a receipt
+outcome, and the Overseer re-checks it from its journal as untrusted data (`epinoic_logic.overseer.checks.translation`,
+codes `OVS-TRN-001` to `OVS-TRN-009`): the IR re-validated with the engine's validator, the status and eligibility
+re-derived, the quotation groundings re-run against the supplied texts, every quotation and number traced to the
+specialist's report, a conclusion found among its own premises flagged as circular, the outcome summary regenerated from
+the signed result, and two receipt-level warnings (a definitive display resting on unsuccessful sibling claims; one fact
+a premise in one translation and unsupported in another). No check depends on who proposed the IR: a problem this
+pipeline produced always records its provider, and one that records none is reported unless the operator declared its
+translator hand-built. The signed task audit records each translation (claim text, proposed IR, validation outcome, signed
+result). Nothing in this package changed for it: the checks only read what the pipeline already records.

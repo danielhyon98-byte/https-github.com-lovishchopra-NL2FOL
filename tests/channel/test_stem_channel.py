@@ -50,9 +50,11 @@ CAUGHT = {
     "P7-momentum-err": "= 3.5 × 10⁴ kg·m/s", "P8-unit-conversion-err": "72 × 1000 / 3600 = 25", "P10-percent-efficiency-err": "a rise of 15 per cent",
     "C1-moles-err": "= 3.0 mol", "C2-concentration-yield-err": "× 100 = 80%", "M2-series-err": "= 220", "M4-ai-percent-err": "a rise of 25 per cent",
     "CS1-binary-err": "15 × 16 + 15 = 256",
+    # STEM repair 11 (rule derivative): the wrong derivative of a polynomial is decided now (before: named ST-UNDEC-001, in NAMED below)
+    "M3-calculus-err": "= 3x + 2",
 }
 #: wrong answers outside the encodings or the front end's reading: named on the receipt with the claim, never silent
-NAMED = {"M3-calculus-err": "ST-UNDEC-001", "B1-magnification-err": "ST-PARSE-001"}
+NAMED = {"B1-magnification-err": "ST-PARSE-001"}
 CORRECT = {"P2-latex-inline-ok", "P4-unicode-ok", "P6-gravitation-ok", "P9-sqrt-trig-ok", "P11-units-misread-ok", "P12-self-check-ok", "C3-gas-law-ok",
            "M1-latex-quadratic-ok", "E1-ess-efficiency-ok"}
 

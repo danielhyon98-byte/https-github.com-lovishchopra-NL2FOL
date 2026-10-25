@@ -16,6 +16,8 @@ Node types:
 ``Neg``            unary minus
 ``BinOp``          ``+ - * /`` (``written`` keeps the sign as written, ``implicit`` marks
                    juxtaposition)
+``IntOp``          an integer remainder or quotient, ``a mod b`` and ``a div b`` (written ``mod``, ``modulo``,
+                   ``div``, ``//``, or ``%`` in Computer Science; STEM repair 2)
 ``PlusMinus``      ``±``/``∓`` inside a formula (binary, or unary when ``left`` is None)
 ``Pow``            an integer power ``|n| <= max_int_power``
 ``RealPower``      a closed base with no unit raised to a closed exponent that is no integer (``10^(−8.2)``,
@@ -52,7 +54,7 @@ from .units import UnitExpr
 
 __all__ = [
     "replace_symbol",
-    "Abs", "Apply", "BinOp", "BoolOp", "Chain", "Degrees", "Func", "Magnification", "Neg", "Node", "Num", "Operand", "Percent", "PlusMinus",
+    "Abs", "Apply", "BinOp", "BoolOp", "Chain", "Degrees", "Func", "IntOp", "Magnification", "Neg", "Node", "Num", "Operand", "Percent", "PlusMinus",
     "Pow", "Quantity", "Ratio", "RealPower", "Root", "Sym", "Unsupported", "WithUnit", "align", "children", "depth", "is_closed", "is_value", "node_count", "render",
     "shape_key", "symbols", "unsupported_reasons", "value_of", "walk",
 ]
@@ -107,6 +109,21 @@ class BinOp:
     end: int = 0
     written: str = ""
     implicit: bool = False
+
+
+@dataclass(frozen=True)
+class IntOp:
+    """``a mod b`` (``op`` ``mod``: the remainder) or ``a div b`` (``op`` ``div``: the integer quotient), as the answer writes them
+    (``written``: ``mod``, ``modulo``, ``div``, ``//``, ``%``). Encoded only over written whole numbers, the left one not negative and
+    the divisor a positive written whole number, where every language's convention agrees (``to_ir``); anything else is named
+    outside the encodings (ST-UNDEC-001)."""
+
+    op: str  # 'mod' or 'div'
+    left: "Node"
+    right: "Node"
+    start: int = 0
+    end: int = 0
+    written: str = ""
 
 
 @dataclass(frozen=True)
@@ -224,10 +241,19 @@ class Unsupported:
     name: str = ""
     arg: Optional["Node"] = None
     base: Optional["Node"] = None
+    #: STEM repair 10 (rule definite-integral): the limits of a definite integral (``∫₀¹ 6t dt``: ``arg`` its integrand, ``name`` "∫t") or of
+    #: an evaluation bracket (``[3t²]₀¹``: ``arg`` the bracketed antiderivative), each a whole number as written; never encoded themselves
+    lo: Optional["Node"] = None
+    hi: Optional["Node"] = None
+    #: STEM repair 11 (rule derivative): a derivative in Leibniz notation keeps the variable it is taken in (``dv/dt``: "t") and its order,
+    #: with ``arg`` the letter differentiated (``Sym("v")``) or the bracketed expression the operator form writes (``d/dt (3t²)``: 3t²);
+    #: never encoded itself
+    var: str = ""
+    order: int = 0
 
 
-Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, PlusMinus, Pow, RealPower, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio, BoolOp,
-             Unsupported]
+Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, IntOp, PlusMinus, Pow, RealPower, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio,
+             BoolOp, Unsupported]
 
 
 @dataclass(frozen=True)
@@ -272,7 +298,7 @@ class Chain:
 def children(node: Node) -> tuple[Node, ...]:
     if isinstance(node, (Neg, Pow, Root, Func, Apply, Abs, Percent, Degrees, Magnification, WithUnit)):
         return (node.arg if not isinstance(node, Pow) else node.base,)
-    if isinstance(node, (BinOp, Ratio)):
+    if isinstance(node, (BinOp, Ratio, IntOp)):
         return (node.left, node.right)
     if isinstance(node, RealPower):
         return (node.base, node.exponent)
@@ -432,7 +458,7 @@ def align(symbolic: Node, numeric: Node) -> Optional[list[tuple[Node, Node]]]:
             continue
         if type(a) is not type(b):
             return None
-        if isinstance(a, BinOp):
+        if isinstance(a, (BinOp, IntOp)):
             if a.op != b.op:  # type: ignore[union-attr]
                 return None
             stack.append((a.right, b.right))  # type: ignore[union-attr]
@@ -493,11 +519,23 @@ def _render(node: Node, canonical: bool, level: int) -> str:
     if isinstance(node, Neg):
         inner = r(node.arg)
         return f"-({inner})" if isinstance(node.arg, (BinOp, PlusMinus)) else f"-{inner}"
+    if isinstance(node, IntOp):
+        sym = node.op if canonical or not node.written else node.written
+        left, right = r(node.left), r(node.right)
+        if isinstance(node.left, (BinOp, PlusMinus)) and not (isinstance(node.left, BinOp) and node.left.op in "*/"):
+            left = f"({left})"
+        if isinstance(node.right, (BinOp, IntOp, PlusMinus, Neg)):
+            right = f"({right})"
+        return f"{left} {sym} {right}"
     if isinstance(node, BinOp):
         sym = node.op if canonical or not node.written else node.written
         if not canonical and node.implicit:
             sym = "·"
         left, right = r(node.left), r(node.right)
+        if isinstance(node.left, IntOp):
+            left = f"({left})"
+        if isinstance(node.right, IntOp):
+            right = f"({right})"
         p = _PREC[node.op]
         if (isinstance(node.left, BinOp) and _PREC[node.left.op] < p) or (isinstance(node.left, PlusMinus) and node.left.left is not None and p == 2):
             left = f"({left})"
@@ -566,7 +604,7 @@ def replace_symbol(node: Node, name: str, value: Node, depth: int = 0) -> Option
     if isinstance(node, RealPower):
         b, x = rec(node.base), rec(node.exponent)
         return None if b is None or x is None else replace(node, base=b, exponent=x)
-    if isinstance(node, (BinOp, Ratio)):
+    if isinstance(node, (BinOp, Ratio, IntOp)):
         a, b = rec(node.left), rec(node.right)
         return None if a is None or b is None else replace(node, left=a, right=b)
     if isinstance(node, PlusMinus):

@@ -86,6 +86,7 @@ from .authority import (  # noqa: F401 - re-exported: callers import the depende
     ungrounded_dependencies,
     unverified_dependencies,
 )
+from . import sink as _sink
 from .compiler import CompileError, compile_problem
 from .errors import DiagnosticCode
 from .policies import NONLINEAR_MAX_DEGREE, max_degree
@@ -520,6 +521,7 @@ def verify(
     versions = compute_versions()
     result_id = uuid.uuid4().hex
     base = dict(result_id=result_id, versions=versions, solver_config=config, issued_at=_now())
+    problem: Optional[Problem] = None  # the problem actually validated and compiled; the result sink records it
     record: Optional[Limits] = None
 
     def finish(result: VerificationResult) -> VerificationResult:
@@ -527,7 +529,11 @@ def verify(
         if record is not None:
             result.limits = record  # before signing: the record is covered by the signature
         if signing_key:
-            return sign_result(result, signing_key, key_id or "default")
+            result = sign_result(result, signing_key, key_id or "default")
+        try:  # the Overseer's result sink: a no-op unless a capture is active; it never changes or blocks the result
+            _sink.emit(result, problem)
+        except Exception:
+            pass
         return result
 
     try:
@@ -536,7 +542,7 @@ def verify(
         t0 = time.perf_counter()
         trust_notes: list[Diagnostic] = []
         if isinstance(problem_or_raw, Problem):
-            problem: Optional[Problem] = problem_or_raw
+            problem = problem_or_raw
             outcome = validate_problem(problem, enforced)
         else:
             problem, outcome = parse_and_validate(problem_or_raw, enforced)

@@ -311,9 +311,18 @@ def test_a_function_evaluation_is_set_against_the_stated_formula(answer, ok):
     assert not any(s.code == "ST-UNDEC-001" and "function of an unknown" in s.message for s in rc.structural_findings)
 
 
-def test_the_stated_derivative_itself_stays_undecided():
+def test_the_stated_derivative_is_checked_by_the_power_rule():
+    """STEM repair 11 (rule derivative): before, the derivative the answer states of the function it defines was named undecided
+    (ST-UNDEC-001, 'derivative'); it is set against the derivative the STEM pack forms by the power rule now: the right one holds (no
+    ST-UNDEC-001 'derivative' is left) and a wrong one fails as an error on its claim."""
     rc = receipt(MATH, "Differentiate.", "For f(x) = x³ − 2x, f′(x) = 3x² − 2.")
-    assert any(s.code == "ST-UNDEC-001" and "derivative" in s.message for s in rc.structural_findings)
+    assert not any(s.code == "ST-UNDEC-001" and "derivative" in s.message for s in rc.structural_findings)
+    held = [c for c in rc.formal_checks if c.constraint_id.startswith("stem-alg") and "the derivative formed by the power rule" in c.detail]
+    assert len(held) == 1 and held[0].satisfied is True, rc.formal_checks
+    bad = receipt(MATH, "Differentiate.", "For f(x) = x³ − 2x, f′(x) = 3x² + 2.")
+    wrong = [c for c in bad.formal_checks if c.constraint_id.startswith("stem-alg") and "the derivative formed by the power rule" in c.detail]
+    assert len(wrong) == 1 and wrong[0].satisfied is False, bad.formal_checks
+    assert any(f.code == "INT-SUBJ-001" for f in bad.errors)
     # with no stated formula an evaluation of a derivative stays undecided
     assert ("link", "undecided") in rel_kinds("f′(2) = 10", "mathematics_aa")
 

@@ -115,24 +115,27 @@ What the STEM branches do:
   | Check | What the engine decides |
   | --- | --- |
   | `stem-eq` | written arithmetic, `E = S` |
-  | `stem-sub` | substituted values against the bindings of their symbols |
-  | `stem-alg` | an algebra step follows from the line before it |
+  | `stem-sub` | substituted values against the bindings of their symbols; a symbol reused in a part with a value the request states that the part's question and working do not name (warning) |
+  | `stem-alg` | an algebra step follows from the line before it; an identity (a derivative or an antiderivative of a polynomial, a definite integral's evaluation bracket, a Given function against the request's, a factorisation) holds for every value of its variable |
   | `stem-sol` | stated roots satisfy the equation, and the full set when it is claimed; a root may be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19") |
   | `stem-mod` | an exponential model evaluated at an argument (`P(t + 4) = P₀e^(k(t + 1))` after the request's `P = P₀e^(kt)`): some value of the variables, and of the stated symbols within their values, must satisfy it; every power of an exponent in symbols is read through positive variables, so only "no value satisfies it" decides; no algebra step is read over an application of a letter the text defines as a function (`N(10) = 200`, then `N(15) = 100`) |
   | `stem-cnv` | an explicit unit conversion |
   | `stem-cmp` | a stated order or inequality, or an inequality step |
-  | `stem-res` | a result restated in prose against the chain's final value |
-  | `stem-giv` | a Given value against the request (warning) |
+  | `stem-res` | a result restated in prose against the chain's final value (with a rounding the prose states, or after ", so", an approximation word or a rounding verb on its line); the value a named change starts from against the value stated for that quantity (warning) |
+  | `stem-giv` | a Given value, written with "=" or in a Given statement's prose ("Data: emf 15 V, …"), against the request, a quantity it names in words included; a value the prose takes from a supplied table against the table's cells (warning) |
   | `stem-tgt` | a show-that answer's final value against the request's target (warning) |
   | `stem-chem` | element and charge balance of a chemical equation |
-  | `stem-bool` | a Boolean identity |
+  | `stem-bool` | a Boolean identity, or an expression evaluated under the values the answer gives (AND, OR, NOT, XOR and the gates NAND, NOR, XNOR) |
   | `stem-tt` | the stated rows of a truth table |
-  | `stem-base` | a conversion between number bases |
+  | `stem-base` | a conversion between number bases, a numeral with letter digits read in base 16 where the words beside it name that base |
 
   A stated value passes when it lies within `h + τ·|C|` of the value `C` computed from the
-  written expression: `h` is half a unit in the stated value's last digit; `τ` is 1 % for `=`,
-  5 % for `≈` or "about", and 0 for conversions, comparisons and exact work; rounded
-  intermediates, data-booklet constants, function values and irrational powers of written figures
+  written expression: `h` is half a unit in the stated value's last digit (the trailing zeros of
+  a whole number count only up to the operands' significant figures), plus `C`'s own half-width
+  when `C` is itself a stated value (a conversion, a substitution, a restatement); `τ` is 1/20
+  for `≈` or "about" whatever the check but a restated result (no τ), else 1/100 for `=` in written arithmetic and 0 for
+  conversions, comparisons, substitutions, restatements and exact work; rounded intermediates,
+  data-booklet constants, function values and irrational powers of written figures
   (`10^(−8.2)`; a rational one such as `16^(3/4) = 8` is exact, and so is an integer power beyond 12
   whose value fits one literal, such as `2^{20}`, while `(1 + 0.065/12)^{-60}` is enclosed) range
   over their rounding or enclosure intervals. The band is computed inside the IR, so the engine, not
@@ -199,14 +202,15 @@ The result is signed and bound to the exact problem, and the report is still del
 | INT-SUBJ-001 | error | an engine check of the answer's own statement does not hold (with the computed and stated values) |
 | INT-SUBJ-002 | warning | such a check is undecided (unknown, timeout, unsupported, vacuous, inconsistent premises, the 8 s check budget spent) |
 | INT-SUBJ-004 | warning | a check that relied on a reading the answer did not state does not hold |
-| ST-PARSE-001 | warning | notation outside the grammar, or a relation withheld because its operands may be cut; not checked |
+| ST-PARSE-001 | warning | notation outside the grammar, a relation withheld because its operands may be cut, a relation written partly in words ("17 is divided by 5 = 2"), a relation sign between maths no span reads ("17 % 5 = 2" outside Computer Science), or a Given that may be written with a thousands space ("4 000"); not checked |
 | ST-PARSE-002 | warning | too many readings (implicit multiplication, unit or symbol ambiguity); not checked |
-| ST-UNDEC-001 | warning | a relation outside the encodings (calculus, limits, Σ with symbolic bounds, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown), with the reason |
+| ST-UNDEC-001 | warning | a relation outside the encodings (calculus, limits, Σ with symbolic bounds, vectors, matrices, complex numbers, `!`, a combination or permutation count such as `⁵C₂` or `C(5, 2)`, asymptotic notation, a function of an unknown, an integer remainder or quotient of a negative or non-whole number or by a divisor that is not a positive whole number), with the reason |
 | ST-UNDEC-002 | warning | a numeric relation depends on a symbol with no stated value and no admissible booklet value |
+| ST-UNDEC-003 | warning | a Given value could not be set against the request (the request states no value of its kind and no supplied table names it, or a bare number the request does not state); one finding per statement, naming each such Given |
 | ST-UNDEF-001 | warning | an undefined expression (division by zero, even root of a negative, log of a non-positive value, 0⁰); no check built |
 | ST-UNIT-001 | warning | an unrecognised unit; the relation is checked as written, at warning severity |
 | ST-UNIT-002 | info | an ambiguous unit symbol (`M`: molar or mega) checked under both readings |
-| ST-DIM-001 / ST-DIM-002 | warning | the two sides of a relation, or the terms of a sum, have different dimensions |
+| ST-DIM-001 / ST-DIM-002 | warning | the two sides of a relation, or the terms of a sum, have different dimensions (a bare number counts as a pure factor unless the answer or the request gives it a unit, or it matches a booklet constant) |
 | ST-ALG-001 | warning | a mathematics step takes only the non-negative root with no stated domain restriction |
 | ST-CHEM-001 | warning | a chemical equation that cannot be read; its balance is not checked |
 | ST-CODE-001 | info | a code block: never run, never checked |
@@ -230,6 +234,61 @@ specialists (cheapest model tier, each configured only from its own v4 knowledge
 textbook library) and the review rounds were not run in this build; they run in the integrated
 arena that merges this branch.
 
+## The Overseer: checks of every transfer between agents (`src/epinoic_logic/overseer/`)
+
+Every request, report, relay, router forward and synthesis crosses the channel; the Overseer checks those transfers so
+the router never acts on a miscommunicated or tampered one. It is optional and attached through the hub:
+`RouterHub(auditor=TransferAuditor(...))`. Without it the hub and the channel behave exactly as before.
+
+- **The transfer auditor** (deterministic code) journals every transfer as it is issued (a hash-chained, HMAC'd journal
+  per channel), keeps every signed engine result the transfer produced, and checks that the transfer the router is about
+  to act on is the one issued, that every receipt is the exact image of what was checked, that every result a receipt
+  cites is a signed engine run of the problem it names inside this task (re-run on a fresh engine), that delivered
+  claims, quotations and figures are what the specialist actually wrote, that forwards and peer documents are the
+  delivered text, and that a synthesis accounts for the delivered reports and names every contradiction; a STEM receipt
+  carries exactly the ST codes the STEM branches re-derive from the journaled report, and states each STEM check as its
+  signed run decided it. What it finds is a signed audit of `OVS-*` findings with identifiers.
+- **The translator is overseen too.** Every IR problem a translation provider proposed for a claim is re-checked as
+  untrusted data (`OVS-TRN-*`: re-validated by the engine's validator, its status and eligibility re-derived, its
+  quotation groundings re-checked against the named supplied texts, every quotation and number traced to what the
+  specialist said, a conclusion restated by the writer's own premises flagged as circular, by a rule never looser than
+  the translator's own E112 and that takes no grounding kind label and no number match as evidence (a premise is a
+  transcription only when the grounding check verifies its located excerpt; content only a label presents as data,
+  a Boolean statement among it, is the claim assumed, and so is a number the request states only in a question, under
+  a negation, as one of alternatives, in a claim the answer must examine or as a requirement on the answer; a result
+  resting only on values of quantities a check reads in the request, as its statements, for the quantity each premise
+  names, which no check verifies or refutes, is a warning, OVS-TRN-011, which leaves the meaning question to the
+  agents), its summary
+  regenerated from the signed result), and the signed audit records
+  each translation: the claim text, the proposed IR, its validation outcome and the signed engine result. Overseer
+  agents receive each translation with its claim and may accuse it, including of meaning faults (a dropped condition, a
+  flipped comparison, an invented premise); those stay advisory and go to human review.
+- **Before acting** the router calls `hub.clearance(task, message_id, receipt=...)` with the receipt it holds and acts
+  only when `overseer.policy.may_act(receipt, clearance)`: an edited receipt, a forged or misattached result or an
+  altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL
+  audit; `policy.may_release` gates the student-facing synthesis on it.
+- **Overseer agents** are model-based reviewers built only from exportable parts: the package's code and a versioned
+  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.3/`, with 1.0 to 1.2 kept beside it: `master_prompt.txt` and
+  numbered documents, generated schemas, a manifest of digests). `python -m epinoic_logic.overseer.export --out DIR`
+  writes the pack out with a README for whoever deploys it with any model. `hub.review(task, runners)` issues each agent
+  a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory
+  and decides nothing: only an accusation a deterministic check confirms reaches the router, through that check's own
+  finding, and no agent ever changes a clearance. No live model provider is claimed; the tests use fake providers.
+- **Several agents, one input.** When the router sends one input to several agents (duplicated instances of one
+  specialist, or several specialists), `hub.consolidate(task)` returns ONE signed consolidated response: equivalent
+  answers grouped deterministically (identical normalised text, or the same material claims, figures, dates and
+  quotations that the engine finds mutually consistent), a representative per group, every answer with an error-level
+  finding or a repeated fault excluded with its codes and signed results, and conflicts between groups disclosed instead
+  of resolved by choosing. A fault that comes back in the same task (another agent, a duplicated instance, a resubmission
+  after rejection, reworded or not) is a repeated fault (`OVS-REP-001`), never delivered, counted per agent.
+  `hub.review_pool(tasks, OverseerPool(pack, ...))` sizes the overseer agents deterministically: one instance by default,
+  more over a per-instance quota or when faults repeat (each repeated-fault dossier to two independent instances), never
+  past a maximum (four by default), every instance from the same exported pack and advisory.
+
+Results prove properties of the encoding only; an audit shows whether the recorded transfers, receipts and signed
+results agree with each other and with the repository's rules, never that a claim is true. See
+`src/epinoic_logic/overseer/README.md` and `docs/OVERSEER_DESIGN.md`.
+
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 
 | Feature | What it does | Where |
@@ -243,7 +302,7 @@ arena that merges this branch.
 | Typed quantities | Figures are exact values with unit, scale and written precision; `20%` states `0.2` and `1/5` alike through one recorded derivation, and a symbol's declared reading is respected. A figure stated as rounded ("x is 0.33 to 2 decimal places") states the interval of its tolerance, so its exact transcription and the interval at exactly that tolerance both ground, and no wider or narrower interval does. | `quantities.py` |
 | Exactness from the wording | A figure stated exactly or given by the task is never widened (an interval in its place is rejected as a weakening); a rounded figure uses exactly its stated tolerance; an unstated decimal whose reading decides the verdict is AMBIGUOUS_TRANSLATION. A figure is the result of a written calculation only when the calculation ends at its '=' ("If x = 1/3 then x = 0.33" states 0.33 as the value of x, unstated), and an approximation cue governs only the figure it is written against. The solver never decides that a figure was rounded, and every accepted retry is recorded, a semantic change apart from a syntax repair: a retry that weakens the claim cannot inherit its approval. | `precision.py`, `pipeline.py` |
 | Coverage | A definition that asserts nothing, or a conclusion symbol no premise mentions, leaves a figure open. The counterexample is withheld (E110/E111) only when a source clause asserts the figure (the claim, its supporting claims, the supplied texts or the task record; a record's figure only in a clause about the symbol): read from the source's grammar, a figure in a question, a condition ("if n equals 17", "when n is 17"), a supposition, a definition ("exactly when"), a possibility ("could"), an attribution, a negation, a quantification ("for any y") or a disjunction is not asserted, a bound ("more than 17") establishes no equality, and a figure that counts something else ("I checked 3 values") is about no symbol. Otherwise the counterexample stands with the advisory W110/W111. The translation layer hands that decision to the engine as an application record, so the signed result and the display agree; the retry an E110 asks for may add only what the source asserts, or the translation is AMBIGUOUS_TRANSLATION. | `assertion.py`, `coverage.py` |
-| Strict parsing | Model output is parsed with a plain JSON parser only (code fences stripped); anything else is a failed attempt. | `parsing.py` |
+| Strict parsing | Model output is parsed with a plain JSON parser only (a reply that is one JSON object is taken as it is; otherwise code fences stripped); anything else is a failed attempt. The overseer's verdict intake is stricter: the bare object or exactly one fence around the whole reply. | `parsing.py` |
 | Bounded retries | Validation diagnostics are fed back for at most one retry; the status then becomes INVALID_FORMALIZATION rather than looping. | `pipeline.py` |
 | Ambiguity flags | The model must declare materially different readings; the result becomes AMBIGUOUS_TRANSLATION and is never shown as verified. | `pipeline.py` |
 | Replaceable providers | Fixture provider for tests; Anthropic and OpenAI-compatible adapters behind one interface (untested live here). | `providers/` |
@@ -308,6 +367,7 @@ on its own.
 - `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
 - `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
+- `src/epinoic_logic/overseer/` — the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line

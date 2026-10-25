@@ -1,9 +1,9 @@
 {
   "three_part_physics": {
     "answers": 60,
-    "p50_ms": 129.29700500171748,
-    "p95_ms": 188.07971100250143,
-    "max_ms": 213.44351299921982,
+    "p50_ms": 234.9932459910633,
+    "p95_ms": 332.77886200812645,
+    "max_ms": 369.1795229970012,
     "checks_per_answer": [
       13,
       13
@@ -13,25 +13,25 @@
   "checks_128": {
     "checks": 128,
     "satisfied": 128,
-    "seconds": 1.2240133989980677,
+    "seconds": 1.7682303179899463,
     "codes": [
       "ST-LIM-002"
     ]
   },
   "adversarial_400k": {
     "mixed_runs_s": [
-      1.548,
-      1.085,
-      1.133,
-      1.152,
-      1.29
+      2.589,
+      2.317,
+      2.726,
+      2.392,
+      2.542
     ],
-    "best_s": 1.085,
+    "best_s": 2.317,
     "single_pattern_400k_s": {
-      "nested_brackets": 0.573,
-      "unclosed_dollars": 1.808,
-      "1e_chain": 1.637,
-      "digits_30": 0.289
+      "nested_brackets": 0.956,
+      "unclosed_dollars": 3.399,
+      "1e_chain": 2.866,
+      "digits_30": 0.45
     },
     "findings": [
       "ST-LIM-001",
@@ -41,10 +41,10 @@
   },
   "corpus_through_hub": {
     "items": 558,
-    "p50_ms": 37.424501999339554,
-    "p95_ms": 76.59046799744829,
-    "max_ms": 169.30699700242258,
-    "total_s": 21.31421676795071
+    "p50_ms": 53.39077200915199,
+    "p95_ms": 155.2329539990751,
+    "max_ms": 362.86680201010313,
+    "total_s": 37.16698032696149
   },
   "non_stem_unchanged": {
     "subjects": [

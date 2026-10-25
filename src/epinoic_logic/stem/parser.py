@@ -24,8 +24,9 @@ readings of the operand; with more than two, ST-PARSE-002 and the operand is not
 
 Units. After a number (or a closing group that contains a number) a unit is read when the
 unit token follows a space (or is ``\\text{…}``/``\\mathrm{…}``, ``Ω``, ``°C``) and ends the
-operand: the next token is an operator, a relation, a close, a separator or the end. ``m
-= 2.0 kg``: ``m`` is a symbol, ``kg`` a unit. A glued unit (``1.5kg``) is read only for a
+operand: the next token is an operator, a relation, a close, a separator or the end. A Latin
+prefix written right before a Greek unit symbol (``kΩ``, ``MΩ``, ``mΩ``) is one prefixed unit,
+like ``μF`` the other way round. ``m = 2.0 kg``: ``m`` is a symbol, ``kg`` a unit. A glued unit (``1.5kg``) is read only for a
 common multi-letter unit that does not also split into names in scope, so ``2as`` stays
 ``2·a·s``. After a known unit atom, an unknown atom with an exponent (``yr⁻¹``) is kept as
 an unknown unit (ST-UNIT-001).
@@ -52,18 +53,19 @@ makes the whole span Unparsed (ST-PARSE-001, the command named). Nothing raises 
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from .chem import ELEMENTS, canonical_formula, latex_to_chem, parse_species
-from .lexer import Token
+from .lexer import COMPLETE_UNSUP, Token
 from .limits import DEFAULT_LIMITS, PROFILES, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower,
-    Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, IntOp, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio,
+    RealPower, Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
-from .units import UnitExpr, is_unit_atom, lookup_atom, parse_unit, unit_group
+from .units import UnitExpr, english_word_atom, is_unit_atom, lookup_atom, parse_unit, prefixed_greek_unit, unit_group
 
 __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM_NAMES", "parse_math", "segment", "symbol_name"]
 
@@ -78,6 +80,10 @@ _CONNECTIVE_RELS = frozenset({"⇒", "∴"})
 _IDENT_CONNECTIVES = frozenset({"or", "and", "so", "hence", "therefore", "thus", "gives", "giving", "then", "implies"})
 _ADD_OPS = frozenset({"+", "-", "±", "∓"})
 _MUL_OPS = frozenset({"×", "·", "*", "/", "÷"})
+#: the integer remainder and quotient (the lexer reads them between two operands only)
+_INT_OPS = frozenset({"mod", "div"})
+#: the words of a stated quotient's remainder (``17 ÷ 5 = 3 remainder 2``)
+_REMAINDER_WORDS = frozenset({"remainder", "rem"})
 _END_OF_OPERAND = frozenset({"REL", "OP", "RPAR", "RGROUP", "COMMA", "SEMI", "PUNCT", "AMP", "ROWSEP", "COLON", "BANG", "BOOL", "BAR", "QUOTE"})
 _COMMON_GLUED_UNITS = frozenset({"kg", "km", "cm", "mm", "mol", "kJ", "kN", "kPa", "MPa", "MJ", "MW", "kW", "Hz", "kHz", "MHz", "eV", "keV", "MeV",
                                  "GeV", "mA", "mV", "kV", "µm", "μm", "nm", "Pa", "ms", "µs", "ns", "dm", "mL", "cm³", "min"})
@@ -185,6 +191,11 @@ def segment(word: str, names: frozenset[str], limits: StemLimits = DEFAULT_LIMIT
     return [tuple(word)]
 
 
+
+def _signed_limit(n: int, start: int, end: int) -> Node:
+    """STEM repair 10 (rule definite-integral): a whole-number limit as a node, a negative one as the negation of its digits."""
+    return Num(exact_integer(n), start, end) if n >= 0 else Neg(Num(exact_integer(-n), start, end), start, end)
+
 class _Parser:
     def __init__(self, toks: tuple[Token, ...], ctx: ParseContext, choices: dict[int, int]) -> None:
         self.t = toks
@@ -197,6 +208,7 @@ class _Parser:
         self.nodes = 0
         self.where = (0, 0)
         self.ambiguity_overflow: set[tuple[int, int]] = set()
+        self.pending: list[Chain] = []
 
     # ------------------------------------------------------------------ helpers
     def peek(self, k: int = 0) -> Optional[Token]:
@@ -277,7 +289,10 @@ class _Parser:
         chains: list[Chain] = []
         connective = ""
         guard = 0
-        while self.i < len(self.t):
+        while self.i < len(self.t) or self.pending:
+            if self.pending:
+                chains.append(self.pending.pop(0))  # the remainder relation of '17 ÷ 5 = 3 remainder 2' (STEM repair 2)
+                continue
             guard += 1
             if guard > len(self.t) * 4 + 8:
                 break
@@ -333,9 +348,89 @@ class _Parser:
             ops.append(tok.text)
             self.i += 1
             operands.append(self.operand(ci, len(operands)))
+        rem = self._remainder()
+        if rem is not None:
+            return self._quotient_and_remainder(operands, ops, rem, lead, connective)
+        if "≡" in ops:
+            cong = self._congruence(operands, ops, lead, connective)
+            if cong is not None:
+                return cong
         start = operands[0].start if operands else (first.start if first else 0)
         end = max((o.end for o in operands), default=start)
         return Chain(operands=tuple(operands), ops=tuple(ops), start=start, end=end, lead=lead, connective=connective, truncated=truncated)
+
+    def _congruence(self, operands: list[Operand], ops: list[str], lead: str, connective: str) -> Optional[Chain]:
+        """``a ≡ b (mod n)`` or ``a ≡ b mod n`` (STEM repair 2): a congruence, read as ``a mod n = b mod n`` (the remainders of
+        whole numbers; the encodings name anything else undecided). Never the equality ``a = b``. None when no modulus follows."""
+        a0, a1, a2, a3 = self.peek(), self.peek(1), self.peek(2), self.peek(3)
+        modulus = None
+        if a0 is not None and a1 is not None and a2 is not None and a3 is not None and a0.kind == "LPAR" and a0.text == "(" and a1.kind == "IDENT" \
+                and a1.text.lower() in ("mod", "modulo") and a2.kind == "NUM" and a2.value is not None and a3.kind == "RPAR" and a3.text == ")":
+            self.i += 4
+            modulus = self._count(Num(a2.value, a2.start, a2.end))
+            right = operands[-1].node
+        elif operands and isinstance(operands[-1].node, IntOp) and operands[-1].node.op == "mod" and ops[-1] == "≡":
+            modulus = operands[-1].node.right
+            right = operands[-1].node.left
+        if modulus is None:
+            return None
+        start = operands[0].start
+        if len(ops) != 1 or lead or operands[0].node is None or right is None:
+            bad = Operand((), operands[-1].start, self.t[self.i - 1].end, error="a congruence of more than two sides", code="ST-PARSE-001")
+            self.issues.append(ParseIssue("ST-PARSE-001", bad.error, bad.start, bad.end))
+            return Chain(operands=tuple(operands[:-1]) + (bad,), ops=tuple(ops), start=start, end=bad.end, lead=lead, connective=connective)
+        left = operands[0].node
+        lmod = self._count(IntOp("mod", left, modulus, _start(left), _end(left), written="mod"))
+        rmod = self._count(IntOp("mod", right, modulus, _start(right), _end(right), written="mod"))
+        end = self.t[self.i - 1].end
+        return Chain(operands=(Operand((lmod,), operands[0].start, operands[0].end), Operand((rmod,), operands[-1].start, end)), ops=("=",), start=start,
+                     end=end, lead=lead, connective=connective)
+
+    def _modulus_ahead(self) -> bool:
+        """``(mod 5)`` next: the modulus of a congruence, never a factor."""
+        a0, a1, a2, a3 = self.peek(), self.peek(1), self.peek(2), self.peek(3)
+        return (a0 is not None and a1 is not None and a2 is not None and a3 is not None and a0.kind == "LPAR" and a0.text == "(" and a1.kind == "IDENT"
+                and a1.text.lower() in ("mod", "modulo") and a2.kind == "NUM" and a3.kind == "RPAR" and a3.text == ")")
+
+    def _at_remainder(self) -> bool:
+        a, b = self.peek(), self.peek(1)
+        return (a is not None and b is not None and a.kind == "IDENT" and a.space and a.text in _REMAINDER_WORDS and not (a.sub or a.primes or a.delta)
+                and b.kind == "NUM" and b.space and b.value is not None)
+
+    def _remainder(self) -> Optional[tuple[Token, Token]]:
+        """``remainder 2`` or ``rem 2`` right after a chain's last operand (``17 ÷ 5 = 3 remainder 2``): the word and the numeral."""
+        a, b = self.peek(), self.peek(1)
+        if a is not None and b is not None and a.kind == "IDENT" and a.space and a.text in _REMAINDER_WORDS and not (a.sub or a.primes or a.delta) \
+                and b.kind == "NUM" and b.space and b.value is not None:
+            self.i += 2
+            return a, b
+        return None
+
+    def _quotient_and_remainder(self, operands: list[Operand], ops: list[str], rem: tuple[Token, Token], lead: str, connective: str) -> Chain:
+        """``a ÷ b = q remainder r`` (STEM repair 2): the stated quotient and remainder of a division of whole numbers, read as the
+        two relations ``a div b = q`` and ``a mod b = r`` (a second chain of the span). Any other shape states a remainder of
+        nothing the grammar reads: the last operand is unreadable (ST-PARSE-001), never checked as a plain quotient."""
+        word, num = rem
+        quotient = operands[-1].node if operands else None
+        division = operands[-2].node if len(operands) >= 2 else None
+        start = operands[0].start if operands else word.start
+        ok = (len(ops) >= 1 and ops[-1] == "=" and isinstance(division, BinOp) and division.op == "/" and quotient is not None
+              and isinstance(quotient, Num) and not lead)
+        if not ok:
+            bad = Operand((), operands[-1].start if operands else word.start, num.end,
+                          error=f"a stated value with a remainder ('{word.text} {num.text}') after something other than the division of two "
+                                "numbers", code="ST-PARSE-001")
+            self.issues.append(ParseIssue("ST-PARSE-001", bad.error, bad.start, bad.end))
+            return Chain(operands=tuple(operands[:-1]) + (bad,), ops=tuple(ops), start=start, end=num.end, lead=lead, connective=connective)
+        a, b = division.left, division.right
+        div = self._count(IntOp("div", a, b, _start(division), _end(division), written="div"))
+        mod = self._count(IntOp("mod", a, b, _start(division), _end(division), written="mod"))
+        r_node = self._count(Num(num.value, num.start, num.end))
+        q_chain = Chain(operands=tuple(operands[:-2]) + (Operand((div,), operands[-2].start, operands[-2].end), operands[-1]), ops=tuple(ops),
+                        start=start, end=operands[-1].end, lead=lead, connective=connective)
+        self.pending.append(Chain(operands=(Operand((mod,), operands[-2].start, operands[-2].end), Operand((r_node,), num.start, num.end)), ops=("=",),
+                                  start=operands[-2].start, end=num.end, connective=word.text))
+        return q_chain
 
     def _skip_rest_of_chain(self) -> int:
         end = self.t[self.i - 1].end if self.i else 0
@@ -356,7 +451,8 @@ class _Parser:
             self._tally_label(oi)
             node = self.expr(0)
             tok = self.peek()
-            if tok is not None and not (tok.kind == "REL" or self.is_connective(tok) or tok.kind in ("AMP", "PUNCT")):
+            if tok is not None and not (tok.kind == "REL" or self.is_connective(tok) or tok.kind in ("AMP", "PUNCT") or self._at_remainder()
+                                        or self._modulus_ahead()):
                 raise self._err("ST-PARSE-001", f"unexpected {tok.text!r} after an operand", tok)
             if depth(node) > self.lim.max_ast_depth:
                 raise self._err("ST-LIM-001", f"the expression nests deeper than {self.lim.max_ast_depth}")
@@ -401,6 +497,13 @@ class _Parser:
             tok = self.peek()
             if tok is None:
                 return left
+            if tok.kind == "OP" and tok.text in _INT_OPS:
+                # '17 mod 5', '(low + high) // 2': an integer remainder or quotient, at the precedence of × and / (STEM repair 2)
+                self.i += 1
+                right = self.unary(d)
+                written = self.ctx.s[tok.start:tok.end] if self.ctx.s else tok.text
+                left = self._count(IntOp(tok.text, left, right, _start(left), _end(right), written=written))
+                continue
             if tok.kind == "OP" and tok.text in _MUL_OPS:
                 if tok.text == "×" and _is_value_node(left) and self._ends_operand(self.i + 1):
                     self.i += 1
@@ -427,7 +530,7 @@ class _Parser:
         if tok.kind in ("FUNC", "LATEX", "LGROUP", "UNSUP", "INF"):
             return True
         if tok.kind == "LPAR":
-            return tok.text in "(["
+            return tok.text in "([" and not self._modulus_ahead()
         if tok.kind == "IDENT":
             if not tok.space:
                 return True
@@ -726,12 +829,23 @@ class _Parser:
             self.i += 1
             return self._count(Abs(node, tok.start, close.end))
         if k == "UNSUP":
+            if tok.value in COMPLETE_UNSUP:
+                self.i += 1  # a whole combination or permutation count: the token is the operand (it applies to nothing after it)
+                return self._count(Unsupported(str(tok.value), tok.text, tok.start, tok.end))
             finite = self._finite_sum(tok, d) if tok.value == "a sum (Σ)" else None
             if finite is not None:
                 return finite
             integral = self._indefinite_integral(tok, d) if tok.value == "an integral" and tok.text in ("∫", "\\int") else None
+            if integral is None and tok.value == "an integral" and tok.text in ("∫", "\\int"):
+                integral = self._definite_integral(tok, d)  # STEM repair 10 (rule definite-integral): ∫₀¹ 6t dt
             if integral is not None:
                 return integral
+            if tok.value == "an ellipsis" and self.i > 0 and self.t[self.i - 1].kind == "NUM" and "." in self.t[self.i - 1].text:
+                # STEM repair 10 (rule ellipsis-rounding): an ellipsis right after a decimal cuts its digits ('0.333…', '2.66\ldots') and
+                # applies to nothing after it: '0.333… × 3 = 1' multiplies the cut value by 3. Taking '× 3' as the marker's operand had
+                # read the product as the cut value itself, restated as 1, and the correct line failed
+                self.i += 1
+                return self._count(Unsupported(str(tok.value), tok.text, tok.start, tok.end))
             self.i += 1
             end = self._skip_operand()
             return self._count(Unsupported(str(tok.value), tok.text, tok.start, max(end, tok.end)))
@@ -750,6 +864,85 @@ class _Parser:
         if k == "BOOL":
             raise self._err("ST-PARSE-001", f"a Boolean operator {tok.text!r} outside a Boolean expression", tok)
         raise self._err("ST-PARSE-001", f"unexpected {tok.text!r}", tok)
+
+    def _limits(self, j: int) -> Optional[tuple[Node, Node, int]]:
+        """STEM repair 10 (rule definite-integral): the limits written at token ``j``, a lower limit as a subscript and an upper one as a
+        superscript (``₀¹``, ``_0^1``, ``_{0}^{2}``, ``_0^{2}``, and with a sign: ``₋₁¹``, ``_{-1}^{1}``, ``₋₂⁻¹``, ``_{-2}^{-1}``), each a
+        whole number written with digits alone and at most a minus sign (a decimal or a symbol is no limit read: None), as ``(lower,
+        upper, the index just past them)``."""
+        sub = self.t[j] if j < len(self.t) else None
+        if sub is None or sub.kind != "SUB" or sub.space:
+            return None
+        raw = self.ctx.s[sub.start:sub.end]
+        value = str(sub.value or "")
+        if not re.fullmatch(r"_?\{?\s*[-−]?\s*\d{1,3}\s*\}?|₋?[₀-₉]{1,3}", raw) or not re.fullmatch(r"-?\d{1,3}", value):
+            return None
+        lo = _signed_limit(int(value), sub.start, sub.end)
+        nxt = self.t[j + 1] if j + 1 < len(self.t) else None
+        if nxt is None or nxt.space:
+            return None
+        if nxt.kind == "SUP" and isinstance(nxt.value, int) and re.fullmatch(r"⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3}", self.ctx.s[nxt.start:nxt.end]):
+            return lo, _signed_limit(nxt.value, nxt.start, nxt.end), j + 2
+        if nxt.kind != "CARET":
+            return None
+        k = j + 2
+        opened = k < len(self.t) and self.t[k].kind in ("LGROUP", "LPAR") and self.t[k].text in ("{", "(")
+        if opened:
+            k += 1
+        sign = 1
+        if k < len(self.t) and self.t[k].kind == "OP" and self.t[k].text in ("-", "−"):
+            sign, k = -1, k + 1
+        num = self.t[k] if k < len(self.t) else None
+        if num is None or num.kind != "NUM" or num.value is None or not re.fullmatch(r"\d{1,3}", num.text):
+            return None
+        k += 1
+        if opened:
+            if k >= len(self.t) or self.t[k].kind not in ("RGROUP", "RPAR"):
+                return None
+            k += 1
+        return lo, _signed_limit(sign * int(num.text), self.t[j + 2].start, num.end), k
+
+    def _definite_integral(self, tok: Token, d: int) -> Optional[Node]:
+        """STEM repair 10 (rule definite-integral): ``∫₀¹ 6t dt``, ``\\int_0^2 (3x^2 + 1)\\,dx``: an integral with whole-number limits, its
+        integrand, its variable and its limits kept on the node (``name`` "∫t", ``arg`` the integrand, ``lo`` and ``hi``), so the relations
+        stage can set it against its evaluation (the antiderivative the STEM pack forms by the power rule, or the one the answer states
+        in an evaluation bracket). The node stays an integral (outside the encodings as a value). The integrand is the stretch between
+        the limits and the differential, as for an indefinite integral; anything else (other limits, no differential) returns None, and
+        the integral is read as before."""
+        lim = self._limits(self.i + 1)
+        if lim is None:
+            return None
+        lo, hi, start = lim
+        depth_ = 0
+        j = start
+        diff: Optional[int] = None
+        while j < len(self.t) and j - start <= _MAX_SCAN:
+            tk = self.t[j]
+            if tk.kind in ("LPAR", "LGROUP"):
+                depth_ += 1
+            elif tk.kind in ("RPAR", "RGROUP"):
+                if depth_ == 0:
+                    break
+                depth_ -= 1
+            elif depth_ == 0 and (tk.kind == "REL" or self.is_connective(tk)):
+                break
+            elif depth_ == 0 and tk.kind == "IDENT" and len(tk.text) == 2 and tk.text[0] == "d" and tk.text[1].isalpha() and not tk.sub and not tk.primes:
+                diff = j
+                break
+            j += 1
+        if diff is None or diff == start:
+            return None
+        inner = _Parser(self.t[start:diff], self.ctx, {})
+        inner.nodes = self.nodes
+        try:
+            body = inner.expr(self._descend(d))
+        except _OperandError:
+            return None
+        if inner.i != diff - start or any(isinstance(n, (Unsupported, Quantity, WithUnit, Apply)) for n in walk(body)):
+            return None
+        self.nodes = inner.nodes
+        self.i = diff + 1
+        return self._count(Unsupported("an integral", tok.text, tok.start, self.t[diff].end, name="∫" + self.t[diff].text[1], arg=body, lo=lo, hi=hi))
 
     def _indefinite_integral(self, tok: Token, d: int) -> Optional[Node]:
         """``∫6t dt``, ``∫(6t − 3t²) dt``, ``\\int x\\,dx``: an integral with no limits, its integrand and its variable kept on
@@ -878,8 +1071,12 @@ class _Parser:
         elif first.kind == "IDENT" and first.text == "μ" and not first.sub and j + 1 < n and toks[j + 1].kind == "IDENT" and not toks[j + 1].space \
                 and is_unit_atom("μ" + toks[j + 1].text, bare_m=prof.bare_m, tonne=prof.tonne, glued=False) and (first.space or self._glued_unit_ok("μm", glued_ok)):
             k = j + 2
+        elif self._greek_prefixed_at(j) and (first.space or glued_ok):
+            k = j + 2  # a Latin prefix glued to a Greek unit symbol: 'kΩ', 'MΩ', 'mΩ' (the lexer reads Ω as a token of its own)
         elif first.kind == "IDENT" and not first.sub and not first.primes and not first.delta:
             word = first.text
+            if first.space and english_word_atom(word):
+                return None  # 'x = 5 as before', '10 am': an English word, never an atto-prefixed unit
             if not first.space:
                 if not self._glued_unit_ok(word, glued_ok):
                     return None
@@ -909,8 +1106,17 @@ class _Parser:
                 k += 1
                 continue
             if tk.kind == "IDENT" and tk.space and not tk.sub and not tk.primes and not tk.delta:
+                if english_word_atom(tk.text):
+                    break  # 'mg dm⁻³ at A': the word ends the unit
                 if is_unit_atom(tk.text, bare_m=prof.bare_m, tonne=prof.tonne):
                     k += 1
+                    continue
+                if tk.text.lower() == "per" and k + 1 < n and toks[k + 1].kind == "IDENT" and toks[k + 1].space and not toks[k + 1].sub \
+                        and not english_word_atom(toks[k + 1].text) and is_unit_atom(toks[k + 1].text, bare_m=prof.bare_m, tonne=prof.tonne):
+                    k += 2  # 'mm³ per g per hour', 'counts per minute': a unit divided by the atom after 'per' (STEM repair 3)
+                    continue
+                if self._greek_prefixed_at(k):
+                    k += 2  # a further prefixed Greek atom: 'A kΩ'
                     continue
                 # an unknown atom after a known one, carrying an exponent: 'yr⁻¹'
                 after = toks[k + 1] if k + 1 < n else None
@@ -926,6 +1132,9 @@ class _Parser:
                 if tk.text == "/" and nx.kind == "IDENT" and not nx.space and not nx.delta and not nx.primes and self._glued_digit_power(nx) \
                         and is_unit_atom(nx.text, bare_m=prof.bare_m, tonne=prof.tonne, glued=False) and self._ascii_unit_end(k + 2):
                     k += 2  # 'm/s2', 'kg/m3': a digit glued to a one-letter unit after a slash is its power (the lexer reads it as a subscript)
+                    continue
+                if self._greek_prefixed_at(k + 1) and not (tk.text == "*" and nx.space):
+                    k += 3  # 'V/kΩ', 'mA·kΩ'
                     continue
                 if nx.kind == "TEXT" or (nx.kind == "DEGREE" and nx.text in ("°C", "°F")):
                     k += 2
@@ -1002,6 +1211,16 @@ class _Parser:
         at = tok.start + len(tok.text)
         return at < len(self.ctx.s) and self.ctx.s[at] == sub
 
+    def _greek_prefixed_at(self, j: int) -> bool:
+        """Tokens ``j`` and ``j + 1`` are a Latin SI prefix and a Greek unit symbol written together (``k`` + ``Ω``), with
+        nothing attached to either (no subscript, prime or Δ) and no space between them (:func:`.units.prefixed_greek_unit`)."""
+        toks = self.t
+        if j + 1 >= len(toks):
+            return False
+        a, b = toks[j], toks[j + 1]
+        return (a.kind == "IDENT" and b.kind == "IDENT" and not b.space and not a.sub and not a.primes and not a.delta and not b.sub and not b.primes
+                and not b.delta and prefixed_greek_unit(a.text, b.text))
+
     def _unit_exponent_end(self, k: int) -> Optional[int]:
         toks = self.t
         n = len(toks)
@@ -1035,6 +1254,40 @@ class _Parser:
             return True
         return False
 
+    def _leibniz_read(self, tok: Token, j: int, d: int) -> Optional[Node]:
+        """Rule ``derivative`` (STEM repair 11): a Leibniz derivative from token ``self.i`` to ``j`` read with what it is of: the letter
+        differentiated and the variable ('dv/dt', 'd²s/dt²', 'dθ/dt'), or, for the operator form, the bracketed expression right after it
+        ('d/dt (3t²)', 'd/dx(x³ − 2x)'). The node keeps them (``arg``, ``var``, ``order``) for the relations' derivative check and is never
+        encoded itself. None (the earlier reading: the rest of the operand skipped, nothing kept) when the derivative is not the whole
+        operand (an operator or anything else follows it before a relation sign, a connective or punctuation)."""
+        parts = _leibniz_parts(self.t, self.i, j)
+        if parts is None:
+            return None
+        letter, var, order = parts
+
+        def ends(k: int) -> bool:
+            return k >= len(self.t) or self.t[k].kind in _DERIVATIVE_ENDS or self.is_connective(self.t[k])
+
+        if letter:
+            if not ends(j):
+                return None
+            self.i = j
+            return self._count(Unsupported("a derivative", f"d{letter}/d{var}", tok.start, self.t[j - 1].end,
+                                           arg=Sym(letter, "symbol", tok.start, self.t[j - 1].end), var=var, order=order))
+        if j >= len(self.t) or self.t[j].kind != "LPAR" or self.t[j].text != "(":
+            return None
+        close = self._close_index(j)
+        if close is None or close == j + 1 or not ends(close + 1):
+            return None
+        saved = self.i
+        try:
+            arg = self._sub_parse(j, close, tuple(self.t[j + 1:close]), self._descend(d))
+        except _OperandError:
+            self.i = saved
+            return None
+        self.i = close + 1
+        return self._count(Unsupported("a derivative", f"d/d{var}(…)", tok.start, self.t[close].end, arg=arg, var=var, order=order))
+
     def _ident(self, tok: Token, d: int) -> Node:
         prof = self.ctx.profile
         word = tok.text
@@ -1044,16 +1297,25 @@ class _Parser:
             self.i += 1
             end = self._skip_operand()
             return self._count(Unsupported("a limit", "lim", tok.start, max(end, tok.end)))
-        # derivatives: d/dx, dy/dx (plain)
-        if word in ("d", "dy", "dx", "dt", "dv", "ds") and nxt is not None and nxt.kind == "OP" and nxt.text == "/" and self.peek(2) is not None \
-                and self.peek(2).kind == "IDENT" and self.peek(2).text.startswith("d") and len(self.peek(2).text) >= 2:
+        # derivatives: d/dx, dy/dx (plain). Rule leibniz (STEM repair 7): any one letter or Greek letter differentiated, of any order
+        # written with its marker ('dN/dt', 'dθ/dt', 'd²v/dt²', 'd^2y/dx^2', 'd2y/dx2', 'd²/dx²'), not only dy, dv, ds and dx: read as
+        # products of symbols ('d²v/dt²' was d²·v/(d·t²), "an equation in an unknown"), they had neither a check nor an ST code
+        leibniz = _leibniz_end(self.t, self.i)
+        if leibniz is not None or (word in ("d", "dy", "dx", "dt", "dv", "ds") and nxt is not None and nxt.kind == "OP" and nxt.text == "/"
+                                   and self.peek(2) is not None and self.peek(2).kind == "IDENT" and self.peek(2).text.startswith("d")
+                                   and len(self.peek(2).text) >= 2):
+            read = self._leibniz_read(tok, leibniz, d) if leibniz is not None else None
+            if read is not None:
+                return read
             self.i += 1
             end = self._skip_operand()
             return self._count(Unsupported("a derivative", word + "/d…", tok.start, max(end, tok.end)))
         # f′(x), f'(1): a derivative, never encoded. With one plain argument the node keeps the name and the argument, so the
         # relations can set an evaluation f′(2) = 3 × 2² − 2 against a formula f′(x) = 3x² − 2 the answer states (the stated
-        # formula itself stays undecided: differentiation is outside the encodings).
-        if tok.primes and word in _FUNCTION_LETTERS and nxt is not None and nxt.kind == "LPAR" and nxt.text == "(" and not nxt.space:
+        # formula itself stays undecided: differentiation is outside the encodings). Rule prime-derivative (STEM repair 7): any one
+        # letter or Greek letter with primes written applied to a bracket ('v′(t)', "v'(1)", 's″(t)', 'θ′(t)'), not only f, g and h:
+        # read as a primed symbol times the bracket ("v'·t"), it had neither a check nor an ST code
+        if tok.primes and (word in _FUNCTION_LETTERS or len(word) == 1) and nxt is not None and nxt.kind == "LPAR" and nxt.text == "(" and not nxt.space:
             close = self._close_index(self.i + 1)
             if close is None:
                 raise self._err("ST-PARSE-001", "an unbalanced bracket", nxt)
@@ -1236,8 +1498,14 @@ class _Parser:
         nxt, after = self.peek(), self.peek(1)
         if nxt is not None and not nxt.space and nxt.kind == "SUB":
             limits = after is not None and not after.space and after.kind in ("CARET", "SUP")
+            # STEM repair 10 (rule definite-integral): whole-number limits that end the operand are kept on the node with the bracketed
+            # antiderivative ('[3t²]₀¹'), so the relations stage can evaluate it between them; the node stays outside the encodings
+            lim = self._limits(self.i) if limits else None
+            ends = lim is not None and (lim[2] >= len(self.t) or self.t[lim[2]].kind in ("REL", "PUNCT", "AMP") or self.is_connective(self.t[lim[2]]))
             end = self._skip_operand()
             reason = "the evaluation of an antiderivative between limits" if limits else "a subscript on a bracketed expression"
+            if ends and lim is not None and not any(isinstance(n, (Unsupported, Quantity, WithUnit, Apply)) for n in walk(node)):
+                return self._count(Unsupported(reason, "", _start(node), end, arg=node, lo=lim[0], hi=lim[1]))
             return self._count(Unsupported(reason, "", _start(node), end))
         return node
 
@@ -1264,10 +1532,32 @@ class _Parser:
                     self.i += 1
                 else:
                     raise self._err("ST-PARSE-001", "\\frac without braced arguments", g)
-            # \frac{d}{dx} and \frac{dy}{dx}: a derivative
+            # \frac{d}{dx} and \frac{dy}{dx}: a derivative (rule leibniz, STEM repair 7: \frac{dN}{dt}, \frac{d\theta}{dt}, \frac{d^2y}{dx^2},
+            # \frac{d^{2}}{dx^{2}} too: the two groups read as one Leibniz form)
             (a0, a1, num_t), (b0, b1, den_t) = args
-            if len(num_t) <= 3 and num_t[0].kind == "IDENT" and num_t[0].text in ("d", "dy", "dv", "ds", "dx") and len(den_t) == 1 and den_t[0].kind == "IDENT" \
-                    and den_t[0].text.startswith("d") and len(den_t[0].text) == 2:
+            joined = tuple(num_t) + (Token("OP", "/", num_t[-1].end, num_t[-1].end),) + tuple(den_t)
+            if (len(num_t) <= 3 and num_t[0].kind == "IDENT" and num_t[0].text in ("d", "dy", "dv", "ds", "dx") and len(den_t) == 1 and den_t[0].kind == "IDENT"
+                    and den_t[0].text.startswith("d") and len(den_t[0].text) == 2) or _leibniz_end(joined, 0) == len(joined):
+                # STEM repair 11 (rule derivative): \frac{dv}{dt}, and \frac{d}{dt} before a bracketed expression, keep what they are of
+                parts = _leibniz_parts(joined, 0, len(joined)) if _leibniz_end(joined, 0) == len(joined) else None
+                if parts is not None:
+                    letter, var, order = parts
+                    k = self.i
+                    if letter and (k >= len(self.t) or self.t[k].kind in _DERIVATIVE_ENDS or self.is_connective(self.t[k])):
+                        return self._count(Unsupported("a derivative", f"d{letter}/d{var}", tok.start, self.t[b1].end,
+                                                       arg=Sym(letter, "symbol", tok.start, self.t[b1].end), var=var, order=order))
+                    if not letter and k < len(self.t) and self.t[k].kind == "LPAR" and self.t[k].text == "(":
+                        close = self._close_index(k)
+                        if close is not None and close > k + 1 and (close + 1 >= len(self.t) or self.t[close + 1].kind in _DERIVATIVE_ENDS
+                                                                     or self.is_connective(self.t[close + 1])):
+                            try:
+                                arg = self._sub_parse(k, close, tuple(self.t[k + 1:close]), self._descend(d))
+                            except _OperandError:
+                                arg = None
+                            if arg is not None:
+                                self.i = close + 1
+                                return self._count(Unsupported("a derivative", f"d/d{var}(…)", tok.start, self.t[close].end, arg=arg, var=var,
+                                                               order=order))
                 end = self._skip_operand()
                 return self._count(Unsupported("a derivative", "d/dx", tok.start, max(end, self.t[b1].end)))
             num = self._sub_parse(a0, a1, num_t, d)
@@ -1391,6 +1681,125 @@ def _one_digit(tok: Token, *, low: int) -> bool:
     num = tok.value
     return len(tok.text) == 1 and "0" <= tok.text <= "9" and int(tok.text) >= low and num is not None and not num.has_point \
         and not num.scientific and num.base == 10
+
+
+#: rule leibniz (STEM repair 7): the orders a derivative's marker may state ('d²v/dt²' … 'd⁹y/dx⁹')
+_LEIBNIZ_ORDERS = range(2, 10)
+
+
+def _order_marker(toks: "tuple[Token, ...] | list[Token]", k: int) -> tuple[int, int]:
+    """Rule ``leibniz`` (STEM repair 7): the order a Leibniz marker written right after token ``k - 1`` states (``²``, ``^2``, ``^{2}``,
+    ``**2``, or a digit glued on, as in ``d2y/dx2``) and the index after it; ``(1, k)`` when no marker is written there."""
+    n = len(toks)
+    if k >= n or toks[k].space:
+        return 1, k
+    t = toks[k]
+    if t.kind == "SUP" and isinstance(t.value, int) and t.value in _LEIBNIZ_ORDERS:
+        return t.value, k + 1
+    if t.kind in ("CARET", "DSTAR") and k + 1 < n and not toks[k + 1].space:
+        u = toks[k + 1]
+        if u.kind == "NUM" and u.text.isdigit() and len(u.text) == 1 and int(u.text) in _LEIBNIZ_ORDERS:
+            return int(u.text), k + 2
+        if (u.kind == "LGROUP" or (u.kind == "LPAR" and u.text == "{")) and k + 3 < n and toks[k + 2].kind == "NUM" and toks[k + 2].text.isdigit() \
+                and len(toks[k + 2].text) == 1 and int(toks[k + 2].text) in _LEIBNIZ_ORDERS \
+                and (toks[k + 3].kind == "RGROUP" or (toks[k + 3].kind == "RPAR" and toks[k + 3].text == "}")):
+            return int(toks[k + 2].text), k + 4  # '^{2}', in LaTeX or written in plain text
+    if t.kind == "NUM" and t.text.isdigit() and len(t.text) == 1 and int(t.text) in _LEIBNIZ_ORDERS:
+        return int(t.text), k + 1
+    return 1, k
+
+
+def _one_letter(t: Token) -> bool:
+    """A symbol of one Latin or Greek letter (its subscript allowed), with no prime and no Δ."""
+    return t.kind == "IDENT" and len(t.text) == 1 and t.text.isalpha() and not t.primes and not t.delta
+
+
+def _d_letter(t: Token) -> bool:
+    """``dv``, ``dN``, ``dt``: the letter d glued to one Latin letter, as the lexer reads it (its subscript allowed: ``dv₁``)."""
+    return t.kind == "IDENT" and len(t.text) == 2 and t.text[0] == "d" and t.text[1].isascii() and t.text[1].isalpha() and not t.primes and not t.delta
+
+
+def _leibniz_end(toks: "tuple[Token, ...] | list[Token]", i: int) -> Optional[int]:
+    """Rule ``leibniz`` (STEM repair 7): the index just past a derivative written in Leibniz notation that starts at token ``i``, or None.
+
+    The numerator is d with an optional order marker and one letter or Greek letter differentiated (``d²v``, ``d^2y``, ``d2y``, ``dθ``),
+    a glued ``dv`` or ``dN``, or d alone with its marker (the operator ``d/dx``, ``d²/dx²``); the denominator is d and one letter or Greek
+    letter (``dt``, ``dθ``) with the SAME order marker, so ``d²v/dt²`` is the second derivative and ``d²v/dt`` no Leibniz form at all.
+    Bounded: it reads at most a dozen tokens from ``i``."""
+    n = len(toks)
+    if i >= n:
+        return None
+    t0 = toks[i]
+    if t0.kind != "IDENT" or t0.primes or t0.delta:
+        return None
+    j = i + 1
+    order = 1
+    if t0.text == "d" and not t0.sub:
+        order, j = _order_marker(toks, j)
+        if j < n and _one_letter(toks[j]) and toks[j].text != "d" and (not toks[j].space or order > 1):
+            j += 1  # the letter differentiated: 'd²v', 'dθ' (a space only after a marker: 'd^2 v/dt^2')
+    elif not _d_letter(t0):
+        return None
+    if j >= n or toks[j].kind != "OP" or toks[j].text != "/":
+        return None
+    j += 1
+    if j >= n:
+        return None
+    den = toks[j]
+    if _d_letter(den):
+        j += 1
+    elif den.kind == "IDENT" and den.text == "d" and not den.sub and not den.primes and j + 1 < n and _one_letter(toks[j + 1]) \
+            and toks[j + 1].text != "d" and not toks[j + 1].space:
+        j += 2  # 'dθ' in the denominator
+    else:
+        return None
+    order2, j = _order_marker(toks, j)
+    return j if order2 == order else None
+
+
+#: rule derivative (STEM repair 11): what may follow a Leibniz derivative read as a whole operand
+_DERIVATIVE_ENDS = frozenset({"REL", "RPAR", "RGROUP", "COMMA", "SEMI", "PUNCT", "AMP", "ROWSEP", "COLON"})
+
+
+def _leibniz_parts(toks: "tuple[Token, ...] | list[Token]", i: int, j: int) -> Optional[tuple[str, str, int]]:
+    """Rule ``derivative`` (STEM repair 11): ``(letter differentiated, variable, order)`` of the Leibniz form from token ``i`` to ``j``
+    (:func:`_leibniz_end`): ``dv/dt`` gives ('v', 't', 1), ``d²s/dt²`` ('s', 't', 2), the operator ``d/dx`` ('', 'x', 1); None when a
+    part carries a subscript, a prime or a Δ (not read)."""
+    n = min(len(toks), j)
+    if i >= n:
+        return None
+    t0 = toks[i]
+    k = i + 1
+    letter = ""
+    order = 1
+    if t0.text == "d" and not t0.sub:
+        order, k = _order_marker(toks, k)
+        if k < n and _one_letter(toks[k]) and toks[k].text != "d":
+            if toks[k].sub:
+                return None
+            letter = toks[k].text
+            k += 1
+    elif _d_letter(t0):
+        if t0.sub:
+            return None
+        letter = t0.text[1]
+    else:
+        return None
+    if k >= n or toks[k].kind != "OP" or toks[k].text != "/":
+        return None
+    k += 1
+    if k >= n:
+        return None
+    den = toks[k]
+    if _d_letter(den):
+        if den.sub:
+            return None
+        var = den.text[1]
+    elif den.text == "d" and k + 1 < n and _one_letter(toks[k + 1]) and not toks[k + 1].sub:
+        var = toks[k + 1].text
+    else:
+        return None
+    return letter, var, order
 
 
 def _single_argument(toks: tuple[Token, ...]) -> bool:

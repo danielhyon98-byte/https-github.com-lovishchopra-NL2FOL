@@ -52,6 +52,7 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | `√x` | `sq`: `S_SQ sq ≥ 0 ∧ sq·sq = x` (an odd decimal exponent is moved into x first). A closed negative x is ST-UNDEF-001. | nonlinear |
 | `\|x\|` | `ite(x ≥ 0, x, −x)` | linear |
 | `n %` | `n/100` (SI reading), `n` (as written) | linear |
+| `a mod b`, `a div b` (also `//`, `\bmod`, `%` in Computer Science, a stated remainder, a congruence) | `to_real(mod(a, b))`, `to_real(idiv(a, b))` with the IR's integer operators; `a` a non-negative whole-number expression as written (`+ − ×`, powers up to 12, nested integer operations), `b` a positive whole number as written; anything else ST-UNDEC-001 with the reason | linear |
 | `±`, `∓` | the sign of the reading. `eq` and `sub` require both choices (AND); a step's relations take either (OR); roots expand to two. | as the operands |
 | exact-table function | sin/cos/tan of multiples of 30° and 45° (and the same angles as rational multiples of π): `q` or `q·sq` with `sq·sq = 2` or `3`. Also log₁₀ and log_b of exact powers, ln 1, exp 0, and the inverse functions at table values in degrees. | as the surd |
 | other function, π, e | `enc` with `ENC_LO ≤ enc ≤ ENC_HI` (forces Form S) | linear |
@@ -159,8 +160,8 @@ Numbers in a reading:
 | `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value. | E; S for membership of decimal roots |
 | `cnv` | `|C − S| ≤ h(S) + h(C)` in SI, τ = 0 (R5). Unknown unit atoms that are the same on both sides cancel. | E |
 | `cmp` | Values: `l op r` exactly (R6). Bound symbols with several values: some admissible values satisfy it. Steps: as `alg`. | E (or S) |
-| `res` | `|S − S′| ≤ h(S) + h(S′)` (R8). | E |
-| `giv` | The Given value matches a request value of the same symbol or dimension (R7). Warning. | E |
+| `res` | `|S − S′| ≤ h(S) + h(S′)` (R8); a rounding the prose states for S′ gives h(S′) (rule `rounding-cue`); the start of a named change (rule `named-change`) at warning severity. | E |
+| `giv` | The Given value matches a request value of the same symbol or dimension (R7), a quantity the request names in words included. Warning. A value the prose takes from a supplied table against the table's cells taken as written, `|S − D| ≤ h(S)` (R9, rule `table-data`). Warning. | E |
 | `tgt` | The final value matches the show-that target (τ = 1/20 when the target says "about"). Warning. | E |
 | `chem` | Coefficients pinned (Int, or Real for fractional ones); tallies `t_<el>_l`, `t_<el>_r` and `t_charge_*`. Conclusion: every tally balances. | E |
 | `bool` | `NEG: ¬(lhs ⇔ rhs)`. A witness distinguishes the sides. | satisfiability, UNSATISFIABLE |
@@ -199,7 +200,7 @@ Operands read from the request (targets, request equations) and single prose val
 | Code | When |
 | --- | --- |
 | ST-UNDEF-001 | Division by an exact zero, an even root of a negative value, the logarithm of a non-positive value, 0⁰, tan at a pole, arcsin/arccos outside [−1, 1]. No problem is built. |
-| ST-UNDEC-001 | A function of an unknown, an enclosure argument beyond its bound, a divisor whose admissible values include zero, a construct outside the encodings (with the reason). |
+| ST-UNDEC-001 | A function of an unknown, an enclosure argument beyond its bound, a divisor whose admissible values include zero, a construct outside the encodings (with the reason), an integer remainder or quotient (`mod`, `div`) of a negative number or a number that is not whole as written, or by a divisor that is not a positive whole number (languages round a negative remainder differently). |
 | ST-UNDEC-002 | A symbol with no stated value and no admissible booklet reading. |
 | ST-LIM-001 | A literal still over 40 digits after factoring; IR bounds (48 symbols, 128 premises, 2,000 nodes, depth 40, polynomial degree 24); more than 6 interval operands. |
 | ST-PARSE-002 | More than 4 readings. |

@@ -51,12 +51,12 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from .chem import ELEMENTS, find_equations
-from .lexer import Token, lex
+from .lexer import COMPLETE_UNSUP, Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .layout import annotation_ranges, label_only_rest, plain_line
 from .normalize import blank_ranges, reading_view
 from .parser import STEM_NAMES
-from .units import is_unit_atom, unit_group
+from .units import english_word_atom, is_unit_atom, prefixed_greek_unit, unit_group
 
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
@@ -72,6 +72,8 @@ _ARTICLES = frozenset({"the", "a", "an", "of", "all", "some", "this", "that", "e
 #: bracket depth up to which a relation inside brackets that open a run is read from inside them
 _MAX_ASIDE_DEPTH = 3
 _VERBAL_OPS = {"plus": "+", "minus": "-", "times": "×", "multiplied": "×", "divided": "/"}
+#: the words of a stated quotient's remainder ('17 ÷ 5 = 3 remainder 2', '3 rem 2'; STEM repair 2)
+_REMAINDER_WORDS = frozenset({"remainder", "rem"})
 _VERBAL_EQ = ("equals", "gives", "makes")
 _FENCE_RE = re.compile(r"[ ]{0,3}(`{3,}|~{3,})[ \t]*([^\n`]{0,40})")
 _LIST_RE = re.compile(r"[ \t]{0,8}(?:[-*•–—]|\d{1,3}[.)])[ \t]+")
@@ -532,6 +534,12 @@ class _Run:
     quantity: bool = False
 
 
+def _modulus_at(toks: tuple[Token, ...], k: int) -> bool:
+    """``(mod 5)`` at token ``k``: the modulus of a congruence written after it."""
+    return (k + 3 < len(toks) and toks[k].kind == "LPAR" and toks[k].text == "(" and toks[k + 1].kind == "IDENT" and toks[k + 1].text.lower() in ("mod", "modulo")
+            and toks[k + 2].kind == "NUM" and toks[k + 3].kind == "RPAR" and toks[k + 3].text == ")")
+
+
 def _is_d_variable(w: str) -> bool:
     return len(w) == 2 and w[0] == "d" and w[1].isalpha()
 
@@ -629,11 +637,23 @@ class _RunFinder:
         after = self.t[k + 2] if k + 2 < len(self.t) else None
         if nxt is not None and nxt.kind == "PUNCT" and nxt.text == "." and not nxt.space and after is not None and after.kind == "IDENT" and not after.space:
             return False  # an abbreviation such as 's.f.'
+        if t.space and english_word_atom(t.text):
+            return False  # '5 at D', 'x = 5 as before': an English word, never an atto-prefixed unit
         if is_unit_atom(t.text, bare_m=self.profile.bare_m, tonne=self.profile.tonne):
             return True
         if t.text in ("μ", "µ") and k + 1 < len(self.t) and self.t[k + 1].kind == "IDENT" and not self.t[k + 1].space:
             return True
+        if self.greek_prefixed(k):
+            return True  # 'kΩ', 'MΩ', 'mΩ': a Latin prefix glued to a Greek unit symbol
         return False
+
+    def greek_prefixed(self, k: int) -> bool:
+        """Tokens ``k`` and ``k + 1`` are a Latin SI prefix and a Greek unit symbol written together (``k`` + ``Ω``)."""
+        if k + 1 >= len(self.t):
+            return False
+        a, b = self.t[k], self.t[k + 1]
+        return (a.kind == "IDENT" and b.kind == "IDENT" and not b.space and not (a.sub or a.delta or a.primes or b.sub or b.delta or b.primes)
+                and prefixed_greek_unit(a.text, b.text))
 
     def clean_before(self, k: int, rel_start: bool) -> bool:
         if k == 0:
@@ -644,6 +664,15 @@ class _RunFinder:
         if p.kind == "IDENT":
             if self.t[k].kind == "NUM" and self.t[k].space and p.text.lower() in _ARTICLES:
                 return True  # 'A 100.0 cm³ sample': an article before a number
+            if rel_start and k >= 2 and self.t[k - 2].kind == "IDENT" and self.t[k - 2].text.lower() in _ARTICLES and len(p.text) > 1 \
+                    and not (p.sub or p.delta or p.primes):
+                return True  # 'Cl₂ needed for all the Al = 0.20 × 3/2 = 0.30 mol': a noun after an article ends the label (STEM repair 2)
+            if not rel_start and self.profile.chemistry and self.t[k].kind == "NUM" and self.t[k].space and p.text in ELEMENTS and not p.sub \
+                    and k + 1 < len(self.t) and self.t[k + 1].kind in ("REL", "OP"):
+                return True  # an atom tally 'C 3 = 3; H 8 = 4 × 2 = 8': the element names the count (STEM repair 2)
+            if not rel_start and self.t[k].kind == "NUM" and self.t[k].space and len(p.text) >= 2 and p.text.isalpha() and not (p.sub or p.delta or p.primes) \
+                    and k + 1 < len(self.t) and self.t[k + 1].space and self.unit_here(k + 1):
+                return True  # 'a battery of emf 12 V': a quantity named by the word before it, never a product of the name and the quantity
             return not self.mathy_start(p) or p.text.lower() in _STOPWORDS or (rel_start and len(p.text) >= 3)
         if p.kind == "LPAR" and p.text == "(":
             return not rel_start
@@ -716,6 +745,20 @@ class _RunFinder:
                     continue
                 break
             if operand:
+                if k > i and toks[k - 1].kind == "CARET" and not t.space and any(x.kind == "UNSUP" for x in toks[max(i, k - 4):k]):
+                    # STEM repair 10: an integral's upper limit written after a caret ('∫_0^1 x dx', '∫_{0}^{1} x dx', '∫_{-2}^{-1}'): part of
+                    # the limits, the operand still to come; it had been read as the operand (or a group ended the run), so the relation was
+                    # silently left unread
+                    j = k
+                    braced = kind in ("LGROUP", "LPAR") and t.text == "{"
+                    close = self.match[k] if braced else -1
+                    if braced and close > k:
+                        j = k + 1
+                    if j < n and toks[j].kind == "OP" and toks[j].text in ("-", "−") and j + 1 < n and toks[j + 1].kind == "NUM":
+                        j += 1
+                    if j < n and toks[j].kind == "NUM" and (not braced or j + 1 == close):
+                        k = (close if braced else j) + 1
+                        continue
                 if kind == "IDENT":
                     if not self.mathy_operand(k) and not (k > i and toks[k - 1].kind == "LPAR" and not toks[k - 1].space and k + 1 < n
                                                         and toks[k + 1].kind == "RPAR" and t.text.isalpha()):
@@ -731,6 +774,8 @@ class _RunFinder:
                     stack.append("|")
                 elif kind in ("FUNC",):
                     pass
+                elif kind == "UNSUP" and t.value in COMPLETE_UNSUP:
+                    operand, prev_value, in_unit = False, False, False  # a whole combination or permutation count ('⁵C₂'): an operand
                 elif kind == "UNSUP":
                     pass  # ∫, Σ, lim: an operator in front of its operand (the parser names it unsupported)
                 elif kind in ("SUB", "SUP", "CARET") and k > i and toks[k - 1].kind in ("UNSUP", "SUB", "SUP", "CARET", "NUM") and not t.space \
@@ -759,8 +804,11 @@ class _RunFinder:
                             if not stack:
                                 last_good = k
                             continue
-                    if t.text == "×" and prev_value and (k + 1 >= n or toks[k + 1].kind in ("PUNCT", "COMMA", "SEMI", "QUOTE") or (toks[k + 1].space and toks[k + 1].kind == "IDENT")):
-                        k += 1  # a magnification suffix '50×'
+                    if t.text == "×" and prev_value and (k + 1 >= n or toks[k + 1].kind in ("PUNCT", "COMMA", "SEMI", "QUOTE")
+                                                         or (not t.space and toks[k + 1].space and toks[k + 1].kind == "IDENT")):
+                        # a magnification suffix '50×' ('… = 50×.', 'is 50× larger'): written right after its number. A '×' with a space
+                        # before it and a symbol after it is a product ('E = 0.5 × k × 0.04', STEM repair 5: it had been read as '0.5×')
+                        k += 1
                         if not stack:
                             last_good = k
                         continue
@@ -787,12 +835,21 @@ class _RunFinder:
                     else:
                         break
                 elif kind == "IDENT":
+                    if prev_value and not in_unit and has_rel_at and not stack and t.space and t.text in _REMAINDER_WORDS and k + 1 < n \
+                            and toks[k + 1].kind == "NUM" and toks[k + 1].space:
+                        k += 2  # '17 ÷ 5 = 3 remainder 2': the stated quotient and its remainder (STEM repair 2)
+                        last_good = k
+                        continue
                     if (prev_value or in_unit) and t.space and self.unit_here(k):
                         in_unit = True
+                    elif in_unit and t.space and t.text.lower() == "per" and k + 1 < n and toks[k + 1].space and self.unit_here(k + 1):
+                        pass  # 'mm³ per g per hour', 'counts per minute': the unit goes on after 'per' (STEM repair 3: the run had ended there)
                     elif in_unit and len(t.text) >= 2 and k + 1 < n and not toks[k + 1].space and toks[k + 1].kind in ("SUP", "CARET"):
                         in_unit = True  # an unknown unit atom with an exponent: 'yr⁻¹'
                     elif in_unit and not t.space and toks[k - 1].kind == "IDENT" and toks[k - 1].text in ("μ", "µ"):
                         pass
+                    elif not t.space and self.greek_prefixed(k - 1):
+                        in_unit = True  # the Ω of 'kΩ' (the prefix opened the unit, or was glued to the number: '2.2kΩ')
                     elif in_unit and self.profile.chemistry and t.text[:1].isupper() and (t.sub or len(t.text) >= 2):
                         break  # a formula after a quantity ('1 mol CaCO₃') names what is counted
                     elif not t.space:
@@ -810,6 +867,10 @@ class _RunFinder:
                 elif kind in ("FUNC", "LATEX"):
                     operand = True
                 elif kind == "LPAR":
+                    if not stack and prev_value and any(toks[r].text == "≡" for r in has_rel_at) and _modulus_at(toks, k):
+                        k += 4  # '17 ≡ 2 (mod 5)': the modulus of a congruence (STEM repair 2)
+                        last_good = k
+                        continue
                     if t.space and in_unit:
                         break  # an aside after a quantity: 'm = 100.0 g (100.0 cm³ × 1.00 g cm⁻³)'
                     stack.append(t.text)
@@ -849,6 +910,14 @@ class _RunFinder:
             if not has_rel and self.t[i].kind == "LPAR" and 1 <= self.inner_rel <= _MAX_ASIDE_DEPTH:
                 i += 1  # a bracketed relation ('(x = 2)', an aside): read again from inside the bracket (bounded depth: linear)
                 continue
+            if not has_rel and 1 <= self.inner_rel <= _MAX_ASIDE_DEPTH:
+                inner = next((x for x in range(i + 1, end) if toks[x].kind == "LPAR" and match[x] > x
+                              and any(toks[y].kind == "REL" for y in range(x + 1, match[x]))), None)
+                if inner is not None:
+                    # a run whose relation sign is only inside a bracket after its start ('greatest at C (2.0 km = 200 m)'): the
+                    # bracket is an aside, read from inside it like a run that opens with one (STEM repair 2: it was skipped)
+                    i = inner + 1
+                    continue
             run = _Run(i, end, lead=self.t[i].kind == "REL", has_rel=has_rel)
             if has_rel:
                 if run.lead:
@@ -1031,9 +1100,12 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
                 continue
             finder = _RunFinder(toks, scan, names, profile)
             taken: list[tuple[int, int]] = []
+            verbal = _verbal(toks)
             for run in finder.runs():
                 a = toks[run.first].start
                 b = toks[run.last - 1].end
+                if not run.quantity and any(vf <= run.first and run.last <= vl for vf, vl, _synth in verbal):
+                    continue  # '3 times 4 = 12' read as '4 = 12': the verbal reading is the whole relation (STEM repair 2)
                 if run.quantity:
                     spans.append(Span("quantity", a, b, rows=((a, b),), line=ln.index))
                     continue
@@ -1042,7 +1114,7 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
                     err, code = f"a math run of {b - a} characters exceeds the span bound of {limits.max_span_chars}", "ST-LIM-001"
                 spans.append(Span("math_run", a, b, rows=((a, b),), lead=run.lead, label=run.label, line=ln.index, error=err, code=code))
                 taken.append((run.first, run.last))
-            for first, last, synth in _verbal(toks):
+            for first, last, synth in verbal:
                 if any(f <= first < l for f, l in taken):
                     continue
                 a, b = toks[first].start, toks[last - 1].end

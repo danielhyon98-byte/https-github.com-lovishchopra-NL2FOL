@@ -46,8 +46,9 @@ def decide(text: str, check_id: str, request: str | None = None, profile: str = 
 
 def test_rule_texts():
     assert len(SHORT_RULE) <= 300
-    for k in range(1, 11):
+    for k in range(1, 12):  # R11 (the central value of S ± u) since STEM repair 3
         assert f"R{k}" in STEM_TOLERANCE_RULE
+    assert "S ± u, is set against C at its central value S" in STEM_TOLERANCE_RULE
     assert "encoding only" in STEM_SCOPE and "does not establish" in STEM_SCOPE
 
 

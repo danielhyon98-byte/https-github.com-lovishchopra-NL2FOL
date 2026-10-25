@@ -17,6 +17,8 @@ so an offset in any view is the same offset in the original.
       an operator, ``(`` or a relation sign and before a digit or a letter; ``3–5 s``
       between two numbers stays a dash (a range, named unsupported) and so does ``H–H``;
     * U+2011 NON-BREAKING HYPHEN becomes ``-``;
+    * ``+/-`` written before a number (``±0.5 °C`` written ``+/-0.5 °C``, ``1620 +/- 32``) becomes ``±`` and two spaces (STEM repair 4:
+      the answer's own uncertainty is read as the supplied texts' is; elsewhere, ``+/- buttons``, it stays as written);
     * ``×`` stays its own token; superscript and subscript digits and signs stay as they
       stand (nothing is expanded). Letters of other scripts are left alone, so a Cyrillic
       ``а`` that looks like a Latin ``a`` is never read as one: the lexer rejects it.
@@ -42,6 +44,8 @@ _SPACES = {" ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " "
 _ZERO_WIDTH = {"​": " ", "‌": " ", "‍": " ", "⁠": " ", "﻿": " "}
 _SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH
 _DASHES = frozenset({"–", "‒"})
+#: characters after which '+/-' written before a number is a plus-or-minus sign (STEM repair 4)
+_PLUS_MINUS_BEFORE = frozenset(" \t\n(=:,;[")
 #: characters after which an en dash is a minus sign
 _MINUS_BEFORE = frozenset(" \t\n([{+-−×·*/÷=<>≤≥≈≠~^:,;≤≥≈≠⇒→∴")
 
@@ -61,6 +65,16 @@ def reading_view(text: str) -> str:
             nxt = text[i + 1] if i + 1 < n else ""
             if (prev in _MINUS_BEFORE or prev in _SIMPLE) and nxt and (nxt.isalnum() or nxt in "(√\\"):
                 out[i] = "-"
+    if "+/-" in text:
+        k = text.find("+/-")
+        while k >= 0:
+            prev = text[k - 1] if k > 0 else " "
+            j = k + 3
+            while j < n and j - k <= 4 and text[j] in " \t":
+                j += 1
+            if (prev in _PLUS_MINUS_BEFORE or prev.isdigit()) and j < n and (text[j].isdigit() or text[j] == "."):
+                out[k], out[k + 1], out[k + 2] = "±", " ", " "
+            k = text.find("+/-", k + 3)
     return "".join(out)
 
 

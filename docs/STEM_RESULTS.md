@@ -124,7 +124,7 @@ evaluated to build them.
 | unreadable equation | 1 | ST-CHEM-001 |
 | wrong derivative | 1 | ST-UNDEC-001 (calculus is outside the encodings) |
 | undefined expression | 1 | ST-UNDEF-001 |
-| fractional power misuse | 1 | ST-PARSE-001 or ST-UNDEC-001 when measured; INT-SUBJ-001 since the e2e run1 detection fixes, which decide a closed fractional power (docs/STEM_DESIGN.md, section 21) |
+| fractional power misuse | 1 | ST-PARSE-001 or ST-UNDEC-001 when measured; INT-SUBJ-001 since the e2e run1 detection fixes, which decide a closed fractional power (docs/STEM_DESIGN.md, section 33) |
 
 ### Before and after
 
@@ -225,7 +225,9 @@ against the gold. **All 564 tests pass**, so every item meets every criterion be
   ST-UNDEC-001 and its reason. These are a derivative, a definite integral, a factorial, a
   limit, a complex number, asymptotic notation, a fractional power and a stated derivative.
   (Since the e2e run1 detection fixes the fractional power `16^{3/4}` is read, and the relation that
-  holds it is named for its fourth root: docs/STEM_DESIGN.md, section 21.)
+  holds it is named for its fourth root: docs/STEM_DESIGN.md, section 33.)
+  (STEM repair 10, section 10.6: a definite integral of a polynomial with whole-number limits is
+  now checked, so math-calc-2's gold lists its integral as two checks, not as undecided.)
 - **The 13 silent passes seen before STEM support** are all caught or named: P1, P3, P5, P7,
   P8, P10, C1, C2, M2, M3, M4, B1 and CS1.
 
@@ -435,7 +437,7 @@ python -m pytest -q -m stress tests/stress/test_stem_stress.py   # the five STEM
   item `mai-func-1` is therefore labelled with its correct form only. (Since the second e2e repair
   an application of an exponential model the answer or the request defines is read as the model at
   its argument in a `stem-mod` check, and no algebra step is read over an application of a letter
-  the text defines as a function: docs/STEM_DESIGN.md, section 21, item 5. Any other use of such an
+  the text defines as a function: docs/STEM_DESIGN.md, section 33, item 5. Any other use of such an
   application keeps the product reading.)
 - A unitless calculation stated in a prefixed unit is read as written and in SI (design section
   6.4), so a stated value off by exactly the unit's factor holds in SI (`c = 0.25 × 4 = 0.001 mol
@@ -470,7 +472,8 @@ python -m pytest -q -m stress tests/stress/test_stem_stress.py   # the five STEM
 
 **Out of scope by design** (design section 15): the truth of laws, data and constants;
 symbolic calculus (except an indefinite integral of a polynomial with its stated antiderivative,
-design section 20.5), vectors, matrices, complex numbers, factorials and asymptotic notation (named
+design section 20.5, and a definite integral of a polynomial with whole-number limits, section 30),
+vectors, matrices, complex numbers, factorials and asymptotic notation (named
 undecided); unit correctness beyond dimension warnings and explicit conversions;
 significant-figure policy; program behaviour (code is never run); diagrams and graphs; method
 quality.
@@ -504,7 +507,197 @@ or a deployment.
 - Suite on the merged tree: 4353 passed, 45 deselected (stress), 4 xfailed, no failures, in 122 s;
   `scripts/arena/test_arena_rules.py`: 27 passed.
 
-### 10.2 A live integrated round
+### 10.2 STEM repair 1, measured on the recorded rounds
+
+An independent test of the overseer's STEM completion planted STEM faults the front end did not
+read (design section 21). After the repair, the harness on fresh copies of every recorded round
+gives the merge's functional counts: r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177.
+Compared record for record with the tree before the repair (status, functional, every finding's
+code, severity and claims, every outcome, every formal check), r1 to r6 are identical, and on r7
+39 records of eight STEM answers differ only as the new readings say:
+
+- 96 formal checks added, every one ENTAILED, none removed: bi-t13 four `giv` checks of its table
+  values and ess-t13 two (rule `table-data`), ph-t13 five `res` checks (four named changes and the
+  inline restatement "16.4 W, so 16 W"), ph-p7b the decay line in counts min⁻¹ (`stem-eq-9`), on
+  each of their variants;
+- ph-p7b's word count reads "counts min⁻¹" after a number as the unit of its line of working, not
+  as prose: on the genuine answer "measured 177 words (prose only: 45 words of working excluded …)"
+  for 191 and 62 before, and 14 prose words fewer on each of its variants, against the bound of
+  300 (ENTAILED throughout);
+- every check's `detail` and failure message carries the corrected short form of the tolerance
+  rule; every STEM mutation is named by the same codes on the same claims.
+
+No status and no functional count changed, and no genuine receipt gained a finding. These are
+replays of recorded answers: no specialist was called.
+
+### 10.3 STEM repair 3, measured on the recorded rounds
+
+A third independent test of the overseer's STEM completion found a false error on correct work (a
+value stated under a condition read as a unit conversion), an arithmetic slip passed inside a
+stated uncertainty, and fault forms the front end did not read (design section 23; STEM repair 2's
+measurements are `docs/OVERSEER_RESULTS.md` section 19). After the repair, the harness on fresh
+copies of every recorded round gives the merge's functional counts: r1 30/30, r1-adv 150/151, r2 to
+r6 46/46 each, r7 177/177. Compared record for record with the tree before the repair (every field,
+identifiers and times folded), r1 to r6 are identical, and on r7 the 8 records of ph-p7b differ only
+as the new readings say:
+
+- 16 formal checks added, every one ENTAILED, none removed: on each of ph-p7b's eight records, the
+  time "32 h is 4 half-lives" as four times its T½ = 8.0 h, and the power (1/2)⁴ written after it
+  against the 4 (rule `half-lives`);
+- no status, functional count or finding changed, and no other recorded STEM answer gained or lost
+  a check: the 15 STEM mutations are named by the same codes on the same claims.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.4 STEM repair 4, measured on the recorded rounds
+
+A fourth independent test of the overseer's STEM completion found two false errors on correct work
+(a Boolean expression evaluated under the values its statement gives, read as an identity; a later
+part's substitution of the value a stated change ends at, set against the earlier binding), a Given
+uncertainty written "±3%" neither checked nor named, a 12% slip passed through a rounding interval
+on exact working, and fault forms the front end did not read (design section 24; the overseer's
+measurements are `docs/OVERSEER_RESULTS.md` section 21). After the repair, the harness on fresh
+copies of every recorded round gives the merge's functional counts: r1 30/30, r1-adv 150/151, r2 to
+r6 46/46 each, r7 177/177. Compared record for record with the tree before the repair (every field,
+identifiers and times folded), r1 to r6 are identical, and on r7 23 records of three STEM answers
+differ only as the new readings say:
+
+- 92 formal checks added, every one ENTAILED, none removed: six on each of ess-t13's six records
+  (its values at sites A to E, rule `row-value`) and seven on each of ph-p7b's eight (the
+  uncertainties it writes with its corrected rates, each 2% of the measured value, rule
+  `stated-uncertainty`);
+- on each of maa-p7b's nine records the quoted "0.693/8.0 h = 0.087 h⁻¹" is decided in Form E
+  instead of Form S (ENTAILED for SATISFIABLE: its 8.0 carries the exact T = 8 of part (b), rule
+  `exact-carry`), and holds as before;
+- no status, functional count or finding changed, and no other recorded STEM answer gained or lost
+  a check: the 15 STEM mutations are named by the same codes on the same claims.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.5 STEM repair 5, measured on the recorded rounds
+
+A fifth independent test of the overseer's STEM completion found four false errors on correct work
+(the evaluation of a formula after its correct rearrangement read as a step from it; a symbol
+reused in a part for another quantity set against the other part's value; a count after "so"
+paired with a chain three statements before), a relation the prose gives as a quantity's value
+neither checked nor named, a conversion and a rounded restatement written in prose missed, and a
+false warning on 2% of a raw table cell (design section 25; the overseer's measurements are
+`docs/OVERSEER_RESULTS.md` section 22). After the repair, the harness on fresh copies of every
+recorded round gives the merge's functional counts: r1 30/30, r1-adv 150/151, r2 to r6 46/46
+each, r7 177/177. Compared record for record with the tree before the repair (every field,
+identifiers and times folded), every round is identical, r7 included: no recorded STEM answer is
+written in a shape the new readings read, so none gains or loses a check, and the 15 STEM
+mutations are named by the same codes on the same claims. The front end's own dump of every check
+(its status, severity and description) and every finding on the nine recorded round-7 STEM answers
+(96 checks, 33 findings) and on the 558 labelled corpus items (1,918 checks, 102 findings) is byte
+for byte the same before and after the repair. Measured 2026-10-23, after the repair's third pass.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.6 STEM repair 10, measured on the recorded rounds
+
+A tenth independent test of the overseer's STEM completion found a wrong conversion in prose checked only at the end of
+the answer (its clause's end read in a window of the whole text), a line's column taken from its part's question, values
+at a supplied table's row restated wrongly in common shapes, another resistor's value substituted for the one a sentence
+names, a wrong law evaluated right at a condition its part had computed, a base conversion in prose and a definite
+integral named by nothing, a slip under 1/100 on the request's exact data held, and a value restated from a decimal written
+with its digits cut left undecided (design section 30; the overseer's measurements are `docs/OVERSEER_RESULTS.md`
+section 27). After the repair, the harness on fresh copies of every recorded round gives the merge's functional counts: r1
+30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177. Compared record for record with STEM repair 9's run (every field,
+identifiers and times folded), r1 to r6 are identical, and on r7 the 23 records of three STEM answers differ only as the
+new readings say:
+
+- 55 formal checks added, 46 ENTAILED and 9 SATISFIABLE, none removed: on each of ess-t13's six records the two counts
+  of part (b), "the most nymphs (34)" and "only 9" (rule `row-value`); on each of maa-t13's eight the two evaluation
+  brackets of part (c), `[3t² − t³]₀² = (12 − 8) − 0` and `[3t² − t³]₂³ = (27 − 27) − (12 − 8)` (rule
+  `definite-integral`); on each of mai-t13's nine the restatement of its cut value `4787.58\ldots` as `4788` euros, to the
+  nearest euro, the place of that restatement (rules `ellipsis-rounding` and `rounded-digits`), and the computed value
+  `\dfrac{\ln 1.5}{\ln 1.003}` against `135.36\ldots` (SATISFIABLE, a value of logarithms in Form S);
+- 25 ST-UNDEC-001 warnings removed, each now a check: maa-t13's two evaluation brackets (16) and mai-t13's cut value's
+  restatement (9); the integral of v, which is no polynomial, and mai-t13's power beyond 12 keep theirs;
+- no status, functional count or code set changed, and the 15 STEM mutations are named by the same codes on the same
+  claims.
+
+The STEM front end's own dump on the nine recorded round-7 STEM answers goes from 96 checks and 33 findings to 103 and 30
+(the seven checks and three removed warnings above), and on the 558 labelled corpus items from 1,918 checks and 102
+findings to 1,924 and 96: math-calc-2, stem-math-013 and stem-math-014 each gain a definite integral checked against its
+evaluation bracket and the bracket at its limits, both holding, in place of two ST-UNDEC-001 (math-calc-2's gold, which
+listed its integral as undecided, lists the two checks). Measured 2026-10-24.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.7 STEM repair 11, measured on the recorded rounds
+
+An eleventh independent test of the overseer's STEM completion found correct working failed in exact mode when the result
+is a rounded quotient of whole numbers, a Given one unit off the request's data accepted, part (b)'s factorisation and
+roots in a letter part (a)'s question gives a value unchecked, a function's value in prose, a wrong restatement of an
+inequality's solution, a wrong derivative, a wrong given substituted where no symbol is bound and a base phrase opening the
+clause named by nothing (design section 31; the overseer's measurements, the knowledge pack's modules among them, are
+`docs/OVERSEER_RESULTS.md` section 28). After the repair, the harness on fresh copies of every recorded round gives the
+merge's functional counts: r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177. Compared record for record with STEM
+repair 10's run (every field, identifiers and times folded), r1 to r6 are identical, and on r7 the 17 records of two
+STEM answers differ only as the new readings say:
+
+- 58 formal checks added, 39 ENTAILED, 18 SATISFIABLE and 1 COUNTEREXAMPLE, none removed (the planted slip of maa-t13's
+  `stem_arithmetic_slip` mutation keeps its failing check, renumbered): on each of maa-t13's eight records the derivative
+  `a = dv/dt = 6 − 6t` against the one the power rule forms from the request's v(t) (rule `derivative`, a warning check),
+  part (b)'s factorisation `3t(2 − t) = 0` as a step from `6t − 3t² = 0` and its roots `t = 0`, `t = 2` and `t = 0 or t =
+  2` (rules `part-condition` and `root-statement`); on each of mai-t13's nine the two restatements `12n > 135.36…, so n >
+  11.28…` against the relation before them solved exactly (rule `inequality-solution`, SATISFIABLE: a value of logarithms
+  in Form S). The one failing check is on the injected claim of maa-t13's `stem_substitution` mutation, whose planted
+  `a = dv/dt = 6 − 3t` now also fails the power rule's check (INT-SUBJ-004, a warning) beside the INT-SUBJ-001 it was
+  named by;
+- 26 warnings and notes removed: maa-t13's ST-SCOPE-001 note that t is rebound in part (b) (eight; t is part (b)'s
+  unknown now) and mai-t13's two ST-UNDEC-001 on the restatements with an ellipsis (eighteen, each now a check);
+- no status, functional count or naming changed: the 15 STEM mutations are named by the same codes on the same claims,
+  and no record has an unexplained finding.
+
+The STEM front end's own dump on the nine recorded round-7 STEM answers goes from 103 checks and 30 findings to 110 and
+27 (the seven checks and three removed findings above, on the genuine answers), and on the 558 labelled corpus items from
+1,924 checks and 96 findings to 1,934 and 91: math-calc-1, math-deriv-1 and a mutant of each gain their derivative checked
+by the power rule and holding (four ST-UNDEC-001 gone), stem-math-011 its derivative and the value its equation step solves
+for (one ST-UNDEC-001 and its ST-SCOPE-001 gone; its stationary point keeps its own), probe-M3-calculus-err and
+stem-math-012 the planted wrong derivative failing on its claim, mai-func-1 its function's value and stem-phys-030 the
+place its stated rounding names, all holding but the two planted derivatives. Measured 2026-10-24.
+
+The stress targets of section 5 (`-m stress`, run alone after the suite): four of five pass; the adversarial
+400,000-character mix took 1.56 to 1.66 s at best of five in three runs against its 1.5 s target, on a machine slower
+that day than at STEM repair 10 (the file's run 57 to 61 s against 53 s, the mix 1.475 s then). The tree before the
+repair, run the same way at the same times, took 1.61 and 1.65 s, and timed alone, the two trees alternately, the mix
+takes 1.41 to 1.60 s before and 1.42 to 1.60 s after (best of five each time): this repair's readings add about 15 ms of
+it, within the machine's noise. The target is left as it is.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.8 STEM repair 12, measured on the recorded rounds
+
+A twelfth independent test of the overseer's STEM completion found a wrong derivative ENTAILED and satisfied with no
+finding (an identity's variable took the request's value, so the identity was decided at that value only), hexadecimal
+restatements with letter digits in prose and restatements after an approximation word named by nothing, and a circular
+translation in affine or scaled form named by no check (design section 32; the overseer's measurements are
+`docs/OVERSEER_RESULTS.md` section 29). After the repair, the harness on fresh copies of every recorded round gives the
+merge's functional counts: r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177. Compared record for record with
+STEM repair 11's run (every field, identifiers and times folded), every round is identical, r7 included: no formal check
+is added or removed, no status, functional count, code or naming changes, and the 15 STEM mutations are named by the same
+codes on the same claims: on the recorded answers the new readings add no check and change no outcome.
+
+The STEM front end's own dump on the nine recorded round-7 STEM answers stays at 110 checks and 27 findings, every status
+the same; only maa-t13's two recorded antiderivatives (`∫6t dt = 3t²` and `∫3t² dt = t³`, both holding) state what they
+compare now, their variable named. On the 558 labelled corpus items it stays at 1,934 checks and 91 findings, every
+status the same; six restatements after an approximation word (in stem-bio-004, stem-phys-029, stem-phys-034,
+ess-doubling-1 and its power-of-ten mutant, and ess-doubling-2) state in their detail the τ of 0 they were always banded
+with. Measured 2026-10-24.
+
+The stress targets of section 5 (`-m stress`, run after the suite and twice more, the trees before and after the repair
+alternately): three of five pass, both trees alike, on a machine other work kept loaded that day (a load of 7 to 8 on four
+cores). The typical answer's p95 receive took 312 to 333 ms after the repair and 333 to 337 ms before (target 250 ms), and
+the adversarial 400,000-character mix 2.06 to 2.32 s at best of five after and 2.30 and 2.41 s before (target 1.5 s, missed
+at STEM repair 11 too, 1.56 to 1.66 s); timed alone, the two trees alternately, the mix takes 1.96 and 2.11 s after and
+2.00 and 2.12 s before. The targets are left as they are.
+
+These are replays of recorded answers: no specialist was called.
+
+### 10.9 A live integrated round
 
 *No results yet.* The integrated arena merges `stem-build` (round 7 when the merge is ready,
 otherwise round 8) and tests STEM with a STEM lens and a STEM fixer, using real STEM specialists

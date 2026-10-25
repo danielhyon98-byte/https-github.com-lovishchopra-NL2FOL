@@ -472,7 +472,7 @@ def test_a_value_stated_in_prose_for_a_named_quantity_is_a_root_of_its_equation(
     ("(a) " + ANNUITY + "\n\nHer monthly payment is €400.50.", "no name given to M"),
 ])
 def test_a_prose_value_is_read_as_a_root_only_when_every_condition_holds(answer, why):
-    """Each sentence fails one condition of the reading (docs/STEM_DESIGN.md, section 21, item 4), so no root is read
+    """Each sentence fails one condition of the reading (docs/STEM_DESIGN.md, section 33, item 4), so no root is read
     and nothing is decided from it: no error, whatever the value."""
     doc = build_document(answer, "Find it.", "mathematics_ai")
     assert not [r for r in doc.relations if r.kind == "sol" and r.described], why

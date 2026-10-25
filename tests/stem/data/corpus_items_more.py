@@ -1,5 +1,5 @@
 """Hand-written STEM corpus items: algebra, roots, logarithms, surds, sequences, inequalities, calculus
-(named undecided), percentages, conversions, comparisons, show-that targets, chemical equations,
+(a definite integral of a polynomial checked since STEM repair 10, a derivative of one since STEM repair 11), percentages, conversions, comparisons, show-that targets, chemical equations,
 Boolean identities, truth tables and based numerals, in mixed notations.
 
 Every label is computed here from data the builder writes: exact ``Fraction`` arithmetic, exact
@@ -59,6 +59,17 @@ def identity_proof(f: Callable[[F], F], g: Callable[[F], F], degree: int) -> dic
     same = all(f(x) == g(x) for x in pts)
     return {"rule": f"two polynomials of degree <= {degree} agree everywhere iff they agree at {degree + 1} points", "points": diffs,
             "holds": same, "fails": not same}
+
+
+def derivative_proof(coeffs: list[F], stated: list[F]) -> dict:
+    """STEM repair 11: the derivative of the polynomial with ``coeffs`` (highest power first) by the power rule, against the stated
+    derivative's coefficients, compared as polynomials at more points than their degree."""
+    n = len(coeffs) - 1
+    formed = [c * (n - i) for i, c in enumerate(coeffs[:-1])]
+    degree = max(len(formed), len(stated)) - 1
+    proof = identity_proof(lambda x: poly(formed, x), lambda x: poly(stated, x), max(degree, 0))
+    return dict(proof, rule="the derivative by the power rule (" + ", ".join(fmt(c) for c in formed) + ", highest power first) against the stated "
+                            "derivative: " + proof["rule"])
 
 
 def roots_proof(coeffs: list[F], stated: list[F], all_roots: list[F]) -> dict:
@@ -256,11 +267,23 @@ for _k, (_nota, _text, _good, _bad, _wit, _P, _C) in enumerate([
          [other("step", _good, "cmp", {"rule": "the inequality step is an equivalence (dividing by a negative number reverses the sign)"})],
          muts=[mut("wrong_comparison", "step", [(_good, _bad, _text, "last")], step_proof(_P, _C, _wit), f"the inequality sign of the last step is reversed: {_bad}")])
 
-# calculus and other notation outside the encodings: named undecided; the arithmetic beside them is decided
+# calculus and other notation outside the encodings: named undecided; the arithmetic beside them is decided.
+# STEM repair 11 (rule derivative): the derivative a polynomial's answer states is set against the derivative the power rule forms, so it is
+# decided now (before: named undecided, 'derivative'); its label is computed here from the coefficients the builder writes
 item("math-calc-1", MATH_AA, "calculus", "unicode", "Find f′(2) for f(x) = x³ − 2x.", "For f(x) = x³ − 2x, f′(x) = 3x² − 2, so f′(2) = 3 × 2² − 2 = 10.",
-     [eq("e", "3 × 2² − 2 = 10", lambda v: F(3) * 4 - 2, "10", exact=True)], undecided=[("f′(x) = 3x² − 2", ("ST-UNDEC-001",), "derivative")], auto=("slip", "sign"))
+     [other("der", "f′(x) = 3x² − 2", "alg", derivative_proof([F(1), F(0), F(-2), F(0)], [F(3), F(0), F(-2)])),
+      eq("e", "3 × 2² − 2 = 10", lambda v: F(3) * 4 - 2, "10", exact=True)], auto=("slip", "sign"))
+# STEM repair 10 (rule definite-integral): a definite integral of a polynomial with whole-number limits set against the evaluation bracket of
+# the antiderivative it states is the antiderivative check between the same limits, and the bracket at its limits is arithmetic; both are
+# decided now (before: named undecided, 'integral'), each label computed here
 item("math-calc-2", MATH_AA, "calculus", "latex", "Evaluate the integral of 3x² from 0 to 2.", "$\\int_0^2 3x^2\\,dx = [x^3]_0^2 = 8 - 0 = 8$",
-     [eq("e", "8 - 0 = 8", lambda v: F(8), "8", exact=True)], undecided=[("\\int_0^2 3x^2\\,dx", ("ST-UNDEC-001",), "integral")], auto=("slip",))
+     [other("int", "\\int_0^2 3x^2\\,dx = [x^3]_0^2", "alg",
+            dict(identity_proof(lambda x: 3 * x * x, lambda x: 3 * x ** 2, 2),
+                 rule="the derivative of the stated antiderivative x³ (3x², by the power rule) agrees with the integrand 3x² at 3 points (polynomials "
+                      "of degree <= 2), and both sides integrate between 0 and 2")),
+      other("ev", "[x^3]_0^2 = 8 - 0", "eq", {"rule": "the bracket at its limits, 2³ − 0³, against 8 − 0 (exact)", "computed": fmt(F(2) ** 3 - F(0) ** 3),
+                                             "stated": fmt(F(8) - F(0)), "holds": F(2) ** 3 - F(0) ** 3 == F(8) - F(0)}),
+      eq("e", "8 - 0 = 8", lambda v: F(8), "8", exact=True)], auto=("slip",))
 item("math-count-1", MATH_AA, "counting", "unicode", "In how many orders can five books be arranged?", "The number of orders is 5! = 5 × 4 × 3 × 2 × 1 = 120.",
      [eq("e", "5 × 4 × 3 × 2 × 1 = 120", lambda v: F(120), "120", exact=True)], undecided=[("5! = 5 × 4 × 3 × 2 × 1", ("ST-UNDEC-001",), "factorial")],
      auto=("slip",))
@@ -529,9 +552,9 @@ item("math-func-2", MATH_AA, "functions", "latex", "Given f(x) = x² − 3x, fin
                "the argument was substituted as 3 in the second term; the arithmetic is consistent with it", kinds=("eq",), affected=("e",))], auto=("slip",))
 item("math-deriv-1", MATH_AA, "calculus", "unicode", "For f(x) = x³ − 2x, find the gradient of the curve at x = 2.",
      "For f(x) = x³ − 2x, f′(x) = 3x² − 2, so f′(2) = 3 × 2² − 2 = 10.",
-     [other("ev", "f′(2) = 3 × 2² − 2", "eq", {"rule": "the stated derivative formula with x = 2"}),
+     [other("der", "f′(x) = 3x² − 2", "alg", derivative_proof([F(1), F(0), F(-2), F(0)], [F(3), F(0), F(-2)])),
+      other("ev", "f′(2) = 3 × 2² − 2", "eq", {"rule": "the stated derivative formula with x = 2"}),
       eq("e", "3 × 2² − 2 = 10", lambda v: F(10), "10", exact=True)],
-     undecided=[("f′(x) = 3x² − 2", ("ST-UNDEC-001",), "derivative")],
      muts=[mut("wrong_substitution", "ev", [("3 × 2² − 2 = 10", "3 × 3² − 2 = 25")], {"rule": "the stated formula at x = 2 is 10, the written side "
                                                                                             "3 × 3² − 2 = 25 (exact)", "fails": True},
                "the argument 2 was substituted as 3; the arithmetic is consistent with it", kinds=("eq",), affected=("e",))])

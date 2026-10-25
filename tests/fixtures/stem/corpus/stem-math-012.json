@@ -16,9 +16,9 @@
         "kind": "wrong_derivative",
         "step": "f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2",
         "expected_codes": [
-          "ST-UNDEC-001"
+          "INT-SUBJ-001"
         ],
-        "note": "The derivative of 3x² + 2x is 6x + 2 (the power rule multiplies by the exponent 2). Calculus is outside the encodings, so the design names the relation undecided with the reason 'derivative' rather than deciding it. f′(1) = 8, not 5; the arithmetic 3(1) + 2 = 5 holds as written. [computed: d/dx(3x² + 2x) = 6x + 2, stated 3x + 2]"
+        "note": "The derivative of 3x² + 2x is 6x + 2 (the power rule multiplies by the exponent 2). Since STEM repair 11 the STEM pack forms the derivative of a polynomial by the power rule and sets the stated one against it (rule derivative), so the wrong derivative fails (INT-SUBJ-001); before, calculus was outside the encodings and the relation was named undecided with the reason 'derivative'. f′(1) = 8, not 5; the arithmetic 3(1) + 2 = 5 holds as written. [computed: d/dx(3x² + 2x) = 6x + 2, stated 3x + 2]"
       }
     ],
     "correct_steps": [

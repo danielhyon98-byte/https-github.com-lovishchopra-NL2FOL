@@ -82,6 +82,14 @@ def _overseer_package(kit: Path) -> bool:
     return (kit / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists()
 
 
+def _overseer_port_adapter(kit: Path) -> bool:
+    """The embedded overseer port adapter (``epinoic_overseer.port``, decision D18) is on the import path a process run
+    from the kit has (:func:`_py`). Phase 2 connects it after the overseer package itself: a commit with the package
+    merged and no adapter yet still refuses with KIT-HS-007, which only the absent adapter causes."""
+    roots = [kit / "src"] + ([kit / "flash-router" / "src"] if (kit / "flash-router" / "src").is_dir() else [])
+    return any((r / "epinoic_overseer" / "port.py").exists() or (r / "epinoic_overseer" / "port" / "__init__.py").exists() for r in roots)
+
+
 def g1(kit: Path, rows: list) -> None:
     version, named, overseer = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
     # the contract line moves to 0.4 when phase 2 merges contract 0.3: before that merge (no named policies yet) a
@@ -122,7 +130,7 @@ def _phase2_note(kit: Path, line: str) -> str:
     """The "(connected in phase 2: ...)" mark of a service refusal that only an absent phase-2 part causes, else ''."""
     if line.startswith("KIT-HS-006") and not _named_policies(kit):
         return " (connected in phase 2: the named policies of contract 0.3; then KIT-HS-007 until the overseer port adapter)"
-    if line.startswith("KIT-HS-007") and not _overseer_package(kit):
+    if line.startswith("KIT-HS-007") and not _overseer_port_adapter(kit):
         return " (connected in phase 2: the overseer port adapter)"
     return ""
 
