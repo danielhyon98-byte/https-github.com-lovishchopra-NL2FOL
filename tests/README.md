@@ -1004,3 +1004,14 @@ Work in progress after it is labelled as such.
 - Phase 2's merge of the overseer rebuild: suite on the merge 2271 passed in the overseer tests and 8243 passed elsewhere,
   0 failed; the contained overseer run passed 12 of its 13 gates, and the merge is being corrected for the remaining one
   (named STEM fault classes) and re-run before the independent verification.
+
+### Progress, 14:00 UTC (25 October)
+
+- The overseer rebuild is merged into the translator: suite on the merge 10513 passed or more, 0 failed; arena rounds r1
+  to r7 at their recorded counts; the contained overseer run passed every gate.
+- Argument diagnostics: two accuracy rounds are done and committed on their own branch. Suite 9191 passed; arena rounds
+  unchanged; development corpus 44/44 defects named and 57/57 controls clean, hold-out corpus 64/66 named and 68/68
+  controls clean. Known defects are listed in the commit and in docs/ARGUMENT_DIAGNOSTICS.md.
+- The round 7 handoff findings are fixed on the merged tree: 6 blockers and 12 major findings, 18 minor findings left as
+  known defects. Suite 10855 passed, 0 failed; arena rounds r1 to r7 at their recorded counts.
+- Next: the delivery rule, the argument-diagnostics merge, integration, the gate, then arena round 8.
