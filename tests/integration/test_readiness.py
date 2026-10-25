@@ -86,11 +86,20 @@ def _named_policies_merged() -> bool:
     return getattr(policies, "NAMED_POLICIES", None) is not None and callable(getattr(policies, "named_policy", None))
 
 
+def _overseer_merged() -> bool:
+    """The overseer package is on this tree (the second translator merge joined the overseer build, OVERSEER_DESIGN
+    section 44); its embedded port adapter (``epinoic_overseer.port``) is still connected in phase 2."""
+    return (ROOT / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists()
+
+
 def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router():
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
     rows = {line.split("  ")[0].strip(): line for line in out.stdout.splitlines()}
-    assert out.returncode == 1
-    assert "BLOCKER" in rows["G1 overseer package"]
+    if _overseer_merged():  # the overseer merged (with contract 0.3 before it): every G1 row passes, so G1 does too
+        assert out.returncode == 0 and "PASS" in rows["G1 overseer package"] and not [x for x in rows.values() if "  BLOCKER  " in x], out.stdout
+    else:
+        assert out.returncode == 1
+        assert "BLOCKER" in rows["G1 overseer package"]
     if _named_policies_merged():  # contract 0.3 merged: its row passes, and the contract line moved to 0.4 with it
         assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.4"], out.stdout
     else:
@@ -105,12 +114,18 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
     BLOCKER row of G1 (the contract line included) and the preflight row of the translator section say "(connected in
     phase 2: ...)". Before the contract 0.3 merge there are three (contract line, overseer package, named policies) and
     the preflight row names KIT-HS-006; after it (this branch since 17 October 2026) the overseer package is the only
-    one, and the preflight row names KIT-HS-007 (the overseer port adapter)."""
+    one, and the preflight row names KIT-HS-007 (the overseer port adapter). After the second translator merge (the
+    overseer package on this tree) G1 has no BLOCKER, and the preflight row still names KIT-HS-007 with its mark: only
+    the overseer port adapter, which phase 2 connects, causes it."""
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
     blockers = [line for line in out.stdout.splitlines() if "  BLOCKER  " in line]
-    assert blockers and all("(connected in phase 2: " in line for line in blockers), out.stdout
+    assert all("(connected in phase 2: " in line for line in blockers), out.stdout
     merged = _named_policies_merged()
-    if merged:
+    if merged and _overseer_merged():
+        # the second translator merge: G1 has no BLOCKER left; the service still refuses with KIT-HS-007, which only the
+        # overseer port adapter phase 2 connects causes, and the preflight row below says so
+        assert blockers == [], out.stdout
+    elif merged:
         assert [line.split("  ")[0] for line in blockers] == ["G1 overseer package"], out.stdout
     else:
         assert len(blockers) == 3, out.stdout

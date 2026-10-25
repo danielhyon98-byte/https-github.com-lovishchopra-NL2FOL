@@ -25,6 +25,8 @@ FIXTURE_LABELS: dict[str, dict] = {
     "stem-math-021": {"affected_steps": ["x = 8 is the solution"]},
     # since the e2e run1 detection fixes 16^(3/4) is exactly 8, so the misused fractional power is refuted by the arithmetic check
     "stem-math-020": {"check_kinds": ["eq"]},
+    # STEM repair 11 (rule derivative): the wrong derivative is decided now, by the algebra check against the power rule's derivative
+    "stem-math-012": {"check_kinds": ["alg"]},
 }
 
 
@@ -495,8 +497,9 @@ _PROBE_DATA = [
      ("arithmetic_slip", "= 220", ["INT-SUBJ-001"], ["eq"], "10/2 × (6 + 36) = 210 exactly; stated 220 [computed: exact work, 210 ≠ 220]")),
     ("M3-calculus-err", "Mathematics: Analysis and Approaches", "Differentiate f(x) = 3x^2 + 2x.",
      "Using the power rule, $f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2$. At $x = 1$, $f'(1) = 5$.",
-     ("wrong_derivative", "f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2", ["ST-UNDEC-001"], [], "d/dx(3x² + 2x) = 6x + 2; a derivative is outside the encodings, "
-                                                                                             "so the relation is named undecided")),
+     ("wrong_derivative", "f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2", ["INT-SUBJ-001"], ["alg"],
+      "d/dx(3x² + 2x) = 6x + 2 by the power rule; stated 3x + 2 (STEM repair 11, rule derivative: decided; before, a derivative was outside "
+      "the encodings and the relation was named undecided)")),
     ("M4-ai-percent-err", "Mathematics: Applications and Interpretation", "A price rose from 250 to 300. Calculate the percentage increase.",
      "The price rose from 250 to 300, a rise of 25 per cent. As a fraction, 50/250 = 0.2.",
      ("prose_percent_change", "a rise of 25 per cent", ["INT-SUBJ-001"], [], "(300 − 250)/250 = 20 per cent; stated 25 [computed: |25 - 20| = 5 > 5 % of 20 + 0.5]")),

@@ -1,0 +1,1237 @@
+"""The overseer knowledge pack: loading, verifying and generating the one configuration an overseer agent has.
+
+An overseer agent is configured ONLY by a versioned knowledge-document pack shipped as package data
+(``overseer/knowledge/overseer-knowledge-docs-<version>/``): ``master_prompt.txt`` and the numbered documents (audience
+``agent``, the system configuration), ``README.md`` (audience ``deployer``, never sent to a model), the generated
+``verdict.schema.json`` and ``dossier.schema.json`` (audience ``machine``) and ``manifest.json``. The code alone decides
+what a verdict is worth; the pack only configures what an agent writes (design ``docs/OVERSEER_DESIGN.md`` section 17).
+
+**Trust anchor.** The digest pinned in this module (:data:`PACK_DIGESTS`), never the manifest: a manifest is
+self-describing and unsigned, so an attacker who edits a document can recompute it. :func:`load_pack` checks every file
+against the manifest AND the manifest's pack digest against the pinned one; a version this code does not pin is refused
+unless the operator passes its exact identity in ``trusted``. A pinned ``(name, version)`` is never overridden by
+``trusted``: a version, once pinned, never changes (section 17.12).
+
+**The loader never executes, imports or evaluates anything from a pack.** It reads only regular files listed in the
+manifest, with the extensions ``.txt``, ``.md`` and ``.json``, from a directory, a ``.zip`` read in place (never
+extracted) or the installed package (``importlib.resources``). JSON is parsed strictly (duplicate keys and non-finite
+numbers refused). Text is UTF-8 without a byte-order mark and without CR, so a checkout that rewrites line endings fails
+loudly instead of changing digests silently. The first failed check raises :class:`PackError` and nothing is loaded.
+
+Checks, in order (``PackError.reason``):
+
+``manifest_missing``, ``manifest_invalid``, ``unsafe_path``, ``file_missing``, ``file_unlisted``, ``file_too_large``,
+``file_encoding``, ``file_digest``, ``file_invalid``, ``pack_digest``, ``system_digest``, ``contract_mismatch``,
+``unknown_pack``, ``digest_mismatch``, ``header_mismatch``.
+
+**Generation** (maintainers; ``python -m epinoic_logic.overseer.export --refresh-source``): :func:`render_schemas` renders
+``AgentVerdict`` and ``Dossier`` as JSON Schema (sorted keys, two-space indent, final newline, ``$id``
+``urn:epinoic:overseer:verdict:1.0`` and ``urn:epinoic:overseer:dossier:1.0``); :func:`build_manifest` lists every file
+but the manifest, sorted by path, with its audience, size and SHA-256, the contract versions, the system order and the
+system digest, and ``pack_sha256 = sha256(canonical_json(manifest without pack_sha256))``. Generated files are never
+edited by hand; the drift tests regenerate them and compare bytes.
+
+**System text** (section 17.8, :func:`build_system_text`): for each path of ``system_order``, the separator line
+(``system_separator`` with ``{path}`` replaced), a newline, the file text without its trailing newlines, and a newline;
+the parts are joined with one blank line. The runner and the deployer README use this one rule, and ``system_sha256``
+lets a deployer confirm a byte-identical configuration.
+
+Deviations from ``docs/OVERSEER_DESIGN.md`` sections 17.4 and 17.6, listed as each stage requires:
+
+* two refusal reasons are added: ``file_invalid`` (a listed ``.json`` file that is not one strict JSON object) and
+  ``header_mismatch`` (the master prompt's ``PACK:``, ``VERDICT CONTRACT:`` and ``DOSSIER VERSION:`` lines differ from
+  the manifest: an agent compares a dossier's pack with its ``PACK:`` line, When unsure U2). ``header_mismatch`` is
+  checked last, so a changed version string is always ``unknown_pack`` (T20 d);
+* a pack is flat: a listed path must be a bare file name of letters, digits, ``.``, ``_`` and ``-`` (not starting with a
+  dot) with an allowed extension, otherwise ``unsafe_path``; every symlink in the pack (listed or not) is
+  ``unsafe_path``; in a zip, an absolute, backslashed, drive-lettered or ``..`` entry, an entry outside the single root
+  directory, a nested entry, a duplicate entry and an encrypted entry are ``unsafe_path``;
+* the manifest's structure (unique paths sorted by path, the manifest not listed, the four required files present,
+  audiences by the naming rule, ``system_order`` equal to the master prompt followed by the numbered documents in
+  name order, one ``{path}`` in a one-line separator) is checked after path safety, so a listed ``../x`` reports
+  ``unsafe_path``; a manifest that is not UTF-8, has a byte-order mark or a CR is ``manifest_invalid``;
+* a path that is not a pack at all (no such path, a file that is not a zip archive) is ``manifest_missing``; a zip with
+  more than 256 entries is ``file_too_large``; a corrupt zip entry (CRC or deflate error) is ``file_digest``;
+* :class:`KnowledgePack` can be built only by this loader (direct construction raises ``TypeError``), keeps every file's
+  bytes, and :meth:`KnowledgePack.verify` re-checks them in memory (the runner calls it).
+
+Edits this stage made to the pack documents (each moves the pinned digest), only to remove drift its tests found:
+
+* ``02-dossier.md`` (Dossier guide §7, the transfer field table): a row for ``created_at`` was added. The drift test of
+  the table against the ``DossierTransfer`` contract found the field, which every dossier transfer carries, undescribed.
+  No other drift was found in ``master_prompt.txt`` or documents ``01`` to ``09``; the 13 worked examples were consistent
+  with their excerpts as written.
+
+Edits the ``hook`` stage made to pack 1.0 for translator oversight (founder's requirement, design section 18; the pack
+had not been released, so it was extended in place and its digest re-pinned, decision 33): the master prompt (step 4,
+non-negotiable 4, the ``translation_fidelity`` LENS line, a WHEN IN DOUBT line); Role and trust T1, T3, T12; Dossier
+guide (the lens, ``links.translations``, the outcome fields, a new §10 Translations with D21 to D23, renumbering Facts
+and Common mistakes to §11 and §12); Inspection (a new §10 Translations with I70 to I81, Common mistakes now §11);
+Evidence rule E9, E14; Verdict format V10; Kinds and codes (four translation kinds, OVS-TRN-007 under
+``receipt_altered``, K6, the ``OVS-TRN-*`` family); Never N4, N6; When unsure U10; Examples 14 to 17 (a faithful
+translation, a circular one, an invented figure, a flipped comparison) and three wrong-verdict rows. Schemas and the
+manifest were regenerated with ``export --refresh-source``.
+
+Edits the ``consolidation`` stage made to pack 1.0 (founder's requirement, design section 19; still unreleased, so extended
+in place and re-pinned, decision 37): the master prompt (step 4 and a SEVERAL INSTANCES section); Role and trust (a new
+§6 with T13, one of several instances, and T14, answers several agents gave to one input; Common mistakes now §7);
+Dossier guide (``consolidations`` in the dossier at a glance, a new §11 Consolidations with D24 to D27, renumbering Facts
+and Common mistakes to §12 and §13); Inspection (a new §11 with I82 to I89 on consolidations and repeated faults, Common
+mistakes now §12); Kinds and codes K7 and the ``OVS-CONS-*`` and ``OVS-REP-*`` families; Never N13; When unsure U11;
+Examples 18 and 19 (a consolidation whose repeated fault is already recorded; a fault repeated by a duplicated instance)
+and two wrong-verdict rows; the deployer README's §8 Several instances. The dossier schema gained the optional
+``consolidations`` section; it and the manifest were regenerated with ``export --refresh-source``.
+
+Edits review round 1 made to pack 1.0 (still unreleased, so extended in place and re-pinned from the digest
+``export --refresh-source`` printed): Inspection I12 (a peer document attributed to another report or author than the
+one its text is) and a new I47 (a ``relay_report`` must reproduce a delivery its sender made); Evidence rule E3 (each
+identifier list holds identifiers of its own type; now enforced) and E10 (the statement's pointer is the status field
+of that same result of this dossier); Kinds and codes (the ``forward_altered`` and ``peer_document_altered`` rows
+describe those cases; their codes are unchanged). The schemas did not change; the manifest was regenerated.
+
+Edits review round 2 made to pack 1.0 (still unreleased, so extended in place and re-pinned from the digest
+``export --refresh-source`` printed): Dossier guide (the header's ``issue_binding``, which is never copied); Inspection
+I12 (a supplied text under any id that presents a forwarded report, and one document id carrying one text), I47 (a
+hand-off may differ from the delivery only in ``created_at``), I67 (the receipt states the check NOT performed), I68 (a
+figure or date of the synthesis text that no claim states is ``figure_changed``) and a new I69 (a paraphrase that turns
+a comparison the other way or negates what its source states; a negation that rewords a ban is not that fault); Evidence rule E2 (an accusation is confirmed only for what the
+confirming finding covers; the rest is checked on its own; now enforced) and E12 (a contradiction is never hidden by a
+wrong pointer); Kinds and codes (``synthesis_ledger_fault`` and the ``INT-LEDGER-*`` family name INT-LEDGER-027). The
+dossier schema gained the optional ``issue_binding``; it and the manifest were regenerated with ``export --refresh-source``.
+
+**Pack 1.1** (after the contained round c1; 1.0 was used in a round, so its pinned digest and its files stay unchanged and
+1.1 is a new MINOR version: the contracts and every kind are unchanged). Dossier guide: the facts section (D14-D20) moved
+before Translations so rule ids read in ascending order; D6 tells an informed agent not to repeat the checks' exact
+comparisons and where to spend its review; D16 and D23 say COUNTEREXAMPLE never means a claim is false or refuted; D21
+says what a missing provider means; D27 says ``repeats`` lists error-level faults only; a new D28 states the request
+parser's constraint rules ("about 250 words" gives max_words 275). Inspection: I13 reads constraints by D28; I69 covers a
+person substituted in a paraphrase (INT-LEDGER-029); I78 items 3 and 5 are narrowed to the translator contract (a
+premise stated nowhere; a claim needing constructs outside the IR, or ruled out by the policy, which TRN-002 decides);
+I81 adds the missing link the translator exposes, the specialist's ``specialist_inference`` chain from cited claims, and
+the claim's own fact asked for as a premise; I88 and I89 say ``repeats`` holds errors only. Kinds and codes: K5, K6, the
+INT-LEDGER family (INT-LEDGER-029) and OVS-TRN-008/009. When unsure U10 excludes the I81 cases. Examples: every header
+names 1.1, Example 13 names 1.2, Example 14 explains the specialist's chain, new Examples 20 (a missing link exposed) and
+21 (a constraint written by the rule for "about"), five new wrong-verdict rows. README: the input budget. The generator
+(``export --refresh-source``) now refuses a document whose rule ids are out of ascending order (:func:`rule_order_faults`).
+
+**Pack 1.2** (corrections after the round-7 simulation; 1.1 stays pinned and unchanged; a MINOR version: the contracts and
+every kind are unchanged). The master prompt names Inspection I90 to I97 in step 4 and adds two WHEN IN DOUBT lines (a
+redundant restatement is not circular; a STEM translation's exact numbers and units in words are the translator's rule).
+Dossier guide: D20 names every claim id scheme (``h1.6``, ``g4.2`` and its agent-qualified form, the STEM parsers' ``s``,
+``m`` and ``c`` ids, the folded tails) and that one id names a claim in each report of a branch; D22 the consistency and
+satisfiability queries; a new §14 STEM answers with D29 (the STEM parser's statements and roles), D30 (the STEM translation
+rules: exact numerals, substituted values, claim-namespaced symbols, units in words) and D31 (the STEM formal checks: the
+expected status their detail names, ``satisfied`` for SATISFIABLE and UNSATISFIABLE expectations, INCONSISTENT_PREMISES and
+vacuous runs undecided, INT-SUBJ-004 at warning); Common mistakes is §15. Inspection: I28 reads ``satisfied`` from the
+check's expectation; I77 the rule ``restatement-necessity`` (a restatement the other premises already give is OVS-TRN-010,
+never accused); I81 lists it; a new §12 STEM answers with I90 to I97 (statements, exact numbers, units, significant figures
+and tolerances, lines of working, truth tables and Boolean identities, mathematical items, what is not a fault); Common
+mistakes is §13. Kinds and codes: the ``translation_circular`` row and K6 (the necessity rule), INT-SUBJ-002 and
+INT-SUBJ-004, the ``ST-*`` branch codes, OVS-TRN-010 in §6. Examples: every header names 1.2, Example 13 names 1.1, new
+Examples 22 (a redundant restatement), 23 (a STEM translation of a line of working), 24 (a Boolean identity checked by the
+branch) and 25 (an inequality reversal dropped in translation), four new wrong-verdict rows. README: the input budget.
+
+**Pack 1.3** (the translator merge: the overseer on the STEM-merged translator; 1.0 to 1.2 stay pinned and unchanged; a MINOR
+version: the contracts, the schemas and every kind are unchanged). It describes the merged translator's STEM and original
+translations as they reach a dossier. Master prompt: two WHEN IN DOUBT lines (a translation the translator withheld as
+circular, INVALID_FORMALIZATION with E112, and a restatement the code verified are not circular translations to accuse; a
+grounding kind is a label, not evidence, so a load-bearing restating premise grounded ``supplied_text``, ``rubric_rule``,
+``knowledge_document`` or ``library_source`` that no check verified is accused as ``translation_circular``). Dossier
+guide: D20 the agent-qualified generic ids (``g4.2@agent``); D21 a translation withheld by the translator itself (E112,
+stated precision), and the label-only restatements it delivers; D23 the engine's withheld verdicts (E108, E110, E111, E112 displayed
+INVALID_FORMALIZATION); D26 a member whose only findings are INT-REQ-016 collisions with other answers to the same input is
+clean; D28 the merged constraint rules ("about N words" gives a minimum and a maximum, "in N words" a maximum, ``excludes``
+for working and diagrams, one formula or code block one word on a STEM answer, one range problem for a pair one span
+states). Inspection: I13 and I27 follow D28; I26 the engine's withheld displays; I77 reads the restating premise's grounding
+by the overseer's rule ``grounded-transcription`` (a transcription only when the code verified it: a quotation, supplied
+text or arithmetic fact whose ``verified`` is true, or a task setting whose numbers the request or the report states; every
+other grounding, a ``supplied_text``, ``rubric_rule``, ``knowledge_document`` or ``library_source`` label included, is the
+writer's own: withheld by the translator itself when its rule agrees, else delivered and graded by the necessity rule); I81
+lists both, with a mistakes row for a label left unaccused; I68 and I69 name the
+receipt findings that settle a text not composed of its claims and a negated or turned paraphrase as the merged ledger
+raises them (INT-LEDGER-031 and INT-LEDGER-030; pack 1.2 gave them the pre-merge numbers 028 and 027). Kinds and codes: the
+``translation_circular`` row and K6 follow I77; INT-REQ-016; the INT-LEDGER codes as the merged channel raises them
+(027 a from-memory label dropped and 028 a misspelt quotation, warnings; 030 a comparison turned or a negation added and 031
+a text not composed of its claims, errors); the ``translation_circular`` row, K6 and two mistakes rows say a ``kind`` label
+alone is no grounding. Examples: every header names 1.3 (Example 13 still names 1.1); Example 15 shows the restating
+premise's grounding; Example 21 the merged rule for "about" (225 and 275); a new Example 26 (a restatement under a
+``supplied_text`` label the code did not verify, which the merged translator delivers: ``translation_circular``); three
+wrong-verdict rows. README: the input budget. (Corrected in place before any release, by the repair of the translator merge,
+design decision 49: the version staged first had I77, K6, two mistakes rows and the master prompt read a ``task_setting``,
+``rubric_rule``, ``supplied_text``, ``knowledge_document`` or ``library_source`` label as a transcription with nothing
+verified, steering agents away from the circular encodings the merged translator delivers on a label alone. Corrected in
+place a second time, before any release, by the second repair of the translator merge, design decision 51, so that the pack
+says exactly what the overseer's rules decide: the master prompt's WHEN IN DOUBT lines, I77, I81, K6, the
+``translation_circular`` row and the mistakes rows had kept "a task setting whose numbers the request or the report
+states" as a transcription, a condition a Boolean premise meets vacuously, so they steered agents away from a restatement
+under a ``task_setting`` label; and they called a premise restating the conclusion in another form a meaning question.
+Now: a restating premise is a transcription only when a check verified it (``verified`` true, or rule
+``figure-transcription``: a ``task_setting`` or ``supplied_text`` stating only numbers, every one stated in the request);
+a premise restating the conclusion in another form (two ``not``, a reversed comparison, ``e or e``, ``x + 0``) restates it
+(rule ``semantic-restatement``), a computation does not; a writer's-own premise restating only part of the conclusion is
+accused when the outcome's dependencies do not list it and the result rests on it (rule ``receipt-disclosure``). D21 names
+the ``task_setting`` label and the other forms among what the translator delivers, and the receipt's ``verification``
+fields; I85 follows D26 (a representative clean but for INT-REQ-016 collisions with other answers to the same input);
+a new Example 27 (a conclusion restated in part under a ``task_setting`` label no number of the request can verify:
+``translation_circular``) and two wrong-verdict rows, one of them reversed (a premise wrapping the conclusion in two ``not``
+is ``translation_circular``, not ``translation_unfaithful``). README: the input budget. Corrected in place a third time,
+before any release, by the third repair of the translator merge, design decision 55: rule ``figure-transcription`` is
+withdrawn (a number of the request that matches is no evidence, so a premise with no excerpt is never a transcription; the
+request can only refute it: a figure stated nowhere, only as the result to show, only for another quantity or only as a
+limit, rule ``same-quantity``; "monthly" states 12, rule ``frequency-words``), and rule ``engine-shown`` grades a
+restatement that rests only on premises no check verifies or refutes as OVS-TRN-011, a meaning question. I77 says which
+such premises a check shows are not data and which are undecided, and what to do with each (compare an undecided one with
+the request); I81, K6, the ``translation_circular`` row, the codes paragraph (OVS-TRN-011), the mistakes rows and the
+master prompt's WHEN IN DOUBT lines follow it; D30, I92 and the master prompt say where the translator records a STEM unit,
+in its guidance's own words (as an assumption, never inside an expression). Examples: Example 26 shows its symbols and
+why a check shows its premise is not data; Example 27 is rewritten as the question's data restated by task settings the
+request states (genuine: a transcription the code could not verify, the reviewer's finding on record version 4); a new
+Example 28 (the answer's result restated as given where the request states it only as a "show that" target:
+``translation_circular``); two wrong-verdict rows. README: the input budget. Corrected in place a fourth time, before any
+release, by the fourth repair of the translator merge, design decision 56: the third correction called a ``task_setting``
+or ``supplied_text`` premise stating a ``Bool`` symbol the translation grounds as data throughout UNDECIDED, so "p proves
+p" under such a label was a warning to leave (Example 27 taught exactly that), and the checks graded it OVS-TRN-011 on
+labels alone. Now I77 says a premise with no excerpt is undecided only when it states the values of quantities whose
+numbers the request states for the quantities it names, as it states them (in a table: in the column its header names
+and the row the premise names); a ``Bool`` symbol, anything but values of quantities, 0 or 1, or a number the request
+states only bare is what only the label presents as data: shown not to be data. I81, K6, the ``translation_circular`` row,
+the codes paragraph (OVS-TRN-011), two mistakes rows, two wrong-verdict rows and the master prompt's WHEN IN DOUBT line
+follow it. Examples: Example 26 says its premise would not be data even had the translation grounded its symbol; Example
+27 (the same excerpt) is now faulty, ``translation_circular`` naming the ``Bool`` task setting; a new Example 29 keeps the
+genuine case (the question's data restated by task settings the request states: a transcription the code could not
+verify). Corrected in place a fifth time by the fifth repair (decision 57) and a sixth by the STEM completion (decision
+60: D30 to D32, I91, I97, I98, Examples 31 and 32 teach the STEM receipt). Corrected in place a seventh time, before any
+release, by STEM repair 1 (decision 61), so that the pack says exactly what the code decides: D31's tolerance rule had
+said "1/20 for '≈'" beside "0 for unit conversions" and nothing of the trailing-zero rule or of a stated value's own
+half-width, which the checks apply; it now states them as ``stem.tolerance`` applies them (a test executes each
+statement), with the prose restatements, Given values and supplied-table values the checks read and the claims a failed
+substitution's finding names (D32's ST-UNDEC-001 and ST-DIM-001 rows: combination counts, bare factors). I78 items 7 to
+9, I92, I94 and I97 recognise the STEM translation faults only an agent can name (another stated given substituted,
+another relation encoded, two incompatible quantities combined; a quotation's figure converted between prefixes of its
+unit is none), with the kind the probe agents now take from the pack's own rule; I98 reads a failure finding's further
+claims; the ``translation_unfaithful`` row and two mistakes rows follow; Example 31's detail quotes the new short form; a
+new Example 33 (another stated given substituted in a STEM translation: ``translation_unfaithful``) and a wrong-verdict
+row. README: the input budget. Corrected in place an eighth time, before any release, by STEM repair 2 (decision 62), so that
+the pack says exactly what the code decides: D31 said the branches check "Given values and values taken from a table supplied
+with the request against the request", and D32 and I97 that an ST code says what was not checked, while Givens of most kinds
+and table values in working got neither a check nor an ST code, so an agent following the pack read the silence as checked.
+The code now sets every Given value against the request's values of its kind or names it (ST-UNDEC-003), and the pack states
+exactly what is read: D31 lists the integer, verbal, question, premise-cue, aside and restated-binding readings, the Given
+kinds, the two values neither checked nor named (zero, a booklet constant), the table-operands rule and that silence is not a
+check; D32 adds ST-UNDEC-003 and the new ST-PARSE-001 and ST-UNDEC-001 cases; I97 says a silent claim is neither checked nor a
+fault; I98 that a Given value with neither its check nor its ST-UNDEC-003 is ``finding_missing``; the ``finding_missing`` row,
+the master prompt's WHEN IN DOUBT lines and three mistakes rows follow; a new Example 34 (a Given the receipt leaves with neither
+its check nor its ST code: ``finding_missing``) and two wrong-verdict rows. README: the input budget. Corrected in place a ninth
+time, before any release, by STEM repair 3 (decision 63), so that the pack says exactly what the code decides: I97 and the master
+prompt said an ST code never says a claim is wrong, while ST-DIM-001, ST-DIM-002 and ST-UNDEF-001 report a relation wrong as
+written, and D32 listed a sum among the relations outside the encodings, while a Σ over written whole-number bounds is expanded
+and checked; D31 said nothing of the uncertainty band, which had widened h. The code now reads a value under a condition, a
+value with its uncertainty at its central value, the processed value of a table row, the values and uncertainties a supplied
+text states in prose, a value restated in another unit, a percentage change, a number of half-lives and a stated rounding of a
+stated value; D31, D32 (ST-UNDEC-001, ST-UNDEC-003, ST-DIM and ST-UNDEF-001 rows), I97, I98, the master prompt and two mistakes
+rows state them and the forms left unchecked, with a new Example 35 (a Given stated under a condition, checked against the
+supplied table's row: no accusation) and a wrong-verdict row. README: the input budget. Corrected in place a tenth time, before
+any release, by STEM repair 4 (decision 64), so that the pack says exactly what the code decides: D31 and I95 described Boolean
+identities only, while the code read every Boolean relation as one, so a correct evaluation under stated values failed and an
+agent following the pack agreed with it; D31 and I98 said every Given value has its check or an ST-UNDEC-003, while a Given
+uncertainty written with "±" and "%" had neither; D31 said results restated after "so" and values at a row of a supplied table
+are checked, while a restatement with a word after its number and a value at a lettered row were not read; and its tolerance
+rule let a 12% slip pass through a rounding interval on exact working. The code now evaluates a Boolean expression under the
+values its statement gives, lets a substitution take the value a stated change ends at, reads Given uncertainties written with
+"±", "+/-" and "%" and the uncertainty written with a Given value, never reads a Given of a span it cannot read whole in part,
+reads a rounding with a word naming the value's unit, sets a value at a lettered row against the table, carries exact working
+exactly, sets an uncertainty against the rule the answer states for it and bounds τ by what the rounding of the written operands
+allows; D31 (the opening list, the expected statuses, the Given, table and silence paragraphs, the readings failed at warning
+and the tolerance rule), D32's ST-PARSE-001 row, I95, I98, the master prompt and four mistakes rows state them, with a new
+Example 36 (a Boolean evaluation under stated values: no accusation) and a wrong-verdict row. README: the input budget.
+Corrected in place an eleventh time, before any release, by STEM repair 5 (decision 65), so that the pack says exactly what the
+code decides: D31 said "What the branch reads and cannot check, it names" while a relation the prose gave as a quantity's value,
+in symbols with stated values, had neither a check nor an ST code, and correct working failed where a formula was evaluated
+after its rearrangement, a symbol was reused in a part for another quantity, a count followed "so" and a percentage of a raw
+table cell was taken. The code now reads the evaluation after a rearrangement as the formula's substitution and a rearrangement
+after "Making R the subject", "Solving for R" or "Transposing" as a step, lets a symbol reused in a part match the part's own
+result, restates a bare number only from a chain of its own statement or the one before, checks a relation the prose gives as a
+quantity's value, a conversion the prose states and a value stated for a symbol with a stated rounding, and leaves a percentage,
+a ratio, the bounds or an inline processing of a raw cell unread; D31 (the opening list, the processed-value, silence and
+tolerance paragraphs), D32's ST-UNDEC-002 row, I97, the master prompt, three mistakes rows of the dossier guide and three of the
+inspection guide state them, with a new Example 37 (a symbol reused for another quantity, its substitution checked against the
+part's own result: no accusation) and a wrong-verdict row. Its third pass over the same classes, in the same correction: a
+rearrangement before the formula's evaluation is a step from the formula whatever words state it (a wrong one had lost its check
+when the evaluation stopped being a step), the inverse's swapped equation is no step, a reused symbol takes a value its part's
+prose names otherwise, another part's value of the line's quantity or a computation in its place, a prose relation giving its
+part's asked quantity in a reused symbol stays unread, a value after "so" following its own statement's value or a part of it
+restates nothing, a prose value restated with a stated rounding is checked, a conversion to a unit the prose names is checked,
+a ratio of the raw cell to its processed value and a line naming the measured quantity are not read, a ratio set against a
+number is ST-UNDEC-001, and an applied symbol no definition makes a function is named ST-UNDEC-002: D31, D32's ST-UNDEC-001
+row, I97 and a fourth mistakes row of the dossier guide state them. README: the input budget. Corrected in place a twelfth
+time, before any release, by STEM repair 6 (decision 66), so that the pack says exactly what the code decides: D31 defined a
+Given value as a named quantity given a number in a statement that begins "Given", "Data", "Known" or "We know", while the
+code read only the values given with "=", so a Given written in prose ("Data: emf 15 V, …", "Given: the mass of seeds is 12
+g.", "Given: 15.0 cm³ of acid.") had neither a check nor an ST code and an agent's true finding_missing was refuted; a symbol
+reused in a part passed with any value the request states, unnamed in the pack; a unit written after a compact fraction was
+read as the divisor's, a false ST-DIM-001 on the recorded answer's own notation; and NAND, NOR and XNOR were outside the
+Boolean grammar, which the pack did not say. The code now reads a Given written in prose (rule prose-given), checks a symbol
+reused with a value the request states that its part names nowhere at warning severity (rule part-given), reads a unit after
+a compact fraction as the fraction's own when that gives the relation one dimension (rule fraction-unit), and reads the gates
+NAND, NOR and XNOR (rule boolean-gates; ST-PARSE-002 for an order that has two readings); D31 (the opening list, the
+substitutions and the Given paragraph), D32's ST-PARSE-002 and ST-DIM-001 rows, I95, I97, I98, the master prompt, five
+mistakes rows of each guide state them, with a new Example 38 (a Given written in a Data list, its contradiction named by
+its check: no accusation) and a wrong-verdict row. README: the input budget. Corrected in place a thirteenth time, before any
+release, by STEM repair 7 (decision 67), so that the pack says exactly what the code decides: a line that evaluates a law
+stated right before it with its symbol not on its own ("ε = I(R + r)" then "I = 12 V / 2.9 Ω = 4.1 A") was read as an exact
+algebra step from the law, so correct working failed; D32 said ST-UNDEC-001 names a derivative while "v'(t)" and "d²v/dt²" had
+neither a check nor an ST code; and a value restated more finely than the chain's value passed against that value alone. The
+code now reads such a line as the law solved for its symbol (rule solved-law; ST-ALG-001 in mathematics for a principal root;
+a Given statement is never a step), names every Leibniz form and every primed letter applied to a bracket a derivative (rules
+leibniz and prime-derivative), and sets a finer restatement against the chain's written arithmetic at warning severity (rule
+finer-restatement); D31 (the algebra steps and the tolerance rule), D32's ST-UNDEC-001 and ST-ALG-001 rows, I97, the master
+prompt and three mistakes rows of each guide state them. README: the input budget. Corrected in place a fourteenth time, before
+any release, by STEM repair 8 (decision 68), so that the pack says exactly what the code decides: a value a run computes under a
+condition, after the list that names it or for a numbered item ("Mean time at 30.0 °C = (33.1 s + 34.0 s + 32.5 s) ÷ 3 = 33.2
+s", "Mean of 18, 27 and 40 = (18 + 27 + 40) ÷ 3 = 28.3") was read as a relation between the condition, the list's last value or
+the number and the computation, so correct working failed; a value copied wrongly from a supplied table, its arithmetic
+consistent, and a wrong background were neither checked nor named, while D31 said a value the working takes from the table is
+set against its row; a law its evaluation does not follow ("V = ε + Ir" then "V = 12 V − (4.14 A × 0.50 Ω) = 9.9 V") was named
+by nothing; and a rounding after ", so" with a word between it and the chain's value was not read. The code now reads such a
+run as the quantity's value (rules value-at, name-list and item-label, with rules condition-value and name-list's check of the
+values the computation takes), sets a number the working takes beside a table's cells against the row's cell or the stated
+value (rule table-terms), sets a law against the line that evaluates it at the values the line puts in (rule law-values) and
+names the law's claim in a failed substitution, and reads up to three describing words before ", so"; D31 (the opening list, the
+table paragraph and two new paragraphs), I97, the master prompt and three mistakes rows of the dossier guide and two of the
+inspection guide state them, with a new Example 39 (a law its evaluation does not follow, named by its check: no accusation) and
+a wrong-verdict row. README: the input budget. Corrected in place a fifteenth time, before any release, by STEM repair 9
+(decision 69), so that the pack says exactly what the code decides: a correct check line at the end of a part took the part's
+question words, so a later change stated from the part's result was set against it (a false INT-SUBJ-004); a Given of a
+function's value or of a function had neither a check nor an ST code while D31, I98 and the master prompt said every Given has
+one or the other (an agent's finding_missing refuted); a trial copied wrongly into a row's mean, a wrong rearrangement evaluated
+for a quantity the request names, a decay over stated half-lives written without a power of ½, a wrong median and a value
+restated at a rounding it is not written to were named by nothing; and D31's opening list was one paragraph of more than 14,000
+characters. The code now takes a part's answer from its last value that is no check and names no other quantity (rule
+part-answer), sets the value a line gives a quantity the request names against the request (rule named-result), a Given of a
+function's value or of a function against the request's function (rule given-function), a term of a sum over a row's repeats
+against the row's repeats (rule row-terms), a value computed over stated half-lives against the decay law (rule decay-law), a
+median, mode, range or mean against the statistic it forms (rule statistics; others ST-UNDEC-001) and a value stated with a
+rounding against the place the rounding names (rule rounded-digits); D31 (its opening list one kind of relation to a bullet,
+its paragraphs one statement to a line, with the new readings), D32's ST-UNDEC-001 and ST-UNDEC-003 rows, I97, I98 and the
+master prompt (also one statement to a line) state them, with seven mistakes rows of the dossier guide and three of the
+inspection guide, Example 38 regenerated through the channel (its emf now matched by the request's word), a new Example 40 (a
+Given of a function's value, its contradiction named by its check: no accusation) and a wrong-verdict row. README: the input
+budget. Corrected in place a sixteenth time, before any release, by STEM repair 10 (decision 70), so that the pack says exactly
+what the code decides: a conversion the prose states was read only at the end of the answer (its clause's end was read in a
+window of the whole text); a line naming its rows and its column was read in no column when its part's question named another;
+values at a supplied table's row restated wrongly went unnamed in common shapes, and a difference, a ratio, a processed or
+another quantity stated at a row, or a value stated under a condition, a hypothesis or a target, was failed against the cell;
+another resistor's value substituted for the one a sentence names, a wrong law evaluated right at a condition its part had
+computed, a base conversion in prose and a definite integral of a polynomial were named by nothing (a definite integral with a
+signed or a plain-text limit had neither a check nor an ST code, and a base named only after the first numeral, read one way,
+failed correct conversions); a slip under 1/100 on the request's exact data held; and a value restated from a decimal written
+with its digits cut was ST-UNDEC-001 whatever its rounding, while a plain '2.66…' was read as a rounded value and failed correct
+working, as did a cut value multiplied in an expression. The code now
+reads each in its own statement and clause (rules prose-conversion, table-operands, row-value, table-data), sets a substituted
+value against the named component (rule named-component), a value computed under a condition against the one computed under it
+before (rule condition-result), a base conversion in prose (rule prose-base), a definite integral of a polynomial and its
+evaluation bracket (rule definite-integral) and a value cut with an ellipsis (rule ellipsis-rounding), and takes the request's
+data as exact (rule operand-precision); D31, a paragraph after D32's table, I97 and the master prompt state them, with three
+mistakes rows of the dossier guide, one of the inspection guide and four wrong-verdict rows, Examples 37 and 39 regenerated
+through the channel (their τ now the one rule operand-precision gives) and D31's
+4773.7406 written 4773.7401 (the value to four decimals). README: the input budget. Corrected in place a seventeenth time, before
+any release, by STEM repair 11 (decision 71). The pack had grown to one system text of 472,563 characters sent with every dossier, so on
+the cheapest model tier the README recommends (a window of 160,000 tokens) 615 of the 1,435 dossiers measured did not fit, and D31 ran
+to more than 130 dense lines most dossiers never need: the parts of the documents that concern translations or STEM answers are now
+modules (:data:`SYSTEM_MODULES`), each span between a line ``<!-- module: NAME -->`` and a line ``<!-- end module: NAME -->`` (never
+sent: :func:`select_modules`), and an agent is sent the core and the modules its dossier's content needs (:func:`dossier_modules`,
+:meth:`KnowledgePack.system_text_for`; a lens never limits what a module covers, since the content decides). The manifest lists
+``system_modules`` and the digest of every composition (``system_compositions``, keys ``core``, ``core+stem``, ``core+translations``,
+``core+stem+translations``); ``system_sha256`` stays the whole text; the loader refuses malformed markers (``file_invalid``), a module
+list that is not the documents' (``manifest_invalid``) and a composition that does not recompute (``system_digest``); a pack with no
+marker (1.0 to 1.2) keeps the manifest it had. The master prompt says which parts come only with the content they concern; the
+mistakes tables, the examples' index and the wrong-verdict rows are split into a core table and one table per module. And so that
+the pack says exactly what the code decides: D31 (algebra steps: rule inequality-solution; a derivative of a polynomial, rule
+derivative; stated roots, rules part-condition and root-statement; a function's value, rule function-value; rules same-shape and
+unbound-substitution; a base phrase opening the clause, rule prose-base; the tolerance rule's exact work, rule exact-rounding, a
+rounding stated for a line's own result, rule result-rounding, and the request's data taken as written, rule given-data), D32's
+ST-UNDEC-001 row (a derivative of what is no polynomial), I97, the master prompt and three mistakes rows. README: the
+modules, the composition rule and the input budget. Corrected in place an eighteenth time, before any release, by STEM repair 12
+(decision 72), so that the pack says exactly what the code decides: an identity the branch checks for every value of its variable (a
+derivative, an antiderivative, a definite integral's bracket, a Given function) took the request's value of that variable, so a wrong one
+held at that value and was shown satisfied; a hexadecimal numeral with letter digits ('3E9', 'FF') was read in no base restatement; a value
+restated after ', which is about' or ', about' had no check; and a STEM translation whose conclusion a writer's-own premise restated with
+its terms moved across or both sides scaled ('pd − 60.4 = 0', '2 × pct = 200') restated nothing, so the result rested on the claim assumed
+with no finding and a translation_circular accusation of it was refuted. The code now gives an identity's variable no value (rule
+identity-variable) and names an identity decided with one (rule identity-statement, OVS-FORM-005), reads hexadecimal digits where words name
+base 16 (rule prose-base), reads an approximation word after the connective of an inline restatement (rule inline-restatement, τ 0 as for
+every restated result) and reads the arithmetic of a conjunct's own symbols as a restatement (rule arithmetic-restatement), arithmetic of
+numbers alone staying the working the engine checks: D31 (an identity's variable, results restated in prose, the tolerance rule's
+exception for a restated result, number bases), I77, I81, I98, K6, the kinds table, the master prompt and two mistakes rows state them.
+Corrected in place a nineteenth time, before any release, by the second translator merge, so that the pack names the codes the merged
+ledger raises: the translator had meanwhile given INT-LEDGER-029 to the synthesis self-report (a warning), so the name-substitution
+error is INT-LEDGER-032; I69, its mistakes row and the INT-LEDGER row of the kinds and codes now name INT-LEDGER-032 for it, and the
+row names INT-LEDGER-029 as the self-report. The merged translator also marks a task-authority premise with no excerpt verified when
+the task material states its numbers (its grounding check's method ``numeric_in_task`` or ``relation_in_source``), which the
+overseer's checks do not take as a transcription (decision 73): I77, its mistakes row, the D21 grounding checks, K6 and its mistakes row and the
+master prompt say that such a ``verified`` is a number match and verifies nothing, and the README's input budget states the
+compositions' sizes and the dossiers' as they now measure (the merged receipts make the largest re-keyed dossier 1,297 KB, so the
+window it asks for is 404,000 tokens). 1.0 to 1.2 keep their own numbering.)
+"""
+from __future__ import annotations
+
+import errno
+import hashlib
+import json
+import os
+import re
+import stat
+import threading
+import zipfile
+import zlib
+from dataclasses import dataclass, field
+from importlib import resources
+from pathlib import Path
+from types import MappingProxyType
+from typing import Annotated, Any, Collection, Iterable, Literal, Mapping, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from ..ir.canonical import canonical_json, sha256_hex, strict_object_pairs
+from .dossier import Dossier
+from .verdicts import DOSSIER_VERSION, PACK_NAME_PATTERN, PACK_VERSION_PATTERN, SHA256_PATTERN, VERDICT_CONTRACT, AgentVerdict, PackIdentity
+
+__all__ = [
+    "PACK_NAME", "PACK_VERSION", "PACK_DIGESTS", "PACK_ERROR_REASONS", "PackError", "KnowledgePack", "PackManifest", "ManifestFile", "load_pack",
+    "installed_pack", "installed_pack_dir", "accepted_identities", "build_system_text", "render_schemas", "build_manifest", "render_manifest",
+    "manifest_pack_digest", "header_lines", "audience_of", "system_order_of", "pack_dir_name", "rule_order_faults", "MANIFEST_FILE", "README_FILE", "MASTER_PROMPT_FILE",
+    "SYSTEM_MODULES", "select_modules", "module_markup_faults", "modules_marked", "composition_key", "compositions_of", "dossier_modules",
+    "VERDICT_SCHEMA_FILE", "DOSSIER_SCHEMA_FILE", "SCHEMA_FILES", "SCHEMA_IDS", "SYSTEM_SEPARATOR", "MANIFEST_VERSION", "MAX_FILE_BYTES", "MAX_PACK_BYTES",
+    "MAX_PACK_FILES", "MAX_ZIP_ENTRIES", "ALLOWED_SUFFIXES", "KNOWLEDGE_DIR",
+]
+
+#: The pack this package ships and loads by default.
+PACK_NAME = "overseer-knowledge-docs"
+PACK_VERSION = "1.3"
+#: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
+#: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
+#: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
+PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
+    (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
+    (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
+    (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
+    (PACK_NAME, "1.3"): "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
+})
+
+MANIFEST_VERSION = "1.0"
+MANIFEST_FILE = "manifest.json"
+README_FILE = "README.md"
+MASTER_PROMPT_FILE = "master_prompt.txt"
+VERDICT_SCHEMA_FILE = "verdict.schema.json"
+DOSSIER_SCHEMA_FILE = "dossier.schema.json"
+SCHEMA_FILES = (DOSSIER_SCHEMA_FILE, VERDICT_SCHEMA_FILE)
+SCHEMA_IDS: Mapping[str, str] = MappingProxyType({
+    VERDICT_SCHEMA_FILE: "urn:epinoic:overseer:verdict:" + VERDICT_CONTRACT.split("/", 1)[1],
+    DOSSIER_SCHEMA_FILE: "urn:epinoic:overseer:dossier:" + DOSSIER_VERSION,
+})
+#: The separator line before each document of the system text; ``{path}`` is replaced by the document's path.
+SYSTEM_SEPARATOR = "===== {path} ====="
+KNOWLEDGE_DIR = "knowledge"
+ALLOWED_SUFFIXES = (".txt", ".md", ".json")
+MAX_FILE_BYTES = 2 * 1024 * 1024
+MAX_PACK_BYTES = 8 * 1024 * 1024
+MAX_PACK_FILES = 64
+MAX_ZIP_ENTRIES = 256
+
+PACK_ERROR_REASONS: tuple[str, ...] = (
+    "manifest_missing", "manifest_invalid", "unsafe_path", "file_missing", "file_unlisted", "file_too_large", "file_encoding", "file_digest",
+    "file_invalid", "pack_digest", "system_digest", "contract_mismatch", "unknown_pack", "digest_mismatch", "header_mismatch",
+)
+PackErrorReason = Literal[
+    "manifest_missing", "manifest_invalid", "unsafe_path", "file_missing", "file_unlisted", "file_too_large", "file_encoding", "file_digest",
+    "file_invalid", "pack_digest", "system_digest", "contract_mismatch", "unknown_pack", "digest_mismatch", "header_mismatch",
+]
+
+_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_DOCUMENT_RE = re.compile(r"[0-9]{2}-[a-z0-9-]+\.md")
+_BOM = b"\xef\xbb\xbf"
+#: STEM repair 11 (the pack's modules): the parts of the agent documents that concern one kind of dossier content, each between a
+#: line ``<!-- module: NAME -->`` and a line ``<!-- end module: NAME -->``. A dossier's system text holds the parts its content needs
+#: (:func:`dossier_modules`, :meth:`KnowledgePack.system_text_for`); the marker lines are never sent. In this order.
+SYSTEM_MODULES: tuple[str, ...] = ("stem", "translations")
+_MODULE_OPEN_RE = re.compile(r"<!-- module: ([a-z]+) -->")
+_MODULE_CLOSE_RE = re.compile(r"<!-- end module: ([a-z]+) -->")
+#: a line that looks like a module marker (to refuse a misspelt one that would otherwise be sent as text)
+_MODULE_LIKE_RE = re.compile(r"\s*<!--.*\bmodule\b.*-->\s*")
+#: the claim ids of the STEM parsers (``adapters.stem_specialist.parser.ID_PREFIXES``) and their tails
+_STEM_CLAIM_RE = re.compile(r"[smc](?:\d+\.\d+|\.tail)")
+
+
+class PackError(ValueError):
+    """A pack the loader refuses. ``reason`` is one of :data:`PACK_ERROR_REASONS`; ``path`` names the file concerned
+    when there is one. The message is the loader's own text (never pack content)."""
+
+    def __init__(self, reason: str, detail: str, *, path: Optional[str] = None) -> None:
+        if reason not in PACK_ERROR_REASONS:
+            raise ValueError(f"unknown pack error reason {reason!r}")
+        super().__init__(f"{reason}: {detail}" + (f" [{path}]" if path else ""))
+        self.reason = reason
+        self.detail = detail
+        self.path = path
+
+
+# ============================================================================================ the manifest contract
+class ManifestFile(BaseModel):
+    """One file of the pack: its path, audience, size in bytes and SHA-256 over the bytes as stored."""
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    path: str = Field(min_length=1, max_length=256)
+    audience: Literal["agent", "deployer", "machine"]
+    bytes: int = Field(ge=0)
+    sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class PackManifest(BaseModel):
+    """``manifest.json`` (manifest version 1.0)."""
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    manifest_version: Literal["1.0"]
+    pack_name: str = Field(pattern=PACK_NAME_PATTERN)
+    pack_version: str = Field(pattern=PACK_VERSION_PATTERN)
+    verdict_contract: str = Field(min_length=1, max_length=64)
+    dossier_version: str = Field(min_length=1, max_length=16)
+    system_order: tuple[str, ...] = Field(min_length=1, max_length=MAX_PACK_FILES)
+    system_separator: str = Field(min_length=6, max_length=200)
+    system_sha256: str = Field(pattern=SHA256_PATTERN)
+    #: STEM repair 11: the modules the agent documents mark, in :data:`SYSTEM_MODULES` order (absent from a pack with none)
+    system_modules: tuple[Literal["stem", "translations"], ...] = Field(default=(), max_length=len(SYSTEM_MODULES))
+    #: STEM repair 11: the SHA-256 of the system text of every composition (:func:`composition_key`: the core and each set of modules)
+    system_compositions: dict[str, Annotated[str, Field(pattern=SHA256_PATTERN)]] = Field(default_factory=dict, max_length=2 ** len(SYSTEM_MODULES))
+    files: tuple[ManifestFile, ...] = Field(min_length=1, max_length=MAX_PACK_FILES)
+    pack_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+# ============================================================================================ rules shared by build and load
+def pack_dir_name(name: str, version: str) -> str:
+    """The directory (and zip root) name of a pack: ``<name>-<version>``."""
+    return f"{name}-{version}"
+
+
+def _safe_name(path: Any) -> bool:
+    return (isinstance(path, str) and _NAME_RE.fullmatch(path) is not None and path not in (".", "..") and ".." not in path
+            and path.endswith(ALLOWED_SUFFIXES))
+
+
+def audience_of(path: str) -> Optional[str]:
+    """The audience a pack file has by its name: the master prompt and the numbered documents are ``agent``, the README
+    is ``deployer``, the two schemas are ``machine``; any other name has none (it is not a pack file)."""
+    if path == MASTER_PROMPT_FILE or _DOCUMENT_RE.fullmatch(path):
+        return "agent"
+    if path == README_FILE:
+        return "deployer"
+    if path in SCHEMA_FILES:
+        return "machine"
+    return None
+
+
+def system_order_of(paths: Iterable[str]) -> list[str]:
+    """The system order: the master prompt, then the numbered documents in name order."""
+    paths = list(paths)
+    docs = sorted(p for p in paths if _DOCUMENT_RE.fullmatch(p))
+    return ([MASTER_PROMPT_FILE] if MASTER_PROMPT_FILE in paths else []) + docs
+
+
+def select_modules(text: str, modules: Optional[Collection[str]] = None) -> str:
+    """An agent document as sent: its marker lines removed, and the lines of a module span kept only when ``modules`` holds
+    the module (``None``: every module, the whole document)."""
+    out: list[str] = []
+    current: Optional[str] = None
+    for line in text.split("\n"):
+        m = _MODULE_OPEN_RE.fullmatch(line)
+        if m:
+            current = m.group(1)
+            continue
+        if _MODULE_CLOSE_RE.fullmatch(line):
+            current = None
+            continue
+        if current is None or modules is None or current in modules:
+            out.append(line)
+    return "\n".join(out)
+
+
+def module_markup_faults(path: str, text: str) -> list[str]:
+    """STEM repair 11: what is wrong with the module markers of an agent document: an unknown module, a span opened inside
+    another or never closed, a close with no open span or for another module, a line shaped like a marker that is none."""
+    out: list[str] = []
+    current: Optional[str] = None
+    for n, line in enumerate(text.split("\n"), 1):
+        mo, mc = _MODULE_OPEN_RE.fullmatch(line), _MODULE_CLOSE_RE.fullmatch(line)
+        if mo:
+            if mo.group(1) not in SYSTEM_MODULES:
+                out.append(f"{path}:{n} opens an unknown module {mo.group(1)!r}")
+            if current is not None:
+                out.append(f"{path}:{n} opens a module inside the span of {current!r}")
+            current = mo.group(1)
+        elif mc:
+            if current is None or mc.group(1) != current:
+                out.append(f"{path}:{n} closes {mc.group(1)!r}, which is not the open span")
+            current = None
+        elif _MODULE_LIKE_RE.fullmatch(line):
+            out.append(f"{path}:{n} looks like a module marker but is none")
+    if current is not None:
+        out.append(f"{path} leaves the span of {current!r} open")
+    return out
+
+
+def modules_marked(documents: Iterable[tuple[str, str]]) -> tuple[str, ...]:
+    """The modules the documents mark, in :data:`SYSTEM_MODULES` order."""
+    used = {m.group(1) for _p, text in documents for line in text.split("\n") for m in [_MODULE_OPEN_RE.fullmatch(line)] if m}
+    return tuple(m for m in SYSTEM_MODULES if m in used)
+
+
+def composition_key(modules: Iterable[str]) -> str:
+    """The manifest key of a composition: ``core`` and the modules it adds, in :data:`SYSTEM_MODULES` order (``core+stem``)."""
+    chosen = set(modules)
+    return "+".join(["core"] + [m for m in SYSTEM_MODULES if m in chosen])
+
+
+def compositions_of(modules: Iterable[str]) -> list[tuple[str, ...]]:
+    """Every set of ``modules`` (the core alone first), each in :data:`SYSTEM_MODULES` order."""
+    mods = [m for m in SYSTEM_MODULES if m in set(modules)]
+    out: list[tuple[str, ...]] = []
+    for mask in range(2 ** len(mods)):
+        out.append(tuple(m for i, m in enumerate(mods) if mask >> i & 1))
+    return sorted(out, key=lambda c: (len(c), [SYSTEM_MODULES.index(m) for m in c]))
+
+
+def dossier_modules(dossier: Mapping[str, Any]) -> tuple[str, ...]:
+    """STEM repair 11: the modules a dossier's content needs, read from the dossier as data (nothing in it is followed):
+    ``stem`` when it carries a STEM answer (a claim of a STEM parser, ``s1.2``, ``m1.2``, ``c1.2`` or a tail ``s.tail``, or a
+    receipt with a formal check ``stem-...`` or an ``ST-`` code), ``translations`` when it carries a translation (an entry of
+    ``links.translations``, or a receipt outcome with a ``translation``). In :data:`SYSTEM_MODULES` order."""
+    need: set[str] = set()
+    if not isinstance(dossier, Mapping):
+        return ()
+    links = dossier.get("links")
+    if isinstance(links, Mapping) and links.get("translations"):
+        need.add("translations")
+    transfers = dossier.get("transfers")
+    for t in transfers if isinstance(transfers, list) else ():
+        if not isinstance(t, Mapping):
+            continue
+        rc = t.get("receipt")
+        if isinstance(rc, Mapping):
+            for o in rc.get("outcomes") or ():
+                if isinstance(o, Mapping) and o.get("translation") is not None:
+                    need.add("translations")
+            for fc in rc.get("formal_checks") or ():
+                if isinstance(fc, Mapping) and isinstance(fc.get("constraint_id"), str) and fc["constraint_id"].startswith("stem-"):
+                    need.add("stem")
+            for key in ("findings", "structural_findings"):
+                for f in rc.get(key) or ():
+                    if isinstance(f, Mapping) and isinstance(f.get("code"), str) and f["code"].startswith("ST-"):
+                        need.add("stem")
+        pl = t.get("payload")
+        if isinstance(pl, Mapping):
+            for c in pl.get("claims") or ():
+                if isinstance(c, Mapping) and isinstance(c.get("claim_id"), str) and _STEM_CLAIM_RE.fullmatch(c["claim_id"]):
+                    need.add("stem")
+    return tuple(m for m in SYSTEM_MODULES if m in need)
+
+
+def build_system_text(documents: Iterable[tuple[str, str]], separator: str = SYSTEM_SEPARATOR, modules: Optional[Collection[str]] = None) -> str:
+    """The system text of section 17.8 from ``(path, text)`` pairs in system order: each document as sent
+    (:func:`select_modules`: its marker lines removed, a module's spans kept only when ``modules`` holds it; ``None`` keeps
+    every module, the whole text)."""
+    parts = [separator.replace("{path}", path) + "\n" + select_modules(text, modules).rstrip("\n") + "\n" for path, text in documents]
+    return "\n".join(parts)
+
+
+def header_lines(name: str, version: str, verdict_contract: str = VERDICT_CONTRACT, dossier_version: str = DOSSIER_VERSION) -> tuple[str, str, str]:
+    """The three lines the master prompt opens with."""
+    return (f"PACK: {name} {version}", f"VERDICT CONTRACT: {verdict_contract}", f"DOSSIER VERSION: {dossier_version}")
+
+
+def manifest_pack_digest(manifest: Mapping[str, Any]) -> str:
+    """``sha256(canonical_json(manifest without pack_sha256))``: sorted keys, separators ``,`` and ``:``, UTF-8 without
+    ASCII escaping, so a deployer in any language can recompute it."""
+    return sha256_hex(canonical_json({k: v for k, v in manifest.items() if k != "pack_sha256"}))
+
+
+def _render_json(obj: Any) -> str:
+    return json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+
+
+def render_schemas() -> dict[str, str]:
+    """``{file name: text}`` of the two schemas, generated from the protocol's contracts (``AgentVerdict``,
+    ``Dossier``). Deterministic for one pydantic version; never edited by hand."""
+    out = {}
+    for name, model in ((VERDICT_SCHEMA_FILE, AgentVerdict), (DOSSIER_SCHEMA_FILE, Dossier)):
+        schema = dict(model.model_json_schema())
+        schema["$id"] = SCHEMA_IDS[name]
+        out[name] = _render_json(schema)
+    return out
+
+
+def build_manifest(files: Mapping[str, bytes], *, name: str = PACK_NAME, version: str = PACK_VERSION, separator: str = SYSTEM_SEPARATOR) -> dict:
+    """The manifest of a pack whose files (all but ``manifest.json``) are ``files`` (path to bytes as stored). Raises
+    ``ValueError`` for a file that is not a pack file, a missing required file, or an agent document that is not UTF-8
+    text without a byte-order mark or CR."""
+    if MANIFEST_FILE in files:
+        raise ValueError("the manifest does not list itself")
+    for path in files:
+        if not _safe_name(path) or audience_of(path) is None:
+            raise ValueError(f"{path!r} is not a pack file name (master prompt, NN-name.md, README.md or a schema)")
+    for required in (MASTER_PROMPT_FILE, README_FILE, *SCHEMA_FILES):
+        if required not in files:
+            raise ValueError(f"a pack needs {required}")
+    order = system_order_of(files)
+    if len(order) < 2:
+        raise ValueError("a pack needs at least one numbered document")
+    texts = {}
+    for path, data in files.items():
+        if data.startswith(_BOM) or b"\r" in data:
+            raise ValueError(f"{path} has a byte-order mark or a CR")
+        texts[path] = data.decode("utf-8")
+    documents = [(p, texts[p]) for p in order]
+    faults = [f for p, t in documents for f in module_markup_faults(p, t)]
+    if faults:
+        raise ValueError(f"module markers: {faults[0]}")
+    system = build_system_text(documents, separator)
+    manifest: dict[str, Any] = {
+        "manifest_version": MANIFEST_VERSION, "pack_name": name, "pack_version": version, "verdict_contract": VERDICT_CONTRACT,
+        "dossier_version": DOSSIER_VERSION, "system_order": order, "system_separator": separator, "system_sha256": sha256_hex(system),
+        "files": [{"path": p, "audience": audience_of(p), "bytes": len(files[p]), "sha256": hashlib.sha256(files[p]).hexdigest()} for p in sorted(files)],
+    }
+    modules = modules_marked(documents)
+    if modules:  # STEM repair 11: a pack with no module marker keeps the manifest it had
+        manifest["system_modules"] = list(modules)
+        manifest["system_compositions"] = {composition_key(c): sha256_hex(build_system_text(documents, separator, c)) for c in compositions_of(modules)}
+    PackManifest.model_validate_json(json.dumps(dict(manifest, pack_sha256="0" * 64)))  # the builder never writes an invalid manifest
+    manifest["pack_sha256"] = manifest_pack_digest(manifest)
+    return manifest
+
+
+_RULE_DEF_RE = re.compile(r"^\s*- \*\*([A-Z])(\d{1,3}) ", re.M)
+
+
+def rule_order_faults(documents: Mapping[str, str]) -> list[str]:
+    """The numbered documents (``NN-name.md``) whose coded rules (lines ``- **D12 ...``) are not defined in ascending
+    order of their numbers, per rule prefix: a small model that looks a rule up by its id finds it where the sequence
+    predicts (contained round c1: D14-D20 came after D21-D27). Empty when every document is in order."""
+    out: list[str] = []
+    for path in sorted(documents):
+        if not _DOCUMENT_RE.fullmatch(path):
+            continue
+        last: dict[str, int] = {}
+        for m in _RULE_DEF_RE.finditer(documents[path]):
+            prefix, num = m.group(1), int(m.group(2))
+            if prefix in last and num <= last[prefix]:
+                out.append(f"{path}: rule {prefix}{num} is defined after {prefix}{last[prefix]}")
+            last[prefix] = max(num, last.get(prefix, num))
+    return out
+
+
+def render_manifest(manifest: Mapping[str, Any]) -> str:
+    """``manifest.json`` as written: sorted keys, two-space indent, final newline."""
+    return _render_json(dict(manifest))
+
+
+# ============================================================================================ sources
+_Kind = Literal["file", "dir", "symlink", "other", "unsafe"]
+
+
+class _DirSource:
+    def __init__(self, root: Path, label: str) -> None:
+        self.root = root
+        self.label = label
+
+    def entries(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        try:
+            with os.scandir(self.root) as it:
+                for entry in it:
+                    if entry.is_symlink():
+                        out[entry.name] = "symlink"
+                    elif entry.is_file(follow_symlinks=False):
+                        out[entry.name] = "file"
+                    elif entry.is_dir(follow_symlinks=False):
+                        out[entry.name] = "dir"
+                    else:
+                        out[entry.name] = "other"
+        except OSError as exc:
+            raise PackError("manifest_missing", f"the pack directory cannot be listed ({type(exc).__name__})") from None
+        return out
+
+    def read(self, name: str, limit: int) -> bytes:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        try:
+            fd = os.open(self.root / name, flags)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise PackError("unsafe_path", "the file is a symlink", path=name) from None
+            raise PackError("file_missing", f"the file cannot be opened ({type(exc).__name__})", path=name) from None
+        with os.fdopen(fd, "rb") as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                raise PackError("file_missing", "not a regular file", path=name)
+            data = fh.read(limit + 1)
+        if len(data) > limit:
+            raise PackError("file_too_large", f"the file is larger than {limit} bytes", path=name)
+        return data
+
+    def close(self) -> None:
+        pass
+
+
+class _TraversableSource:
+    """An installed pack that is not on a filesystem path (a zipped installation): read through importlib.resources."""
+
+    def __init__(self, root: Any, label: str) -> None:
+        self.root = root
+        self.label = label
+
+    def entries(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        try:
+            for child in self.root.iterdir():
+                out[child.name] = "file" if child.is_file() else "dir" if child.is_dir() else "other"
+        except OSError:
+            raise PackError("manifest_missing", "the installed pack cannot be listed") from None
+        return out
+
+    def read(self, name: str, limit: int) -> bytes:
+        try:
+            with self.root.joinpath(name).open("rb") as fh:
+                data = fh.read(limit + 1)
+        except OSError as exc:
+            raise PackError("file_missing", f"the file cannot be read ({type(exc).__name__})", path=name) from None
+        if len(data) > limit:
+            raise PackError("file_too_large", f"the file is larger than {limit} bytes", path=name)
+        return data
+
+    def close(self) -> None:
+        pass
+
+
+def _zip_name_unsafe(name: str) -> bool:
+    parts = name.split("/")
+    return (not name or "\\" in name or name.startswith("/") or "\x00" in name or re.match(r"[A-Za-z]:", name) is not None
+            or any(p in ("..", ".") for p in parts))
+
+
+class _ZipSource:
+    """A zip archive read in place: its entries are screened when it is opened, and nothing is extracted."""
+
+    def __init__(self, path: Path, label: str) -> None:
+        self.label = label
+        try:
+            self._zf = zipfile.ZipFile(path)
+        except (zipfile.BadZipFile, OSError, ValueError):
+            raise PackError("manifest_missing", "not a readable zip archive") from None
+        infos = self._zf.infolist()
+        if len(infos) > MAX_ZIP_ENTRIES:
+            self._zf.close()
+            raise PackError("file_too_large", f"the archive holds more than {MAX_ZIP_ENTRIES} entries")
+        names = [i.filename for i in infos]
+        prefix = ""
+        if names and all("/" in n for n in names) and len({n.split("/", 1)[0] for n in names}) == 1:
+            prefix = names[0].split("/", 1)[0] + "/"
+        root_ok = not prefix or _NAME_RE.fullmatch(prefix[:-1]) is not None
+        self._entries: dict[str, str] = {}
+        self._infos: dict[str, zipfile.ZipInfo] = {}
+        for info in infos:
+            name = info.filename
+            mode = (info.external_attr >> 16) & 0xFFFF
+            if _zip_name_unsafe(name) or not root_ok:
+                key, kind = name, "unsafe"
+            else:
+                rel = name[len(prefix):]
+                if rel == "":
+                    continue  # the root directory entry
+                kind = "file"
+                if rel.endswith("/"):
+                    rel, kind = rel[:-1], "dir"
+                if "/" in rel:
+                    kind = "unsafe"  # a pack is flat
+                elif stat.S_ISLNK(mode):
+                    kind = "symlink"
+                elif info.flag_bits & 0x1:
+                    kind = "unsafe"  # encrypted: cannot be read in place
+                key = rel
+            if key in self._entries:
+                kind = "unsafe"  # a duplicate entry is ambiguous
+            self._entries[key] = kind
+            self._infos[key] = info
+        unsafe = sorted(k for k, v in self._entries.items() if v == "unsafe")
+        if unsafe:  # screened when opened: an escaping, nested, duplicate or encrypted entry refuses the whole archive
+            self._zf.close()
+            raise PackError("unsafe_path", "the archive holds an entry that escapes or nests inside the pack, a duplicate or an encrypted entry",
+                            path=unsafe[0][:256])
+
+    def entries(self) -> dict[str, str]:
+        return dict(self._entries)
+
+    def read(self, name: str, limit: int) -> bytes:
+        info = self._infos.get(name)
+        if info is None:
+            raise PackError("file_missing", "no such entry", path=name)
+        try:
+            with self._zf.open(info) as fh:
+                data = fh.read(limit + 1)
+        except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError):
+            raise PackError("file_digest", "the archive entry is corrupt or cannot be read in place", path=name) from None
+        if len(data) > limit:
+            raise PackError("file_too_large", f"the file is larger than {limit} bytes", path=name)
+        return data
+
+    def close(self) -> None:
+        self._zf.close()
+
+
+_Source = Union[_DirSource, _TraversableSource, _ZipSource]
+
+
+def installed_pack_dir(version: str = PACK_VERSION) -> Any:
+    """Where the installed pack of ``version`` lives (a ``Path`` for a normal installation, an importlib.resources
+    traversable otherwise)."""
+    return resources.files("epinoic_logic.overseer").joinpath(KNOWLEDGE_DIR).joinpath(pack_dir_name(PACK_NAME, version))
+
+
+def _source_for(path: Any) -> _Source:
+    if path is None:
+        root = installed_pack_dir()
+        if isinstance(root, Path):
+            return _DirSource(root, "installed")
+        return _TraversableSource(root, "installed")
+    p = Path(path)
+    if p.is_dir():
+        return _DirSource(p, str(p))
+    if p.is_file():
+        if zipfile.is_zipfile(p):
+            return _ZipSource(p, str(p))
+        raise PackError("manifest_missing", "the path is neither a pack directory nor a zip archive")
+    raise PackError("manifest_missing", "no pack at this path")
+
+
+# ============================================================================================ the pack
+_BUILDING = threading.local()  # set only while the loader constructs a pack: no copy or replace() can forge one
+
+
+@dataclass(frozen=True)
+class KnowledgePack:
+    """A loaded, verified knowledge pack. Built only by :func:`load_pack`.
+
+    ``identity`` is the pack the code accepted; ``documents`` are the agent-audience files in system order as
+    ``(path, text)``; ``readme`` is the deployer README; ``schemas`` are ``(path, text)``; ``files`` are every file's
+    bytes as stored (``manifest.json`` included), sorted by path, for the exporter."""
+    identity: PackIdentity
+    manifest: PackManifest
+    documents: tuple[tuple[str, str], ...]
+    readme: str
+    schemas: tuple[tuple[str, str], ...]
+    files: tuple[tuple[str, bytes], ...]
+    source: str
+    _system: str = field(repr=False, compare=False, default="")
+
+    def __post_init__(self) -> None:
+        if not getattr(_BUILDING, "active", False):
+            raise TypeError("a KnowledgePack is built only by load_pack, which verifies it")
+
+    def system_text(self, modules: Optional[Iterable[str]] = None) -> str:
+        """The system configuration of an overseer agent (section 17.8): with ``modules`` None, the whole text (every module);
+        else the core and the modules named (STEM repair 11), which must be modules of this pack's documents."""
+        if modules is None:
+            return self._system
+        chosen = self._chosen(modules)
+        if set(chosen) == set(self.manifest.system_modules):
+            return self._system
+        return build_system_text(self.documents, self.manifest.system_separator, chosen)
+
+    def _chosen(self, modules: Iterable[str]) -> tuple[str, ...]:
+        if isinstance(modules, str):
+            raise TypeError("modules is a collection of module names")
+        mods = set(modules)
+        unknown = mods - set(self.manifest.system_modules)
+        if unknown:
+            raise ValueError(f"not a module of this pack: {sorted(unknown)}")
+        return tuple(m for m in self.manifest.system_modules if m in mods)
+
+    def modules_for(self, dossier: Mapping[str, Any]) -> tuple[str, ...]:
+        """STEM repair 11: the modules of this pack the dossier's content needs (:func:`dossier_modules`)."""
+        need = set(dossier_modules(dossier))
+        return tuple(m for m in self.manifest.system_modules if m in need)
+
+    def system_text_for(self, dossier: Mapping[str, Any]) -> str:
+        """STEM repair 11: the system text an agent reviewing ``dossier`` is sent: the core and the modules its content needs."""
+        return self.system_text(self.modules_for(dossier))
+
+    def composition_sha256(self, modules: Iterable[str]) -> str:
+        """The manifest's digest of the composition of ``modules`` (``system_sha256`` for a pack with no module)."""
+        chosen = self._chosen(modules)
+        if not self.manifest.system_modules:
+            return self.manifest.system_sha256
+        return self.manifest.system_compositions[composition_key(chosen)]
+
+    @property
+    def system_sha256(self) -> str:
+        return self.manifest.system_sha256
+
+    @property
+    def prompt_version(self) -> str:
+        """``<name>/<version>+<first 16 hex of the pack digest>``: what every ``ProviderInfo`` records."""
+        return f"{self.identity.name}/{self.identity.version}+{self.identity.sha256[:16]}"
+
+    @property
+    def dir_name(self) -> str:
+        return pack_dir_name(self.identity.name, self.identity.version)
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        return tuple(p for p, _ in self.files)
+
+    def file_bytes(self, path: str) -> bytes:
+        for p, data in self.files:
+            if p == path:
+                return data
+        raise KeyError(path)
+
+    def schema(self, path: str) -> dict:
+        """A schema of the pack, parsed fresh (callers cannot change the pack)."""
+        for p, text in self.schemas:
+            if p == path:
+                return json.loads(text)
+        raise KeyError(path)
+
+    def verify(self) -> None:
+        """Re-check the pack in memory: every file against the manifest, the manifest digest, the system digest and the
+        identity. Raises :class:`PackError`."""
+        data = dict(self.files)
+        try:
+            manifest_obj = json.loads(data[MANIFEST_FILE].decode("utf-8"), object_pairs_hook=strict_object_pairs)
+        except (KeyError, ValueError):
+            raise PackError("manifest_invalid", "the pack in memory has no readable manifest") from None
+        try:
+            parsed = PackManifest.model_validate_json(data[MANIFEST_FILE])
+        except ValidationError:
+            raise PackError("manifest_invalid", "the pack in memory has an invalid manifest") from None
+        if self.manifest != parsed:
+            raise PackError("manifest_invalid", "the pack's manifest object is not its manifest file")
+        for f in self.manifest.files:
+            blob = data.get(f.path)
+            if blob is None or len(blob) != f.bytes or hashlib.sha256(blob).hexdigest() != f.sha256:
+                raise PackError("file_digest", "a file in memory differs from the manifest", path=f.path)
+        if set(data) != {f.path for f in self.manifest.files} | {MANIFEST_FILE}:
+            raise PackError("file_unlisted", "the pack in memory holds files the manifest does not list")
+        if manifest_pack_digest(manifest_obj) != self.manifest.pack_sha256 or self.identity.sha256 != self.manifest.pack_sha256:
+            raise PackError("pack_digest", "the pack digest in memory does not recompute")
+        if (self.identity.name, self.identity.version) != (self.manifest.pack_name, self.manifest.pack_version):
+            raise PackError("manifest_invalid", "the identity is not the manifest's")
+        docs = tuple((p, data[p].decode("utf-8")) for p in self.manifest.system_order)
+        system = build_system_text(docs, self.manifest.system_separator)
+        if docs != self.documents or system != self._system or sha256_hex(system) != self.manifest.system_sha256:
+            raise PackError("system_digest", "the system text in memory does not recompute")
+        _check_compositions(self.manifest, docs)
+
+
+# ============================================================================================ loading
+def _decode(data: bytes, path: str, reason: str) -> str:
+    if data.startswith(_BOM):
+        raise PackError(reason, "the file starts with a byte-order mark", path=path)
+    if b"\r" in data:
+        raise PackError(reason, "the file contains a CR character (line endings must be LF)", path=path)
+    try:
+        return data.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise PackError(reason, "the file is not UTF-8", path=path) from None
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-finite number {name}")
+
+
+def _strict_json(text: str) -> Any:
+    return json.loads(text, object_pairs_hook=strict_object_pairs, parse_constant=_reject_constant)
+
+
+def _parse_manifest(raw: bytes) -> tuple[PackManifest, dict]:
+    text = _decode(raw, MANIFEST_FILE, "manifest_invalid")
+    try:
+        obj = _strict_json(text)
+    except (ValueError, RecursionError):
+        raise PackError("manifest_invalid", "the manifest is not strict JSON (duplicate keys and non-finite numbers are refused)", path=MANIFEST_FILE) from None
+    if not isinstance(obj, dict):
+        raise PackError("manifest_invalid", "the manifest is not a JSON object", path=MANIFEST_FILE)
+    try:
+        manifest = PackManifest.model_validate_json(text)
+    except ValidationError as exc:
+        locs = "; ".join(f"{'/'.join(str(x) for x in e.get('loc', ())) or '$'}: {e.get('type')}" for e in exc.errors()[:6])
+        raise PackError("manifest_invalid", f"the manifest does not follow manifest 1.0 ({locs})", path=MANIFEST_FILE) from None
+    return manifest, obj
+
+
+def _check_structure(manifest: PackManifest) -> None:
+    paths = [f.path for f in manifest.files]
+    if len(set(paths)) != len(paths):
+        raise PackError("manifest_invalid", "the manifest lists a path twice", path=MANIFEST_FILE)
+    if paths != sorted(paths):
+        raise PackError("manifest_invalid", "the manifest's files are not sorted by path", path=MANIFEST_FILE)
+    if MANIFEST_FILE in paths:
+        raise PackError("manifest_invalid", "the manifest lists itself", path=MANIFEST_FILE)
+    for f in manifest.files:
+        if audience_of(f.path) is None:
+            raise PackError("manifest_invalid", "a listed file is not a pack file (master prompt, NN-name.md, README.md or a schema)", path=f.path)
+        if audience_of(f.path) != f.audience:
+            raise PackError("manifest_invalid", f"the audience of a file is not {audience_of(f.path)!r}", path=f.path)
+    for required in (MASTER_PROMPT_FILE, README_FILE, *SCHEMA_FILES):
+        if required not in paths:
+            raise PackError("manifest_invalid", "the manifest does not list a required file", path=required)
+    order = system_order_of(paths)
+    if len(order) < 2 or list(manifest.system_order) != order:
+        raise PackError("manifest_invalid", "system_order is not the master prompt followed by the numbered documents in name order", path=MANIFEST_FILE)
+    sep = manifest.system_separator
+    if sep.count("{path}") != 1 or "\n" in sep or "\r" in sep:
+        raise PackError("manifest_invalid", "system_separator must hold '{path}' once and no line break", path=MANIFEST_FILE)
+
+
+def _check_compositions(manifest: PackManifest, documents: Iterable[tuple[str, str]]) -> None:
+    """STEM repair 11: the module markers are well formed, ``system_modules`` names the modules they mark, and every composition's
+    system text recomputes to the digest ``system_compositions`` records for it (none recorded for a pack with no module)."""
+    documents = tuple(documents)
+    for path, text in documents:
+        faults = module_markup_faults(path, text)
+        if faults:
+            raise PackError("file_invalid", f"the module markers are malformed: {faults[0]}", path=path)
+    marked = modules_marked(documents)
+    if tuple(manifest.system_modules) != marked:
+        raise PackError("manifest_invalid", "system_modules is not the list of modules the documents mark", path=MANIFEST_FILE)
+    expected = {composition_key(c): sha256_hex(build_system_text(documents, manifest.system_separator, c)) for c in compositions_of(marked)} if marked else {}
+    if dict(manifest.system_compositions) != expected:
+        raise PackError("system_digest", "a composition's recomputed system text digest differs from the manifest's system_compositions",
+                        path=MANIFEST_FILE)
+
+
+def _check_identity(identity: PackIdentity, trusted: Collection[PackIdentity]) -> None:
+    key = (identity.name, identity.version)
+    pinned = PACK_DIGESTS.get(key)
+    if pinned is not None:
+        if pinned != identity.sha256:
+            raise PackError("digest_mismatch", f"{identity.label} is pinned under another digest: the pack was changed after it was pinned")
+        return
+    same = [t for t in trusted if (t.name, t.version) == key]
+    if not same:
+        raise PackError("unknown_pack", f"{identity.label} is neither pinned by this code nor trusted by the operator")
+    if identity not in same:
+        raise PackError("digest_mismatch", f"{identity.label} is trusted under another digest")
+
+
+def _load(source: _Source, trusted: Collection[PackIdentity], *, pin_check: bool = True) -> KnowledgePack:
+    entries = source.entries()
+    kind = entries.get(MANIFEST_FILE)
+    if kind in ("symlink", "unsafe"):
+        raise PackError("unsafe_path", "the manifest is a symlink or an unsafe archive entry", path=MANIFEST_FILE)
+    if kind != "file":
+        raise PackError("manifest_missing", "the pack has no manifest.json", path=MANIFEST_FILE)
+    raw_manifest = source.read(MANIFEST_FILE, MAX_FILE_BYTES)
+    manifest, manifest_obj = _parse_manifest(raw_manifest)
+    # ---------------------------------------------------------------- paths
+    for f in manifest.files:
+        if not _safe_name(f.path):
+            raise PackError("unsafe_path", "a listed path is not a bare pack file name with an allowed extension", path=f.path[:256])
+    for p in manifest.system_order:
+        if not _safe_name(p):
+            raise PackError("unsafe_path", "a system_order entry is not a bare pack file name", path=p[:256])
+    for name in sorted(entries):
+        if entries[name] in ("symlink", "unsafe"):
+            raise PackError("unsafe_path", "the pack holds a symlink or an entry that escapes or nests inside the pack", path=name[:256])
+    _check_structure(manifest)
+    listed = {f.path: f for f in manifest.files}
+    for path in listed:
+        if entries.get(path) != "file":
+            raise PackError("file_missing", "a listed file is absent (or not a regular file)", path=path)
+    for name in sorted(entries):
+        if name != MANIFEST_FILE and name not in listed:
+            raise PackError("file_unlisted", "the pack holds a file or directory the manifest does not list", path=name[:256])
+    # ---------------------------------------------------------------- contents
+    total = len(raw_manifest)
+    blobs: dict[str, bytes] = {}
+    for f in manifest.files:
+        data = source.read(f.path, MAX_FILE_BYTES)
+        total += len(data)
+        if total > MAX_PACK_BYTES:
+            raise PackError("file_too_large", f"the pack is larger than {MAX_PACK_BYTES} bytes", path=f.path)
+        blobs[f.path] = data
+    texts = {path: _decode(data, path, "file_encoding") for path, data in blobs.items()}
+    for f in manifest.files:
+        data = blobs[f.path]
+        if len(data) != f.bytes or hashlib.sha256(data).hexdigest() != f.sha256:
+            raise PackError("file_digest", "the file's SHA-256 (or size) differs from the manifest", path=f.path)
+    for path, text in texts.items():
+        if path.endswith(".json"):
+            try:
+                obj = _strict_json(text)
+            except (ValueError, RecursionError):
+                raise PackError("file_invalid", "the file is not strict JSON", path=path) from None
+            if not isinstance(obj, dict):
+                raise PackError("file_invalid", "the file is not a JSON object", path=path)
+    if manifest_pack_digest(manifest_obj) != manifest.pack_sha256:
+        raise PackError("pack_digest", "the recomputed pack digest differs from the manifest's pack_sha256", path=MANIFEST_FILE)
+    documents = tuple((p, texts[p]) for p in manifest.system_order)
+    system = build_system_text(documents, manifest.system_separator)
+    if sha256_hex(system) != manifest.system_sha256:
+        raise PackError("system_digest", "the recomputed system text digest differs from the manifest's system_sha256", path=MANIFEST_FILE)
+    _check_compositions(manifest, documents)
+    if manifest.verdict_contract != VERDICT_CONTRACT or manifest.dossier_version != DOSSIER_VERSION:
+        raise PackError("contract_mismatch", f"the pack is written for {manifest.verdict_contract} and dossier {manifest.dossier_version}; this code "
+                                             f"implements {VERDICT_CONTRACT} and dossier {DOSSIER_VERSION}", path=MANIFEST_FILE)
+    identity = PackIdentity(name=manifest.pack_name, version=manifest.pack_version, sha256=manifest.pack_sha256)
+    if pin_check:
+        _check_identity(identity, trusted)
+    first = tuple(texts[MASTER_PROMPT_FILE].split("\n")[:3])
+    if first != header_lines(manifest.pack_name, manifest.pack_version, manifest.verdict_contract, manifest.dossier_version):
+        raise PackError("header_mismatch", "the master prompt's PACK, VERDICT CONTRACT and DOSSIER VERSION lines differ from the manifest",
+                        path=MASTER_PROMPT_FILE)
+    files = tuple(sorted([*blobs.items(), (MANIFEST_FILE, raw_manifest)]))
+    _BUILDING.active = True
+    try:
+        return KnowledgePack(identity=identity, manifest=manifest, documents=documents, readme=texts[README_FILE],
+                             schemas=tuple((p, texts[p]) for p in SCHEMA_FILES), files=files, source=source.label, _system=system)
+    finally:
+        _BUILDING.active = False
+
+
+def load_pack(path: Any = None, *, trusted: Collection[PackIdentity] = ()) -> KnowledgePack:
+    """Load and verify a pack: the installed pack when ``path`` is None, else a pack directory or a ``.zip`` archive
+    (read in place). ``trusted`` accepts further identities explicitly (never a pinned name and version under another
+    digest). Raises :class:`PackError` on the first failed check; nothing is loaded."""
+    trusted = tuple(trusted)
+    if not all(isinstance(t, PackIdentity) for t in trusted):
+        raise TypeError("trusted must hold PackIdentity values")
+    source = _source_for(path)
+    try:
+        return _load(source, trusted)
+    finally:
+        source.close()
+
+
+def _load_unpinned(path: Any) -> KnowledgePack:
+    """Every check of :func:`load_pack` except the pin (``unknown_pack``, ``digest_mismatch``): for the maintainer's
+    ``export --refresh-source``, which writes a new manifest whose digest is not pinned yet. Never used to accept a
+    pack for an agent: the runner, the exporter's ``--out`` and ``--verify`` and the intake use :func:`load_pack`."""
+    source = _source_for(path)
+    try:
+        return _load(source, (), pin_check=False)
+    finally:
+        source.close()
+
+
+_INSTALLED: Optional[KnowledgePack] = None
+_INSTALLED_LOCK = threading.Lock()
+
+
+def installed_pack(*, reload: bool = False) -> KnowledgePack:
+    """The installed pack, loaded and verified once (a refusal is never cached: every call retries and raises)."""
+    global _INSTALLED
+    with _INSTALLED_LOCK:
+        if _INSTALLED is None or reload:
+            _INSTALLED = load_pack(None)
+        return _INSTALLED
+
+
+def accepted_identities(trusted: Collection[PackIdentity] = ()) -> frozenset[PackIdentity]:
+    """Every pack identity this code accepts: the pinned digests plus ``trusted`` (for an intake's ``accepted_packs``)."""
+    pinned = {PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items()}
+    extra = {t for t in trusted if (t.name, t.version) not in PACK_DIGESTS}
+    return frozenset(pinned | extra)

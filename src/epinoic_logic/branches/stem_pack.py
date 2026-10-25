@@ -12,7 +12,8 @@ request and profile) and the checks stage's :func:`~epinoic_logic.stem.checks.bu
   finding: every STEM error is an engine result), each naming the claims of its statements;
 * :meth:`StemPack.formal_checks_for` (``SubjectBranch.run_packs`` prefers it) returns one
   ``FormalCheck`` per planned check: the IR 1.0 problem (validated with
-  ``Problem.model_validate``), the expected status, the claim ids, the named policy
+  ``Problem.model_validate``), the expected status, the claim ids (and, for a substitution, the
+  claims stating the values it is checked against: ``related_claim_ids``), the named policy
   (``linear``/``nonlinear``), the failure severity and ``inconsistent_is_failure=False``;
   :meth:`StemPack.formal_checks` is the relay form (no request: ``stem-giv`` and ``stem-tgt``
   are not built and checks bind only to the answer's own values).
@@ -76,7 +77,8 @@ class StemPack:
 
     def document(self, report: SpecialistReport, request_text: Optional[str] = None) -> StemDocument:
         """The shared document of this report (memoised by the front end)."""
-        return build_document(report.original_response, request_text, stem_profile_key(report.subject, self.mode))
+        data = tuple(t.text for t in report.supplied_texts if t.text and t.text.strip())  # the request's data: tables (rule table-data), values (supplied-values)
+        return build_document(report.original_response, request_text, stem_profile_key(report.subject, self.mode), **({"data": data} if data else {}))
 
     def _evaluate(self, report: SpecialistReport, request_text: Optional[str]) -> tuple[list[StructuralFinding], list[FormalCheck]]:
         key = (report.report_id, report.request_id, report.response_sha256, report.subject, request_text,
@@ -121,10 +123,11 @@ class StemPack:
                                          claim_map.ids(pc.claim_ids)))
                 continue
             claim_ids = claim_map.ids(pc.claim_ids, limit=None)
+            related = tuple(c for c in claim_map.ids(pc.related_ids) if c not in claim_ids)
             formal.append(FormalCheck(check_id=pc.check_id, kind=pc.kind, description=claim_map.relabel(pc.description), problem=problem,
                                       expected_if_sound=pc.expected_if_sound, claim_ids=tuple(claim_ids), policy=pc.policy,
                                       failure_severity="warning" if pc.failure_severity == "warning" else "error",
-                                      inconsistent_is_failure=pc.inconsistent_is_failure))
+                                      inconsistent_is_failure=pc.inconsistent_is_failure, related_claim_ids=related))
         return findings, formal
 
 

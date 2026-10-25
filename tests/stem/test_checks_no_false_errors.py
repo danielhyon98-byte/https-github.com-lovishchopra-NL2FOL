@@ -160,6 +160,13 @@ def test_a_space_grouped_thousand_is_withheld_never_failed():
 
 
 def test_a_wrong_substituted_value_in_a_step_is_still_caught():
+    # STEM repair 7 (rule solved-law): 'f = 3.0/(2π)' right after 'ω = 2πf' evaluates the law solved for f (f = ω/(2π)), so it is no longer
+    # read as an algebra step from the law (that reading failed correct working); the wrong value substituted for ω (3.0, where '2π/ω =
+    # 2π/4.0' substituted 4.0) is still caught, by that substitution, set against the value substituted before as the step had pinned it:
+    # exactly that check fails, and the same line with the right value holds
     plan = build_checks(build_document("T = 2π/ω = 2π/4.0 = 1.57 s and ω = 2πf so f = 3.0/(2π) = 0.48 Hz", None, "physics"), report_id="r", request_id="q")
-    pc = plan.check("stem-alg-1")
-    assert pc is not None and _decide(pc)[0] is False
+    failed = [pc for pc in plan.checks if not _decide(pc)[0]]
+    assert [pc.check_id for pc in failed] == ["stem-sub-1"], [(pc.check_id, pc.description[:120]) for pc in failed]
+    assert "'f = 3.0/(2π)'" in failed[0].description and "rule solved-law" in failed[0].description
+    right = build_checks(build_document("T = 2π/ω = 2π/4.0 = 1.57 s and ω = 2πf so f = 4.0/(2π) = 0.64 Hz", None, "physics"), report_id="r", request_id="q")
+    assert right.check("stem-sub-1") is not None and all(_decide(pc)[0] for pc in right.checks)

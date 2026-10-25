@@ -18,9 +18,12 @@ Token kinds:
              fused ``Δ``/``\\Delta`` prefix (``Δv``, ``ΔKE``)
 ``FUNC``     sin cos tan arcsin arccos arctan (and ``sin⁻¹`` ...), ln, log (``value``: its base:
              ``log₂``, ``log_{10}``, ``lg``), exp, sqrt, ``√``, ``∛``
-``OP``       ``+ - × · * / ÷ ± ∓`` (LaTeX ``\\cdot \\times \\div \\pm \\mp``)
+``OP``       ``+ - × · * / ÷ ± ∓`` (LaTeX ``\\cdot \\times \\div \\pm \\mp``); ``mod`` and ``div`` for an integer remainder
+             and quotient written between two operands (the words ``mod``, ``modulo``, ``div`` in any case, ``//``, LaTeX
+             ``\\bmod`` and ``\\mod``, and ``%`` with ``cs``; STEM repair 2)
 ``REL``      ``= ≈ ≃ ≠ < > ≤ ≥ ⇒ ∴ → ⇌ ⇔ ≡ ∝`` and their ASCII and LaTeX spellings
-``BOOL``     ``∧ ∨ ¬ ⊕`` and, with ``cs``, the words AND OR NOT XOR
+``BOOL``     ``∧ ∨ ¬ ⊕`` and, with ``cs``, the words AND OR NOT XOR and the gates NAND NOR XNOR (STEM repair 6: also the
+             Sheffer stroke ``↑``/``⊼`` for NAND and the Peirce arrow ``↓``/``⊽`` for NOR; ``text`` NAND, NOR, XNOR)
 ``LPAR`` ``RPAR``   ``( [ {`` and ``) ] }`` (``\\left(``, ``\\{`` ...); in LaTeX a bare brace is a group:
 ``LGROUP`` ``RGROUP``
 ``COMMA SEMI COLON PERCENT DEGREE PRIME BAR BANG AMP ROWSEP CARET DSTAR``
@@ -30,7 +33,8 @@ Token kinds:
 ``LATEX``    ``\\frac \\dfrac \\tfrac \\sqrt``
 ``INF``      ``∞``, ``\\infty``
 ``UNSUP``    the start of a construct outside the encodings (``value``: the reason): ``∫ Σ ∏ ∂ ∇
-             lim d/dx \\int \\sum \\lim \\vec \\mathbf \\partial \\binom \\ldots``, matrices
+             lim d/dx \\int \\sum \\lim \\vec \\mathbf \\partial \\binom \\ldots``, matrices; or a whole
+             combination or permutation count (``⁵C₂``, ``5C2``, ``nCr``, ``C(5, 2)``: :data:`COMPLETE_UNSUP`)
 ``PUNCT``    a full stop that is not a decimal point, ``?``, ``…``
 ``QUOTE``    a quotation mark
 ``OTHER``    any other single character (``✓``, ``#``, an en dash between numbers ...)
@@ -51,7 +55,7 @@ from .numbers import (
     superscript_int,
 )
 
-__all__ = ["FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "Token", "lex"]
+__all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "Token", "combination_at", "lex"]
 
 LexMode = Literal["plain", "latex"]
 
@@ -124,14 +128,35 @@ _PLAIN_REL = {"=": "=", "≈": "≈", "≃": "≃", "≠": "≠", "<": "<", ">":
               "→": "→", "⟶": "→", "⇌": "⇌", "⇔": "⇔", "⟺": "⇔", "≡": "≡", "∝": "∝", "⟹": "⇒", "↔": "⇔", "≅": "≈"}
 _PLAIN_OP = {"+": "+", "-": "-", "×": "×", "·": "·", "*": "*", "/": "/", "÷": "÷", "±": "±", "∓": "∓", "∕": "/"}
 _PLAIN_BOOL = {"∧": "∧", "∨": "∨", "¬": "¬", "⊕": "⊕"}
+#: STEM repair 2: the words of an integer remainder or quotient written between two operands (``17 mod 5``, ``x div 2``); the
+#: Computer Science ``%`` and the floor division ``//`` are read the same way. Between operands only: "the mod of z", "div F"
+#: (a divergence) and "a 50% chance" stay words and signs.
+_INT_OP_WORDS = {"mod": "mod", "modulo": "mod", "div": "div"}
+_LATEX_INT_OPS = {"bmod": "mod", "mod": "mod"}
 _UNSUP_CHARS = {"∫": "an integral", "∑": "a sum (Σ)", "∏": "a product (∏)", "∂": "a partial derivative", "∇": "a vector operator",
                 "∮": "an integral", "⃗": "a vector"}
 _QUOTES = frozenset("\"“”„‟«»‘’‚‛")
+#: a combination or permutation count written as one construct (``⁵C₂``, ``ⁿCᵣ``, ``₅C₂``, ``5C2``, ``nCr``, ``C(5, 2)``,
+#: ``^{5}C_{2}``, ``⁵P₂``): outside the encodings, so the relation that holds one is named undecided (ST-UNDEC-001) and is
+#: never silently dropped. The lexer emits one ``UNSUP`` token for the whole construct; the parser and the span scanner read
+#: it as a complete operand (:data:`COMPLETE_UNSUP`).
+COMBINATION = "a binomial coefficient (ⁿCᵣ)"
+PERMUTATION = "a permutation count (ⁿPᵣ)"
+COMPLETE_UNSUP = frozenset({COMBINATION, PERMUTATION})
+_COMB_SUPER = frozenset(SUPERSCRIPT_DIGITS) | {"ⁿ", "ʳ", "ᵏ"}
+_COMB_SUB = frozenset(SUBSCRIPT_DIGITS) | {"ᵣ", "ₖ", "ₙ", "ₓ"}
+_COMB_WORDS = {"nCr": COMBINATION, "nCk": COMBINATION, "nPr": PERMUTATION, "nPk": PERMUTATION}
+#: the letters a count C(n, r) is written with; any other letter makes C(x, y) a function or a point, never a count
+_COUNT_LETTERS = frozenset("nrk")
+_COMB_START = _COMB_SUPER | _COMB_SUB | frozenset("0123456789nCP^{")
 _SUBSCRIPT_LETTERS = {"ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₕ": "h", "ₖ": "k", "ₗ": "l", "ₘ": "m", "ₙ": "n", "ₚ": "p", "ₛ": "s", "ₜ": "t", "ᵢ": "i",
                        "ⱼ": "j", "ᵣ": "r"}
 _SUB_SYMBOLS = {"∥": "par", "⊥": "perp", "½": "half", "∞": "inf", "⊙": "sun"}
 _PRIMES = {"′": 1, "″": 2, "‴": 3}
-_BOOL_WORDS = {"AND": "∧", "OR": "∨", "NOT": "¬", "XOR": "⊕", "NAND": "NAND", "NOR": "NOR"}
+_BOOL_WORDS = {"AND": "∧", "OR": "∨", "NOT": "¬", "XOR": "⊕", "NAND": "NAND", "NOR": "NOR", "XNOR": "XNOR"}
+#: STEM repair 6 (rule boolean-gates): the gate symbols read with ``cs``: the Sheffer stroke for NAND and the Peirce arrow for NOR (the
+#: arrow had ended the maths run, so 'A ↑ B = NOT (A AND B)' was read as 'B = NOT (A AND B)')
+_GATE_SYMBOLS = {"↑": "NAND", "⊼": "NAND", "↓": "NOR", "⊽": "NOR"}
 #: one-character punctuation tokens
 _SIMPLE = {",": "COMMA", ";": "SEMI", ":": "COLON", "%": "PERCENT", "°": "DEGREE", "|": "BAR", "!": "BANG", "&": "AMP", "?": "PUNCT", "…": "PUNCT",
            ".": "PUNCT"}
@@ -180,6 +205,9 @@ def _subscript_text(s: str, i: int, n: int, mode: LexMode) -> tuple[int, str]:
                 k += 1
             if k < n and s[k] == "}" and depth == 0:
                 inner = s[j + 1:k]
+                signed = inner.replace(" ", "")
+                if len(signed) >= 2 and signed[0] in "-−" and signed[1:].isascii() and signed[1:].isdigit() and len(signed) <= 4:
+                    return k + 1, "-" + signed[1:]  # STEM repair 10: a signed integer ('_{-1}') keeps its sign
                 clean = "".join(c for c in inner if c.isalnum() or c in "/,") or ""
                 if clean and all(c.isascii() for c in clean):
                     return k + 1, clean
@@ -202,10 +230,150 @@ def _subscript_text(s: str, i: int, n: int, mode: LexMode) -> tuple[int, str]:
     return i, ""
 
 
+def _comb_letter(ch: str) -> Optional[str]:
+    return COMBINATION if ch == "C" else PERMUTATION if ch == "P" else None
+
+
+def _plain_index(s: str, j: int, n: int) -> Optional[tuple[int, str]]:
+    """A plain or braced index after a caret or an underscore: ``5``, ``n``, ``{10}``, ``{r}`` (bounded)."""
+    if j >= n:
+        return None
+    if s[j] == "{":
+        k = j + 1
+        while k < n and k - j <= 4 and (s[k].isdigit() or _is_latin(s[k]) or s[k] == " "):
+            k += 1
+        if k < n and s[k] == "}" and s[j + 1:k].strip():
+            return k + 1, s[j + 1:k].strip()
+        return None
+    if s[j].isdigit() or _is_latin(s[j]):
+        return j + 1, s[j]
+    return None
+
+
+def combination_at(s: str, i: int, n: int, mode: LexMode = "plain") -> Optional[tuple[int, str]]:
+    """``(end, reason)`` when a combination or permutation count written as one construct starts at ``i`` (:data:`COMPLETE_UNSUP`):
+    a superscript or subscript index, ``C`` or ``P`` and a subscript index (``⁵C₂``, ``ⁿCᵣ``, ``₅C₂``); digits, ``C`` or ``P`` and
+    digits (``5C2``, ``10C3``); the words ``nCr``, ``nCk``, ``nPr``, ``nPk``; ``C(5, 2)``, ``C(n, r)`` or ``C(n, k)`` (the letters
+    of a count only: ``C(x, y)`` is a function or a point); in LaTeX ``^{5}C_{2}``,
+    ``{}^5C_2``, ``_{5}C_{2}``. Nothing glued after it (a letter or a digit) and nothing glued before an ASCII form. A bounded
+    scan; no backtracking."""
+    if i >= n or s[i] not in _COMB_START:
+        return None
+    prev = s[i - 1] if i > 0 else " "
+    ch = s[i]
+
+    def ends(k: int) -> bool:
+        return k >= n or not (s[k].isalnum() or s[k] == "_" or (s[k] == "." and k + 1 < n and s[k + 1].isdigit()))
+
+    # ⁵C₂, ⁿCᵣ, ₅C₂
+    if ch in _COMB_SUPER or ch in _COMB_SUB:
+        lead = _COMB_SUPER if ch in _COMB_SUPER else _COMB_SUB
+        j = i
+        while j < n and s[j] in lead and j - i < 3:
+            j += 1
+        reason = _comb_letter(s[j]) if j < n else None
+        if reason is None or (ch in _COMB_SUB and not (prev.isspace() or prev in "=(×·*+-−")):
+            return None
+        k = j + 1
+        while k < n and s[k] in _COMB_SUB and k - j <= 3:
+            k += 1
+        return (k, reason) if k > j + 1 and ends(k) else None
+    if _is_latin(prev) or prev.isdigit() or prev in "._":
+        return None
+    # 5C2, 10C3, 6P2: ASCII digits on both sides of the letter. A subscript digit after it is the letter's own index, so '2P₀'
+    # and '2C₀' are 2 × P₀ and 2 × C₀ (a model's initial value, a concentration), never a count (str.isdigit holds for '₀' too; the
+    # count with a written index is the form '⁵P₂' or '₅P₂' above)
+    if "0" <= ch <= "9":
+        j = i
+        while j < n and "0" <= s[j] <= "9" and j - i < 3:
+            j += 1
+        reason = _comb_letter(s[j]) if j < n else None
+        if reason is None:
+            return None
+        k = j + 1
+        while k < n and "0" <= s[k] <= "9" and k - j <= 3:
+            k += 1
+        return (k, reason) if k > j + 1 and ends(k) else None
+    # nCr, nCk, nPr, nPk
+    if ch == "n" and s[i:i + 3] in _COMB_WORDS and ends(i + 3):
+        return i + 3, _COMB_WORDS[s[i:i + 3]]
+    # C(5, 2), C(n, r)
+    if ch == "C" and i + 1 < n and s[i + 1] == "(":
+        k = i + 2
+        parts: list[str] = []
+        cur = ""
+        while k < n and k - i <= 14 and s[k] != ")":
+            if s[k] == ",":
+                parts.append(cur.strip())
+                cur = ""
+            elif s[k].isalnum() or s[k] == " ":
+                cur += s[k]
+            else:
+                return None
+            k += 1
+        parts.append(cur.strip())
+        if k < n and s[k] == ")" and len(parts) == 2 and all(x and (x.isdigit() or x in _COUNT_LETTERS) for x in parts) \
+                and not (parts[0].isdigit() and parts[1].isdigit() and int(parts[1]) > int(parts[0])):
+            return k + 1, COMBINATION  # never a point C(2, 3): a count C(n, r) has r ≤ n
+        return None
+    # LaTeX: ^{5}C_{2}, {}^5C_2, _{5}C_{2}
+    if mode == "latex" and ch in "^{":
+        j = i
+        if s.startswith("{}", j):
+            j += 2
+        if j >= n or s[j] not in "^_":
+            return None
+        idx = _plain_index(s, j + 1, n)
+        if idx is None:
+            return None
+        j = idx[0]
+        while j < n and s[j] == " ":
+            j += 1
+        reason = _comb_letter(s[j]) if j < n else None
+        if reason is None or j + 1 >= n or s[j + 1] != "_":
+            return None
+        idx2 = _plain_index(s, j + 2, n)
+        if idx2 is None:
+            return None
+        return (idx2[0], reason) if ends(idx2[0]) or s[idx2[0]] in "{}" else None
+    return None
+
+
+def _operand_end(toks: list[Token]) -> bool:
+    """The last token ends an operand: a numeral, a closing bracket, a superscript or a prime, or a symbol (one letter, a
+    Greek letter, or a letter with a subscript, primes or a Δ), never a prose word."""
+    if not toks:
+        return False
+    p = toks[-1]
+    if p.kind in ("NUM", "RPAR", "RGROUP", "SUP", "PRIME"):
+        return True
+    return p.kind == "IDENT" and (len(p.text) == 1 or bool(p.sub or p.primes or p.delta) or not p.text.isascii())
+
+
+def _operand_follows(s: str, k: int, n: int) -> bool:
+    """An operand starts at ``k`` after at most a few spaces: a digit, an opening bracket, a minus before a digit, or a single
+    letter (a symbol, never the first letter of a word)."""
+    j = k
+    while j < n and s[j] in " \t":
+        j += 1
+        if j - k > 4:
+            return False
+    if j >= n:
+        return False
+    ch = s[j]
+    if "0" <= ch <= "9" or ch == "(":
+        return True
+    if ch in "-−" and j + 1 < n and "0" <= s[j + 1] <= "9":
+        return True
+    if _is_latin(ch) or ch in GREEK:
+        return not (j + 1 < n and (_is_latin(s[j + 1]) or s[j + 1] in GREEK))
+    return False
+
+
 def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "plain", orig: Optional[str] = None, cs: bool = False,
         limits: StemLimits = DEFAULT_LIMITS, max_tokens: Optional[int] = None, values: bool = True) -> LexResult:
     """Tokenize ``s[start:end]`` (offsets stay absolute). ``orig`` is the original text (same
-    length) for thin-space thousands groups. ``cs`` reads the Boolean words AND OR NOT XOR.
+    length) for thin-space thousands groups. ``cs`` reads the Boolean words AND OR NOT XOR and the gates NAND NOR XNOR (↑ ⊼ ↓ ⊽).
     With ``values`` False numerals carry no value (``NUM`` tokens with ``value`` None): the span
     finder and the name pre-pass need only extents, and building exact values for a whole answer
     would cost a ``Fraction`` per numeral."""
@@ -236,6 +404,12 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             continue
         if cap is not None and len(toks) >= cap:   # a token remains beyond the cap (trailing space is none)
             return LexResult(tuple(toks), overflow=True)
+        if ch in _COMB_START:
+            comb = combination_at(s, i, n, mode)
+            if comb is not None:
+                emit("UNSUP", s[i:comb[0]], i, comb[0], value=comb[1])  # a combination or permutation count: one complete operand
+                i = comb[0]
+                continue
         if ch in "([)]":
             # brackets first: no other branch below reads them (they are the commonest one-character tokens of a long input)
             if ch in "([":
@@ -359,6 +533,10 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 continue
             if name in _LATEX_OP:
                 emit("OP", _LATEX_OP[name], i, cmd_end)
+                i = cmd_end
+                continue
+            if name in _LATEX_INT_OPS and _operand_end(toks) and _operand_follows(s, cmd_end, n):
+                emit("OP", _LATEX_INT_OPS[name], i, cmd_end)  # 17 \bmod 5: an integer remainder (STEM repair 2)
                 i = cmd_end
                 continue
             if name in _LATEX_BOOL:
@@ -493,6 +671,11 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 i += 1
                 continue
             k, t = res   # t spans [i, k) and carries no preceding space: reuse it unless a space precedes
+            if t.kind == "IDENT" and not (t.sub or t.primes or t.delta) and t.text.lower() in _INT_OP_WORDS and _operand_end(toks) \
+                    and _operand_follows(s, k, n):
+                emit("OP", _INT_OP_WORDS[t.text.lower()], i, k)  # '17 mod 5', 'x div 2': an integer remainder or quotient (STEM repair 2)
+                i = k
+                continue
             append(t if not space else Token(t.kind, t.text, i, k, True, t.value, t.sub, t.primes, t.delta))
             space = False
             i = k
@@ -518,12 +701,20 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             emit("REL", "≈", i, i + 1)
             i += 1
             continue
+        if ch == "/" and i + 1 < n and s[i + 1] == "/" and _operand_end(toks) and _operand_follows(s, i + 2, n):
+            emit("OP", "div", i, i + 2)  # '17 // 5': floor division (STEM repair 2)
+            i += 2
+            continue
         if ch in _PLAIN_OP:
             emit("OP", _PLAIN_OP[ch], i, i + 1)
             i += 1
             continue
         if ch in _PLAIN_BOOL:
             emit("BOOL", ch, i, i + 1)
+            i += 1
+            continue
+        if cs and ch in _GATE_SYMBOLS:
+            emit("BOOL", _GATE_SYMBOLS[ch], i, i + 1)
             i += 1
             continue
         if ch in "([":
@@ -564,11 +755,14 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 emit("SUP", s[i:k], i, k, value=int(digits))
                 i = k
             continue
-        if ch in SUBSCRIPT_DIGITS:
-            k = i
+        if ch in SUBSCRIPT_DIGITS or (ch == "₋" and i + 1 < n and s[i + 1] in SUBSCRIPT_DIGITS):
+            # STEM repair 10: a subscript minus before subscript digits is the sign of one subscript ('∫₋₁¹ x dx': the lower limit −1); it
+            # had been an unread character that ended the run, so the relation was silently left unread
+            k = i + 1 if ch == "₋" else i
             while k < n and s[k] in SUBSCRIPT_DIGITS and k - i < _MAX_SUB:
                 k += 1
-            emit("SUB", "".join(SUBSCRIPT_DIGITS[c] for c in s[i:k]), i, k, value="".join(SUBSCRIPT_DIGITS[c] for c in s[i:k]))
+            sub = ("-" if ch == "₋" else "") + "".join(SUBSCRIPT_DIGITS[c] for c in s[i:k] if c in SUBSCRIPT_DIGITS)
+            emit("SUB", sub, i, k, value=sub)
             i = k
             continue
         if ch == "_":
@@ -579,6 +773,18 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             else:
                 emit("OTHER", "_", i, i + 1)
                 i += 1
+            continue
+        if ch == "%" and cs and _operand_end(toks) and _operand_follows(s, i + 1, n):
+            emit("OP", "mod", i, i + 1)  # Computer Science: '17 % 5', 'n % 2' is the remainder (STEM repair 2)
+            i += 1
+            continue
+        if (ch == "…" or (ch == "." and s.startswith("...", i) and not s.startswith("....", i))) and toks and toks[-1].kind == "NUM" and not space \
+                and "." in toks[-1].text:
+            # STEM repair 10 (rule ellipsis-rounding): an ellipsis written right after a decimal ('2.66…', '2.66...') cuts its digits, as
+            # '\ldots' does; it had been punctuation that ended the run, so the cut decimal was read as a rounded one ('8/3 = 2.66…' failed)
+            k = i + (1 if ch == "…" else 3)
+            emit("UNSUP", s[i:k], i, k, value="an ellipsis")
+            i = k
             continue
         if ch in _SIMPLE:
             kind = _SIMPLE[ch]

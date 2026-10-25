@@ -43,7 +43,11 @@ class FormalCheck:
     too. ``policy``: the named engine policy the channel verifies it under (``engine.policies``).
     ``failure_severity``: the severity of a definitive failure (``error`` is INT-SUBJ-001,
     ``warning`` INT-SUBJ-004). ``inconsistent_is_failure``: whether INCONSISTENT_PREMISES counts
-    as a failure (True for every pre-STEM check) or as undecided (STEM checks, design D13)."""
+    as a failure (True for every pre-STEM check) or as undecided (STEM checks, design D13).
+    ``related_claim_ids``: the delivered claims that state values the check relies on beside its own statement (a
+    substitution's earlier stated values, STEM repair 1); a failure finding names them after ``claim_ids``, so a stated value
+    a later line contradicts is named where it is stated, not only where the contradiction shows. Empty for every pack but
+    the STEM pack."""
     check_id: str
     kind: str
     description: str
@@ -53,6 +57,7 @@ class FormalCheck:
     policy: str = "linear"
     failure_severity: Literal["error", "warning"] = "error"
     inconsistent_is_failure: bool = True
+    related_claim_ids: tuple[str, ...] = ()
 
 
 @runtime_checkable

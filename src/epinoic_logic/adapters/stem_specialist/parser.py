@@ -283,7 +283,8 @@ class StemTextParser:
         agent = agent_id or self.agent_id
         base = dict(request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version, subject=subject,
                     course_level=course_level, task_type=task_type)
-        doc = build_document(text, request_text, stem_profile_key(subject, self.mode))
+        data = tuple(t.text for t in supplied_texts if t.text and t.text.strip())  # tables (rule table-data) and values (rule supplied-values)
+        doc = build_document(text, request_text, stem_profile_key(subject, self.mode), **({"data": data} if data else {}))
         pending, report_assumptions, unresolved = self._claims(text, doc, list(supplied_texts))
         if not pending:
             raise AdapterError("the specialist answer yields no statements")
@@ -330,7 +331,9 @@ class StemTextParser:
             text_st = text[a:b]
             claim_text = _claim_text(text, a, b, markup)
             core, notes = split_note_clauses(claim_text)
-            rels = doc.relations_for(sid)
+            # a prose reading of a value against an earlier labelled one or the supplied table (rules named-change and table-data)
+            # checks the statement but never changes what the statement does: its role is read without them
+            rels = tuple(r for r in doc.relations_for(sid) if not r.named)
             checks = [r.check_id for r in doc.checks_for(sid)]
             maths = bool(rels) or bool(doc.items_for(sid)) or kind in ("code", "table", "data_line", "derivation", "display_row")
             if maths and not core and not notes:

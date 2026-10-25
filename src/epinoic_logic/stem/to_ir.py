@@ -26,6 +26,9 @@ quantity                   literal × exact SI factor (SI reading) or the litera
                            negative radicand is ST-UNDEF-001
 ``|x|``                    ``ite(x ≥ 0, x, −x)``
 ``n %``                    ``n/100`` (SI reading) or ``n`` (as written)
+``a mod b``, ``a div b``   ``to_real(mod(A, b))``, ``to_real(idiv(A, b))``: A the Int encoding of written whole numbers
+                           joined by ``+ − ×``, powers and nested remainders and quotients, its value not negative,
+                           b a positive written whole number (STEM repair 2); anything else ST-UNDEC-001
 ``±``                      the sign choice of the reading (the caller combines both choices)
 exact-table function       its exact value: rational, or ``q·sq`` with ``sq·sq = 2`` or ``3``
 other function, π, e       enclosure symbol ``enc`` with ``ENC_LO ≤ enc ≤ ENC_HI`` (forces Form S)
@@ -61,12 +64,12 @@ from typing import Iterator, Optional
 
 from .enclosures import EnclosureError, Interval, cross_check, enclose, exact_log, exact_real_power, exact_trig, isqrt_interval, pi_interval
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Degrees, Func, Magnification, Neg, Node, Num, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym,
-    Unsupported, WithUnit, render, shape_key, walk,
+    Abs, Apply, BinOp, BoolOp, Degrees, Func, IntOp, Magnification, Neg, Node, Num, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root,
+    Sym, Unsupported, WithUnit, render, shape_key, walk,
 )
 from .numbers import ExactNumber
 from .scaling import (
-    LiteralTooLong, Term, add_terms, digit_count, div_literal, floor_log10, lit, literal_text, mul_terms, neg_term, real, sub_terms, to_frame,
+    LiteralTooLong, Term, add_terms, digit_count, div_literal, floor_log10, lit, literal_text, mul_terms, nary, neg_term, real, sub_terms, to_frame,
     var_term,
 )
 from .tolerance import STEM_SCOPE, abs_expr
@@ -361,7 +364,8 @@ class Reading:
     the reading of each ambiguous unit (keyed by the quantity's start offset); ``angle`` for a
     trigonometric argument written without ° or π and for an inverse function's result (``deg`` or
     ``rad``); ``affine`` applies the °C/°F offset (explicit conversions only); ``sign`` is the choice
-    for every ``±`` (+1 or −1); ``degrees_si`` converts a value written in degrees to radians."""
+    for every ``±`` (+1 or −1); ``degrees_si`` converts a value written in degrees to radians; ``percent`` (STEM repair 5) reads a
+    per cent as its fraction in a reading as written ('1620 × 2% = 32.4 counts min⁻¹': units as written, 2% as 0.02)."""
 
     si: bool = False
     units: tuple[tuple[int, int], ...] = ()
@@ -370,6 +374,7 @@ class Reading:
     sign: int = 1
     degrees_si: bool = False
     label: str = "as written"
+    percent: bool = False
 
     def unit_index(self, start: int) -> int:
         for s, idx in self.units:
@@ -702,7 +707,7 @@ class Encoder:
             return Term(abs_expr(t.expr), t.k, t.closed)
         if isinstance(node, Percent):
             t = rec(node.arg)
-            if not self.r.si:
+            if not self.r.si and not self.r.percent:
                 return t
             if t.lit is not None:
                 return lit((t.value or Fraction(0)) / 100)
@@ -717,6 +722,8 @@ class Encoder:
             return out
         if isinstance(node, Magnification):
             return rec(node.arg)
+        if isinstance(node, IntOp):
+            return Term({"op": "to_real", "arg": _int_op_ir(node)}, 0, True)
         if isinstance(node, Ratio):
             raise EncodeError("ST-UNDEC-001", "a ratio outside a ratio relation")
         if isinstance(node, Apply):
@@ -1063,9 +1070,12 @@ class Encoder:
             return rec(node.arg).abs()
         if isinstance(node, Percent):
             x = rec(node.arg)
-            return x.scale(Fraction(1, 100)) if self.r.si else x
+            return x.scale(Fraction(1, 100)) if (self.r.si or self.r.percent) else x
         if isinstance(node, (Degrees, Magnification)):
             return rec(node.arg)
+        if isinstance(node, IntOp):
+            _int_op_ir(node)  # refuses what the encodings do not take, with the reason
+            return Interval.point(Fraction(_int_value(node)))
         if isinstance(node, Func):
             name = node.name
             if name in _TRIG:
@@ -1083,6 +1093,98 @@ class Encoder:
             if name in ("ln", "log", "log10", "exp"):
                 return enclose(name, rec(node.arg), base=node.base)
         raise EncodeError("ST-UNDEC-001", f"a construct outside the encodings ({type(node).__name__})")
+
+
+# ------------------------------------------------------------------ integer remainder and quotient (STEM repair 2)
+#: the most digits of one Int literal (the IR bound on a literal)
+_INT_DIGITS = 40
+
+
+def _whole(node: Node) -> Optional[int]:
+    """The value of a written whole number (no point, no exponent form, no fraction character, no unit), else None."""
+    if not isinstance(node, Num):
+        return None
+    num = node.number
+    if num.has_point or num.scientific or num.vulgar or num.value.denominator != 1:
+        return None
+    v = int(num.value)
+    return v if len(str(abs(v))) <= _INT_DIGITS else None
+
+
+def _int_value(node: Node, depth: int = 0) -> Optional[int]:
+    """The exact integer an integer expression of written whole numbers stands for (``+ − ×``, a power of at most 12, nested
+    remainders and quotients under the encoding's own conditions), else None. Exact integer bookkeeping on written numbers
+    only, as the encoder's pre-checks do; the engine decides every stated relation."""
+    if depth > _MAX_ENCODE_DEPTH:
+        return None
+    rec = lambda n: _int_value(n, depth + 1)  # noqa: E731
+    w = _whole(node)
+    if w is not None:
+        return w
+    if isinstance(node, Neg):
+        a = rec(node.arg)
+        return None if a is None else -a
+    if isinstance(node, BinOp) and node.op in "+-*":
+        a, b = rec(node.left), rec(node.right)
+        if a is None or b is None:
+            return None
+        out = a + b if node.op == "+" else a - b if node.op == "-" else a * b
+        return out if len(str(abs(out))) <= _INT_DIGITS else None
+    if isinstance(node, Pow) and 0 <= node.exp <= 12:
+        a = rec(node.base)
+        if a is None:
+            return None
+        out = a ** node.exp
+        return out if len(str(abs(out))) <= _INT_DIGITS else None
+    if isinstance(node, IntOp):
+        a, b = rec(node.left), _whole(node.right)
+        if a is None or b is None or a < 0 or b <= 0:
+            return None
+        return a % b if node.op == "mod" else a // b
+    return None
+
+
+def _int_ir(node: Node, depth: int = 0) -> dict:
+    """The Int-sorted IR of an integer expression of written whole numbers (:func:`_int_value`'s forms)."""
+    if depth > _MAX_ENCODE_DEPTH:
+        raise EncodeError("ST-LIM-001", "an expression nested too deeply to encode")
+    rec = lambda n: _int_ir(n, depth + 1)  # noqa: E731
+    w = _whole(node)
+    if w is not None:
+        return {"op": "int", "value": str(w)}
+    if isinstance(node, Neg):
+        return {"op": "neg", "arg": rec(node.arg)}
+    if isinstance(node, BinOp) and node.op in "+-*":
+        if node.op == "-":
+            return {"op": "sub", "left": rec(node.left), "right": rec(node.right)}
+        op = "+" if node.op == "+" else "*"
+        return nary("add" if op == "+" else "mul", [rec(n) for n in _flatten(node, op)])
+    if isinstance(node, Pow) and 0 <= node.exp <= 12:
+        if node.exp == 0:
+            return {"op": "int", "value": "1"}
+        base = rec(node.base)
+        return base if node.exp == 1 else nary("mul", [base] * node.exp)
+    if isinstance(node, IntOp):
+        return _int_op_ir(node, depth + 1)
+    raise EncodeError("ST-UNDEC-001", "an integer remainder or quotient of an operand that is not a whole number as written "
+                                      f"('{render(node)[:60]}')")
+
+
+def _int_op_ir(node: IntOp, depth: int = 0) -> dict:
+    """``mod(A, b)`` or ``idiv(A, b)`` (Int): A the left operand's Int IR, its value not negative, b a positive written whole
+    number. A negative operand or another divisor is outside the encodings: languages disagree there (Python's ``%`` and
+    ``//`` round towards minus infinity, C's and Java's towards zero), and the IR admits only a literal divisor."""
+    what = "an integer remainder" if node.op == "mod" else "an integer quotient"
+    b = _whole(node.right)
+    if b is None or b <= 0:
+        raise EncodeError("ST-UNDEC-001", f"{what} whose divisor is not a positive whole number as written ('{render(node.right)[:60]}')")
+    left = _int_ir(node.left, depth)
+    a = _int_value(node.left)
+    if a is None:
+        raise EncodeError("ST-UNDEC-001", f"{what} of an operand that is not a whole number as written ('{render(node.left)[:60]}')")
+    if a < 0:
+        raise EncodeError("ST-UNDEC-001", f"{what} of a negative number (languages round it differently)")
+    return {"op": "mod" if node.op == "mod" else "idiv", "left": left, "right": {"op": "int", "value": str(b)}}
 
 
 def _round_out(x: Fraction, direction: str) -> Fraction:

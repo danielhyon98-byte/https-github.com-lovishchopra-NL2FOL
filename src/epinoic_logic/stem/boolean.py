@@ -6,6 +6,17 @@
   Variables are single capital letters; a glued run of capitals (``AB``) is their AND.
   Precedence, lowest first: equivalence (``=``, ``≡``, ``⇔``) between two expressions, OR,
   XOR, AND, NOT.
+* The gates ``NAND``, ``NOR`` and ``XNOR`` (STEM repair 6, rule ``boolean-gates``; the lexer also
+  reads the Sheffer stroke ``↑`` or ``⊼`` as NAND and the Peirce arrow ``↓`` or ``⊽`` as NOR) are
+  the negations of AND, OR and XOR: ``A NAND B`` is read ``¬(A ∧ B)``, ``A NOR B`` ``¬(A ∨ B)``,
+  ``A XNOR B`` ``¬(A ⊕ B)``. Their order beside another binary operator is no standard, and NAND
+  and NOR are not associative, so a bracket level that holds a gate beside any other binary
+  operator (``A NAND B AND C``, ``A OR B NOR C``, implicit AND too), or two NAND or NOR
+  (``A NAND B NAND C``), has two readings: ST-PARSE-002, never one reading chosen. A chain of
+  XNOR alone is associative and read. NOT binds tighter than every gate (``NOT A NAND B`` is
+  ``¬(¬A ∧ B)``). Before, the gates were outside the grammar: a correct NAND, NOR or XNOR item and
+  a wrong one got the same ST-PARSE-001 (a truth table, ST-UNDEC-001), and ``A ↑ B = …`` was read
+  from ``B``.
 * Boolean context: the profile is Computer Science and the span uses a Boolean operator,
   or every identifier is a single capital letter (with primes) and every number is 0 or 1.
 * Truth tables of at most ``max_truth_table_inputs`` inputs (32 rows): a Markdown table or
@@ -28,9 +39,79 @@ from .nodes import BoolOp, Node, Num, Sym
 from .numbers import exact_integer
 from .parser import ParseIssue
 
-__all__ = ["BoolRelation", "TruthTable", "is_boolean_context", "parse_boolean", "parse_truth_table", "truth_table_shape"]
+__all__ = ["BoolRelation", "TruthTable", "gate_order", "is_boolean_context", "parse_boolean", "parse_truth_table",
+           "truth_table_shape"]
 
 _EQUIV = frozenset({"=", "≡", "⇔"})
+#: STEM repair 6 (rule boolean-gates): each gate and the operator it negates
+_GATES = {"NAND": "and", "NOR": "or", "XNOR": "xor"}
+#: the binary operators of a bracket level, by token: Boolean symbols, the gates, and the arithmetic signs read in Boolean context
+_LEVEL_OPS = {"∧": "AND", "∨": "OR", "⊕": "XOR", "NAND": "NAND", "NOR": "NOR", "XNOR": "XNOR"}
+_LEVEL_SIGNS = {"+": "OR", "·": "AND", "*": "AND"}
+
+
+def gate_order(tokens: "tuple[Token, ...] | list[Token]") -> Optional[str]:
+    """Rule ``boolean-gates`` (STEM repair 6): why ``tokens`` have two readings, or None. Each bracket level (a bracket, an overline
+    group, or the whole) is read for its binary operators: the symbols and words of AND, OR, XOR and the gates, ``+``, ``·`` and
+    ``*``, and the implicit AND of two operands written side by side (``A B``, ``A(B + C)``, ``A NOT B``); a glued run of capitals
+    (``AB``) is one operand. A level that holds NAND, NOR or XNOR beside another operator, or holds two NAND or two NOR, has no
+    standard reading. Only operators are read here; the parser decides everything else."""
+    levels: list[list[str]] = [[]]
+    ends: list[bool] = [False]  # per level: the last token ends an operand (a following operand is an implicit AND)
+
+    def judge(ops: list[str]) -> Optional[str]:
+        gates = [o for o in ops if o in _GATES]
+        if not gates:
+            return None
+        others = sorted({o for o in ops if o not in _GATES})
+        if others or len(set(gates)) > 1:
+            shown = (" and ".join(sorted(set(gates))) + " beside " + " and ".join(others)) if others else " beside ".join(sorted(set(gates)))
+            return f"{shown} without brackets (the order of NAND, NOR and XNOR beside another operator is no standard)"
+        if gates[0] != "XNOR" and len(gates) > 1:
+            return f"{gates[0]} written twice without brackets ({gates[0]} is not associative)"
+        return None
+
+    for t in tokens:
+        k = t.kind
+        if k in ("LPAR", "LGROUP"):
+            if ends[-1]:
+                levels[-1].append("AND")
+            levels.append([])
+            ends.append(False)
+            continue
+        if k in ("RPAR", "RGROUP"):
+            if len(levels) > 1:
+                why = judge(levels.pop())
+                if why:
+                    return why
+                ends.pop()
+            ends[-1] = True
+            continue
+        if k == "BOOL" and t.text in _LEVEL_OPS:
+            levels[-1].append(_LEVEL_OPS[t.text])
+            ends[-1] = False
+            continue
+        if k == "OP" and t.text in _LEVEL_SIGNS:
+            levels[-1].append(_LEVEL_SIGNS[t.text])
+            ends[-1] = False
+            continue
+        if (k == "BOOL" and t.text == "¬") or (k == "UNSUP" and t.text in ("\\overline", "\\bar")):
+            if ends[-1]:
+                levels[-1].append("AND")
+            ends[-1] = False
+            continue
+        if k in ("IDENT", "NUM"):
+            if ends[-1]:
+                levels[-1].append("AND")
+            ends[-1] = True
+            continue
+        if k == "PRIME":
+            ends[-1] = True
+    while levels:
+        why = judge(levels.pop())
+        if why:
+            return why
+    return None
 _TRUE = frozenset({"1", "T", "t", "true", "True", "TRUE"})
 _FALSE = frozenset({"0", "F", "f", "false", "False", "FALSE"})
 
@@ -95,6 +176,11 @@ class _BoolParser:
             raise ValueError(f"more than {self.lim.max_ast_nodes} nodes")
         return node
 
+    def _gate(self, gate: str, left: Node, right: Node) -> Node:
+        """Rule ``boolean-gates`` (STEM repair 6): ``left gate right`` as the negation of the operator the gate negates."""
+        inner = self._count(BoolOp(_GATES[gate], (left, right), _s(left), _e(right)))
+        return self._count(BoolOp("not", (inner,), _s(left), _e(right)))
+
     def expr(self, d: int) -> Node:
         if d > self.lim.max_ast_depth:
             raise ValueError(f"nested deeper than {self.lim.max_ast_depth}")
@@ -105,6 +191,10 @@ class _BoolParser:
                 self.i += 1
                 right = self.xor(d)
                 left = self._count(BoolOp("or", (left, right), _s(left), _e(right)))
+            elif t is not None and t.kind == "BOOL" and t.text == "NOR":
+                self.i += 1
+                right = self.xor(d)
+                left = self._gate("NOR", left, right)
             else:
                 return left
 
@@ -116,6 +206,10 @@ class _BoolParser:
                 self.i += 1
                 right = self.conj(d)
                 left = self._count(BoolOp("xor", (left, right), _s(left), _e(right)))
+            elif t is not None and t.kind == "BOOL" and t.text == "XNOR":
+                self.i += 1
+                right = self.conj(d)
+                left = self._gate("XNOR", left, right)
             else:
                 return left
 
@@ -127,6 +221,10 @@ class _BoolParser:
                 self.i += 1
                 right = self.unary(d)
                 left = self._count(BoolOp("and", (left, right), _s(left), _e(right)))
+            elif t is not None and t.kind == "BOOL" and t.text == "NAND":
+                self.i += 1
+                right = self.unary(d)
+                left = self._gate("NAND", left, right)
             elif t is not None and t.kind in ("IDENT", "LPAR", "UNSUP") and not (t.kind == "UNSUP" and t.text != "\\overline"):
                 right = self.unary(d)  # juxtaposition: AB, A(B + C)
                 left = self._count(BoolOp("and", (left, right), _s(left), _e(right)))
@@ -222,6 +320,11 @@ def parse_boolean(tokens: "tuple[Token, ...] | list[Token]", *, limits: StemLimi
                 issues.append(ParseIssue("ST-PARSE-001", "a Boolean chain with more than one equivalence sign", seg[0].start, seg[-1].end))
             continue
         k = rel_idx[0]
+        why = gate_order(seg[:k]) or gate_order(seg[k + 1:])
+        if why:
+            # rule boolean-gates (STEM repair 6): never one reading chosen where the order of a gate is no standard
+            issues.append(ParseIssue("ST-PARSE-002", f"a Boolean expression with two readings: {why}", seg[0].start, seg[-1].end))
+            continue
         try:
             lp = _BoolParser(tuple(seg[:k]), limits)
             left = lp.expr(0)
@@ -288,10 +391,18 @@ def parse_truth_table(text: str, rows: tuple[tuple[int, int], ...], *, limits: S
     outputs: list[tuple[str, Optional[Node]]] = []
     error = ""
     header_line_start = rows[0][0]
+    code = ""
     for h in header[n_inputs:]:
         k = text.find(h, header_line_start, rows[0][1])
         toks = lex(text, k, k + len(h), mode="plain", cs=computer_science, limits=limits).tokens if k >= 0 else ()
         node: Optional[Node] = None
+        why = gate_order(toks)
+        if why:
+            # rule boolean-gates (STEM repair 6): an output column whose gates have two readings is not read (ST-PARSE-002)
+            if not error:
+                error, code = f"the output column {h!r} has two readings: {why}", "ST-PARSE-002"
+            outputs.append((h, None))
+            continue
         try:
             p = _BoolParser(tuple(toks), limits)
             node = p.expr(0) if toks else None
@@ -317,4 +428,4 @@ def parse_truth_table(text: str, rows: tuple[tuple[int, int], ...], *, limits: S
         table_rows.append(tuple(c in _TRUE for c in cells))
     if len(body) > 2 ** n_inputs + 8:
         error = error or f"more rows than a table of {n_inputs} inputs has"
-    return TruthTable(inputs, tuple(outputs), tuple(table_rows), start, end, error=error, code="ST-UNDEC-001" if error else "")
+    return TruthTable(inputs, tuple(outputs), tuple(table_rows), start, end, error=error, code=(code or "ST-UNDEC-001") if error else "")

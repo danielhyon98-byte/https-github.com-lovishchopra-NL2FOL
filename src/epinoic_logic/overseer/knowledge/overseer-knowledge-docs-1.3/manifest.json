@@ -1,0 +1,112 @@
+{
+  "dossier_version": "1.0",
+  "files": [
+    {
+      "audience": "agent",
+      "bytes": 8717,
+      "path": "01-role-and-trust.md",
+      "sha256": "56f4177d8a033b9556f4d1bfd9144f76243c821a93b28122492a9aa5b97380c8"
+    },
+    {
+      "audience": "agent",
+      "bytes": 117780,
+      "path": "02-dossier.md",
+      "sha256": "4ff6becbc76ab6ac1bd5db8f3265f3be61b6334fe2b4a12421e731d7adb8b354"
+    },
+    {
+      "audience": "agent",
+      "bytes": 79844,
+      "path": "03-inspection.md",
+      "sha256": "c8b4e9dd2c25e00a22af97b91262f15ffada39949da79c2cf99873cab40f00d1"
+    },
+    {
+      "audience": "agent",
+      "bytes": 7091,
+      "path": "04-evidence.md",
+      "sha256": "fd7211b979846f1c2c59a0347f110913e6db2d329ab3f08c9d9dd94380f62244"
+    },
+    {
+      "audience": "agent",
+      "bytes": 7851,
+      "path": "05-verdict-format.md",
+      "sha256": "2ae70f9131172c62fa1050f04de403e3d285561fb7897b471f10feb2528ed50e"
+    },
+    {
+      "audience": "agent",
+      "bytes": 25950,
+      "path": "06-kinds-and-codes.md",
+      "sha256": "cc21520b0a898dba2ddd20d95d548329ac64dfc77516e0f0125cb45257627797"
+    },
+    {
+      "audience": "agent",
+      "bytes": 216217,
+      "path": "07-examples.md",
+      "sha256": "63363744d1f28e18269a7c21377befe969a89d8a2eeb6584f42cc6c06179b843"
+    },
+    {
+      "audience": "agent",
+      "bytes": 5462,
+      "path": "08-never.md",
+      "sha256": "4c837a708d6fa49e2d4a891602cebbd16d8ecbbed59ec14664317f7e36ab93e0"
+    },
+    {
+      "audience": "agent",
+      "bytes": 6642,
+      "path": "09-when-unsure.md",
+      "sha256": "d3ef54c64f7586c6a5eba50afb0c15fc9d126735d0aca5552b72b9d3411bdc73"
+    },
+    {
+      "audience": "deployer",
+      "bytes": 16135,
+      "path": "README.md",
+      "sha256": "20b92a31e2bcc8dc4e5c563718626b60f3523c9be42d9fe3a84ba5397218a555"
+    },
+    {
+      "audience": "machine",
+      "bytes": 32859,
+      "path": "dossier.schema.json",
+      "sha256": "dda7282d6f560ddf2ecaec10a1e05938473211d2433b3d7c92cfd676cea3425f"
+    },
+    {
+      "audience": "agent",
+      "bytes": 19982,
+      "path": "master_prompt.txt",
+      "sha256": "8707a8c600faff953cf3e11becd1ff16014ca6bddfd00f2fd43de3da5ec0e57a"
+    },
+    {
+      "audience": "machine",
+      "bytes": 8999,
+      "path": "verdict.schema.json",
+      "sha256": "0c20efa732fa789381a8450da95fdfdb3c4de2ed9ab8969ba1a720778a8480e1"
+    }
+  ],
+  "manifest_version": "1.0",
+  "pack_name": "overseer-knowledge-docs",
+  "pack_sha256": "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
+  "pack_version": "1.3",
+  "system_compositions": {
+    "core": "6692fbfd4374c5e5d1b73fa26c215a9a33fd51e78ed71cef45639bc8a36def90",
+    "core+stem": "60c35232954990d2f50473d44db45a7d5e6da90a521def949e9cc9b8ebcbb08a",
+    "core+stem+translations": "9f0d232b40fa5b8d01740768f801163dfc331903c3058770ebbc6b5d09222fb6",
+    "core+translations": "e4ccc874b77a0c7c750f05037e0155537c119b7084aace4ced84124190cdfcc3"
+  },
+  "system_modules": [
+    "stem",
+    "translations"
+  ],
+  "system_order": [
+    "master_prompt.txt",
+    "01-role-and-trust.md",
+    "02-dossier.md",
+    "03-inspection.md",
+    "04-evidence.md",
+    "05-verdict-format.md",
+    "06-kinds-and-codes.md",
+    "07-examples.md",
+    "08-never.md",
+    "09-when-unsure.md"
+  ],
+  "system_separator": "===== {path} =====",
+  "system_sha256": "9f0d232b40fa5b8d01740768f801163dfc331903c3058770ebbc6b5d09222fb6",
+  "verdict_contract": "overseer_verdict/1.0"
+}

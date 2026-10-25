@@ -31,6 +31,14 @@ ROLE_CONTRACTS: dict[str, frozenset[AgentRole]] = {
     "synthesis": frozenset({AgentRole.COMBINATOR}),
     "integrity_report": frozenset({AgentRole.OVERSEER, AgentRole.VERIFIER}),
     "retrieval_result": frozenset({AgentRole.RETRIEVAL}),
+    # The Overseer's signed transfer audit (overseer/audit.py) and an overseer agent's verdict, wrapped and signed by the
+    # verdict intake. Both come from the Overseer role only; trust comes from the key that signed them (audit key versus
+    # intake key), the contract and the schema, never from the role alone.
+    "overseer_audit": frozenset({AgentRole.OVERSEER}),
+    "overseer_verdict": frozenset({AgentRole.OVERSEER}),
+    # The consolidated response to one input several agents answered (overseer/consolidate.py): produced only by the
+    # infrastructure's consolidation and signed under its own derived key; no specialist, combinator or router sends one.
+    "consolidated_response": frozenset({AgentRole.OVERSEER}),
 }
 
 
@@ -105,6 +113,12 @@ class MessageLog:
 
     def get(self, message_id: str) -> Optional[AgentMessage]:
         return self._by_id.get(message_id)
+
+    def messages(self) -> tuple[AgentMessage, ...]:
+        """Every accepted envelope in acceptance order (the first acceptance of each message id; a replayed or
+        re-headed duplicate is never stored). A tuple, so a reader cannot reorder or drop entries of the log; the
+        envelopes are the log's own objects."""
+        return tuple(self._by_id.values())
 
 
 def bind_payload(msg: AgentMessage, payload_obj: BaseModel) -> list[IntegrityFinding]:

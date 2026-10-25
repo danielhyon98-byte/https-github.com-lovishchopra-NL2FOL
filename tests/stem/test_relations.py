@@ -173,8 +173,12 @@ def test_dimension_and_unit_findings():
 
 
 @pytest.mark.parametrize("text, profile, reason", [
-    ("∫₀¹ x dx = 1/2", "mathematics_aa", "an integral"),
-    ("d/dx (x²) = 2x", "mathematics_aa", "a derivative"),
+    # STEM repair 10 (rule definite-integral): a definite integral of a polynomial is checked now ('∫₀¹ x dx = 1/2' holds, tests/stem/
+    # test_stem_repair10.py); an integral of anything else stays outside the encodings
+    ("∫₀¹ √x dx = 2/3", "mathematics_aa", "an integral"),
+    # STEM repair 11 (rule derivative): a derivative of a polynomial is checked now by the power rule ('d/dx (x²) = 2x' holds, '= x' fails,
+    # tests/stem/test_stem_repair11.py); a derivative of anything else stays outside the encodings
+    ("d/dx (sin x) = cos x", "mathematics_aa", "a derivative"),
     ("3x = 12 → x = 4", "mathematics_aa", "an arrow"),
 ])
 def test_relations_outside_the_encodings_are_undecided(text, profile, reason):

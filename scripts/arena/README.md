@@ -150,8 +150,8 @@ Every STEM injection moves the leading significant digit of one figure by 3, the
 (`10^(−8.2)` → `10^(−5.2)`): the harness never steers an injection around a reading of the checks. An earlier version
 moved such an exponent's first decimal digit instead (`10^(−8.5)`), because a change of the leading digit is a factor of
 exactly 10³ that the SI reading of a stated unit absorbed; that raised the count while the recorded fault still passed.
-It is withdrawn: the injection is the base one, and the checks name it at its cause (`docs/STEM_DESIGN.md`, section 21,
-items 1 and 7, and 21.3). The marker leaves a part label out ("(b) "), as every claim does.
+It is withdrawn: the injection is the base one, and the checks name it at its cause (`docs/STEM_DESIGN.md`, section 33,
+items 1 and 7, and 33.3). The marker leaves a part label out ("(b) "), as every claim does.
 
 ## Qualified runs
 

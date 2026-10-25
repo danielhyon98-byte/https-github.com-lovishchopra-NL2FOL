@@ -1538,11 +1538,13 @@
       "class": "wrong_derivative",
       "step": "f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2",
       "expected_codes": [
-       "ST-UNDEC-001"
+       "INT-SUBJ-001"
       ],
-      "check_kinds": [],
-      "severity": "warning",
-      "note": "The derivative of 3x² + 2x is 6x + 2 (the power rule multiplies by the exponent 2). Calculus is outside the encodings, so the design names the relation undecided with the reason 'derivative' rather than deciding it. f′(1) = 8, not 5; the arithmetic 3(1) + 2 = 5 holds as written. [computed: d/dx(3x² + 2x) = 6x + 2, stated 3x + 2]"
+      "check_kinds": [
+       "alg"
+      ],
+      "severity": "error",
+      "note": "The derivative of 3x² + 2x is 6x + 2 (the power rule multiplies by the exponent 2). Since STEM repair 11 the STEM pack forms the derivative of a polynomial by the power rule and sets the stated one against it (rule derivative), so the wrong derivative fails (INT-SUBJ-001); before, calculus was outside the encodings and the relation was named undecided with the reason 'derivative'. f′(1) = 8, not 5; the arithmetic 3(1) + 2 = 5 holds as written. [computed: d/dx(3x² + 2x) = 6x + 2, stated 3x + 2]"
      }
     ],
     "correct_steps": [
@@ -3631,11 +3633,13 @@
       "class": "wrong_derivative",
       "step": "f'(x) = \\frac{d}{dx}(3x^2 + 2x) = 3x + 2",
       "expected_codes": [
-       "ST-UNDEC-001"
+       "INT-SUBJ-001"
       ],
-      "check_kinds": [],
-      "severity": "warning",
-      "note": "d/dx(3x² + 2x) = 6x + 2; a derivative is outside the encodings, so the relation is named undecided",
+      "check_kinds": [
+       "alg"
+      ],
+      "severity": "error",
+      "note": "d/dx(3x² + 2x) = 6x + 2 by the power rule; stated 3x + 2 (STEM repair 11, rule derivative: decided; before, a derivative was outside the encodings and the relation was named undecided)",
       "proof": {
        "rule": "see note",
        "fails": true
@@ -16875,18 +16879,11 @@
    "gold": {
     "faults": [],
     "correct_steps": [
+     "f′(x) = 3x² − 2",
      "3 × 2² − 2 = 10"
     ],
     "affected_steps": [],
-    "undecided": [
-     {
-      "step": "f′(x) = 3x² − 2",
-      "expected_codes": [
-       "ST-UNDEC-001"
-      ],
-      "reason": "derivative"
-     }
-    ]
+    "undecided": []
    }
   },
   {
@@ -16930,17 +16927,11 @@
       }
      }
     ],
-    "correct_steps": [],
+    "correct_steps": [
+     "f′(x) = 3x² − 2"
+    ],
     "affected_steps": [],
-    "undecided": [
-     {
-      "step": "f′(x) = 3x² − 2",
-      "expected_codes": [
-       "ST-UNDEC-001"
-      ],
-      "reason": "derivative"
-     }
-    ]
+    "undecided": []
    }
   },
   {
@@ -16960,18 +16951,12 @@
    "gold": {
     "faults": [],
     "correct_steps": [
+     "\\int_0^2 3x^2\\,dx = [x^3]_0^2",
+     "[x^3]_0^2 = 8 - 0",
      "8 - 0 = 8"
     ],
     "affected_steps": [],
-    "undecided": [
-     {
-      "step": "\\int_0^2 3x^2\\,dx",
-      "expected_codes": [
-       "ST-UNDEC-001"
-      ],
-      "reason": "integral"
-     }
-    ]
+    "undecided": []
    }
   },
   {
@@ -21206,19 +21191,12 @@
    "gold": {
     "faults": [],
     "correct_steps": [
+     "f′(x) = 3x² − 2",
      "f′(2) = 3 × 2² − 2",
      "3 × 2² − 2 = 10"
     ],
     "affected_steps": [],
-    "undecided": [
-     {
-      "step": "f′(x) = 3x² − 2",
-      "expected_codes": [
-       "ST-UNDEC-001"
-      ],
-      "reason": "derivative"
-     }
-    ]
+    "undecided": []
    }
   },
   {
@@ -21254,19 +21232,13 @@
       }
      }
     ],
-    "correct_steps": [],
+    "correct_steps": [
+     "f′(x) = 3x² − 2"
+    ],
     "affected_steps": [
      "3 × 3² − 2 = 25"
     ],
-    "undecided": [
-     {
-      "step": "f′(x) = 3x² − 2",
-      "expected_codes": [
-       "ST-UNDEC-001"
-      ],
-      "reason": "derivative"
-     }
-    ]
+    "undecided": []
    }
   }
  ]

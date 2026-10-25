@@ -43,8 +43,8 @@ from typing import Optional
 from .numbers import SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, is_ascii_digit, superscript_int
 
 __all__ = [
-    "BASE_NAMES", "DIMENSIONLESS", "Dimension", "GLUED_UNITS", "PREFIXES", "UNITS", "UnitAtom", "UnitDef", "UnitExpr", "UnitReading",
-    "dimension_name", "is_unit_atom", "lookup_atom", "parse_unit", "unit_dimension", "unit_group",
+    "BASE_NAMES", "DIMENSIONLESS", "Dimension", "ENGLISH_NOT_UNITS", "GLUED_UNITS", "GREEK_PREFIXABLE", "PREFIXES", "UNITS", "UnitAtom", "UnitDef", "UnitExpr", "UnitReading",
+    "dimension_name", "english_word_atom", "is_unit_atom", "lookup_atom", "parse_unit", "prefixed_greek_unit", "unit_dimension", "unit_group",
 ]
 
 BASE_NAMES = ("m", "kg", "s", "A", "K", "mol", "cd")
@@ -177,6 +177,8 @@ def _units() -> dict[str, UnitDef]:
     add("″", "arc second", _ANGLE, None, prefixable=False, angle_degrees=Fraction(1, 3600))
     add("%", "per cent", DIMENSIONLESS, Fraction(1, 100), prefixable=False)
     add("ppm", "part per million", DIMENSIONLESS, Fraction(1, 10 ** 6), prefixable=False)
+    add("count", "count (a number of events or items)", DIMENSIONLESS, Fraction(1), prefixable=False)  # 'counts min⁻¹', 'counts per minute'
+
     add("°C", "degree Celsius", _TEMP, Fraction(1), prefixable=False, offset=Fraction(27315, 100), affine=True)
     add("°F", "degree Fahrenheit", _TEMP, Fraction(5, 9), prefixable=False, offset=Fraction(45967, 100), affine=True)
     add("M", "molar", _d(m=-3, mol=1), Fraction(1000), prefixable=False)  # mol dm⁻³; read only per profile (see parse_unit)
@@ -201,6 +203,7 @@ for _sym, _names in (
 _WORDS["hertz"] = "Hz"
 _WORDS["kelvins"] = "K"
 _WORDS["percent"] = "%"
+_WORDS["counts"] = "count"  # a count rate: '1600 counts min⁻¹' (STEM repair 1: an unread word ended the maths span)
 _WORDS["degrees"] = "°"
 _WORDS["degree"] = "°"
 
@@ -285,6 +288,17 @@ class UnitExpr:
         return None
 
 
+#: English words that a rare prefix reads as a unit atom ('as' an attosecond, 'am' an attometre, 'at' an attotonne in ESS):
+#: the table keeps the atoms, but a word written apart after a number ('x = 5 as before', '10 am', '5 at D') is never read as a
+#: unit there (STEM repair 1, the unit reading's class of the prefixed-ohm repair: :func:`english_word_atom`)
+ENGLISH_NOT_UNITS = frozenset({"as", "am", "at"})
+
+
+def english_word_atom(word: str) -> bool:
+    """A letter run that is an English word the table would read as a rarely prefixed unit (:data:`ENGLISH_NOT_UNITS`)."""
+    return word in ENGLISH_NOT_UNITS
+
+
 def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[tuple[UnitDef, str]]:
     """Every (unit, prefix) reading of a letter run, best first: an exact symbol, then prefix +
     symbol (longest prefix first). The bare ``M`` and the tonne follow the profile."""
@@ -365,6 +379,20 @@ def _glued_split(word: str, tonne: bool) -> Optional[list[tuple[UnitDef, str, st
 def lookup_atom(word: str, profile_key: str = "", *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[UnitAtom]:
     """Readings of one letter run as a single unit atom (power 1): empty when the run is no unit."""
     return [UnitAtom(word, u, p) for u, p in _resolve(word, profile_key, bare_m, tonne)]
+
+
+#: unit symbols of the table that are not Latin letters and take an SI prefix (the ohm). The lexer reads a Greek letter as
+#: a token of its own, so a Latin prefix written right before one ('kΩ', 'MΩ', 'mΩ', 'GΩ') is two tokens that the parser
+#: and the span scanner join into one unit atom (:func:`prefixed_greek_unit`); the micro sign before a Latin unit ('μF')
+#: is the other way round and is joined the same way.
+GREEK_PREFIXABLE = frozenset(sym for sym, u in UNITS.items() if u.prefixable and not sym.isascii())
+
+
+def prefixed_greek_unit(prefix: str, symbol: str) -> bool:
+    """Whether a Latin SI prefix written right before a non-Latin unit symbol is one prefixed unit atom: ``k`` + ``Ω`` is
+    the kilo-ohm, ``M`` + ``Ω`` the megaohm (never the molar ``M``: a prefix is read only on a unit that takes one), ``m``
+    + ``Ω`` the milliohm. Table lookups only; nothing is evaluated."""
+    return symbol in GREEK_PREFIXABLE and prefix.isascii() and prefix in PREFIXES and bool(_resolve(prefix + symbol))
 
 
 def is_unit_atom(word: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, glued: bool = True) -> bool:

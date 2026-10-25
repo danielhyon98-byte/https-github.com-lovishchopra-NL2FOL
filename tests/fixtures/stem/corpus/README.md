@@ -180,7 +180,9 @@ Each of these is correct work that a careless reading would flag:
   - `stem-math-003`: dividing an inequality by −2.
 - **Outside the encodings.**
   - `stem-math-008`, `stem-math-010`, `stem-math-011`, `stem-math-013`: symbolic and decimal
-    powers, derivatives and integrals. These are named undecided, never errors.
+    powers, derivatives and integrals. These are named undecided, never errors. Since STEM repair 11
+    the derivative of a polynomial is decided by the power rule (`stem-math-011`'s derivative holds,
+    `stem-math-012`'s wrong one fails, INT-SUBJ-001).
   - `stem-chem-010`: Σ in a stated definition.
 - **Exact answers.**
   - `stem-math-004`, `stem-math-017`: surds.

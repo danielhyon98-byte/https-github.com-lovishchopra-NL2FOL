@@ -17,6 +17,7 @@ are read as before.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Optional
 
 from ..translate.contracts import ClaimRecord, SpecialistReport
@@ -109,9 +110,44 @@ def _fmt(num: int, den: int = 1) -> str:
     return f"{float(v):.4f}"
 
 
-def _word_figures(text: str) -> list[tuple[int, int, str, Optional[str], str]]:
-    """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``."""
+#: Small number words (two to ten, lower case) in a quantity context the general reader leaves to prose: after a word of
+#: comparison or measure ("under nine", "to ten hours", "aged twelve" is a teen and read already), never before "of".
+_SMALL_WORDS = ("two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+_QUANTITY_PRE = ("under", "over", "aged", "than", "to", "at", "about", "around", "nearly", "almost", "only", "exactly", "just", "roughly",
+                 "approximately", "below", "above", "within", "least", "most")
+
+
+_SMALL_AFTER_RE = re.compile(rf"\b(?:{_alt(_QUANTITY_PRE)})\s+(?P<anum>(?-i:{_alt(_SMALL_WORDS)}))\b(?!-)(?!\s+of\b)", re.IGNORECASE)
+
+
+#: For the pairing reader only: a small number word before a plural noun ("ten hours", "nine children"), unless a
+#: determiner makes it prose ("the two poems", "both"): pairing compares figures the sources state, so a count the
+#: sources never state is never compared.
+_SMALL_BEFORE_NOUN_RE = re.compile(rf"(?<!\bthe )(?<!\bthese )(?<!\bthose )(?<!\bits )(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\bour )"
+                                   rf"\b(?P<bnum>(?-i:{_alt(_SMALL_WORDS)}))(?=\s+[a-z]{{3,}}s\b)")
+
+
+_SMALL_VALUES = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def _word_figures(text: str, *, pairing: bool = False) -> list[tuple[int, int, str, Optional[str], str]]:
+    """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``. Small number
+    words (two to ten) count after a word of comparison or measure ("under nine"); with ``pairing`` also before a plural
+    noun ("ten hours"), the reading the pairing comparison uses."""
     out: list[tuple[int, int, str, Optional[str], str]] = []
+    taken: list[tuple[int, int]] = []
+    for m in _WORD_FIGURE_RE.finditer(text):
+        taken.append((m.start(), m.end()))
+    extra: list[tuple[int, int, str, Optional[str], str]] = []
+    for rx, group in ((_SMALL_AFTER_RE, "anum"),) + (((_SMALL_BEFORE_NOUN_RE, "bnum"),) if pairing else ()):
+        for m in rx.finditer(text):
+            a, b = m.start(group), m.end(group)
+            if any(x < b and a < y for x, y in taken):
+                continue
+            taken.append((a, b))
+            extra.append((a, b, str(_SMALL_VALUES[m.group(group)]), None, m.group(group)))
     for m in _WORD_FIGURE_RE.finditer(text):
         g = m.groupdict()
         if g["half"]:
@@ -131,13 +167,14 @@ def _word_figures(text: str) -> list[tuple[int, int, str, Optional[str], str]]:
             out.append((m.start(), m.end(), _fmt(num, den), None, m.group(0)))
         elif g["hnum"] or g["lnum"]:
             out.append((m.start(), m.end(), _fmt(_small_value(g["hnum"] or g["lnum"])), None, m.group(0)))
-    return out
+    return sorted(out + extra)
 
 
 def _words_as_digits(text: str) -> str:
     """``text`` with its figures written in words rewritten as digits ("close to a million" -> "close to 1 million",
-    "roughly a tenth" -> "roughly 0.1"), so the pairing and dating readers see them as figures."""
-    figs = _word_figures(text)
+    "roughly a tenth" -> "roughly 0.1", "under nine" -> "under 9", "ten hours" -> "10 hours"), so the pairing and dating
+    readers see them as figures."""
+    figs = _word_figures(text, pairing=True)
     if not figs:
         return text
     out, cursor = [], 0
@@ -220,6 +257,56 @@ def light_stem(word: str) -> str:
     if w.endswith("e") and len(w) > 4:
         w = w[:-1]
     return w
+
+
+def _undouble(stem: str) -> str:
+    """A stem with a doubled final consonant undone ("bann" from "banned" -> "ban", "stopp" -> "stop")."""
+    if len(stem) >= 4 and stem[-1] == stem[-2] and stem[-1] not in "aeiouls":
+        return stem[:-1]
+    return stem
+
+
+def _stem_hit(stem: str, words: set[str]) -> bool:
+    """Whether a light stem occurs among ``words`` (light stems) loosely: equal once a doubled final consonant is undone,
+    or one a prefix of the other with five letters or more ("employ" / "employment"), so a reworded event ("the ban on
+    employing" for "banned the employment") is still the same event."""
+    a = _undouble(stem)
+    for w in words:
+        b = _undouble(w)
+        if a == b or (min(len(a), len(b)) >= 5 and (a.startswith(b) or b.startswith(a))):
+            return True
+    return False
+
+
+#: Characters of mathematical notation: a whitespace-delimited chunk holding one is part of an expression, not prose.
+#: The hyphen and the en dash are not among them (ranges and compounds in prose: "1914–1918", "forty-five").
+_MATH_CHARS = frozenset("=<>≤≥≈≠±×÷∫∮√∑∏∞−^*|⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉")
+
+
+#: A chunk that is only a (signed, bracketed) number with trailing punctuation: a negative figure of prose ("−2.1 per
+#: cent") is not an expression by itself.
+_SIGNED_NUMBER_RE = re.compile(r"^[(\[]?[−-]?\d+(?:[.,]\d+)*[)\]%.,;:!?]*$")
+
+
+def _mask_math(text: str) -> str:
+    """``text`` with its mathematical expressions replaced by a clause break: every whitespace-delimited chunk holding an
+    operator, a relation, an integral or a superscript or subscript digit (``0 ≤ t ≤ 3``, ``3t(2 − t)``, ``∫₀² v dt``), and
+    every numeral chunk standing next to one. The numbers and symbols inside a worked solution are terms of an
+    expression, not words of a sentence, so the name-substitution reader (:func:`_sentences_of`) never reads them as
+    names or acts (rule ``math-notation``); the pairing readers read calculations with :func:`_equation_clauses`."""
+    parts = re.split(r"(\s+)", text)
+    words = parts[0::2]
+    if not any(ch in _MATH_CHARS for w in words for ch in w):
+        return text
+    math = [any(ch in _MATH_CHARS for ch in w) and not _SIGNED_NUMBER_RE.match(w) for w in words]
+    masked = list(math)
+    for i, w in enumerate(words):
+        if not math[i] and any(ch.isdigit() for ch in w) and ((i > 0 and math[i - 1]) or (i + 1 < len(words) and math[i + 1])):
+            masked[i] = True
+    for i in range(len(words)):
+        if masked[i]:
+            parts[2 * i] = ";"
+    return "".join(parts)
 
 
 #: Superscript and subscript digits and signs ("min⁻¹", "10³", "CO₂", "(1/2)⁴"): the exponent or index of a unit or a
@@ -510,7 +597,9 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
     P, where the sources pair P only with figure B of the same kind (never with A), the synthesis does not state B with
     P, and A has left every event the sources pair it with ("The turning point was 1932" where the sources say "The
     turning point was 1930" and state 1932 as "the strongest counter-case"). A figure the sources state with no event
-    word, or one that keeps one of its own events, is a merge, not a re-pairing."""
+    word, or one that keeps one of its own events, is a merge, not a re-pairing. An event word the sources also pair with
+    a competing figure ("Act", "Factory" of two Acts) is shared, not one of the figure's own events: keeping a shared noun
+    while the verb moves is still a re-pairing (rule ``shared-partner``)."""
     moved: dict[tuple[str, tuple[str, ...]], list[str]] = {}
     for a, p in sorted(syn_pairs):
         if not p.startswith("w:") or p[2:] in _MONTH_STEMS or a not in src_figures or a in exchanged or (a, p) in src_pairs:
@@ -523,7 +612,8 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
         if not holders or any((b, p) in syn_pairs for b in holders):
             continue
         own = _event_words(src_pairs, a)
-        if not own or own & _event_words(syn_pairs, a):
+        distinct = own - set().union(*(_event_words(src_pairs, b) for b in holders))
+        if not own or distinct & _event_words(syn_pairs, a):
             continue
         moved.setdefault((a, holders), []).append(p)
     out: list[str] = []
@@ -534,7 +624,388 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
     return out
 
 
-def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
+#: Sentence ends (and semicolons) of the text the substitution rule reads one sentence at a time.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+")
+
+
+def _substitutions(synthesized_text: str, syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[str, str]], kinds: dict[str, str],
+                   src_kinds: dict[str, str], src_figures: set[str], reported: set[str], surface: dict[str, str]) -> list[str]:
+    """A figure standing in another figure's place (rule ``substitution``): in a sentence of the synthesis, year A stands
+    with none of the event words the sources give A alone and with event words the sources give year B alone, while B is
+    left out of the synthesis ("The ban ..., which the Factory Act introduced, came in 1847", or "The Factory Act of 1847
+    banned ... The Ten Hours Act of 1847 followed it", where the sources say the 1833 Act banned and the 1847 Act
+    followed it). Read one sentence at a time, so a year stated twice, once with its own events and once with another
+    year's, is still caught. Event words are matched loosely (:func:`_stem_hit`: "the ban on employing" is "banned the
+    employment"). A figure whose own events are all shared with another is never held to this, nor one the sources
+    state with no event word."""
+    plain = _plain_for_pairs(synthesized_text)
+    sentences = [{light_stem(w) for w in _words(x)} | {"#" + t for t in _PAIR_TOKEN_RE.findall(x) if _is_numeral(t)}
+                 for x in _SENTENCE_SPLIT_RE.split(plain) if x.strip()]
+    syn_figs = {a for a, _ in syn_pairs} | set(kinds)
+    out: list[str] = []
+    for a in sorted(syn_figs):
+        if a not in src_figures or a in reported or kinds.get(a, src_kinds.get(a)) != "year":
+            continue
+        others = {b for b in src_figures if b != a and src_kinds.get(b) == "year" and b not in syn_figs}
+        if not others:
+            continue
+        own = _event_words(src_pairs, a)
+        distinct_a = own - set().union(*(_event_words(src_pairs, b) for b in src_figures if b != a and src_kinds.get(b) == "year"))
+        if not distinct_a:
+            continue
+        found = None
+        for words in sentences:
+            if "#" + a not in words or any(_stem_hit(p[2:], words) for p in distinct_a):
+                continue
+            for b in sorted(others):
+                distinct_b = {p for p in _event_words(src_pairs, b) - own}
+                taken = sorted(p for p in distinct_b if _stem_hit(p[2:], words))
+                if taken:
+                    found = (b, taken)
+                    break
+            if found:
+                break
+        if found:
+            b, taken = found
+            shown = ", ".join(_partner_label(p, surface) for p in taken)
+            out.append(f"'{a}' stands in the place of '{b}': the synthesis states {shown}, which the cited sources state only with '{b}', with '{a}' and "
+                       f"without '{b}', and none of the events the sources give '{a}' ({', '.join(_partner_label(p, surface) for p in sorted(distinct_a))}) (re-paired)")
+    return out
+
+
+#: Words that lead a run of capitalised words without being part of the name ("The Factory Act", "In 1833").
+_NAME_LEAD_STOP = frozenset(("the a an on in at by of for from to and or but nor this that these those its his her their our after before during since "
+                             "when while with as both each every under over between").split())
+
+
+#: Words that open a relative clause; ", which ... ," between a name and what follows is parenthetical.
+_RELATIVE_WORDS = frozenset("which who whom whose where".split())
+
+
+_SENTENCE_MARKS = frozenset(".!?;")
+
+
+def _is_cap_word(tok: str) -> bool:
+    return len(tok) >= 2 and tok[0].isupper() and not _is_numeral(tok) and tok not in ",;:().!?"
+
+
+def _name_runs(sent: list[str]) -> list[tuple[int, int, tuple[str, ...], str]]:
+    """``(start, end, key, surface)`` for every name of one sentence (rule ``name-partner``): a run of capitalised words,
+    its leading determiner or preposition dropped ("The Ten Hours Act" -> "Ten Hours Act"); a single capitalised word
+    opening the sentence is ordinary prose, not a name. ``key`` is the light-stemmed words."""
+    first = next((k for k, t in enumerate(sent) if t not in ",;:()"), 0)
+    out: list[tuple[int, int, tuple[str, ...], str]] = []
+    i = 0
+    while i < len(sent):
+        if not _is_cap_word(sent[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(sent) and _is_cap_word(sent[j]):
+            j += 1
+        s = i
+        while s < j and sent[s].casefold() in _NAME_LEAD_STOP:
+            s += 1
+        if s < j and not (i == first and j - i == 1):
+            words = sent[s:j]
+            out.append((s, j, tuple(light_stem(w.casefold()) for w in words), " ".join(words)))
+        i = j
+    return out
+
+
+@lru_cache(maxsize=8192)
+def _name_partners(text: str) -> tuple[frozenset, frozenset, tuple, tuple]:
+    """``(bound, governed, kinds, surface)`` of ``text`` (rule ``name-partner``). ``bound``: ``(figure, name)`` for a name
+    stated with its figure ("the Ten Hours Act of 1847", "the Factory Act (1833)", "the 1833 Factory Act"). ``governed``:
+    ``(quantity, name)`` for a quantity stated after a name in the same sentence, the nearest one, a parenthetical
+    relative clause (", which followed it,") and a bracket skipped ("the Ten Hours Act of 1847, which followed it, set the
+    age at nine": nine is the Ten Hours Act's). ``kinds``: each figure's kind; ``surface``: each name key's words."""
+    toks = _PAIR_TOKEN_RE.findall(_plain_for_pairs(text))
+    sentences: list[list[str]] = [[]]
+    for t in toks:
+        if t in _SENTENCE_MARKS:
+            sentences.append([])
+        else:
+            sentences[-1].append(t)
+    bound: set[tuple[str, tuple[str, ...]]] = set()
+    governed: set[tuple[str, tuple[str, ...]]] = set()
+    kinds: dict[str, str] = {}
+    surface: dict[tuple[str, ...], str] = {}
+    for sent in sentences:
+        if not sent:
+            continue
+        names = _name_runs(sent)
+        starts = {s: (e, key) for s, e, key, _w in names}
+        for s, e, key, words in names:
+            surface.setdefault(key, words)
+            if e + 1 < len(sent) and sent[e].casefold() in ("of", "in", "(") and _is_numeral(sent[e + 1]):
+                bound.add((sent[e + 1], key))
+            if s >= 2 and _is_numeral(sent[s - 1]) and sent[s - 2].casefold() in ("the", "a", "an", "its", "their"):
+                bound.add((sent[s - 1], key))
+        current: Optional[tuple[str, ...]] = None
+        k = 0
+        while k < len(sent):
+            tok = sent[k]
+            if tok == "(":
+                close = next((x for x in range(k + 1, len(sent)) if sent[x] == ")"), None)
+                if close is not None:
+                    k = close + 1
+                    continue
+            if tok == "," and k + 1 < len(sent) and sent[k + 1].casefold() in _RELATIVE_WORDS:
+                close = next((x for x in range(k + 2, len(sent)) if sent[x] == ","), None)
+                if close is not None:  # a relative clause closed by a comma is parenthetical: the name before it governs after it
+                    k = close + 1
+                    continue
+            if k in starts:
+                current = starts[k][1]
+                k = starts[k][0]
+                continue
+            if _is_numeral(tok):
+                kind = _figure_kind(sent, k)
+                kinds.setdefault(tok, kind)
+                if kind == "quantity" and current is not None:
+                    governed.add((tok, current))
+            k += 1
+    return frozenset(bound), frozenset(governed), tuple(sorted(kinds.items())), tuple(sorted(surface.items()))
+
+
+def _name_match(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """Two names are the same when the words of one are among the other's ("Act" and "Factory Act")."""
+    sa, sb = set(a), set(b)
+    return sa <= sb or sb <= sa
+
+
+def _renamed_figures(synthesized_text: str, source_texts: list[str], context_texts: tuple[str, ...] | list[str], src_figures: set[str]) -> list[str]:
+    """Rule ``name-partner``: a figure stated with (or, for a quantity, under) a name the cited sources and reports never
+    state with it, a name they state with another figure of the same kind, while they state the figure itself with
+    another name ("The Ten Hours Act of 1833 banned ...", where the reports state the Factory Act of 1833 and the Ten
+    Hours Act of 1847; "the Ten Hours Act of 1847, which followed it, set the age at nine", where the sources state
+    "nine" under the Factory Act). A name no source states with any figure, and a name that is part of the figure's own
+    name ("the Act of 1833"), are never re-pairings. An exchange of names that keeps every figure's verb is one."""
+    syn_bound, syn_gov, syn_kinds, syn_surface = _name_partners(synthesized_text)
+    if not syn_bound and not syn_gov:
+        return []
+    ref_bound: set = set()
+    ref_gov: set = set()
+    ref_kinds: dict[str, str] = {}
+    surface = dict(syn_surface)
+    for t in list(source_texts) + list(context_texts):
+        b, g, k, sf = _name_partners(t)
+        ref_bound |= b
+        ref_gov |= g
+        for fig, kind in k:
+            ref_kinds.setdefault(fig, kind)
+        for key, words in sf:
+            surface.setdefault(key, words)
+    kinds = dict(syn_kinds)
+    src_gov = set()
+    for t in source_texts:
+        src_gov |= _name_partners(t)[1]
+    out: list[str] = []
+    for a, name in sorted(syn_bound):
+        if a not in src_figures or (a, name) in ref_bound:
+            continue
+        own = {m for f, m in ref_bound if f == a}
+        if not own or any(_name_match(name, m) for m in own):
+            continue
+        holders = sorted({f for f, m in ref_bound if f != a and ref_kinds.get(f) == kinds.get(a, ref_kinds.get(a)) and _name_match(name, m)})
+        if holders:
+            out.append(f"'{a}' is stated with the name '{surface.get(name, ' '.join(name))}', which the cited sources and reports state only with "
+                       f"{', '.join(repr(h) for h in holders)}, and they state '{a}' with {', '.join(repr(surface.get(m, ' '.join(m))) for m in sorted(own))} (re-paired name)")
+    for a, name in sorted(syn_gov):
+        if a not in src_figures or (a, name) in src_gov:
+            continue
+        own = {m for f, m in src_gov if f == a}
+        if not own or any(_name_match(name, m) for m in own):
+            continue
+        others = sorted({f for f, m in ref_bound if f != a and _name_match(name, m)})
+        if others:
+            out.append(f"'{a}' is stated under the name '{surface.get(name, ' '.join(name))}', which the cited sources and reports state with "
+                       f"{', '.join(repr(h) for h in others)}, where the cited sources state '{a}' under {', '.join(repr(surface.get(m, ' '.join(m))) for m in sorted(own))} (re-paired name)")
+    return out
+
+
+# --- who is named (INT-LEDGER-032, rule ``name-substitution``) -------------------------------------------------------
+#: Transformations whose claim may name only the people, places and bodies its cited sources name: they carry, restate
+#: or combine the sources' content ('generalized' and 'narrowed' widen or cut it and are not held to the sources' names).
+_NAME_HELD_LABELS = frozenset({"carried", "paraphrased", "merged"})
+
+
+#: Capitalised words that name no actor: months, weekdays and the first-person pronoun.
+_NOT_NAME_WORDS = frozenset(light_stem(w) for w in (*_MONTHS, *"monday tuesday wednesday thursday friday saturday sunday i".split()))
+
+
+#: Titles and offices that a paraphrase may add to, or drop from, a name the sources state ("President Kennedy" for
+#: "Kennedy"): never the part of a name that identifies who is meant.
+_TITLE_WORDS = frozenset(light_stem(w) for w in ("mr mrs ms miss dr sir lady lord dame president vice king queen prince princess emperor empress tsar czar kaiser pope "
+                          "saint st general gen admiral captain colonel major lieutenant marshal chancellor premier prime minister secretary senator "
+                          "governor chairman chairwoman earl duke duchess baron baroness count countess viscount marquess archbishop bishop cardinal "
+                          "reverend rev professor prof judge justice mayor sheikh sultan shah chief commander").split())
+
+
+#: Personal pronouns a source may name an actor with ("On 27 October he chose ..."): a claim that puts a name the
+#: source never states in their place has decided who acted.
+_ACTOR_PRONOUNS = frozenset("he she they him her them his hers their theirs".split())
+
+
+def _name_word(tok: str) -> str:
+    """A name word as compared: possessive removed ("Kennedy's" -> "kennedy"), case folded, light-stemmed."""
+    w = re.sub(r"['’]s?$", "", tok)
+    return light_stem(w.casefold())
+
+
+def _quotations_masked(text: str) -> str:
+    """``text`` with its quoted spans replaced by a sentence break: a name inside a quotation is the quotation rule's
+    (INT-LEDGER-025), not the synthesis's own naming."""
+    from ..adapters.markdown import find_quotation_spans
+    spans = find_quotation_spans(text)
+    if not spans:
+        return text
+    out, last = [], 0
+    for s, e, _inner in spans:
+        out.append(text[last:s])
+        out.append(" ; ")
+        last = e
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _sentences_of(text: str, *, quotations: bool = False) -> list[list[str]]:
+    """The sentences of ``text`` as tokens; quoted spans masked unless ``quotations``."""
+    body = text if quotations else _quotations_masked(text)
+    toks = _PAIR_TOKEN_RE.findall(_LIST_MARKER_RE.sub(" ", _mask_math(body)))
+    sentences: list[list[str]] = [[]]
+    for t in toks:
+        if t in _SENTENCE_MARKS or t == ":":
+            sentences.append([])
+        else:
+            sentences[-1].append(t)
+    return [s for s in sentences if s]
+
+
+def _first_word(sent: list[str]) -> int:
+    return next((k for k, x in enumerate(sent) if x not in ",;:()"), 0)
+
+
+def _mid_capitalised(texts: list[str]) -> set[str]:
+    """Name words written capitalised away from the start of a sentence in ``texts`` (quotations included): what a
+    sentence-initial word is folded against."""
+    out: set[str] = set()
+    for t in texts:
+        for sent in _sentences_of(t, quotations=True):
+            first = _first_word(sent)
+            out.update(_name_word(x) for k, x in enumerate(sent) if k != first and _is_cap_word(x))
+    return out
+
+
+def _identifies(word: str) -> bool:
+    return bool(word) and word not in _NOT_NAME_WORDS and word not in _TITLE_WORDS
+
+
+def _actor_names(sent: list[str], mid_caps: set[str]) -> list[tuple[int, int, tuple[str, ...], str]]:
+    """``(start, end, identifying words, surface)`` for every name of one sentence: a run of capitalised words, its
+    leading determiner or preposition dropped, months, weekdays, titles and offices left out of the identifying words
+    (the surface spans the identifying words). A single capitalised word opening a sentence is a name only when some
+    text writes it capitalised mid-sentence (``mid_caps``): "Overall" or "Thus" opening a sentence is prose,
+    "Khrushchev" is not."""
+    first = _first_word(sent)
+    out: list[tuple[int, int, tuple[str, ...], str]] = []
+    i = 0
+    while i < len(sent):
+        if not _is_cap_word(sent[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(sent) and _is_cap_word(sent[j]):
+            j += 1
+        s = i
+        while s < j and sent[s].casefold() in _NAME_LEAD_STOP:
+            s += 1
+        if s < j and i == first and j - s == 1 and _name_word(sent[s]) not in mid_caps:
+            s = j  # a single sentence-initial word no text writes capitalised elsewhere: folded, ordinary prose
+        keep = [k for k in range(s, j) if _identifies(_name_word(sent[k]))]
+        if keep:
+            out.append((s, j, tuple(_name_word(sent[k]) for k in keep), " ".join(sent[keep[0]:keep[-1] + 1])))
+        i = j
+    return out
+
+
+def _slot(sent: list[str], k: int, side: str) -> Optional[tuple[str, str]]:
+    """The word next to an actor (``side`` "prev" before it, "next" after it), or None at a mark or a numeral."""
+    if 0 <= k < len(sent) and sent[k] not in ",;:()" and not _is_numeral(sent[k]):
+        return (side, _name_word(sent[k]))
+    return None
+
+
+def _actors(text: str, mid_caps: set[str]) -> list[tuple[tuple[str, ...], str, frozenset]]:
+    """``(identifying words, surface, slots)`` for every actor of ``text``: a name, or a personal pronoun (its words
+    the pronoun itself). ``slots`` are the words standing right before and right after it ("On 27 October he chose":
+    ``("prev", "october")`` and ``("next", "chos")``): what the act is, as ``name-substitution`` aligns a claim with its
+    source."""
+    out: list[tuple[tuple[str, ...], str, frozenset]] = []
+    for sent in _sentences_of(text):
+        for s, e, ident, surface in _actor_names(sent, mid_caps):
+            out.append((ident, surface, frozenset(x for x in (_slot(sent, s - 1, "prev"), _slot(sent, e, "next")) if x)))
+        for k, x in enumerate(sent):
+            if x.casefold() in _ACTOR_PRONOUNS:
+                out.append(((x.casefold(),), x, frozenset(y for y in (_slot(sent, k - 1, "prev"), _slot(sent, k + 1, "next")) if y)))
+    return out
+
+
+def _stated_words(texts: list[str]) -> set[str]:
+    """Every word ``texts`` state, folded as name words, quotations included (a name a source quotes, it states)."""
+    return {_name_word(x) for t in texts for sent in _sentences_of(t, quotations=True) for x in sent if not _is_numeral(x)}
+
+
+def substituted_names(synthesized_text: str, source_texts: list[str], transformation: str, *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """Rule ``name-substitution`` (INT-LEDGER-032): a 'carried', 'paraphrased' or 'merged' claim that names an actor (a
+    run of capitalised words: a person, a place, a body) none of whose identifying words its cited sources state, where
+    the sources give the act to another actor:
+
+    * aligned: a cited source puts another name, or a personal pronoun, next to the same word ("Robert Peel championed
+      the Ten Hours Act" for "Lord Ashley championed the Ten Hours Act"; "On 27 October Khrushchev chose to answer" for
+      "On 27 October he chose to answer", whoever "he" is: the combinator decided who acted, and the claim it cites does
+      not say);
+    * exchanged ('carried' and 'paraphrased' only, which promise the source's content unchanged): the claim leaves out a
+      name its source states and names one the source does not ("Robert Peel promoted ..." for "Lord Ashley championed
+      ..."). A merge may leave names of its sources out, so this shape is not applied to it.
+
+    Words are compared folded (case, possessive, light stem); titles and offices ("President", "Lord"), months and
+    weekdays never identify anyone; a single word opening a sentence is a name only when some text writes it capitalised
+    mid-sentence; names inside the claim's quotations are left to the quotation rule, and a name a source states inside
+    a quotation is stated. ``context_texts`` (the cited reports' other claims) only decide which sentence-initial words
+    are names: a name only they state is still one the CITED sources do not state. A name no source states with no other
+    actor for its act (a pronoun resolved where the source has none, a place named for "the city") is not reported.
+    Returns one description per substituted name."""
+    if transformation not in _NAME_HELD_LABELS or not source_texts:
+        return []
+    mid_caps = _mid_capitalised([synthesized_text, *source_texts, *context_texts])
+    syn = [a for a in _actors(synthesized_text, mid_caps) if a[0][0] not in _ACTOR_PRONOUNS]
+    if not syn:
+        return []
+    stated = _stated_words(source_texts)
+    src = [a for t in source_texts for a in _actors(t, mid_caps)]
+    syn_words = set().union(*(set(a[0]) for a in syn))
+    dropped = sorted({surface for ident, surface, _sl in src if ident[0] not in _ACTOR_PRONOUNS and not set(ident) & syn_words
+                      and not any(w in _stated_words([synthesized_text]) for w in ident)})
+    out: list[str] = []
+    seen: set[tuple[str, ...]] = set()
+    for ident, surface, slots in syn:
+        if ident in seen or all(w in stated for w in ident):
+            continue
+        seen.add(ident)
+        instead = sorted({(s_surface, slot[1]) for s_ident, s_surface, s_slots in src for slot in slots & s_slots if not set(s_ident) & set(ident)})
+        if instead:
+            acts = sorted({w for _x, w in instead})
+            out.append(f"it names '{surface}', which none of its cited sources states, where they give the same act (next to {', '.join(repr(w) for w in acts)}) "
+                       f"to {', '.join(sorted({repr(x) for x, _w in instead}))} (a substituted actor)")
+        elif dropped and transformation in _EQUIVALENCE_LABELS:
+            out.append(f"it names '{surface}', which none of its cited sources states, and leaves out {', '.join(repr(x) for x in dropped)}, which its "
+                       "source states (a substituted name)")
+    return out
+
+
+def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
     """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
     tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
     pairing is compared as well. Three shapes are read, each decided on the sources' own statements:
@@ -542,9 +1013,16 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
     * an exchange: figure A stands with event word (or figure) P and figure B with Q, where the sources state B with P
       and A with Q (A and B of the same kind: years, days of a month, or quantities);
     * a one-sided re-pairing: A stands with event word P, which the sources pair only with B, and A has left every
-      event the sources state it with (:func:`_one_sided_repairings`);
+      event the sources state it with alone (an event word the sources also pair with B is shared and does not count:
+      :func:`_one_sided_repairings`);
+    * a substitution: year A takes the place of year B, which the synthesis leaves out, carrying B's own event words and
+      none of A's (:func:`_substitutions`);
     * a dated quantity ``<q> ... in [<month>] <year>`` that the sources date to another month or year;
-    * a ``from X to Y`` pair the sources state as ``from Y to X``.
+    * a ``from X to Y`` pair the sources state as ``from Y to X``;
+    * a re-paired name (rule ``name-partner``, :func:`_renamed_figures`): a figure stated with a name, or a quantity
+      under a name, that the cited sources and ``context_texts`` (the other claims of the cited reports) state only with
+      another figure, while they state the figure with another name: the Acts' NAMES exchanged with every year and verb
+      kept.
 
     Only figures that occur in the sources are compared (a figure in no source is the plain INT-LEDGER-023 case), and
     a year that carries several quantities in the sources is not held to any one of them (a merge may date several
@@ -577,12 +1055,16 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str]) -
             exchanged |= {a, b}
             out.append(f"'{a}' is stated with {_partner_label(p, surface)} and '{b}' with {_partner_label(swapped[0], surface)}, "
                        f"where the cited sources state '{b}' with {_partner_label(p, surface)} and '{a}' with {_partner_label(swapped[0], surface)} (exchanged)")
-    out += _one_sided_repairings(syn_pairs, src_pairs, kinds, src_kinds, src_figures, exchanged, surface)
+    one_sided = _one_sided_repairings(syn_pairs, src_pairs, kinds, src_kinds, src_figures, exchanged, surface)
+    out += one_sided
+    moved = exchanged | {d.split("'")[1] for d in one_sided}
+    out += _substitutions(synthesized_text, syn_pairs, src_pairs, kinds, src_kinds, src_figures, moved, surface)
     out += _redated_quantities(synthesized_text, source_texts, exchanged, src_figures)
     src_from_to = set().union(*(_from_to_pairs(t) for t in source_texts)) if source_texts else set()
     for a, b in sorted(_from_to_pairs(synthesized_text)):
         if (a, b) not in src_from_to and (b, a) in src_from_to:
             out.append(f"'from {a} to {b}' reverses the cited sources' 'from {b} to {a}'")
+    out += _renamed_figures(synthesized_text, source_texts, context_texts, src_figures)
     return [_shown_figures(d) for d in _with_word_labels(out, [synthesized_text, *source_texts])]
 
 
@@ -590,7 +1072,7 @@ def _with_word_labels(descriptions: list[str], texts: list[str]) -> list[str]:
     """Show a figure written in words as the words, with the value the readers compared ("'a tenth' (0.1)")."""
     labels: dict[str, str] = {}
     for t in texts:
-        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t)):
+        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t), pairing=True):
             labels.setdefault(mantissa, " ".join(surface.split()))
     if not labels:
         return descriptions
@@ -618,6 +1100,11 @@ _EXACT_SHOWN_RE = re.compile(r"\b(exactly|precisely|fully|a full|an exact)\s+(\S
 
 def _words(text: str) -> list[str]:
     return [w.casefold() for w in _WORD_RE.findall(text)]
+
+
+def _negations(text: str) -> int:
+    """How many negators ``text`` holds ("not", "never", "no", a contracted "n't"): read by :func:`meaning_inversions`."""
+    return sum(1 for w in _words(text) if w in _NEGATORS or w.endswith(("n't", "n’t")))
 
 
 # --- aligned comparison: one statement copied with one word changed ---------------------------------------------------
@@ -1047,8 +1534,12 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     from a cited source with one word exchanged for its opposite (a degree verdict, a comparative or superlative, an
     order in time, a comparison with a target, a direction), with a negation added or dropped, or with a content word
     replaced (:func:`aligned_changes`; under every transformation label), and an approximate figure of the sources
-    stated as exact ("exactly 60" where a source says "roughly 60"). Lexical, not a proof: the findings built on it are
-    warnings. ``transformation`` is kept for callers; every label is read the same way."""
+    stated as exact ("exactly 60" where a source says "roughly 60"). Under an equivalence label ('carried',
+    'paraphrased') a negation added or dropped against the cited sources as a whole is a changed meaning too, when no
+    aligned statement already says so (rule ``unaligned-polarity``: the overseer branch's polarity reading, kept beside the
+    aligned one by the translator merge; a claim that negates words its source never states says something else, and the
+    error for a negated source statement is :func:`meaning_inversions`'). Lexical, not a proof: the findings built on it
+    are warnings."""
     out: list[str] = []
     syn_words = set(_words(synthesized_text))
     src_words = set().union(*(set(_words(t)) for t in source_texts)) if source_texts else set()
@@ -1062,6 +1553,15 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     if out and any(a.startswith("it reverses the direction") for a in aligned):
         aligned = [a for a in aligned if not a.startswith("it reverses the direction")]
     out += aligned
+    # rule unaligned-polarity (the overseer branch's polarity reading, kept beside the aligned one by the translator merge):
+    # a claim under an equivalence label ('carried', 'paraphrased') promises its sources' content unchanged, so a negation it
+    # adds where none of its cited sources states one, or drops where they state one, is a changed meaning even when no
+    # statement of the claim aligns with a source statement (the aligned reading then says nothing). The error is
+    # meaning_inversions' (INT-LEDGER-030, the source's own content negated); every other polarity change is this warning
+    if transformation in _EQUIVALENCE_LABELS and source_texts and not any("negation" in a for a in aligned):
+        syn_neg, src_neg = _negations(synthesized_text), sum(_negations(t) for t in source_texts)
+        if (syn_neg == 0) != (src_neg == 0):
+            out.append("it drops the negation its cited sources state" if syn_neg == 0 else "it adds a negation its cited sources do not state")
     out += reversed_comparisons(synthesized_text, source_texts)
     out += reversed_voices(synthesized_text, source_texts)
     out += dropped_hedges(synthesized_text, source_texts)
@@ -1079,6 +1579,100 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
         where = f"'{src_shown[0]}'" if src_shown else f"{fig} as an approximate figure"
         out.append(f"it states '{written.strip(' .,;:')}' where its cited sources give {where}" + ("" if not src_shown else " (an approximate figure)"))
     return out
+
+
+#: Comparison words that bound a figure from above (the figure is a maximum, an end or a later limit) and from below.
+#: A paraphrase that turns the comparison on the same figure the other way ("under nine" -> "over nine", "before 1847"
+#: -> "after 1847") states the opposite of its source (rule ``comparison-direction``).
+_UPPER_BOUND = ("under", "below", "less than", "fewer than", "at most", "no more than", "up to", "younger than", "before", "earlier than", "until", "not over",
+                "lower than", "smaller than", "shorter than")
+
+
+_LOWER_BOUND = ("over", "above", "more than", "greater than", "at least", "no less than", "no fewer than", "older than", "after", "later than", "since",
+                "higher than", "larger than", "longer than", "beyond", "exceeding")
+
+
+_DIRECTION_RE = re.compile(r"\b(?P<w>" + _alt(_UPPER_BOUND + _LOWER_BOUND).replace(" ", r"\s+") + r")\s+(?:the\s+age\s+of\s+)?(?P<n>\d+(?:\.\d+)?)(?!\.\d)(?!\w)",
+                           re.IGNORECASE)
+
+
+def _directions(text: str) -> dict[str, set[str]]:
+    """figure -> the directions (``upper`` / ``lower``) in which ``text`` bounds it with a comparison word ("under nine":
+    9 -> upper). Figures written in words are read as digits; mathematical notation is masked."""
+    out: dict[str, set[str]] = {}
+    for m in _DIRECTION_RE.finditer(_plain_for_pairs(text)):
+        w = " ".join(m.group("w").casefold().split())
+        out.setdefault(m.group("n"), set()).add("upper" if w in _UPPER_BOUND else "lower")
+    return out
+
+
+#: Words that state a prohibition, prevention or absence: a source that holds one can be paraphrased with a negation
+#: and keep its meaning ("banned employing children" -> "children could not be employed"), so an added negation is an
+#: error against such a source only when it negates that very word ("banned" -> "did not ban").
+_NEGATIVE_MEANING_WORDS = ("ban banned bans banning prohibit prohibited prohibits forbid forbade forbidden outlaw outlawed bar barred prevent prevented "
+                           "prevents stop stopped stops end ended ends abolish abolished refuse refused refuses reject rejected rejects deny denied denies "
+                           "lack lacked lacks fail failed fails exclude excluded excludes avoid avoided avoids cease ceased halt halted block blocked absent "
+                           "absence lose lost loses").split()
+
+
+#: How many words after a negator are read as what it negates.
+_NEGATION_SCOPE = 3
+
+
+def _negation_stem(word: str) -> str:
+    """``light_stem`` with a doubled final consonant undone ("banned" -> "bann" -> "ban"), so a negated base form compares
+    with the inflected form of its source."""
+    return _undouble(light_stem(word))
+
+
+_NEGATIVE_MEANING = frozenset(_negation_stem(w) for w in _NEGATIVE_MEANING_WORDS)
+
+
+def _negated_source_words(synthesized_text: str, source_text: str) -> list[str]:
+    """The source's own content words that a negator of ``synthesized_text`` negates (a content word within
+    :data:`_NEGATION_SCOPE` words after "not", "never", "no", "didn't", ...), named rule ``negated-source-content``. Empty
+    when every added negation negates something the source does not state (a different statement, not its opposite)
+    or when the source states a prohibition or absence other than the negated word (a polarity-preserving rewording)."""
+    src_words = _words(source_text)
+    src_stems = {_negation_stem(w) for w in src_words if w not in _PARTNER_STOP and w not in _NEGATORS and len(w) >= 3}
+    src_negative = {_negation_stem(w) for w in src_words} & _NEGATIVE_MEANING
+    words = _words(synthesized_text)
+    out: list[str] = []
+    for i, w in enumerate(words):
+        if not (w in _NEGATORS or w.endswith(("n't", "n’t"))):
+            continue
+        for v in words[i + 1:i + 1 + _NEGATION_SCOPE]:
+            if v in _PARTNER_STOP or v in _NEGATORS or len(v) < 3:
+                continue
+            stem = _negation_stem(v)
+            if stem in src_stems and not (src_negative - {stem}):
+                out.append(v)
+                break
+    return out
+
+
+def meaning_inversions(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
+    """How a 'carried' or 'paraphrased' claim with ONE cited source states the opposite of it, as descriptions for an
+    error (INT-LEDGER-030): a figure the source bounds one way ("children under nine") bounded the other way ("children
+    over nine"), or a negation added where the source states none that negates the source's own content ("did not ban"
+    where the source says "banned": rule ``negated-source-content``). These labels promise the source's content
+    unchanged, and the figure-anchored comparison or the negated statement is not a rewording a paraphrase needs. An
+    added negation over words the source does not state, or against a source that states a prohibition or absence of
+    its own ("could not be employed" for "banned employing"), stays the INT-LEDGER-026 warning, as does a dropped
+    negation (a paraphrase may turn "no child under nine could work" into "children under nine were banned")."""
+    if transformation not in _EQUIVALENCE_LABELS or len(source_texts) != 1:
+        return []
+    out: list[str] = []
+    syn, src = _directions(synthesized_text), _directions(source_texts[0])
+    for fig in sorted(set(syn) & set(src), key=lambda x: (len(x), x)):
+        if syn[fig] != src[fig] and len(syn[fig]) == 1 and len(src[fig]) == 1:
+            out.append(f"it bounds '{fig}' {'from below' if 'lower' in syn[fig] else 'from above'} where its cited source bounds it "
+                       f"{'from below' if 'lower' in src[fig] else 'from above'} (a comparison turned the other way)")
+    if _negations(synthesized_text) > 0 and _negations(source_texts[0]) == 0:
+        negated = _negated_source_words(synthesized_text, source_texts[0])
+        if negated:
+            out.append(f"it adds a negation its cited source does not state, negating the source's own {sorted(set(negated))}")
+    return _with_word_labels(out, [synthesized_text, *source_texts])
 
 
 #: A hedge: the writer's own qualification of how far a statement is established ("suggested", "may", "probably", "the data
@@ -2451,6 +3045,18 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
     return f
 
 
+def _report_context(reports: list[SpecialistReport], known: list[ClaimRecord]) -> tuple[str, ...]:
+    """The other claim texts of the reports a synthesized claim cites (what the name-partner rule reads besides the
+    cited claims: a report that states "the Ten Hours Act of 1847" in a claim the synthesized claim does not cite still
+    says which year that name belongs to)."""
+    ids = {c.claim_id for c in known}
+    out: list[str] = []
+    for r in reports:
+        if any(c.claim_id in ids for c in r.claims):
+            out.extend(c.claim_text for c in r.claims if c.claim_id not in ids)
+    return tuple(out)
+
+
 def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis, *, extra_texts: tuple[str, ...] | list[str] = ()) -> list[IntegrityFinding]:
     """The ledger accounting of ``synthesis`` against ``reports``. ``extra_texts`` are further texts a synthesized
     quotation may legitimately come from (the channel passes the requests' supplied texts and user inputs)."""
@@ -2515,7 +3121,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
         dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(c.claim_text) if not (f.keys & carried_by_source.get(c.claim_id, set()))
                                           and f.label not in incidental_figures(c.claim_text)})
-        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known])
+        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
         word_counts, _meaning = aligned_differences(sc.text, [c.claim_text for c in known])
         reunited = unit_differences(sc.text, [c.claim_text for c in known])
         if introduced or rescaled or repaired or word_counts or reunited:
@@ -2545,7 +3151,18 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         if miscredited:
             f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') credits quotations to a source that does not hold them: " + "; ".join(miscredited[:8]) + " (misattributed: the words are genuine, the credit is not)",
                                       claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({d for d in credit_docs if any(d in m for m in miscredited)})))
-        changed_meaning = meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
+        inverted = meaning_inversions(sc.text, [c.claim_text for c in known], sc.transformation)
+        if inverted:
+            f.append(IntegrityFinding(code="INT-LEDGER-030", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
+                                      + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        substituted = substituted_names(sc.text, [c.claim_text for c in known], sc.transformation, context_texts=_report_context(reports, known))
+        if substituted:
+            f.append(IntegrityFinding(code="INT-LEDGER-032", severity="error", message=f"synthesized claim ('{sc.transformation}') names an actor its cited sources {known_ids} do not "
+                                      "name (rule name-substitution): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
+                                      "cites does not state", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+        neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
+        changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
+                           if not (neg_error and d.startswith("it adds a negation"))]
         changed_meaning += _view_credit(sc.text, known, agents)
         changed_meaning += _text_credit(sc.text, known, reports, agents)
         if changed_meaning:
@@ -2621,16 +3238,79 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
     return f
 
 
+#: What the student-facing text may carry besides its synthesized claims (rule ``text-composition``): additive,
+#: sequencing, contrast and framing connectives and markdown heading labels, which state nothing of their own. A causal
+#: connective ("because", "therefore", "as a result") asserts a relation no synthesized claim states, so it is content;
+#: so is a negation, a hedge or any other word.
+_CONNECTIVE_PHRASES = tuple(sorted((
+    "and", "also", "furthermore", "moreover", "additionally", "besides", "likewise", "similarly", "meanwhile", "then", "next",
+    "first", "second", "third", "firstly", "secondly", "thirdly", "finally", "lastly", "however", "but", "yet", "whereas", "while",
+    "overall", "in addition", "by contrast", "in contrast", "on the other hand", "in summary", "in conclusion", "to summarise",
+    "to summarize", "to sum up", "in short", "in brief", "at the same time", "as well as", "as well", "too", "equally", "still",
+    "nevertheless", "nonetheless", "alternatively", "summary", "conclusion", "overview", "introduction", "answer", "key points",
+), key=len, reverse=True))
+
+
+_CONNECTIVE_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ", r"\s+") for p in _CONNECTIVE_PHRASES) + r")(?!\w)")
+
+
+_CONTENT_WORD_RE = re.compile(r"[^\W_]+")
+
+
+def text_outside_claims(text: str, claim_texts: list[str]) -> list[str]:
+    """The stretches of ``text`` (normalised: whitespace collapsed, case folded, list markers removed) that state
+    something no synthesized claim states (rule ``text-composition``): every claim text is removed where it occurs as a
+    whole (its final sentence mark optional), then every connective of :data:`_CONNECTIVE_PHRASES`; a stretch still
+    holding a letter or digit is returned. Empty when the text is a composition of its claims and connectives."""
+    body = _norm(_LIST_MARKER_RE.sub(" ", text or ""))
+    forms = sorted({_norm(_LIST_MARKER_RE.sub(" ", c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}, key=len, reverse=True)
+    for form in forms:
+        if not form:
+            continue
+        pat = (r"(?<!\w)" if form[0].isalnum() or form[0] == "_" else "") + re.escape(form) + (r"(?!\w)" if form[-1].isalnum() or form[-1] == "_" else "")
+        body = re.sub(pat, "\x00", body)
+    out: list[str] = []
+    for part in body.split("\x00"):
+        rest = _CONNECTIVE_RE.sub(" ", part)
+        if _CONTENT_WORD_RE.search(rest):
+            out.append(" ".join(part.split()).strip(" .,;:!?-–—*#>()[]\"'“”‘’"))
+    return [x for x in out if x]
+
+
 def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
-    (INT-LEDGER-017) and every numeric literal in the text must occur in some claim
-    (INT-LEDGER-018; list markers such as '1.' are ignored)."""
+    (INT-LEDGER-017), every figure or date the text states (digits, number words, scale
+    words, month-years: ``figure_spellings``) must be stated by some synthesized claim
+    under some spelling (INT-LEDGER-023, error: "1834" or "under ten" where every claim
+    says "1833" and "under nine" miscommunicates to the student while every claim stays
+    faithful), every numeric literal in the text must occur in some claim (INT-LEDGER-018,
+    warning; list markers such as '1.' are ignored), the text must
+    pair its figures and dates with events as the synthesized claims do (INT-LEDGER-023), and the
+    text must be a composition of its synthesized claims and connectives (INT-LEDGER-031, error, rule
+    ``text-composition``: a negation, an antonym, an exchanged name, a dropped qualifier or an added
+    sentence in the text, with every claim faithful, miscommunicates to the student)."""
     f: list[IntegrityFinding] = []
+    claim_keys = set().union(*(fig.keys for c in synthesis.claims for fig in _figures(c.text))) if synthesis.claims else set()
+    stated = _sorted_tokens({fig.label for fig in _figures(synthesis.text) if not (fig.keys & claim_keys)})
+    if stated:
+        f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"the student-facing text states figures or dates {stated} that no synthesized claim states "
+                                  "under any spelling: a changed or introduced figure or date in what the student reads", claim_ids=[synthesis.synthesis_id],
+                                  agent_ids=[synthesis.combinator_agent_id]))
     body = _norm(synthesis.text)
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
     if absent:
         f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {absent} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=absent, agent_ids=[synthesis.combinator_agent_id]))
+    extra = text_outside_claims(synthesis.text, [c.text for c in synthesis.claims])
+    if extra:
+        shown = "; ".join(repr(x[:80]) for x in extra[:3]) + (f" (and {len(extra) - 3} more)" if len(extra) > 3 else "")
+        f.append(IntegrityFinding(code="INT-LEDGER-031", severity="error", message=f"the student-facing text is not composed of its synthesized claims (rule text-composition): it states {shown}, "
+                                  "which no synthesized claim states" + (f"; synthesized claims {absent} are absent from it, so the text says something else in their place" if absent else "")
+                                  + ": the ledger does not describe what the student reads", claim_ids=[synthesis.synthesis_id] + absent, agent_ids=[synthesis.combinator_agent_id]))
+        repaired = figure_pairing_differences(synthesis.text, [c.text for c in synthesis.claims])
+        if repaired:
+            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message="the student-facing text re-pairs figures or dates between events relative to the synthesized claims it presents: "
+                                      + "; ".join(repaired), claim_ids=[synthesis.synthesis_id] + absent, agent_ids=[synthesis.combinator_agent_id]))
     text_wo_markers = _LIST_MARKER_RE.sub(" ", synthesis.text)
     in_claims = {m.group(0) for c in synthesis.claims for m in _NUMBER_RE.finditer(c.text)}
     stray = sorted({m.group(0) for m in _NUMBER_RE.finditer(text_wo_markers)} - in_claims, key=lambda s: (len(s), s))

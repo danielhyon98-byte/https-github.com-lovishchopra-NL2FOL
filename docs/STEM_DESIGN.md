@@ -205,6 +205,7 @@ sentence splitter `adapters/history_specialist/sentences.py` (section 4.3).
 | `chem.py` | chemical formula and equation parser; element and charge tallies | core |
 | `boolean.py` | Boolean expressions, truth-table blocks, base-2, 8 and 16 numerals | core |
 | `document.py` | `StemDocument` and the memoised `build_document` | core |
+| `datatables.py` | the pipe tables of the texts supplied with a request (rule `table-data`, section 21) | core |
 | `constants.py` | data-booklet constants table (values, accepted written forms, units, profiles, ambiguous letters) | checks |
 | `enclosures.py` | exact-value table; rational enclosures for π, e and the functions | checks |
 | `scaling.py` | decimal-exponent factoring (section 7.3) | checks |
@@ -326,7 +327,7 @@ lines and mark annotations are furniture, and a table is one statement per row.
   - A decimal comma only when 1 or 2 digits follow and no space follows outside a coordinate
     pair.
   - Thousands groups with `,`, a thin space or the LaTeX thin space `\,` (`21\,131.40`), in groups
-    of exactly three, one kind of separator throughout (section 21).
+    of exactly three, one kind of separator throughout (section 33).
   - Scientific notation: `1.2 × 10⁶`, `1.2 x 10^6`, `1.2×10^{6}`, `1.2*10**6`, `1.2e6`,
     `6.0E-3`, with a Unicode minus allowed in mantissa and exponent.
   - Base-marked integers: `FF₁₆`, `0xFF`, `0b1010`, `1010₂`, `(255)₁₀`.
@@ -388,7 +389,7 @@ Unparsed (ST-PARSE-001, the command named). Nothing raises out of `parse_math`.
 A power whose exponent is no integer is one value, a `RealPower`, when its base and its exponent
 are both closed and carry no unit (`10^(−8.2)`, `10^(8.2 − 7.8)`, `(3465/250)^(1/6)`): figures,
 signs, brackets and `\frac` in the exponent, no symbol, unit, angle or per cent in either
-(section 21). So is an integer power beyond 12, up to 1000, of a closed base with no unit
+(section 33). So is an integer power beyond 12, up to 1000, of a closed base with no unit
 (`(1 + 0.065/12)^{-60}`, `1.003^{144}`, `2^{20}`).
 
 Unsupported, each as a named `Unsupported(reason)` node (the relation that holds one is
@@ -468,8 +469,8 @@ in one outcome: `check`, `binding`, `formula`, `context` or `undecided` (section
 | `<`, `>`, `≤`, `≥`, `≠` between values or bound symbols | `T₁ = 300 K > T₂ = 250 K` | `stem-cmp` |
 | prose value after `therefore`, `so`, `hence` or "the answer is", against the chain's final value | "The acceleration is therefore 6.0 m s⁻²." | `stem-res` |
 | equation, then a stated root set | `x² − 5x + 6 = 0 ⇒ x = 2 or x = 3` | `stem-sol` |
-| an equality with an application of an exponential model (the model's letter glued to its bracket) | `P(t + 1) = P₀e^(k(t + 1))` after `P = P₀e^(kt)` | `stem-mod` (section 21, item 5) |
-| answer `Given:` binding against a request binding of the same symbol, or a request quantity of the same dimension | `Given: v = 20 m s⁻¹` | `stem-giv` |
+| an equality with an application of an exponential model (the model's letter glued to its bracket) | `P(t + 1) = P₀e^(k(t + 1))` after `P = P₀e^(kt)` | `stem-mod` (section 33, item 5) |
+| answer `Given:` binding against a request binding of the same symbol, or a request quantity of the same dimension; since STEM repair 2 (section 22) also the request's percentages, its numbers written with the same word, or the number a bare Given equals (rule `given-kinds`), and a supplied table's cell a Given names | `Given: v = 20 m s⁻¹` | `stem-giv` |
 | final value against a show-that target in the request | "Show that n ≈ 2.0 mol" | `stem-tgt` |
 | chemical equation | `2H₂ + O₂ → 2H₂O` | `stem-chem` |
 | Boolean equivalence | `¬(A ∧ B) = ¬A ∨ ¬B` | `stem-bool` |
@@ -484,7 +485,7 @@ chain is read (`T₁ = 300 K > T₂ = 250 K`), a factorisation inside a chain is
 identity, a ratio equality `a:b = c:d` is compared by cross products, and a function or
 derivative evaluated at a point is checked against the stated formula when one is recorded.
 An evaluation of a function at a value (`f(2) = …`, and `N(15) = …` for a letter the text defines
-as a function, `N(t) = …` or a model; section 21, item 5) is no step from the preceding line, and a
+as a function, `N(t) = …` or a model; section 33, item 5) is no step from the preceding line, and a
 step over a function of an unknown is ST-UNDEC-001. Complex values are named undecided.
 
 Check ids are planned here, deterministically, in document order: `stem-eq-1`, `stem-eq-2`,
@@ -588,7 +589,10 @@ value of E. Values are compared under the reading in force (section 6.4).
 
 - **R1 Half-width h(S).** Half a unit in the last written digit of S's mantissa, times its
   power of ten: 5.0 gives 0.05; 1.20 × 10³ gives 5; 3/4 or a surd gives 0. Section 5.1 gives
-  the integer trailing-zero rule.
+  the integer trailing-zero rule: the trailing zeros of an integer written without a point count
+  only up to the smallest significant-figure count of the expression's measured operands, and
+  none count for a value set against a value with no operands (a conversion's or a
+  restatement's two values: 600 gives 50).
 - **R2 Relative slack τ.**
   - `=` with any measured operand (written with a decimal point, in scientific notation, or
     with a unit) or a decimal S: 1/100. This covers constants written to fewer digits than were
@@ -596,7 +600,10 @@ value of E. Values are compared under the reading in force (section 6.4).
     below the error classes this design must catch (a wrong formula, substitution, digit or
     power of ten, typically 5 % or more).
   - `≈`, `≃` or `~`, or `=` after "approximately", "approx.", "about", "roughly", "estimate",
-    "around" or "nearly": 1/20.
+    "around" or "nearly": 1/20, whatever the check (a conversion or a comparison written `≈`
+    included: `tolerance.tau_for`), but a restated result: R8 bands it with τ = 0, the
+    approximation word before the restated value naming its rounding (the restatement check
+    has always applied this; R2 states it since STEM repair 12, section 32).
   - **Exact mode** (every operand and S exact, and `=`): τ = 0 and h = 0. So `7/3 = 2` fails,
     while `√2 = 1.41` (S is a decimal) passes under R1.
 - **R3 Interval readings.** These operands may take any value in an interval:
@@ -638,22 +645,49 @@ value of E. Values are compared under the reading in force (section 6.4).
   h(w)`, in b's written unit or in SI. The two readings are a disjunction, so 2500 and 2.5
   both match 2.5 km. τ = 0.
 - **R8 Restated result.** A prose value S′ matches the chain's final value S iff `|S − S′| ≤
-  h(S) + h(S′)`, in SI, with τ = 0.
+  h(S) + h(S′)`, in SI, with τ = 0. A rounding the prose states for S′ ("To the nearest whole
+  number, the decrease is 61%", "60%, to 2 s.f.": rule `rounding-cue`, section 21) gives h(S′):
+  it says which trailing zeros of a whole number count (60 to two significant figures is 60 ±
+  1/2, to one 60 ± 5), never less than half a unit in S′'s last written digit.
 - **R9 Prose relations** (per cent, fold, share and total) keep quant's `TOLERANCE_RULE`: 5 %
   and the 0.5-point floor. In SI reading the band is made sign-aware (section 12). Those
-  statements are approximate by nature; equations are precise statements.
+  statements are approximate by nature; equations are precise statements. A value the prose
+  takes from a table supplied with the request (rule `table-data`, section 21) matches the
+  table's cells, or the difference of two rows, taken as written: `|S − D| ≤ h(S)`.
 - **R10 Roots.** A stated decimal root r of a polynomial equation passes iff a real root lies
   in `[r − h(r), r + h(r)]` (Form S). An exact root passes iff it satisfies the equation exactly
   (linear substitution, D1).
+- **R11 Central value** (rule `central-value`, STEM repair 3, section 23). A stated value written
+  with its absolute uncertainty, `S ± u` ("586 − 20 = 566 ± 12"), is set against C at its central
+  value S under R1 to R4: u never widens h, and this rule does not check u itself (rule
+  `stated-uncertainty`, STEM repair 4, section 24, sets u against the rule the answer states for
+  it). The band had been added to h, so a slip within it (`586 − 20 = 556 ± 12`) passed.
+- **R12 Operand precision** (rule `operand-precision`, STEM repair 4, section 24). For "=" in written
+  arithmetic whose computed side is an expression of written numerals only (no carried result,
+  constant, symbol or function value), τ is twice the largest relative change the rounding of
+  those numerals can make to C, rounded up to a millionth, when that is below 1/100
+  (`4000 × 1.036³ = 4467.74` fails at τ = 1449/500000); a stated value that is a whole number
+  ending in zero, written without a point, keeps 1/100. The check's statement gives the τ used;
+  the short form's 1/100 is the most τ a check uses for "=". A numeral that writes a value the
+  request states is given data, taken as written (R3), so it is exact, never rounded: a per cent
+  the request states gives its decimal and the factors 1 ± the decimal (3.6% gives 0.036, 1.036 and
+  0.964), and `4000(1.036)^{12} = 6141.73` fails at τ = 0 (STEM repair 10, section 30); a stated
+  side that is itself an expression of written numerals adds their rounding to the bound.
+- **R13 Exact carry of exact working** (rule `exact-carry`, section 24). A numeral that carries an
+  earlier result of exact working ("T = ln 2 ÷ ((ln 2)/8) = 8") is exact, with no interval under R3.
 
 **The observed case.** C = 5, S = 6.0, h = 0.05, τ = 1/100, and |5 − 6| = 1 > 0.05 + 0.05, so
 the check fails. Under quant's 5 % rule it would have passed anything from 4.76 to 5.26.
 
 **Short form** (`tolerance.SHORT_RULE`, the `[rule]` suffix of every description, 300
-characters or fewer): "STEM tolerance: S must lie within h + τ·|C| of the value C computed
-from the written expression; h is half a unit in S's last digit; τ is 1% for '=', 5% for
-'≈'/about, 0 for conversions, comparisons and exact work; rounded intermediates, constants and
-functions range over their intervals." The full rule is `tolerance.STEM_TOLERANCE_RULE`.
+characters or fewer): "STEM tolerance: |C − S| ≤ h + τ·|C|; h: half a unit in S's last digit
+(integer trailing zeros only to the operands' s.f.), plus C's own h if C is a stated value; τ:
+1/20 for ≈/about, any check; else 1/100 for = in arithmetic, 0 for conversions, comparisons,
+substitutions, restatements, exact work." The full rule is `tolerance.STEM_TOLERANCE_RULE`.
+(STEM repair 1, section 21: the earlier short form said "h is half a unit in S's last digit" and
+"0 for conversions" while the checks applied R1's trailing-zero rule, R2's precedence of `≈`
+over every check kind and R4's second half-width; the pack's statement of the rule is tested
+against the code that applies it.)
 
 ---
 
@@ -678,14 +712,18 @@ functions range over their intervals." The full rule is `tolerance.STEM_TOLERANC
   "per cent", and so on.
 - **Prefixes.** Q R Y Z E P T G M k h da d c m µ/μ/u n p f a z y r q, applied by longest
   match, and only to units that take a prefix. SI binding applies: `ms` is a millisecond, `m s`
-  is metre second, and `Nm` and `N m` are newton metre.
+  is metre second, and `Nm` and `N m` are newton metre. A Latin prefix written before a Greek
+  unit symbol (`kΩ`, `MΩ`, `mΩ`, `GΩ`, `μΩ`, glued to its number or apart) is one prefixed unit
+  (`units.GREEK_PREFIXABLE`, `prefixed_greek_unit`): the lexer reads the Greek letter as a token
+  of its own, so before STEM repair 1 `2.4 Ω = 0.0024 kΩ` was read `2.4 Ω = 0.0024` and failed.
+- **Counts.** `count` (`counts`, `counts min⁻¹`, `counts s⁻¹`) is a count, dimensionless.
 - **Unit expressions.** Space, `·`, `*`, `/`, and exponents `⁻²`, `^-2`, `^{-2}`, `**-2`. For
   example `m s⁻²`, `m/s/s`, `J mol⁻¹ K⁻¹`, `mol dm⁻³`, `kg·m/s`, `kJ mol⁻¹`. After a number, an
   exponent written in ASCII and glued to its atom is read too: a hyphen-minus or plus and one digit
   (`m s-1`, `mol dm-3`, `J kg-1 K-1`), one digit 2 to 9 after an atom of two or more letters (`cm3`,
   `mol2 dm-6`) or after a slash (`m/s2`, `kg/m3`); never more digits (`300 K-273`), a spaced sign, a
   sign followed by an atom of the same dimension (`5 m-3 m`), or a one-letter atom's digit right after
-  the number (`2 m2`, `H2`), which keep their reading (section 21, item 6).
+  the number (`2 m2`, `H2`), which keep their reading (section 33, item 6).
 - **Factors.** SI conversion factors are exact `Fraction`s. Where no exact rational factor
   exists (the degree, which is π/180 rad, and the parsec) the factor is `None` and the unit still
   has a dimension. The affine offset (273.15 for °C, 459.67 for °F) is applied only in explicit
@@ -698,7 +736,9 @@ functions range over their intervals." The full rule is `tolerance.STEM_TOLERANC
 ### 6.2 Where a unit is read
 
 A unit is read only after a number, after a closing group that contains a number, or inside
-`\text{}` or `\mathrm{}`. Elsewhere a letter is a symbol.
+`\text{}` or `\mathrm{}`. Elsewhere a letter is a symbol. After a number, the English words
+`as`, `am` and `at` written apart are no units (`units.ENGLISH_NOT_UNITS`: "5 as before", "10 am",
+"22 at E"); the atoms attosecond, attometre and attotonne stay in the table.
 
 ### 6.3 Ambiguity table (one reading per profile; an ambiguity that matters to a check becomes two readings)
 
@@ -725,7 +765,7 @@ A unit is read only after a number, after a closing group that contains a number
   unit of concentration is the antilogarithm of a concentration scale, the concentration in mol dm⁻³
   (the unit pH, pOH, pKa and pKb are defined in), compared in SI only. Read as a bare number in SI it
   would match a stated value 10³ times too small, the factor an exponent 3 too small reproduces
-  (section 21, item 1).
+  (section 33, item 1).
 - An unknown unit word: ST-UNIT-001 warning. The relation is checked as written only, with
   `failure_severity="warning"`.
 
@@ -735,8 +775,14 @@ A unit is read only after a number, after a closing group that contains a number
   operand's unit is read unambiguously or is a bound symbol's unit. Example: `a = (v − u)/t =
   5.0 m s⁻¹` with v in m s⁻¹ and t in s.
 - **ST-DIM-002.** A sum or difference of terms with different dimensions.
-- Bare numbers are "unitless as written", not dimensionless, so they never trigger a
-  dimension finding.
+- Bare numbers are "unitless as written", not dimensionless. When they leave the dimension of
+  a side unknown, rule `bare-factor` (STEM repair 1, `relations.bare_factor_dimensions`) reads
+  each one as the dimensions the answer gives it: the symbol it was substituted for, an equal
+  value the answer or the request states with a unit, the data-booklet constant it matches, or
+  else a pure factor. ST-DIM-001 when no such reading makes the two sides agree:
+  `λ = 0.693 × 8.0 h = 5.5 h⁻¹`, `x = 2.0 s × 3.0 = 6.0 m`, `f = 1 / 2.0 s = 0.50 s`. A bare factor a
+  stated value or a constant explains raises nothing (`v = 72 km h⁻¹ ÷ 3.6 = 20 m s⁻¹`,
+  `F = 2.0 kg × 9.8 = 19.6 N`, `v = 3.0 m s⁻¹. x = 2.0 s × 3.0 = 6.0 m`).
 - Dimension findings are warnings because unit reading is the least certain part of the
   front end. The arithmetic check of the same link is still built and decided by the engine.
 
@@ -864,12 +910,12 @@ engine status of its own encoding, under the tolerance rule.
 - Vectors, matrices and complex numbers.
 - Factorials and combinatorics with `!`.
 - Symbolic powers, non-integer powers of anything but a closed value with no unit (a closed one is
-  decided exactly when its value is rational, else through an enclosure, section 21), and integer
+  decided exactly when its value is rational, else through an enclosure, section 33), and integer
   powers beyond 12 of anything but a closed value with no unit. A power of e or of a positive rational
-  with an exponent in symbols is read only inside a model evaluation (`stem-mod`, section 21, item 5),
+  with an exponent in symbols is read only inside a model evaluation (`stem-mod`, section 33, item 5),
   through positive variables that can refute a link but never prove it for every value.
 - A function of an unknown (an exponential model applied to an argument is the one reading, `stem-mod`;
-  no algebra step is read over an application of a letter the text defines as a function, section 21,
+  no algebra step is read over an application of a letter the text defines as a function, section 33,
   item 5).
 - Probability distributions.
 - Asymptotic notation.
@@ -895,15 +941,15 @@ Every STEM check sets `inconsistent_is_failure=False` (D13).
 
 | Id (kind) | What is decided | Form, expected | Policy | Failure severity |
 | --- | --- | --- | --- | --- |
-| `stem-eq-N` (`stem_arithmetic`) | a numeric link `E = S` (and `≈`) | E: ENTAILED; S: SATISFIABLE | linear unless surds or two interval operands are multiplied | error; warning when a D3b booklet value was used or a unit was unknown |
+| `stem-eq-N` (`stem_arithmetic`) | a numeric link `E = S` (and `≈`); since STEM repair 2 (section 22) also integer remainders and quotients (`mod`, `div`, `//`, `%` in Computer Science, a stated remainder, a congruence), encoded with the IR's `mod` and `idiv` under `to_real` | E: ENTAILED; S: SATISFIABLE | linear unless surds or two interval operands are multiplied | error; warning when a D3b booklet value was used or a unit was unknown |
 | `stem-sub-N` (`stem_substitution`) | substituted numerals against the symbols' bindings (R7). When the symbolic and numeric sides have the same tree shape, each aligned symbol is checked (a value written in another order of the same product or sum also matches, by bounded injective matching); otherwise, if every symbol is bound, the symbolic side under its bindings is checked against the numeric side (Form S over the binding intervals). A symbol with no binding takes a D3b booklet reading admitted by a dimension check, or the relation is ST-UNDEC-002 | E (pairs); E or S (evaluation) | as needed | error; warning when a D3b booklet value was used or a unit was unknown |
 | `stem-alg-N` (`stem_algebra`) | the next relation follows from the preceding one, plus scope bindings of the symbols involved, plus at most 8 recorded formulas mentioning them, plus side conditions: divisors ≠ 0; a principal (non-negative) root in sciences profiles | E: ENTAILED | nonlinear when needed | error when the step is a pure manipulation (its symbols are a subset of the premise's symbols, bound symbols and included formulas); warning when it brings in unrelated symbols (an unstated law may be at work) |
-| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set, the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...). A root may also be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19"; section 21, item 4): membership only, over its rounding interval widened by τ = 1/100 | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
-| `stem-mod-N` (`stem_model`) | an equality with an application of an exponential model, the model's expression at the written argument against the other side: some value of the variables (the model's variable, every symbol with no stated value) and of the stated symbols within their stated values satisfies it, every power of an exponent in symbols read through positive variables (section 21, item 5) | S: SATISFIABLE (UNSATISFIABLE: no value satisfies the link) | nonlinear | error |
+| `stem-sol-N` (`stem_solution`) | membership: each stated root satisfies the equation (exact: linear substitution; decimal: R10). Completeness: the equation entails the disjunction of the stated roots, built only when the statement claims the full set, the parameters are exact and neither the statement nor the request restricts the domain ("positive", "x > 0", "length", "time", "reject", ...). A root may also be a decimal the answer states in prose for the quantity it named by the symbol ("Let $M$ be the monthly payment" … "Her monthly payment is €352.19"; section 33, item 4): membership only, over its rounding interval widened by τ = 1/100 | E; S for decimal roots | as needed (membership of an exact root is linear; completeness is nonlinear) | error |
+| `stem-mod-N` (`stem_model`) | an equality with an application of an exponential model, the model's expression at the written argument against the other side: some value of the variables (the model's variable, every symbol with no stated value) and of the stated symbols within their stated values satisfies it, every power of an exponent in symbols read through positive variables (section 33, item 5) | S: SATISFIABLE (UNSATISFIABLE: no value satisfies the link) | nonlinear | error |
 | `stem-cnv-N` (`stem_conversion`) | an explicit unit conversion (R5) | E | linear | error; warning when a unit was unknown |
 | `stem-cmp-N` (`stem_comparison`) | a stated order or inequality between values (R6); bound symbols with several values pass when some admissible values satisfy it; also inequality-solving steps, checked as `alg` | E (or S) | as needed | error |
-| `stem-res-N` (`stem_result`) | a prose restatement against the chain's final value (R8) | E | linear | error; warning when a unit was unknown |
-| `stem-giv-N` (`stem_given`) | an answer's `Given:` value against the request's binding of that symbol, or a request quantity of the same dimension | E | linear | warning (symbol identity across texts is a reading) |
+| `stem-res-N` (`stem_result`) | a prose restatement against the chain's final value (R8); since STEM repair 2 also a value given to a symbol after "so" right after a chain (rule `restated-binding`, at warning severity) | E | linear | error; warning when a unit was unknown or the restatement is a reading |
+| `stem-giv-N` (`stem_given`) | an answer's `Given:` value against the request's binding of that symbol, or a request quantity of the same dimension; since STEM repair 2 (section 22) also against the request's values of its kind (rule `given-kinds`), a prose value against the request quantity its words name (rule `named-given`), and a value a line of working takes from a supplied table against the rows named (rule `table-operands`) | E | linear | warning (symbol identity across texts, and which value or row is meant, are readings) |
 | `stem-tgt-N` (`stem_target`) | the final value of a show-that answer against the request's target | E | linear | warning |
 | `stem-chem-N` (`stem_balance`) | element and charge balance. Coefficients are pinned; tally symbols `t_<el>_l` and `t_<el>_r` are defined per element; the conclusion is a conjunction of equalities, so the counterexample model shows the unbalanced tallies | E (Int, or Real for fractional coefficients) | linear | error |
 | `stem-bool-N` (`stem_boolean`) | Boolean identity: premise `NEG: ¬(lhs ⇔ rhs)` | satisfiability, expected UNSATISFIABLE; SATISFIABLE is a failure whose witness is a distinguishing assignment | linear | error |
@@ -944,10 +990,11 @@ from an engine result.
 | INT-SUBJ-003 | error | deterministic | an error-severity pack finding, escalated (existing; STEM never produces one) |
 | INT-SUBJ-004 | warning | engine | NEW: a check that relied on a reading the report did not state does not hold: a booklet value for an unstated symbol, symbol identity across request and answer, a show-that target, a step bringing in unrelated symbols, or an unknown unit |
 | BR-INTERNAL-001 | warning | deterministic | NEW (`SubjectBranch.run_packs`): pack `<name>` failed internally (`<type>`) during `<checks or formal checks>`; its findings are missing from this receipt, and the router must not treat the pack as passed |
-| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, a symbolic power); its relations are not checked |
+| ST-PARSE-001 | warning | deterministic | a math span uses notation outside the grammar (named: unknown LaTeX command, unbalanced group, a symbolic power); its relations are not checked. STEM repair 2 (section 22): also a relation written partly in words (rule `fragment`), a relation sign between maths that no span reads (rule `unread-relation`), a quotient and remainder or a congruence in another shape, and a Given that may be written with a thousands space |
 | ST-PARSE-002 | warning | deterministic | an expression has more than 2 readings (or a check more than 4): implicit multiplication or unit/symbol ambiguity; not checked |
 | ST-UNDEC-001 | warning | deterministic | a recognised relation outside the encodings (calculus, limits, Σ, vectors, matrices, complex numbers, `!`, asymptotic notation, a function of an unknown, an approximation step such as sin θ ≈ θ, an angle range); the reason is named |
 | ST-UNDEC-002 | warning | deterministic | a numeric relation depends on a symbol with no stated value and no admissible booklet reading |
+| ST-UNDEC-003 | warning | deterministic | NEW (STEM repair 2, section 22): a Given value could not be set against the request (no request value of its kind, no supplied table naming it, or a bare number the request does not state); one finding per statement naming each such Given; zero and a data-booklet constant at the booklet's value are neither checked nor named |
 | ST-UNDEF-001 | warning | numeric | a written expression is undefined (division by an exact zero, an even root of a negative value, the logarithm of a non-positive value, 0⁰, tan at a pole, arcsin or arccos outside [−1, 1]); no check is built |
 | ST-UNIT-001 | warning | deterministic | a unit expression is not recognised; the relation is checked as written only, at warning severity |
 | ST-UNIT-002 | info | deterministic | an ambiguous unit symbol (M: molar or mega) is checked under both readings |
@@ -1892,15 +1939,1510 @@ reference regenerated on the development branch; byte identity still required).
 
 ---
 
-## 21. Detection fixes from the end-to-end simulation (run1)
+## 21. STEM repair 1: readings added after the independent test of the overseer's STEM completion
+
+An independent test planted STEM faults on copies of the round-7 answers and found six problems.
+Five are the STEM front end's; each is fixed where the reading went wrong, for its whole class,
+with a clean control for every new reading (`tests/stem/test_stem_repair1.py`; the overseer's
+side is `docs/OVERSEER_DESIGN.md` section 32). The original translator's English, History and
+generic readings are untouched.
+
+1. **Prefixed Greek units** (section 6.1). `kΩ`, `MΩ`, `mΩ`, `GΩ` and `μΩ` are one prefixed unit,
+   so a correct conversion holds (`2400 Ω = 2.4 kΩ`, `0.50 mΩ = 0.00050 Ω`) and a wrong one fails
+   (`2.4 Ω = 0.024 kΩ`); `12 V / 2.4 kΩ = 0.0050 A` is checked in SI. Before, the false alarm on the
+   correct conversion was INT-SUBJ-001, and `MΩ` or `mΩ` left the line unchecked (ST-UNDEC-002).
+   The independent test's "Given in kΩ where the task states the resistance in words" fault had
+   been reported as a translator gap of task words; its cause was the same reading.
+2. **English words are no units** (section 6.2): `as`, `am`, `at` after a number; and `counts` is a
+   count, so `1600 counts min⁻¹ × (1/2)⁴ = 100 counts min⁻¹` is checked (the decay line had ended
+   its span at "counts").
+3. **Rule `bare-factor`** (section 6.5): ST-DIM-001 when one side has a single unit-bearing operand
+   and bare numbers no stated value or constant explains.
+4. **Combination and permutation counts** (`lexer.combination_at`): `⁵C₂`, `ⁿCᵣ`, `₅C₂`, `5C2`,
+   `10C3`, `nCr`, `C(5, 2)`, `C(n, r)`, `C(n, k)` (r ≤ n for digits, so a point `C(2, 3)` is not one; the letters n, r
+   and k only, so a function or a point `C(x, y)` is not one), `₅P₂`,
+   `nPr`, and in LaTeX `^{5}C_{2}`, `{}^5C_2` are one construct, read as a binomial coefficient or
+   a permutation count outside the encodings: the relation is ST-UNDEC-001 with that reason,
+   never silently unchecked (before, `⁵C₂ = 10` was read `5 × C × 2` or not at all). Chemical
+   formulas (`C2H4`, `H₂C₂O₄`) and a temperature `2.5C` are not read so.
+5. **Rule `rounding-cue`** (R8): a value restated with a rounding the prose states in its clause
+   ("To the nearest whole number, the decrease is 61%", "Correct to 2 significant figures, …")
+   or right after it ("60%, to 2 s.f.") is a restated result of the chain before it, checked with
+   the stated rounding's half-width; the figure of the phrase (the 2 of "to 2 s.f.") is never the
+   restated value.
+6. **Rule `inline-restatement`**: a value after ", so", "i.e." or "giving" right after the chain
+   its line closes (`P = (9.93 V)² / 6.0 Ω = 16.4 W, so 16 W`) is a restated result; a consequence
+   (`= 6.0 N, so 12 N in total`) is not (only punctuation, a bracket or a stated rounding may follow
+   the value).
+7. **Quantities the request names in words** (`spans`): a number after a multi-letter name word
+   and before a unit ("a battery of emf 12 V") is a request quantity, so a Given that contradicts
+   it (`Given: ε = 9.0 V`) is set against it on the Given (a `giv` check against the request's
+   quantities of the same dimension).
+8. **Rule `named-change`**: the value a change starts from ("The external resistance rises from
+   2.4 Ω to 4.0 Ω") restates the value the answer stated earlier for the quantity the sentence
+   names: the final value of a chain whose label words hold every word of the name (a label in
+   brackets after the value, the statement's label before its chain, the chain's word label, or
+   the part's question for the part's last value). A `res` check at warning severity (INT-SUBJ-004:
+   the quantity is matched by its words), naming both statements; nothing when no earlier value,
+   or more than one, carries the name with the same dimension. The relation never changes a
+   claim's role (`adapters/stem_specialist/parser.py` leaves named relations out of roles).
+9. **Rule `table-data`** (`datatables.py`; R9): the pipe tables of the supplied texts (a header row
+   of column names with their units, the first column the key) are read with the one number
+   scanner and the unit parser, all bounds fixed. A change between two rows ("between 25 °C and
+   30 °C, an increase of 22 mm³ per g per hour") or a value at a row ("from 18 … at 10 °C to 92 …
+   at 35 °C") is a `giv` check against the cells taken as written, at warning severity (which rows
+   and which column the prose means is a reading); the column is the table's only column of
+   numbers or the one the clause names; nothing when a row, the column or the unit is not read
+   unambiguously. The statements are the same with and without the supplied data.
+10. **Rule `related-statements`** (`relations._related_statements`, `FormalCheck.related_claim_ids`,
+    the channel's failure finding): a substitution names, besides its own statement, for each
+    symbol it substitutes, the one statement that states a value of it before the substitution,
+    latest first. When it fails, its INT-SUBJ-001 names those claims after its own, so a wrong
+    formula applied consistently (`V = ε + Ir`, `V = 12 V + (4.14 A × 0.50 Ω) = 14.1 V`) is named
+    where its value is stated as well as a line later (`P = (9.93 V)² / 6.0 Ω`). A symbol whose
+    value several statements state, or that the relation's own statements state (a Computer
+    Science trace step's clause), names no statement: none is named on a guess. The formal check
+    itself still names its own statement only.
+11. **The tolerance rule's statements** (section 5.2): the short form and the pack's D31 now say
+    what the checks apply (R1's trailing zeros, R2's precedence of `≈`, the half-width of a stated
+    value set against another); `tests/overseer/test_stem_completion.py` executes each statement
+    against `tolerance.half_width`, `tau_for` and whole checks decided by the engine.
+
+On the recorded round-7 answers the new readings add only checks that hold: bi-t13 four `giv`
+checks of its table values, ess-t13 two, ph-t13 five `res` checks (its four named changes and
+the inline restatement "16.4 W, so 16 W"), ph-p7b the decay line (`stem-eq-9`). Remaining translator gaps,
+each measured on a planted copy and reported, not counted: a factorised line or a roots line after
+a comment line is read as a new equation (equations-factorising, maths-roots; joining across a
+comment risks false errors on genuine answers), and derivatives and integer powers beyond 12 stay
+outside the encodings (formulas-derivative, maths-finance-value: ST-UNDEC-001, as on the recorded
+answers).
+
+## 22. STEM repair 2: readings added after the second independent test
+
+A second independent test planted STEM faults on copies of the round-7 answers and found eight
+problems: a false error on correct integer working, contradictory Givens and table values with
+neither a check nor an ST code, the wrong value taken from a quote in the relay, a slip passed in
+Form S, statements skipped silently, and a pack that read that silence as checked. Each is fixed
+where the reading went wrong, for its whole class, with a clean control for every new reading
+(`tests/stem/test_stem_repair2.py`; the overseer's side is `docs/OVERSEER_DESIGN.md` section 33).
+The original translator's English, History and generic readings are untouched.
+
+1. **Integer arithmetic** (`lexer`, `parser`, `nodes.IntOp`, `to_ir`). The words `mod`, `modulo`
+   and `div` (any case) between two operands, `//`, LaTeX `\bmod` and `\mod`, and in Computer
+   Science `%` are integer operators at the precedence of × and ÷. The reader had dropped the left
+   operand and the word, so `17 mod 5 = 2` was checked as `5 = 2` and failed (an INT-SUBJ-001 on
+   correct work; `17 div 5 = 3`, `9 div 2 = 4` and `9 mod 2 = 1` the same). The encoder writes
+   `to_real(mod(17, 5))` and `to_real(idiv(17, 5))` with the IR's integer operators: the left
+   operand a non-negative whole-number expression (`+ − ×`, powers up to 12, nested integer
+   operations), the divisor a positive whole number as written; any other operand is
+   ST-UNDEC-001 with its reason (a negative remainder: languages round it differently). A
+   quotient stated with its remainder (`17 ÷ 5 = 3 remainder 2`, `rem 2`) is two checks, the
+   integer quotient and the remainder; a congruence (`17 ≡ 2 (mod 5)`, `17 ≡ 2 mod 5`) is
+   `17 mod 5 = 2 mod 5`, the bracket no factor. A word that is not between two operands ("the
+   mod operator", `divmod`) is a word.
+2. **Verbal arithmetic is read once.** A math run wholly inside a verbal span ("3 times 4 = 12")
+   is not read again, so its tail `4 = 12` is no second, false check.
+3. **Rule `fragment`.** A relation whose left side is a single value that continues the words
+   before it ("the remainder when 17 is divided by 5 = 2", "20% of 50 = 10", "12 over 4 = 3",
+   "twice 4 = 8") is written partly in words: ST-PARSE-001 naming the word, never the check
+   "5 = 2" (before: a false INT-SUBJ-001). A whole expression after a word ("The value of
+   3 × 4 = 12") is checked as before.
+4. **Rule `unread-relation`** (`document._unread_relation_signs`). A statement with a relation
+   sign (`= ≈ ≠ ≤ ≥ ≡ < >`) between maths (a digit, a bracket, a one-letter symbol) that no span
+   reads is ST-PARSE-001: `17 % 5 = 2` outside Computer Science. A sign between words, a doubled
+   sign or an ASCII arrow (`==`, `->`, `=>`) and a bond glued between letters (`O=O`) name no
+   relation of values; a chemistry atom tally (`C 3 = 3`) and an article label (`the Al = …`) are
+   read as before. An amount written after a currency sign is no maths the reader holds: a sign
+   beside one names nothing (a reading that named it raised ST-PARSE-001 on the corpus's correct
+   `$7052.99 − $5000 = $2052.99`, and was not kept).
+5. **Rule `question`.** A relation the answer asks and answers is checked as answered: "Is
+   38 = 67? No." checks 38 ≠ 67, "Yes" the relation; with no answer it claims nothing. The
+   check's statement names the relation decided ("(the relation decided: 67 ≠ 67) (rule
+   question)").
+6. **Rule `given-kinds`** (`relations._givens`). Every Given value (a symbol given a number in a
+   statement that begins "Given", "Data", "Known" or "We know", or in the list a line "Given:"
+   opens) of an answer to a request is set against the request's value of the same symbol, else
+   its values of the Given's kind: for a Given with a unit, the request's quantities of the same
+   dimension (as before); written with `%`, "per cent" or "percent", the request's percentages;
+   written with a word after it, the request's numbers written with the same word ("5000 euros"
+   against "4000 euros", "6 years" against "5 years"); a bare number, the request's number it
+   equals. A Given naming a row and a column of a supplied table is set against that cell (rule
+   `table-data`). Each is a `giv` check at warning severity whose statement names what it is
+   compared with ("compared: …"); a percentage is compared in SI with its half-width scaled too
+   (3.9% had passed against 3.6%), and two whole numbers with no unit exactly. A Given none of
+   these reads is ST-UNDEC-003, one finding per statement naming each such Given and why; a
+   bare number is never failed, since it may be a conversion (0.036 for 3.6%, 12 for "monthly").
+   Zero (a condition the request states in words: "from rest") and a data-booklet constant at
+   the booklet's value are neither checked nor named, and with no request (a relay) no Given is
+   set against anything. A Given that may be a numeral written with a thousands space ("4 000")
+   is ST-PARSE-001, never read as 4; one written after a currency sign (`P = €4000`) is not read
+   (item 4).
+7. **Rule `named-given`.** A value the prose states for a quantity the request names by its
+   words ("The battery's emf is 9.0 V" for "a battery of emf 12 V") is set against that
+   quantity (warning: the quantity is matched by its words).
+8. **Rule `table-operands`.** The numerals of a line's computed side that are cells of the
+   column the line or its part's question names are set against the cells of the rows the line
+   names ("From A to C …"), or else the rows its part's question names (warning), when the line
+   takes as many different cells of that column as rows are named: `(9.6 − 6.1) ÷ 9.6 × 100` for
+   the decrease from A to C (6.1 is site B's) fails; a mean of three rows in a part whose
+   question names two is another computation and is not read.
+9. **Rule `restated-binding`.** A value given to a symbol or a function value after "so" (or
+   "i.e.", "hence", "thus", "giving") right after a chain on the same line is set against the
+   chain's final value, its central value when it states an uncertainty: the relay's
+   `“t = 8 h: 820 − 20 = 800 ± 16 counts min⁻¹” (so C(8) = 820)` fails against 800 (warning).
+   Not when the symbol is one the chain solves for or computes.
+10. **Rule `exact-carry`.** A value the written arithmetic gives exactly, from numerals none of
+    which carries a rounded result, has no rounding interval: a later line that carries it is
+    decided in Form E, and a restatement set against it has no half-width of its own. A sum of
+    count rates written with units (`100 counts min⁻¹ + 20 counts min⁻¹ = 130 counts min⁻¹`) had
+    passed in Form S over the intervals of carried values.
+11. **Asides, premise cues and prose sums.** A math run whose only relation sits inside a bracket
+    after its first word starts inside the bracket ("greatest at C (2.0 km = 200 m)" is a
+    conversion check); after a relation introduced by "From", "Since", "Because", "As", "Using",
+    "Rearranging" or "By", the relation that follows it on the line after a comma, over the same
+    symbols, is an algebra step from it (rule `premise-cue`: "From c = n/V, n = c/V …" fails, "n =
+    cV" holds); a sum in a sentence of prose ("A measured rate would be 100 + 20 = 130 counts
+    min⁻¹") is checked.
+
+On the recorded round-7 answers the new readings add only checks that hold: bi-t13 and ess-t13
+two `giv` checks each of their part (a) operands (rule `table-operands`), ph-p7b seven of its
+corrected rates, maa-p7b two `res` checks of the values it takes after quoting them (rule
+`restated-binding`); no ST-UNDEC-003 or new ST-PARSE-001 is raised on any of them. The arena's
+maa-p7b arithmetic mutation (`1620 − 20 = 4600`) is now also named by the restatement
+`(so C0 = 1600)` that no longer matches it, on the same claim. Remaining limits, stated: a
+Given derived from the request's values and listed among them (a monthly rate 0.3% beside the
+annual 3.6%, a resistance computed and listed as given) fails its check as a warning, as a
+derived Given with a unit already did; a bare number that contradicts the request is named
+unchecked, not failed; an amount written after a currency sign (a Given `P = €5000`, a relation
+`$7052.99 − $5000 = $2052.99`) is neither read nor named, as before this repair.
+
+## 23. STEM repair 3: readings added after the third independent test
+
+A third independent test planted STEM faults on copies of the round-7 answers and found seven
+problems: a false error on correct work (a value stated under a condition read as a unit
+conversion, and such a Given left with neither its check nor its ST code), an arithmetic slip
+passed inside a stated uncertainty, the measured cell substituted for the value the answer
+corrected it into, Givens contradicting a supplied text's prose named exactly as the correct
+ones, values restated in the wrong unit where the task or its table gives the unit, wrong
+formulas and stated precision unnamed, and pack text that disagreed with the code. Each is fixed
+where the reading went wrong, for its whole class, with a clean control for every new reading
+(`tests/stem/test_stem_repair3.py`; the overseer's side is `docs/OVERSEER_DESIGN.md` section 34).
+The original translator's English, History and generic readings are untouched. No ST code was
+added.
+
+1. **Rule `value-at`** (`relations._value_at`, `_value_at_chain`, `_value_at_cells`,
+   `_value_at_tables`; `document._build` gives a Given's condition item the source
+   `condition`). A maths run right after a condition word ("at", "when") that opens with the
+   condition and then states the named quantity's value ("oxygen uptake at 30 °C = 80 mm³ per g
+   per hour", "the count rate at t = 8 h = 820 counts min⁻¹", "time at 30.0 °C = 33.1 s") states
+   the quantity's value under the condition: a `label` binding that carries the condition, never
+   a relation between the condition and the value. It had been read as the conversion
+   `30 °C = 80 mm³` and failed (INT-SUBJ-001 with ST-DIM-001 on correct work). It is read only
+   when the condition and the value are of different kinds, so `at 25 °C = 298 K` stays a
+   conversion. The condition binds nothing (its symbol keeps its other values). A Given so stated
+   (and `Given: at t = 8 h, C = 820 counts min⁻¹`) is set against the supplied table's cell at the
+   row its condition names, in the column its name names; when its name fits no single column
+   ("time" beside three timed trials), against that row's cells of every column of its
+   dimension, one of which it must match; with no supplied table to read the row of, it is
+   ST-UNDEC-003. A value so stated outside a Given ("The uptake at 20 °C = 40 mm³ per g per hour,
+   and at 30 °C = 80 …", the second clause taking the first's name) is set against the table when
+   the row and the column are read unambiguously, and nothing is planned otherwise.
+2. **Rule `central-value`** (`checks._eq`). A stated value written with its absolute
+   uncertainty, `S ± u` ("586 − 20 = 566 ± 12"), is checked at its central value under the
+   tolerance rule; u never widens h. The band had been added to h, so a slip within it
+   (`586 − 20 = 556 ± 12`) was ENTAILED. The check's statement says so ("the computed value is
+   set against its central value … the uncertainty itself is not checked (rule
+   central-value)"). A Given written with its uncertainty ("Given: T = 20.0 ± 0.5 °C") had no
+   value node, so neither a check nor an ST code; its central value is now the Given value.
+3. **Rule `processed-data`** (`relations._processed_data`). A line that processes one cell of a
+   supplied table into another value of its quantity ("t = 0 h: 1620 − 20 = 1600 ± 32 counts
+   min⁻¹") states the processed value of that row. A line of a later part whose question, or the
+   line itself, names the processed quantity by the word that sets it apart from the column
+   ("corrected": the words of the processing part's question and of a word formula stated in it
+   that the column's name, the key column's name and the command words do not hold), and that
+   takes the raw cell instead ("C = 1620 counts min⁻¹ × (1/2)⁴"), is a `giv` check of the raw
+   cell against the processed value at warning severity (which of the two the line means is a
+   reading), naming both statements. Not read: a line of the processing part itself, a part that
+   names no such word, a cell two rows hold, a line that processes the raw cell again into the
+   processed value ("C₀ = 1620 − 20 = 1600 counts min⁻¹"), and a line whose result is no value of
+   the column's quantity (a percentage or a ratio of the raw cell: "20/1620 × 100 = 1.2% of the
+   first reading"). The last two were found closing the class: in the part that asks for the
+   corrected rate they had been set against 1600 and failed.
+4. **Rules `supplied-values`, `given-digits` and `given-uncertainty`** (`document._supplied_reading`,
+   `relations._given_candidates`, `_uncertainty_candidates`, `checks._giv`). The values a text
+   supplied with the request states in its prose (outside its tables: quantities with a unit the
+   table of units reads, after ASCII exponents and "+/-" are read, and percentages) are
+   candidates for a Given whose name shares a word with the sentence that states them ("Given:
+   volume of thiosulfate = 40.0 cm³" against "50.0 cm3 of … sodium thiosulfate solution"; "C0 =
+   1600 counts min⁻¹" names nothing the text writes and stays ST-UNDEC-003). They had not been
+   read, so a contradicting Given got the same ST-UNDEC-003 as the correct one. A Given restates
+   its data as written: every written digit of a whole number counts, its trailing zeros too, on
+   both sides (rule `given-digits`; 30 had held against 20, h = 5 each). A value written as an
+   uncertainty ("+/-0.5 °C", "+/-2%", in a supplied text or the request) is no value of a
+   quantity; it is one of the uncertainties stated, with the unit written after it. A Given named
+   as an uncertainty (its name holds "uncertainty", "precision", "resolution" or "tolerance") or
+   written as one ("Δθ = ±0.5 °C") is set against those uncertainties, of its dimension or as
+   percentages (rule `given-uncertainty`), never against a value of its quantity; with none of
+   its kind stated it is ST-UNDEC-003. Found closing the class: "Given: thermometer uncertainty =
+   0.5 °C" had failed against the request's 20 °C and 60 °C (a false warning on a correct Given),
+   and a Given written "±0.5 °C" had neither its check nor its ST code.
+5. **Units given only in the task or its table** (`datatables.ascii_exponents`, `DataColumn.unit_ascii`,
+   `spans`, `parser._unit_after`, rule `restated-unit` in `relations._restated_units`). A header
+   unit written with ASCII exponents ("mm3 per g per hour", "mg dm-3") is read as written with
+   superscripts; a unit written "per" another ("mm³ per g per hour") is read whole after a number.
+   A value the prose gives from a supplied table is compared in SI when it and the header carry
+   units of one dimension, so a value restated in another unit fails ("from 18 cm³ per g per hour
+   at 10 °C" for the table's 18 mm3 per g per hour); a correct conversion (0.018 cm³) holds. A
+   value the answer states (in prose, or for a symbol or a named quantity outside a Given) with the
+   number of a quantity the request or a supplied text states and a unit of the same dimension but
+   another size ("the background of 20 counts s⁻¹" where the task states 20 counts per minute) is
+   a `giv` check against that quantity in SI, at warning severity, which fails (rule
+   `restated-unit`); the task's own unit, another number, and temperatures (a change of 20 K is a
+   change of 20 °C) plan nothing.
+6. **Wrong formulas and stated precision** (rules `percentage-change` and `half-lives`, the stated
+   rounding of a stated value). A line that computes a percentage increase or decrease as a
+   difference of two values over one of them, times 100, is set against the definition, the
+   change over the starting value (the larger for a decrease, the smaller for an increase, the
+   direction read from the word beside "percentage" in its statement or its part's question):
+   "(9.6 − 3.8) ÷ 3.8 × 100 = 152.6% decrease" keeps its arithmetic right and fails (warning); a
+   line that divides by the starting value is the definition and plans nothing more. A number of
+   half-lives the prose states ("32 h is 4 half-lives", "four" read as 4) is set against what the
+   answer computes with it: n × T½ (the latest half-life the answer states) against the time, and
+   the exponent of a power of ½ (or 0.5) written after it in the statement against n (both
+   warning); "× (1/2)³ = 200" and "32 h is 5 half-lives" fail. A stated value restated on its line
+   with a stated rounding ("R = 2.4 Ω (the external resistance), or 3 Ω to one significant figure")
+   is checked as a restatement under that rounding (a bracketed label between the value and the
+   restatement is read through), and fails (INT-SUBJ-001); "2 Ω" holds.
+7. **A percentage is never a restatement of a quantity of a dimension.** "… = 820 counts min⁻¹" and a
+   later "2%" had been paired as a result and its restatement (a false INT-SUBJ-001 in the tester's
+   ph-p7b control).
+
+On the recorded round-7 answers the new readings add only checks that hold: ph-p7b two (the
+time "32 h is 4 half-lives" as four times its T½ = 8.0 h, and the power (1/2)⁴ after it), on
+every one of its eight records; no other recorded STEM answer gains or loses a check, and no
+ST-UNDEC-003, ST-PARSE-001 or ST-DIM-001 is raised on any of them. Remaining limits, stated: the
+value a change ends at that the prose computes itself ("the current falls from 4.1 A to 2.6 A",
+"from 9.9 V to 11.7 V") is not checked (its start is, against the value stated for the quantity);
+a sum with a symbolic bound or of more than 24 terms, a product ∏, an ellipsis written in LaTeX
+and a symbolic power stay ST-UNDEC-001; two whole-number Givens a unit apart hold under the rule
+for a value set against a value (h of each side), as before.
+
+## 24. STEM repair 4: readings added after the fourth independent test
+
+A fourth independent test planted STEM faults on copies of the round-7 answers and found eight
+problems: two false errors on correct work (a Boolean expression evaluated under the values its
+statement gives read as an identity over every assignment; a substitution in a later part that
+takes the value the prose says a quantity changes to, set against the symbol's earlier values only),
+a Given uncertainty written with "±" and "%" with neither its check nor its ST code, a result
+restated after ", so" with a word after its number never read, values at the lettered rows of a
+supplied table never set against it, a 12% slip passed through a rounding interval on exact
+working, a wrong stated uncertainty and arithmetic slips under 1/100 passed within the documented
+limits, and the contained run's adjudication gate counting an entry raised in the wrong pass (the
+last is the overseer's, `docs/OVERSEER_DESIGN.md` section 35). Each reading is fixed where it went
+wrong, for its whole class, with a clean control for every new reading (`tests/stem/test_stem_repair4.py`).
+The original translator's English, History and generic readings are untouched. No ST code was
+added.
+
+1. **Rule `boolean-values`** (`relations._boolean`, `_boolean_values`; `checks._bool`). A value a
+   statement gives a Boolean input ("A = 1") is recorded, and a Boolean relation whose statement
+   gives its inputs values ("With A = 1 and B = 0, NOT A OR B = 0.", "If A = 1, then NOT A = 0.",
+   "NOT A OR B = 0 when A = 1 and B = 0.") is decided under them: each input takes the latest value
+   before the relation in its statement, else the first after it, and an input given none stays
+   free ("With A = 1, A OR B = 1" must hold for each B). When its own statement gives none, the
+   nearest earlier statement of its paragraph that gives one does, when it sets values up: it ends
+   with a colon, opens with a setup word ("Let", "Take", "Suppose", "Assume", "Given", "With",
+   "When", "If", "For", after "Now" or "Here" too), or states nothing but the values ("A = 1, B =
+   0.", "Test case: A = 1, B = 0."); or it is the statement right before and the relation's opens
+   with "Then", "So", "Hence", "Thus" or "Therefore". A setup ending with a colon sets up the
+   paragraphs after it too, across Boolean display lines only. A statement that says more than the
+   values ("A = 0 is the reset state.") sets nothing up: the relation after it stays an identity, so
+   a wrong identity still fails. A name defined by an expression ("X = A AND B") and later given a
+   value under stated inputs ("With A = 1 and B = 1, X = 1") is its definition evaluated there. The
+   check carries the values as premises (`VAL_*`), titles itself "the Boolean evaluation" and names
+   the values; it expects UNSATISFIABLE over the negation, as an identity does. Before, every such
+   relation was an identity, so correct evaluations failed (INT-SUBJ-001).
+2. **Rule `changed-value`** (`relations._changed_values`, `scope.Scope.changes`,
+   `checks._changes_before`; `_NAME_LEADS` gains the subordinating words). The value the prose
+   gives a quantity at the end of a change it states ("the current from the cell falls, from 4.1 A
+   to 2.7 A", "falls to", "becomes", "is now") is recorded for the symbol the quantity's words name
+   (rule named-change's reading: one symbol, the same dimension). A substitution stated after the
+   change, in its statement ("V = 12 V − 2.7 A × 0.50 Ω = 10.65 V, because the current … falls, from
+   4.1 A to 2.7 A") or anywhere in its part may take that value, as it takes a binding, and its
+   check says so; one in an earlier part never does, so part (c) taking part (e)'s current still
+   fails. The value itself is not checked, never becomes a binding (no rebinding note, no carried
+   value), and nothing is recorded when the words fit no symbol or several.
+3. **Rule `given-uncertainty` for "±", "+/-" and "%"** (`normalize.reading_view`,
+   `relations._givens`, `_stated_value`, `_value_with_uncertainty`). "+/-" written before a number
+   reads as "±" (elsewhere, "+/- buttons", it stays as written). A Given written as an uncertainty
+   in per cent ("Given: count rate uncertainty = ±3%") is set against the uncertainties the request
+   and its supplied texts state ("+/-2%"), as one with a unit was; the uncertainty written with a
+   Given value ("T = 20.0 ± 0.5 °C", "1620 counts min⁻¹ ± 2%") is too, when an uncertainty of its
+   kind is stated (otherwise it is not read; the central value is always checked). A Given written
+   with its uncertainty after the part's formula of its symbol ("Given: ε = 12 ± 0.1 V" after "ε =
+   I(R + r)") is a Given, never the formula evaluated at it (it had neither its stem_given check
+   nor an ST code). A Given in a maths span the branch cannot read whole ("1620 ± 2% counts min⁻¹",
+   a unit after a per cent sign) is never read in part: its ST-PARSE-001 names the statement (its
+   condition "t = 0 h" had been read as a Given and failed against the request's t = 32 h).
+4. **Rule `rounding-cue` with a unit word** (`relations._results`, `_unit_words`, `_rounding_cue`,
+   `_clause_ends`; `document._read` reads a number on a line of working when it is restated after
+   the chain it closes). A result restated after ", so" may have a word naming its unit after its
+   number ("= 4773.74, so 4775 euros to the nearest euro", "so 4775 euros.") or none ("so 5903 to
+   the nearest euro"), and a rounding may name the whole unit ("to the nearest euro", "to the
+   nearest ampere" for a value in A), a place with the unit after it ("to the nearest ten
+   euros"), or a part of the unit (`_SUBUNITS`: "to the nearest cent" for a value in euros or
+   dollars, "to the nearest penny" for one in pounds) or another unit of a value's dimension ("to
+   the nearest milliampere" for a value in A): the half-width is half that unit, place or part. A
+   word is read as the unit only when it is the word the task writes after its numbers ("4000
+   euros") or the value's unit spelled out; "so 2 years of interest are missing" is a
+   consequence, not a restatement, and "to the nearest dollar" for a value in euros reads nothing
+   (found closing it: "to the nearest cent" had read nothing too, so a value one cent off held
+   with only its arithmetic checked).
+5. **Rule `row-value`** (`relations._row_values`, `_row_check`, `_count_head_words`). A value a
+   statement or the prose gives at a row of a supplied table, named by a site's letter ("Dissolved
+   oxygen at site C = 3.8 g dm⁻³.", "At site C, dissolved oxygen is …", "nitrate at E (4.1 mg
+   dm⁻³)", "… at C (2.0 km), where it reaches 3.8 mg dm⁻³", "site A has the least nitrate (…)") or
+   by a number with the key column's unit ("the measured count rate at 8 h is 830 counts min⁻¹"),
+   in the column its words name (every word of the column's name, or the quantity a column counts:
+   the words before "per", "mayfly nymphs"), is a `giv` check against that cell, in SI, at warning
+   severity. Nothing is planned unless the row and one column are read; a value whose unit, or the
+   unit written right after it, has another dimension than the column's ("at C (2.0 km)") is not its
+   value; "Let C = 3.8 mg dm⁻³" is a symbol, not a site.
+6. **Rule `exact-carry` for exact working** (`checks._exact_result`, `_exact_mode_chain`). A
+   numeral that carries an earlier result of exact working ("T = ln 2 ÷ ((ln 2)/8) = 8": written
+   "=", no approximate cue, every numeral exact) is exact, with no rounding interval; it had ranged
+   over [7.5, 8.5], which with τ = 1/20 passed "8 ln 2 ÷ ln(1568/816) ≈ 9.5 h" (8.49). A rounded
+   result ("T = 0.693 ÷ 0.0866 = 8.0") keeps its interval.
+7. **Rules `stated-uncertainty` and `operand-precision`** (`relations._stated_uncertainties`;
+   `checks._operand_rounding_tau`, `_rounding_bound`, `_trailing_zero_whole`). When the answer
+   states how it obtains its uncertainties as a percentage of a value it names ("each corrected
+   value has an absolute uncertainty of 2% of the measured value"), an uncertainty a later line of
+   its part writes with its value (`S ± u`) and that takes exactly one cell of a supplied table's
+   column whose name holds that word is set against that percentage of the cell ("1131 ± 33": 2% of
+   1151 is 23.02), only u's own half-width banding it, at warning severity. For "=" in written
+   arithmetic, when every operand of the computed side is a written numeral (no carried result,
+   constant, symbol or function value; + − × ÷, integer powers, signs and per cents), τ is twice the
+   largest relative change the rounding of those numerals can make to the computed value, exact
+   interval arithmetic rounded up to a millionth, when that is below 1/100: "4000 × 1.036³ =
+   4467.74" fails (τ = 0.29%) and so does "586 − 20 = 564 ± 12" (whole numbers are exact: τ = 0).
+   A stated value that is a whole number ending in zero, written without a point, keeps 1/100.
+
+On the recorded round-7 answers the new readings add only checks that hold: ess-t13 six (its
+values at sites A to E, rule `row-value`), ph-p7b seven (its corrected rates' uncertainties, each 2%
+of the measured value, rule `stated-uncertainty`), on every one of their records; maa-p7b's check
+of the quoted "0.693/8.0 h = 0.087 h⁻¹" is decided in Form E instead of Form S (its 8.0 carries the
+exact T = 8 of its part (b): rule `exact-carry`), and holds as before; no other recorded STEM
+answer gains or loses a check, and no ST-UNDEC-003, ST-PARSE-001 or ST-DIM-001 is raised on any of
+them. Remaining limits, stated: an exact-mode line whose operands and result are whole numbers
+("1000 ÷ 3 = 330") is decided exactly, as before; a list item written "- NOT A = 0" is
+ST-PARSE-001 (the dash is read as a minus); a value at a row whose phrase names no single column
+("The time at 30.0 °C is 36.1 s" beside three timed trials) is not read; a rounding to a part of
+a unit outside `_SUBUNITS` ("to the nearest kopeck") reads nothing.
+
+## 25. STEM repair 5: readings added after the fifth independent test
+
+A fifth independent test planted STEM faults on copies of the round-7 answers and found four
+problems: four false errors on correct physics and computer-science working (the line that
+evaluates a formula after its correct rearrangement read as an algebra step from the
+rearrangement, its other symbols pinned to values of other parts; a symbol reused in a part for
+another quantity set against the other part's value; a count of passes after "so" set against a
+chain three statements before), a relation the branch read but neither checked nor named (a
+prose line giving a quantity's value as a relation in stated symbols, "The battery's power output
+is 12 V × I = 60 W.", with the pack saying the branch names what it reads and cannot check), a
+conversion and a restated rounding written in prose missed, and a false warning on correct
+uncertainty working (2% of the raw cell set against its processed value). Each reading is fixed
+where it went wrong, for its whole class, with a clean control for every new reading
+(`tests/stem/test_stem_repair5.py`); the overseer's side is `docs/OVERSEER_DESIGN.md` section 36.
+The original translator's English, History and generic readings are untouched. No ST code was
+added.
+
+1. **Rule `rearranged-formula`** (`relations._sequence`, `_rearranges_formula_of`). When the
+   relation before a line is an equation in exactly the symbols of a formula the answer states for
+   a symbol, with that symbol (a rearrangement: "From P = V²/R, R = V²/P.", "Rearranging, R =
+   V²/P.", "V² = P × R", "V²/P = R", "I × r = ε − V", "R + r = ε/I"), and the line gives the
+   formula's symbol a value or writes its formula with values put in ("P = (9.93 V)² / 6.0 Ω"), the
+   line evaluates the formula, as it does right after the formula itself: its substitution is
+   checked against the formula, never an algebra step from the rearrangement. The rearrangement is
+   still checked as a step from the formula (a wrong one, "R = P/V²", fails), and so is every other
+   line that solves an equation ("2x + 3 = 7", then "x = 2"). Before, the evaluation was a step
+   with R and V pinned to part (a)'s 2.4 Ω and part (c)'s 9.9 V, so correct working failed.
+2. **Rule `part-value`** (`relations._substitution`, `_part_values`, `_part_results`;
+   `checks._sub_pairs`, `_part_value_expr`). A substituted symbol whose every binding stands in
+   another part, and whose value here matches none of them, may stand in this part for another
+   quantity: its value also matches when the line's numeric side gives a value the part already
+   gives, before the line, to the quantity the chain computes (its lone head's value, "As a check,
+   P = I²R = (1.655 A)² × 6.0 Ω = 16.4 W." after "P = … = 16.4 W"; with no lone head, or none with
+   such a value, a result of the part of the numeric side's dimension, "As a check, I²R = …"), and
+   when it matches a result the part computes before the line with the symbol's dimension ("The
+   current in it is 9.93 V ÷ 6.0 Ω = 1.655 A."). The engine decides each match (`|N − H| ≤ h(H) +
+   τ·|N|` for the part's result, the binding band for a part's value). A value the part's prose
+   states for a quantity named only by the stated quantity's words is no such result: it may
+   restate the other part's quantity ("the terminal potential difference, 9.93 V" against part
+   (c)'s V), which the substitution must still be set against (STEM repair 1's related-statements
+   test). A value stated nowhere is set against the bindings alone, as before (the third pass, item
+   9, adds the prose that names another quantity, another part's value of the head and a
+   computation in the symbol's place).
+3. **Rules `inline-restatement` and `adjacent-restatement`** (`relations._results`). A value
+   after its own statement's computing chain that is no inline restatement of it restates nothing
+   ("Also log₂ 1000 ≈ 9.97, so 10 passes."), and a bare number (no unit, no per cent sign) restates
+   only a chain of its own statement or of the statement right before it ("With n = 1000 items, so
+   10 passes are needed." and "Also 2^10 = 1024 ≥ 1000, so 10 passes suffice." had been set against
+   "1,000 ÷ 2^10 = 0.98" three statements before, naming its genuine claim). A value or a formula
+   its own statement gives a symbol ("at $x = 1$ is 5", "the curve y = 3x² + 1 … is therefore 10")
+   still names a condition or an object, never the chain it restates; a value with a unit or a per
+   cent sign still reaches the last chain of its part, its dimension guarding the pairing.
+4. **Rule `bound-relation`** (`relations._sub_or_equation`, `_prose_head`, `_bound_relations`,
+   `_solved_in_prose`, `_equation_of_part_result`; `checks._sub_evaluate`). A maths run the prose
+   gives as the value of a quantity it names, after "is", "are", "was", "were" or "equals" (also
+   "is then", "is therefore"), is read as a chain headed by that quantity: its symbolic side under
+   the stated bindings against its numeric side, a `sub` check ("The battery's power output is 12 V
+   × I = 60 W."); a symbol with no stated value is named ST-UNDEC-002 ("The energy is 0.5 × k ×
+   0.04 = 1.0 J."), as it is with a symbol head. Not when its part goes on to solve it for one of
+   its symbols, in a statement ("…, so I = 1.65 A") or in its prose with a value of that symbol's
+   dimension that matches none of its stated values ("…, giving a current of 1.65 A"), or in its
+   own statement for a symbol with no value ("…, so the spring constant is 50 N m⁻¹"); not when one
+   of its symbols has its stated values only in other parts and its numeric side is a result its
+   part already states ("The power in it is I² × 6.0 Ω = 16.4 W." after "P = … = 16.4 W": an
+   equation for the current in the 6.0 Ω resistor); not for a function written as applied ("the
+   cost of 12 items is C(12) = …"), an equation the prose calls an equation, an expression or a law,
+   or a run with no quantity named before it ("So 12 V × I = 60 W."). Found closing it: "E = 0.5 × k
+   × 0.04 = 1.0 J" had been cut at a magnification suffix "0.5×" (`spans._RunFinder`): a "×" with a
+   space before it and a symbol after it is a product.
+5. **Rule `prose-conversion`** (`relations._prose_conversions`). A value the prose states and
+   restates right after it in another unit of the same dimension, after "that is", "i.e.", "which
+   is" or ", or", in brackets (alone, or after "or", "i.e." or "that is"), or after "is", "equals",
+   "is equal to", "is equivalent to" or "is the same as" when the restated value ends its clause,
+   "about" (τ = 1/20) allowed before it, is a unit conversion, a `cnv` check titled "the unit
+   conversion the prose states". Two values in one unit, two dimensions, a unit the table does not
+   read, anything else between them, a restated value its clause goes on after ("2.0 km is 500 m
+   more than 1.5 km") and a first value that ends a range, a list or a comparison are not read.
+6. **Rules `rounding-cue` for a value stated for a symbol, and `same-place`**
+   (`relations._rounded_bindings`, `_rounding_cue`, `_last_sentence_end`, `_ROUND_BRACKET_RE`;
+   `checks._compare`). A value stated for a symbol with a rounding its statement states ("To 3 s.f.,
+   P = 16.5 W.", "P = 16 W to 2 s.f.", "P = 16.5 W (3 s.f.)") restates the symbol's last computed
+   value in its part; a precision in brackets after a value is a stated rounding, and the full stop
+   of "s.f.", "d.p.", "i.e." or "e.g." ends no sentence ("To 3 s.f. the power is 16.5 W." had lost
+   its rounding). A restatement whose stated rounding is to the place the value it restates is
+   written to must equal it: h is 0 (rule `same-place`), never the two half-widths added, which let
+   "To 3 s.f., the power is 16.5 W." hold after 16.4 W. With no rounding stated, h(S) + h(S′) bands
+   it as before.
+7. **Rule `processed-data`** (`relations._processed_data`, `_percentage_of`, `_ratio_of`,
+   `_stated_percentages`, `_quantity_values`) **and the per cent reading** (`checks._reading_modes`,
+   `_percent_factor`; `to_ir.Reading.percent`). A line that takes a percentage of the raw cell
+   (written with "%", "±2% × 1620" too, as the decimal of a percentage the answer, the request or
+   its supplied texts state, or as a division by N with 100/N such a percentage, "1620/50"), or a
+   ratio of it to another value of its quantity or a value set over it ("1620/820", "32.4/1620 =
+   0.020"), takes the measured value on purpose and is not set against the processed value. A per
+   cent taken of a number beside a unit whose SI factor is not 1 ("1620 × 2% = 32.4 counts min⁻¹",
+   "±2% × 1620 = ±32.4 counts min⁻¹") is also read with the per cent as its fraction and the units
+   as written ("as written, per cent as a fraction"): as written had read 2% as 2, and SI converted
+   one side's unit only.
+8. **The classes closed whole, a second pass.** Measured again on the repaired front end, each
+   class had further phrasings of the same causes, each fixed at the same cause with its clean
+   control: a rearrangement stated after "Making R the subject", "Solving for R" or "Transposing"
+   is a step from the relation before it (`_STEP_WORDS`), so a wrong one fails ("Solving for R, R
+   = P/V²." had been read as no step once the evaluation after it was no longer one); a relation
+   the prose gives as a quantity's value after "equal", "is equal to" or "is given by" is read by
+   rule `bound-relation` too (`_PROSE_HEAD_VERB_RE`); a conversion the prose states after "which
+   equals", "which is equal to", "equal to", "equivalent to" or "or equivalently", after a
+   semicolon, a colon or a dash before "that is" or "i.e.", after "converts to" or "is converted
+   to", or after a comma and "about" (the restated value ending its clause) is read by rule
+   `prose-conversion` (`_PROSE_RESTATE_RE`); and rule `processed-data` leaves unread a line that
+   processes the raw cell inside its own arithmetic ("C = (1620 − 20) × (1/2)⁴ = 100 counts
+   min⁻¹": a sub-expression holding the cell is exactly the processed value, `_processed_inline`),
+   a share of the cell in any arithmetic form ("1620 × 2 ÷ 100", "1620 ÷ 100 × 2") and the bounds
+   of the measured value ("1620 + 32.4", "1620 × 1.02", "1620 + 0.02 × 1620"), each read from the
+   line as a·x + b in the cell x by exact rational evaluation of the written numerals
+   (`_cell_linear`, `_share_or_bound_of`: a = p/100 or 1 ± p/100 with b = 0, or a = 1 and |b|
+   within half a unit of its last digit of p% of the cell, p a percentage the answer, the request
+   or its supplied texts state). Each had been a false INT-SUBJ-004 on correct working, while the
+   raw cell taken for the corrected value ("C = 1620 / 16", "C = 1620 × 1.5", "(1620 − 10) ×
+   (1/2)⁴") is still named. (This pass read "Equivalently" and "subject to" as stating no
+   rearrangement; the third pass, item 9, reads the rearrangement before the formula's evaluation
+   as a step from the formula whatever words state it.)
+9. **The classes closed whole, a third pass** (resumed after the second pass; measured against
+   the staged tree before this repair, not only the repaired one). Rule `rearranged-formula` had
+   taken a check away: the staged tree failed a wrong rearrangement written with no step word
+   ("This rearranges to R = P/V².", "P = V²/R, i.e. R = P/V²", "or R = P/V²", "Equivalently, R =
+   P/V².", "Re-arranged: …", "Subject to …, R = P/V².") through the evaluation after it, read as a
+   step from it, and once that evaluation was the formula's substitution nothing checked these.
+   When rule `rearranged-formula` reads a line as the formula's evaluation, the relation before it,
+   in exactly the formula's symbols and in the formula's statement or the next one, is now planned
+   as a step from the formula if no step was read for it (`_rearrangement_step`, the formula kept
+   per symbol in `_formula_infos`), its reason and `detail` saying "a rearrangement of the formula,
+   which the next line evaluates (rule rearranged-formula)"; a correct one holds. A relation the
+   prose introduces with the variables swapped for an inverse ("Swap x and y: x = 2y + 1." after "y
+   = 2x + 1", `_SWAP_RE`) is no step (it had failed as one on the staged tree too). Rule `part-value`
+   takes three more values for a symbol whose every binding stands in another part: a value its
+   part's prose states before the line for a quantity named with a word the names of the symbol's
+   stated values do not hold (`_prose_named_other`: the label words of their chains or their part's
+   question, `_prose_value_name`; "The current in the 6.0 Ω resistor is 1.655 A."; a value named
+   only by the stated quantity's words, "The current in it is 1.655 A.", is still not taken), the
+   value the answer states for the line's lone head in another part ("V = IR = 1.655 A × 6.0 Ω =
+   9.93 V" in part (d), V = 9.9 V in part (c)), and a computation of values with units written in
+   the symbol's place, read for the symbol as a value the request gives is (`_computed_in_line`:
+   "P = I²R = (9.93 V ÷ 6.0 Ω)² × 6.0 Ω"; the line's arithmetic is checked). Rule `bound-relation`
+   leaves unread a relation the prose gives as the value of the quantity its part's question asks
+   for, every word of the name a word of the question, when one of its symbols has its stated
+   values only in other parts (`_equation_of_asked_quantity`: "The power in the 6.0 Ω resistor is
+   9.93 V × I = 16.4 W." as part (d)'s answer had failed against part (b)'s I, a false error the
+   rule itself had introduced), and reads a symbol written as applied ("k(0.20)²") as a function
+   only where the answer or the request defines it as one (`_defines_function`: "C(x) = 40 +
+   2.5x"), so "The energy is ½k(0.20)² = 1.0 J." names k (ST-UNDEC-002). Rule
+   `adjacent-restatement` reads no restatement of an earlier chain for a value after the cue whose
+   own statement states before it another value of its kind that the chain did not compute
+   (`_own_value_before`: "The measured rate at t = 0 h is 1620 counts min⁻¹, so the corrected rate
+   is 1600 counts min⁻¹." had been set against "… = 100 counts min⁻¹"), nor for a value followed by
+   "of it" ("So 4.4 W of it is lost as heat in the wires.", `_PART_OF_IT_RE`). Rule `rounding-cue`
+   reads a value the prose restates in the same unit right after a value it states, after ", so",
+   ", which is", ", or", ", i.e." or ", that is", with a stated rounding (`_rounded_prose_values`:
+   "The power is 16.4 W, so 17 W to 2 s.f." had passed), its `detail` saying "against the value the
+   prose states right before it". Rule `processed-data` leaves unread a ratio of the raw cell to its
+   processed value ("1620/1600 = 1.0125") and a line whose own words name the raw quantity by the
+   word of the column's name that sets it apart and not the processed quantity ("The measured rate
+   fell by 1620 − 820 = 800 counts min⁻¹", "The mean of the first two measured rates is (1620 +
+   1151)/2"). Rule `prose-conversion` reads a value restated after "to", "into" or "in" and its own
+   unit, then "gives", "is", "equals" or "makes" (`_PROSE_TO_UNIT_RE`: "Converting 55.0 cm³ to dm³
+   gives 0.0550 dm³.", "55.0 cm³, which in dm³ is 0.0550 dm³"). And a ratio set against a number
+   ("4.0 : 6.0 = 0.67"), which was read but neither checked nor named, is named ST-UNDEC-001 (a
+   ratio given a name or set against a ratio is read as before).
+
+On every recorded round-7 STEM answer and on the 558 labelled corpus items, the new readings plan
+nothing and change nothing (every check and finding as before, compared byte for byte with the
+staged tree before this repair). Remaining limits, stated: a law stated only in a form with no
+lone symbol ("V² = PR" with no "P = V²/R") and then evaluated with values the line writes is read
+as a step from it under the values the answer states earlier; a reused symbol whose value its
+part's prose names only by the stated quantity's words ("The current in it is 1.655 A.") is set
+against its stated values, and so is a single value that no statement of its part gives ("P = VI
+= 9.93 V × 1.655 A = 16.4 W" as part (d)'s first line fails against part (b)'s I); a reused
+symbol whose value is another result of its part of the same dimension (the 4.0 Ω branch's
+current used for the 6.0 Ω resistor) holds by rule part-value, and a computation written in its
+place is read for it whatever it computes; a relation given as a quantity's value whose numeric
+side is a result its part already states, in a reused symbol ("The battery's power output is 12 V
+× I = 16.4 W."), or that gives its part's asked quantity, is no claim the branch reads; a value
+restated with a rounding in another part than its chain's is not read; a rearrangement written
+with no step word and no evaluation of the formula after it is not read (a formula is out of
+scope); a value after "so" or "therefore" that opens a new clause with the last chain's dimension
+("Therefore 2 W is wasted.") is still read as restating it; and a maths run after another verb
+("The battery delivers 12 V × I = 60 W.") names no quantity as its value and is not read.
+
+## 26. STEM repair 6: readings added after the sixth independent test
+
+A sixth independent test planted STEM faults on copies of the round-7 answers and found four
+problems: a Given written in prose had neither a check nor an ST code ("Data: emf 15 V, internal
+resistance 0.50 Ω.", "Given: the mass of seeds is 12 g.", "Given: mass of seeds: 12 g.", "Given:
+15.0 cm³ of acid.", "We know the mass of seeds was 12 g."), while the pack said every Given value
+has its check or ST-UNDEC-003, so an agent's true `finding_missing` was refuted; a symbol reused in
+a part passed with any value the request states ("P = (9.93 V)² / 4.0 Ω" and "/ 0.50 Ω" in the part
+that asks for the power in the 6.0 ohm resistor: ENTAILED, R silently dropped from the check); a
+unit written after a fraction was read as the divisor's only, so the recorded answer's own notation
+"k = (ln 2)/8 h⁻¹ = 0.0866 h⁻¹" and "The rate is 1/40 s⁻¹ = 0.025 s⁻¹" got a false ST-DIM-001; and
+NAND, NOR and XNOR were outside the Boolean grammar (a correct gate and a wrong one got the same
+ST-PARSE-001, a truth table ST-UNDEC-001). Each reading is fixed where it went wrong, for its whole
+class, with a clean control for every new reading (`tests/stem/test_stem_repair6.py`); the
+overseer's side is `docs/OVERSEER_DESIGN.md` section 37. The original translator's English, History
+and generic readings are untouched. No ST code was added.
+
+1. **Rule `prose-given`** (`document._prose_given_part`, `_GIVEN_LIST_RE`, `_GIVEN_CLAUSE_RE`,
+   `ProseValue.given`; `relations._givens`, `_given_item`, `_prose_condition`). A statement whose
+   head, after a list marker or a part label, is "Given", "Data", "Known" or "We know" and ends with
+   a colon within three more words ("Data:", "Given:", "Known values:", "We know:", "Given (from the
+   question):") is a data list: every value its prose gives a quantity is a Given value, and so is
+   every value of the list a line "Given:" opens. A statement that begins "Given", "Known" or "We
+   know" with no such colon is a Given clause: the values of its first clause, up to the first
+   comma, semicolon or colon, are Given values ("We know the mass of seeds was 10 g."; in "Given that
+   the emf is 12 V, the current is 4.1 A." the current is the statement's own result). "Data" with
+   no colon heads no Given clause ("Data analysis rewards …"). A prose Given is named by its item's
+   words: those before it from the last comma, semicolon, colon, bracket or "and", with the words
+   that open the statement or join the name to the value left out ("emf", "internal resistance",
+   "mass of seeds"; after a copula the words after it, "each value is the mean of 4 repeats" naming
+   the mean), and another value of the item ending the name ("emf 12 V internal resistance 0.40
+   Ω"); a value written first is named by the words after it ("15.0 cm³ of acid": acid). A value
+   right after "at", "when", "whenever" or "if" is the condition another value of the item is
+   stated under, never a Given, and a value stated under one in its item ("the oxygen uptake at 30
+   °C is 85 mm³ per g per hour") is set against the supplied table's row as before. An uncertainty
+   written "±0.5 °C" or "+/-0.5 °C" in prose takes the unit written after it (the prose reads the
+   number alone). The value is then read as the same Given written with "=": against the request's
+   value of its symbol, its kind or its dimension (rule given-kinds, rule supplied-values, rule
+   given-uncertainty, rule value-at), or, when the request names a quantity by words that all stand
+   in the Given's name, against that quantity's value (rule named-given: "Data: emf 12 V, internal
+   resistance 6.0 Ω." fails against the internal resistance 0.50 ohm though the request states a
+   6.0 ohm resistor); a Given of a kind the request states no value of is named ST-UNDEC-003, so
+   every Given value has its check or its ST code. Its reason and `detail` say "rule prose-given". A
+   value after a currency sign ("principal €4000") or after a digit group and a space (the "000" of
+   "4 000 euros", whose first group is named ST-PARSE-001 as in the "=" form) is never read, and the
+   request's own prose is never a Given. Before, `_givens` read only the values a Given statement
+   gives with "=".
+2. **Rule `part-given`** (`relations._given_in_another_part`, `_part_question_values`,
+   `_part_stated_before`, `_part_question_spans`, `_substitution`, `Relation.part_given`;
+   `checks._sub_pairs`). A symbol whose every binding stands in another part, substituted with a
+   value the request states with its dimension, is read for the symbol in that part with no check
+   (as before) when the part's question states that value ("the power dissipated in the 6.0 ohm
+   resistor": 6.0 Ω), when the part's question states no value of that dimension (nothing says
+   which of the request's values the part uses), or when the part's working states it before the
+   line ("For comparison, the 4.0 Ω resistor dissipates P = (9.93 V)² / 4.0 Ω"). When the part's
+   question states other values of that dimension and neither it nor the working before the line
+   states this one, the substitution of that symbol is a check of its own, at warning severity
+   (which of the request's values the symbol stands for there is a reading): the symbol against its
+   stated values, the values the part's question states and the readings of rule part-value; its
+   reason names rule part-given and its `detail` says "rule part-given: R reused here for a value
+   the request gives; its part's question states 6.0 ohm, which it matches too". A symbol checked
+   against its bindings in the same line keeps its own check at error severity, so a reading never
+   lowers another check's severity. "P = (9.93 V)² / 4.0 Ω" and "/ 0.50 Ω" in that part now fail
+   (INT-SUBJ-004 on the receipt), and so does a current computed there with the other resistor
+   ("I = V/R = 9.93 V / 4.0 Ω = 2.48 A"); a value the request does not state is set against the
+   bindings at error severity, as before.
+3. **Rule `fraction-unit`** (`relations.fraction_unit_node`, `_compact_slash`,
+   `_pure_factor_dimension`, `_fraction_texts`, `_Planner._fraction_units`,
+   `Relation.fraction_units`; `checks.build_check`). A unit written right after a fraction whose
+   slash has no space on either side ("1/40 s⁻¹", "(ln 2)/8 h⁻¹"), whose divisor is a numeral with
+   that unit and whose dividend carries no unit and names no quantity, may be the divisor's or the
+   whole fraction's. An operand of a chain is read with the fraction's own unit ((1/40) s⁻¹) when,
+   its bare numbers read as pure factors, that reading gives it the dimension of every neighbour in
+   the chain whose dimension is known, and the divisor's reading does not; the relation is then
+   checked so, its `detail` saying "the unit written after '1/40 s⁻¹' is read
+   as the fraction's own, the reading under which the two sides have one dimension (rule
+   fraction-unit)", and rule bare-factor raises no ST-DIM-001. A slip after such a fraction
+   ("0.0966 h⁻¹", "0.25 s⁻¹") fails its arithmetic; ST-DIM-001 is raised only when neither reading
+   agrees ("1/40 s⁻¹ = 0.025 m"); a spaced slash ("1 / 0.087 h⁻¹ = 11.5 h⁻¹") or "÷" divides by
+   the whole operand after it, its unit included, and a divisor's unit that agrees ("0.693/8.0 h =
+   0.087 h⁻¹", "t = 0.693/0.087 h⁻¹ = 8.0 h") is kept. Integer-vector dimension arithmetic decides
+   which reading a relation takes; nothing is evaluated. Before, the SI form "λ = (ln 2)/8.0 h⁻¹ =
+   2.4 × 10⁻⁵ s⁻¹" also failed its arithmetic and its substitution (the divisor's reading, two
+   INT-SUBJ-001 errors on correct work) beside the ST-DIM-001.
+4. **Rule `boolean-gates`** (`lexer._BOOL_WORDS`, `_GATE_SYMBOLS`; `boolean.gate_order`,
+   `_BoolParser._gate`, `parse_boolean`, `parse_truth_table`). With `cs`, the words NAND, NOR and
+   XNOR, the Sheffer stroke ↑ or ⊼ (NAND) and the Peirce arrow ↓ or ⊽ (NOR) are Boolean
+   operators, read as the negations of AND, OR and XOR (NOR at OR's precedence, XNOR at XOR's, NAND
+   at AND's, NOT binding tighter than every one: "NOT A NAND B" is ¬(¬A ∧ B)), in identities,
+   evaluations under the values the statement gives and truth tables alike. Their order beside
+   another binary operator is no standard, and NAND and NOR are not associative: a bracket level
+   (a bracket, an overline group or the whole) that holds a gate beside any other binary operator
+   (implicit AND, "+", "·" and "*" included), or two NAND or two NOR, has two readings, and the
+   expression is named ST-PARSE-002 ("a Boolean expression with two readings: …"; a truth table's
+   output column likewise), never read one way; a chain of XNOR alone is associative and read.
+   Before, the arrow ended the maths run, so "A ↑ B = NOT (A AND B)" was read from B. An arrow outside
+   computer science, and a lower-case "nor" anywhere, is no gate ("T ↑", "neither … nor …").
+
+On every recorded round-7 STEM answer and on the 558 labelled corpus items, the new readings plan
+nothing and change nothing (every check and finding as before, compared byte for byte with the
+staged tree before this repair). Remaining limits, stated: a value in a Given statement after "when
+the emf is" or "at a temperature of", not right after the condition word, is read as a Given, as
+the same value written with "=" is ("Given: I = 4.1 A when ε = 15 V" checks the 15 V); a condition
+written after the value it conditions ("Given: oxygen uptake 85 mm³ per g per hour at 30 °C") is not
+read as its condition, and the value is named ST-UNDEC-003 as in the "=" form; a reused symbol
+given a request value in a part whose question states no value of its dimension is read with no
+check; a unit after a compact fraction is re-read only when the divisor's reading disagrees with a
+neighbour and the fraction's agrees; the gates are read only where AND, OR, NOT and XOR are
+(computer science, upper-case words or the symbols); and a symbol a chain gives a closed expression
+and then its value in SI ("k = (ln 2)/8 h⁻¹ = 2.41 × 10⁻⁵ s⁻¹", or "(ln 2)/(8 h)") is bound to the
+SI value only, so a later substitution of the expression's value in the first unit with no unit
+written ("T = ln 2 ÷ ((ln 2)/8)") fails, as it did before this repair.
+
+## 27. STEM repair 7: readings added after the seventh independent test
+
+A seventh independent test planted STEM faults on copies of the round-7 answers and found three
+problems. A law written with the symbol it evaluates not on its own, its evaluation on the next
+line, was read as an algebra step from the law (ph-t13: "ε = I(R + r)" then "I = 12 V / 2.9 Ω =
+4.1 A"; ph-p7b: "T½ = ln 2/λ, so λT½ = ln 2" then "λ = 0.693/8.0 h = 0.087 h⁻¹"), decided exactly
+with the law's other symbols pinned to values from anywhere in the answer (R = 6.0 Ω from part
+(d): the engine's r = 120/29) and a rounded constant read as exact (0.693 for ln 2: r =
+693/8000), so correct working failed (INT-SUBJ-001), the overseer agreeing with the receipt.
+Derivatives written with primes on a letter other than f, g or h applied to a bracket ("v'(t)",
+"v′(t)", "v'(1)") or in Leibniz notation beyond the first-order forms of a few letters
+("d²v/dt²") were read as products of symbols (v′·t, d²·v/(d·t²)), with neither a check nor an ST
+code, while the pack and the gap analysis said ST-UNDEC-001 names a derivative. And a value
+restated with a rounding finer than the chain's stated value ("To 3 s.f., V = 9.90 V." or "To
+three significant figures, V = 9.94 V." after "V = 12 V − (4.14 A × 0.50 Ω) = 9.9 V", whose
+arithmetic gives 9.93) was set against the stated 9.9 V with both half-widths and passed. Each
+reading is fixed where it went wrong, for its whole class, with a clean control for every new
+reading (`tests/stem/test_stem_repair7.py`); the overseer's side is `docs/OVERSEER_DESIGN.md`
+section 38. The original translator's English, History and generic readings are untouched. No ST
+code was added.
+
+1. **Rule `solved-law`** (`relations._solve_for`, `_occurrences`, `_formula_words`,
+   `_Planner._solved_law`, `_step_cues`, `_link`, `_sequence`, `_substitution`,
+   `_evaluated_formula`, `Relation.prior_readings`; `checks._formula_detail`, `_sub_pairs`,
+   `_sub_evaluate`). A chain that gives a symbol S a value by a written closed expression, right
+   after a law of its part that states S but not on its own (the relation before it, written with
+   "=", with another symbol, S having no stated value before the chain), joined to it as the
+   sequence reads a step (a step word or connective, the law in the same statement or the one
+   before; or adjacent statements each opening its line of working; never an alternative
+   after "or", "and" or a comma), evaluates that law solved for S: its first link is read
+   against the solved formula exactly as against a
+   formula the answer states for S, and no step is read. `_solve_for` isolates S by exact inverse
+   operations through sums, differences, products, quotients, signs, square roots and a square
+   (whose principal root it takes, as the quantity's evaluation does), S occurring once and at most
+   24 operations deep: "ε = I(R + r)" gives ε/(R + r) for I, "λT½ = ln 2" gives ln 2/T½ for λ, "V²
+   = PR" gives V²/R for P, "1/R = 1/R₁ + 1/R₂" gives 1/(1/R₁ + 1/R₂) for R, "E = ½mv²" gives √(E/½/m)
+   for v. The check's reason names "the law stated in s… solved for 'S' (rule solved-law)" and its
+   `detail` "the line evaluates the law stated in s… solved for 'S': S = … (rule solved-law; never
+   an algebra step from the law)". A symbol of the law with no binding whose value the answer
+   substituted before the line ("T = 2π/ω = 2π/4.0") is set against those substituted values, as
+   the step had pinned it, so the reading is never weaker than the step it replaces: "ω = 2πf so f
+   = 3.0/(2π)" fails its substitution. In mathematics, when solving took the principal square root
+   of a squared symbol, ST-ALG-001 names it unless "±" is written or a domain restriction is stated
+   ("A = πr²" then "r = √(50/π) = 3.99"), as for the step it replaces. A Given statement (one
+   that begins "Given", "Data", "Known" or "We know", or the list a "Given:" line opens) is
+   data: never the evaluation of the law before it nor a step from it ("Given: ε = 12 V." after
+   "I = ε/(R + r)" is checked as a Given against the request; it had failed as a step). Read
+   as before: a law in which S occurs twice or under a function (a quadratic in S, e^(−λt): an
+   equation the line solves, a step and its stated roots), a law with no other symbol ("2x + 3 = 11"
+   then "x = (11 − 3)/2"), a value alone after a law whose every other symbol has a stated value
+   (its solution: "λ = 0.097 h⁻¹" after "λT½ = ln 2" with T½ stated fails as a step and as its
+   stated roots), the formula of S the answer states or its rearrangement (rule
+   `rearranged-formula`), and anything the sequence would not read as a step. A value alone after a
+   law with another symbol that has no stated value is a value stated for S, with no check ("F =
+   ma" then "a = 4.0 m s⁻²"): as a step it failed whatever the value.
+2. **Rules `leibniz` and `prime-derivative`** (`parser._leibniz_end`, `_order_marker`,
+   `_one_letter`, `_d_letter`, `_LEIBNIZ_ORDERS`, `_Parser._ident`, the LaTeX `\frac` reading). A
+   derivative in Leibniz notation: a numerator d with an optional order marker ("²", "^2", "^{2}",
+   "**2", or a digit glued on) and one Latin or Greek letter differentiated ("d²v", "d^2y", "dθ"),
+   or a glued "dv" or "dN", or d alone with its marker (the operator "d/dx", "d²/dx²"); a
+   denominator d and one letter ("dt", "dθ") with the same order marker, orders 2 to 9; in LaTeX,
+   `\frac{d^2v}{dt^2}`, `\frac{dN}{dt}` and `\frac{d\theta}{dt}` read as one such form. It is "a
+   derivative" (ST-UNDEC-001), the relation not checked. A derivative in prime notation: any one
+   Latin or Greek letter with primes written applied to a bracket with no space ("v'(t)", "v′(1)",
+   "s″(t)", "θ′(t)"), not only f, g and h; the node keeps the name and the argument, so an
+   evaluation "v'(1) = 6 + 6(1)" is set against a formula "v'(t) = 6 − 6t" the answer states and
+   fails (the formula itself named ST-UNDEC-001). No derivative: orders that differ ("d²v/dt"), d
+   over a symbol that is no differential ("d/t"), a primed letter with no bracket ("v′ = 2.0 m s⁻¹",
+   a symbol) or with a space before it ("v′ (t)"). In computer science the Boolean reading of a
+   prime is unchanged ("A'(B + C)" is NOT A AND (B OR C) there). Before, each was a product of
+   symbols, "an equation in an unknown", with neither a check nor an ST code.
+3. **Rule `finer-restatement`** (`relations._computed_operand`, `_Planner._finer_restatement`,
+   `Relation.finer`; `checks._res_finer`). A value restated with a rounding the prose states and
+   set against a chain's final value (rule `rounding-cue` for a value stated for a symbol, "To 3
+   s.f., V = 9.90 V.", "V = 9.94 V (3 s.f.)"; a prose restatement after a cue, ", so 9.95 V to 3
+   s.f.", "To 3 s.f., the terminal potential difference is 9.94 V.") whose own half-width (the
+   stated rounding's, never less than half a unit in its last written digit; in the chain's unit by
+   exact factors when the units differ) is smaller than the half-width of the chain's final value
+   states figures that value does not carry. Beside the rounding-cue check, which is unchanged, it
+   gets a check against the value the expression the chain's last "=" evaluates gives (the operand
+   before the stated value, closed and read one way), with that half-width alone and τ = 0, its
+   numerals read as written arithmetic reads them (a carried result or a written constant over its
+   interval), at warning severity: that the restated value is the line's arithmetic as written is a
+   reading the answer did not state (it may have computed with figures its working does not show).
+   "To 3 s.f., V = 9.90 V." and "… 9.94 V." fail it (INT-SUBJ-004), "… 9.93 V." holds; "To 4 s.f.,
+   P = 16.34 W." after "P = (9.93 V)² / 6.0 Ω = 16.4 W" fails it and the rounding-cue check too.
+   Nothing is added when the rounding is no finer than the chain's value, the chain writes no closed
+   expression before its value, or the two units cannot be compared by exact factors.
+
+On every recorded round-7 STEM answer and on the 558 labelled corpus items, the new readings plan
+nothing and change nothing (every check and finding as before, compared byte for byte with the
+staged tree before this repair). Remaining limits, stated: rule solved-law reads only the law
+right before the line, in its part, joined to it as a step would be, and a law in which the
+symbol occurs twice or under a function is read as before; a value alone after a law with another
+symbol that has no stated value is unchecked; a derivative written as a primed letter with no
+bracket ("y'' = 6"), in Newton's dot notation ("ẋ = 3") or with ASCII digits glued on ("d2y/dx2",
+named ST-PARSE-001 as a relation sign no maths span reads, as before) is not named a derivative,
+and outside computer science a complement written with a prime before a bracket ("A'(B + C)") is
+named a derivative, unchecked (before, it was silent); differentiation itself stays outside the
+encodings (the translator gap `formulas-derivative`); a restatement whose prose names its quantity
+with a dotted abbreviation ("the terminal p.d. is 9.94 V") is not read, before or after; and a
+prose value with a stated rounding that names another quantity of the chain's dimension ("To 2
+s.f., the emf is 12 V." after the terminal potential difference's chain) is set against the last
+chain and fails (INT-SUBJ-001), exactly as on the staged tree before this repair.
+
+## 28. STEM repair 8: readings added after the eighth independent test
+
+An eighth independent test planted STEM faults on copies of the round-7 answers and found four
+problems. A value a run computes under a condition ("Mean time at 30.0 °C = (33.1 s + 34.0 s +
+32.5 s) ÷ 3 = 33.2 s", "Rate at 20.0 °C = 1/61.7 s = 0.0162 s⁻¹", "I at t = 5 s = 12 V / 4.5 Ω =
+2.7 A", "The corrected rate at t = 40 h = …", "Uptake at 30 °C = 2 × 40 = 80", "Speed after 2.0 s
+= …") or right after a list that names it ("Mean of 18, 27 and 40 = (18 + 27 + 40) ÷ 3 = 28.3")
+was read as a relation between the condition (or the list's last value) and the computation, and
+failed (INT-SUBJ-001 on correct working, four of them with ST-DIM-001), the overseer agreeing with
+the receipt. A value copied wrongly from the supplied table ("t = 12 h: 568 − 20 = 548 ± 11", the
+table states 586; 1115 for 1151; 330 for 303) and a wrong background ("220 − 25", the supplied
+text states 20) were neither checked nor named, while the pack's D31 said a value the working takes
+from the table is set against its row. A law stated right before a line that evaluates it in
+another shape ("(c) [1] V = ε + Ir" then "V = 12 V − (4.14 A × 0.50 Ω) = 9.9 V") was named by
+nothing, and a failed substitution of a law ("P = V/R" then "P = (9.93 V)² / 6.0 Ω = 16.4 W") named
+the line and the value it contradicts but not the law. And a rounding restated after ", so" with a
+word between it and the chain's value ("= 60.4% decrease, so 61% to 2 s.f.") was not read. Each
+reading is fixed where it went wrong, for its whole class, with a clean control for every new
+reading (`tests/stem/test_stem_repair8.py`); the overseer's side is `docs/OVERSEER_DESIGN.md`
+section 39. The original translator's English, History and generic readings are untouched. No ST
+code was added.
+
+1. **Rule `value-at` for a computing chain** (`relations._VALUE_AT_RE`, `_Planner._value_at`,
+   `_computed_at`, `_value_at_chain`). A maths run right after a condition word ("at" and "when"
+   as before, and now "after", "before", "during", "within", "until", "for" and "in": the words that
+   state a time or an extent a value holds under; never a word that joins an operand written in
+   words, "by", "over", "of", "to", "from", rule `fragment`) that opens with the condition and then
+   computes the named quantity's value (a written closed expression with no symbol after the
+   condition, every link after it "=" or "≈") states that quantity's value under the condition: the
+   condition binds nothing and is no side of a relation, the run's links after it are checked as in
+   any chain, and the value the chain states last is a computed final value (a restatement of it is
+   read as of any chain's). The condition and the computation must be values of different kinds, as
+   for a stated value (rule value-at: the value the chain states last against the condition, or,
+   with none stated, the expression's own dimension), so a conversion of the condition ("T at 25
+   °C = 25 + 273 = 298 K") is read as before.
+2. **Rule `condition-value`** (`_Planner._condition_value`; `checks._GIV_RULES`, `_giv`). In a run
+   read by rule 1, when the computation takes exactly one value of the condition's dimension (by its
+   written unit; one value written twice counts once), that value stands for the condition: a `giv`
+   check sets it against the condition's value, in SI, every written digit counting on both sides
+   (rule given-digits: "in 10 s" against "× 20 s" no longer holds by the trailing zeros), at warning
+   severity ("which value of the run's computation stands for the condition the run is stated under
+   is a reading"). "The charge that flows after 2.0 s = 4.1 A × 3.0 s = 12.3 C" fails (INT-SUBJ-004).
+   Nothing is read when the condition has no unit, is a percentage or has no exact SI value (an
+   affine unit: "at 30 °C"), or when the computation takes no value, or two values, of its
+   dimension ("× (4.0 s − 1.0 s)").
+3. **Rules `name-list` and `item-label`** (`relations._NAME_LIST_RE`, `_LIST_TAIL_RE`,
+   `_list_values`, `_ITEM_LABEL_RE`, `_name_head`, `_Planner._named_value`, `_list_terms`,
+   `_additive_groups`). The prose right before a run that ends with a list or a range of values
+   ("Mean of 18, 27 and ", "Difference between 40 and ", "The rise from 20.0 °C to ", "Mean of 18
+   mm³, 27 mm³ and ") makes the run's first value the list's last item, part of the quantity's
+   name, when the run goes on to compute (a written expression after its first "="): "Mean of 18, 27
+   and 40 = (18 + 27 + 40) ÷ 3 = 28.3" is the mean's value, its arithmetic checked. A list with no
+   computation after it ("… 18, 27 and 40 = 28.3") stays a relation written partly in words (rule
+   fragment, ST-PARSE-001). The noun of a numbered item ("trial", "run", "repeat", "sample", "day",
+   "year", "step", "stage", "reading", "term", "generation" …) before a run whose first operand is a
+   whole number written with no point makes that number the item's ("Time for trial 2 = 60.8 s",
+   "Year 2 = 4000 × 1.036² = 4293.18"): nothing is checked for the number. Rule name-list's check:
+   in a run so read, each sum or difference of the computation that takes a listed value (as
+   written) has its other terms set against the list's values, as written, every digit counting, at
+   warning severity ("which of the values the prose lists the computation's value stands for is a
+   reading"): "(18 + 27 + 41) ÷ 3" fails; a term that is a listed value, 100 or 1000, or a
+   computation that takes none of them ("85 ÷ 3", the sum carried), plans nothing.
+4. **Rule `table-terms`** (`_Planner._table_operands`, `_table_terms`, `_table_quantity_values`,
+   `_computed_at_row`; `checks._GIV_RULES`). In a line read by rule table-operands (its rows named by
+   the line, else by its part's question, and one column read), the terms of each sum or difference
+   of the working that holds a value of the column's quantity (a cell, a value the request or its
+   supplied texts state for that quantity outside the table, or, the whole computed side, when the
+   line states its value with the column's unit) are the values the working takes of that quantity;
+   a term that is none of them, as written, is read. When the line takes the cell of every named row
+   but one and exactly one such term, the term is that row's value copied wrongly: it is set against
+   the row's cell ("t = 12 h: 568 − 20 = 548 ± 11" against 586; "(9.6 − 3.9) ÷ 9.6 × 100" against
+   site C's 3.8). When it takes the cell of every named row, the term is set against the values
+   the request and its supplied texts state for the quantity outside the table ("220 − 25" against
+   the background of 20 counts per minute; a bare term is read in the column's unit), unless the
+   line computes a cell or such a value itself ("566 + 20 = 586", "586 − 566 = 20") or the term is a
+   stated percentage of the cell (a bound, rule processed-data's reading: "586 + 11.72"). Each is a
+   `giv` check at warning severity, every written digit counting; nothing is read when two terms or
+   two rows' values are unaccounted for, a term carries a unit of another dimension, the quantity
+   has no unit and no value of it is stated outside the table, or the wrong value is a factor ("2 ×
+   41"). Two row readings of rule table-operands changed with it: a named row whose cell the line
+   states as its own value is the row of the line's result, never a row its working takes a value
+   from ("Uptake at 30 °C = 2 × 40 = 80": the 40 had been set against the 30 °C row's 80, a false
+   INT-SUBJ-004 on correct working), and so is the row a run's condition names (rule 1) when the
+   working takes a cell of the column and not that row's ("Uptake at 30 °C = 2 × 40 = 90": its
+   arithmetic fails, and the 40 is not set against the 30 °C row). The same repair makes a value
+   the prose states for a quantity the request names by its words (rule named-given) restate the
+   request's data as written, every digit counting: "the background count rate of 25 counts min⁻¹"
+   had held against the supplied 20 counts per minute by the 20's trailing zero.
+5. **Rule `law-values`** (`relations._orders`, `_power_of`, `_law_dims`, `_Planner._law_values`,
+   `_another_relation`, `_evaluated_formula`, `_sub_or_equation`, `_link`, `_chain_ctx`;
+   `checks._TITLED_WARNINGS`). A line that gives a symbol a value right after its part states a law
+   for it (the formula the scope holds for the symbol, stated in the same part), whose written
+   expression neither repeats the law's shape (no substitution pairs a symbol with each value) nor
+   can be evaluated under its symbols' stated values (a symbol with no stated value: ε), and also
+   the same law and its evaluation written in one line ("V = ε + Ir = 12 V − (4.14 A × 0.50 Ω) =
+   9.9 V"): the line's values with units (distinct by value and unit) are paired with the law's
+   symbols, one value for each symbol and every value used, at most five, so that each symbol whose
+   dimension is known (from its stated values, or from the law itself by exact exponent arithmetic:
+   every term of a sum has the sum's dimension, a factor or a divisor whose partner's dimension is
+   known the one that makes the product's, `_law_dims`) gets a value of that dimension and the law
+   at those values has the dimension of the value the line states. Several pairings are read only
+   when they give one exact value (the current and the resistance of "Ir" either way). The law at
+   the paired values is set against the value the line states, under the tolerance rule: an `eq`
+   check titled "the law stated in s… at the values the line puts in", its statements the law's and
+   the line's, its reason naming every pairing and "rule law-values", at warning severity ("which of
+   the line's values stands for which symbol of the law is read from their dimensions, a reading the
+   answer did not state"). "V = ε + Ir" gives 14.07 V where the line states 9.9 V: it fails, while
+   the line's arithmetic holds. Nothing is planned in the request, for a link other than the line's
+   first, for a law of another part, one with a parameter, a ±, a function or notation outside the
+   encodings, a dimensionless symbol, a line whose values do not stand one for each symbol ("V = 12
+   V − 2.07 V = 9.93 V"), when no pairing (or more than one value) agrees with the dimensions, or
+   when the line states the value itself ("F = 2 × k = 6 N"). Found closing it, the reading of a
+   formula whose shape the line does not repeat as the formula under its symbols' stated values
+   (`_evaluated_formula`, "a = 6 − 6(1)" after "a = 6 − 6t") now skips a line that takes a value of
+   a dimension no symbol of the formula has, nor a power of one, every symbol's dimension known: "P
+   = 9.93 V × 1.655 A = 16.4 W" right after "P = V²/R" evaluates P = VI, and had been set against
+   V²/R under the stated values and failed (INT-SUBJ-001 on correct working).
+6. **A failed substitution names its law** (`relations._related_statements`). The statement of the
+   formula a substitution evaluates comes first among the statements the check relies on, when
+   another statement of the answer states it (not the request), so a failure names the law's claim
+   beside the line's and those whose values it contradicts ("P = V/R" then "P = (9.93 V)² / 6.0 Ω =
+   16.4 W": s4.3, s4.2 and s3.2). Only the claim ids of a failure finding change; a passing check is
+   unchanged.
+7. **Rule `inline-restatement` with describing words** (`relations._INLINE_WORD`,
+   `_INLINE_RESTATE_RE`). Up to three words that say what the value is may stand between a chain's
+   value and the comma before the restatement's cue ("= 60.4% decrease, so 61% to 2 s.f.", "=
+   9.93 V across the resistors, so 9.8 V to 2 s.f.", "= 4787.58 euros, so 4787 euros to the
+   nearest euro"), never a word that opens a clause of its own (a verb, a connective: "so", "and",
+   "which", "is", "gives" …). The restatement is checked as any inline restatement: the three fail,
+   their right roundings hold.
+
+On every recorded round-7 STEM answer and on the 558 labelled corpus items, the new readings plan
+nothing and change nothing (every check and finding as before, compared byte for byte with the
+staged tree before this repair). Of the round-7 arena's STEM mutations, one gains a check: the
+`stem_substitution` mutation of bi-t13 ("(80 − 70) ÷ 40 × 100 = 100%", 70 in place of the 20 °C
+row's 40) is named by its arithmetic as before and now also by rule table-terms (INT-SUBJ-004 on
+the same claim). Remaining limits, stated: a conversion of the condition written
+with a bare sum ("T = 25 °C = 25 + 273 = 298 K") is read as before (its two links compared as
+written); rule condition-value compares a condition with no exact SI value (°C, °F) with nothing;
+a list with a single run link ("Mean of 18, 27 and 40 = 28.3") stays ST-PARSE-001; rule
+table-terms reads one unaccounted term at a time (two wrong numbers in one line, or a wrong
+factor, are not read); rule law-values pairs only values written with units (a bare-number
+evaluation is not paired) and reads only the law the scope holds for the symbol in its part; a law
+whose symbols have no stated values evaluated in its own shape ("P = V/R" then "P = (9.93 V)² /
+6.0 Ω" with V stated nowhere) has nothing to contradict; a product written in another order than
+the law's ("V = ε − rI") is paired by position, so its values are introduced for the symbols and
+nothing is checked (as before); and a value the prose states for a quantity matches only when every
+word the request names it by stands in its name (rule named-given, as before).
+
+## 29. STEM repair 9: readings added after the ninth independent test
+
+A ninth independent test planted STEM faults on copies of the round-7 answers and found eight
+problems in the readings and one in the pack. A correct line at the end of a part ("As a check, ε
+= 9.93 V + 4.14 A × 0.50 Ω = 12.0 V.", "The lost volts are 4.14 A × 0.50 Ω = 2.07 V.") took the
+words of the part's question, so a later change stated from the part's result ("… rises, from 9.9
+V to 10.7 V") was set against that line's value: a false INT-SUBJ-004 on correct working, which the
+overseer agreed with (rule named-change, STEM repair 1). A Given of a function's value ("Given:
+v(1) = 4 m s⁻¹.", the request's v(t) = 6t − 3t² giving 3) and a Given function ("Given: v(t) = 6t −
+2t².", "Given: a(t) = 6 − 4t.") had neither a check nor an ST code, while the pack said every Given
+has one or the other, so an agent's true `finding_missing` was refuted. A trial copied wrongly into
+the mean over a supplied row's trials ("Mean time at 30.0 °C = (33.1 s + 43.0 s + 32.5 s) ÷ 3 = 36.2
+s", the cell being 34.0), a wrong rearrangement evaluated for a quantity the request names ("So r =
+(ε + V)/I = (12 V + 9.93 V)/4.14 A = 5.3 Ω.", the request's 0.50 ohm), a decay over a stated number
+of half-lives divided by the number ("5 half-lives, C = 1600 counts min⁻¹ ÷ 5 = 320 counts min⁻¹"),
+a wrong median in any form ("The median of 18, 27, 40, 58, 80, 92 and 61 is 61.", "Median uptake = 61
+mm³ per g per hour", "Median of … = 61") and a value restated at a rounding it is not written to ("=
+60.4% decrease, which is 60.4% to 2 s.f.", "To 3 s.f. the external resistance is 2.4 Ω.") were
+neither checked nor named. Each reading is fixed where it went wrong, for its whole class, with a
+clean control for every new reading (`tests/stem/test_stem_repair9.py`); the overseer's side, with
+the pack's readability, is `docs/OVERSEER_DESIGN.md` section 40. The original translator's English,
+History and generic readings are untouched. No ST code was added.
+
+1. **Rule `part-answer`** (`_Planner._labelled_values`, `_part_answers`, `_names_other_quantity`,
+   `_check_cue`, `_own_label_words`, `_items_by_statement`, `_item_of`; `relations._CHECK_CUE_RE`,
+   `_question_head`). The words of a part's question label only the value that answers it: the last
+   value the part computes, leaving out, from the end of the part back, a line that says it checks
+   a value (a check word, "check", "verify", "confirm" and their forms, in the prose right before its
+   run, or right after the statement's last run: "As a check, …", "Check: …", "…, which checks"), a
+   line whose own words name another quantity (its label, or the prose naming its run's value right
+   before it, when those words neither hold every word of the question's quantity, its name up to
+   its first preposition, nor are all words of the question: "The lost volts are …" in the part that
+   asks for the terminal potential difference) and a line that gives its value to a quantity the
+   request names that the question does not (rule 2's reading: "So the emf is …", "ε = …"). A part
+   with no such value labels nothing; a part with no question keeps its last value. Rule named-change
+   (a change stated from a value) and rule changed-value (the value a change ends at, which a later
+   substitution may take) read the labels so: with a check line at the end of part (b), the change
+   "from 4.1 A to 2.7 A" is recorded again, and "V = 12 V − 2.7 A × 0.50 Ω" in part (e) no longer
+   fails against 4.1 A (a false INT-SUBJ-001 found closing the class).
+2. **Rule `named-result`** (`_Planner._named_results`, `_request_quantity`, `_own_label_head`;
+   `relations._label_head_words`; `checks._giv`; `document._named_quantities`). The value a line gives
+   a quantity the request names (the final value of a chain, computed or stated for a symbol) is
+   set against the request's value of that quantity, as rule named-given sets a value the prose
+   states: a `giv` check at warning severity ("the answer gives a value to the quantity ('internal
+   resistance') the request names; the request's value is matched to it …, a reading the answer did
+   not state"), every written digit counting. The line names the quantity by the prose right before
+   its value (rule bound-relation's reading: "So the internal resistance is (12 V + 9.93 V)/4.14 A =
+   5.3 Ω."), by its label's first words up to a preposition or a comma ("Internal resistance: r = …"),
+   or by its lone symbol, when the symbol has no value of its own before the line (no binding in the
+   answer or the request) and every value the answer substituted for it before the line is the
+   request's value of one named quantity ("V = 12 V − (4.14 A × 0.50 Ω)" put the request's 0.50 ohm
+   for r, so "r = (12 V + 9.93 V)/4.14 A = 5.3 Ω" and "So r = 5.3 Ω." give the internal resistance a
+   value). Only a value with a unit is read, against the request's values of its dimension; a Given
+   statement is set against the request as a Given (rule given-kinds); nothing is read with no
+   request (the relay form). The request's reading of the words that name a quantity changed with
+   it: the words after a preposition that stands between the name and the words before it are the
+   name ("a battery of emf 12 V" names the emf, where it had named "battery emf", so "the emf is 9.0
+   V" matched nothing), and a preposition and an article right before the value open a noun phrase
+   whose name follows the value, so the words before name nothing of it ("the horizontal component of
+   a 10 N force" had named the 10 N "horizontal component", a false alarm on a correct component
+   found closing the class).
+3. **Rule `given-function`** (`_Planner._given_functions`, `_request_functions`,
+   `_request_function_unit`, `_given_function_value`; `relations._applied_value`, `_glued_bracket`,
+   `_function_definition`; `checks._TITLED_WARNINGS`, `_eq`, `_step`). A Given statement that gives a
+   function's value restates the request's data too: the request's function of that name at the
+   Given's argument (any number, however written: "v(1)", "v(1/2)", "v(−1)", "v(2 − 1)") against the
+   Given value, an `eq` check the engine evaluates, every written digit of the Given counting and τ
+   = 0, in the unit the request's prose states for the function's values ("Its velocity, v m s^-1"),
+   compared in SI ("Given: v(1) = 300 cm s⁻¹." holds), or as written for a Given with no unit. A
+   Given function ("Given: v(t) = 6t − 2t².", "Given: v(t) = 4.", and "Given: v = 6t − 2t²." for a
+   function the request defines) is set against the request's function, its variable renamed, for
+   every value of the variable: an `alg` check from the trivially true premise, as rule antiderivative's.
+   Both at warning severity ("that the Given restates the request's function is a reading"). A Given
+   of a function the request does not define, at an argument that holds a symbol ("Given: v(t + 1) =
+   4 m s⁻¹.") or a unit ("v(1 s)"), with a unit of which the request states none, or of another
+   dimension, for the function's values, or a Given function written with a unit or with symbols
+   other than its variable, is ST-UNDEC-003, named with why. f, g or h applied to a number are
+   applications in the grammar, so their Given ("Given: f(2) = 6.") is checked as the written
+   arithmetic of the request's function applied, as before. A Given of a function's value is no
+   equation in its letter: it is never the relation a later line is a step from ("Given: v(1) = 3."
+   read as v·1 = 3 had made the correct "v(2) = 6(2) − 3(2)²" a failing algebra step, a false
+   INT-SUBJ-001 the staged tree already gave, found closing the class) and no equation whose roots
+   follow.
+4. **Rule `row-terms`** (`_Planner._row_terms`, `_table_operands`; `relations._repeat_columns`,
+   `_REPEAT_NAME_RE`; `checks._GIV_RULES`). A supplied table's columns that write one quantity
+   repeated (names that differ only by a trial's, a repeat's or a run's number, one unit: "Time,
+   trial 1 / s" to "Time, trial 3 / s") are the repeats of each row. In a line that names one row
+   (its line, a run's condition, or its part's question), each sum or difference of the working that
+   takes a cell of that row's repeats has its terms read: a cell of the repeats in another row is set
+   against the named row's repeats ("(33.1 s + 17.6 s + 32.5 s) ÷ 3", the 17.6 being the 40.0 °C
+   row's), and a term that is no cell of the repeats, when it is the only one and exactly one repeat
+   of the row is taken nowhere, is that repeat copied wrongly and is set against it ("(33.1 s + 43.0 s
+   + 32.5 s) ÷ 3" against 34.0). Each a `giv` check at warning severity, the data taken as written;
+   the row's trials in any order hold, and two unaccounted terms are not read.
+5. **Rule `decay-law`** (`_Planner._half_lives`, `_decay_law`). After the prose states a number of
+   half-lives, when no power of ½ follows in its statement, the value the statement goes on to
+   compute from exactly one value of the stated value's dimension (the value before the decay) is
+   set against the decay law over that number, that value × (½)ⁿ: an `eq` check at warning severity
+   ("the number of half-lives is read from the prose, and the value before the decay is the one value
+   of the result's dimension the line takes"). "C = 1600 counts min⁻¹ ÷ 5 = 320 counts min⁻¹" after
+   "5 half-lives" fails (the law gives 50); "÷ 32" and "÷ 2⁵" hold. A power of ½ is left to rule
+   half-lives, which sets its exponent against the number, as before.
+6. **Rule `statistics`** (`_Planner._statistic_run`, `_statistics_prose`, `_plan_statistic`;
+   `relations._STAT_COMPUTED`, `_STAT_RE`, `_STAT_LIST_RUN_RE`, `_STAT_LIST_PROSE_RE`,
+   `_STAT_COLUMN_PROSE_RE`, `_exact_num`). A statistic stated for the values the prose lists ("The
+   median of 18, 27, 40, 58, 80, 92 and 61 is 61.", "Median of 18, 27, 40, 58, 80, 92 and 61 = 61",
+   "Mean of 18, 27 and 40 = 28.3") or for the supplied table's column its words name, with no row
+   named ("Median uptake = 61 mm³ per g per hour", "The median uptake is 61 mm³ per g per hour.") is
+   formed by the STEM pack from the values as written (the median by ordering them, the middle one or
+   the mean of the middle two; the mode by counting them, one value occurring most often, more than
+   once; the range as the largest minus the smallest; the mean as their sum over their count) and the
+   stated value is set against it: an `eq` check at warning severity, the comparison the engine's
+   under the tolerance rule. A standard deviation, a variance, a quartile, a percentile or an
+   interquartile range, and a mode the values do not have as one value, are ST-UNDEC-001, unchecked.
+   Before, the list's last value was read as a side of a relation ("61 = 61", which held), or the
+   relation as written partly in words (ST-PARSE-001: "Mean of 18, 27 and 40 = 28.3", which section 28
+   left so); a list named by a word that is no statistic ("Sum of 18, 27 and 40 = 85") still is, and a
+   row's value ("The mean uptake at C is …") is no column's statistic.
+7. **Rule `rounded-digits`** (`_Planner._rounded_digits`; `relations._exact_place`, `_show_place`).
+   A value stated with a rounding the prose states for it (a restated result read by rule
+   rounding-cue, a value the prose states after a copula with a rounding in its clause, a value
+   stated for a symbol with one) is written to that rounding: the place the rounding keeps ("to 2
+   s.f." of 60.4 keeps the units, "to 3 s.f." of 2.4 the hundredths, "to the nearest cent" the
+   cents) is set against the places the value is written to (its last written digit's; a whole
+   number's trailing zeros may stand for it, so "60" is written to the units or to the tens), an `eq`
+   check, exact, at warning severity ("which value the rounding the prose states is of is read from
+   the prose, and the place a value is written to from its numeral"). "= 60.4% decrease, which is
+   60.4% to 2 s.f." and "To 3 s.f. the external resistance is 2.4 Ω." fail; "60% to 2 s.f.", "2.40 Ω to
+   3 s.f." and "4780 to the nearest ten euros" hold. Before, a value restated at a stated rounding
+   without being rounded passed: the rounding-cue check sets the value against the chain's within the
+   rounding's half-width, which an unrounded value always meets.
+
+On every recorded round-7 STEM answer and on the 558 labelled corpus items, the new readings plan
+nothing and change nothing (every check and finding as before, compared with the staged tree before
+this repair). Remaining limits, stated: rule part-answer recognises a check by its words, so a check
+line with no check word that names no other quantity still answers its part; rule named-result reads
+a symbol only when every value substituted for it before the line is one named quantity's; rule
+given-function reads a Given of f, g or h applied to a number as written arithmetic (an error when
+it fails, not a warning); rule row-terms reads one unaccounted term, and only in a line that names
+one row; rule decay-law reads only the statement that states the number of half-lives; rule
+statistics forms only the four statistics named, from at least two values, and reads a column only
+when its words name exactly one; and rule rounded-digits reads only the rounding phrases rule
+rounding-cue reads, for the values listed above (a rounding written in any other form is read as
+before).
+
+
+## 30. STEM repair 10: readings added after the tenth independent test
+
+A tenth independent test planted STEM faults on copies of the round-7 answers and found eight
+problems. A wrong conversion the prose states with a verb ("A time of 45 s is 0.45 min.") was
+checked only when it ended the whole answer: whether the restated value ends its clause was read in a
+60-character window of the whole text, which the next statement filled. A line naming its rows and its
+column ("The nitrate rise from site A to site D is (8.4 − 1.2) ÷ 1.2 × 100 = 600%.") was read in no
+column when its part's question named another. Values at a supplied table's row restated wrongly went
+unnamed in common shapes ("Site A has 43 mayfly nymphs per kick sample.", "the most nymphs (43)").
+Another resistor's value substituted for the one a sentence names ("The power dissipated in the 4.0 Ω
+resistor is P = (9.93 V)² / 6.0 Ω = 16.4 W."), a wrong law evaluated right at a condition its part had
+computed ("Using C = C₀ − λt, C = … = 1597 counts min⁻¹ at 32 h.", part (d) having 100 counts min⁻¹ at
+32 h), a base conversion in prose ("The binary number 110010₂ is 48 in denary.") and a definite
+integral ("∫₀¹ 6t dt = [3t²]₀¹ = 6") were named by nothing (the last ST-UNDEC-001 whatever its value).
+A 0.44% slip on a power of the request's exact rate held under τ = 1/100, and a value restated from a
+value written with an ellipsis ("= 4787.58…" then "= 4787 euros, to the nearest euro") was
+ST-UNDEC-001 whatever its rounding. Each reading is fixed where it went wrong, for its whole class,
+with a clean control for every new reading (`tests/stem/test_stem_repair10.py`); closing the classes
+found more of each, below. The overseer's side is `docs/OVERSEER_DESIGN.md` section 41. The original
+translator's English, History and generic readings are untouched. No ST code was added.
+
+1. **Rule `prose-conversion`** (`_Planner._prose_conversions`). Whether a value the prose restates in
+   another unit ends its clause is read in its own statement (`ProseValue.after`, statement-bounded),
+   so a conversion followed by another statement, on the next line or the same one, is read like one
+   that ends the answer. The class's other windows of the whole text were found and bounded too: rule
+   table-data (below).
+2. **Rule `table-operands`** (`_Planner._table_operands`). When the words of a line name several
+   columns with its part's question, the column is the one the line's own words name, when they name
+   exactly one and the line takes a cell of it.
+3. **Rule `row-value`** (`_Planner._row_values`, `_row_values_more`, `_row_values_clause`,
+   `_value_clause`, `_clause_rows`, `_row_check`; `relations._ROW_NUM_KEY`, `_ROW_AT_KEY`,
+   `_row_key_of`, `_column_head_word`, `_names_processed`, `_modifiers_fit`, `_VALUE_CLAUSE_START_RE`,
+   `_VALUE_CLAUSE_END_RE`, `_ROW_STATES_RE`, `_ROW_CLAUSE_SKIP_RE`, `_ROW_COMPARE_AFTER_RE`,
+   `_ROW_LETTER_MENTION_RE`, `_ROW_NUMBER_MENTION_RE`). The tester's shapes are read (the value after
+   "Site A has", a run labelled by the column after the row, "number", "total", "amount to" and "come
+   to" as verbs, a column joined to the clause's first, a count the clause leaves its column out of,
+   the column before "of" and the row after the value, the column and the row after the value), and a
+   column is named by the last word of its counted quantity when no other column's name has it, in
+   the singular or the plural. Closing the class found the reading was a list of shapes, each fixing
+   the order of the row, the column and the verb, so the clause reading takes what every shape leaves:
+   a value its own clause (bounded by its statement and by the words that open another clause) states
+   (right after a verb of being or reaching, "has", "of", "=", an opening bracket or an apposition's
+   comma, an adverb such as "only" between), naming exactly one row (a site's letter after "site", a
+   preposition, as a possessive or as the clause's subject; a number with a numbered table's key unit,
+   after the key's symbol and "=" too) and one column, in any order ("Dissolved oxygen was 3.9 mg dm⁻³
+   at site C.", "Site C's dissolved oxygen is only 3.9 mg dm⁻³.", "The measured count rate was 568
+   counts min⁻¹ at 12 h."). The shapes that name the row after "at" read a numbered row too, a label
+   run whose symbol is the label's last word is read with the words before it ("At 12 h, measured
+   count rate = 568 counts min⁻¹."), and columns whose names differ only by a number are told apart by
+   it ("At 30.0 °C, trial 2 took 43.0 s."). Closing the class also found false failures on correct
+   working, each removed at its cause: a value followed by a comparison or an operation ("5.8 mg dm⁻³
+   lower than at A", "7 times that at A") is no cell; a clause naming a processed quantity the
+   column's name does not ("corrected", "mean", "uncertainty", "background", "change": "The corrected
+   count rate at 12 h is 566 counts min⁻¹.") is not read against the raw column; a phrase that names
+   a column by a part of its name names it only when the words before that part are words of the
+   name, determiners or superlatives ("the decay rate" is no "Measured count rate"); and a value its
+   clause states under a condition, a hypothesis, a target or a modal verb, or right after a bound
+   ("If nitrate at site B fell to 4.0 mg dm⁻³, …", "A target of 9.0 mg dm⁻³ of dissolved oxygen at site
+   C would …", "is below 4.0 mg dm⁻³"), is no value of the row (`_unstated`; the first had failed on the
+   staged tree already, through the shape that reads "falls to").
+4. **Rule `table-data`** (`_Planner._table_values`, `_table_check`). The words that choose the column
+   are the value's own statement's, never a 200-character window across statements (a sentence before
+   the line that named another column had left the line unread), and a processed quantity is not read
+   against the raw column, as for rule row-value.
+5. **Rule `named-change`** (`_Planner._named_changes`). The value a change starts from that the change
+   states under a condition of its own ("from 1131 counts min⁻¹ at 4 h") restates no value computed
+   under another condition (it had been set against part (d)'s value at 32 h and failed).
+6. **Rule `named-component`** (`_Planner._named_components`; `relations._COMPONENT_NOUNS`,
+   `_COMPONENT_BEFORE_RE`, `_COMPONENT_AFTER_RE`; `checks._GIV_RULES`). A working whose statement names
+   a component by one of the request's values ("the power dissipated in the 4.0 Ω resistor", "the
+   current through the 4.0 Ω resistor") and whose values of that dimension are all the request's and
+   none the component's is set against the named component: a `giv` check at warning severity.
+7. **Rule `condition-result`** (`_Planner._condition_results`; `relations._TRAILING_CONDITION_RE`,
+   `_QUESTION_CONDITION_RE`, `_condition_si`; `checks._res`). A value the answer computes for a symbol
+   under a condition (stated right after the value, before the run, or by its part's question for the
+   part's answer) is set against the value it computed for the symbol under the same condition before:
+   a `res` check (R8) at warning severity.
+8. **Rule `prose-base`** (`_Planner._prose_bases`, `_based_value`; `relations._BASE_*`). A whole number
+   the prose restates right after it in another base, each base written (a subscript, "in binary", "in
+   denary", "in hexadecimal", "the binary representation of"), is set against the numeral read in its
+   base: a `base` check. Closing the class found that a base named only right after the first numeral
+   reads two ways ("10 in binary is 1010" converts 10 into binary; "1010 in binary is 10" names the first
+   numeral's base): reading it only as the first's failed the correct conversions written the first way
+   (a false INT-SUBJ-001: "10 in binary is 1010", "100 in octal is 144"), so the check holds when either
+   reading does, each numeral's digits allowing it (`Relation.alternative`).
+9. **Rule `definite-integral`** (`parser._limits`, `_definite_integral`, `_signed_limit`,
+   `_evaluation_bracket_check`; `nodes.Unsupported.lo`, `.hi`; `calculus.antiderivative`;
+   `_Planner._definite`; `relations._limit_value`, `_limit_text`). A definite integral of a polynomial
+   in one variable with whole-number limits is set against an evaluation bracket the answer states
+   between the same limits (an `alg` check: the bracket's derivative against the integrand) or against
+   a closed value (an `eq` check: the antiderivative the STEM pack forms by the power rule taken the
+   other way, evaluated between the limits), and an evaluation bracket against a closed value (an `eq`
+   check: its antiderivative at the upper limit minus at the lower one). Closing the class found that
+   a limit with a minus sign ("∫₋₁¹", a subscript minus the lexer read as an unknown character) and
+   limits written after "_" and "^" in plain text ("∫_0^1", the run ending at the caret's number) gave
+   a relation with no check and no ST code at all: the lexer reads a subscript minus and a braced
+   signed subscript as the sign of the subscript, the span finder reads a caret's number or braced
+   number after an integral as its upper limit, and the limits reader takes a signed whole number.
+10. **Rule `operand-precision` for given data** (`checks._given_exact`, `_rounding_bound`,
+    `_operand_rounding_tau`): R12 above. Closing the class found that a stated side which is itself an
+    expression of rounded numerals ("1/4.0 Ω + 1/6.0 Ω = 0.250 Ω⁻¹ + 0.167 Ω⁻¹") must add its own
+    rounding (it has no half-width of its own in the band), and that earlier tests had written
+    "4000 × 1.036⁵ = 4773.7406", a slip in the fourth decimal (4773.740074…) the rule now names; they
+    write 4773.7401.
+11. **Rule `ellipsis-rounding`** (`_Planner._ellipsis_restatement`, `_ellipsis_cut`;
+    `relations._ellipsis_value`; `checks._res`, `_eq`; `lexer`; `parser`). A decimal written with its digits cut
+    stands for any value from half a unit below its last written digit to a whole unit above it (the
+    hull of the cut and the rounded readings): a value restated from it is set against it with the
+    rounding the prose states (a `res` check), and a closed expression set equal to it is checked within
+    it (an `eq` check). Closing the class found that a plain "…" or "..." after a decimal was punctuation
+    that ended the run, so "8/3 = 2.66…" was read as a rounded 2.66 and failed (a false INT-SUBJ-001):
+    the lexer reads it as the ellipsis marker LaTeX's `\ldots` is. Reading it so found three more of the
+    class, each closed: the marker took what followed it as its operand, so "0.333… × 3 = 1" was read as
+    the cut value restated as 1 and failed (a false INT-SUBJ-001; the marker after a decimal now takes
+    nothing, and a cut value inside an expression is ST-UNDEC-001); a cut value on the left of the closed
+    expression ("0.333… = 1/3", "2.66… = 8/3") was no relation in plain text and ST-UNDEC-001 in LaTeX
+    (it is checked as on the right); and an approximate link ("8/3 ≈ 2.66…", "4787.58… ≈ 4788"), which
+    the plain form had read as "≈ 2.66" and checked, would have been left ST-UNDEC-001 (it is checked
+    with τ = 1/20, R2). A symbol set equal to a cut value ("x = 2.66…") is ST-UNDEC-001, as in LaTeX
+    before and after (the plain form had bound the symbol to the digits as if rounded), and a cut value
+    after a power beyond 12 stays ST-UNDEC-001.
+
+On the 558 labelled corpus items the new readings change three: math-calc-2, stem-math-013 and
+stem-math-014, a definite integral of a polynomial and its evaluation bracket each checked and holding
+where both were ST-UNDEC-001 (math-calc-2's gold labels, which said undecided, say so now). On the
+recorded round-7 STEM answers they add only checks that hold: ess-t13 the two counts of part (b),
+maa-t13 the two evaluation brackets of part (c) (their two ST-UNDEC-001 gone), mai-t13 the restatement
+of its cut value to the nearest euro, the place of that restatement and the computed value against
+"135.36…" (the cut value's ST-UNDEC-001 gone; its power beyond 12 keeps its own). Remaining limits, stated: rule row-value reads
+a clause that names exactly one row and one column and states the value, never a comparison, a change,
+a processed quantity, a list of rows or a value under a condition, a hypothesis, a target, a modal verb
+or a bound; rule named-component reads only a working whose values of the
+component's dimension are all the request's; rule condition-result reads a condition with a unit of an
+exact SI value, and a symbol with an earlier value under it; rule prose-base reads whole numbers with
+both bases written; rule definite-integral reads only polynomials in one variable with whole-number
+limits (a root, a function or a decimal limit stays ST-UNDEC-001); and rule ellipsis-rounding reads a
+cut decimal set equal or approximately equal to a closed expression, or restated as a value, never a
+cut integer, a cut sum, a cut decimal inside an expression or a symbol set equal to one; a plain "…"
+written after a space ("8/3 = 2.66 …") is punctuation, as before this repair, so the decimal before it is
+read as rounded.
+
+## 31. STEM repair 11: readings added after the eleventh independent test
+
+An eleventh independent test planted STEM faults on copies of the round-7 answers and found seven
+problems, six of them in this front end. Correct working failed as an error when every operand was
+whole and the result a rounded quotient written with "=" ("(92 − 18) ÷ 18 × 100 = 411%", "1,000 ÷ 3 =
+333 items", "= 34% to 2 s.f."): exact mode gave h = 0 and τ = 0, and a rounding a line states for its
+own result was read for restatements only. A Given one unit off the request's data in its last digit
+held ("Given: r = 0.49 Ω." for 0.50 ohm): R7's band |w − b| ≤ h(b) + h(w) is inclusive. Part (b)'s
+factorisation and roots in maa-t13 had no check: the request's "(a) … when t = 1" bound t for the
+whole answer, so "6t − 3t² = 0" was an equation with nothing to solve. A function's value stated in
+prose ("The velocity at t = 1 is v(1) = 4 m s⁻¹."), a wrong restatement of an inequality's solution
+("n > 13.28…"), a wrong derivative (only ST-UNDEC-001), a wrong given substituted where no symbol is
+bound ("$4500(1.036)^{11} = 6640.03$") and a base phrase opening the clause ("In binary, 1000 is
+1111101100.") were each named by nothing. Each reading is fixed where it went wrong, for its whole
+class, with a clean control for every new reading (`tests/stem/test_stem_repair11.py`); closing the
+classes found more of each, below. The seventh problem, the knowledge pack's size, is the
+overseer's: `docs/OVERSEER_DESIGN.md` section 42. The original translator's English, History and
+generic readings are untouched. No ST code was added.
+
+1. **Rule `exact-rounding`** (`checks._eq`, `_written_figures`, `_rational_form`, `_sub_evaluate`;
+   R2 above). In exact mode (every operand and the stated value S exact, "="), τ is 0 and h is 0,
+   unless S has two or more written significant figures, every trailing zero of a whole number
+   counting, and closes rational written arithmetic (+, −, ×, ÷, integer powers, signs): then h is
+   half a unit in S's last written digit. A whole computed value is still stated exactly ("17 × 23 =
+   392" and "1000 ÷ 3 = 330" fail), one that is not whole may be stated to S's last digit ("(92 − 18)
+   ÷ 18 × 100 = 411%", "1,000 ÷ 3 = 333", "29 ÷ 3 = 10" hold), and a single figure shows no rounding,
+   so "7/3 = 2" still fails. The check's statement names the rule.
+2. **Rule `result-rounding`** (`_Planner._result_rounding`; `checks._eq`). A rounding a line states
+   for its own result, the value that closes its chain, right after it ("= 34% to 2 s.f.", "= 34%
+   (to the nearest whole number)") or before it in its clause ("To 2 s.f., 1000 ÷ 3 = 330."), gives
+   that result's h as R8 reads a restatement's (never less than half a unit in its last written
+   digit), and rule rounded-digits sets the place the rounding names against the place the value is
+   written to, as for a restatement. A rounding before the chain is its result's only when it opens the
+   chain's clause, no number before it (`_rounding_opens_clause`): one that closes an earlier value's
+   restatement ("…, so 5902 euros to the nearest euro, and $4000(1.036)^{12} = 6114.73$") is that
+   value's. The first reading took it for the next chain's (a false INT-SUBJ-004 by rule rounded-digits
+   on correct working, the arithmetic's band widened to half a euro), which the eleventh tester's own
+   control found.
+3. **Rule `given-data`** (`checks._giv`, `_sub_pairs`; R7 above). A value the request or a text
+   supplied with it states, and a Given that restates one, is data, taken as written (R3): a Given
+   value, or a value substituted for such a binding, matches it only when one of the two is the other
+   rounded to its own last written digit, |w − b| ≤ max(h(w), h(b)), in SI with each half-width
+   scaled by its unit's factor. "Given: r = 0.49 Ω." and "Given: r = 3.7%." fail against 0.50 ohm and
+   3.6% (0.495 rounds to both, but the data are 0.50, not a rounding of it); "Given: r = 0.5 Ω.",
+   "Given: r = 500 mΩ." and "9.81" for the request's 9.8 hold; "2.1 kg" substituted for m = 2.0 kg
+   fails. The answer's own computed values keep R7's band (a carried result is rounded, and two
+   roundings of it may differ by a unit). Closing the class found that `document._named_quantities`
+   took the unit words of the quantity before a value as the next value's name ("two resistors of
+   4.0 ohm and 6.0 ohm" had named 6.0 ohm "ohm and"): the name window starts after the previous
+   quantity.
+4. **Rules `part-condition` and `root-statement`** (`_Planner._given_in`, `_part_condition_note`,
+   `_roots_candidate`, `_link`; `checks._reading_notes`). In mathematics a letter's values stated in a
+   part, or in that part's question, are given in that part only (a science's symbol is a quantity
+   whose value a later part may use, so the sciences read as before): a value the request states inside
+   another part's question binds the letter there and nowhere else, so in another part the letter is
+   an unknown of its equations, their steps and roots checked (maa-t13's part (b) "6t − 3t² = 0",
+   "3t(2 − t) = 0", "t = 0 or t = 2": each checked and holding; "3t(2 + t) = 0" and "t = 0 or t = 3"
+   fail). A root stated for an equation ("Factorising, rather than dividing by t, keeps t = 0." after
+   "6t − 3t² = 0") leaves that equation as the relation the next line steps from, at the root's line
+   for adjacency, so the factorisation after it is a step from the equation (before, the root became
+   the premise and the factorisation followed from "t = 0" whatever its factors), and a root stated
+   after a domain statement ("Both values lie in 0 ≤ t ≤ 3.") is checked against its equation, never
+   as a step from the domain statement. Each step and root check names the reading it rests on in its
+   statement ("t is an unknown of this part's equations: the request's t = 1 stands in the question of
+   part (a), so it gives t that value in part (a) only (rule part-condition)", "the step is from the
+   equation in s2.3, which the root stated in s2.4 solves … (rule root-statement)").
+5. **Rule `function-value`** (`_Planner._function_values`, `_answer_functions`,
+   `_defined_function_value`, `_request_functions`). A statement, any statement, that states the value
+   of a function at a number for a function of one variable the answer defines before it ("v(t) = 6t −
+   3t²", "Let f(x) = x² + 1.") or, failing that, the request defines, is an `eq` check of the
+   function's expression at the written argument against the stated value or expression, the stated
+   value's unit the one the request's prose states for the function's values: an error against the
+   answer's own definition, a warning against the request's (that the letter is the request's
+   function is a reading). Where the line's written arithmetic already evaluates the answer's function
+   ("Then f(2) = 6."), that check is the check. Such a value is no relation a later line steps from
+   (it had made "So v(2) = 6(2) − 3(2)² = 0." a failing step), and a letter neither defines as a
+   function ("The ball is at k(2) = 5.") is no function value.
+6. **Rule `inequality-solution`** (`_Planner._inequality_solution`; `Relation.cut_spans`; `checks._eq`).
+   In mathematics, a solved form x ⋈ d (the letter alone, a closed value) that a step word joins to the
+   relation before it in its part, where that relation is linear in the one letter (a·x + b ⋈′ c, a, b
+   and c closed), states the bound the step solves for: an `eq` check of (c − b)/a against d, a value
+   written with its digits cut ranging over [w − u/2, w + u] on either side (cut or rounded digits), τ
+   = 0, whatever value the answer states for the letter elsewhere ("12n > 135.36…, so n > 11.28…" holds,
+   "n > 13.28…" fails); a direction the division does not give ("so n < 11.28…") is a `cmp` step from
+   the relation before, which fails.
+7. **Rule `derivative`** (`parser._leibniz_read`, `_leibniz_parts`, `_leibniz_end`, `_latex`;
+   `nodes.Unsupported.var`, `.order`, `.arg`, `.name`; `calculus.polynomial`, `derivative`;
+   `_Planner._derivative`, `_function_of`). A derivative of a polynomial in one variable set equal to a
+   polynomial in it, in Leibniz notation of any order ("d/dx (x²) = 2x", "d²s/dt² = 24t" after "s = 4t³
+   − t", `\frac{dy}{dx}`) or as a letter with primes applied to a bracket ("f′(x) = 3x² − 2" after "f(x)
+   = x³ − 2x"), is set against the derivative the STEM pack forms by the power rule (as for an
+   antiderivative, never the engine) of the polynomial written after the operator, or of the function
+   the letter stands for (the answer's own before the line, else the request's, then at warning
+   severity): an `alg` check from the trivially true premise, so it holds iff the two polynomials
+   agree. A derivative evaluated at a number with no formula of its own stated is set against the
+   formed derivative at that number (an `eq` check: "f′(2) = 8" after "f(x) = x³" fails). A derivative
+   set equal to a number where it is no constant ("dv/dt = 6" for v(t) = 6t − 3t², "f′(x) = 0" at a
+   stationary point) states an equation in the variable to solve, and a derivative of anything else
+   ("dN/dt = −λN", "d/dx (sin x) = cos x"), stays ST-UNDEC-001. A derivative line is never an algebra
+   step from the line before it (such a step was never encodable).
+8. **Rule `same-shape`** (`_Planner._same_shapes`, `_shape_slots`, `_answer_values_before`;
+   `checks._GIV_RULES`). A line of working that puts, where the answer's other evaluation of the same
+   expression (the same operators, units and numerals but one) writes a value the request states, a
+   numeral neither the request nor the answer states before the line ("$4500(1.036)^{11} = 6640.03$"
+   beside "$4000(1.036)^{12} = 6114.73$", the request's principal 4000 euros; "$4000(1.037)^{11}$" for
+   its 3.6%, whose growth factor 1.036 the answer writes elsewhere) is set against that value: a `giv`
+   check at warning severity. A per cent the request states is data in its decimal and in the growth
+   and decay factors 1 ± the decimal, each written to the per cent's own precision (3.6% gives 0.036,
+   1.036 and 0.964, each ± 0.0005). A line under a condition or a hypothesis ("if Kai had invested 4500
+   euros instead") is not read.
+9. **Rule `unbound-substitution`** (`_Planner._unbound_substitutions`; `checks._GIV_RULES`). A symbol
+   the answer gives no value stands for one quantity: when the answer substitutes for it, elsewhere,
+   the request's value of a quantity the request names with one value (part (c)'s "V = 12 V − (4.14 A
+   × 0.50 Ω)" puts the internal resistance for r), any other value substituted for it ("R + r = 2.4 Ω +
+   0.40 Ω") is set against that value: a `giv` check at warning severity (that the symbol stands for
+   that quantity throughout is a reading). The tie must be one: a symbol the request's values tie to
+   no one quantity (R for each of the two resistors in turn) and a value the working derives without
+   stating it ("c = 0.0050 mol ÷ 0.0550 dm³", the total of the request's 50.0 cm³ and 5.0 cm³) are not
+   read; a value the answer states before the line for the symbol is no substitution of it.
+10. **Rule `prose-base`, a base phrase opening the clause** (`_Planner._prose_bases`;
+    `relations._BASE_OPEN_RE`). A base the prose names once, opening the clause before both numerals
+    ("In binary, 1000 is 1111101100.", "In base 2, 13 is 1101.", "Written in binary, 6 is 110."), is
+    read as rule prose-base reads a base named only right after the first numeral: both ways, the
+    check holding when either reading does.
+
+Closing the classes found these too, each at its cause: rule exact-rounding at first gave every
+whole S half a unit, which made "7/3 = 2" hold (a single figure shows no rounding: h stays 0); rule
+same-shape at first built the per-cent forms with half a unit in the units place, which rule
+given-data's max(h(w), h(b)) let any growth factor match ("1.037" held against 1.036), so those
+forms carry the per cent's own precision; and rule
+unbound-substitution at first set a derived total volume against the request's one value of its
+symbol, so it reads a symbol only through a tie the answer itself writes. On the 558 labelled corpus
+items the new readings change nine, each as labelled, from 1,924 checks and 96 findings to 1,934 and
+91: math-calc-1, math-deriv-1 and a mutant of each (the derivative "f′(x) = 3x² − 2" a holding
+power-rule check where it was ST-UNDEC-001; the gold labels of math-calc-1 and math-deriv-1 said
+undecided and say checked now), stem-math-011 (its derivative "f'(x) = 6x + 2" and the value "6x + 2 =
+0 ⇒ x = −1/3" solves for, both holding; its stationary point "f'(x) = 0" stays ST-UNDEC-001),
+probe-M3-calculus-err and stem-math-012 (the planted wrong derivative "\frac{d}{dx}(3x^2 + 2x) = 3x +
+2" an error on its claim; the chain's first link, a derivative set equal to a derivative, stays
+ST-UNDEC-001), mai-func-1 (the function's value C(12), holding) and stem-phys-030 (the place its stated
+rounding names, holding). On the recorded round-7 STEM answers they add only checks that hold (`docs/STEM_RESULTS.md`
+section 10.7). Remaining limits, stated: rule exact-rounding reads rational written arithmetic only
+(a root, a logarithm or a constant keeps h = 0 in exact mode); rule given-data reads the request's,
+the supplied texts' and a Given's values, never the answer's computed ones; rule part-condition reads
+a value the request states inside a part's question; rule function-value reads functions of one
+variable whose expression has no other symbol, at a closed argument; rule inequality-solution reads a
+relation linear in one letter; rule derivative reads polynomials in one variable; rule same-shape
+reads an expression of written numerals that differs from the answer's other evaluation in one
+numeral; rule unbound-substitution reads a symbol tied to one quantity by the answer's own
+substitution of the request's value; and a power beyond 12 stays ST-UNDEC-001 (the reported
+translator gap maths-finance-value).
+
+## 32. STEM repair 12: readings added after the twelfth independent test
+
+A twelfth independent test planted STEM faults on copies of the round-7 answers and found four
+problems, three of them in this front end. An identity checked from the trivially true premise took
+the request's value of its variable as a value it substitutes ("bindings included: t"), so a wrong
+derivative whose stated side keeps the variable the formed side lacks ("Also d/dt (6 − 6t) = −6t."
+beside maa-t13's "(a) … when t = 1") was decided at that one value and held: ENTAILED, satisfied,
+no finding, a failure shown as a success. A hexadecimal numeral with letter digits in prose ("In
+hexadecimal, 1000 is 3E9.", "3E9₁₆", "In base 16, …", "1000 in denary is 3E9 in hexadecimal.",
+"The hexadecimal number 3E9 is 1000 in denary.") was no number to the front end, so the
+restatement had no check. And a value after ", which is about" or ", about …" right after the
+chain its line closes ("= 2.67 A, which is about 2.6 A", "= 37.7%, about 37%") was no restatement,
+so a wrong rounding had no check. Each reading is fixed where it went wrong, for its whole class,
+with a clean control for every new reading (`tests/stem/test_stem_repair12.py`); closing the
+classes found more of each, below. The fourth problem, a circular translation in affine or scaled
+form, is the overseer's: `docs/OVERSEER_DESIGN.md` section 43. The original translator's English,
+History and generic readings are untouched. No ST code was added.
+
+1. **Rule `identity-variable`** (`relations.Relation.identity`; `checks._step`). An identity the
+   pack checks from the trivially true premise (a derivative against the one the power rule forms,
+   an antiderivative by its derivative, a definite integral's evaluation bracket by its
+   antiderivative, a Given function against the request's function, a factorisation in one chain)
+   is stated for every value of its own variables: the planner records them on the relation, and
+   the step takes no binding and no formula for them, so they stay free and the engine decides the
+   identity for every value of them. The check's statement says so when the side the pack forms
+   lacks the variable ("an identity, stated for every value of t: no binding or formula of it is
+   included, so it is decided for every value (rule identity-variable)"). "d/dt (6 − 6t) = −6t",
+   "d/dt (5t + 2) = 5t", "∫4t dt = 4t", "∫₀¹ 4t dt = [4t]₀¹" and "∫(6t − 3t²) dt = 6 − 6t" fail
+   as errors and "Given: v(t) = 3." as a warning, with or without a request that gives t a value;
+   their right forms hold. Every other step from a stated relation binds the values it
+   substitutes, as before (ph-t13's "1/R = 1/4.0 Ω + 1/6.0 Ω": "bindings included: R_1, R_2"), and
+   a constant the identity does not quantify may still take its value.
+2. **The antiderivative's statement** (`relations._antiderivative`; `checks._step`). An
+   antiderivative's check states what it compares, as a derivative's does ("compared: an
+   antiderivative: the derivative of the stated antiderivative (formed by the STEM pack by the
+   power rule, not by the engine) against the integrand, for every value of t (rule
+   antiderivative)"); before, it said only "the algebraic step", so its statement named no
+   variable (the overseer's rule identity-statement reads the identity's variable there).
+3. **Rule `prose-base`, numerals with letter digits** (`relations._HEX_WORD_RE`, `_hex_words`,
+   `_hex_word_pairs`, `_based_value`; `_Planner._prose_bases`). In a computer-science answer a
+   numeral of digits and the capital letters A to F, at least one letter ("3E8", "FF", "1F4"), or of
+   digits and small letters with at least one of each ("3e8", "1f4": never a word such as "face",
+   "be" or "a"), with no base marker, is read in base 16 where the words beside it name that base:
+   right before it ("The hexadecimal number 3E9"), right after it ("3E9 in hexadecimal"), or a base
+   phrase opening the clause ("In hexadecimal, 1000 is 3E9.", "In base 16, …", "In hex, 26 is
+   1B."), never as decimal and never where nothing names its base ("The largest byte value, 255,
+   is FE." is not read). A numeral the lexer reads in e-notation whose characters are all
+   hexadecimal digits ("3E9") is that hexadecimal numeral there. A numeral with a base marker keeps
+   its own base in both readings of a phrase opening the clause, so "In hexadecimal, 1000 is
+   3E9₁₆." names the second numeral's base (before, the phrase was read as the first's only, the
+   two came out in one base and nothing was planned).
+4. **Rule `prose-base`, the two false failures closing the class found** (`_Planner._worded_base`,
+   `_hex_written`, `_link`; `_BASE_OPEN_RE`). A whole number set equal with "=" to a numeral whose
+   base the words right after it name, its clause ending there ("1000 = 3E8 in hexadecimal.",
+   "1000 = 1111101000 in binary.", "255 = FF in hexadecimal."), is a base conversion of the two
+   numerals, each in its own base: before, it was written arithmetic on the numerals read as
+   decimal ("3E8" as 3 × 10⁸), so correct working failed as an error, and letters alone ("FF") were
+   an equation in the unknown F. A base phrase opening the clause is read as the opening phrase it
+   is with no comma ("In binary 1000 is 1111101000.", "In octal 64 is 100.") and before "the
+   number" ("In hexadecimal, the number 1000 is 3E9."): before, with no comma, the base word was
+   read as the first numeral's ("binary 1000", as in "the binary number 1000"), so correct working
+   failed.
+5. **Rule `inline-restatement` after an approximation word** (`relations._INLINE_RESTATE_RE`,
+   `_INLINE_CONNECTIVE_RE`, `_results`; `checks._res`, `_APPROX_BEFORE_RE`; `tolerance.tau_for`, R2
+   and R8 above). A value after one of the connectives (", so", ", which is", ", i.e.", ", that
+   is", ", or", ", giving") followed by an approximation word ("about", "approximately",
+   "approx.", "roughly", "around", "nearly", with "equal to" after it or not), after ", about"
+   and the others alone, after a rounding verb (", which rounds to", ", rounded to", "rounds up
+   to") or in brackets after an approximation word ("= 2.67 A (about 2.7 A)"), with or without a
+   rounding the prose states, restates the chain its own statement closes before it: a `res`
+   check, the approximation word naming the restated value's rounding, with no τ (R8: "= 2.67 A,
+   which is about 2.6 A", "= 2.67 A, about 2.6 A to 2 s.f." and "= 37.7%, about 37%" fail, "=
+   2.67 A, which is about 2.7 A" holds; the detail says "τ = 0 (a restated result: the
+   approximation word before it names its rounding, R8), on the line of working it restates (rule
+   inline-restatement)"). The restatement check has always banded a restated value with no τ
+   (`_res` passes τ = 0); R2 and `tau_for` now say so too, since "1/20 for ≈/about, any check"
+   read otherwise. A value after an approximation word that no chain of its own statement closes
+   before ("So each photon carries 4.0 × 10⁻¹⁹ J, which is about 2.5 eV.": a prose quantity, not a
+   chain, stands before the connective) is no inline restatement, and a value after one of the
+   connectives read before keeps that reading whatever stands before it ("The power is 16.4 W, so
+   16 W to 2 s.f.": rule rounding-cue's).
+
+Closing the classes found these too, each at its cause: the first reading of the approximation
+connectives took the labelled corpus item stem-phys-029's "…, which is about 2.5 eV" for an inline
+restatement of no chain, so its check was lost (a chain of its own statement is required now); the
+first repair of that dropped the old connectives' reading with it, so a test's "The power is 16.4
+W, so 16 W to 2 s.f." lost its rounding-cue check (the requirement applies to the new forms only);
+and the equation form "1000 = 3E8 in hexadecimal." first read the words after the numeral at the
+document's offsets rather than the statement's, so it held alone and failed inside an answer (the
+statement's own text is read). On the 558 labelled corpus items and the recorded round-7 STEM
+answers the new readings add no check and change no outcome; maa-t13's two recorded antiderivatives
+state what they compare now (`docs/STEM_RESULTS.md` section 10.8). Remaining limits, stated: rule
+identity-variable reads the identities the pack plans from the trivially true premise; letter
+digits are read in computer-science answers only; a list of restatements in one clause ("In
+hexadecimal, 1000 is 3E8 and 255 is FF.", "1000 is 1111101000 in binary and 3E8 in hexadecimal."),
+a base named in brackets ("1000 (denary) is 3E8 (hexadecimal)") and a base named for the numeral
+before "=" ("1000 in hexadecimal = 3E8") are not read, in any base; and an approximation word is read
+after the connectives listed, on the line of the chain it restates.
+
+---
+
+## 33. Detection fixes from the end-to-end simulation (run1)
+
+(Numbered section 21 on the development branch; the overseer build's STEM repairs took sections 21 to 32 first, so the translator merge that joined them numbers it 33. References to "section 21" in records written before the merge, such as dated arena reports, mean this section.)
 
 The end-to-end simulation of the website-to-backend flow (sixteen specialists, the arena harness on
 their genuine answers) left six injected faults unnamed. Each was traced to its cause; the answers
 are kept as test data (`tests/channel/data/e2e_run1_material.json`) and every fix is pinned by
 `tests/stem/test_e2e_run1_detection.py`. All six are now named, each as the harness injects it (the
-injection is the base one; 21.3), and none is excused: an injection no finding names is a miss.
+injection is the base one; 33.3), and none is excused: an injection no finding names is a miss.
 
-### 21.1 Gaps in the checks
+### 33.1 Gaps in the checks
 
 1. **Decimal and fractional powers of a closed value** (ch-e1b: `[H⁺] = 10^(−8.2) = 9.31 × 10⁻⁹`,
    and the same line with the pH substituted wrongly). The exponent reader named every non-integer
@@ -2070,14 +3612,14 @@ injection is the base one; 21.3), and none is excused: an injection no finding n
    parser asks for the reading: the translator's typed quantities, the SI reading and the segmenter
    read a digit inside a unit as before.
 
-### 21.2 A harness defect (`scripts/arena`)
+### 33.2 A harness defect (`scripts/arena`)
 
 7. **The part label in the marker** (maa-e1a substitution: `(b) P(t + 1) = P₀e^(k(t + 1))` →
    `P(t + 4)`). The marker kept the part label "(b) ", which no claim carries, so no injected claim
    was found; it now leaves a part label out as it leaves a mark annotation out, and m3.1 carries it.
    With the model evaluation (item 5) the injection is named on m3.1.
 
-### 21.3 A rule withdrawn: no injection is excused
+### 33.3 A rule withdrawn: no injection is excused
 
 An earlier fix for items 4 and 6 reported a STEM injection no finding names as NOT APPLICABLE
 (outside the transport count) when the harness's own regular-expression reading found a symbol with no
@@ -2101,7 +3643,7 @@ satisfied check, and a test asserted that it passed. The injection is again the 
 digit of every figure moved by 3, an exponent of ten included; `stem_mutations.py`), the fault is named
 at its cause (item 1), and the test asserts the error.
 
-### 21.4 Tests changed
+### 33.4 Tests changed
 
 - `tests/fixtures/stem/corpus/stem-math-020.json` (and its copy in `tests/stem/data/stem_corpus.json`):
   the fractional-power fault `16^(3/4) = 16 × 3/4` was expected as undecided (ST-PARSE-001 or
@@ -2112,11 +3654,11 @@ at its cause (item 1), and the test asserts the error.
   `16^{3/4} = (\sqrt[4]{16})^3` is still named undecided with ST-UNDEC-001, now for the fourth root
   alone ('root of index 4'), since `16^{3/4}` is read; the corpus was rebuilt (two labels changed,
   558 items as before).
-- `tests/stem/test_e2e_run1_detection.py`: the tests of the withdrawn rule (21.3), which asserted that
+- `tests/stem/test_e2e_run1_detection.py`: the tests of the withdrawn rule (33.3), which asserted that
   the maa-e1a and mai-e1 substitutions were not applicable, are replaced by stricter ones: the mai-e1
   substitution is named INT-SUBJ-001 on m3.1, the verification's two probe misses are counted (27 of
   29), and with no finding allowed to name anything every injection of the round is a failure.
-- The same file, after the second verification: the tests of the withdrawn injection change (21.3)
+- The same file, after the second verification: the tests of the withdrawn injection change (33.3)
   are replaced by stricter ones. The test that asserted that `10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³` is no
   error now asserts that it is one, with six more faults of that kind; the ten cases of the withdrawn
   `figure_change` are replaced by four injections the base harness makes into exponents of ten, each
@@ -2137,3 +3679,25 @@ at its cause (item 1), and the test asserts the error.
   does not cover keep their old reading, consecutive evaluations of a function the text defines are
   no algebra step while a fault in one of them is still named, and a bracket after a letter that is
   no function keeps its product reading and its step).
+
+### 33.5 The join with the overseer build's STEM repairs
+
+The translator merge that joined this section's fixes with the overseer build's STEM repairs (sections 21 to 32) found
+two readings of one side that hid a check of the other or put a warning on correct work. Each is fixed at its cause and
+pinned by `tests/stem/test_second_translator_merge.py`:
+
+- Rule `restated-binding` (section 22) paired a value after "giving" with a relation between unknowns: once the thin
+  space between digit groups was read (`$FV = -11\,491.11$`), the finance solver's setting `$C/Y = 12$` was taken for a
+  restated binding and mai-e1 m13.1 got INT-SUBJ-004 on the genuine answer. A relation whose symbols have no stated
+  value, binding or substitution in the scope is now no binding to restate; a relation whose symbols do have stated
+  values is still read (the control: `v/t = 5.0 m s⁻²` after `v = 20 m s⁻¹` and `t = 4.0 s`).
+- The count reader (section 21) took `2P₀` for the permutation count ⁿPᵣ, since a subscript digit passes Python's
+  `str.isdigit`, so `P(0) = 2P₀` after the model `P = P₀e^(kt)` was named undecided and its model evaluation (33.1,
+  `stem-mod`) never checked. A count's leading digits are ASCII digits only (`6P2`, `5C2` and `10C3` are still counts,
+  as are `₅P₂` and `⁵C₂`); a coefficient before a subscripted letter (`2P₀`, `2C₀ = 0.10 mol dm⁻³`, `3P₁ + P₂`) is a
+  product, and `P(0) = 2P₀` is now an evaluation the engine refutes (`stem-mod-2`, UNSATISFIABLE).
+
+`tests/stem/test_stem_repair10.py`: the test that the cut value's recorded rounding holds and its power stays
+undecided is rewritten to a stricter assertion. With the closed powers of 33.1 the merged front end decides
+`1.003^60`, `1.003^132` and `1.003^144` beside `135.36`: it now requires those four checks, each holding, and no
+ST-UNDEC-001 naming an integer power beyond 12.

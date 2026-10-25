@@ -145,7 +145,11 @@ def test_an_indefinite_integral_of_a_polynomial_is_checked_through_its_antideriv
     assert (not engine_errors(receive(MATH, text)[1])) is ok
 
 
-@pytest.mark.parametrize("text", ["∫₀¹ x dx = 1/2", "d/dx (x²) = 2x", "∫ sin x dx = −cos x", "∫ 2kx dx = kx²"])
+# STEM repair 10: '∫₀¹ x dx = 1/2', a definite integral of a polynomial, is checked now (rule definite-integral, tests/stem/test_stem_repair10.py
+# sets it holding and '= 1/3' failing); a definite integral of what is no polynomial takes its place, and one whose limit is no number is added.
+# STEM repair 11: 'd/dx (x²) = 2x', a derivative of a polynomial, is checked now (rule derivative, tests/stem/test_stem_repair11.py sets it
+# holding and '= x' failing); a derivative of what is no polynomial takes its place
+@pytest.mark.parametrize("text", ["∫₀¹ √x dx = 2/3", "d/dx (sin x) = cos x", "∫ sin x dx = −cos x", "∫ 2kx dx = kx²", "∫₀^π sin x dx = 2"])
 def test_other_calculus_stays_outside_the_encodings(text):
     doc = build_document(text, None, "mathematics_aa")
     assert not doc.checks and any(r.outcome == "undecided" for r in doc.relations)
