@@ -44,7 +44,8 @@ from .numbers import SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, is_ascii_digit, supe
 
 __all__ = [
     "BASE_NAMES", "DIMENSIONLESS", "Dimension", "ENGLISH_NOT_UNITS", "GLUED_UNITS", "GREEK_PREFIXABLE", "PREFIXES", "UNITS", "UnitAtom", "UnitDef", "UnitExpr", "UnitReading",
-    "dimension_name", "english_word_atom", "is_unit_atom", "lookup_atom", "parse_unit", "prefixed_greek_unit", "unit_dimension", "unit_group",
+    "compound_part", "dimension_name", "english_word_atom", "is_unit_atom", "lookup_atom", "parse_unit", "prefixed_greek_unit", "unit_dimension",
+    "unit_group",
 ]
 
 BASE_NAMES = ("m", "kg", "s", "A", "K", "mol", "cd")
@@ -178,6 +179,13 @@ def _units() -> dict[str, UnitDef]:
     add("%", "per cent", DIMENSIONLESS, Fraction(1, 100), prefixable=False)
     add("ppm", "part per million", DIMENSIONLESS, Fraction(1, 10 ** 6), prefixable=False)
     add("count", "count (a number of events or items)", DIMENSIONLESS, Fraction(1), prefixable=False)  # 'counts min⁻¹', 'counts per minute'
+    # stem-soundness-12 (round 7): amounts of data, a count of bits ('32 bits = 4 bytes'); the binary multiples only, whose factor is exact
+    # (a kilobyte is 1000 or 1024 bytes by convention, so it stays unread)
+    add("bit", "bit", DIMENSIONLESS, Fraction(1), prefixable=False)
+    add("byte", "byte (8 bits)", DIMENSIONLESS, Fraction(8), prefixable=False)
+    add("KiB", "kibibyte (1024 bytes)", DIMENSIONLESS, Fraction(8 * 1024), prefixable=False)
+    add("MiB", "mebibyte (1024² bytes)", DIMENSIONLESS, Fraction(8 * 1024 ** 2), prefixable=False)
+    add("GiB", "gibibyte (1024³ bytes)", DIMENSIONLESS, Fraction(8 * 1024 ** 3), prefixable=False)
 
     add("°C", "degree Celsius", _TEMP, Fraction(1), prefixable=False, offset=Fraction(27315, 100), affine=True)
     add("°F", "degree Fahrenheit", _TEMP, Fraction(5, 9), prefixable=False, offset=Fraction(45967, 100), affine=True)
@@ -203,6 +211,8 @@ for _sym, _names in (
 _WORDS["hertz"] = "Hz"
 _WORDS["kelvins"] = "K"
 _WORDS["percent"] = "%"
+_WORDS["bits"] = "bit"
+_WORDS["bytes"] = "byte"
 _WORDS["counts"] = "count"  # a count rate: '1600 counts min⁻¹' (STEM repair 1: an unread word ended the maths span)
 _WORDS["degrees"] = "°"
 _WORDS["degree"] = "°"
@@ -418,6 +428,10 @@ _GLUED_AMBIGUOUS = frozenset({"ms"})
 _MAX_ATOMS = 12
 
 
+#: the most digits a unit exponent may have (parser-safety-1: a longer superscript run is unreadable, never converted)
+_MAX_EXPONENT_DIGITS = 6
+
+
 @dataclass
 class _Lex:
     items: list = field(default_factory=list)  # ('atom', text) | ('sep', ' ') | ('div',) | ('pow', int) | ('open',) | ('close',)
@@ -526,6 +540,9 @@ def _lex_unit(text: str, ascii_exponents: bool = False) -> _Lex:
             j, digits = superscript_int(s, i, n)
             if digits is None:
                 out.error = "a superscript sign with no digits"
+                return out
+            if len(digits) - digits.startswith("-") > _MAX_EXPONENT_DIGITS:
+                out.error = "an exponent of too many digits"  # parser-safety-1: bounded before int()
                 return out
             out.items.append(("pow", int(digits)))
             i = j
@@ -754,3 +771,22 @@ def unit_group(toks, a: int, b: int, profile) -> bool:
             return False
         k += 1
     return atoms > 0
+
+
+def compound_part(toks, k: int) -> bool:
+    """The numeral at ``k`` and the unit atom after it continue the quantity whose unit atom stands right before ``k`` ('4 min 30 s',
+    '1 kg 250 g', '1 h 2 min'): both single atoms of one dimension, the second strictly smaller, exact and with no offset
+    (stem-precision-5)."""
+    if k < 1 or k + 1 >= len(toks) or toks[k - 1].kind != "IDENT" or toks[k + 1].kind != "IDENT" or not toks[k + 1].space:
+        return False
+    if k + 2 < len(toks) and toks[k + 2].kind in ("SUP", "CARET") and not toks[k + 2].space:
+        return False
+    a, b = parse_unit(toks[k - 1].text), parse_unit(toks[k + 1].text)
+    if a is None or b is None or len(a.readings) != 1 or len(b.readings) != 1 or a.unknown or b.unknown:
+        return False
+    ra, rb = a.readings[0], b.readings[0]
+    if len(ra.atoms) != 1 or len(rb.atoms) != 1 or ra.dim is None or ra.dim != rb.dim or not any(ra.dim.exps):
+        return False
+    if ra.factor is None or rb.factor is None or ra.affine is not None or rb.affine is not None:
+        return False
+    return rb.factor < ra.factor

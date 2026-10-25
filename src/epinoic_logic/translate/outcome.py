@@ -52,6 +52,7 @@ The summary always ends with the engine's scope statement verbatim.
 """
 from __future__ import annotations
 
+import re
 from typing import Iterable, Optional
 
 from ..engine.errors import ADVISORY_CODES, NO_VERDICT_CODES, DiagnosticCode
@@ -62,6 +63,7 @@ from ..engine.runner import verify as engine_verify
 from ..engine.statuses import DEFINITIVE, SCOPE_STATEMENT, VerificationStatus
 from ..ir.canonical import problem_digest
 from ..ir.schema import Problem
+from ..version import TRANSLATOR_VERSION
 from .common import new_id, truncate, utc_now_rfc3339
 from .contracts import (
     ClaimRecord,
@@ -123,6 +125,24 @@ _TRANSLATION_DISPLAY: dict[TranslationStatus, VerificationStatus] = {
 }
 
 
+#: A translator release version ("0.3.0"): a record that names another one was made under that release's rules.
+_RELEASE_VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+.][0-9A-Za-z.-]+)?")
+
+
+def translation_staleness(translation: TranslationResult) -> Optional[str]:
+    """Why ``translation`` is not a record of the current translator, or ``None``. A record of another translator release
+    ("0.3.0" where the current one is "0.4.0") was made under that release's rules (an earlier release recorded no claim
+    text digest, grounding support, coverage or figure readings), so it is never displayed as a verdict (display
+    INTERNAL_ERROR, release not permitted): translate and verify again. A record that names no release version (one a
+    caller built in process) is read as it stands; the staleness of its claim text is :func:`compose_outcome`'s
+    ``claim_text_sha256`` rule."""
+    version = translation.translator_version
+    if version != TRANSLATOR_VERSION and _RELEASE_VERSION_RE.fullmatch(version or ""):
+        return (f"the translation was produced by translator release {version!r}, not the current {TRANSLATOR_VERSION!r} "
+                "(a record of another release's rules): translate and verify again")
+    return None
+
+
 def _binding_problem(
     translation: TranslationResult,
     verification: Optional[VerificationResult],
@@ -140,6 +160,9 @@ def _binding_problem(
     problem = translation.problem
     if problem is None:
         return "an engine result was supplied but the translation carries no problem"
+    stale_translation = translation_staleness(translation)
+    if stale_translation is not None:
+        return stale_translation
     if verification.claim_id != translation.claim_id or verification.request_id != translation.request_id:
         return "the engine result is for a different claim"
     if verification.problem_id != problem.problem_id or verification.binding.problem_digest != problem_digest(problem):

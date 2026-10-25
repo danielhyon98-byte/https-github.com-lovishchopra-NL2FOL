@@ -85,11 +85,11 @@ from ...adapters.markdown import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_
 from ...adapters.sources import check_excerpt
 from ...branches.generic_parser import _MARK_ALLOC, _MARK_CODE
 from ...branches.packs import _absent_mentions, _quote_key
-from ...channel.bus import _FOLDED_TAIL_RE, _located
+from ...channel.bus import _CHECK_OUTCOME_RE, _CHECK_SUBJECT_RE, _FOLDED_TAIL_RE, _located
 from ...integrity.ledger import figure_spellings
 from ...stem.layout import annotation_ranges
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
-from ..view import REPORT_KINDS, Transfer
+from ..view import REPORT_KINDS, RESPONSE_KINDS, Transfer
 from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
@@ -408,6 +408,12 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             elif flags_self_certification(c.claim_text):
                 ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} reads as a self-certification of the answer's own items (auditor's structural detector) but is delivered as content "
                         f"(role {c.claim_role}, materiality {c.materiality})", claim_ids=cid, **ids)
+    # FID-009 (relayed check results): a dependent agent (a peer report or a specialist-authored text was supplied) that
+    # states, as a claim of its own, a check result credited to the system or to a report ("A formal check failed the
+    # report's restated 0.1 pH result", "the Mathematics report's own checks flag its written lines as not holding"). A
+    # relayed check result is a self-report (advisory), never evidence: the channel names it with INT-REQ-014 (every
+    # claim read, notes included, quotations masked); a receipt with no INT-REQ-014 naming such a claim is FID-009.
+    _relayed_check_results(ctx, t, rep, supplied, ids)
     # FID-006: parse loss
     folded = any(f.code == "INT-REQ-013" for f in (t.receipt.findings if t.receipt else []))
     if not folded:
@@ -439,6 +445,35 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         if changed:
             ctx.ovs(t.seq, "OVS-FID-008", f"report {rep.report_id} carries supplied texts {changed} that differ from the texts the request supplied under those ids",
                     document_ids=changed, **ids)
+
+
+def _dependent_texts(supplied: list[SuppliedText]) -> bool:
+    """Whether the texts the channel checked against hold a relayed peer report (``peer:<task>``) or a text a specialist
+    wrote (its author ends in "-specialist" or " specialist"): the channel's condition for reading relayed check results."""
+    return any(s.document_id.startswith("peer:") or (s.author or "").strip().lower().endswith(("-specialist", " specialist")) for s in supplied)
+
+
+def _relayed_check_results(ctx: CheckContext, t: Transfer, rep: SpecialistReport, supplied: list[SuppliedText], ids: dict) -> None:
+    """OVS-FID-009 for a delivered claim of a dependent agent that states a check result credited to the system or to a
+    report (the channel's ``_CHECK_SUBJECT_RE`` and ``_CHECK_OUTCOME_RE``, quotations masked) while the receipt carries
+    no INT-REQ-014 naming the claim: the Overseer's own reading of the channel's rule, so a channel that fails to name
+    the self-report is caught. Advisory: a relayed check result is a self-report, never evidence. Read on the response
+    paths only, where the channel runs the rule (a relay hands on a report already delivered and named)."""
+    if t.kind not in RESPONSE_KINDS or not _dependent_texts(supplied):
+        return
+    named = {cid for f in (t.receipt.findings if t.receipt else []) if f.code == "INT-REQ-014" for cid in f.claim_ids}
+    for c in rep.claims:
+        if c.claim_id in named:
+            continue
+        text = c.claim_text
+        for start, end, _inner in reversed(find_quotation_spans(text)):  # masked as the channel masks them (spaces)
+            text = text[:start] + " " * (end - start) + text[end:]
+        noun = _CHECK_SUBJECT_RE.search(text)
+        if noun is None or _CHECK_OUTCOME_RE.search(text) is None:
+            continue
+        ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} (role {c.claim_role}) states a check result credited to the system or to a report ({noun.group(0)!r}) "
+                "and no INT-REQ-014 on the receipt names it: a relayed check result is a self-report (advisory), never evidence",
+                claim_ids=[c.claim_id], **ids)
 
 
 def _uncarried_sentences(content: str, claim_texts_norm: list[str], carried: str) -> list[str]:

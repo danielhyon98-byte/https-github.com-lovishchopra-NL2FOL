@@ -102,7 +102,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Optional
 
-__all__ = ["ChronologyRelation", "DateToken", "MONTH_YEAR_RE", "MONTHS", "chronology_findings_in", "chronology_relations", "date_in_aside", "month_index", "years_in"]
+__all__ = ["ChronologyRelation", "DateToken", "MONTH_YEAR_RE", "MONTHS", "chronology_findings_in", "chronology_relations", "date_in_aside", "month_index", "statement_pieces",
+           "years_in"]
 
 _MONTH_NAMES = "January|February|March|April|May|June|July|August|September|October|November|December"
 MONTHS = {m.lower(): i for i, m in enumerate(_MONTH_NAMES.split("|"), start=1)}
@@ -631,14 +632,41 @@ def _leading_year(left_text: str, tokens: list[DateToken]) -> Optional[DateToken
     return year
 
 
+#: A sentence end the shared splitter keeps inside one sentence because it stands inside a quotation or a pasted JSON string
+#: ('"The crash of 1929 came after a speculative boom. Banks failed in 1930 and 1931."'): a full stop, '?' or '!' (closing marks after
+#: it allowed), whitespace, and a capital, a digit or an opening mark.
+_INNER_END_RE = re.compile(r"[.?!]+[\"”’')\]»]*\s+(?=[\"“‘'(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
+_QUOTE_OR_JSON_RE = re.compile(r"[\"“”«»„{]")
+
+
+def statement_pieces(sentence: str) -> list[str]:
+    """``sentence`` cut at the sentence ends it holds inside a quotation or a JSON string value (:data:`_INNER_END_RE`; never after an
+    abbreviation or an initial, ``c. 1929``, ``A. J. P. Taylor``): a dated relation is never read across '. ', so a whole answer
+    wrapped in quotation marks orders its dates as the same answer unquoted does. A sentence with no quotation mark or brace is one
+    piece."""
+    if not _QUOTE_OR_JSON_RE.search(sentence):
+        return [sentence]
+    from .sentences import abbreviation_ends_at
+    cuts = [m.end() for m in _INNER_END_RE.finditer(sentence) if not (m.group(0)[0] == "." and abbreviation_ends_at(sentence, m.start() + 1))]
+    if not cuts:
+        return [sentence]
+    pieces = [sentence[a:b].strip() for a, b in zip([0, *cuts], [*cuts, len(sentence)])]
+    return [x for x in pieces if x]
+
+
 def chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
     """Every dated ordering the sentence asserts (see the module docstring). ``context``
     is the paragraph the sentence stands in; its only stated year, when the sentence
     states none, supplies the year of a day-month or bare-month pair, and its other
     sentences date an event the sentence names without a date ('That election came after
-    the Danatbank collapse of July 1931'). The answer is memoised per (sentence, paragraph):
+    the Danatbank collapse of July 1931'). A sentence that holds several sentences inside a
+    quotation or a JSON string is read piece by piece (:func:`statement_pieces`), so a cue is
+    never paired with a date of the next sentence. The answer is memoised per (sentence, paragraph):
     the History proxy, the formal check and the undecided report all ask for it."""
-    return list(_chronology_relations_cached(sentence, context))
+    pieces = statement_pieces(sentence)
+    if len(pieces) == 1:
+        return list(_chronology_relations_cached(sentence, context))
+    return [rel for piece in pieces for rel in _chronology_relations_cached(piece, context)]
 
 
 @lru_cache(maxsize=8192)

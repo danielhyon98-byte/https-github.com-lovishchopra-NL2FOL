@@ -195,7 +195,9 @@ counterexample: c = 5, r = 6; c is the value computed from the written expressio
 The result is signed and bound to the exact problem, and the report is still delivered. With
 `= 5.0 m s⁻²` the same answer is ACCEPTED with both checks ENTAILED.
 
-**Finding codes.** Errors come only from the engine; the STEM pack itself emits no error.
+**Finding codes.** Errors about the answer come only from the engine; the STEM pack itself emits no error, except the hub's
+PACK-INTERNAL-001 when an internal failure leaves a report with no STEM check at all (the receipt then carries an error, so
+the missing checks are never read as passed).
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
@@ -216,7 +218,7 @@ The result is signed and bound to the exact problem, and the report is still del
 | ST-CODE-001 | info | a code block: never run, never checked |
 | ST-SCOPE-001 | info | a symbol rebound to a different value; substitutions match any binding |
 | ST-LIM-001 / ST-LIM-002 | warning | a bound exceeded (expression, literal, IR size; more than 128 checks or 1,024 math spans per answer) |
-| ST-INTERNAL-001 | warning | the STEM pack failed internally; its checks are missing and must not be read as passed |
+| ST-INTERNAL-001 | warning | the STEM pack failed internally; its checks are missing and must not be read as passed (when the failure leaves the report with no STEM check, the hub's PACK-INTERNAL-001, error, stands beside it) |
 | BR-INTERNAL-001 | warning | a pack of any branch raised; its findings are missing and must not be read as passed |
 
 **Scope statement** (in every STEM problem's `notes`): a STEM check proves a property of its
@@ -424,7 +426,10 @@ attempted, completed, faithful, approved, and apart from them the claims whose r
 assessment permits releasing the answer) as separate measures, never combined into one rate,
 and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). Every group of a round
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
-so the number of transmissions never depends on what crashed. Whether the receipts are
+so the number of transmissions never depends on what crashed. A peer-dependent agent reads of
+its peer only the delivered report, its document id and the relay status (`relayed/<task>.json`);
+the hub's receipts of the peer's delivery and of the relay stay with the router
+(`router/<task>.json`), so no finding reaches an agent as content. Whether the receipts are
 right is judged by the overseers.
 
 The test layers and a running log of bug and stress testing are in `tests/README.md`; the per-round arena record is `docs/ARENA_RESULTS.md`.

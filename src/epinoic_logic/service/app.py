@@ -85,7 +85,7 @@ from ..engine.errors import DiagnosticCode
 from ..engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
 from ..engine.provenance import compute_versions, verify_signature, z3_version
 from ..engine.release import release_check
-from ..engine.results import SolverConfig, VerificationResult
+from ..engine.results import SolverConfig, VerificationResult, parse_result
 from ..engine.runner import verify
 from ..ir.canonical import strict_object_pairs
 from ..ir.schema import Limits, Problem
@@ -106,6 +106,18 @@ log = logging.getLogger("epinoic_logic.service")
 
 REQUEST_ID_HEADER = "X-Request-Id"
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+#: A client-derived identifier the log may show as it is: no white space, quote, control or non-ASCII character can
+#: reach a log record from a request (a claim id, a result id taken from the client's payload).
+_LOG_ID_RE = re.compile(r"[A-Za-z0-9._:@#-]{1,128}")
+
+
+def _log_id(value: Any) -> str:
+    """``value`` as a log field: the identifier itself when it is a plain identifier (:data:`_LOG_ID_RE`), else a digest
+    of it (``sha256:<16 hex>``), so no client input can start a new log record or forge a field (security-4)."""
+    if isinstance(value, str) and _LOG_ID_RE.fullmatch(value):
+        return value
+    from ..ir.canonical import sha256_hex
+    return "sha256:" + sha256_hex(value if isinstance(value, str) else repr(type(value)))[:16]
 
 #: Keys a client might use to assert a verification verdict about its own payload.
 #: They are refused outright (400 ``E505``): status comes only from the engine.
@@ -461,7 +473,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             )
         log.info(
             "request_id=%s path=%s policy=%s result_status=%s claim_id=%s result_id=%s",
-            _request_id(request), request.url.path, policy, result.status.value, result.claim_id, result.result_id,
+            _request_id(request), request.url.path, policy, result.status.value, _log_id(result.claim_id), _log_id(result.result_id),
         )
         return JSONResponse(result.model_dump(mode="json"))
 
@@ -473,7 +485,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         if not isinstance(raw, dict):
             raise HttpError(400, DiagnosticCode.SCHEMA_VIOLATION, "'result' must be a JSON object")
         try:
-            result = VerificationResult.model_validate(raw)
+            result = parse_result(raw)  # the faithful parse: a dump without memory_max_mb records None
         except ValidationError:
             return JSONResponse({"valid": False, "reason": "result does not match the VerificationResult schema"})
         if cfg.signing_key is None:
@@ -496,7 +508,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
         policy = _parse_policy(envelope)
         current = compute_versions().model_dump(mode="json")
         try:
-            result = VerificationResult.model_validate(raw)
+            result = parse_result(raw)  # the faithful parse: a dump without memory_max_mb records None
         except ValidationError:
             return JSONResponse({"eligible": False, "reasons": ["result does not match the VerificationResult schema"], "current": current})
         problem: Optional[Problem] = None
@@ -508,7 +520,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             except ValidationError:
                 return JSONResponse({"eligible": False, "reasons": ["problem does not match the Problem schema"], "current": current})
         check = release_check(result, problem, signing_key=cfg.signing_key, key_id=cfg.signing_key_id, required_limits=RELEASE_POLICIES[policy])
-        log.info("request_id=%s path=%s release_eligible=%s result_id=%s", _request_id(request), request.url.path, check.eligible, result.result_id)
+        log.info("request_id=%s path=%s release_eligible=%s result_id=%s", _request_id(request), request.url.path, check.eligible, _log_id(result.result_id))
         return JSONResponse({**check.as_dict(), "current": current})
 
     async def post_outcomes(request: Request) -> JSONResponse:
@@ -567,7 +579,7 @@ def create_app(settings: Optional[ServiceSettings] = None, *, clock: Callable[[]
             outcome = await asyncio.to_thread(run)
         log.info(
             "request_id=%s path=%s display_status=%s claim_id=%s outcome_id=%s",
-            _request_id(request), request.url.path, outcome.display_status.value, claim_id, outcome.outcome_id,
+            _request_id(request), request.url.path, outcome.display_status.value, _log_id(claim_id), _log_id(outcome.outcome_id),
         )
         return JSONResponse(outcome.model_dump(mode="json"))
 

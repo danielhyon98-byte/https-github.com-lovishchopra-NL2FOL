@@ -413,7 +413,7 @@ def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (
     inelastic ..." states the result of the working on its line); a prose line that quotes an equation stays prose.
     ``view`` (a branch's hook; the STEM branches) maps the answer to the text its words are counted on (STEM: a maths span
     or a code block is one word) before anything else is read."""
-    from ..adapters.markdown import strip_markup
+    from ..adapters.markdown import opens_note_paragraph, strip_markup
     if view is not None:
         text = view(text)
     answer = notes = exempt = 0
@@ -421,7 +421,9 @@ def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
         if not p.strip():
             continue
-        if is_note_block(p):
+        # a note block, or a paragraph opened by a bare note lead ("Note:", "N.B.", "Next step:", "Limit:", "Caveat:";
+        # ``markdown.opens_note_paragraph``): the parsers role every sentence of it non-material, so none counts
+        if is_note_block(p) or opens_note_paragraph(p):
             notes += count_words(p)
             continue
         lines = [ln for ln in p.strip().split("\n") if ln.strip()]
@@ -481,14 +483,15 @@ def count_answer_words(text: str, *, view=None) -> tuple[int, int]:
 def count_paragraphs(text: str) -> int:
     """Paragraphs of the answer proper. A block that is only a note about the text (a
     from-memory label such as 'Dates and figures are from memory; verify them', a block labelled
-    "Note:" about the answer's sources or the task, :func:`is_note_block`, or a
-    self-certification line, or a pasted JSON span) is not a paragraph the request asked for
+    "Note:" about the answer's sources or the task, :func:`is_note_block`, a paragraph opened by a
+    bare note lead such as "Note:", "N.B.", "Limit:" or "Caveat:", which the parsers role as a note
+    as a whole, or a self-certification line, or a pasted JSON span) is not a paragraph the request asked for
     and is not counted; markdown headings and code fences are not paragraphs either. A block
     whose sentences keep a substance once their inline labels are set aside is a paragraph."""
-    from ..adapters.markdown import strip_markup
+    from ..adapters.markdown import opens_note_paragraph, strip_markup
     count = 0
     for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
-        if not p.strip() or is_note_block(p):
+        if not p.strip() or is_note_block(p) or opens_note_paragraph(p):
             continue
         segments = _segments(p.strip())
         if segments and all(is_json or not _note_core(s) for s, is_json in segments):

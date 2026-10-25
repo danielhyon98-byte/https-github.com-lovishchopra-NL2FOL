@@ -711,3 +711,13 @@ bundle), with no MyLib or textbook library. Record each round here, from measure
 - relations named undecided on genuine answers, by reason and subject;
 - notations or readings the specialists used that the front end did not read;
 - the STEM fixer's fixes, each with the test that pins it, and the suite after them.
+
+### 10.10 The round-7 arena's STEM findings, measured on the recorded round
+
+After the fixes of design section 34 the harness on a fresh copy of the recorded round 7 gives 177 of 177 functional, as
+before, and compared record for record with a run of the tree before the fixes (on another fresh copy), every formal check,
+status and STEM finding of every record is the same: on the recorded answers the new readings add no check and change no
+outcome. Each finding's probes now give the expected verdicts (`tests/stem/test_round7_arena_fixes.py`, 79 tests). Measured
+2026-10-25 on a machine other work kept loaded (load 7 to 10).
+
+These are replays of recorded answers: no specialist was called.

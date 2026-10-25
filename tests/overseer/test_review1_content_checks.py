@@ -118,10 +118,22 @@ def test_control_a_peer_document_with_its_own_attribution_is_peer_003_only(audit
 
 
 def test_a_report_relayed_in_a_specialists_name_that_it_never_delivered_is_peer_001(auditor):
+    """Since the round-7 core fix (router-envelope-3) the channel itself refuses the relay: a specialist cannot relay a
+    report it never delivered (INT-HANDOFF-013, REJECTED, no channel state change), which ``checks/peer.py`` reads as the
+    channel doing its job (no PEER-001). PEER-001 stays the Overseer's defence against a channel whose state was
+    corrupted: with the fabricated report seeded into the channel's ``transmitted_reports`` (the journal still records
+    no delivery of it) the relay passes the channel and the audit fails it. (Rewritten to the stricter rule: the channel's
+    refusal is asserted in addition to the Overseer's catch.)"""
     task = run_task(auditor, synthesis=False, peer=False)
     claims = [dict(c) for c in EN_CLAIMS]
     claims[0] = dict(claims[0], claim_text="The writer presents work as joyful")
     fake = english_report(EN_TEXT.replace("presents work as endless", "presents work as joyful"), claims, report_id="rep-en-1b")
+    _m, rc = task.ch.relay("english-specialist", AgentRole.SPECIALIST, "history-specialist", AgentRole.SPECIALIST, fake)
+    assert rc.status.value == "REJECTED" and "INT-HANDOFF-013" in [f.code for f in rc.findings]
+    assert fake.report_id not in task.ch.channel.transmitted_reports  # no channel state change
+    assert not [f for f in findings(task.audit(), "OVS-PEER-001") if rc.message_id in f.message_ids]
+    # a channel whose state was corrupted: the fabricated report is held as if delivered, the journal has no delivery of it
+    task.ch.channel.transmitted_reports[fake.report_id] = fake
     _m, rc = task.ch.relay("english-specialist", AgentRole.SPECIALIST, "history-specialist", AgentRole.SPECIALIST, fake)
     assert rc.status.value != "REJECTED"
     clr = auditor.clearance(task.uid, rc.message_id, receipt=rc)

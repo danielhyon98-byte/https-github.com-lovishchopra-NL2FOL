@@ -13,13 +13,14 @@ sign-aware, so ``−9.8`` against ``−9.81`` and a stated zero need no special 
 """
 from __future__ import annotations
 
+import re
 from fractions import Fraction
 from typing import Optional
 
 from .numbers import ExactNumber
 
 __all__ = [
-    "APPROX_OPS", "APPROX_WORDS", "SHORT_RULE", "STEM_SCOPE", "STEM_TOLERANCE_RULE", "TAU_APPROX", "TAU_EQUAL", "abs_expr", "band_expr", "half_width",
+    "APPROX_OPS", "APPROX_WORDS", "SHORT_RULE", "approx_word_before", "approx_word_in", "STEM_SCOPE", "STEM_TOLERANCE_RULE", "TAU_APPROX", "TAU_EQUAL", "abs_expr", "band_expr", "half_width",
     "is_measured", "tau_for",
 ]
 
@@ -29,6 +30,22 @@ TAU_EQUAL = Fraction(1, 100)
 TAU_APPROX = Fraction(1, 20)
 APPROX_OPS = frozenset({"≈", "≃", "~"})
 APPROX_WORDS = ("approximately", "approx.", "about", "roughly", "estimate", "around", "nearly")
+#: an approximation word as a whole word (stem-soundness-6, round 7: a substring had matched 'linearly', 'thoroughly', 'Around the bend')
+_APPROX_WORD = r"(?<![A-Za-z])(?:approximately|approx\.?|about|roughly|estimated?|around|nearly)(?![A-Za-z])"
+_APPROX_ANY_RE = re.compile(_APPROX_WORD, re.IGNORECASE)
+#: ... directly before what it qualifies: only spaces, "equal to", "is", a colon, a comma or the opening of inline maths may follow it
+_APPROX_END_RE = re.compile(_APPROX_WORD + r"(?:[ \t]+(?:equal[ \t]+to|is))?[ \t:,$(\\]*$", re.IGNORECASE)
+
+
+def approx_word_before(text: str) -> bool:
+    """An approximation word, as a whole word, ends ``text`` (R2): it qualifies what follows ('v ≈', 'is about 6.3', 'approximately
+    $2.0 × 3.0 = 6.3$'). A word that qualifies another quantity earlier in the sentence ('for about 3 s, and v = …') does not."""
+    return bool(_APPROX_END_RE.search(text[-80:]))
+
+
+def approx_word_in(text: str) -> bool:
+    """An approximation word anywhere in ``text``, as a whole word (the gap between the two sides of a relation: '= about 6.3')."""
+    return bool(_APPROX_ANY_RE.search(text))
 
 STEM_SCOPE = (
     "STEM check: proves a property of its encoding only. It proves that the written arithmetic, substitution, conversion, algebraic step, "

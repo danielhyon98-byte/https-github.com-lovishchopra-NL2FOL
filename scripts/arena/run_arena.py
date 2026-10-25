@@ -34,14 +34,20 @@ Inputs (one round directory):
   of another subject its own branch (WorkPlan.agent_subjects) and each agent set a different task type its own task type
   (WorkPlan.agent_task_types), so a History peer asked for a short_answer on an analytical_paragraph task carries
   short_answer on its request, report and forward (INT-HANDOFF-010 compares against it). relay_peer.py builds the same plan
-  through group_plan() and writes <round>/relayed/<task_id>.json, the only thing the peer-dependent agent may read.
+  through group_plan() and writes <round>/relayed/<task_id>.json, the only thing the peer-dependent agent may read: the
+  delivered payload, its document id and the relay status (RELAYED_FILE_KEYS), never a receipt. The router's record of
+  the relay (the plan, the request, the peer's delivery receipt with its findings and formal checks, the relay receipt)
+  goes to <round>/router/<task_id>.json, which no agent reads and the harness does not use.
   A re-run never delivers that recorded payload in place of the peer task's reply: the genuine pass parses the raw
   response_text with the code as it stands, like every other task, so a fix to a parser shows on the re-run's receipts.
   The recording is used only for the document the peer-dependent agent read (peer:<task_id> is its original_response),
   and each genuine record of a peer task carries ``recorded_relay_checks``: whether the recorded payload equals the
   current parse (created_at aside) and, when it does not, the payload fields and the claims that differ, with both
   values. results.json (``recorded_relay_checks``) and summary.md list every check, so a receipt that differs from the
-  recorded relay is never read as the receipt the agent was shown.
+  recorded relay is never read as the receipt the agent was shown. Each check also names the recorded file's
+  router-only fields (``router_fields_exposed``: keys outside RELAYED_FILE_KEYS, which a recording made before the
+  router's record had its own file carries), so an answer written by an agent that could read its peer's receipt reads
+  as one; it changes no count.
   <round>/adjudications/translation_fidelity.json  optional: an adjudicator's judgments of translation fidelity, one per translation
                                ({file or task_id, claim_id, verdict faithful|unfaithful, translation_sha256?, claim_text_sha256?};
                                load_adjudications). A judgment counts only for a translation this run served whose digests match.
@@ -529,9 +535,44 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
     return rec, text, relayed
 
 
+#: The keys of <round>/relayed/<task>.json, the only file the peer-dependent agent may read of its peer: its own task id,
+#: the peer task's id, whether the relay delivered, the relay's status, the document id the report is supplied as and
+#: the specialist_report/1.0 payload exactly as the hub relayed it. Nothing of a receipt (findings, subject findings,
+#: constraint results, formal checks, codes, summaries), the plan or the request reaches that agent: they are the
+#: router's (ROUTER_RELAY_DIR). Round-7 router and envelope review: relay_peer() wrote the peer's delivery receipt,
+#: every finding message included, into this file, and a dependent agent repeated a false finding (INT-SUBJ-001) to
+#: the student (run1).
+RELAYED_FILE_KEYS = ("task_id", "peer_of", "delivered", "relay_status", "document_id", "payload")
+#: Where relay_peer() writes the router's record of a relay (<round>/router/<task>.json): the plan, the request to the
+#: peer, the peer's delivery receipt and the relay's own receipt. Router-only: never supplied to an agent.
+ROUTER_RELAY_DIR = "router"
+#: ``relay_status`` when the hub relayed nothing: the request to the peer was rejected, the peer's reply was not
+#: delivered, or the relay raised (the router record says which).
+NOT_RELAYED = "NOT_RELAYED"
+
+
+def relayed_document(task_id: str, peer_of: str, relay_status: str, document_id: str | None, payload: dict | None) -> dict:
+    """The content of <round>/relayed/<task_id>.json (RELAYED_FILE_KEYS, nothing else): ``delivered`` is True exactly
+    when a payload was relayed; ``document_id`` and ``payload`` are present only then. ``relay_status`` is the relay's
+    transmission status (ACCEPTED, ACCEPTED_WITH_FINDINGS, REJECTED) or NOT_RELAYED, never shown as a delivery when
+    nothing was delivered."""
+    doc = {"task_id": task_id, "peer_of": peer_of, "delivered": payload is not None, "relay_status": relay_status}
+    if payload is not None:
+        doc.update(document_id=document_id, payload=payload)
+    return doc
+
+
 def relay_peer(round_dir: Path, task_id: str) -> dict:
-    """Receive the peer task's genuine reply, relay the delivered report to the requesting agent and write
-    <round>/relayed/<task_id>.json: the delivered payload is all that agent may read of its peer."""
+    """Receive the peer task's genuine reply, relay the delivered report to the requesting agent and write two files:
+
+    - <round>/relayed/<task_id>.json (``relayed_document``, RELAYED_FILE_KEYS only): the delivered payload, the document id
+      it is supplied as and the relay status. It is all the peer-dependent agent may read of its peer;
+    - <round>/router/<task_id>.json: the router's record (the plan as used, the request to the peer, the peer's delivery
+      receipt with every finding, subject finding, constraint result and formal check, and the relay's own receipt). It
+      is never supplied to an agent.
+
+    Returns ``{"relayed": <the agent's document>, "router": <the router's record>, "relayed_file": <path>,
+    "router_file": <path>}``."""
     items = load_items(round_dir / "specialists", include_pending=True)
     item = next(it for it in items if it["task_id"] == task_id)
     peer = item["peer_of"]
@@ -541,27 +582,35 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
     plan = group_plan(items, group)
     ch = hub.open_task(plan)
     m, _req, rq = hub.dispatch(group, peer_item["agent_id"], peer_item["question"], supplied(peer_item))
-    out = {"task_id": task_id, "peer_of": peer, "plan": {"task_type": plan.task_type, "agent_task_types": dict(plan.agent_task_types), "agent_subjects": dict(plan.agent_subjects)},
-           "request": {"status": rq.status.value, "codes": sorted(f.code for f in rq.findings)}}
+    router = {"task_id": task_id, "peer_of": peer, "plan": {"task_type": plan.task_type, "agent_task_types": dict(plan.agent_task_types), "agent_subjects": dict(plan.agent_subjects)},
+              "request": {"status": rq.status.value, "codes": sorted(f.code for f in rq.findings)}}
+    payload, document_id, relay_status = None, None, NOT_RELAYED
     if m is None:
-        out.update(delivered=False, error="request to the peer was rejected")
+        router["error"] = "request to the peer was rejected"
     else:
         reply, rc = hub.receive(group, m.message_id, peer_item["response_text"], agent_id=peer_item["agent_id"], report_id=f"rep-{peer}-0")
-        # the recipient sees what the hub attached to the delivery: every finding with its message, not just the codes
-        out["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary,
-                               "findings": [{"code": f.code, "severity": f.severity, "message": f.message, "claim_ids": list(f.claim_ids)} for f in rc.findings],
-                               "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
-                               "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
-                               "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
+        # the router, the recipient of the peer's delivery, keeps what the hub attached to it: every finding with its
+        # message, not just the codes. It stays in the router's record: the dependent agent reads the payload only.
+        router["peer_receipt"] = {"status": rc.status.value, "codes": sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}), "summary": rc.summary,
+                                  "findings": [{"code": f.code, "severity": f.severity, "message": f.message, "claim_ids": list(f.claim_ids)} for f in rc.findings],
+                                  "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
+                                  "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
+                                  "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
         rec, text, relayed = relay_from_peer(ch, items, item, {peer_item["_path"].stem: reply} if reply is not None else {}, item["_path"].name)
-        out["relay"] = {k: v for k, v in rec.items() if k != "file"}
-        out["delivered"] = relayed is not None
+        router["relay"] = {k: v for k, v in rec.items() if k != "file"}
+        relay_status = rec.get("status") or NOT_RELAYED
         if relayed is not None:
-            out["document_id"] = text.document_id
-            out["payload"] = relayed.payload  # the specialist_report/1.0 payload exactly as delivered
-    (round_dir / "relayed").mkdir(exist_ok=True)
-    (round_dir / "relayed" / f"{task_id}.json").write_text(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-    return out
+            payload, document_id = relayed.payload, text.document_id  # the specialist_report/1.0 payload exactly as delivered
+    router.update(delivered=payload is not None, relay_status=relay_status)
+    if document_id is not None:
+        router["document_id"] = document_id
+    relayed_rel, router_rel = f"relayed/{task_id}.json", f"{ROUTER_RELAY_DIR}/{task_id}.json"
+    router["relayed_file"] = relayed_rel
+    doc = relayed_document(task_id, peer, relay_status, document_id, payload)
+    for rel, content in ((relayed_rel, doc), (router_rel, router)):
+        (round_dir / rel).parent.mkdir(exist_ok=True)
+        (round_dir / rel).write_text(json.dumps(content, indent=2, ensure_ascii=False, default=str))
+    return {"relayed": doc, "router": router, "relayed_file": str(round_dir / relayed_rel), "router_file": str(round_dir / router_rel)}
 
 
 def _quote_fold(s: str) -> str:
@@ -688,8 +737,11 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
 
 
 def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:
-    """Peer-dependent task id -> {file, peer_of, payload} for every relay relay_peer.py recorded as delivered: the payload
-    is what that agent was shown of its peer when it answered."""
+    """Peer-dependent task id -> {file, peer_of, payload, router_fields_exposed} for every relay relay_peer.py recorded as
+    delivered: the payload is what that agent was shown of its peer when it answered. ``router_fields_exposed`` lists the
+    recorded file's keys outside RELAYED_FILE_KEYS (a recording made before the router's record had its own file carries
+    the peer's delivery receipt, the relay receipt, the plan and the request): what the dependent agent could read beyond
+    its peer's report, reported with the recorded relay check, never counted."""
     out: dict[str, dict] = {}
     for it in items:
         if not it.get("peer_of"):
@@ -698,7 +750,8 @@ def load_recorded_relays(round_dir: Path, items: list[dict]) -> dict[str, dict]:
         if rel_path.exists():
             rel = json.loads(rel_path.read_text())
             if rel.get("delivered") and rel.get("payload"):
-                out[it["task_id"]] = {"file": f"relayed/{rel_path.name}", "peer_of": it["peer_of"], "payload": rel["payload"]}
+                out[it["task_id"]] = {"file": f"relayed/{rel_path.name}", "peer_of": it["peer_of"], "payload": rel["payload"],
+                                      "router_fields_exposed": sorted(k for k in rel if k not in RELAYED_FILE_KEYS)}
     return out
 
 
@@ -927,7 +980,8 @@ _WITHHELD_DIAG_RE = re.compile(r"\b(E108|E110|E111|E112)\b|\b(stated precision|e
 #: asserts (W110) or conclusion symbols no premise mentions (W111), with no source-linked evidence that a source asserts
 #: them. The verdict on the encoding stands (the question may leave the figure open); the count is a coverage measure.
 ADVISORY_COVERAGE_CODES = {"W110": "unasserted figure, advisory (the counterexample stands; no source asserts the defined figure)",
-                           "W111": "unconstrained symbol, advisory (the counterexample stands; no source states the free symbols)"}
+                           "W111": "unconstrained symbol, advisory (the counterexample stands; no source states the free symbols, or no premise "
+                                   "links the conjunct of the judgement they stand for)"}
 
 
 def withheld_verdicts(records: list[dict]) -> dict:
@@ -1040,17 +1094,23 @@ def _render_value(v) -> str:
 
 
 def recorded_relay_lines(checks: list[dict]) -> list[str]:
-    """summary.md lines for the recorded peer relays compared with the current parse."""
+    """summary.md lines for the recorded peer relays compared with the current parse, each with the router-only fields
+    its file exposed to the dependent agent, if any (RELAYED_FILE_KEYS)."""
     lines = []
     for c in checks:
         head = f"- {c['relayed_file']} ({c['peer_of']} relayed to {c['dependent_task_id']})"
+        exposed = ([f"  - the recorded file also carries router-only fields the dependent agent could read beyond its peer's report: {c['router_fields_exposed']} "
+                    f"(relay_peer.py now writes them to {ROUTER_RELAY_DIR}/<task>.json)"] if c.get("router_fields_exposed") else [])
         if c["identical"]:
             lines.append(f"{head}: identical to the current parse (created_at aside)")
+            lines += exposed
             continue
         if not c.get("current_delivered", True):
             lines.append(f"{head}: DIFFERS: the current code did not deliver {c['peer_of']}'s reply; the recorded payload was not delivered in its place")
+            lines += exposed
             continue
         lines.append(f"{head}: DIFFERS from the current parse; the genuine pass delivered the current parse and used the recording only for the document the agent read")
+        lines += exposed
         if c["fields"]:
             lines.append(f"  - payload fields that differ: {c['fields']}")
         if c["claims_only_recorded"]:
@@ -1621,7 +1681,8 @@ def run_round(round_dir: Path) -> dict:
                 if kind == "genuine" and reply is not None:
                     delivered[sp.stem] = reply
                 if kind == "genuine" and recorded_here:
-                    checks = [{"relayed_file": rel["file"], "peer_of": task_id, "dependent_task_id": dep, **payload_differences(rel["payload"], reply.payload if reply is not None else None)}
+                    checks = [{"relayed_file": rel["file"], "peer_of": task_id, "dependent_task_id": dep, **payload_differences(rel["payload"], reply.payload if reply is not None else None),
+                               "router_fields_exposed": list(rel["router_fields_exposed"])}
                               for dep, rel in recorded_here]
                     rec["recorded_relay_checks"] = checks
                     recorded_relay_checks.extend(checks)
@@ -1817,7 +1878,8 @@ def main(argv: list[str] | None = None) -> int:
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",
           "| definitive verdicts other than ENTAILED displayed on genuine claims:", len(res["displayed_non_entailed_definitive_outcomes"]))
-    print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]))
+    print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]),
+          "| recorded relays exposing router-only fields to the dependent agent:", sum(1 for c in res["recorded_relay_checks"] if c.get("router_fields_exposed")))
     print("\n".join(line for line in measure_lines(res["metrics"]) if line))
     print("results written to", rd / "results.json", "and", rd / "summary.md")
     if res["qualified"] and args.fail_on_qualification:

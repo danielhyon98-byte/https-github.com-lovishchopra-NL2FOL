@@ -24,7 +24,11 @@ id with a STEM branch's letter (raw text through ``StemTextParser``: ``s1.2``, `
 the claims that mention the statement's text (the shared two-way substring rule). Descriptions
 and messages name the report's own claim ids: the ``[claims s1.2]`` of a description and the
 statement ids of a front-end message are rewritten to the claims they map to. An internal failure of the pack is ST-INTERNAL-001 (warning), never an exception and
-never a silent pass. The scope statement of every check is in its problem's ``notes``.
+never a silent pass. When the failure leaves the report with no STEM checks at all (the pack raised, or the front end
+failed internally and returned an empty document), the hub's PACK-INTERNAL-001 (error, as ``SubjectBranch.run_packs``
+raises it for a pack that raises) stands beside it, so an emptied STEM document can never read as a pass: the receipt
+carries an error. That is the pack's one error-severity finding; every STEM error about the answer is an engine result.
+The scope statement of every check is in its problem's ``notes``.
 """
 from __future__ import annotations
 
@@ -94,12 +98,20 @@ class StemPack:
             out = ([StructuralFinding(code="ST-INTERNAL-001", severity="warning",
                                       message=(f"the STEM pack failed internally ({type(exc).__name__}) while reading this report; its STEM checks are "
                                                "missing from this receipt and must not be read as passed"),
-                                      claim_ids=[], rule_source=STEM_RULE_SOURCE)], [])
+                                      claim_ids=[], rule_source=STEM_RULE_SOURCE),
+                    self._missing_checks(f"the pack failed internally ({type(exc).__name__}) while reading this report")], [])
         with self._lock:
             self._cache[key] = out
             while len(self._cache) > _CACHE_ENTRIES:
                 self._cache.popitem(last=False)
         return out
+
+    def _missing_checks(self, why: str) -> StructuralFinding:
+        """The hub's PACK-INTERNAL-001 (error) for a report whose STEM checks are all missing (module docstring)."""
+        return StructuralFinding(code="PACK-INTERNAL-001", severity="error",
+                                 message=(f"the {self.name} integrity pack's checks are missing from this receipt: {why}; the router must not "
+                                          "treat them as passed (no STEM check of this report was built or run)")[:_MAX_MESSAGE],
+                                 claim_ids=[], rule_source="hub integrity (a failing pack is reported, never silently skipped)")
 
     def _plan(self, doc: StemDocument, report: SpecialistReport, relay: bool) -> CheckPlan:
         return build_checks(doc, report_id=report.report_id, request_id=report.request_id, relay=relay)
@@ -111,6 +123,9 @@ class StemPack:
         findings: list[StructuralFinding] = []
         for f in doc.findings:
             findings.append(_finding(f.code, f.severity, claim_map.relabel(f.message), claim_map.ids(f.statement_ids)))
+        if not doc.statements and any(f.code == "ST-INTERNAL-001" for f in doc.findings):
+            # the front end failed internally and returned an empty document: every STEM check of the report is missing
+            findings.append(self._missing_checks("the STEM front end failed internally and read no statement of the answer"))
         for f in plan.findings:
             findings.append(_finding(f.code, f.severity, claim_map.relabel(f.message), claim_map.ids(f.statement_ids)))
         formal: list[FormalCheck] = []

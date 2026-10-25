@@ -386,24 +386,34 @@ def _interval_node(term: dict, b: tuple[Fraction, Fraction, bool, bool]) -> dict
                                   {"op": "le" if hi_incl else "lt", "left": term, "right": {"op": "real", "value": decimal_text(hi)}}]}
 
 
-def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = (), narrow: Sequence[Reading] = ()) -> Optional[Problem]:
-    """``problem`` with each ``widen`` equality read as its interval and each ``narrow`` interval read as an equality at
-    its midpoint; None when the rewritten data is not a valid problem."""
+def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = (), narrow: Sequence[Reading] = (),
+            rebound: Sequence[tuple[Reading, tuple[Fraction, Fraction, bool, bool]]] = ()) -> Optional[Problem]:
+    """``problem`` with each ``widen`` equality read as its interval, each ``narrow`` interval read as an equality at
+    its midpoint and each ``rebound`` interval read at the given bounds (a rounded figure encoded with other bounds than
+    the source states, read as the source states it); None when the rewritten data is not a valid problem."""
     data = problem.model_dump(mode="json", exclude_none=True)
     for r, b in widen:
         _set(data, r.site.path, _interval_node(r.site.term, b))
-    by_and: dict[tuple, list[Reading]] = {}
+    by_and: dict[tuple, list[tuple[Reading, dict]]] = {}
     for r in narrow:
+        node = {"op": "eq", "left": r.site.term, "right": {"op": "real", "value": decimal_text(r.site.value)}}
         if r.site.split:  # two bound premises: each becomes the equality (a repeated premise is harmless)
             for i in r.site.arg_indices:
-                data["premises"][i]["expr"] = {"op": "eq", "left": r.site.term, "right": {"op": "real", "value": decimal_text(r.site.value)}}
+                data["premises"][i]["expr"] = node
             continue
-        by_and.setdefault(r.site.path, []).append(r)
+        by_and.setdefault(r.site.path, []).append((r, node))
+    for r, b in rebound:
+        node = _interval_node(r.site.term, b)
+        if r.site.split:  # two bound premises: each becomes the stated interval (a repeated premise is harmless)
+            for i in r.site.arg_indices:
+                data["premises"][i]["expr"] = node
+            continue
+        by_and.setdefault(r.site.path, []).append((r, node))
     for path in sorted(by_and, key=len, reverse=True):
         node = _get(data, path)
-        drop = {i for r in by_and[path] for i in r.site.arg_indices}
+        drop = {i for r, _n in by_and[path] for i in r.site.arg_indices}
         args = [a for i, a in enumerate(node["args"]) if i not in drop]
-        args += [{"op": "eq", "left": r.site.term, "right": {"op": "real", "value": decimal_text(r.site.value)}} for r in by_and[path]]
+        args += [n for _r, n in by_and[path]]
         _set(data, path, args[0] if len(args) == 1 else {"op": "and", "args": args})
     try:
         return Problem.model_validate(data)
@@ -417,6 +427,16 @@ def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fra
 def _verdict(problem: Problem, config: SolverConfig) -> Optional[VerificationStatus]:
     status = engine_verify(problem, config).status
     return status if status in DEFINITIVE else None
+
+
+def _written_figure(r: Reading) -> str:
+    """The figure an interval site stands for as the source writes it ("0.33"), with the encoding's midpoint beside it
+    when the two differ ("0.33 (the interval's midpoint 0.3325)"); the midpoint alone when no source figure was matched."""
+    mid = decimal_text(r.site.value)
+    if r.figure is None:
+        return mid
+    written = r.figure.numeral or r.figure.written
+    return written if written == mid else f"{written} (the interval's midpoint {mid})"
 
 
 def decide_precision(problem: Problem, readings: Sequence[Reading], config: SolverConfig, tag: str) -> PrecisionDecision:
@@ -433,7 +453,7 @@ def decide_precision(problem: Problem, readings: Sequence[Reading], config: Solv
     mismatched = [r for r in readings if r.site.kind == "interval" and r.exactness == "rounded" and r.bounds is not None
                   and (r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl) != r.bounds]
     if mismatched:
-        shown = "; ".join(f"{decimal_text(r.site.value)} in {r.site.assertion_id} is encoded as {_bounds_text((r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl))} "  # type: ignore[arg-type]
+        shown = "; ".join(f"{_written_figure(r)} in {r.site.assertion_id} is encoded as {_bounds_text((r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl))} "  # type: ignore[arg-type]
                           f"but {r.describe()} states {_bounds_text(r.bounds)} ({_bound_ops(r.bounds)})" for r in mismatched[:6])  # type: ignore[arg-type]
         decision.reject = ("stated_precision", f"{tag}: stated precision: the interval does not match the precision the source states: {shown}. Encode exactly the "
                                                "stated interval: a wider one weakens the claim and a narrower one strengthens it")
@@ -510,9 +530,14 @@ def reference_reading(problem: Problem, readings: Sequence[Reading]) -> Problem:
     figures written as intervals narrowed back to equalities. The reference a retry's conclusion is compared with."""
     widen = [(r, r.bounds) for r in readings if r.site.kind == "eq" and r.exactness == "rounded" and r.bounds is not None]
     narrow = [r for r in readings if r.site.kind == "interval" and r.exactness in ("exact", "given")]
-    if not widen and not narrow:
+    # a rounded figure encoded as an interval other than the one its source states (the narrower [0.33, 0.335) for "0.33 to
+    # 2 decimal places"): the reference reads it at the stated interval, so a retry that encodes exactly that interval
+    # keeps the claim (it is the claim as stated, never "weaker")
+    rebound = [(r, r.bounds) for r in readings if r.site.kind == "interval" and r.exactness == "rounded" and r.bounds is not None
+               and (r.site.lo, r.site.hi, r.site.lo_incl, r.site.hi_incl) != r.bounds]
+    if not widen and not narrow and not rebound:
         return problem
-    return rewrite(problem, widen=widen, narrow=narrow) or problem  # type: ignore[arg-type]
+    return rewrite(problem, widen=widen, narrow=narrow, rebound=rebound) or problem  # type: ignore[arg-type]
 
 
 def _entails(premise_expr: Any, conclusion_expr: Any, symbols: list[dict], config: SolverConfig) -> Optional[bool]:

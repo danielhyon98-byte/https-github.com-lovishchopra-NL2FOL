@@ -1826,7 +1826,11 @@ TRN_CASES: dict[str, tuple[str, str, str, str]] = {
     "T22p": ("translation_circular", "OVS-TRN-006", "P_assumed", "the conclusion restated as 'endless or endless' in place of the link, which the translator's "
                                                                  "rule (as written only) does not read as a restatement"),
     "T22q": ("translation_circular", "OVS-TRN-006", "P_assumed", "the conclusion restated as 'true implies endless' in place of the link"),
-    "T22r": ("translation_circular", "OVS-TRN-006", "P_assumed", "the conclusion restated as 'not (not endless)' in place of the link"),
+    # round-7 core hand-off (fidelity-4): the translator's E112 now reads a premise in its normal form, so a plain double
+    # negation ('not (not endless)') is caught by the channel itself (displayed INVALID_FORMALIZATION, E112); the case
+    # puts the double negation over a repeated disjunct, which the normal form does not read and the overseer's rule does
+    "T22r": ("translation_circular", "OVS-TRN-006", "P_assumed", "the conclusion restated as 'not (not endless or not endless)' in place of the link, "
+                                                                 "a double negation over a repeated disjunct that the translator's normal form does not read"),
     "T22s": ("translation_circular", "OVS-TRN-006", "P_assumed", "a tautology ('bell or not bell') conjoined to the conclusion, and the claim itself in place "
                                                                  "of the link, so that the translator's rule finds no premise restating every conjunct"),
     # the third repair of the translator merge (decision 55, rule same-quantity): the claim's own figure assumed under a
@@ -1916,7 +1920,7 @@ LABEL_ONLY_CASES = {"T22i": "supplied_text", "T22j": "rubric_rule", "T22k": "kno
 #: The other form of the conclusion each semantic restatement case puts in place of the link (rule semantic-restatement).
 OTHER_FORM_CASES = {"T22p": {"op": "or", "args": [_V("endless"), _V("endless")]},
                     "T22q": {"op": "implies", "left": {"op": "bool", "value": True}, "right": _V("endless")},
-                    "T22r": {"op": "not", "arg": {"op": "not", "arg": _V("endless")}}}
+                    "T22r": {"op": "not", "arg": {"op": "or", "args": [{"op": "not", "arg": _V("endless")}, {"op": "not", "arg": _V("endless")}]}}}
 #: The arithmetic restatements of T22ag to T22ai (STEM repair 12, rule arithmetic-restatement): the premise each puts in place of a
 #: derivation of the paragraph's own length, 'n = 80', equivalent to it by the arithmetic of its own symbol (exact numerals only).
 ARITH_FORM_CASES = {

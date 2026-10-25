@@ -265,14 +265,24 @@ def specialist_names(author: str) -> list[str]:
     return names
 
 
+#: A parenthesis closing an author's name ("Kestrelford Borough Council (a fictional council)", "Ruth Ashdown (a fictional poet)"):
+#: a description of the author, never how a sentence names it.
+_TRAILING_PARENTHETICAL_RE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
 def _names_of(doc: SuppliedText) -> list[str]:
     """How a sentence names ``doc``: its author (full name and surname; a specialist agent by :func:`specialist_names`:
-    "history-specialist" also as "history specialist", "mathematics-aa-specialist" also as "mathematics specialist"), and
-    the title of a non-peer text up to any parenthesis, colon or comma."""
+    "history-specialist" also as "history specialist", "mathematics-aa-specialist" also as "mathematics specialist"; a
+    parenthesis closing the author's name is a description and is left out: "Kestrelford Borough Council (a fictional
+    council)" is named "Kestrelford Borough Council" and "Council"), and the title of a non-peer text up to any parenthesis,
+    colon or comma."""
     names: list[str] = []
-    author = (doc.author or "").strip()
+    full = (doc.author or "").strip()
+    author = _TRAILING_PARENTHETICAL_RE.sub("", full).strip() or full
     if author:
         names.append(author)
+        if full != author:
+            names.append(full)
         names.extend(specialist_names(author))
         parts = author.split()
         if len(parts) > 1 and len(parts[-1]) >= 3 and parts[-1][0].isupper():
@@ -417,17 +427,27 @@ _CREDIT_VERBS = (r"(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claim
 _CREDIT_NOUNS = (r"(?:speaker|narrator|persona|poem|poet|line|lines|words?|phrase|phrasing|text|voice|monologue|paragraph|reading|account|verse|"
                  r"stanza|soldier|man|character|report|analysis|essay|view|argument|claim|note|sonnet|novel|play|story)")
 _CREDIT_ADVERBS = r"(?:himself|herself|itself|themselves|also|then|even|openly|plainly|bluntly|simply|directly|explicitly|rightly|famously|later|here|still)"
+#: Nouns of a view whose complement clause a possessive credits: "Tomas Reyes's view that ...", "the History specialist's claim that ...".
+_VIEW_NOUNS = r"(?:view|claim|argument|reading|point|position|account|conclusion|suggestion|belief|assumption|insistence|contention)"
 #: The words between a credited name and its quotation: a bare possessive ("Hardy's '...'"), or an optional possessive
 #: noun, adverbs and a crediting verb, then the rest of the clause.
 _CREDIT_GAP_RE = re.compile(
     r"^(?:['’]s?\s*[,:]?\s*$"
-    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b)",
+    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b"
+    # a possessive noun with a complement clause: "the Economics specialist's view that the company could '...'" (the clause that
+    # follows is the credited source's, as after "argues that")
+    r"|(?P<view>['’]s\s+(?:own\s+)?" + _VIEW_NOUNS + r"\s+(?:is\s+)?(?=that\b)))",
     re.IGNORECASE)
 #: Where a clause ends, so a verb never credits a quotation of the next clause ("Hardy's speaker calls the war 'quaint',
 #: and the casualness 'exposes ...'": the second quotation is not the speaker's).
 _CREDIT_CLAUSE_END_RE = re.compile(r"[;!?]|\.\s|:\s|,\s+(?:and|but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
 #: A text named by kind rather than by name: "the poem", "the poet", "the speaker".
 _GENERIC_LITERARY_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrator|play|novel|sonnet|extract|passage|monologue|story)\b", re.IGNORECASE)
+#: A supplied text of another kind named by kind, with up to two lower-case words before the kind: "the leaflet", "the textbook", "the
+#: bread price table", "the case study", "the council leaflet" (a capital or a possessive before it is another source's: "the History
+#: specialist's table" is not the supplied table).
+_GENERIC_SOURCE_RE = re.compile(r"\b(?:[Tt]he|[Tt]his)\s+(?:[a-z][a-z-]*\s+){0,2}?(?:leaflet|textbook|table|case\s+study|worksheet|booklet|article|"
+                                r"document|source|report\s+card|data\s+table|chart|graph)s?\b")
 _LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IGNORECASE)
 #: Verbs that present what their subject supplies ("The History specialist supplies the frame: ...") and the noun phrase
 #: and colon that introduce it: the colon does not end the credit.
@@ -472,10 +492,11 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
         if len(name) >= 3:
             mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
     literary = sorted({d for d, t in docs.items() if not is_peer_text(t) and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
-    for m in _GENERIC_LITERARY_RE.finditer(sentence):
-        if not quoted(m.start()):
-            mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
-    before = sorted((m for m in mentions if m[1] <= quote_start), key=lambda m: (m[1], m[0]), reverse=True)
+    for rx in (_GENERIC_LITERARY_RE, _GENERIC_SOURCE_RE):
+        for m in rx.finditer(sentence):
+            if not quoted(m.start()):
+                mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
+    before = sorted((m for m in mentions if m[1] <= quote_start), key=lambda m: (m[1], -m[0]), reverse=True)  # nearest first; of two ending together, the longer
     credits: list[tuple[Credit, bool]] = []  # nearest first; True when the verb opens a reported clause ("argues that")
     for a, b, doc_id, generic in before:
         gap = sentence[b:quote_start]
@@ -490,7 +511,9 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
             rest = _PRESENTED_NOUN_RE.sub(" ", rest, count=1)
         if _CREDIT_CLAUSE_END_RE.search(rest):
             continue
-        credits.append((Credit(doc_id, sentence[a:b + m.end()].strip(), generic), bool(re.match(r"\s+that\b", gap[m.end():], re.IGNORECASE))))
+        if m.group("view") and re.search(r"(?<![\w'’])(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]", rest):
+            continue  # "the Economics specialist's point is that Tomas Reyes wants to '...'": the clause names its own speaker
+        credits.append((Credit(doc_id, sentence[a:b + m.end()].strip(), generic), bool(re.match(r"\s*that\b", gap[m.end():], re.IGNORECASE))))
     if not credits:
         return None
     # A reporting clause credits its OUTER speaker: in "The English specialist argues that Blake presents ... '...'" the

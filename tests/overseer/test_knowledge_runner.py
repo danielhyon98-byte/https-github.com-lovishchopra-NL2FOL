@@ -228,6 +228,20 @@ def test_invalid_replies_are_rejected_by_the_intake(auditor, pack, reply, reason
     assert run.raw_text == reply and (not reply or reply not in run.finding.message)
 
 
+def test_a_reply_holding_a_lone_surrogate_is_unparseable_and_its_run_record_serialises(auditor, pack):
+    """Round 7: a reply holding a lone UTF-16 surrogate (a provider SDK's decoding of a truncated emoji escape) reaches the
+    intake unchanged and is refused as ``unparseable``; the run keeps the text with U+FFFD in its place, so the record
+    serialises as JSON, and keeps the digest of the reply exactly as received."""
+    task, intake, d = setup_task(auditor, pack)
+    reply = json.dumps(verdict(d, notes="truncated emoji \ud83d"), ensure_ascii=False)
+    run = OverseerAgentRunner(pack, FixtureCompletionProvider([reply]), agent_id=AGENT, lens=LENS).run(d, intake)
+    assert run.status == "invalid" and run.reason == "unparseable" and run.finding.code == "OVS-AGENT-005" and run.message_id is None
+    assert run.raw_text == reply.replace("\ud83d", "\ufffd") and run.raw_chars == len(reply)
+    assert run.raw_text_sha256 == hashlib.sha256(reply.encode("utf-8", "surrogatepass")).hexdigest() == intake.outcomes()[-1].raw_text_sha256
+    assert json.loads(run.model_dump_json())["raw_text"] == run.raw_text
+    json.dumps(run.model_dump(mode="json"), ensure_ascii=False).encode("utf-8")
+
+
 def test_a_verdict_under_another_pack_is_invalid(auditor, pack):
     task, intake, d = setup_task(auditor, pack, intake=None)
     reply = json.dumps(verdict(d, pack=OTHER_PACK.model_dump()))

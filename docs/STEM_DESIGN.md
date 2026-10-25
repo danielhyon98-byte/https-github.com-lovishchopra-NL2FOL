@@ -980,8 +980,10 @@ The column "Decided by" means:
 - **deterministic**: rule-based reading;
 - **numeric**: exact `Fraction` precheck or bookkeeping.
 
-The STEM pack itself emits **no error-severity structural finding**. Every STEM error comes
-from an engine result.
+The STEM pack itself emits **no error-severity structural finding** about the answer. Every STEM error comes
+from an engine result. The one error the pack adds is the hub's PACK-INTERNAL-001, when an internal failure leaves a
+report with no STEM check at all (the front end emptied the document, or the pack raised): its checks are missing, and
+the receipt carries an error so they are never read as passed (round-7 hand-off, parser-safety-1).
 
 | Code | Severity | Decided by | Meaning |
 | --- | --- | --- | --- |
@@ -1006,7 +1008,7 @@ from an engine result.
 | ST-SCOPE-001 | info | deterministic | a symbol is rebound to a different value inside the answer; substitutions match any binding |
 | ST-LIM-001 | warning | numeric | an expression or literal exceeds a front-end or IR bound (span, links, nodes, depth, exponent, digits after factoring, symbols, intervals); not checked |
 | ST-LIM-002 | warning | deterministic | more relations than the per-report check cap (128), or more math spans than the per-report reading cap (1,024); the count and the first unchecked ids or statements are named |
-| ST-INTERNAL-001 | warning | deterministic | the STEM pack failed internally while building checks, an enclosure failed its cross-check against `math`, or a built problem was refused by `Problem.model_validate`; the affected checks are missing and must not be read as passed |
+| ST-INTERNAL-001 | warning | deterministic | the STEM pack failed internally while building checks, an enclosure failed its cross-check against `math`, or a built problem was refused by `Problem.model_validate`; the affected checks are missing and must not be read as passed. When the failure leaves the report with no STEM check (the front end failed and returned an empty document, or the pack raised), the hub's PACK-INTERNAL-001 (error) stands beside it |
 | CORE-QNT-001 | warning | deterministic | existing; in SI reading, new reasons: different dimensions, "a relative change on an offset temperature scale is not defined" |
 
 Severity semantics are unchanged:
@@ -3701,3 +3703,83 @@ pinned by `tests/stem/test_second_translator_merge.py`:
 undecided is rewritten to a stricter assertion. With the closed powers of 33.1 the merged front end decides
 `1.003^60`, `1.003^132` and `1.003^144` beside `135.36`: it now requires those four checks, each holding, and no
 ST-UNDEC-001 naming an integer power beyond 12.
+
+## 34. The round-7 arena's STEM findings
+
+The round-7 arena's STEM lenses (soundness, precision and parser safety) found readings that passed wrong working, failed
+correct working or dropped a relation silently. Each is fixed where the reading went wrong, and
+`tests/stem/test_round7_arena_fixes.py` pins every one with a clean control (a correct line that holds and a wrong one that
+still fails). On the recorded round 7 the harness gives the same functional count (177 of 177) and, record for record, the
+same STEM checks, statuses and findings as before the fixes.
+
+- **Units read as written** (stem-soundness-1, `checks._as_written_consistent`). The reading as written (every unit a
+  factor of 1) is admitted only when it is a consistent reading: when the units written on the computed side and on the
+  stated value differ by a pure number other than 1, some bare factor written in the computation must supply it (`× 1000`,
+  `× 60`, `× 3.6`, `× 100` for a per cent). So `3 × 2.0 kg = 6.0 g`, `2.0 kW × 3.0 = 6.0 W`, `300/400 = 0.75 %` and
+  `80 × 25 % = 2000` are read in SI only and fail, while `2.5 kg × 1000 = 2500 g`, `300/400 × 100 = 75 %` and
+  `120/4.0 = 30 km/h` (bare operands standing in km and h: a ratio with a dimension) keep both readings.
+- **Exact integers in Mathematics and Computer Science** (stem-soundness-2, `checks._match_h`): an exact integer the
+  answer states with no unit (`Let x = 3`) has h = 0, so a substituted 4 no longer matches it. A computed result keeps its
+  half unit (it may be a rounding), and the request's data keep rule given-data.
+- **Coefficients** (stem-soundness-3, `checks._non_coefficient_factors`): a symbol written in another order may stand
+  opposite another factor of its product, but never opposite a numeral that writes the symbolic side's own coefficient
+  (the 4 of `4x + 1`, the ½ of `½mv²`).
+- **The AND dot** (stem-soundness-4): in Computer Science a full stop glued between single capitals or brackets is AND
+  (`lexer._and_dot`: `A.B + A.C = A.(B + C)`); a relation glued by a full stop to a letter or a bracket on either side is a
+  fragment and is withheld with ST-PARSE-001 (`checks._truncated_operand`), never decided.
+- **Simultaneous equations** (stem-soundness-5, `relations._system_step`, `checks._sol_system`): consecutive equations of
+  one part in the same two or more unknowns form a system when the words say so ("simultaneous", "system", "both
+  equations", 'and' joining them in one statement, or the request stating both); no line of it is a step from the one
+  before unless a connective says so, and the values the answer then states for its unknowns are planned as one `sol`
+  check against every equation together: exact values in Form E, rounded ones in Form S over their R10 intervals, an
+  unknown with no stated value free, never one equation with another stated value as a premise. Without such a word the
+  line after an equation in two letters is a step, as before (`2x + y = 10`, then `2x = 10 − y`).
+- **Approximation words** (stem-soundness-6, `tolerance.approx_word_before`, `approx_word_in`): a whole word only, and only
+  directly before the relation (or between its two sides, `= about 6.3`); 'linearly', 'thoroughly', 'Around the bend' and
+  'for about 3 s, and v = …' give no slack.
+- **Degrees and radians** (stem-soundness-8, `checks._top_degrees`): an angle in degrees set against one in radians or a
+  number (`30° = 0.524 rad`, `180° = π rad`) is compared in radians, a degree read as π/180 (its half-width scaled by a
+  rational upper bound of π/180).
+- **Trigonometric functions of a bare number** (stem-soundness-9, `checks._trig_angles`): read in degrees only when the
+  request or the answer writes an angle in degrees and the answer never mentions radians, or when every such argument is a
+  whole number beyond a full turn (`cos 60`); otherwise both readings, as before.
+- **Roots with ±** (stem-soundness-10, `checks._step_conclusion`): a rounded value written `±1.41` is banded on both
+  branches of the algebra step.
+- **Roots on the next line** (stem-soundness-11): in Mathematics a root stated as a value on the line right after its
+  equation claims the solution set as '⇒' does; roots on consecutive lines are one set; a line giving one root of several
+  ("one root", "another"), a stated restriction, a root written as an expression and a formula's evaluation claim none.
+- **Silent relations** (stem-soundness-12): a factorisation or expansion the words name ("Factorising", "Expand") is an
+  identity checked for every value of its letters; a step to a chained inequality or to an inequality of an absolute value
+  is named ST-UNDEC-001; a line opening with an absolute value is maths, not a pipe table; bits, bytes and the binary
+  multiples (KiB, MiB, GiB) are units; a nuclear equation is named ST-UNDEC-001.
+- **Restatements of another quantity** (stem-precision-1, `relations._restates_other_quantity`): a whole number with no
+  unit after a chain whose value is no whole number restates it only when the clause between the cue and the value names
+  nothing the chain's statement does not ('so the degrees of freedom are 3' after a χ² sum and 'so the loan lasts 60
+  months' after a monthly rate are no restatements; 'Therefore the answer is 6' after '15/3 = 5', 'So there are 4
+  half-lives' after '24/8.0 = 3' and a per cent still are).
+- **Units of the substitution** (stem-precision-2 and -3): a bare substituted value also matches its binding converted to
+  another unit of its dimension that the line's other values are written in (`checks._rescale_factors`: `V = 25.0 cm³` put
+  in as 0.0250 beside `mol dm⁻³`), and a substitution whose symbols are bound in units with an SI factor other than 1 is
+  offered the SI reading (`Pt = 2200 × 4.5 × 60` with `t = 4.5 min`).
+- **Compound quantities** (stem-precision-5, `units.compound_part`): adjacent numeral and unit pairs of one dimension,
+  each unit strictly smaller (`4 min 30 s`, `1 kg 250 g`, `1 h 2 min 3 s`), are one quantity, the sum of its parts, read in
+  SI only.
+- **A bracketed per cent after a value** (stem-precision-6): `0.870 (87%)` restates the value; it is no factor.
+- **Comparisons stated false** (stem-precision-8, `relations._stated_false`): '2 <= 1, which is false', '5 > 8 is false',
+  '(2 <= 1) fails' claim the negation, which is checked (its statement names the relation decided).
+- **Count nouns** (stem-precision-9): a sign after a numeral and the noun it counts (`4 categories − 1 = 3`) is binary; the
+  relation read from the sign is withheld with ST-PARSE-001.
+- **Nibbles** (stem-precision-10): a binary or hexadecimal numeral in groups of four (or eight) digits ending in its base
+  subscript (`1011 0110₂`) is one based numeral.
+- **Superscript runs** (parser-safety-1): a run of superscript digits beyond the numeral bound (30 digits) is ST-LIM-001 on
+  its span before any conversion (lexer, unit reader, parser); the rest of the answer is still read.
+
+Two fixes need code outside `stem/` and were handed to their owners: STEM claim ids qualified with the agent
+(combinator-faults-9, `adapters/stem_specialist/parser.py`) and an emptied STEM document reported at error severity
+(parser-safety-1's second part, `branches/stem_pack.py`; the front end emits no error-severity finding by design). The
+second is applied: `StemPack` adds the hub's PACK-INTERNAL-001 (error) beside ST-INTERNAL-001 when a report is left with no
+STEM check by an internal failure (`tests/branches/test_r7_handoff_stem_pack.py`).
+
+`tests/stem/test_checks_safety.py::test_too_many_readings_is_st_parse_002` is rewritten to a stricter assertion: its old input
+(`sin(30)`, now read in degrees only) is asserted decided with its three readings, and the bound of four readings is
+exercised with an argument read both ways (`sin(0.5)`).

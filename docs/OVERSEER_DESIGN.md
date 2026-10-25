@@ -629,6 +629,12 @@ are its negative tests. A heuristic never produces an error-level finding.
   capture of the event (`replay.build_replay_job`), so the store's bound never drops a replay.
 - **Isolation.** The default is a `spawn` worker process. It gives isolation from the process-wide
   Z3 memory parameter and from any patching of the hub process.
+- **Job budget** (section 45). A job's budget (`job_budget_s`, 30 s) runs from the moment the worker
+  takes it from its queue, never from when it was queued, so a replay waiting behind others is not
+  charged for their time. A job still running at its budget is budget exceeded and the worker is
+  replaced, so the jobs behind it still run; a worker that exits is replaced the same way (its
+  running job errs). A drain without a timeout waits until every outstanding job has finished or
+  been recorded.
 - **What is compared.**
   - `status` is compared, and so is `problem_digest` and `config_digest` of the binding.
   - Unsat cores, counterexample models and witnesses are not unique, so they are compared for
@@ -1718,7 +1724,7 @@ Every code has exactly one severity, and every finding carries identifiers.
 | OVS-FID-006 | warning | response content that no claim carries (parse loss) |
 | OVS-FID-007 | warning | quotations self-grounded (checked only against texts the specialist supplied) |
 | OVS-FID-008 | error | a supplied text under a requested document id altered in the report |
-| OVS-FID-009 | warning | the auditor's independent structural detector flags a self-certification delivered as content, or a structured report's content claim carries the contract's advisory self-report fields (ignored; recorded by INT-HANDOFF-006) |
+| OVS-FID-009 | warning | the auditor's independent structural detector flags a self-certification delivered as content, or a structured report's content claim carries the contract's advisory self-report fields (ignored; recorded by INT-HANDOFF-006), or a dependent agent's claim states a check result credited to the system or to a report that no INT-REQ-014 names (a relayed check result is a self-report, never evidence; section 46) |
 | OVS-TRN-001 | error | a translation's IR fails re-validation as untrusted data (schema, claim or request ids, the engine validator's allowlist, sorts and limits, or the subject profile's sorts) |
 | OVS-TRN-002 | error | a translation's status, eligibility or engine run is not the image of its validation (a problem under a status that forbids one, ambiguity flags under TRANSLATED, a claim the eligibility policy rules out forced into IR, an engine result without a translated problem) |
 | OVS-TRN-003 | error | a translation's grounding states more than the deterministic grounding check gives |
@@ -4652,3 +4658,99 @@ passes every gate, with no false alarm in either pass, the three entries of reco
 names, its three retirements confirmed, 269 of 269 arena faults named and confirmed, 3,213 results replayed with no
 disagreement, 677 of 677 STEM probes counted and as expected and 358 of 358 tamperings detected; the dossier export
 issues 1,435 dossiers; the suite passes (10,514 passed, the stress marker deselected and never run).
+
+## 45. The round-7 arena findings on the merged overseer: what changed and why
+
+The round-7 arena fixers handed two findings to the overseer build; both reproduce on the merged tree and both are fixed
+at their cause (`overseer/replay.py`, `overseer/intake.py`). Neither changes a rule, a code or a pack text.
+
+### 45.1 What was found and what changed
+
+| # | Severity | Found | Changed |
+| --- | --- | --- | --- |
+| 1 | major | The replayer started a job's budget when the job was QUEUED, and a drain without a timeout waited one budget from its own start. Twenty correct replays of one problem (about 2.1 s each in the worker) queued at once: the drain returned after 30.0 s with 13 or 14 agreeing and the rest budget exceeded, so OVS-AUDIT-005 (the transfer cannot pass) on results the replay reproduces. | The worker sends a `started` message when it takes a job and the job's budget starts then (`Replayer._collect`; every message names the worker's generation). A drain without a timeout waits until every outstanding job has finished or been recorded (`Replayer._police`): a job still running at its budget is budget exceeded and its worker is replaced, the jobs it never took are sent to the fresh worker; a worker that exits is replaced (its running job errs, `ReplayWorkerExited`); a worker that takes no job after three replacements leaves the outstanding jobs with `ReplayWorkerUnavailable`. Each of those outcomes is a replay that did not reproduce the status (AUDIT-005 for a definitive original), never agreement. A drain with a timeout still waits at most the timeout, the budget enforced meanwhile. The same probe: drain 43.5 s, 20 of 20 agreeing. |
+| 2 | blocker | `VerdictIntake.submit` raised `UnicodeEncodeError` on a verdict holding a lone UTF-16 surrogate (what a provider SDK hands over after decoding a truncated emoji escape), after marking the issue answered: the verdict was lost with no outcome, and a clean resubmission was refused as `duplicate`. | The parser now refuses such text (the core owner's fix in `translate.parsing`), and the intake no longer depends on it: a reply holding a lone surrogate is `unparseable` before it is parsed, whatever the parser raises on agent text is `unparseable`, and an unexpected error at a later stage is refused under that stage's reason (`schema`, `envelope`) with the error type only. `submit` never raises on agent output and a bound reply always leaves its outcome, so the issue's one bound submission is recorded (the rule of review round 3 is kept: a bound malformed reply uses up the issue, an unbound one leaves it open). The probe: rejected `unparseable` with OVS-AGENT-005. |
+| 3 | follow-up | The agent runner kept such a reply on its `AgentRun` record as received, so the record could not be written as JSON (`PydanticSerializationError`). | `OverseerAgentRunner` keeps a lone surrogate of the kept text as U+FFFD; the intake receives the reply unchanged and `raw_text_sha256` is the digest of the reply exactly as received. |
+
+### 45.2 Tests
+
+New, none changed: in `tests/overseer/test_audit_replay.py`, six jobs queued for longer than a 1 s budget behind a held
+worker (SIGSTOP) all agree once it runs (the merged replayer returned after 1 s with all six budget exceeded); a job
+still running at its budget is budget exceeded and the two jobs behind it agree on a fresh worker; a worker killed with
+a job running and one queued is replaced (the running job errs, the queued one agrees), and one killed while idle is
+replaced at the next submission; a worker that never takes a job leaves every job with an error and the drain returns.
+In `tests/overseer/test_protocol_intake.py`, a bound verdict holding a lone surrogate (the code point, its JSON escape,
+in a key, fenced) is `unparseable` with AGENT-005 and recorded, and the clean resubmission is `duplicate`; an unbound
+one leaves the issue open; an error the parser raises (`UnicodeEncodeError`, `RecursionError`, `RuntimeError`) is
+`unparseable`, never raised; an unexpected error in validation or in the envelope log is refused under `schema` and
+`envelope`. In `tests/overseer/test_knowledge_runner.py`, a reply holding a lone surrogate gives a run record that
+serialises, with the reply's own digest.
+
+## 46. The round-7 core hand-offs on the overseer: what changed and why
+
+The round-7 core fixer changed the channel, the translator and the engine in their own paths and handed the overseer the
+changes outside them: four code changes, the codes whose meaning the channel widened, and the overseer tests that pinned
+a defect the round fixed. Every item reproduced on the merged tree. No OVS code was added and no severity changed; the
+channel added no INT code (every new channel rule reuses an existing code at its existing severity, so the FIXED_SEVERITY
+drift test stays green).
+
+### 46.1 What was found and what changed
+
+| # | Finding | Found | Changed |
+| --- | --- | --- | --- |
+| 1 | security-1 | `hmac.compare_digest(str, str)` raises `TypeError` for a forged signature holding a non-ASCII or surrogate character: `verify_consolidated`, `verify_audit` and `KeyRing.mac_ok` (and the integration kit's `verify_verdict_signature`) raised into their caller instead of refusing. | Each comparison is `engine.provenance.signature_matches` (False unless the value is 64 lowercase hex characters; ASCII bytes compared), so a forged value of any form reads False and never raises. `verify_audit` is total on an audit whose text is not valid Unicode too. `integration/delivery.py` keeps the same rule locally (it never imports the engine). |
+| 2 | security-3 (mirror) | The channel no longer falls back to a report's own supplied texts: a quotation is checked against the router's texts only, and a report text that is not byte-identical to a request text under its document id is INT-REQ-002 (error, blocking), also when the request sent no texts. Rule `request-quotation` still read the report's texts when the request had none, and the receipt expectation for INT-REQ-002 used the old rule (both sides carry texts, the report's ids not a subset). | `request_quoted_claims` reads the request's texts only. The receipt expectation is the channel's rule re-derived on its own (`checks/receipts.py`: a report document id the request did not send, or a sent one whose text differs by SHA-256), so a channel that fails to reject is OVS-RCPT-004 naming INT-REQ-002. FID-007 and FID-008 stay the defence for a channel whose rule is switched off. |
+| 3 | router-envelope-2 | A dependent agent (a peer report or a specialist-authored text supplied) stating, as a claim of its own, a check result credited to the system or to a report ("A formal check failed the report's restated 0.1 pH result") was content to the overseer: FID-009 read only self-certification. The channel now names it with INT-REQ-014 (warning). | FID-009 also names a delivered claim of a dependent agent that matches the channel's `_CHECK_SUBJECT_RE` and `_CHECK_OUTCOME_RE` (quotations masked; every claim read, notes included, on the response paths) when no INT-REQ-014 on the receipt names it. A relayed check result is a self-report (advisory), never evidence: it never counts as a check the router may read as passed. |
+| 4 | robustness (hub) | `RouterHub.dispatch` and `receive` on a task id holding a lone surrogate raised a pydantic `ValidationError` from the quarantine plan. | The quarantine key of such an id is a digest of it (`RouterHub._quarantine_key`); both calls return a REJECTED receipt, and `receipts` reads them under the same id. |
+
+### 46.2 Codes whose meaning the channel widened (existing codes, existing severities)
+
+| Code | Severity | Now also |
+| --- | --- | --- |
+| INT-REQ-006 | warning | a claim whose verification gave no verdict: its outcome is displayed INVALID_FORMALIZATION, INTERNAL_ERROR, UNKNOWN, TIMEOUT or UNSUPPORTED, so a no-verdict outcome never leaves a clean ACCEPTED receipt. The shadow keeps INT-REQ-006 in `SHADOW_EXCLUDED` (it only skips a comparison). |
+| INT-REQ-007 | error (warning under AMBIGUOUS_TRANSLATION) | charged only when the outcome is DISPLAYED INCONSISTENT_PREMISES or AMBIGUOUS_TRANSLATION; an engine result the composer rejected (displayed INTERNAL_ERROR) is INT-REQ-006. No overseer check expects INT-REQ-007 from `verification.status` alone (rule `ambiguous-reading` reads the finding's severity against the outcome's translation). |
+| INT-REQ-009 | error, blocking | a malformed request (over 64 distinct constraints, an empty or white-space text, over 400,000 characters, a text or agent id that is not a valid string: "request REJECTED as malformed"), and raw text holding a JSON object cut off in transit. |
+| INT-REQ-000 | error, blocking | a reply whose request message id is not a string of 1 to 128 characters. |
+| INT-REQ-002 | error, blocking | section 46.1, row 2. |
+| INT-REQ-003 | error | a parser-uncredited quotation of three words or more found in no supplied text and not in the request, whose sentence credits no source and carries no from-memory label (before, only CORE-SRC-003, unverifiable). |
+| INT-REQ-014 | warning | a dependent agent's claim stating a check result credited to the system or to a report (section 46.1, row 3). |
+| INT-HANDOFF-013 | error, blocking | a specialist relaying a report it never delivered (no channel state change); `checks/peer.py` reads such a REJECTED relay as the channel doing its job. |
+| INT-LEDGER-025 | error | a synthesized claim's `evidence_refs` whose excerpt the named document does not hold, or whose document is outside the plan's `allowed_document_ids` (refs copied from a cited source claim are skipped). |
+| INT-CONFLICT-001 | error | no longer charged for claims consistent at their stated precision (decimal literals widened to half a unit of the last written digit, re-decided under the nonlinear policy); no INT-CONFLICT-002 follows for a synthesis merging them. |
+
+A translation record of another release (a version string `\d+\.\d+\.\d+...` other than `version.TRANSLATOR_VERSION`) is
+displayed INTERNAL_ERROR ("translate and verify again"); records naming no release version (the fixtures' `test`, `t`)
+are read as before, so no overseer fixture changed.
+
+### 46.3 Tests
+
+New: `tests/overseer/test_r7_handoff_fixes.py` (forged consolidation, audit and key-ring signatures holding non-ASCII or
+surrogate text read False and never raise, with genuine controls; rule `request-quotation` reads only the request's texts;
+the INT-REQ-002 expectation is the channel's rule, both shapes, with the channel's own catch and a channel whose rule is
+switched off; FID-009 names a relayed check result no INT-REQ-014 names, with controls for a non-dependent agent and a
+quoted check result), `tests/integration/test_r7_verdict_signature.py` and `tests/branches/test_r7_handoff_hub.py`.
+
+Rewritten to the stricter rule (each asserted the old defect as a precondition; none deleted, every Overseer assertion
+kept):
+
+- `test_rebuild_merged_translator.py::test_rule_semantic_restatement_reads_a_restatement_in_another_form`: the
+  translator's E112 now reads the normal form (fidelity-4), so the test pins which forms the translator reads
+  (`ENGINE_READS`: double negation, `e <-> true`, swapped `eq` operands, a flipped comparison, a pair of bounds) instead of
+  pinning that it reads none; the Overseer's reading of every form is unchanged.
+- `scripts/overseer/tamper.py` T22r: the plain double negation is now caught by the channel (E112, INVALID_FORMALIZATION),
+  so the case puts the double negation over a repeated disjunct (`not (not endless or not endless)`), which the
+  translator's normal form does not read and the Overseer's rule does (`syntactic`, as before); the tamper suite, the C1
+  scoring, the harness scoring and the dossier export pass unchanged.
+- `test_audit_fidelity.py::test_fid_007_...` and `::test_fid_008_...`: the channel's INT-REQ-002 rejection is asserted
+  (and that the audit raises no FID-007/008 for a rejected transfer); the original FID assertions hold with the channel's
+  rule switched off.
+- `test_rebuild_merged_translator.py::test_control_an_invented_quotation_no_finding_names_is_still_fid_004`: the silent
+  channel of `_lit_task` also drops the new INT-REQ-003 for an uncredited quotation; the assertions are unchanged.
+- `test_repair5_statement_context.py::test_control_a_located_excerpt_naming_its_quantity_before_the_figure_stays_a_transcription`:
+  the excerpt's document is a non-specialist source (a specialist's text is a relayed peer report, which gives a premise no
+  source authority since security-2), and the peer case is pinned as well (`own_kind`).
+- `test_review1_content_checks.py::test_a_report_relayed_in_a_specialists_name_that_it_never_delivered_is_peer_001`: the
+  channel's INT-HANDOFF-013 refusal (no state change, no PEER-001) is asserted, and PEER-001 is kept as the defence for a
+  channel whose state was corrupted (the fabricated report seeded into `transmitted_reports`).
+- `test_stem_completion.py` STEM_TASK_CONTENT: ph-t13 18 -> 20 and bi-t13 7 -> 8 (the parsers' direction-word checks,
+  each holding; every ST code set unchanged).

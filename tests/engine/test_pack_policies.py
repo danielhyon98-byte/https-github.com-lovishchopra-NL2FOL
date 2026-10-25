@@ -747,9 +747,9 @@ def test_a_lone_surrogate_in_a_text_payload_is_never_a_success():
         assert not is_definitive(r.status) and r.status in (S.INVALID_FORMALIZATION, S.INTERNAL_ERROR) and verify_signature(r, KEY)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-existing validator defect, outside this stage (no validator change): _decode_text encodes a str payload with "
-    "UTF-8 and lets UnicodeEncodeError escape parse_and_validate, so a lone surrogate is INTERNAL_ERROR (E900) instead of "
-    "INVALID_FORMALIZATION (E100). Fix: catch UnicodeEncodeError there; then remove this marker."))
 def test_a_lone_surrogate_in_a_text_payload_is_an_invalid_formalization():
-    assert run_policy("\ud800", LINEAR).status is S.INVALID_FORMALIZATION
+    # The validator defect this test was marked xfail(strict) for is fixed (r7 hand-off, robustness-and-contracts-5:
+    # _decode_text refuses a lone surrogate with E100), so the marker is removed and the test must pass under every policy.
+    for name in (LINEAR, NONLINEAR):
+        r = run_policy("\ud800", name)
+        assert r.status is S.INVALID_FORMALIZATION and [d.code for d in r.diagnostics] == ["E100"]

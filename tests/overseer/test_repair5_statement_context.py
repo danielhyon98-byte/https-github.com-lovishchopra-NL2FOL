@@ -363,14 +363,23 @@ def test_rule_statement_context_reads_a_located_excerpt_in_its_document(doc_text
 def test_control_a_located_excerpt_naming_its_quantity_before_the_figure_stays_a_transcription():
     """Rule statement-context reads no quantity in an excerpt: the recorded r7 excerpts name it before the figure ("PED =
     −12.50 ÷ 18.75 = −0.67", "Pc = $1.90 per litre"), which rule same-quantity (the word after a figure) does not read,
-    so their verified excerpts stay the transcription evidence (decision 49)."""
-    doc = SuppliedText(document_id="doc-q", title="Peer", author="Economics specialist",
-                       text="PED = −12.50 ÷ 18.75 = −0.67\nResult: demand is price inelastic.")
+    so their verified excerpts stay the transcription evidence (decision 49).
+
+    The document's author is a source that is not a specialist ("Board"): since the round-7 core fix (security-2) a text
+    a specialist wrote (``translate.grounding.is_peer_document``: a relayed peer report) gives a premise no source
+    authority, so the same excerpt in the Economics specialist's report is no transcription; that case is pinned below as
+    well. (Rewritten to the stricter rule: the statement-context control keeps its standing, and the peer case's standing
+    is asserted in addition.)"""
     c = {"op": "eq", "left": V("ped"), "right": {"op": "real", "value": "-0.67"}}
     p = Problem.model_validate({"problem_id": "p-ped", "request_id": "req-ovs", "claim_id": POINT, "query": "entailment",
                                 "symbols": [{"name": "ped", "sort": "Real", "meaning": "price elasticity of demand as given by the Economics specialist"}],
                                 "premises": [{"id": "a_ped", "expr": c, "label": "price elasticity of demand as given by the Economics specialist",
                                               "grounding": {"kind": "quotation", "source_refs": [{"document_id": "doc-q", "excerpt": "PED = −12.50 ÷ 18.75 = −0.67"}]}}],
                                 "conclusion": {"id": "C", "expr": c, "label": "PED is -0.67"}})
+    text = "PED = −12.50 ÷ 18.75 = −0.67\nResult: demand is price inelastic."
+    doc = SuppliedText(document_id="doc-q", title="Notes", author="Board", text=text)
     rs = T.restatement(p, english_report(EN_TEXT + " PED = −0.67.", docs=(DOC, doc)), [])
     assert rs.standings == (("a_ped", "transcription"),) and not rs.holds
+    peer = SuppliedText(document_id="doc-q", title="Peer", author="Economics specialist", text=text)
+    rs = T.restatement(p, english_report(EN_TEXT + " PED = −0.67.", docs=(DOC, peer)), [])
+    assert rs.standings == (("a_ped", "own_kind"),) and rs.holds, rs.why_own

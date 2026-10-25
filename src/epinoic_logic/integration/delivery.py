@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -220,7 +221,23 @@ def sign_verdict(verdict: Mapping[str, Any], key: bytes, key_id: str) -> dict:
     return {**{k: v for k, v in verdict.items() if k != "signature"}, "signature": {"alg": "hmac-sha256", "key_id": key_id, "value": mac}}
 
 
+#: a signature value as :func:`sign_verdict` writes it: 64 lowercase hex characters
+_HEX64_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _hex_signature_matches(expected: str, given: Any) -> bool:
+    """Constant-time comparison, total on untrusted input: a value that is not 64 lowercase hex characters (another type,
+    another length, a non-ASCII or surrogate character) never matches and never raises (``hmac.compare_digest`` refuses
+    non-ASCII text, so both sides are compared as ASCII bytes). The same rule as the engine's
+    ``provenance.signature_matches``, kept here because this module never imports the engine."""
+    if not isinstance(given, str) or not _HEX64_RE.fullmatch(given) or not isinstance(expected, str) or not expected.isascii():
+        return False
+    return hmac.compare_digest(expected.encode("ascii"), given.encode("ascii"))
+
+
 def verify_verdict_signature(verdict: Mapping[str, Any], key: bytes) -> bool:
+    """True exactly when ``verdict`` carries the HMAC-SHA256 signature ``key`` gives its canonical bytes. Never raises: a
+    forged signature value of any form is False."""
     sig = verdict.get("signature")
     if not isinstance(sig, Mapping) or sig.get("alg") != "hmac-sha256" or not isinstance(sig.get("value"), str) or not key:
         return False
@@ -228,7 +245,7 @@ def verify_verdict_signature(verdict: Mapping[str, Any], key: bytes) -> bool:
         expected = hmac.new(key, signable_bytes(verdict), hashlib.sha256).hexdigest()
     except CanonicalError:
         return False
-    return hmac.compare_digest(expected, sig["value"])
+    return _hex_signature_matches(expected, sig["value"])
 
 
 # --------------------------------------------------------------------------------------------- binding (row 1)

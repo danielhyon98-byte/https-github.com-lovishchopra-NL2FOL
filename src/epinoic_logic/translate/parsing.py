@@ -19,6 +19,7 @@ from ..ir.canonical import strict_object_pairs
 
 _FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
 _INLINE_FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*(.*?)```", re.DOTALL)
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
 
 
 class ProviderOutputError(ValueError):
@@ -73,7 +74,11 @@ def parse_json_object(text: str, max_bytes: int = 2_000_000, *, strict: bool = F
     """
     if not isinstance(text, str):
         raise ProviderOutputError("provider output is not text")
-    if len(text.encode("utf-8")) > max_bytes:
+    try:
+        size = len(text.encode("utf-8"))
+    except UnicodeEncodeError:  # a lone surrogate: not valid Unicode text, so no JSON object of it is taken
+        raise ProviderOutputError("provider output is not valid Unicode text (it holds a lone UTF-16 surrogate code point)") from None
+    if size > max_bytes:
         raise ProviderOutputError(f"provider output exceeds {max_bytes} bytes")
     if strict:
         body = _strict_body(text).strip()
@@ -86,6 +91,7 @@ def parse_json_object(text: str, max_bytes: int = 2_000_000, *, strict: bool = F
                 body = strip_code_fences(text).strip()
             else:
                 if isinstance(obj, dict):
+                    _refuse_surrogates(obj)
                     return obj
                 raise ProviderOutputError(f"provider output must be a JSON object, got {type(obj).__name__}")
         else:
@@ -104,4 +110,23 @@ def parse_json_object(text: str, max_bytes: int = 2_000_000, *, strict: bool = F
         raise ProviderOutputError(f"provider output is not acceptable JSON: {exc}") from None
     if not isinstance(obj, dict):
         raise ProviderOutputError(f"provider output must be a JSON object, got {type(obj).__name__}")
+    _refuse_surrogates(obj)
     return obj
+
+
+def _refuse_surrogates(obj: Any) -> None:
+    """Raise :class:`ProviderOutputError` when a string of the parsed object (a key or a value) holds a lone surrogate:
+    JSON's ``\\ud83d`` escape decodes to one, and no contract, digest or signature downstream can take it. An iterative
+    walk (the parser already bounded the depth)."""
+    stack = [obj]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(k, str) and _SURROGATE_RE.search(k):
+                    raise ProviderOutputError("provider output holds a lone UTF-16 surrogate code point in a key (not valid Unicode text)")
+                stack.append(v)
+        elif isinstance(node, list):
+            stack.extend(node)
+        elif isinstance(node, str) and _SURROGATE_RE.search(node):
+            raise ProviderOutputError("provider output holds a lone UTF-16 surrogate code point in a string (not valid Unicode text)")

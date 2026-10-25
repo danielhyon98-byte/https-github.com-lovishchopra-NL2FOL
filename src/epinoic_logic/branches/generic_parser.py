@@ -96,7 +96,9 @@ from typing import Optional
 
 from ..adapters.base import AdapterError
 from ..adapters.english_specialist.parser import documents_named
+from ..adapters.history_specialist.parser import is_source_caveat
 from ..adapters.markdown import (
+    BARE_NOTE_LEAD_RE,
     NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, is_note_sentence, is_self_certification, mask_quotations,
     split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
@@ -141,8 +143,13 @@ _WHY_LEAD_RE = re.compile(r"^\W*(?:why|reasons?|reasoning|because|justification)
 _ASSUMPTION_LEAD_RE = re.compile(r"^\W*assum(?:ption|ptions|ed|ing)\s*:", re.IGNORECASE)
 #: Note leads of this branch besides the shared ones: "Limit:" (what the answer could not draw on).
 _BRANCH_NOTE_LEAD_RE = re.compile(r"^\W*limits?\s*:", re.IGNORECASE)
-#: A paragraph opened by a bare note lead is a note as a whole ("Note on ...:" introduces a discussion and is not).
-_BARE_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|limits?)\s*:|n\.\s?b\.)", re.IGNORECASE)
+#: A paragraph opened by a bare note lead is a note as a whole ("Note on ...:" introduces a discussion and is not): the shared lead
+#: (``markdown.BARE_NOTE_LEAD_RE``: "Note:", "N.B.", "Next step:", "Limit:", "Caveat:"), which the channel's word bound reads too.
+_BARE_NOTE_LEAD_RE = BARE_NOTE_LEAD_RE
+#: A caveat that its sources do NOT vouch for something ('do not confirm the exact 1990 rate', 'were unavailable'): a figure it names is
+#: what is not confirmed, so the sentence is a note; a caveat that its sources confirm a figure states the figure and keeps its substance.
+_NEGATIVE_CAVEAT_RE = re.compile(r"\b(?:do|does|did|could|can)\s*(?:not|n['’]t)\s+(?:confirm|verify|give|state|record|cover|support|include)\b|\bcannot\s+(?:confirm|verify)\b"
+                                 r"|\b(?:unavailable|not\s+available|not\s+been\s+(?:checked|confirmed|verified|available))\b", re.IGNORECASE)
 _DIAGRAM_LINE_RE = re.compile(r"^\W*(?:axes|axis|curves?|change|shifts?|equilibri(?:um|a)|areas?|labels?|key|arrows?)\s*:", re.IGNORECASE)
 _DIAGRAM_TITLE_RE = re.compile(r"^\W*(?:diagram|figure|graph|table)\s+\d{1,2}\s*[:.—–-]", re.IGNORECASE)
 _MEASURE_LEAD_RE = re.compile(r"^\W*(?:measure|working(?:\s+for\b[^:]{0,30})?)\s*:", re.IGNORECASE)
@@ -521,6 +528,8 @@ class GenericTextParser:
         set aside. A line of working or a bare value is never a note for having no letters."""
         if self_report or u.lead in ("note", "bare_note", "heading", "question"):
             return True
+        if not u.is_json and (not _NUM_RE.search(u.text) or _NEGATIVE_CAVEAT_RE.search(u.text)) and is_source_caveat(u.text):
+            return True  # 'My sources do not confirm the exact total, so the figure is given as "millions".': the History parser's caveat
         if u.is_json:
             return not core or is_note_sentence(core)
         if (u.working or u.value) and _NUM_RE.search(u.text):

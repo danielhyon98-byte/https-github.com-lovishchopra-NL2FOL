@@ -138,8 +138,11 @@ def test_an_injected_failure_is_st_internal_001_never_a_raise(monkeypatch):
     pack = StemPack("sciences")
     rep = parsed(OBSERVED, request_text=REQUEST, rid="rep-boom")
     found = pack.checks(rep, REQUEST)
-    assert [(f.code, f.severity) for f in found] == [("ST-INTERNAL-001", "warning")]
+    # round-7 hand-off (parser-safety-1): a failure that leaves the report with no STEM check also carries the hub's
+    # PACK-INTERNAL-001 at error severity, so the receipt can never read as a pass (rewritten to the stricter rule)
+    assert [(f.code, f.severity) for f in found] == [("ST-INTERNAL-001", "warning"), ("PACK-INTERNAL-001", "error")]
     assert "RuntimeError" in found[0].message and "must not be read as passed" in found[0].message
+    assert "must not treat them as passed" in found[1].message and "stem-sciences" in found[1].message
     assert pack.formal_checks_for(rep, REQUEST) == []
 
 

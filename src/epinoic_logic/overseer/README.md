@@ -428,6 +428,25 @@ OVS-TRN-006) with the control T22-working; the STEM probes add 36 (16 answers, 1
 pack 1.3 states each reading (D31, I77, I97, I98, K6, the kinds table, the master prompt, the mistakes rows), and a test
 executes every such statement against the front end and the overseer's readings.
 
+**After the round-7 arena findings** (design section 45): a replay's budget runs from when the worker TAKES the job, never
+from when it was queued, so a correct replay waiting behind others is never budget exceeded (twenty queued at once had
+six or seven marked so, OVS-AUDIT-005 on results the replay reproduces); a drain without a timeout waits for every
+outstanding job, a job still running at its budget is budget exceeded and its worker replaced so the jobs behind it still
+run, and a worker that exits or never takes a job leaves an error, never agreement. The intake never raises on agent
+output and always records a bound reply's outcome: a verdict holding a lone UTF-16 surrogate (a provider's decoding of a
+truncated emoji escape) is `unparseable` with OVS-AGENT-005, whatever the parser raises is `unparseable`, and an unexpected
+error at a later stage is refused under that stage's reason; the runner's record keeps such a reply serialisable (U+FFFD)
+with the digest of the reply as received.
+
+**After the round-7 core hand-offs** (design section 46): every signature comparison of the overseer (a consolidated
+response, a signed audit, a key ring MAC) is total on untrusted input, so a forged value holding non-ASCII or surrogate
+text reads False and never raises; the overseer's mirrors read the channel's rule that quotations are checked against the
+router's texts only (rule `request-quotation` reads no text a report supplies itself, and the INT-REQ-002 expectation is a
+report text the request did not send, or changed, also when the request sent none); FID-009 also names a dependent
+agent's claim stating a check result credited to the system or to a report that no INT-REQ-014 names, since a relayed
+check result is a self-report (advisory), never evidence. The channel's widened codes (INT-REQ-000, -002, -003, -006, -007,
+-009, -014, INT-HANDOFF-013, INT-LEDGER-025, INT-CONFLICT-001) are listed in design section 46.2.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
@@ -475,7 +494,7 @@ and the signed results decide.
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
-| Replay | `replay.py` | `Replayer`: every stored problem re-run on a fresh engine in a worker process (inline for tests), keyed sampling on overflow |
+| Replay | `replay.py` | `Replayer`: every stored problem re-run on a fresh engine in a worker process (inline for tests), each job's budget from when the worker takes it, keyed sampling on overflow |
 | Checks | `checks/*.py` | custody, receipts, results, formal, fidelity, self-certification, translation (translator oversight), peer, synthesis, joint, divergence, shadow channel |
 | Auditor | `audit.py` | `run_overseer_checks` (the pure function), `TransferAuditor` (live use), `sign_audit`, `verify_audit` |
 | Router policy | `policy.py` | `may_act`, `check_before_acting` (bounded PENDING wait, 250 ms), `may_release` |

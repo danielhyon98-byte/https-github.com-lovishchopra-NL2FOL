@@ -17,6 +17,15 @@
   as a fraction is below the rate; agents cannot predict it and the auditor can reproduce it. ``always`` jobs (results
   behind a definitive display status, results cited by error findings, results feeding a synthesis) are never sampled
   out. Sampled-out jobs are kept and replayed by the batch tier (:meth:`Replayer.drain` with ``include_sampled``).
+* **Job budget.** In ``process`` mode a job's budget (``job_budget_s``) runs from the moment the worker TAKES it from its
+  queue (the worker's ``started`` message), never from when it was queued, so a correct replay waiting behind others is
+  never charged for their time (round-7 finding: of twenty correct replays queued at once, six or seven were marked
+  budget exceeded, so AUDIT-005). A drain without a timeout waits until every outstanding job has finished or been
+  recorded. A job still running at its budget is recorded as budget exceeded, and the worker running it is stopped
+  and replaced, so the jobs queued behind it still run on a fresh worker; a worker that exits is replaced the same way
+  (the job it was running is recorded with an error, the jobs it never took are sent to the new worker); a worker that
+  never starts a job after ``MAX_WORKER_RESTARTS`` replacements leaves every outstanding job with an error. Every one of
+  these outcomes is a replay that did not reproduce the status (AUDIT-005 for a definitive original), never agreement.
 * **Deferred work.** ``submit_task`` queues a deterministic callable (R2 re-derivation) that runs in a background
   thread in ``process`` mode and at drain time (or at once, with ``eager``) in ``inline`` mode.
 
@@ -43,10 +52,18 @@ from .checks import Replay
 from .faithful import faithful
 from .keys import RUN_KEY_ID, KeyRing
 
-__all__ = ["ReplayJob", "ReplayOutcome", "Replayer", "compare", "classify", "replay_problem", "build_replay_job", "QUEUE_BOUND", "MIN_SAMPLE_RATE"]
+__all__ = ["ReplayJob", "ReplayOutcome", "Replayer", "compare", "classify", "replay_problem", "build_replay_job", "QUEUE_BOUND", "MIN_SAMPLE_RATE",
+           "MAX_WORKER_RESTARTS", "WORKER_START_GRACE_S"]
 
 QUEUE_BOUND = 256
 MIN_SAMPLE_RATE = 0.25
+#: Replacements of a worker that exits or stalls before taking any job, after which the outstanding jobs get an error.
+MAX_WORKER_RESTARTS = 3
+#: Beyond the job budget, how long an idle worker with jobs queued may send nothing (its start-up imports) before it is
+#: taken as stalled and replaced.
+WORKER_START_GRACE_S = 60.0
+#: How long a worker seen exited is left for the collector to read what it sent before it is replaced.
+_EXIT_GRACE_S = 0.25
 _UNDECIDED = (S.TIMEOUT.value, S.UNKNOWN.value, S.INTERNAL_ERROR.value)
 _LIMIT_CODES = ("E300", "E301", "E302", "E303", "E304", "E305", "E306")
 
@@ -130,16 +147,19 @@ def replay_problem(problem_json: str, config_json: str, policy: str = "") -> str
     return canonical_json(res.model_dump(mode="json", exclude_none=True))
 
 
-def _worker_main(jobs: Any, results: Any) -> None:  # pragma: no cover - runs in the spawned process
+def _worker_main(jobs: Any, results: Any, gen: int = 0) -> None:  # pragma: no cover - runs in the spawned process
+    """The worker loop. Every message names the worker's generation: ``(gen, "started", jid, None, None)`` when it takes a
+    job from its queue (the job's budget starts then), ``(gen, "done", jid, result_json, error)`` when it has finished."""
     while True:
         item = jobs.get()
         if item is None:
             return
         jid, problem_json, config_json, policy = item
+        results.put((gen, "started", jid, None, None))
         try:
-            results.put((jid, replay_problem(problem_json, config_json, policy), None))
+            results.put((gen, "done", jid, replay_problem(problem_json, config_json, policy), None))
         except Exception as exc:
-            results.put((jid, None, f"{type(exc).__name__}"))
+            results.put((gen, "done", jid, None, f"{type(exc).__name__}"))
 
 
 def compare(job: ReplayJob, replayed: Optional[VerificationResult], *, budget_exceeded: bool = False, error: Optional[str] = None) -> Replay:
@@ -194,7 +214,8 @@ class Replayer:
         self._cond = threading.Condition(self._lock)
         self._queued: list[ReplayJob] = []          # inline mode: waiting to run
         self._sampled_out: dict[str, ReplayJob] = {}
-        self._inflight: dict[str, tuple[ReplayJob, float]] = {}  # process mode
+        #: process mode: job and the time the worker took it (None while it waits in the worker's queue)
+        self._inflight: dict[str, tuple[ReplayJob, Optional[float]]] = {}
         self._done: dict[str, ReplayOutcome] = {}
         self._known: set[str] = set()
         self._tasks: list[tuple[str, Callable[[], Any]]] = []
@@ -205,6 +226,11 @@ class Replayer:
         self._jobs_q = None
         self._results_q = None
         self._collector: Optional[threading.Thread] = None
+        self._gen = 0                     # the current worker's generation; a message of another generation is stale
+        self._worker_seen = 0.0           # when the current worker was started or last sent a message
+        self._exit_seen: Optional[float] = None  # when the current worker was first seen exited
+        self._restarts = 0                # replacements since a worker last took a job
+        self._worker_target: Callable[..., None] = _worker_main
         self._task_thread: Optional[threading.Thread] = None
         self._task_signal = threading.Event()
         self._closed = False
@@ -238,33 +264,155 @@ class Replayer:
             self._queued.append(job)
             return
         self._ensure_worker()
-        self._inflight[job.result_id] = (job, time.monotonic())
+        if not self._inflight:
+            self._worker_seen = time.monotonic()  # an idle worker's stall clock starts with its first job
+        self._inflight[job.result_id] = (job, None)
+        self._send(job)
+
+    def _send(self, job: ReplayJob) -> None:
         self._jobs_q.put((job.result_id, job.problem_json, job.config_json, job.policy))
 
     def _ensure_worker(self) -> None:
+        """A live worker; an exited one is replaced first (its outstanding jobs handled as in :meth:`_police`)."""
         if self._proc is not None and self._proc.is_alive():
             return
+        if self._proc is not None:
+            self._replace_worker("ReplayWorkerExited")
+        if self._proc is None:
+            self._spawn()
+
+    def _spawn(self) -> None:
+        """Start a new worker generation: fresh queues, a spawned process and its collector thread."""
+        self._gen += 1
+        gen = self._gen
         self._ctx = multiprocessing.get_context("spawn")
         self._jobs_q = self._ctx.Queue()
         self._results_q = self._ctx.Queue()
-        self._proc = self._ctx.Process(target=_worker_main, args=(self._jobs_q, self._results_q), daemon=True, name="overseer-replay")
+        self._proc = self._ctx.Process(target=self._worker_target, args=(self._jobs_q, self._results_q, gen), daemon=True, name="overseer-replay")
         self._proc.start()
-        self._collector = threading.Thread(target=self._collect, name="overseer-replay-collector", daemon=True)
+        self._worker_seen = time.monotonic()
+        self._exit_seen = None
+        self._collector = threading.Thread(target=self._collect, args=(self._results_q, gen), name="overseer-replay-collector", daemon=True)
         self._collector.start()
 
-    def _collect(self) -> None:
-        q = self._results_q
+    def _retire(self, *, graceful: bool) -> None:
+        """Stop the current worker generation (its collector stops reading; a late message of it is ignored)."""
+        self._stop(*self._detach(), graceful=graceful)
+
+    def _detach(self) -> tuple[Any, Any, Any]:
+        """Detach the current worker generation (with the lock held); :meth:`_stop` then stops it."""
+        proc, jobs_q, results_q = self._proc, self._jobs_q, self._results_q
+        self._proc = None
+        self._gen += 1
+        return proc, jobs_q, results_q
+
+    @staticmethod
+    def _stop(proc: Any, jobs_q: Any, results_q: Any, *, graceful: bool) -> None:
+        for q in (jobs_q, results_q):
+            try:  # a queue whose reader is gone must never hold up the interpreter's exit
+                if q is not None:
+                    q.cancel_join_thread()
+            except Exception:
+                pass
+        if proc is None:
+            return
+        try:
+            if graceful:
+                jobs_q.put(None)
+                proc.join(timeout=5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=5)
+        except Exception:
+            pass
+        try:
+            jobs_q.close()
+        except Exception:
+            pass
+
+    def _replace_worker(self, exit_error: Optional[str]) -> None:
+        """Replace the current worker. The job it was running (taken, not finished) is recorded with ``exit_error``, or,
+        with None, was already recorded by the caller; the jobs it never took are sent to the new worker. After
+        ``MAX_WORKER_RESTARTS`` replacements with no job taken, every outstanding job is recorded with an error instead."""
+        for jid, (job, started) in list(self._inflight.items()):
+            if started is not None:
+                self._inflight.pop(jid)
+                self._done[jid] = ReplayOutcome(job=job, error=exit_error or "ReplayWorkerReplaced")
+        self._retire(graceful=False)
+        if self._restarts >= MAX_WORKER_RESTARTS:
+            for jid, (job, _started) in list(self._inflight.items()):
+                self._inflight.pop(jid)
+                self._done[jid] = ReplayOutcome(job=job, error="ReplayWorkerUnavailable")
+            self._cond.notify_all()
+            return
+        self._restarts += 1
+        if not self._inflight:
+            self._cond.notify_all()
+            return
+        try:
+            self._spawn()
+            for job, _started in self._inflight.values():
+                self._send(job)
+        except Exception:  # no worker can be started: the outstanding jobs are not replayed, never agreeing
+            self._retire(graceful=False)
+            for jid, (job, _started) in list(self._inflight.items()):
+                self._inflight.pop(jid)
+                self._done[jid] = ReplayOutcome(job=job, error="ReplayWorkerUnavailable")
+        self._cond.notify_all()
+
+    def _police(self) -> None:
+        """Enforce the job budget and the worker's liveness (called with the lock held, while a drain waits)."""
+        if self.mode != "process" or not self._inflight:
+            return
+        now = time.monotonic()
+        over = [(jid, job) for jid, (job, started) in self._inflight.items() if started is not None and now - started >= self.job_budget_s]
+        if over:
+            # still running at its budget: the worker is busy with it, so it is stopped and a fresh one takes the jobs behind
+            for jid, job in over:
+                self._inflight.pop(jid)
+                self._done[jid] = ReplayOutcome(job=job, budget_exceeded=True)
+            self._replace_worker(None)
+            return
+        alive = self._proc is not None and self._proc.is_alive()
+        if not alive:
+            if self._exit_seen is None:
+                self._exit_seen = now  # the collector first reads whatever the worker sent before it exited
+                return
+            if now - self._exit_seen >= _EXIT_GRACE_S:
+                self._replace_worker("ReplayWorkerExited")
+            return
+        running = any(started is not None for _job, started in self._inflight.values())
+        if not running and now - self._worker_seen >= self.job_budget_s + WORKER_START_GRACE_S:
+            self._replace_worker(None)  # alive but taking no job: stalled before its queue
+
+    def _collect(self, q: Any, gen: int) -> None:
         while True:
+            with self._lock:
+                if gen != self._gen:
+                    return
             try:
-                item = q.get()
-            except (EOFError, OSError):
+                item = q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            except (EOFError, OSError, ValueError):
                 return
             if item is None:
                 return
-            jid, result_json, error = item
+            try:
+                igen, kind, jid, result_json, error = item
+            except (TypeError, ValueError):
+                continue
             with self._cond:
-                pair = self._inflight.pop(jid, None)
-                if pair is not None:
+                if igen != self._gen:
+                    return  # a message of a replaced worker: its jobs were recorded or re-sent at the replacement
+                self._worker_seen = time.monotonic()
+                pair = self._inflight.get(jid)
+                if kind == "started":
+                    self._restarts = 0
+                    if pair is not None and pair[1] is None:
+                        self._inflight[jid] = (pair[0], self._worker_seen)
+                elif kind == "done" and pair is not None:
+                    self._inflight.pop(jid)
                     self._done[jid] = self._finish(pair[0], result_json, error)
                 self._cond.notify_all()
 
@@ -280,8 +428,11 @@ class Replayer:
 
     def drain(self, timeout_s: Optional[float] = None, *, include_sampled: bool = False) -> None:
         """Run (inline) or wait for (process) every outstanding job; with ``include_sampled`` the sampled-out jobs are
-        replayed too. In process mode a job not finished within the timeout (default: its budget) is recorded as
-        budget exceeded (RES-008), never as agreeing."""
+        replayed too. In process mode, without ``timeout_s``, it waits until every outstanding job has finished or been
+        recorded: each job's budget runs from when the worker takes it, a job still running at its budget is recorded
+        as budget exceeded (AUDIT-005 for a definitive original, never agreeing) and its worker replaced, so the jobs
+        behind it still run. With ``timeout_s`` it waits at most that long (the budget is enforced meanwhile) and the
+        jobs not finished stay pending."""
         with self._lock:
             if include_sampled and self._sampled_out:
                 for job in list(self._sampled_out.values()):
@@ -299,15 +450,16 @@ class Replayer:
         self._run_tasks()
         if self.mode != "process":
             return
-        deadline = time.monotonic() + (timeout_s if timeout_s is not None else self.job_budget_s)
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
         with self._cond:
-            while self._inflight and time.monotonic() < deadline:
-                self._cond.wait(timeout=max(0.0, min(0.05, deadline - time.monotonic())))
-            if timeout_s is None:
-                for jid, (job, started) in list(self._inflight.items()):
-                    if time.monotonic() - started >= self.job_budget_s:
-                        self._inflight.pop(jid)
-                        self._done[jid] = ReplayOutcome(job=job, budget_exceeded=True)
+            while self._inflight:
+                self._police()
+                if not self._inflight:
+                    break
+                now = time.monotonic()
+                if deadline is not None and now >= deadline:
+                    break
+                self._cond.wait(timeout=0.05 if deadline is None else max(0.0, min(0.05, deadline - now)))
 
     def outcomes(self) -> dict[str, ReplayOutcome]:
         with self._lock:
@@ -386,19 +538,9 @@ class Replayer:
     def close(self) -> None:
         self._closed = True
         self._task_signal.set()
-        if self._proc is not None:
-            try:
-                self._jobs_q.put(None)
-                self._proc.join(timeout=5)
-            except Exception:
-                pass
-            if self._proc.is_alive():
-                self._proc.terminate()
-            try:
-                self._results_q.put(None)
-            except Exception:
-                pass
-            self._proc = None
+        with self._lock:
+            detached = self._detach()
+        self._stop(*detached, graceful=True)  # outside the lock: the worker's last messages never wait on it
 
     def __del__(self) -> None:  # pragma: no cover - best effort
         try:

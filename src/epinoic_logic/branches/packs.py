@@ -22,7 +22,7 @@ from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
 from ..adapters.markdown import (MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes,
                                  verification_label)
-from ..adapters.sources import check_excerpt, strip_trailing_punctuation, uncredited_excerpt
+from ..adapters.sources import check_excerpt, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
@@ -66,6 +66,20 @@ _UNSUPPLIED_GENERIC = ("the poem", "the poet", "the speaker", "the narrator", "t
 _NOT_A_NAME = frozenset({"The", "This", "That", "These", "Those", "It", "Its", "He", "She", "They", "We", "I", "Against", "In", "On", "By", "And", "But", "Yet", "So", "Here", "There", "When", "While"})
 #: A reporting clause: '<outer speaker> argues/notes/writes ... that' introduces an inner subject whose words are the outer speaker's report.
 _REPORTING_RE = re.compile(r"\b(?:argues?|argued|notes?|noted|writes?|wrote|says?|said|states?|stated|claims?|claimed|observes?|observed|suggests?|suggested|holds?|held|maintains?|contends?|reports?|reported|concludes?|concluded|insists?|shows?|points? out|adds?)\s+that\b", re.IGNORECASE)
+#: A possessive noun of a view with its complement clause right after a source's name: 'Tomas Reyes's view that the company could "..."',
+#: 'the Economics specialist's claim that ...'. The clause credits the quotation to the source unless it names an inner speaker of its own
+#: (a capitalised name: 'the Economics specialist's point is that Tomas Reyes wants to "..."' quotes Reyes, not the specialist).
+_VIEW_THAT_RE = re.compile(r"^['’]s\s+(?:own\s+)?(?:view|claim|argument|reading|point|position|account|conclusion|suggestion|belief|assumption|contention|insistence)"
+                           r"\s+(?:is\s+)?that\b(?P<clause>[^.;:!?\"“”]*)$", re.IGNORECASE)
+
+
+def _view_credit(gap: str) -> bool:
+    """True when ``gap`` (the text between a source's name and a quotation) is a possessive view with its complement clause
+    (:data:`_VIEW_THAT_RE`) naming no inner speaker."""
+    m = _VIEW_THAT_RE.match(gap)
+    return bool(m) and not re.search(r"(?<![\w'’])(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]", m.group("clause"))
+
+
 #: An attribution phrase that precedes the source's name: 'according to the History specialist, "..."'.
 _LEADING_ATTRIBUTION_RE = re.compile(r"\b(?:according to|in the words of|as|per)\s+(?:the\s+|my\s+|our\s+)?$", re.IGNORECASE)
 #: A source named right after a quotation as its tag: '"...", the History specialist writes' / '"...", as Shelley puts it'.
@@ -417,7 +431,8 @@ def _attributions(sentence: str, spans: list[tuple[int, int, str]], names: dict[
                 chosen = (first[2], first[3])  # '<A> argues that <B> ...': the outer speaker's report
             else:
                 _ms, me, doc_id, label = mentions[-1]
-                if _ATTRIBUTION_RE.search(before[me:]) or _LEADING_ATTRIBUTION_RE.search(before[:mentions[-1][0]]):
+                if (_ATTRIBUTION_RE.search(before[me:]) or _LEADING_ATTRIBUTION_RE.search(before[:mentions[-1][0]])
+                        or _view_credit(before[me:])):
                     chosen = (doc_id, label)
             current = chosen
             current_others = [d for d in distinct if chosen is None or d[0] != chosen[0]] if chosen else []
@@ -445,12 +460,18 @@ def _is_english_subject(subject: Optional[str]) -> bool:
 
 
 _UNSUPPLIED = "unsupplied:"
+#: A colleague credited by name whose report was not supplied to this agent ('The Economics specialist's view that ...').
+_UNSUPPLIED_PEER = _UNSUPPLIED + "specialist:"
+_SPECIALIST_MENTION_RE = re.compile(r"\b(?:the|my|our)\s+((?:[A-Za-z][\w-]*\s+){1,4}?specialist)\b(?!\s*['’]s\s+(?:report|answer)\s+(?:was|is)\s+not\b)",
+                                    re.IGNORECASE)
 
 
-def _with_unsupplied_credits(sentence: str, spans: list[tuple[int, int, str]], names: dict[str, tuple[str, str]], texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
+def _with_unsupplied_credits(sentence: str, spans: list[tuple[int, int, str]], names: dict[str, tuple[str, str]], texts: list[SuppliedText],
+                             own_names: frozenset = frozenset()) -> dict[str, tuple[str, str]]:
     """``names`` plus the sources ``sentence`` credits that were not supplied to this agent ('Hardy's speaker', 'Hardy's poem',
-    'Pakenham writes', and 'the poem' when no literary text was supplied), each under a pseudo document id; a name already
-    among the supplied texts' names is left to them."""
+    'Pakenham writes', 'the Economics specialist' when no report of that colleague was supplied, and 'the poem' when no literary
+    text was supplied), each under a pseudo document id; a name already among the supplied texts' names, and the agent's own name
+    (``own_names``: 'the Business Management specialist' in its own answer), is left to them."""
     prose = list(sentence)
     for s, e, _inner in spans:
         for i in range(s, e):
@@ -469,6 +490,21 @@ def _with_unsupplied_credits(sentence: str, spans: list[tuple[int, int, str]], n
         if name in _NOT_A_NAME or name.lower() in low_names:
             continue
         extra.setdefault(name.lower(), (_UNSUPPLIED + name.lower(), name))
+    # a colleague is unsupplied only when no supplied report is that colleague's under any of its names ('the Mathematics specialist' for a
+    # report of mathematics-aa-specialist, sources.specialist_names), and only when every supplied report can be named at all
+    peer_names: set[str] = set()
+    nameless_peer = False
+    for t in texts:
+        if _is_peer_text(t):
+            known = [n.lower() for n in specialist_names((t.author or "").strip())]
+            nameless_peer = nameless_peer or not known
+            peer_names.update(known)
+    for m in (_SPECIALIST_MENTION_RE.finditer(text) if not nameless_peer else ()):
+        phrase = " ".join(m.group(1).split()).lower()
+        if phrase in low_names or phrase in own_names or phrase in peer_names \
+                or any(n.endswith(" " + phrase) or phrase.endswith(" " + n) for n in (*low_names, *peer_names) if n.endswith("specialist")):
+            continue
+        extra.setdefault(phrase, (_UNSUPPLIED_PEER + phrase, f"the {' '.join(m.group(1).split())}"))
     if not any(not _is_peer_text(t) for t in texts) and not extra and not _named_mentions(text, names):
         # 'the poem', 'the speaker' only when the sentence names no other source: 'The English specialist's paragraph identifies the
         # speaker's motive' credits the colleague, not the speaker
@@ -787,6 +823,7 @@ class CorePack:
         if not texts:
             return []
         names = _source_names(texts)
+        own_names = frozenset(n.lower() for n in specialist_names(report.agent_id or ""))
         by_id = {t.document_id: t for t in texts}
         by_claim = {c.claim_id: c.claim_text for c in report.claims}
         out: list[StructuralFinding] = []
@@ -797,12 +834,32 @@ class CorePack:
             spans = [(s, e, inner.strip()) for s, e, inner in find_quotation_spans(sent) if len(inner.strip()) >= 4]
             if not spans:
                 continue
-            sentence_names = _with_unsupplied_credits(sent, spans, names, texts)
+            sentence_names = _with_unsupplied_credits(sent, spans, names, texts, own_names)
             for (_s, _e, excerpt), attributed in zip(spans, _attributions(sent, spans, sentence_names)):
                 if attributed is None:
                     continue
                 doc_id, label, others = attributed
                 located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text, document_id=t.document_id))
+                if doc_id.startswith(_UNSUPPLIED_PEER):
+                    # credited to a colleague whose report this agent was not given: the words of a supplied text are not the colleague's
+                    if not located or (excerpt, doc_id) in seen:
+                        continue
+                    seen.add((excerpt, doc_id))
+                    shown = excerpt[:_EXCERPT_CHARS] + ("..." if len(excerpt) > _EXCERPT_CHARS else "")
+                    claim_ids = ([c for c in _claims_mentioning(report, sent) if excerpt in by_claim.get(c, "")]
+                                 or _claims_for_excerpt(report, sent, excerpt, [x for _s2, _e2, x in spans]))[:8]
+                    competing = [(d, l) for d, l in others if d in located]
+                    if competing:
+                        out.append(StructuralFinding(code="CORE-SRC-005", severity="warning",
+                                                     message=f"quotation '{shown}' is credited in its sentence to {label}, a colleague whose report was not supplied to this agent, but the sentence "
+                                                             f"also names {', '.join(l + ' (' + d + ')' for d, l in competing)}, and the words occur in {', '.join(located)}: the credit is ambiguous; the words are genuine",
+                                                     claim_ids=claim_ids, rule_source=rule))
+                        continue
+                    out.append(StructuralFinding(code="CORE-SRC-005", severity="error",
+                                                 message=f"quotation '{shown}' is credited in its sentence to {label}, a colleague whose report was not supplied to this agent, but its words "
+                                                         f"occur in {', '.join(located)}: the words of a supplied text are credited to a colleague",
+                                                 claim_ids=claim_ids, rule_source=rule))
+                    continue
                 if doc_id.startswith(_UNSUPPLIED):
                     # credited to an author or work this agent was not given: wrong only when the words are a colleague's own prose
                     own_prose = [d for d in located if _is_peer_text(by_id[d]) and not _inside_peer_quotation(excerpt, by_id[d])]
@@ -1122,16 +1179,48 @@ def margin_equations(text: str) -> list[tuple[str, Fraction, Fraction, Fraction,
     return _labelled_divisions(text, _MARGIN_LABEL_RE, _MARGIN_LINK_RE, percent=True)
 
 
+def _worked_branch(report: SpecialistReport) -> Optional[str]:
+    """The prose branch whose pack decides the report's worked equations (:mod:`.worked`): ``economics``, ``business_management`` or
+    ``generic`` (a subject no other default branch serves: Geography, a language B, ...); None for every other branch."""
+    from ..translate.subjects import resolve_profile
+    from .registry import BRANCHES
+    key = resolve_profile(report.subject).key
+    if key in ("economics", "business_management"):
+        return key
+    if any(key in b.profile_keys for b in BRANCHES if b.key != "generic"):
+        return None
+    return "generic"
+
+
 def pack_decided_equations(report: SpecialistReport) -> set[str]:
     """The worked equations of ``report`` its subject pack decides (an elasticity on the Economics branch, a margin on the Business
-    branch), so the core pack does not also name them undecided."""
-    from ..translate.subjects import resolve_profile
-    key = resolve_profile(report.subject).key
-    if key == "economics":
-        return {chain for chain, *_rest in elasticity_equations(report.original_response)}
-    if key == "business_management":
-        return {chain for chain, *_rest in margin_equations(report.original_response)}
-    return set()
+    branch, and on those two branches and the generic branch every worked equation the worked-arithmetic reader reads,
+    :mod:`.worked`), so the core pack does not also name them undecided: the undecided report and a verdict never both name a line."""
+    from .worked import decided_worked_chains
+    branch = _worked_branch(report)
+    text = report.original_response
+    if branch is None:
+        return set()
+    decided = decided_worked_chains(text)
+    if branch == "economics":
+        decided |= {chain for chain, *_rest in elasticity_equations(text)}
+    elif branch == "business_management":
+        decided |= {chain for chain, *_rest in margin_equations(text)}
+    return decided
+
+
+def _worked_checks(report: SpecialistReport, prefix: str, skip: set[str]) -> list[FormalCheck]:
+    """The report's worked equations as engine problems (:func:`.worked.worked_problems`), each naming the claims of its statement;
+    equations in ``skip`` are decided by the pack's own check (an elasticity, a margin)."""
+    from ..ir.schema import Problem
+    from .worked import worked_problems
+    out: list[FormalCheck] = []
+    for wp in worked_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=prefix, skip=frozenset(skip)):
+        out.append(FormalCheck(check_id=f"{prefix}-{len(out) + 1}", kind="worked_arithmetic",
+                               description=wp.description, problem=Problem.model_validate(wp.problem), expected_if_sound="ENTAILED",
+                               claim_ids=tuple(_claims_for_statement(report, wp.statement, wp.phrase) or _claims_for_statement(report, wp.phrase, wp.phrase)),
+                               policy="linear", failure_severity="error", inconsistent_is_failure=False))
+    return out
 
 
 def _ratio_check(check_id: str, kind: str, report: SpecialistReport, n: int, statement: str, phrase: str, a: Fraction, b: Fraction, stated: Fraction,
@@ -1244,6 +1333,7 @@ class EconomicsPack:
                                         label=f"stated elasticity {_fmt_fraction(abs(stated))} against {_fmt_fraction(q)} / {_fmt_fraction(p)} (the percentage changes its sentence states)",
                                         meanings=("percentage change in quantity", "percentage change in price or income")))
                 break  # one stated value per sentence is read against its two percentage changes
+        out += _worked_checks(report, "economics-worked", set(worked))
         return out
 
 
@@ -1263,7 +1353,8 @@ class BusinessPack:
         profit ÷ sales revenue) × 100 = ($100,800 ÷ $201,600) × 100 = 50.00%'), within the tolerance rule (or half a percentage point)."""
         out: list[FormalCheck] = []
         n = 0
-        for chain, a, b, m, label in margin_equations(report.original_response):
+        margins = margin_equations(report.original_response)
+        for chain, a, b, m, label in margins:
             n += 1
             out.append(_ratio_check(f"business-margin-{n}", "margin", report, n, chain, chain, a, b, m, scale=Fraction(100), signed=True, floor=Fraction(1, 2),
                                     label=f"stated {label} {_fmt_fraction(m)} per cent against 100 * {_fmt_fraction(a)} / {_fmt_fraction(b)} as worked",
@@ -1290,6 +1381,7 @@ class BusinessPack:
                         "conclusion": {"id": "MARGIN", "expr": {"op": "and", "args": [{"op": "ge", "left": margin, "right": R(lo)}, {"op": "le", "left": margin, "right": R(hi)}]}, "label": f"stated margin {stated} per cent"}}
                 out.append(FormalCheck(check_id=f"business-margin-{n}", kind="margin", description=sent.strip()[:160], problem=Problem.model_validate(prob),
                                        claim_ids=tuple(_claims_for_statement(report, sent, m.group(0)))))
+        out += _worked_checks(report, "business-worked", {chain for chain, *_rest in margins})
         return out
 
 
@@ -1306,4 +1398,5 @@ class GenericPack:
         return f
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        return []
+        """The report's worked equations as engine problems (:mod:`.worked`: 'Dependency ratio = 31 ÷ 69 × 100 = 44.9')."""
+        return _worked_checks(report, "generic-worked", set())

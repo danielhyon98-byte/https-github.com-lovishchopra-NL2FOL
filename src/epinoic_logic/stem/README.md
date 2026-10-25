@@ -62,8 +62,8 @@ doc.request             # RequestReading: request bindings, quantities, relation
 | `limits.py` | `StemLimits` (every bound of section 4.9) and `StemProfile` (per-profile reading switches: chemistry, bare `M`, tonne, Computer Science, principal root) |
 | `normalize.py` | reading view (1:1 character map) and masked views of the same length (prose view) |
 | `numbers.py` | `ExactNumber` (value, significant figures, last place, half-width, exactness, exponent), the one number scanner `scan_number`, based numerals `scan_based` |
-| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`) |
-| `lexer.py` | single-pass tokenizer (plain and LaTeX modes); unknown LaTeX commands and confusable letters become `ERROR` tokens; a combination or permutation count (`⁵C₂`, `5C2`, `nCr`, `C(5, 2)`, `₅P₂`) is one `UNSUP` token; the integer operators `mod`, `modulo`, `div` between operands, `//`, `\bmod` and, in Computer Science, `%` |
+| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`); bits, bytes and the binary multiples; the parts of a compound quantity (`compound_part`: `4 min 30 s`) |
+| `lexer.py` | single-pass tokenizer (plain and LaTeX modes); unknown LaTeX commands and confusable letters become `ERROR` tokens; a combination or permutation count (`⁵C₂`, `5C2`, `nCr`, `C(5, 2)`, `₅P₂`) is one `UNSUP` token; the integer operators `mod`, `modulo`, `div` between operands, `//`, `\bmod` and, in Computer Science, `%`, the AND dot (`A.B`) and a numeral in groups of four digits with its base subscript (`1011 0110₂`); a superscript run beyond the numeral bound is never converted (ST-LIM-001) |
 | `nodes.py` | frozen AST nodes (`IntOp` for an integer remainder or quotient) and helpers (`walk`, `symbols`, `align`, `render`, `shape_key`, `value_of`, ...) |
 | `parser.py` | bounded Pratt parser: chains, connectives, units, implicit multiplication against scope (at most two readings), unsupported constructs as named nodes; a quotient stated with its remainder and a congruence `a ≡ b (mod n)` |
 | `spans.py` | code, LaTeX display and inline, chemical equations, prose math runs, verbal arithmetic, quantities, tables, data lines, part labels and markup |
@@ -86,7 +86,7 @@ The later stages added these modules to the same package (still importing nothin
 | `constants.py` | `checks` | data-booklet constants: a written constant widens to its booklet value (D3a); an unstated standard symbol may take it at warning severity (D3b) |
 | `enclosures.py` | `checks` | the exact-value table and rational enclosures for π, e and the functions, cross-checked against `math` |
 | `scaling.py` | `checks` | decimal-exponent factoring, so literals stay within the IR's 40 digits |
-| `tolerance.py` | `checks` | the STEM tolerance rule (R1 to R10), its short form, the scope statement `STEM_SCOPE`, the band builders |
+| `tolerance.py` | `checks` | the STEM tolerance rule (R1 to R10), its short form, the scope statement `STEM_SCOPE`, the band builders; an approximation word as a whole word directly before what it qualifies (`approx_word_before`; the front end reads it too) |
 | `to_ir.py` | `checks` | AST to IR 1.0 data, one allowlisted node at a time; symbol naming and premise groundings |
 | `checks.py` | `checks` | `build_checks`: a `PlannedCheck` (an IR problem) per planned check, or an ST finding naming it undecided |
 | `si_reading.py` | `branch` | the SI reading of `quant` and `CorePack` (`SI_READING`) and its views |
@@ -97,7 +97,8 @@ describe the STEM branches end to end, with a worked example.
 
 ## Bounds (all in `StemLimits`)
 
-Response 400,000 characters; math span 2,000 characters; 400 tokens per span; 12 links per chain;
+Response 400,000 characters; math span 2,000 characters; 400 tokens per span; 12 links per chain; 30 written digits in a
+superscript run (beyond it ST-LIM-001 on the span, before any conversion);
 256 nodes and depth 24 per expression (checked before each descent); integer powers |n| ≤ 12 (up to
 1000 over a closed base with no unit, read as one value);
 scientific exponent |e| ≤ 99; 30 written digits; 2 readings per expression and 4 per check; 8
@@ -320,3 +321,14 @@ base phrase opening the clause with no comma (two false failures on correct work
 `inline-restatement` after an approximation word, a rounding verb, "approximately equal to" or in
 brackets (τ 0 by R8, the detail naming the reading; a value after a prose quantity, not a chain,
 read by the other readings), and no recorded round-7 answer failing any check.
+`test_round7_arena_fixes` pins the fixes of the round-7 arena's STEM findings (docs/STEM_DESIGN.md, section 34), each with a
+clean control: the reading as written only where the written units agree or a written factor converts them, exact integers
+of Mathematics and Computer Science matching only themselves, no symbol standing for a coefficient its formula writes, the
+Computer Science AND dot and fragments glued by a full stop withheld, the stated solution of simultaneous equations against
+every equation of the system, approximation words as whole words right before the relation, degree and radian conversions
+in radians, the degree reading of a trigonometric function where the text gives degrees, '±' roots banded on both branches,
+roots on the line after their equation claiming the solution set, stated factorisations and expansions as identities,
+chained and absolute inequality steps and nuclear equations named, bits and bytes, prose values naming another quantity no
+restatement, substitutions in another unit of their dimension or with their conversion factor, compound quantities, a
+bracketed per cent after a value, comparisons stated false checked negated, count nouns before a sign, numerals in nibbles,
+and overlong superscript runs bounded.

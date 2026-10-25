@@ -2,7 +2,7 @@ from .statuses import VerificationStatus, DEFINITIVE, ENGINE_PRODUCIBLE, is_defi
 from .errors import DiagnosticCode, NO_VERDICT_CODES, ADVISORY_CODES  # noqa: F401
 from .results import (  # noqa: F401
     SolverConfig, ModelAssignment, Counterexample, UnsatCore, Diagnostic, Versions, Binding,
-    StageTiming, VerificationResult,
+    StageTiming, VerificationResult, parse_result,
 )
 from .validator import ValidationOutcome, validate_problem, parse_and_validate, infer_sort, SortError  # noqa: F401
 from .compiler import Compiled, CompileError, compile_problem, to_smt2  # noqa: F401

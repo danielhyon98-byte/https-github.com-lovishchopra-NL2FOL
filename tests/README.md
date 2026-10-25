@@ -228,7 +228,10 @@ harness rates of the second layer have not dropped.
    self-certification, wrong arithmetic and a wrong chronology. A fault counts as caught only
    when a finding of the expected code names the injected claim or quotes the injected
    words. Each round also includes a peer exchange: one specialist's delivered report is
-   forwarded by the router to the other specialist, who quotes it.
+   forwarded by the router to the other specialist, who quotes it. That specialist reads only
+   the delivered report, its document id and the relay status (`relayed/<task>.json`), never
+   the hub's receipt of it, which stays in the router's record (`router/<task>.json`); the
+   regression tests are in `scripts/arena/test_arena_rules.py`.
 
    Three independent overseer agents then judge the round:
    - **Results audit** checks every receipt against its input.

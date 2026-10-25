@@ -39,6 +39,7 @@ from .relations import (
     named_quantities, plan_relations,
 )
 from .scope import Binding, Formula, Scope, prescan_names
+from .tolerance import approx_word_in
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
 
@@ -368,6 +369,28 @@ def _unread_relation_signs(rd: _Read) -> list[FrontEndFinding]:
     return out
 
 
+#: stem-soundness-12 (round 7): a nuclide written with its mass and proton numbers ('²³⁸₉₂U', '⁴₂He', '⁰₋₁e')
+_NUCLIDE_RE = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,3}[₋]?[₀₁₂₃₄₅₆₇₈₉]{1,3}[A-Za-z]")
+
+
+def _nuclear_equations(rd: _Read) -> list[FrontEndFinding]:
+    """A nuclear equation (two or more nuclides and an arrow in one statement: '²³⁸₉₂U → ²³⁴₉₁Th + ⁴₂He') is outside the encodings: named
+    ST-UNDEC-001 on its statement, never silent (its mass and proton numbers are not checked)."""
+    out: list[FrontEndFinding] = []
+    for st in rd.seg.statements:
+        text = rd.reading[st.start:min(st.end, st.start + _MAX_UNREAD_SCAN)]
+        if "→" not in text and "->" not in text:
+            continue
+        hits = list(_NUCLIDE_RE.finditer(text))
+        if len(hits) < 2:
+            continue
+        excerpt = " ".join(rd.text[st.start + hits[0].start():min(st.end, st.start + hits[-1].end() + 8)].split())[:120]
+        out.append(FrontEndFinding("ST-UNDEC-001", ST_SEVERITY["ST-UNDEC-001"], f"a nuclear equation in {st.id} ('{excerpt}'): nuclide notation is "
+                                   "outside the encodings, so its mass and proton numbers are not checked", (st.id,), st.start + hits[0].start(),
+                                   st.start + hits[-1].end()))
+    return out
+
+
 def _operand_char(view: str, k: int, step: int) -> bool:
     """Maths next to position ``k`` (after at most two spaces) in direction ``step``: a digit, a bracket, a superscript or a symbol
     of one letter (a Greek letter, or a Latin letter that is no part of a word), never a word. An amount written after a currency
@@ -571,7 +594,7 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
         if cands:
             cands.sort(key=lambda c: c[0])
             pos, node = cands[-1]
-            approx = any(w in low for w in ("about", "approximately", "roughly", "≈", "~")) or "≈" in st_text
+            approx = approx_word_in(low) or "~" in low or "≈" in st_text  # whole words (stem-soundness-6, round 7)
             targets.append(ShowThatTarget(node=node, approx=approx, text=st_text, start=getattr(node, "start", pos), end=getattr(node, "end", pos)))
     restricts = any(w in request_text.lower() for w in _RESTRICT)
     values = _request_values(request_text, rd)
@@ -827,6 +850,7 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     relations, findings, _ = plan_relations(rd.items, rd.prose_values, scope, request, profile, limits=limits, statement_order=rd.order,
                                             code_items=rd.code_items, definitions=definitions, reading=rd.reading, text=reading)
     findings.extend(_unread_relation_signs(rd))
+    findings.extend(_nuclear_equations(rd))
     if rd.skipped:
         findings.append(FrontEndFinding("ST-LIM-002", ST_SEVERITY["ST-LIM-002"], f"{rd.skipped} math spans beyond the per-report bound of "
                                         f"{limits.max_math_items} were not read; their relations are not checked (first statements: {', '.join(rd.skipped_ids)})",

@@ -376,6 +376,177 @@ def _observed(method):
     return entry
 
 
+#: The record of a request whose text is not a string or is empty (the contract needs one character at least).
+_NO_REQUEST_TEXT = "[no request text]"
+#: The contract limits of a request (``TaskRequest``): the text, its items and constraints, its supplied texts.
+def _contract_max_length(model, name: str) -> int:
+    """The ``max_length`` the contract ``model`` declares for its field ``name`` (read from the model, so the channel's
+    caps never drift from the contract)."""
+    return next(m.max_length for m in model.model_fields[name].metadata if getattr(m, "max_length", None) is not None)
+
+
+_USER_INPUT_MAX = _contract_max_length(TaskRequest, "user_input")
+_REQUEST_ITEMS_MAX = _contract_max_length(TaskRequest, "items")
+_REQUEST_CONSTRAINTS_MAX = _contract_max_length(TaskRequest, "constraints")
+_REQUEST_TEXTS_MAX = _contract_max_length(TaskRequest, "supplied_texts")
+_ID_MAX = _contract_max_length(TaskRequest, "to_agent_id")
+#: The agent id recorded for a request whose sender or addressee is not a usable id.
+_UNKNOWN_AGENT = "unknown-agent"
+
+
+def _request_agent_id(value, what: str, problems: list[str]) -> str:
+    """An agent id of a request as the record can hold it (a string of 1 to 128 characters, surrogates replaced); a
+    value that is not one is named in ``problems`` and recorded as :data:`_UNKNOWN_AGENT` or cut to 128 characters."""
+    if not isinstance(value, str):
+        problems.append(f"the request's {what} is of type {type(value).__name__}, not an agent id")
+        return _UNKNOWN_AGENT
+    if surrogate_offsets(value):
+        problems.append(f"the request's {what} id is not valid Unicode text (a lone surrogate code point)")
+        value = _scrub(value)
+    if not value.strip():
+        problems.append(f"the request's {what} id is empty")
+        return _UNKNOWN_AGENT
+    if len(value) > _ID_MAX:
+        problems.append(f"the request's {what} id has {len(value)} characters, over the contract's limit of {_ID_MAX}")
+        return value[:_ID_MAX]
+    return value
+
+
+def _capped_constraints(constraints: list[Constraint], problems: list[str]) -> list[Constraint]:
+    """Constraints over the contract's limit: identical bounds (one kind, value and exclusions, stated again) are one
+    bound; when more than the limit remain, the request is named in ``problems`` (the router must split it) and the record
+    keeps the strongest bound of each word and paragraph kind first, so it never holds a bound weaker than one asked for."""
+    seen: set[tuple] = set()
+    unique: list[Constraint] = []
+    for c in constraints:
+        key = (c.kind, c.value, tuple(c.excludes))
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+    if len(unique) <= _REQUEST_CONSTRAINTS_MAX:
+        return unique
+    problems.append(f"the request states {len(unique)} different constraints, over the contract's limit of {_REQUEST_CONSTRAINTS_MAX}: the router must split it")
+
+    def bound(c: Constraint) -> Optional[int]:
+        try:
+            return int(str(c.value))
+        except (TypeError, ValueError):
+            return None
+    first: list[Constraint] = []
+    for kind in ("max_words", "min_words", "max_paragraphs", "min_paragraphs"):
+        held = [c for c in unique if c.kind == kind and bound(c) is not None]
+        if held:
+            first.append(min(held, key=bound) if kind.startswith("max") else max(held, key=bound))
+    rest = [c for c in unique if all(c is not f for f in first)]
+    return (first + rest)[:_REQUEST_CONSTRAINTS_MAX]
+
+
+def _request_texts_given(supplied_texts) -> tuple[list[SuppliedText], list[str]]:
+    """The supplied texts of a request as the record can hold them (a ``SuppliedText`` or a mapping that validates as
+    one; at most the contract's 16), with the problems found."""
+    problems: list[str] = []
+    out: list[SuppliedText] = []
+    if supplied_texts is None:
+        return out, problems
+    try:
+        given = list(supplied_texts)
+    except TypeError:
+        return out, [f"the request's supplied texts are of type {type(supplied_texts).__name__}, not a list of texts"]
+    for i, t in enumerate(given):
+        if isinstance(t, SuppliedText):
+            out.append(t)
+            continue
+        try:
+            out.append(SuppliedText.model_validate(t))
+        except (ValidationError, TypeError, ValueError) as exc:
+            problems.append(f"supplied text {i} does not validate as a supplied text ({_shape_reason(exc)})")
+    if len(out) > _REQUEST_TEXTS_MAX:
+        problems.append(f"the request carries {len(out)} supplied texts, over the contract's limit of {_REQUEST_TEXTS_MAX}; the record keeps the first {_REQUEST_TEXTS_MAX}")
+        out = out[:_REQUEST_TEXTS_MAX]
+    return out, problems
+
+
+def _message_id_given(value) -> tuple[Optional[str], Optional[str]]:
+    """``(id, problem)`` for the request message id a reply names: a string of 1 to 128 characters is an id as it stands
+    (an unknown one is INT-REQ-000 like any other); anything else names no request (``id`` None) and ``problem`` says
+    what it was, so the reply is REJECTED with INT-REQ-000 and never raises."""
+    if isinstance(value, str) and 0 < len(value) <= _ID_MAX and not surrogate_offsets(value):
+        return value, None
+    if isinstance(value, str):
+        why = "an empty string" if not value else ("not valid Unicode text" if surrogate_offsets(value) else f"{len(value)} characters long, over the limit of {_ID_MAX}")
+        return None, f"the reply names a request message id that is {why}"
+    return None, f"the reply names a request message id of type {type(value).__name__}, not a message id"
+
+
+_FENCE_OPEN_RE = re.compile(r"^```[\w-]*[ \t]*\n")
+#: Keys of the specialist_report contract: a JSON object carrying one of them is a report sent as text.
+_REPORT_KEYS = frozenset({"report_id", "claims", "original_response"})
+
+
+def _json_report_text(text: str) -> tuple[Optional[str], Optional[dict]]:
+    """``(truncation, report mapping)`` of a response text that is JSON (bare, or inside one code fence): a JSON object
+    that the parser finds unterminated at its end ("Unterminated string", or the error at the last character) is a payload
+    cut in transit, described by ``truncation``; a complete JSON object carrying a key of the report contract is the
+    mapping to validate as a report. Prose, a JSON value of another shape and text that is not JSON give ``(None, None)``
+    and are parsed by the branch's adapter as before. Data only: ``json.loads`` builds dicts and lists, nothing runs."""
+    import json
+    body = text.strip()
+    if body.startswith("```"):
+        m = _FENCE_OPEN_RE.match(body)
+        if m is None:
+            return None, None
+        body = body[m.end():].rstrip()
+        if body.endswith("```"):
+            body = body[:-3].rstrip()
+    if not body.startswith('{"'):
+        return None, None
+    try:
+        value = json.loads(body)
+    except json.JSONDecodeError as exc:
+        if exc.msg.startswith("Unterminated") or exc.pos >= len(body) - 1:
+            return f"{exc.msg} at character {exc.pos} of {len(body)}", None
+        return None, None
+    except (ValueError, RecursionError):
+        return None, None
+    if isinstance(value, dict) and _REPORT_KEYS & set(value):
+        return None, value
+    return None, None
+
+
+#: Who a relayed check result credits: a formal, automated or engine check, the hub's or a report's own checks, the
+#: engine, the solver or a receipt (INT-REQ-014, :meth:`TranslatorChannel._relayed_check_results`).
+#: Crediting phrases right after a quotation: "'...', according to one report", "'...', writes one critic".
+_ANY_CREDIT_AFTER_RE = re.compile(r"^[\s,;:]*(?:according\s+to|in\s+the\s+words\s+of|as\s+(?:stated|recorded|reported|noted|put)\s+(?:in|by)|(?:writes?|wrote|says?|said|notes?|noted|"
+                                  r"claims?|claimed|argues?|argued|observes?|observed|states?|stated|reports?|reported)\s+(?:the\s+|an?\s+|one\s+)?[^\W\d_]+)\b", re.IGNORECASE)
+
+
+@functools.lru_cache(maxsize=1)
+def _any_credit_before_re() -> "re.Pattern[str]":
+    """A crediting verb or phrase (the attribution rule's verbs, ``adapters.sources``) in the clause before a quotation."""
+    from ..adapters import sources
+    return re.compile(r"\b(?:" + sources._CREDIT_VERBS + r"|according\s+to|in\s+the\s+words\s+of|as\s+(?:stated|recorded|reported|noted|put)\s+(?:in|by))\b",
+                      re.IGNORECASE)
+
+
+def _credits_another_source(sentence: str, start: int, end: int) -> bool:
+    """True when the clause carrying the quotation at ``start``-``end`` of ``sentence`` credits it to SOME source, named or
+    unnamed, supplied or not: a crediting verb or "according to" in the same clause before it ("A textbook says '...'",
+    "One critic writes that '...'") or a crediting phrase right after it ("'...', according to one report"). Such a
+    quotation is not presented as the supplied material's own words."""
+    from ..adapters.sources import _clause_start
+    head = sentence[:start]
+    clause = head[_clause_start(head):]
+    return bool(_any_credit_before_re().search(clause) or _ANY_CREDIT_AFTER_RE.match(sentence[end:]))
+
+
+_CHECK_SUBJECT_RE = re.compile(r"\b(?:formal|automatic|automated|hub(?:'s|’s)?|engine(?:'s|’s)?|system(?:'s|’s)?|solver(?:'s|’s)?|z3)\s+(?:checks?|verification)\b"
+                               r"|\b(?:own|its)\s+checks?\b|\b(?:the\s+)?(?:receipt|engine|solver)\s+(?:found|finds|flag(?:s|ged)?|confirm(?:s|ed)?|rejected|says|said|shows|showed)\b",
+                               re.IGNORECASE)
+#: The outcome such a statement reports.
+_CHECK_OUTCOME_RE = re.compile(r"\b(?:fail(?:s|ed)?|flag(?:s|ged)?|(?:does|do|did)\s+not\s+hold|not\s+holding|holds?|passed|pass(?:es)?|"
+                               r"confirm(?:s|ed)?|verif(?:y|ies|ied)|rejected|counterexample)\b", re.IGNORECASE)
+
+
 def _check_observer(observer) -> ChannelObserver:
     if not callable(observer):
         raise TypeError(f"a channel observer must be callable, not {type(observer).__name__}")
@@ -731,21 +902,64 @@ class TranslatorChannel:
     @_observed
     def request(self, from_agent_id: str, to_agent_id: str, user_input: str, supplied_texts: list[SuppliedText] = (),
                 *, items=None, constraints=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
-        bad_input = surrogate_offsets(user_input)
-        if bad_input:  # a request that is not valid Unicode is built on the scrubbed text for the record and REJECTED below
-            user_input = _scrub(user_input)
+        # Nothing a caller hands over makes this raise: a malformed request (an agent id or a text that is not a string,
+        # an empty request, one over the contract's limits) is built for the record from what can be kept and REJECTED
+        # with INT-REQ-009 naming every problem.
+        problems: list[str] = []
+        from_agent_id = _request_agent_id(from_agent_id, "sender", problems)
+        to_agent_id = _request_agent_id(to_agent_id, "addressee", problems)
+        bad_input: list[int] = []
+        if not isinstance(user_input, str):
+            problems.append(f"the request text is of type {type(user_input).__name__}, not text")
+            user_input = _NO_REQUEST_TEXT
+        else:
+            bad_input = surrogate_offsets(user_input)
+            if bad_input:  # a request that is not valid Unicode is built on the scrubbed text for the record and REJECTED below
+                user_input = _scrub(user_input)
+            if len(user_input) > _USER_INPUT_MAX:
+                problems.append(f"the request text has {len(user_input)} characters, over the contract's limit of {_USER_INPUT_MAX}; the record keeps the first {_USER_INPUT_MAX}")
+                user_input = user_input[:_USER_INPUT_MAX]
+            if not user_input.strip():
+                problems.append("the request text is empty or white space only: nothing is asked")
+                user_input = user_input or _NO_REQUEST_TEXT
+        blank = not user_input.strip() or user_input == _NO_REQUEST_TEXT
         hooks = self._branch_for(to_agent_id)[0].hub_hooks
-        req = TaskRequest(
-            request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id,
-            from_agent_id=from_agent_id, to_agent_id=to_agent_id, subject=self._subject_for(to_agent_id), course_level=self.plan.course_level,
-            task_type=self._task_type_for(to_agent_id), user_input=user_input, user_input_sha256=sha256_hex(user_input),
-            items=list(items) if items is not None else (extract_items(user_input, extra_imperatives=hooks.request_imperatives) if hooks else extract_items(user_input)),
-            constraints=list(constraints) if constraints is not None else extract_constraints(user_input),
-            supplied_texts=list(supplied_texts), created_at=_now(),
-        )
+        try:
+            if items is not None:
+                items_list = list(items)
+            elif blank:
+                items_list = []
+            else:
+                items_list = extract_items(user_input, extra_imperatives=hooks.request_imperatives) if hooks else extract_items(user_input)
+        except Exception as exc:  # a reader that fails is a refused request, never an exception out of the hub
+            problems.append(f"the request's items could not be read ({type(exc).__name__})")
+            items_list = []
+        try:
+            constraints_list = list(constraints) if constraints is not None else ([] if blank else extract_constraints(user_input))
+        except Exception as exc:
+            problems.append(f"the request's constraints could not be read ({type(exc).__name__})")
+            constraints_list = []
+        if len(items_list) > _REQUEST_ITEMS_MAX:
+            problems.append(f"the request holds {len(items_list)} items, over the contract's limit of {_REQUEST_ITEMS_MAX}: the router must split it; the record keeps the first {_REQUEST_ITEMS_MAX}")
+            items_list = items_list[:_REQUEST_ITEMS_MAX]
+        if len(constraints_list) > _REQUEST_CONSTRAINTS_MAX:
+            constraints_list = _capped_constraints(constraints_list, problems)
+        texts, text_problems = _request_texts_given(supplied_texts)
+        problems += text_problems
+        fields = dict(request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id, subject=self._subject_for(to_agent_id),
+                      course_level=self.plan.course_level, task_type=self._task_type_for(to_agent_id), created_at=_now())
+        try:
+            req = TaskRequest(**fields, from_agent_id=from_agent_id, to_agent_id=to_agent_id, user_input=user_input, user_input_sha256=sha256_hex(user_input),
+                              items=items_list, constraints=constraints_list, supplied_texts=texts)
+        except (ValidationError, TypeError, ValueError) as exc:
+            problems.append(f"the request does not validate against the task_request contract: {_shape_reason(exc)}")
+            req = TaskRequest(**fields, from_agent_id=from_agent_id, to_agent_id=to_agent_id, user_input=user_input, user_input_sha256=sha256_hex(user_input))
         findings: list[IntegrityFinding] = []
         if bad_input:
             findings.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("request text", bad_input), agent_ids=[to_agent_id]))
+        if problems:
+            findings.append(IntegrityFinding(code="INT-REQ-009", severity="error", message="request REJECTED as malformed: " + "; ".join(problems[:_MAX_NAMED]), agent_ids=[to_agent_id]))
+        supplied_texts = req.supplied_texts
         if to_agent_id not in self.plan.selected_agent_ids:
             findings.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"router addressed {to_agent_id}, which the plan did not select", agent_ids=[to_agent_id]))
         if self.plan.allowed_document_ids:
@@ -778,7 +992,7 @@ class TranslatorChannel:
         with INT-REQ-009; nothing raises."""
         if not isinstance(text, str):  # a structured payload (a JSON object as received) or nothing: never parsed as text
             return self._respond_payload(request_message_id, text, agent_id=agent_id, report_id=report_id)
-        req = self.requests.get(request_message_id)
+        req = self.requests.get(request_message_id) if _message_id_given(request_message_id)[0] is not None else None
         texts = supplied_texts if supplied_texts is not None else (req.supplied_texts if req else [])
         agent_id, report_id = _scrub(agent_id), _scrub(report_id)
         branch, _profile = self._branch_for(agent_id)
@@ -789,6 +1003,12 @@ class TranslatorChannel:
         if bad:  # not valid Unicode: no adapter or contract can take it, so it is refused before parsing (never an exception)
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("response text", bad), report_ids=[report_id], agent_ids=[agent_id])])
+        cut, mapping = _json_report_text(text)
+        if cut is not None:  # a JSON object cut off before its end: never parsed as prose (a fragment would read as claims)
+            return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
+                IntegrityFinding(code="INT-REQ-009", severity="error", message=f"the response is a truncated or malformed JSON payload: a JSON object that ends before it is closed ({cut}); it was neither parsed nor delivered", report_ids=[report_id], agent_ids=[agent_id])])
+        if mapping is not None:  # a report sent as JSON text: validated against the contract like a report received as a mapping
+            return self._respond_payload(request_message_id, mapping, agent_id=agent_id, report_id=report_id)
         parser = branch.parser()
         extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
         try:
@@ -839,7 +1059,7 @@ class TranslatorChannel:
                 "payload_type": type(payload).__name__, "payload_sha256": digest}
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=self.plan.request_id, task_id=self.plan.task_id, sender_agent_id=agent_id or "unknown",
                            sender_role=sender_role, recipient_role=recipient_role, recipient_agent_id=recipient_agent_id, contract="unreadable_payload/1.0",
-                           payload=body, payload_sha256=payload_hash(body), in_reply_to=in_reply_to, created_at=_now())
+                           payload=body, payload_sha256=payload_hash(body), in_reply_to=_message_id_given(in_reply_to)[0], created_at=_now())
         given = [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in findings] if findings else None
         findings = self.log.accept(msg) + (given or [IntegrityFinding(code="INT-REQ-009", severity="error", message=message, report_ids=[report_id] if report_id else [], agent_ids=[agent_id] if agent_id else [], message_ids=[msg.message_id])])
         findings += [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in (named or [])]
@@ -860,7 +1080,7 @@ class TranslatorChannel:
                    "response_sha256": sha256_text(text), "response_chars": len(text)}
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=self.plan.request_id, task_id=self.plan.task_id, sender_agent_id=agent_id,
                            sender_role=AgentRole.SPECIALIST, recipient_role=AgentRole.ROUTER, contract="specialist_report/1.0",
-                           payload=payload, payload_sha256=payload_hash(payload), in_reply_to=request_message_id, created_at=_now())
+                           payload=payload, payload_sha256=payload_hash(payload), in_reply_to=_message_id_given(request_message_id)[0], created_at=_now())
         all_findings = self.log.accept(msg) + [f.model_copy(update={"message_ids": sorted(set(f.message_ids) | {msg.message_id})}) for f in findings]
         return self._finish(msg, "specialist_to_router", all_findings, [], [], [], branch_key=branch_key)
 
@@ -888,6 +1108,22 @@ class TranslatorChannel:
             if errors:
                 out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
                                             report_ids=[report.report_id], agent_ids=[report.agent_id]))
+        return out
+
+    @staticmethod
+    def _supplied_text_mismatch(report: SpecialistReport, req: TaskRequest) -> list[IntegrityFinding]:
+        """INT-REQ-002 (error, blocking): the report's supplied texts against the request's, by document id and the digest
+        of the text. A document the request did not send (also when it sent none) and a text that differs from the one
+        sent under its id are named; the router's texts are the only ones a quotation is checked against."""
+        sent = {t.document_id: sha256_text(t.text) for t in req.supplied_texts}
+        extra = sorted({t.document_id for t in report.supplied_texts if t.document_id not in sent})
+        changed = sorted({t.document_id for t in report.supplied_texts if t.document_id in sent and sha256_text(t.text) != sent[t.document_id]})
+        out: list[IntegrityFinding] = []
+        if extra:
+            out.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {extra}"
+                                        + ("" if sent else " (the request sent no texts)") + "; a text the specialist supplies itself is never a source", document_ids=extra))
+        if changed:
+            out.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response carries texts that differ from the ones the request sent under the same document ids: {changed} (a supplied text replaced)", document_ids=changed))
         return out
 
     def _report_id_reuse(self, report: SpecialistReport, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
@@ -1069,7 +1305,10 @@ class TranslatorChannel:
         is bound to that sender, so a report that claims another author is INT-ENV-008.
         Identity and integrity errors REJECT the transmission before any content check runs
         (nothing is pooled or stored); content findings travel with the delivered report."""
-        req = self.requests.get(request_message_id)
+        # A request message id that is not a string of 1 to 128 characters names no request: the reply is REJECTED with
+        # INT-REQ-000 like a reply to an unknown id, never an exception.
+        request_message_id, id_problem = _message_id_given(request_message_id)
+        req = self.requests.get(request_message_id) if request_message_id is not None else None
         sender = sender_agent_id or report.agent_id
         findings: list[IntegrityFinding] = []
         payload = report.model_dump(mode="json", exclude_none=True)
@@ -1082,7 +1321,8 @@ class TranslatorChannel:
         findings += self._revalidate(report, payload)
         bk = self._branch_for(sender)[0].key
         if req is None:
-            findings.append(IntegrityFinding(code="INT-REQ-000", severity="error", message="response does not reply to any accepted request on this channel", message_ids=[msg.message_id, request_message_id]))
+            findings.append(IntegrityFinding(code="INT-REQ-000", severity="error", message="response does not reply to any accepted request on this channel" + (f" ({id_problem})" if id_problem else ""),
+                                             message_ids=[msg.message_id] + ([request_message_id] if request_message_id is not None else [])))
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):  # the payload does not re-validate or carries another report's claims
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
@@ -1090,11 +1330,11 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {sender} but the request was addressed to {req.to_agent_id}", agent_ids=sorted({sender, req.to_agent_id}), message_ids=[msg.message_id]))
         findings += check_report_against_plan(self.plan, report)
         findings += self._report_id_reuse(report, msg, findings)
-        supplied = req.supplied_texts or report.supplied_texts
-        report_docs = {t.document_id for t in report.supplied_texts}
-        req_docs = {t.document_id for t in req.supplied_texts}
-        if req_docs and report_docs and not report_docs <= req_docs:
-            findings.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {sorted(report_docs - req_docs)}", document_ids=sorted(report_docs - req_docs)))
+        # Quotations are checked against the texts the router sent, never against texts the specialist supplies: a report
+        # text that is not byte-identical to a request text under its document id (a document the router never sent, or a
+        # sent one replaced) is INT-REQ-002, whether or not the request carried texts.
+        supplied = list(req.supplied_texts)
+        findings += self._supplied_text_mismatch(report, req)
         if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         # Every content check runs guarded: one that fails internally is INT-INTERNAL-001 naming it, the rest of the receipt is
@@ -1106,6 +1346,7 @@ class TranslatorChannel:
         uncredited = self._guarded("uncredited quotations (INT-REQ-003)", findings, lambda: self._uncredited_quotations(report, supplied, request_text=req.user_input), [], **rid)
         findings += uncredited
         findings += self._guarded("peer figures (INT-REQ-014)", findings, lambda: self._peer_figures(report, supplied), [], **rid)
+        findings += self._guarded("relayed check results (INT-REQ-014)", findings, lambda: self._relayed_check_results(report, supplied), [], **rid)
         findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(report, supplied), [], **rid)
         branch, profile = self._branch_for(report.agent_id)
         hooks = branch.hub_hooks  # the branch's readings for the hub (the STEM branches only); each refines a heuristic and never raises
@@ -1226,6 +1467,13 @@ class TranslatorChannel:
                     findings.append(IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message=f"router forwarded report {payload_obj.report_id!r}, which agent {payload_obj.agent_id!r} superseded with report {self.superseded[payload_obj.report_id]!r} on this channel; the recipient receives a superseded report", report_ids=[payload_obj.report_id, self.superseded[payload_obj.report_id]], agent_ids=[payload_obj.agent_id, to_agent_id], message_ids=[msg.message_id]))
                 self.forwards.setdefault(payload_obj.report_id, []).append((to_agent_id, msg.message_id))
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+            # A specialist's relay of a report is a hand-off of a report already delivered to the router on this channel in
+            # reply to a request: a new report enters only through respond(). A report never delivered is refused
+            # (INT-HANDOFF-013); one delivered under its id by another agent or with other content is INT-ENV-008 /
+            # INT-HANDOFF-015 (below). A relay never changes the channel's state: it stores, pools and supersedes nothing.
+            if payload_obj.report_id not in self.transmitted_reports:
+                findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error", message=f"agent {from_agent_id!r} relayed report {payload_obj.report_id!r}, which was never delivered to the router on this channel in reply to a request; "
+                                                 "a report reaches other agents only after its delivery, so it was not delivered", report_ids=[payload_obj.report_id], agent_ids=sorted({from_agent_id, to_agent_id}), message_ids=[msg.message_id]))
             findings += check_report_against_plan(self.plan, payload_obj)
             findings += self._report_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # identity or integrity violation: nothing of this report is checked for content, pooled or stored
@@ -1235,10 +1483,10 @@ class TranslatorChannel:
             findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(payload_obj, payload_obj.supplied_texts), [], **rid)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
             findings += self._guarded("credits to texts not supplied (INT-REQ-015)", findings, lambda: self._foreign_credits(payload_obj, payload_obj.supplied_texts, structural), [], **rid)
-            self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(payload_obj, findings), None, **rid)
-            outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(payload_obj, findings), [], **rid)
-            if not _is_blocking(findings):
-                self.transmitted_reports.setdefault(payload_obj.report_id, payload_obj)
+            if payload_obj.report_id in self.superseded:
+                findings.append(IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message=f"agent {from_agent_id!r} relayed report {payload_obj.report_id!r}, which agent {payload_obj.agent_id!r} superseded with report {self.superseded[payload_obj.report_id]!r} on this channel; the recipient receives a superseded report", report_ids=[payload_obj.report_id, self.superseded[payload_obj.report_id]], agent_ids=sorted({from_agent_id, to_agent_id}), message_ids=[msg.message_id]))
+            # the delivered report's formalizations were pooled on its delivery: verified again for this receipt, never re-pooled
+            outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(payload_obj, findings, pool=False), [], **rid)
         else:
             findings += self._revalidate_synthesis(payload_obj, payload)
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
@@ -1247,7 +1495,7 @@ class TranslatorChannel:
             sid = dict(claim_ids=[payload_obj.synthesis_id], agent_ids=[payload_obj.combinator_agent_id])
             scope = self._guarded("ledger scope", findings, lambda: self._ledger_scope(payload_obj), [], **sid)
             findings += self._guarded("superseded citations (INT-HANDOFF-014)", findings, lambda: self._cited_superseded(payload_obj), [], **sid)
-            findings += self._guarded("claim ledger (INT-LEDGER)", findings, lambda: self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj, extra_texts=self._request_texts())), [], **sid)
+            findings += self._guarded("claim ledger (INT-LEDGER)", findings, lambda: self._explain_superseded_collisions(check_synthesis_ledger(scope, payload_obj, extra_texts=self._request_texts(), document_texts=self._request_documents(), allowed_document_ids=self.plan.allowed_document_ids)), [], **sid)
             conflict_findings, conflict_ids = self._guarded("conflict disclosure (INT-CONFLICT-002)", findings, lambda: self._synthesis_conflicts(payload_obj, scope), ([], []), **sid)
             findings += conflict_findings
             branch_ids += conflict_ids
@@ -1411,6 +1659,15 @@ class TranslatorChannel:
                     ids.append(res2.result_id)
         return out, ids, checked
 
+    def _request_documents(self) -> dict[str, str]:
+        """The supplied texts the requests on this channel carried, by document id (the first text per id): the documents
+        a synthesized claim's evidence reference may name besides the reports' own supplied texts."""
+        out: dict[str, str] = {}
+        for req in self.requests.values():
+            for t in req.supplied_texts:
+                out.setdefault(t.document_id, t.text)
+        return out
+
     def _request_texts(self) -> list[str]:
         """Every text a request on this channel carried (user inputs and supplied texts): where a synthesized quotation
         may legitimately come from besides the reports."""
@@ -1550,9 +1807,12 @@ class TranslatorChannel:
         and either a supplied text holds all of its words but one or two (an altered quotation of that text: "could mean
         that shely has been hurt"; a relayed colleague's report counts only when no other text was supplied) or its
         sentence credits it by kind to the text under analysis ("The narrator also insists that '...'", "the poem says").
-        A quotation credited to another source ("One critic writes that ...") stays unverifiable."""
+        A quotation credited to another source ("One critic writes that ...", "A textbook says '...'", "'...', according to
+        one report") stays unverifiable; one whose sentence credits it to no source at all (three words or more, not a
+        mention of words a text lacks) is refuted as invented."""
         from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import is_peer_text, nearest_text, quotation_credit, uncredited_excerpt
+        from ..branches.packs import _absent_mentions
         if not supplied:
             return []
         docs = {t.document_id: t for t in supplied}
@@ -1588,14 +1848,23 @@ class TranslatorChannel:
                 holders = sorted((x.claim_text for x in report.claims if norm(ex) in x.claim_text.casefold()), key=len, reverse=True)
                 sentence = holders[0] if holders else c.claim_text
                 credit = None
-                spans = [sp for sp in find_quotation_spans(sentence) if norm(sp[2]) == norm(ex)]
+                all_spans = find_quotation_spans(sentence)
+                spans = [sp for sp in all_spans if norm(sp[2]) == norm(ex)]
                 if spans:
                     credit = quotation_credit(sentence, spans[0][0], docs)
                 by_kind = credit is not None and credit.generic and bool(own)
-                if not (altered or by_kind):
+                # A quotation of three words or more that its sentence credits to no source at all, while texts of the task
+                # were supplied and none holds it (nor the request), is presented as the supplied material's words: an
+                # invented quotation, refuted against the texts. A quoted word the sentence says a text lacks ('never says
+                # "ayudar"') is a mention, and a short scare quote stays unverifiable (CORE-SRC-003).
+                mentioned = {norm(q) for q in _absent_mentions(sentence, all_spans)} if credit is None else set()
+                uncredited = (credit is None and bool(own) and bool(spans) and words >= 3 and norm(ex) not in mentioned
+                              and not _credits_another_source(sentence, spans[0][0], spans[0][1]))
+                if not (altered or by_kind or uncredited):
                     continue
                 why = (f"{'the request' if near == 'the request' else 'the supplied text ' + near} holds all of its words but {', '.join(missing)} (an altered quotation)" if altered
-                       else f"the sentence credits it to {credit.phrase!r}, the text under analysis named by kind (an invented quotation)")
+                       else f"the sentence credits it to {credit.phrase!r}, the text under analysis named by kind (an invented quotation)" if by_kind
+                       else "its sentence credits it to no source, and none of the supplied texts nor the request holds its words (an invented quotation)")
                 out.append(IntegrityFinding(code="INT-REQ-003", severity="error",
                                             message=f"quotation '{ex[:120]}' of claim {c.claim_id}, which the report credits to no text, was not found in the supplied texts {doc_ids}: {why}",
                                             claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=doc_ids))
@@ -1614,14 +1883,14 @@ class TranslatorChannel:
         its scale word ("2.5 million"). Figures in words count (the ledger's reader)."""
         from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import credited_spans
-        from ..integrity.ledger import credited_date_repairings, figure_spellings
+        from ..integrity.ledger import credited_date_repairings, figure_spellings, magnitude_keys
         peers = [t for t in supplied if t.document_id.startswith("peer:") or (t.author or "").endswith("-specialist")]
         if not peers:
             return []
         known: set[str] = set()
         for t in supplied:
             for _label, keys in figure_spellings(t.text):
-                known |= keys
+                known |= magnitude_keys(keys)  # a peer's signed figure restated as its magnitude is the peer's figure
         out: list[IntegrityFinding] = []
         for c in _material_claims(report):
             text = c.claim_text
@@ -1640,6 +1909,31 @@ class TranslatorChannel:
             repaired = [d for p in peers if spans.get(p.document_id) for a, b in spans[p.document_id] for d in credited_date_repairings(text[a:b], p.text)]
             if repaired:
                 out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} with a date the peer gives for another event: " + "; ".join(dict.fromkeys(repaired)) + ": a colleague's date misreported in an unquoted paraphrase", **ids))
+        return out
+
+    @staticmethod
+    def _relayed_check_results(report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
+        """INT-REQ-014 (warning): an agent that answers after a peer's report was relayed to it states, as a claim of its
+        own, a check result credited to the system or to a report ("A formal check failed the report's restated 0.1 pH
+        result", "the Mathematics report's own checks flag its written lines as not holding"). No check result is content
+        of a report: a router-side receipt, an engine verdict or an invented one relayed as the agent's own words is a
+        self-report, named so the router never reads it as checked (agent self-reports are advisory). Every claim is read,
+        notes roled 'other' included, with its quotations masked."""
+        from ..adapters.markdown import find_quotation_spans
+        if not any(t.document_id.startswith("peer:") or (t.author or "").strip().lower().endswith(("-specialist", " specialist")) for t in supplied):
+            return []
+        out: list[IntegrityFinding] = []
+        for c in report.claims:
+            text = c.claim_text
+            for start, end, _inner in reversed(find_quotation_spans(text)):
+                text = text[:start] + " " * (end - start) + text[end:]
+            noun = _CHECK_SUBJECT_RE.search(text)
+            if noun is None or _CHECK_OUTCOME_RE.search(text) is None:
+                continue
+            out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} (role {c.claim_role}) states a check result credited to the system or "
+                                        f"to a report ({noun.group(0)!r}): a check result is no content of a report; the agent relays a router-side or invented "
+                                        "outcome as its own words, a self-report the router must not read as checked",
+                                        claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id]))
         return out
 
     def _claim_id_collisions(self, report: SpecialistReport) -> list[IntegrityFinding]:
@@ -2111,8 +2405,12 @@ class TranslatorChannel:
                 else:
                     self.ambiguous_pooled.discard(c.claim_id)
                 contributed += 1
-            if out.verification is not None and out.verification.status is S.INCONSISTENT_PREMISES:
+            # INT-REQ-007 charges the claim's premises only when the outcome shows the inconsistency (an engine result the
+            # composer rejected is displayed INTERNAL_ERROR: nothing of it is charged to the specialist).
+            if out.verification is not None and out.verification.status is S.INCONSISTENT_PREMISES and out.display_status in (S.INCONSISTENT_PREMISES, S.AMBIGUOUS_TRANSLATION):
                 findings.append(self._inconsistent_premises(c, out))
+            elif out.display_status is not S.NOT_ELIGIBLE and not is_definitive(out.display_status):
+                findings.append(self._not_verified(c, out))
         if contributed and len(self.formalized) >= 2:  # only a report that formalized something can be party to a conflict
             try:
                 res, f = check_cross_report_consistency(list(self.formalized.values()), request_id=self.plan.request_id, config=self.config, signing_key=self.key, assumed_readings=frozenset(self.ambiguous_pooled))
@@ -2124,6 +2422,21 @@ class TranslatorChannel:
             findings.extend(f)
             self.conflicts_seen.extend((frozenset(x.claim_ids), x.formal_result_id) for x in f if x.code == "INT-CONFLICT-001")
         return outcomes
+
+    @staticmethod
+    def _not_verified(claim: ClaimRecord, out: ClaimVerificationOutcome) -> IntegrityFinding:
+        """INT-REQ-006 (warning): a claim whose outcome is displayed with a status that is no verdict (INVALID_FORMALIZATION,
+        AMBIGUOUS_TRANSLATION, UNSUPPORTED, TIMEOUT, UNKNOWN, INTERNAL_ERROR; NOT_ELIGIBLE is no attempt and is not named),
+        whatever the engine returned: a non-success is never delivered as a clean acceptance, and an engine status the
+        display does not show (an ENTAILED result of a vacuous encoding, a result whose signature or binding the composer
+        rejected) is named with the status shown."""
+        engine = out.verification.status.value if out.verification is not None else None
+        shown = out.display_status.value
+        why = (f"the engine returned {engine}, which the outcome does not show" if engine and engine != shown
+               else ("no engine result was produced" if engine is None else f"the engine returned {engine}"))
+        return IntegrityFinding(code="INT-REQ-006", severity="warning", message=f"claim {claim.claim_id}'s verification gave no verdict: its outcome is displayed {shown} "
+                                f"(translation {out.translation.status.value}; {why}), so the router must not read the claim as checked",
+                                claim_ids=[claim.claim_id], formal_result_id=out.verification.result_id if out.verification is not None else None, deterministic=False)
 
     @staticmethod
     def _inconsistent_premises(claim: ClaimRecord, out: ClaimVerificationOutcome) -> IntegrityFinding:

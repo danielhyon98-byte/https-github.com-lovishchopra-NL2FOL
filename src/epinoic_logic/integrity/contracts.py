@@ -195,11 +195,24 @@ def sign_message(msg: AgentMessage, key: bytes, key_id: str) -> AgentMessage:
     return msg.model_copy(update={"signature": mac, "signature_key_id": key_id})
 
 
+_HEX_SIGNATURE_RE = re.compile(r"[0-9a-f]{64}")
+
+
 def verify_message(msg: AgentMessage, key: bytes) -> bool:
+    """True exactly when the envelope carries the signature ``key`` gives its canonical text. Never raises: a signature
+    that is not 64 lowercase hex characters (a forged one with non-ASCII or surrogate characters included) is False, and
+    so is an envelope whose text is not valid Unicode (``hmac.compare_digest`` refuses non-ASCII text, so the two
+    signatures are compared as ASCII bytes)."""
     if not msg.signature or not key:
         return False
-    expected = hmac.new(key, envelope_signable_text(msg).encode("utf-8"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, msg.signature)
+    if not isinstance(msg.signature, str) or not _HEX_SIGNATURE_RE.fullmatch(msg.signature):
+        return False
+    try:
+        text = envelope_signable_text(msg).encode("utf-8")
+    except (UnicodeEncodeError, TypeError, ValueError):
+        return False
+    expected = hmac.new(key, text, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected.encode("ascii"), msg.signature.encode("ascii"))
 
 
 # --------------------------------------------------------------------------- #

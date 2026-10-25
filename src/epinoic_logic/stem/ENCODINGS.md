@@ -138,7 +138,18 @@ The rules for picking them:
   SI only, the power read in mol dm⁻³ (the unit the pH, pOH, pKa and pKb scales are defined
   in). Read as a bare number in SI it would take a unit prefix, an integer power of ten, for a
   change of its exponent (`10^(−5.2) = 6.31 × 10⁻⁹ mol dm⁻³` in mol m⁻³). The label says so.
-- A bare numeral appears with units: both.
+- A bare numeral appears with units: both, the reading as written only where it is consistent
+  (round 7): when the units written on the computed side and on the stated value differ by a pure
+  number other than 1 (`3 × 2.0 kg = 6.0 g`, `300/400 = 0.75 %`, `80 × 25 % = 2000`), a bare factor
+  written in the computation must supply it (`2.5 kg × 1000 = 2500 g`, `× 100` for a per cent);
+  otherwise SI only. A ratio of units with a dimension leaves both (`120/4.0 = 30 km/h`).
+- An angle in degrees set against one in radians or a number (`30° = 0.524 rad`): SI only, a
+  degree read as π/180 rad; a compound quantity (`4 min 30 s`): SI only.
+- A trigonometric function of a bare number: degrees only when the request or the answer writes an
+  angle in degrees and never mentions radians, or when the argument is a whole number beyond a full
+  turn (`cos 60`); else both.
+- A substitution whose symbols are bound in a unit with an SI factor other than 1 (`t = 4.5 min`):
+  both, even when the written sides carry no unit (`Pt = 2200 × 4.5 × 60`).
 - No unit anywhere: as written.
 - When every unit factor is 1 and nothing is a per cent, SI and as written coincide, and one
   reading is kept.
@@ -157,7 +168,7 @@ Numbers in a reading:
 | `sub` | **Pairs**: each substituted value matches a binding of its symbol, as written or in SI (R7). A value written in another order of the same product or sum also matches. **Evaluation**: the symbolic side under its bindings (or substitution readings, or a booklet reading admitted by a dimension check) against the numeric side. | E (pairs); E or S |
 | `alg` | `PREV` (with guards and the principal-root side condition) entails the next relation. Bindings, substitution readings (a line that writes the preceding relation with values put in) and up to 8 stated formulas are included for the symbols that appear on one side only. A rounded decimal in the step is compared within its band. Warning when the step brings in symbols that nothing connects. A step whose unknown appears only in powers of e (`e^(−8k)`) is decided in `u = e^(−k)` with the side condition `u > 0` (`SIDE_POS`). An antiderivative (`∫6t dt = 3t²`) is an `alg` check from `D = D` to `D = integrand`, D being the derivative of the stated antiderivative formed by the STEM pack (power rule), so it holds iff the polynomials agree for every value. | E |
 | `mod` | A model evaluation: an equality that applies an exponential model of the answer or the request at an argument (`P(t + 4) = P₀e^(k(t + 1))` after `P = P₀e^(kt)`; the model's letter glued to its bracket, `models.py`). The model's expression stands at the written argument; some value of the variables, and of the stated symbols within their stated values, must satisfy the relation, every power of an exponent in symbols read through positive variables (above). The relaxation only widens the solutions: UNSATISFIABLE proves that no value satisfies the relation; SATISFIABLE never shows that it holds. A letter defined as two models gives one pair of sides per definition (at most 4 combinations), as a disjunction: the relation must hold under one of them. Planned only when the relaxation fits (planning-time `relaxation_fits`); a written decimal, a unit, the model's own definition, a space before the bracket and the sciences reading of e keep the old reading. | S, SATISFIABLE |
-| `sol` | Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value. | E; S for membership of decimal roots |
+| `sol` | A system of simultaneous equations (round 7): the stated values against every equation of the system together, exact values in Form E, rounded ones in Form S over their R10 intervals, an unknown with no stated value free. Exact roots: linear membership (the root substituted as written) and, when the full set is claimed with no domain restriction and exact parameters, completeness (`EQ ⊢ ∨ x = rᵢ`). Decimal roots: a root of the equation in each rounding interval (R10), or completeness over the intervals when the full set is claimed. A root the answer states in prose for the quantity it named by the symbol (`relations._described_roots`): membership only, in Form S, over its rounding interval widened by τ = 1/100 of its value. | E; S for membership of decimal roots |
 | `cnv` | `|C − S| ≤ h(S) + h(C)` in SI, τ = 0 (R5). Unknown unit atoms that are the same on both sides cancel. | E |
 | `cmp` | Values: `l op r` exactly (R6). Bound symbols with several values: some admissible values satisfy it. Steps: as `alg`. | E (or S) |
 | `res` | `|S − S′| ≤ h(S) + h(S′)` (R8); a rounding the prose states for S′ gives h(S′) (rule `rounding-cue`); the start of a named change (rule `named-change`) at warning severity. | E |
@@ -188,6 +199,9 @@ id named) when any of these holds:
   `+ y = …`).
 - An operand opens with a sign right after a symbol-like token or a stray character, rather
   than after a line start, a relation sign, a bracket, a separator or a prose word.
+- The relation is glued by a full stop to a letter or a bracket on either side (`A.B = B.C` read as
+  `B = B`, round 7), or an operand opens with a sign right after a numeral and the noun it counts
+  (`4 categories − 1 = 3` read as `− 1 = 3`).
 - Prose stands between the two sides of one link (`3 and ａ = 5` read as `3 = 5`). The relation
   sign, LaTeX commands, alignment marks and the words of verbal arithmetic (`equals`, `is equal
   to`, `gives`) are allowed there.
