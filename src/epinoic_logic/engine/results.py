@@ -11,12 +11,19 @@ the policy identity in ``Versions.policy_id``. Fields added for the identity and
 binding are left out of a dump while ``None``, so a result issued before they existed still
 parses, serialises byte-identically and keeps a valid signature: it stays inspectable as a
 historical record, but it is not current-policy evidence (``provenance.stale_reasons``).
+
+The argument diagnosis (rules ``argdiag-2``, :mod:`.argument`) adds two fields under the same rule:
+``named_diagnostics`` (set only when the diagnosis named something) and ``argument_rules`` (set whenever the diagnosis
+ran: the rule version, or ``argdiag-2/incomplete:<reason>``). Both are covered by the signature and left out of every
+dump while ``None``; an absent ``argument_rules`` means the diagnosis was not computed, never that it found nothing.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
+
+from ..named import NamedDiagnostic
 
 
 def _drop_none(data: Any, fields: tuple[str, ...]) -> Any:
@@ -184,14 +191,28 @@ class VerificationResult(BaseModel):
         ),
     )
 
+    named_diagnostics: Optional[list[NamedDiagnostic]] = Field(
+        default=None,
+        description=(
+            "the engine-layer named diagnostics of the argument diagnosis (named.NamedDiagnostic), set only when it named "
+            "something; covered by the signature. Advisory: they never change the status, and release refuses any whose "
+            "effective severity is warning or error"
+        ),
+    )
+    argument_rules: Optional[str] = Field(
+        default=None,
+        max_length=96,
+        description=(
+            "the argument-diagnosis rules that ran on this result ('argdiag-2', or 'argdiag-2/incomplete:<reason>'); "
+            "absent when the diagnosis was not computed, which never reads as 'none found'"
+        ),
+    )
+
     @model_serializer(mode="wrap")
     def _omit_default_limits(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """Leave ``limits`` out of every dump while it is ``None``, so a default result serialises
-        (and is signed) exactly as before the field existed."""
-        data = handler(self)
-        if isinstance(data, dict) and "limits" in data and data["limits"] is None:
-            del data["limits"]
-        return data
+        """Leave ``limits``, ``named_diagnostics`` and ``argument_rules`` out of every dump while they are ``None``, so a
+        result of an earlier release serialises (and is signed) exactly as before the fields existed."""
+        return _drop_none(handler(self), ("limits", "named_diagnostics", "argument_rules"))
 
 
 def parse_result(data: Any) -> "VerificationResult":

@@ -543,6 +543,14 @@ class GenericTextParser:
         plain claims after it. Two labelled answers opening the paragraph are coordinate points. A line-structured block
         (working, label-led lines, list items, table rows) has no point of its own."""
         live = [start + k for k, u in enumerate(units) if roles[start + k] != "other"]
+        if len(live) == 1 and roles[live[0]] != "point":
+            # a paragraph whose one claim argues, stating its own reason ("The town opened a library in 2015, and pollution fell
+            # in 2016, so the library caused the fall"), is its own point: material, as the History and English parsers read it,
+            # so a warning the argument diagnosis names on it reaches the receipt as INT-ARG-001
+            from ..adapters.markdown import states_own_reason
+            only = units[live[0] - start]
+            if not only.working and states_own_reason(split_note_clauses(only.text)[0] or only.text) is not None:
+                material[live[0]] = True
         if len(units) < 2 or not live:
             return
         lines = {u.line for u in units}

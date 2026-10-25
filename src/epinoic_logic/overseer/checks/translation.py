@@ -285,7 +285,7 @@ from ...translate.contracts import ClaimRecord, ClaimVerificationOutcome, Specia
 from ...translate.eligibility import decide_eligibility
 from ...translate.grounding import TASK_AUTHORITY_KINDS, check_problem_grounding, locate_quotation
 from ...translate.grounding import _check_assertion as _reference_checked
-from ...translate.outcome import assess_release, build_summary, display_status_for
+from ...translate.outcome import _binding_problem, assess_release, build_summary, display_status_for, outcome_diagnosis
 from ...translate.pipeline import apply_subject_policy
 from ...translate.review import review_currency
 from ...version import POLICY_VERSION
@@ -3446,16 +3446,32 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
                     continue
                 if st not in states:
                     states.append(st)
+    # the argument diagnosis the composer derived (translate.outcome.outcome_diagnosis), with and without the report and the
+    # task record as the composer is given them or not; it depends on the key only through whether the result binds
+    contexts = [(rep, tk) for rep in ((report, None) if report is not None else (None,)) for tk in ((task, None) if task is not None else (None,))]
+    diagnoses: dict[tuple, tuple] = {}
+
+    def diagnosis(k, k_id, display, ci):
+        bound = verification is not None and tr.problem is not None and _binding_problem(tr, verification, k, k_id) is None
+        key = (bound, display, ci)
+        if key not in diagnoses:
+            rep, tk = contexts[ci]
+            diagnoses[key] = outcome_diagnosis(claim, tr, verification, display, k, k_id, rep, tk)
+        return diagnoses[key]
+
     for k, k_id in options:
         try:
             display = display_status_for(tr, verification, k, k_id)
             trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
             engine_check = (release_check(trusted, tr.problem, signing_key=k, key_id=k_id)
                             if trusted is not None and tr.problem is not None else None)
-            for st in states:
-                release = assess_release(tr, trusted, review, structural, display, st, engine_check)
-                if build_summary(claim, tr, verification, review, structural, display, k, k_id, release, st) == o.summary:
-                    return True
+            for ci in range(len(contexts)):
+                named, incomplete, engine_state = diagnosis(k, k_id, display, ci)
+                for st in states:
+                    release = assess_release(tr, trusted, review, structural, display, st, engine_check, named, incomplete)
+                    if build_summary(claim, tr, verification, review, structural, display, k, k_id, release, st,
+                                     named=named, engine_state=engine_state, incomplete=incomplete) == o.summary:
+                        return True
         except Exception:
             continue
     return False

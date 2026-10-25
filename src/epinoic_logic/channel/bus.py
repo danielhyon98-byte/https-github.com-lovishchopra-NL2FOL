@@ -73,6 +73,19 @@ the failures); ``add_observer`` and the read-only ``observers`` are added so a h
 channel object; ``observer_errors`` is a property returning a copy of the bounded record; a call made while an observed
 call is in progress, including one an observer makes during notification, is not observed (it is reported by the audit,
 CUST-003); only ``Exception`` raised by an observer is caught (an interrupt still stops the process).
+
+Argument diagnosis (rules ``argdiag-2``, ``named``): the branch formal checks and the constraint-bound
+checks are code-built checks, not specialist arguments, so they run with ``diagnose=False``. Every
+receipt carries ``named_diagnostics``: each outcome's diagnostics, the report-level diagnostics
+(``translate.diag_core.report_diagnostics``, run once per delivered or relayed report) and a named
+diagnostic for each structural or integrity finding that carries a ``defect`` (the channel labels existing
+codes through ``named.DEFECT_OF_CODE`` when it builds the receipt). Each warning or error diagnostic of an
+outcome or of the report level on a material claim is also one INT-ARG-001 finding carrying its ``defect``
+(ARG-CONTRA-001 excepted: INT-REQ-007 already states it); info diagnostics never reach ``findings``, so
+they never change the receipt status. Two encodings of one claim that reach opposite definitive answers
+(a branch formal check of a clause fails while the claim's translation is displayed with a positive
+verdict) are INT-XENC-001 (warning); neither verdict is withdrawn. The summary counts the diagnostics
+("Argument diagnosis: N named on K claims ...") before the scope tail.
 """
 from __future__ import annotations
 
@@ -81,6 +94,7 @@ import inspect
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Mapping, Optional, Sequence, Union, get_args
 
@@ -97,15 +111,41 @@ from ..integrity.cross_check import check_conflict_disclosure, check_conflict_re
 from ..integrity.envelope import MessageLog, bind_payload
 from ..integrity.handoff import check_report_against_plan
 from ..integrity.ledger import check_synthesis_ledger, light_stem
-from ..ir.canonical import sha256_hex
+from ..ir.canonical import canonical_json, sha256_hex
 from ..ir.schema import Assertion, Problem
+from ..named import (
+    DEFECT_LABELS,
+    MAX_PER_RECEIPT,
+    NAMED_CODES,
+    NamedDiagnostic,
+    defect_of,
+    defect_of_check_kind,
+    finding_message,
+    from_finding,
+    ordered as order_named,
+    rules_state,
+    summary_counts,
+)
 from ..translate.common import truncate
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TaskRecord, TranslationStatus, sha256_text
+from ..translate.diag_core import report_diagnostics
 from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
+from ..version import ARG_RULES_VERSION
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
 from .events import ChannelEvent, ObservationState, observe_call
 from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
+
+
+@dataclass(frozen=True)
+class ReportDiagnosis:
+    """The report-level argument diagnosis of one delivered report: what it named and the rules that did not finish."""
+    diagnostics: tuple[NamedDiagnostic, ...] = ()
+    incomplete: tuple[str, ...] = ()
+
+
+#: Displays that are a positive verdict on the encoding (INT-XENC-001 compares a failed branch check with one of them).
+_PASSING = frozenset({S.ENTAILED, S.CONSISTENT, S.SATISFIABLE})
 
 #: The injected claim verifier: ``fn(claim, report)``. A verifier that also declares a ``task`` parameter (or ``**kwargs``)
 #: is called ``fn(claim, report, task=<TaskRecord>)`` with the task record of the request the report answers (the router's
@@ -1212,6 +1252,15 @@ class TranslatorChannel:
         return cids, where, quoted
 
     @staticmethod
+    def _check_defect(fc) -> Optional[str]:
+        """The defect label of a failed branch formal check: the FormalCheck's own ``defect`` when it is a canonical label, else
+        the label of its kind (``named.DEFECT_OF_CHECK_KIND``; None for a kind that names no defect)."""
+        own = getattr(fc, "defect", None)
+        if isinstance(own, str) and own in DEFECT_LABELS:
+            return own
+        return defect_of_check_kind(getattr(fc, "kind", None))
+
+    @staticmethod
     def _failure_claims(fc, cids: list[str], report: Optional[SpecialistReport]) -> list[str]:
         """The claims a FAILED branch check's finding names: the claims holding its statement (``cids``), then the delivered
         claims that state values it relies on (``FormalCheck.related_claim_ids``: a substitution's earlier stated values), at
@@ -1241,7 +1290,7 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check{where} undecided (not run: unknown policy; {exc}): {quoted}{fc.description}",
                                                  deterministic=True, **ident))
                 return
-            res = verify(fc.problem, cfg, limits=limits, signing_key=self.key, key_id=self.key_id)
+            res = verify(fc.problem, cfg, limits=limits, signing_key=self.key, key_id=self.key_id, diagnose=False)  # a code-built check
             vacuous = any(d.code == _VACUOUS for d in res.diagnostics)
             if res.status.value == fc.expected_if_sound and not vacuous:
                 sat: Optional[bool] = True
@@ -1256,14 +1305,15 @@ class TranslatorChannel:
             results.append(result)
             if sat is False:
                 model = self._model_note(fc, res)
+                defect = self._check_defect(fc)
                 if cids and report is not None:
                     ident = dict(ident, claim_ids=self._failure_claims(fc, cids, report))
                 if severity == "warning":
                     findings.append(IntegrityFinding(code="INT-SUBJ-004", severity="warning", message=f"the report's own {fc.kind} statement{where} does not hold under a reading the report did not state (a warning, not an error){model}: {quoted}{fc.description}",
-                                                     formal_result_id=res.result_id, deterministic=False, **ident))
+                                                     formal_result_id=res.result_id, deterministic=False, defect=defect, **ident))
                 else:
                     findings.append(IntegrityFinding(code="INT-SUBJ-001", severity="error", message=f"the report's own {fc.kind} statement{where} does not hold{model}: {quoted}{fc.description}",
-                                                     formal_result_id=res.result_id, deterministic=False, **ident))
+                                                     formal_result_id=res.result_id, deterministic=False, defect=defect, **ident))
             elif sat is None:
                 why = res.status.value + ("; vacuous: E108" if vacuous else "") + ("; inconsistent premises are undecided for this check" if res.status is S.INCONSISTENT_PREMISES else "")
                 findings.append(IntegrityFinding(code="INT-SUBJ-002", severity="warning", message=f"{fc.kind} check{where} undecided ({why}): {quoted}{fc.description}",
@@ -1389,9 +1439,11 @@ class TranslatorChannel:
         # An echo of the request answers nothing: its outcomes are delivered for the record but never pooled, so its
         # formalizations cannot displace the agent's genuine claims under the same ids.
         outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None, task=self._task_record(req)), [], **rid)
+        report_named = self._guarded("argument diagnosis (report level)", findings, lambda: self._report_diagnosis(report, req, outcomes), None, **rid)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
-        return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
+        return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
+                            report=report, report_named=report_named)
 
     # --------------------------------------------------------------- agent relay
     @_observed
@@ -1445,6 +1497,8 @@ class TranslatorChannel:
         structural: list[StructuralFinding] = []
         branch_formal: list[ConstraintResult] = []
         branch_ids: list[str] = []
+        relayed_report: Optional[SpecialistReport] = None  # a relayed report checked for content: its report-level argument diagnosis
+        relayed_named = None
         bk = self._branch_for(payload_obj.agent_id)[0].key if isinstance(payload_obj, SpecialistReport) else self.branch.key
         if isinstance(payload_obj, SpecialistReport):
             findings += self._revalidate(payload_obj, payload)
@@ -1487,6 +1541,8 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message=f"agent {from_agent_id!r} relayed report {payload_obj.report_id!r}, which agent {payload_obj.agent_id!r} superseded with report {self.superseded[payload_obj.report_id]!r} on this channel; the recipient receives a superseded report", report_ids=[payload_obj.report_id, self.superseded[payload_obj.report_id]], agent_ids=sorted({from_agent_id, to_agent_id}), message_ids=[msg.message_id]))
             # the delivered report's formalizations were pooled on its delivery: verified again for this receipt, never re-pooled
             outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(payload_obj, findings, pool=False), [], **rid)
+            relayed_report, relayed_named = payload_obj, self._guarded("argument diagnosis (report level)", findings,
+                                                                       lambda: self._report_diagnosis(payload_obj, None, outcomes), None, **rid)
         else:
             findings += self._revalidate_synthesis(payload_obj, payload)
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
@@ -1506,7 +1562,8 @@ class TranslatorChannel:
             findings += self._guarded("unchecked paraphrases (INT-SYNTH-012)", findings, lambda: self._unchecked_paraphrases(payload_obj, scope, checked), [], **sid)
             if not _is_blocking(findings):
                 self.syntheses.setdefault(payload_obj.synthesis_id, payload_obj)
-        return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk)
+        return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
+                            report=relayed_report, report_named=relayed_named)
 
     def _revalidate_synthesis(self, synthesis: Synthesis, payload: dict) -> list[IntegrityFinding]:
         """The synthesis delivered to the recipient must re-validate against synthesis/1.0, as a report must against its
@@ -2221,7 +2278,7 @@ class TranslatorChannel:
                                                                          {"op": "le", "left": {"op": "var", "name": "n"}, "right": {"op": "int", "value": high.value}}]},
                            "label": low.text, "grounding": {"kind": "task_setting", "verified": True}},
         })
-        return verify(problem, self.config, signing_key=self.key, key_id=self.key_id)
+        return verify(problem, self.config, signing_key=self.key, key_id=self.key_id, diagnose=False)  # a code-built check
 
     def _formal_bound(self, req: TaskRequest, c: Constraint, measured: int) -> VerificationResult:
         """Encode 'measured <op> bound' as an IR entailment so the check is a signed, bound result."""
@@ -2232,7 +2289,7 @@ class TranslatorChannel:
             "premises": [{"id": "MEASURED", "expr": {"op": "eq", "left": {"op": "var", "name": "n"}, "right": {"op": "int", "value": str(measured)}}, "label": f"response has {measured}", "grounding": {"kind": "supplied_text", "verified": True}}],
             "conclusion": {"id": "BOUND", "expr": {"op": op, "left": {"op": "var", "name": "n"}, "right": {"op": "int", "value": c.value}}, "label": c.text, "grounding": {"kind": "task_setting", "verified": True}},
         })
-        return verify(problem, self.config, signing_key=self.key, key_id=self.key_id)
+        return verify(problem, self.config, signing_key=self.key, key_id=self.key_id, diagnose=False)  # a code-built check
 
     def _supersession(self, report: SpecialistReport, findings: list[IntegrityFinding]) -> None:
         """An agent that re-states claims it already transmitted on this task supersedes its
@@ -2452,8 +2509,126 @@ class TranslatorChannel:
             return IntegrityFinding(code="INT-REQ-007", severity="warning", message=f"claim {claim.claim_id} rests on premises that contradict each other only under the assumed reading of its AMBIGUOUS_TRANSLATION{why}: the inconsistency belongs to the reading the translator chose (for example a rounded figure encoded as an exact equality), not to the specialist's statement, so the specialist is not charged with an inconsistency", **ids)
         return IntegrityFinding(code="INT-REQ-007", severity="error", message=f"claim {claim.claim_id} rests on premises that contradict each other", **ids)
 
-    def _finish(self, msg: AgentMessage, direction: str, findings, coverage, constraint_results, outcomes, formal_ids=(), *, structural=(), branch_formal=(), branch_key: Optional[str] = None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
-        structural = list(structural)
+    def _report_diagnosis(self, report: SpecialistReport, req: Optional[TaskRequest], outcomes) -> "ReportDiagnosis":
+        """The report-level argument diagnosis of one delivered report (``translate.diag_core.report_diagnostics``), run once."""
+        diagnosis = report_diagnostics(report, self._task_record(req), list(outcomes or []), items=list(req.items) if req is not None else [])
+        return ReportDiagnosis(diagnostics=tuple(diagnosis.diagnostics), incomplete=tuple(diagnosis.incomplete))
+
+    @staticmethod
+    def _labelled(f):
+        """``f`` with the canonical defect label ``named.DEFECT_OF_CODE`` gives its code (a finding that already carries one,
+        or whose code names none, is returned unchanged)."""
+        if getattr(f, "defect", None) is not None:
+            return f
+        label = defect_of(f.code, f.message)
+        return f.model_copy(update={"defect": label}) if label is not None else f
+
+    @staticmethod
+    def _material(d: NamedDiagnostic, materiality: Mapping[str, str], default_claim: Optional[str]) -> bool:
+        ids = list(d.claim_ids) or ([default_claim] if default_claim else [])
+        if not materiality or not ids:
+            return True
+        return any(materiality.get(c, "material") == "material" for c in ids)
+
+    def _argument_diagnosis(self, findings: list, structural: list, outcomes, report: Optional[SpecialistReport], report_named) -> tuple[list[NamedDiagnostic], list[IntegrityFinding], dict]:
+        """``(the receipt's named diagnostics, the INT-ARG-001 findings, what the summary reports)``: every outcome's
+        diagnostics, the report-level ones and one for each labelled finding (``named.from_finding``), ordered and kept within
+        ``named.MAX_PER_RECEIPT`` (an overflow is counted, never dropped silently); one INT-ARG-001 for each warning or error
+        diagnostic of an outcome or of the report level on a material claim, except where an existing finding already states
+        its condition (``CodeSpec.stated_by``). Info never reaches ``findings``."""
+        materiality = {c.claim_id: c.materiality for c in report.claims} if report is not None else {}
+        named: list[NamedDiagnostic] = []
+        arg: list[IntegrityFinding] = []
+
+        def receipt_finding(d: NamedDiagnostic, claim_id: Optional[str], result_id: Optional[str]) -> None:
+            spec = NAMED_CODES.get(d.code)
+            if d.severity not in ("warning", "error") or (spec is not None and spec.stated_by) or not self._material(d, materiality, claim_id):
+                return
+            arg.append(IntegrityFinding(code="INT-ARG-001", severity=d.severity, message=finding_message(d), claim_ids=list(d.claim_ids) or ([claim_id] if claim_id else []),
+                                        formal_result_id=result_id if d.layer == "engine" else None, related_result_ids=list(d.related_result_ids),
+                                        deterministic=True, defect=d.defect))
+
+        for o in outcomes or ():
+            rid = o.verification.result_id if o.verification is not None else None
+            for d in o.named_diagnostics:
+                named.append(d)
+                receipt_finding(d, o.claim_id, rid)
+        diagnosis = report_named if isinstance(report_named, ReportDiagnosis) else ReportDiagnosis()
+        for d in diagnosis.diagnostics:
+            named.append(d)
+            receipt_finding(d, None, None)
+        for f in list(findings) + list(structural):
+            if getattr(f, "code", None) == "INT-ARG-001":
+                continue
+            nd = from_finding(f)
+            if nd is not None:
+                named.append(nd)
+        unique = list({canonical_json(d): d for d in named}.values())
+        items = order_named(unique)
+        overflow = max(0, len(items) - MAX_PER_RECEIPT)
+        return items[:MAX_PER_RECEIPT], arg, self.named_info(outcomes, overflow, list(diagnosis.incomplete)[:64])
+
+    @staticmethod
+    def named_info(outcomes, overflow: int = 0, report_incomplete=()) -> dict:
+        """What the receipt summary's argument-diagnosis sentence reports beside the counts, from the receipt's structured
+        fields alone (``named_overflow``, ``diagnosis_incomplete`` and the outcomes), so a reader can regenerate it."""
+        outcomes = list(outcomes or ())
+        return {"overflow": int(overflow), "report_incomplete": [str(x) for x in report_incomplete],
+                "claims_incomplete": sum(1 for o in outcomes if o.diagnosis_incomplete),
+                "engine_undiagnosed": sum(1 for o in outcomes if o.verification is not None and rules_state(o.verification.argument_rules)[0] != "complete")}
+
+    def _encoding_disagreements(self, outcomes, branch_formal, findings) -> list[IntegrityFinding]:
+        """INT-XENC-001 (warning): a claim carries both a branch formal check of one of its own statements (the check's
+        ``claim_ids`` name it) and a translation the engine decided, and the two definitive answers are opposite: the check
+        fails (a clause the claim states does not hold) while the translation's display is a positive verdict (ENTAILED,
+        CONSISTENT, SATISFIABLE) on the claim as a whole. At least one of the two encodings misreads the claim, and the
+        channel cannot tell which. The converse is no disagreement: a check that holds covers one clause only. Only a
+        translation result the composer trusts (a TRANSLATED claim displayed with the engine's own status) and a decided
+        check with a signed result are compared; both verdicts stay on the receipt as they are (the check's INT-SUBJ-001 is
+        never demoted), and the finding names both result ids. One finding per claim and check pair."""
+        if not outcomes or not branch_formal:
+            return []
+        by_claim: dict[str, list[ClaimVerificationOutcome]] = {}
+        for o in outcomes:
+            v = o.verification
+            if v is None or o.translation.status is not TranslationStatus.TRANSLATED or o.display_status is not v.status:
+                continue
+            if v.status in _PASSING:
+                by_claim.setdefault(o.claim_id, []).append(o)
+        have = {(f.formal_result_id, tuple(f.related_result_ids), tuple(f.claim_ids)) for f in findings if f.code == "INT-XENC-001"}
+        out: list[IntegrityFinding] = []
+        for fc in branch_formal:
+            if fc.satisfied is not False or not fc.formal_result_id:
+                continue
+            for cid in dict.fromkeys(fc.claim_ids):
+                for o in by_claim.get(cid, ()):
+                    key = (fc.formal_result_id, (o.verification.result_id,), (cid,))
+                    if key in have:
+                        continue
+                    have.add(key)
+                    out.append(IntegrityFinding(
+                        code="INT-XENC-001", severity="warning",
+                        message=(f"two encodings of claim {cid} reach opposite definitive answers: the branch formal check {fc.constraint_id} of the "
+                                 f"report's own statement does not hold (engine result {fc.formal_result_id}, {fc.formal_status or 'decided'}), while the "
+                                 f"translation's engine result {o.verification.result_id} is {o.verification.status.value} on the claim as a whole. "
+                                 f"At least one encoding misreads the claim and the channel cannot tell which: the claim is unresolved, and neither "
+                                 f"verdict is withdrawn"),
+                        claim_ids=[cid], formal_result_id=fc.formal_result_id, related_result_ids=[o.verification.result_id], deterministic=True))
+        return out
+
+    def _finish(self, msg: AgentMessage, direction: str, findings, coverage, constraint_results, outcomes, formal_ids=(), *, structural=(), branch_formal=(), branch_key: Optional[str] = None,
+                report: Optional[SpecialistReport] = None, report_named=None) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
+        structural = [self._labelled(sf) for sf in structural]
+        findings = [self._labelled(f) for f in findings]
+        try:  # two encodings of one claim that disagree are named; neither verdict is demoted or dropped
+            findings = findings + self._encoding_disagreements(outcomes, branch_formal, findings)
+        except Exception as exc:  # the comparison only adds; its failure is named, never raised
+            findings.append(IntegrityFinding(code="INT-INTERNAL-001", severity="error", message=f"the channel's encoding comparison (INT-XENC-001) check failed internally ({type(exc).__name__}); its findings are missing from this receipt and must not be read as a pass"))
+        try:  # the argument diagnosis only adds; its failure is named, never raised
+            named, arg_findings, named_info = self._argument_diagnosis(findings, structural, outcomes, report, report_named)
+        except Exception as exc:
+            named, arg_findings, named_info = [], [IntegrityFinding(code="INT-INTERNAL-001", severity="error", message=f"the channel's argument diagnosis failed internally ({type(exc).__name__}); its findings are missing from this receipt and must not be read as a pass")], {}
+        findings = findings + arg_findings
         branch_key = branch_key or self.branch.key
         blocking = _is_blocking(findings)
         subject_flag = any(sf.severity in ("error", "warning") for sf in structural)
@@ -2467,15 +2642,18 @@ class TranslatorChannel:
             status = TransmissionStatus.ACCEPTED
         ids = list(formal_ids) + [o.verification.result_id for o in outcomes if o.verification is not None] + [f.formal_result_id for f in findings if f.formal_result_id]
         receipt = self._receipt(msg.message_id, direction, status, findings, coverage=coverage, constraint_results=constraint_results, outcomes=outcomes,
-                                formal_ids=sorted(set(ids)), structural=structural, branch_formal=branch_formal, branch_key=branch_key,
-                                summary=self._summary_response(status, findings, coverage, constraint_results, outcomes, structural, branch_formal, branch_key))
+                                formal_ids=sorted(set(ids)), structural=structural, branch_formal=branch_formal, branch_key=branch_key, named=named, named_info=named_info,
+                                summary=self._summary_response(status, findings, coverage, constraint_results, outcomes, structural, branch_formal, branch_key,
+                                                               named=named, named_info=named_info))
         return (msg if status is not TransmissionStatus.REJECTED else None), receipt
 
-    def _receipt(self, message_id: str, direction: str, status: TransmissionStatus, findings, *, coverage=(), constraint_results=(), outcomes=(), formal_ids=(), structural=(), branch_formal=(), summary: str, branch_key: Optional[str] = None) -> TransmissionReceipt:
+    def _receipt(self, message_id: str, direction: str, status: TransmissionStatus, findings, *, coverage=(), constraint_results=(), outcomes=(), formal_ids=(), structural=(), branch_formal=(), summary: str, branch_key: Optional[str] = None,
+                 named=(), named_info: Optional[dict] = None) -> TransmissionReceipt:
         r = TransmissionReceipt(receipt_id=uuid.uuid4().hex, message_id=message_id, request_id=self.plan.request_id, task_id=self.plan.task_id, direction=direction,
                                 status=status, findings=list(findings), coverage=list(coverage), constraint_results=list(constraint_results), outcomes=list(outcomes),
                                 branch=branch_key or self.branch.key, structural_findings=list(structural), formal_checks=list(branch_formal),
-                                formal_result_ids=list(formal_ids), summary=_fit_summary(summary), created_at=_now())
+                                formal_result_ids=list(formal_ids), summary=_fit_summary(summary), created_at=_now(), named_diagnostics=list(named),
+                                named_overflow=int((named_info or {}).get("overflow", 0)), diagnosis_incomplete=list((named_info or {}).get("report_incomplete", [])))
         self.receipts.append(r)
         return r
 
@@ -2485,7 +2663,28 @@ class TranslatorChannel:
                 f"{len(req.supplied_texts)} supplied text(s); findings: {', '.join(sorted({f.code for f in findings})) or 'none'}.")
 
     @staticmethod
-    def _summary_response(status, findings, coverage, constraint_results, outcomes, structural=(), branch_formal=(), branch="generic") -> str:
+    def _argument_summary(named, named_info: Optional[dict]) -> str:
+        """The receipt summary's argument-diagnosis sentence: counts by shown severity, then what was capped, what overflowed
+        and what was not computed or did not finish (never read as "none found")."""
+        counts = summary_counts(list(named))
+        text = (f"Argument diagnosis: {counts['named']} named on {counts['claims']} claim(s) ({counts['warning_or_error']} warning or error, "
+                f"{counts['info']} info; rules {ARG_RULES_VERSION})")
+        info = named_info or {}
+        extra = []
+        if counts["capped"]:
+            extra.append(f"{counts['capped']} capped, still blocking release")
+        if info.get("overflow"):
+            extra.append(f"{info['overflow']} more beyond the receipt bound of {MAX_PER_RECEIPT}, not listed")
+        if info.get("engine_undiagnosed"):
+            extra.append(f"engine diagnosis not computed or incomplete for {info['engine_undiagnosed']} result(s)")
+        if info.get("claims_incomplete"):
+            extra.append(f"incomplete on {info['claims_incomplete']} claim(s)")
+        if info.get("report_incomplete"):
+            extra.append("report rules incomplete: " + ", ".join(str(x)[:80] for x in info["report_incomplete"][:3]))
+        return text + ("; " + "; ".join(extra) if extra else "") + ". "
+
+    @staticmethod
+    def _summary_response(status, findings, coverage, constraint_results, outcomes, structural=(), branch_formal=(), branch="generic", *, named=(), named_info=None) -> str:
         covered = sum(1 for c in coverage if c.addressed)
         verdicts = {}
         for o in outcomes:
@@ -2507,4 +2706,4 @@ class TranslatorChannel:
         return (f"Transmission {status.value} via branch {branch}. Items addressed (heuristic): {covered}/{len(coverage)}. Request constraints: "
                 + (", ".join(f"{c.constraint_id}={'ok' if c.satisfied else 'FAILED' if c.satisfied is False else 'unchecked'}" for c in constraint_results) or "none")
                 + f". Report's own formal checks: {bf}. Subject findings: {subject}. Claim outcomes: {verdicts or 'none'}. "
-                f"Findings: {', '.join(sorted({f.code for f in findings})) or 'none'}. " + _SCOPE_TAIL)
+                f"Findings: {', '.join(sorted({f.code for f in findings})) or 'none'}. " + TranslatorChannel._argument_summary(named, named_info) + _SCOPE_TAIL)

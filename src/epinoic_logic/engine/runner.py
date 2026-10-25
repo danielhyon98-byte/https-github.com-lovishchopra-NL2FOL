@@ -62,6 +62,21 @@ Limits and policies:
   :data:`~epinoic_logic.engine.policies.NONLINEAR_MAX_DEGREE` is UNSUPPORTED (``E201``)
   before compilation, because Z3 cannot be interrupted inside some high-degree polynomial
   operations and would overrun its timeout.
+
+Argument diagnosis (rules ``argdiag-2``, :mod:`.argument`):
+
+* after the decision and before binding and signing, ``verify`` runs the argument stage on every
+  decided problem unless the caller passed ``diagnose=False`` (internal probes, cross checks, branch
+  formal checks and constraint checks do). Its diagnostics (``named_diagnostics``, engine layer only)
+  and the rule version (``argument_rules``) are part of the signed result; a stage that raises, runs
+  out of budget or returns something outside the contract records ``argdiag-2/incomplete:<reason>``
+  and no diagnostic, so it can never fire a rule or read as "none found";
+* ``severity_cap`` (``(level, reason)``; the translator passes ``("info", "ambiguous_translation")``
+  for an ambiguous translation) is applied before signing, with ``capped_from`` recorded, except to the
+  codes the cap does not cover (the equivocation codes);
+* ``diagnose`` and ``severity_cap`` are Python keywords only, reachable from neither HTTP nor
+  ``SolverConfig``; a diagnosis never changes the status, the dependency lists or the engine
+  diagnostics.
 """
 from __future__ import annotations
 
@@ -74,7 +89,10 @@ from typing import Optional, Union
 
 import z3
 
+from .. import named as _named
 from ..ir.schema import DEFAULT_LIMITS, Assertion, Grounding, Limits, Problem, Symbol, Var
+from ..version import ARG_RULES_VERSION
+from . import argument as _argument
 from .authority import (  # noqa: F401 - re-exported: callers import the dependency rules from the runner
     CHECKABLE_KINDS,
     TASK_GIVEN_KINDS,
@@ -447,6 +465,48 @@ _COMPARE_OPS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
 _NUMERIC_SORTS = frozenset({"Int", "Real"})
 
 
+#: The solver budget of each of the translator's circularity guards below (milliseconds).
+RESTATEMENT_RUN_MS = 1000
+
+
+def premises_inconsistent(problem: Problem, *, budget_ms: int = RESTATEMENT_RUN_MS) -> bool:
+    """Whether the premises of ``problem`` contradict each other, decided by Z3 within ``budget_ms`` (True only on a proof:
+    an undecided or failed check is False). The translator asks it before it refuses an encoding as circular: premises that
+    contradict each other prove nothing, so the engine's INCONSISTENT_PREMISES (consistency before entailment) is the
+    verdict, never a circularity refusal (repair round 2: "they recalled more, and they did not recall more" was refused as
+    circular, hiding the contradiction)."""
+    if not problem.premises or budget_ms < 1:
+        return False
+    try:
+        compiled = compile_problem(problem)
+        solver = z3.Solver(ctx=compiled.ctx)
+        solver.set("timeout", int(budget_ms))
+        for term in compiled.premises.values():
+            solver.add(term)
+        return solver.check() == z3.unsat
+    except (CompileError, z3.Z3Exception):
+        return False
+
+
+def conclusion_valid_alone(problem: Problem, *, budget_ms: int = RESTATEMENT_RUN_MS) -> bool:
+    """Whether the conclusion of ``problem`` holds with no premise at all (its negation is unsatisfiable), decided by Z3
+    within ``budget_ms`` (True only on a proof: an undecided or failed check is False). The translator asks it before it
+    refuses an encoding as circular (repair round 3, tf_z19): a conclusion that holds whatever the premises say ("prices
+    rose or did not rise") is not proved from itself; the engine names it vacuous (``E108``), which is the defect."""
+    if problem.query != "entailment" or problem.conclusion is None or budget_ms < 1:
+        return False
+    try:
+        compiled = compile_problem(problem)
+        if compiled.conclusion is None:
+            return False
+        solver = z3.Solver(ctx=compiled.ctx)
+        solver.set("timeout", int(budget_ms))
+        solver.add(z3.Not(compiled.conclusion))
+        return solver.check() == z3.unsat
+    except (CompileError, z3.Z3Exception):
+        return False
+
+
 @dataclass(frozen=True)
 class FigureDefinition:
     """A premise that only DEFINES a Bool ``atom`` as a comparison over numeric ``figures`` that no other premise
@@ -625,14 +685,75 @@ def _solver_diagnostics(outcome: ProcedureOutcome) -> list[Diagnostic]:
     return []
 
 
+def _severity_cap(cap) -> Optional[tuple[str, str]]:
+    """``severity_cap`` as ``(level, reason)``; ``ValueError`` for anything else."""
+    if cap is None:
+        return None
+    if not isinstance(cap, tuple) or len(cap) != 2 or cap[0] not in _named.SEVERITY_RANK or cap[1] not in _named.CAP_REASONS:
+        raise ValueError("severity_cap must be (level, reason) with a severity and a cap reason")
+    return cap[0], cap[1]
+
+
+def _diagnose(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig, limits: Limits, diagnostics: list[Diagnostic],
+              severity_cap) -> tuple[Optional[list], Optional[str]]:
+    """Run the argument stage (module docstring) and return ``(named_diagnostics or None, argument_rules)``.
+
+    The stage runs inside the verification's memory window. Anything it returns is checked against the contract: engine-layer
+    named diagnostics only (a diagnostic with no claim is given the problem's claim), merged, with dominated generic
+    warnings left out, ordered and bounded (an overflow makes the diagnosis incomplete, so nothing is dropped silently), then
+    capped by ``severity_cap``. A stage that raises, or returns anything else, yields ``argdiag-2/incomplete:<reason>`` and no
+    diagnostic."""
+    try:
+        cap = _severity_cap(severity_cap)
+    except ValueError:
+        return None, _named.incomplete_rules("invalid_severity_cap")
+    apply_global_memory_limit(config)
+    try:
+        found, rules = _argument.diagnose(problem, proc, compiled, config, limits, list(diagnostics))
+    except z3.Z3Exception:
+        reset_global_memory_limit()
+        return None, _named.incomplete_rules("solver_aborted")
+    except Exception as exc:  # noqa: BLE001 - a failing rule fires nothing and is recorded, never raised
+        return None, _named.incomplete_rules(f"internal_{type(exc).__name__}")
+    finally:
+        release_global_memory_limit(config)
+    if not isinstance(rules, str) or not (rules == ARG_RULES_VERSION or _named.rules_state(rules)[0] == "incomplete"):
+        return None, _named.incomplete_rules("unknown_rules")
+    items = list(found or [])
+    if any(not isinstance(d, _named.NamedDiagnostic) or d.layer != "engine" for d in items):
+        return None, _named.incomplete_rules("not_engine_layer")
+    items = [d if d.claim_ids else _named.NamedDiagnostic.model_validate({**d.model_dump(mode="python"), "claim_ids": [problem.claim_id]}) for d in items]
+    items = _named.ordered(_named.suppress_dominated(_named.merge(items)))
+    if len(items) > _named.MAX_PER_CLAIM:
+        items, rules = items[:_named.MAX_PER_CLAIM], _named.incomplete_rules(f"overflow_{len(items) - _named.MAX_PER_CLAIM}")
+    if cap is not None:
+        level, reason = cap
+        items = [c for d in items for c in (_named.cap([d], level, reason) if _cap_covers(d, reason) else [d])]
+    return (items or None), rules
+
+
+def _cap_covers(d, reason: str) -> bool:
+    spec = _named.code_spec(d.code)
+    if spec is None:
+        return False
+    return spec.capped_on_ambiguous if reason == "ambiguous_translation" else spec.warning_scope != "always"
+
+
 def verify(
     problem_or_raw: Union[Problem, bytes, str, dict],
     config: SolverConfig = SolverConfig(),
     limits: Limits = DEFAULT_LIMITS,
     signing_key: Optional[bytes] = None,
     key_id: Optional[str] = None,
+    *,
+    diagnose: bool = True,
+    severity_cap: Optional[tuple[str, str]] = None,
 ) -> VerificationResult:
-    """Verify a problem (or an untrusted JSON payload) and return a bound result."""
+    """Verify a problem (or an untrusted JSON payload) and return a bound result.
+
+    ``diagnose`` runs the argument stage (module docstring; False for internal probes and code-built checks, whose results
+    then carry no ``argument_rules`` and are never release-eligible); ``severity_cap`` caps its diagnostics before signing
+    (an ambiguous translation's reading). Both are Python keywords only."""
     timings: list[StageTiming] = []
     versions = compute_versions()
     result_id = uuid.uuid4().hex
@@ -737,6 +858,12 @@ def verify(
         circular = _circular_diagnostic(problem, proc) if vacuous is None else None
         if circular is not None:
             diagnostics.append(circular)
+        named_diagnostics, argument_rules = None, None
+        stage_timings = list(proc.timings)
+        if diagnose:
+            t2 = time.perf_counter()
+            named_diagnostics, argument_rules = _diagnose(problem, proc, compiled, config, enforced, diagnostics, severity_cap)
+            stage_timings.append(StageTiming(stage="diagnose", ms=(time.perf_counter() - t2) * 1000.0))
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2, record),
@@ -744,8 +871,10 @@ def verify(
             ungrounded_dependencies=ungrounded_dependencies(problem, relied),
             unverified_dependencies=unverified_dependencies(problem, relied),
             diagnostics=diagnostics,
-            timings=proc.timings,
+            timings=stage_timings,
             reason_unknown=proc.reason_unknown,
+            named_diagnostics=named_diagnostics,
+            argument_rules=argument_rules,
         )
         if proc.status is VerificationStatus.COUNTEREXAMPLE and proc.model is not None:
             result.counterexample = Counterexample(assignments=_assignments(problem, proc.model))

@@ -425,7 +425,7 @@ def rewrite(problem: Problem, widen: Sequence[tuple[Reading, tuple[Fraction, Fra
 
 
 def _verdict(problem: Problem, config: SolverConfig) -> Optional[VerificationStatus]:
-    status = engine_verify(problem, config).status
+    status = engine_verify(problem, config, diagnose=False).status  # an internal probe: no argument diagnosis
     return status if status in DEFINITIVE else None
 
 
@@ -546,7 +546,7 @@ def _entails(premise_expr: Any, conclusion_expr: Any, symbols: list[dict], confi
                                         "symbols": symbols, "premises": [{"id": "NEW", "expr": premise_expr}], "conclusion": {"id": "REF", "expr": conclusion_expr}})
     except (ValidationError, ValueError):
         return None
-    status = engine_verify(probe, config).status
+    status = engine_verify(probe, config, diagnose=False).status  # an internal probe: no argument diagnosis
     if status is VerificationStatus.ENTAILED:
         return True
     if status in (VerificationStatus.COUNTEREXAMPLE, VerificationStatus.INCONSISTENT_PREMISES):
@@ -632,7 +632,7 @@ def added_premise_support(before: Problem, after: Problem, asserted_atoms: Seque
                 probe = Problem.model_validate({"problem_id": "retry-support", "request_id": "retry-support", "claim_id": "retry-support",
                                                 "query": "entailment", "symbols": [{"name": n, "sort": t} for n, t in sorts.items()],
                                                 "premises": givens, "conclusion": {"id": "ADDED", "expr": p.expr.model_dump(mode="json", exclude_none=True)}})
-                status = engine_verify(probe, config).status
+                status = engine_verify(probe, config, diagnose=False).status  # an internal probe: no argument diagnosis
             except (ValidationError, ValueError):
                 status = None
         if status is VerificationStatus.ENTAILED:
