@@ -1,3 +1,7 @@
+> 25 Oct 20:46 UTC (weekly limit): DONE: upload 869bf84 (= dev 404aee2), handoff docs/final-z3-handoff d4028c9 (verified).
+> Port of argument diagnostics: UNVERIFIED step-1 work on origin argdiag-port 32842ec; continue after the reset per
+> KNOWLEDGE/01-STATE.md (entry 25 Oct 20:46). Round 8 only after the reset (Daniel).
+
 > 25 Oct ~17:55 UTC: the argument-diagnostics merge FAILED (argdiag-final forked 17 Oct; contradictory duplicate fixes). Daniel decided:
 > over-limit requests are REJECTED (INT-REQ-009); STEM tolerance keeps the sum rule h(b)+h(w); now upload 404aee2 and refresh the
 > handoff; AFTER the reset port argument diagnostics onto the dev head (dev behaviour wins every contradiction), re-run its corpora,
