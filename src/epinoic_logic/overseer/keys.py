@@ -8,7 +8,8 @@
   ``journal`` (journal entry MACs), ``audit`` (signed audits), ``runs`` (the auditor's own engine runs,
   key id ``overseer-run``), ``sampling`` (keyed replay sampling), ``intake`` (verdict envelopes) and
   ``consolidation`` (signed consolidated responses, key id ``overseer-consolidation``; added by the consolidation
-  stage, design section 19). One secret to provision, with domain separation between every use.
+  stage, design section 19) and ``delivery`` (signed delivery receipts of the delivery policy, key id
+  ``overseer-delivery``; ``docs/DELIVERY.md``). One secret to provision, with domain separation between every use.
 
 No key ever appears in a repr, a dossier, a verdict, a report or a log message.
 """
@@ -22,15 +23,16 @@ from typing import Literal, Mapping, Optional, Union
 from ..engine.provenance import signature_matches, verify_signature
 from ..engine.results import VerificationResult
 
-__all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "CONSOLIDATION_KEY_ID", "MIN_SECRET_BYTES",
-           "AUDITOR_KEY_IDS"]
+__all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "CONSOLIDATION_KEY_ID", "DELIVERY_KEY_ID",
+           "MIN_SECRET_BYTES", "AUDITOR_KEY_IDS"]
 
-SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake", "consolidation")
+SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake", "consolidation", "delivery")
 RUN_KEY_ID = "overseer-run"
 AUDIT_KEY_ID = "overseer-audit"
 INTAKE_KEY_ID = "overseer-intake"
 CONSOLIDATION_KEY_ID = "overseer-consolidation"
-AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID, CONSOLIDATION_KEY_ID})
+DELIVERY_KEY_ID = "overseer-delivery"
+AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID, CONSOLIDATION_KEY_ID, DELIVERY_KEY_ID})
 MIN_SECRET_BYTES = 32
 KeyStatus = Literal["local", "external", "auditor", "unknown"]
 

@@ -2395,7 +2395,12 @@ def planted_claims_of(ob: Observed, probe: Probe) -> set[str]:
 
 # ============================================================================================ the run
 def _base_key(probe: Probe) -> tuple:
-    return (probe.stems, probe.key, probe.translation is not None)
+    """The untampered copy a probe is compared with. A translation probe's copy has ITS claim's recorded translation removed
+    (:func:`_plant_translation_none`), so translation probes on one task but on different claims need different copies: one
+    shared copy left another claim's translation out, and a claim that reads differently without it showed as a new finding
+    of the planted copy (25 Oct: units-translation-table-base-control, on g1.1, compared with the copy of givens-translation,
+    on g2.3, read the untouched claim s1.1's INT-REQ-006 as new and failed the gate)."""
+    return (probe.stems, probe.key, tuple(probe.translation[:2]) if probe.translation is not None else None)
 
 
 def run_probes(out: Path, rounds_root: Path, *, pack: Any = None, probes: tuple[Probe, ...] = PROBES, work: Optional[Path] = None) -> dict:

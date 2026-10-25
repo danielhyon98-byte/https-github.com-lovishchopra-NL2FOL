@@ -291,6 +291,30 @@ Results prove properties of the encoding only; an audit shows whether the record
 results agree with each other and with the repository's rules, never that a claim is true. See
 `src/epinoic_logic/overseer/README.md` and `docs/OVERSEER_DESIGN.md`.
 
+## Delivery policy: four minutes for the formal path, then an overseer-selected fallback above 90%
+
+What the router may hand on for one deliverable (a specialist's answer, or the consolidated response when several agents
+answered one input) is decided by `overseer.delivery_policy.DeliveryPolicy` and recorded in a signed delivery receipt
+(`delivery_receipt/1.0`, key id `overseer-delivery`). Full rules: [`docs/DELIVERY.md`](docs/DELIVERY.md).
+
+- **Formally checked** only when, within the translation budget (240 s by default, on an injectable monotonic clock),
+  every material eligible claim was translated, decided positively by the engine as encoded and passed the release rule
+  (premises established, grounding checks passed, a current faithful fidelity review), and the transfer audit cleared
+  the answer. A claim the deadline reaches unstarted is never started; one that finishes after it is late.
+- **Otherwise the fallback.** Overseer agents built from the exported knowledge pack review every candidate (every
+  answer to the input; a single answer is one candidate) through the package's runner and the self-duplicating pool,
+  every verdict validated as in production. A candidate's accuracy is the share of its material claims the counted
+  verdicts confirm accurate; a verdict contradicting a signed engine result is rejected; a claim a signed result refutes
+  is inaccurate and an unassessed claim is never accurate. The most accurate acceptable candidate (ties to the
+  consolidation's canonical choice) is delivered OVERSEER-SELECTED only when its accuracy is strictly above 0.90; a
+  candidate with a refuted material claim is never chosen while another has none.
+- **Otherwise withheld**, with every score and reason on the receipt. The overseer stage has its own deadline; when it
+  runs out the answer is withheld (or, only if an operator configures it, delivered NOT CHECKED).
+- Only FORMALLY CHECKED claims a check: every other label says "not formally checked, not verified". The delivered
+  payload is the journaled one byte for byte; the fallback never edits, widens, adds or drops a claim. The receipt
+  records the time to decision, the translation time and the overseer time; the arena harness reports each task's mode,
+  time to decision, candidates and choice in `results.json` and `summary.md`.
+
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 
 | Feature | What it does | Where |
@@ -369,7 +393,7 @@ on its own.
 - `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
 - `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
-- `src/epinoic_logic/overseer/` — the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner
+- `src/epinoic_logic/overseer/` — the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner, consolidation, the overseer pool and the delivery policy (`docs/DELIVERY.md`)
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line

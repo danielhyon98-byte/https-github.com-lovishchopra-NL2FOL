@@ -300,6 +300,18 @@ def _verdicts(rp, jobs):
     return out
 
 
+def _hold(rp, pid):
+    """Stop the idle worker (SIGSTOP) only once its queue feeder thread has released the results queue's write lock. The
+    lock is shared with this process, and the reader can receive a message before the writer releases the lock: a worker
+    stopped in that instant keeps the lock, so a message this test puts on the queue (:func:`_started`) is never sent.
+    After its last message the idle worker sends nothing more, so the lock stays free until it is stopped."""
+    wlock = rp._results_q._wlock
+    if wlock is not None:
+        assert wlock.acquire(timeout=30), "the worker kept its results queue's write lock"
+        wlock.release()
+    os.kill(pid, signal.SIGSTOP)
+
+
 def _started(rp, rid):
     """Tell the replayer the worker took job ``rid`` (as the worker's own message does), and wait until it has read it."""
     rp._results_q.put((rp._gen, "started", rid, None, None))
@@ -349,7 +361,7 @@ def test_a_job_still_running_at_its_budget_is_budget_exceeded_and_the_jobs_behin
     rp = Replayer(make_keyring(), mode="process", job_budget_s=1.0)
     try:
         pid = _warm(rp)
-        os.kill(pid, signal.SIGSTOP)
+        _hold(rp, pid)
         stuck, *behind = jobs = [_job(rid="stuck", always=True), _job(rid="b1", always=True), _job(rid="b2", always=True)]
         for j in jobs:
             rp.submit(j)
@@ -371,7 +383,7 @@ def test_a_worker_that_exits_is_replaced_its_running_job_errs_and_its_queued_job
     rp = Replayer(make_keyring(), mode="process", job_budget_s=30.0)
     try:
         pid = _warm(rp)
-        os.kill(pid, signal.SIGSTOP)
+        _hold(rp, pid)
         jobs = [_job(rid="running", always=True), _job(rid="queued", always=True)]
         for j in jobs:
             rp.submit(j)

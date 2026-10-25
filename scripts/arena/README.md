@@ -203,11 +203,32 @@ from `list_claims.py --json`) and re-adjudicate them when extraction changes; ne
 judgment applies only to a translation this run served whose digests match; anything else is listed under
 `translation_fidelity.not_applied` with the reason, never counted.
 
+## Delivery decisions
+
+After the round's records are complete, `run_arena.py` runs the delivery policy (`docs/DELIVERY.md`) over every genuine
+answer, on a hub of its own carrying a transfer auditor. The pass replays each group's genuine traffic in order and opens
+a delivery session per answer. It adds no record and moves no transport count. Its hub and claim verifier are bound at
+import, so a harness that replaces `RouterHub` or `verify_claim` never reaches it. The contained harness switches it off
+(`DELIVERY_PASS = False`) while it replaces them; `deliveries` then says it was not run. results.json carries
+`deliveries`:
+
+- the count per mode;
+- per task: the mode, the label, the time to decision, the translation and overseer times, the formal path's reasons
+  and claims, every candidate with its accuracy and whether it was chosen, the chosen answer, the signed receipt's id
+  and whether it verifies, and whether the pass's receipt equals the genuine record's (status and codes);
+- the pass's errors and its wall time.
+
+summary.md has a "Delivery decisions" table with one row per task. The command line configures no overseer agent,
+because the harness calls no model, and a replay calls no fidelity reviewer. So no formal path completes, and an answer
+is withheld with its reasons. `run_round(round_dir, delivery_overseer={"pack": ..., "provider_factory": ...})` configures
+overseer agents (tests only: scripted providers).
+
 ## Tests
 
 ```
 python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, and what a peer relay file may hold
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
+python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)
 python -m pytest -q tests/stem/test_e2e_run1_detection.py   # the e2e run1 injections: all six named, each as the harness injects it
 ```

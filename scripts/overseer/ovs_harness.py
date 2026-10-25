@@ -290,6 +290,9 @@ def audited_arena(auditor: TransferAuditor, *, genuine_only: bool = False, verif
     saved = {"RouterHub": ra.RouterHub, "MUTATIONS": ra.MUTATIONS, "verify_claim": ra.verify_claim}
     if hasattr(ra, "STEM_MUTATIONS"):
         saved["STEM_MUTATIONS"] = ra.STEM_MUTATIONS
+    if hasattr(ra, "DELIVERY_PASS"):  # the arena's delivery pass measures delivery, not the auditor: off in contained runs
+        saved["DELIVERY_PASS"] = ra.DELIVERY_PASS
+        ra.DELIVERY_PASS = False
     ra.RouterHub = AuditedHub
     if genuine_only:
         ra.MUTATIONS = ()
@@ -318,6 +321,9 @@ def run_round_without_auditor(round_copy: Path, *, genuine_only: bool = False) -
     if genuine_only:
         for k in saved:
             setattr(ra, k, ())
+    if hasattr(ra, "DELIVERY_PASS"):  # as in audited_arena, so the two runs it compares are alike
+        saved["DELIVERY_PASS"] = ra.DELIVERY_PASS
+        ra.DELIVERY_PASS = False
     try:
         return ra.run_round(Path(round_copy))
     finally:

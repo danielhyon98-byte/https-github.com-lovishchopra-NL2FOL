@@ -185,6 +185,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
 
 from epinoic_logic.branches import RouterHub
+# the delivery pass's hub, bound at import: a harness that replaces RouterHub in this module (scripts/overseer's contained
+# run substitutes a hub carrying its own auditor) never reaches the delivery pass, which carries an auditor of its own
+from epinoic_logic.branches.hub import RouterHub as _DeliveryHub
 from epinoic_logic.channel import TransmissionStatus
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
@@ -196,6 +199,13 @@ from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator, apply_subject_policy
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 from epinoic_logic.translate.subjects import resolve_profile
+
+#: The delivery pass's claim verifier, bound at import like its hub: a harness that replaces ``verify_claim`` in this
+#: module (the contained harness's tampering hooks) never reaches the delivery pass.
+_DELIVERY_VERIFY_CLAIM = verify_claim
+#: Whether ``run_round`` runs the delivery pass. The contained harness (``scripts/overseer/ovs_harness.py``) switches it
+#: off while it replaces this module's hub and verifier: its runs measure the transfer auditor, not delivery.
+DELIVERY_PASS = True
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
@@ -1562,7 +1572,167 @@ def title_line(round_name: str, m: dict) -> str:
     return f"# Arena {round_name}" + (f" (QUALIFIED: {'; '.join(parts)})" if parts else "")
 
 
-def run_round(round_dir: Path) -> dict:
+# ============================================================================================ the delivery pass
+#: The overseer secret of the delivery pass's own auditor (32 bytes or more, unlike the engine key).
+DELIVERY_SECRET = b"arena-delivery-pass-overseer-secret-0123456789"
+#: The translator versions of hand-built translations the delivery pass's auditor is told about (as the contained run).
+DELIVERY_HAND_BUILT = ("test", "harness")
+
+
+def _delivery_auditor():
+    """The delivery pass's transfer auditor: its own key ring (the engine key under the hub's and the verifier's key ids)
+    and inline replay, so every decision reads a complete signed task audit."""
+    from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
+    keyring = KeyRing({"hub": EngineKey(KEY), "default": EngineKey(KEY)}, DELIVERY_SECRET)
+    return TransferAuditor(keyring, replay_mode="inline", eager=True, hand_built_translators=DELIVERY_HAND_BUILT, inline_final_release=True)
+
+
+def _candidate_line(c: dict) -> str:
+    flags = [f for f, on in (("refuted", c.get("refuted")), ("faulted", c.get("faulted") and not c.get("refuted")),
+                             ("not deliverable", not c.get("deliverable", True))) if on]
+    return f"{c.get('agent_id')} {c.get('accuracy_fraction')}" + (f" ({', '.join(flags)})" if flags else "")
+
+
+def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, policy) -> dict:
+    """One task's delivery decision as results.json reports it: the mode, the label, the time to decision, the
+    translation and overseer times, the formal path's reasons and claims, every candidate with its accuracy and the one
+    chosen, the reasons, the signed receipt's id and whether it verifies, and whether the delivery pass's receipt is the
+    genuine record's (status and codes)."""
+    from epinoic_logic.overseer.delivery_policy import verify_delivery_receipt
+    r = decision.receipt
+    fb = r.fallback
+    codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}) if rc is not None else None
+    status = rc.status.value if rc is not None else None
+    same = genuine is not None and genuine.get("status") == status and genuine.get("codes") == codes
+    out = {
+        "file": item["_path"].name, "task_id": item["task_id"], "group": group_of(item), "agent_id": item["agent_id"], "subject": item["subject"],
+        "mode": decision.mode, "delivered": decision.delivered, "label": decision.label, "time_to_decision_s": r.time_to_decision_s,
+        "translation_s": r.translation_s, "overseer_s": r.overseer_s,
+        "formal": {"complete": r.formal.complete, "within_budget": r.formal.within_budget, "reasons": list(r.formal.reasons),
+                   "claims": [{"claim_id": c.claim_id, "outcome": c.outcome, "display_status": c.display_status, "translation_status": c.translation_status,
+                               "reasons": list(c.reasons[:4])} for c in r.formal.claims],
+                   "branch_checks_not_holding": [b.constraint_id for b in r.formal.branch_checks if b.satisfied is not True]},
+        "candidates": [{"message_id": c.message_id, "agent_id": c.agent_id, "accuracy": c.accuracy, "accuracy_fraction": c.accuracy_fraction,
+                        "above_threshold": c.above_threshold, "refuted": c.refuted, "faulted": c.faulted, "deliverable": c.deliverable,
+                        "integrity_reasons": list(c.integrity_reasons), "chosen": fb is not None and c.message_id == fb.chosen_message_id,
+                        "claims": {a: sum(1 for x in c.claims if x.assessment == a) for a in ("accurate", "inaccurate", "contested", "unassessed")}}
+                       for c in (fb.candidates if fb is not None else [])],
+        "chosen": ({"message_id": r.delivered_message_id, "agent_id": r.delivered_agent_id} if r.delivered else None),
+        "overseer": ({"configured": fb.overseer.configured, "ran": fb.overseer.ran, "timed_out": fb.overseer.timed_out, "error": fb.overseer.error,
+                      "instances": list(fb.overseer.instances)} if fb is not None else None),
+        "why_fallback": list(fb.why) if fb is not None else [], "selection": list(fb.selection) if fb is not None else [], "reasons": list(r.reasons),
+        "delivery_receipt_id": r.receipt_id, "receipt_verifies": verify_delivery_receipt(r, keyring),
+        "delivery_pass_status": status, "delivery_pass_codes": codes, "receipt_matches_genuine_record": same,
+    }
+    if not same and genuine is not None:
+        out["genuine_record"] = {"status": genuine.get("status"), "codes": genuine.get("codes")}
+    return out
+
+
+def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None = None) -> dict:
+    """The delivery policy (``epinoic_logic.overseer.delivery_policy``, ``docs/DELIVERY.md``) applied to every genuine
+    answer of the round, on a hub of its own carrying a transfer auditor: each group's genuine traffic is replayed in the
+    genuine pass's order (requests, peer relays, answers with the same fixtures) and, for each answer, a delivery session
+    starts when the answer reaches the hub and decides: formally_checked, overseer_selected, not_checked or withheld,
+    with the time to decision, the candidates and the one chosen. ``overseer`` (``{"pack": ..., "provider_factory": ...,
+    "pool_config": ...}``) configures the fallback's overseer agents; without it (the command line: the harness calls no
+    model) the fallback establishes no accuracy, so an answer the formal path does not complete is withheld. The pass
+    changes no record of the round and no transport count: its records are ``deliveries``, a measure of its own."""
+    from epinoic_logic.overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
+    t_pass = time.perf_counter()
+    cfg = DeliveryConfig()
+    out = {"policy": DELIVERY_POLICY_VERSION, "translation_budget_s": cfg.translation_budget_s, "overseer_budget_s": cfg.overseer_budget_s,
+           "min_selected_accuracy": cfg.min_selected_accuracy,
+           "overseer": "configured" if overseer else "not configured (the harness calls no model): the fallback establishes no accuracy",
+           "tasks": [], "by_mode": {m: 0 for m in ("formally_checked", "overseer_selected", "not_checked", "withheld")}, "errors": []}
+    genuine = {r["file"]: r for r in records if r.get("variant") == "genuine"}
+    try:
+        auditor = _delivery_auditor()
+        hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor)
+        policy = DeliveryPolicy(config=cfg, clock=time.monotonic, **(overseer or {}))
+    except Exception as exc:  # a failure of the pass never ends the round
+        out["errors"].append({"error": f"the delivery pass could not start: {type(exc).__name__}: {exc}"})
+        return out
+    channels: dict[str, object] = {}
+    delivered: dict[str, object] = {}
+    peer_docs: dict[str, SuppliedText] = {}
+    try:
+        for item in items:
+            sp, task_id, group = item["_path"], item["task_id"], group_of(item)
+            try:
+                if group not in channels:
+                    channels[group] = hub.open_task(group_plan(items, group))
+                ch = channels[group]
+                texts = supplied(item)
+                if item.get("peer_of"):
+                    recorded_doc = recorded_relays[task_id]["payload"].get("original_response") if task_id in recorded_relays else None
+                    _rec, ptext, _relayed = relay_from_peer(ch, items, item, delivered, sp.name, recorded_doc)
+                    if ptext is None:
+                        out["tasks"].append({"file": sp.name, "task_id": task_id, "group": group, "agent_id": item["agent_id"], "subject": item["subject"],
+                                             "mode": "withheld", "delivered": False, "reasons": ["the agent answered nothing: its peer report was not relayed"]})
+                        out["by_mode"]["withheld"] += 1
+                        continue
+                    peer_docs[task_id] = ptext
+                    texts = [*texts, ptext]
+                key = ch.plan.task_id
+                m, _req, _rq = hub.dispatch(key, item["agent_id"], item["question"], texts)
+                if m is None:
+                    out["errors"].append({"file": sp.name, "error": "the request was rejected in the delivery pass"})
+                    continue
+                ch.verify_claim_fn = make_verify_fn(sp.stem, False, _DELIVERY_VERIFY_CLAIM)
+                session = policy.start(hub, key)
+                session.install()
+                reply, rc = hub.receive(key, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{task_id}-0")
+                if reply is not None:
+                    delivered[sp.stem] = reply
+                decision = session.decide(request_message_ids=[m.message_id], receipts={rc.message_id: rc})
+                rec = delivery_record(item, decision, auditor.keyring, genuine=genuine.get(sp.name), rc=rc, policy=policy)
+                out["tasks"].append(rec)
+                out["by_mode"][decision.mode] = out["by_mode"].get(decision.mode, 0) + 1
+            except Exception as exc:  # recorded, never allowed to end the round
+                out["errors"].append({"file": sp.name, "error": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]})
+    finally:
+        try:
+            hub.close()
+        except Exception:
+            pass
+    out["receipts_matching_genuine_records"] = sum(1 for t in out["tasks"] if t.get("receipt_matches_genuine_record"))
+    out["decided"] = sum(1 for t in out["tasks"] if "delivery_receipt_id" in t)
+    out["wall_s"] = round(time.perf_counter() - t_pass, 3)  # the pass's own wall time (a measure for the optimisation checks)
+    return out
+
+
+def delivery_lines(d: dict) -> list[str]:
+    """summary.md's delivery section: one row per task (mode, time to decision, candidates and the one chosen)."""
+    if d.get("skipped"):
+        return ["## Delivery decisions", "", f"(not run: {d['skipped']})"]
+    lines = ["## Delivery decisions (delivery policy " + str(d.get("policy")) + f": {d.get('translation_budget_s', 0):g} s translation budget, "
+             f"overseer-selected fallback above {d.get('min_selected_accuracy', 0):g}; docs/DELIVERY.md)", "",
+             "Each genuine answer is replayed on a hub of its own with the transfer auditor attached and decided by the delivery policy. "
+             f"Overseer agents: {d.get('overseer')}. A separate measure: it changes no transport count. Modes: "
+             + ", ".join(f"{k} {v}" for k, v in d.get("by_mode", {}).items()) + f"; receipts identical to the genuine records' (status and codes): "
+             f"{d.get('receipts_matching_genuine_records', 0)} of {d.get('decided', 0)}; the pass took {d.get('wall_s', 0):g} s.", "",
+             "| task | mode | time to decision (s) | translation (s) | overseer (s) | candidates (accuracy) | chosen | why |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for t in d.get("tasks", []):
+        why = (t.get("why_fallback") or t.get("reasons") or [""])[0] if t.get("mode") != "formally_checked" else "formal path complete"
+        why = (why[:160] + "…") if len(why) > 160 else why
+        cands = "; ".join(_candidate_line(c) for c in t.get("candidates", [])) or "-"
+        chosen = (t.get("chosen") or {}).get("agent_id") or "-"
+        ov = "-" if t.get("overseer_s") is None else f"{t['overseer_s']:.3f}"
+        tr = "-" if t.get("translation_s") is None else f"{t['translation_s']:.3f}"
+        ttd = "-" if t.get("time_to_decision_s") is None else f"{t['time_to_decision_s']:.3f}"
+        lines.append(f"| {t['file']} | {t['mode']} | {ttd} | {tr} | {ov} | {cands} | {chosen} | {why.replace('|', '/')} |")
+    for e in d.get("errors", []):
+        lines.append(f"- delivery pass error: {e.get('file', '')} {e.get('error')}")
+    if not d.get("tasks"):
+        lines.append("(no task)")
+    return lines
+
+
+def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict:
+    """Run one recorded round (module docstring). ``delivery_overseer`` configures the delivery pass's overseer agents
+    (``delivery_pass``); the command line passes none."""
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
     syntheses = load_syntheses(syn_dir)  # the combinator's output as written: a file that is not JSON is relayed as text, never raised on
@@ -1588,9 +1758,10 @@ def run_round(round_dir: Path) -> dict:
     for it in items:
         last_in_group[group_of(it)] = it["task_id"]
 
-    def make_verify_fn(stem: str, capture: bool):
+    def make_verify_fn(stem: str, capture: bool, verify=None):
         """Translator agent output -> fixture provider; verify eligible claims of the task ``stem`` through the real
-        pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for."""
+        pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for.
+        ``verify`` replaces the module's ``verify_claim`` (the delivery pass passes the one bound at import)."""
         tr = translations.get(stem)
         if not tr:
             return None
@@ -1604,7 +1775,7 @@ def run_round(round_dir: Path) -> dict:
                 # the fixture was produced for the genuine text: bind it to that claim text (computed here, at verify
                 # time, from the parsed report) so a re-stated claim under the same id is refused later
                 _capture[claim.claim_id] = sha256_text(claim.claim_text)
-            return verify_claim(claim, report, _t, config=CFG, signing_key=KEY)
+            return (verify or verify_claim)(claim, report, _t, config=CFG, signing_key=KEY)
         return verify_fn
 
     # Two passes: every genuine reply (with peer relays and the combinator's synthesis) first, then the fault
@@ -1763,6 +1934,11 @@ def run_round(round_dir: Path) -> dict:
                 # changed since is read together with the recorded relay check
                 srec["recorded_relays_differing"] = list(stale_relays_by_group[group])
             records.append(srec)
+    # the delivery policy's decision for every genuine answer: a pass of its own, on a hub of its own, after the round's
+    # records are complete (it adds no record and moves no transport count)
+    deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer) if DELIVERY_PASS else
+                  {"skipped": "the delivery pass is switched off (DELIVERY_PASS is False: a harness that replaces this module's hub or verifier "
+                              "runs this round)", "tasks": [], "by_mode": {}, "errors": []})
     total = len(records)
     functional = sum(1 for r in records if r.get("functional"))
     # Translation outcomes: the genuine pass verifies every eligible claim with a fixture exactly once, so its counts are
@@ -1810,6 +1986,7 @@ def run_round(round_dir: Path) -> dict:
            "genuine_with_errors": genuine_findings_summary(records),
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
+           "deliveries": deliveries,
            "failures": [r for r in records if not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
     out["metrics"] = round_measures(records, translations, adjudications)
@@ -1856,6 +2033,7 @@ def run_round(round_dir: Path) -> dict:
             lines.append(f"  - info-level: {u['unexplained_info']}")
     if not out["mutations_with_unexplained_findings"]:
         lines.append("(none)")
+    lines += [""] + delivery_lines(out["deliveries"])
     lines += ["", "## Failures", ""] + ([f"- {r['file']} [{r['variant']}]: {'; '.join(([r['error']] if r.get('error') else []) + (r.get('failure_reasons') or [])) or ('status ' + str(r.get('status')) + ' codes ' + str(r.get('codes')))}" for r in out["failures"]] or ["(none)"])
     (round_dir / "summary.md").write_text("\n".join(lines))
     return out
@@ -1874,6 +2052,10 @@ def main(argv: list[str] | None = None) -> int:
     res = run_round(rd)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
+    dl = res.get("deliveries") or {}
+    print("delivery decisions (a separate measure):", ", ".join(f"{k} {v}" for k, v in (dl.get("by_mode") or {}).items()),
+          f"| receipts identical to the genuine records': {dl.get('receipts_matching_genuine_records', 0)} of {dl.get('decided', 0)}",
+          f"| delivery pass errors: {len(dl.get('errors') or [])}")
     ge = res["genuine_receipts_with_errors"]
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",
