@@ -1,3 +1,25 @@
+# Resume after the weekly limit of 25 Oct 2026 (final checkpoint ~08:05 UTC; limit resets Fri 30 Oct 16:00 UTC)
+
+Read KNOWLEDGE/01-STATE.md (entries 00:00-08:00 of 25 Oct) first. Where everything stood:
+- DEV BRANCH (origin claude/z3-verification-engine-plan-nk3luq) = 3adfd73 "Merge the logic-checking overseer agents into
+  the translator" (independently verified: suite 10503 passed, 0 failed; harness r1-r7 = baseline). Not yet on
+  verified-updates: its pre-upload simulation failed once on 1 unnamed test under load 11-14 (the 167 round-dependent
+  tests pass); a second rerun was running (log scratchpad/presim-3adfd73-rerun2.log). simulate.sh now names failing tests.
+  To upload: if simcache/translator-3adfd73...txt says SIMULATION OK, run event_push.sh; else rerun presim.sh then
+  event_push.sh (detached with setsid nohup: the merged suite takes ~38-45 min).
+- PHASE 2 wf_1683c1c3-d71 (script .worktrees/scripts/phase2-pipeline.js, args scratchpad/wf/phase2-args.json): in the r7
+  handoff fix round (blocker+major only; minors are known defects). fix:stem and fix:core returned; fix:parsers and
+  fix:overseer were running; then the handoff fixer, verify, commit "Fix the r7 handoff findings". The main checkout
+  holds their uncommitted edits: do NOT commit them by hand. Resume: Workflow({scriptPath, resumeFromRunId:
+  "wf_1683c1c3-d71", args: <phase2-args.json>}); agents that were running re-run (their partial edits stay in the tree;
+  the re-run fixers see them).
+- ARGDIAG ACCURACY wf_66515820-135 (script scratchpad/wf-scripts/argdiag-accuracy.js, no args): accfix:2 was running on
+  the argdiag-integ worktree index (BEFORE ref argdiag-accfix-before 4267cb3). Resume with resumeFromRunId. Then commit
+  the index on local branch argdiag-final with wf/argdiag/commit-msg.draft.txt (fresh Suite/Harness lines, known defects),
+  simulate.sh translator argdiag-final argdiag-final; phase 2's wait:argdiag merges it.
+- OVERSEER UPLOAD (overseer-prototype) held by overseer_gate policy (a) on 502fcff; the merge 3adfd73 carries the rebuild.
+- Daniel 23 Oct ~19:02: "dont worry about weekly usage" (only the final checkpoint applies). Round 8 not started.
+
 # Resume (updated 2026-10-17): read KNOWLEDGE/ first
 
 The compact knowledge files are in tools.tar.xz under KNOWLEDGE/ (00-READ-FIRST, 01-STATE, 02-PRIORITIES, 03-RULES,
