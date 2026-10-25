@@ -983,3 +983,10 @@ Work in progress after it is labelled as such.
   verification decides whether it is committed.
 - Argument diagnostics: the second security round is still in progress (the five slow-pattern findings now have fixes and
   tests; a sweep over every pattern is running).
+
+### Progress, 02:00 UTC (25 October)
+
+- Phase 2's merge of the overseer rebuild: the suite outside the overseer passes in full on the merge (8243 passed, 0
+  failed, 45 deselected, 4 expected failures); the overseer tests and the contained overseer run on rounds r2 to r5 and r7
+  are being re-run before an independent verification decides whether the merge is committed.
+- Argument diagnostics: the second security round is taking its final timing measurements of the changed patterns.
