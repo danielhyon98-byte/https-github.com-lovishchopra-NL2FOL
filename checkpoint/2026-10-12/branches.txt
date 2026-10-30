@@ -7,7 +7,7 @@
 + argdiag-d                                 1f4f0f1 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Argument diagnosis, fixer d: the channel and the response gate
 + argdiag-e                                 1e6103f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Re-run review findings: engine runner and provenance, CLI, translation records, hub, sentence reader
 + argdiag-final                             c219b4f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-integ) Argument diagnostics: name unchecked sources, unstated links and STEM method faults (known defects listed)
-+ argdiag-port                              c1aebbb (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-port) [origin/argdiag-port] Port argument diagnostics 1/2: unchecked sources and unstated links on the integrated translator
++ argdiag-port                              db58ad3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-port) [origin/argdiag-port] Port argument diagnostics 2/2: STEM method faults on the integrated translator
   argdiag-r6-snapshot                       ac7df9f Argument diagnostics: staged tree after repair round 5 (local snapshot, not for upload)
 * claude/z3-verification-engine-plan-nk3luq 4925641 [origin/claude/z3-verification-engine-plan-nk3luq] Tests README: progress note 19:00
 + docs/final-z3-handoff                     e88a793 (/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/final-handoff) Handoff: update the completion report and website launch package at 99% weekly usage
