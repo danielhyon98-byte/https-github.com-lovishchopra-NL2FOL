@@ -1,4 +1,4 @@
-refs/checkpoint/2026-10-12/probe-staged c7a6c0920dc3dc17fef46f84f600f3fbd6557b32
+refs/checkpoint/2026-10-12/probe-staged 808eabe5991829ba189e8d72176d85045660e44c
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-accfix-before 4267cb3c6b99f833ec7fa0ac84c6351a563e0d8c
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
