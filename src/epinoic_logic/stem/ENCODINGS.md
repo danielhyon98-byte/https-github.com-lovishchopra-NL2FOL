@@ -37,6 +37,7 @@ a `Problem` object. It also keeps the front-end import allowlist of
 | `tolerance.py` | `STEM_TOLERANCE_RULE` (R1 to R10), `SHORT_RULE` (≤ 300 characters), `STEM_SCOPE`, `half_width`, `tau_for`, `band_expr`. |
 | `to_ir.py` | `Encoder` (AST → IR terms with auxiliaries, guards and enclosures), `ProblemBuilder`, one-to-one `ir_name`, `grounding`, `inspect_ir` (bounds and the nonlinear rule, read from the IR as data). |
 | `checks.py` | `build_checks`: a `PlannedCheck` per planned kind, or an ST finding. |
+| `reference.py` | The closed STEM reference read for the checks (argument diagnostics): `unit_written_once` for a rounding that writes its unit once, and, in the front end, `unit_scale` and `as_written_reading` for the ST-UNIT-003 companion (a relation whose written units contradict the as-written reading plans none). |
 
 ## Node encodings (section 7.4)
 
@@ -178,6 +179,9 @@ Numbers in a reading:
 | `bool` | `NEG: ¬(lhs ⇔ rhs)`. A witness distinguishes the sides. | satisfiability, UNSATISFIABLE |
 | `tt` | Stated outputs pinned per row; every output `⇔` its expression on the row's inputs. | E |
 | `base` | Exact Int arithmetic on based numerals. | E |
+| `unit` (`stem-<kind>-<n>u`, ST-UNIT-003; argument diagnostics) | The *traced* companion of an `eq` check, or of a `sub` check that evaluates: bare numerals that repeat the numbers of bindings (or of the request's quantities) stated in non-SI units are read in those units in the SI readings, and the conclusion is that the as-written readings imply the SI readings, so the companion fails exactly when the numbers hold as written and fail in SI. The check beside it keeps its own readings. No *written* companion is planned on this tree: the check itself admits no as-written reading its units contradict (`_as_written_consistent`). A failure carries `PlannedCheck.defect` `stem_unit_error`, at warning. | E, ENTAILED (S under interval readings) |
+| `op` (ST-STEP-001; argument diagnostics) | The operation the prose states before a step (add or subtract k on both sides, multiply or divide both sides by k, square both sides) applied to each side of the preceding equation gives the next line's sides, in either order, for every value of the unknowns: "the sides differ" over free unknowns, expected UNSATISFIABLE. Warning; `defect` `stem_invalid_step`. | satisfiability, UNSATISFIABLE |
+| `rnd` (ST-ROUND-001; argument diagnostics) | A comparison against a threshold made with a value the working rounded (`… = 0.246 s ≈ 0.25 s`) keeps its truth with the value before the rounding: the stated comparison with the rounded value implies it with the value before the rounding. Warning; `defect` `stem_rounding_changes_conclusion`. | E, ENTAILED |
 
 Every check has these fields:
 - `inconsistent_is_failure=False` (D13).

@@ -636,6 +636,10 @@ class CorePack:
         f += self._guarded("arithmetic", lambda: self._undecided_arithmetic(report, r), f) or []
         f += self._guarded("support links", lambda: self._support_cycles(report), f) or []
         f += self._guarded("check limit", lambda: self._formal_overflow(report, r), f) or []
+        if not r.si and request_text:
+            # argument diagnostics (ST-RANGE-001, docs/ARGUMENT_DIAGNOSTICS.md section 3.4): a model the request states with the range of
+            # its data, evaluated outside it on a general branch
+            f += self._guarded("model range", lambda: request_model_extrapolation(report, request_text), f) or []
         return f
 
     @staticmethod
@@ -1400,3 +1404,23 @@ class GenericPack:
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         """The report's worked equations as engine problems (:mod:`.worked`: 'Dependency ratio = 31 ÷ 69 × 100 = 44.9')."""
         return _worked_checks(report, "generic-worked", set())
+
+
+#: argument diagnostics: a relation the request states ('Q = 1.6R + 4'), read before the STEM front end is run on a general branch
+_REQUEST_RELATION_RE = re.compile(r"(?<![\w₀-₉])(?=[\w₀-₉]*?[A-Za-z])[\w₀-₉]++\s*+=\s*+[-−]?[\w(.√]")
+
+
+def request_model_extrapolation(report: SpecialistReport, request_text: str) -> list[StructuralFinding]:
+    """ST-RANGE-001 (stem_extrapolation) on a general branch (argument diagnostics, docs/ARGUMENT_DIAGNOSTICS.md section 3.4): the
+    request states a model and the range of the data it was fitted on ("For eleven storms with rainfall totals between 10 mm and
+    40 mm, the peak discharge fits the line Q = 1.6R + 4"), and the answer evaluates the model outside that range ("Q = 1.6 × 150
+    + 4 = 244") with no caveat. The STEM front end reads it (its request-model reading, ``stem.relations``) on the answer as
+    written and the request, under the general science profile; only that finding is kept, mapped to the claims of its
+    statement. Silent when the request states no relation."""
+    if not _REQUEST_RELATION_RE.search(request_text[:20000]) or not any(ch.isdigit() for ch in report.original_response[:200_000]):
+        return []
+    from ..stem.document import build_document
+    from .stem_pack import _ClaimMap, _finding
+    doc = build_document(report.original_response, request_text, "stem")
+    claim_map = _ClaimMap(report, doc)
+    return [_finding(x.code, x.severity, claim_map.relabel(x.message), claim_map.ids(x.statement_ids)) for x in doc.findings if x.code == "ST-RANGE-001"]

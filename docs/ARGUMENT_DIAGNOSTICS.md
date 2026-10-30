@@ -2215,9 +2215,10 @@ the contract's limits stays REJECTED with INT-REQ-009 (never truncated with INT-
 sum rule |w - b| <= h(b) + h(w).
 
 The port has two steps. **Step 1** (this section) ports everything of the feature outside `src/epinoic_logic/stem/`:
-unchecked sources (issue 1) and unstated links (issue 2). **Step 2** ports the STEM method faults (issue 3:
-`stem/reference.py`, `stem/reference_data.py`, `stem/word_formulas.py` and their hooks); until it lands, the ST-* labels
-of section 3.4 are not named on this tree.
+unchecked sources (issue 1) and unstated links (issue 2). **Step 2** (sections 20.6 to 20.9) ports the STEM method faults
+(issue 3: `stem/reference.py`, `stem/reference_data.py`, `stem/word_formulas.py` and their hooks), on the integrated STEM
+front end and checks; where section 3.4 describes a reading of the feature line's own front end that this tree reads its own
+way, section 20.7 says so.
 
 ### 20.1 What step 1 ports
 
@@ -2408,7 +2409,7 @@ Duplicates (the test pins the feature line's version of a fix the integrated tre
 
 Deferred to step 2 (they score whole corpora whose cases include STEM method faults): `tests/contract/test_repair_round1_cases.py`,
 `test_repair_round2_cases.py`, `test_accuracy_round1_cases.py` and `test_accuracy_round2_cases.py` (their data files are
-already carried), and every STEM test of the feature (`tests/stem/`, step 2).
+already carried), and every STEM test of the feature (`tests/stem/`). Both are ported in step 2 (section 20.8).
 
 ### 20.5 Measured on this tree (step 1)
 
@@ -2418,3 +2419,179 @@ on the directories step 1 touches and every ported test file: `tests/translate` 
 3 xfailed, 1 deselected (by the suite's own configuration); `tests/overseer`, `tests/adapters` and
 `tests/adapters_history` 3260 passed. No failure. The full suite, the arena harness on every recorded round, the
 overseer's contained run and the three argument-diagnosis corpora are measured once, after step 2.
+
+### 20.6 What step 2 ports (STEM method faults)
+
+* **Modules of the feature** (new files, unchanged): `stem/reference_data.py` (the closed reference: 83 symbol entries, 15
+  formulas, 109 data-booklet laws, and the cue tables of the named checks), `stem/reference.py` (its readers) and
+  `stem/word_formulas.py` (word equations read in symbols, in the 1:1 reading view).
+* **The front end's named findings** (`stem/relations.py`): the feature's readers of the method faults, added to the
+  integrated planner as its own methods and run after every integrated post-pass (`_Planner.run`): ST-REF-001 and ST-REF-002
+  (`_reference_formulas`, `_booklet_form`), ST-ROUND-001 (`_rounding_comparisons` and the rounding, target and condition
+  readers it uses), ST-RANGE-001 (`_extrapolation`, `_request_law_ranges`), ST-WORK-001 (`_working`), ST-GIVEN-002,
+  ST-GIVEN-003, ST-GIVEN-004 and ST-SCOPE-002 (`_rebindings`, `_dimension_rebindings`, `_unlabelled_rebindings`,
+  `_mixed_groups`, `_inline_givens`, `_bare_givens`, `_overdetermined_givens`, `_set_counts`, `_probabilities`), ST-STEP-001,
+  ST-STEP-002 and ST-STEP-003 (`_stated_operation`, `_division_note`, `_false_rewrite`), and the ST-UNIT-003 companions
+  (`_unit_companion`, `_request_traced_companion`), with the module-level patterns and helpers they read (the feature's
+  `_clause_tail` is kept as `_named_clause_tail`, beside the integrated `_clause_tail` of rule row-value). Their severities
+  join `ST_SEVERITY`.
+* **Hooks in the integrated planner**, adapted: the unit companion after the `eq` check of written arithmetic (with or
+  without the integrated rule result-rounding), after a `sub` check that evaluates and after a formula evaluated at its
+  stated values; the false-rewrite check before an undecided function of an unknown; the stated operation of a step
+  (`_step`, also from the request's own equation when the answer's first line states the operation applied to it, and the
+  operation read as a step cue in `_step_cues`); the condition points a chain evaluates at (kept for ST-RANGE-001); the
+  final value of the chain each operand stands in and the chains that end in a rounding; a bare numeral substituted for a
+  symbol bound nowhere else carries the request's SI unit for that quantity; the inline givens after the integrated
+  givens; the request's data series and years (`document._request_series`, new fields `RequestReading.series` and
+  `RequestReading.years`; the feature's own reading of `RequestReading.values` is replaced by the integrated one, whose
+  entries carry a fourth field); `plan_relations` receives the whole answer (for the extrapolation caveats) and the
+  reference-checks switch, and gives a companion the id of the check it accompanies with `u` appended.
+* **Checks** (`stem/checks.py`): the builders `unit`, `op` and `rnd`, their kind names and titles, the companion's readings
+  (`both` in `_readings` and `_reading_modes`), the `implies` combination and the SI pairs of a traced companion in
+  `_compare`, and `PlannedCheck.defect` (the STEM pack already copies it to `FormalCheck.defect`, step 1).
+* **The document** (`stem/document.py`): the word-equation view in the sciences profiles and the `reference_checks`
+  switch of `_build` (off while the closed table of booklet laws is itself read; it is part of the document cache key).
+* **The core pack** (`branches/packs.py`): `request_model_extrapolation`, ST-RANGE-001 on a general branch when the request
+  states a model and the range of its data.
+* **Adaptations to the integrated tree**, each found by an integrated test and made where the feature's reading met it:
+  ST-WORK-001 reads no result in a Given or in a value the integrated rule named-given sets against the request ("Given:
+  u = 0", "The battery's emf is 12 V.": a restatement of the data); ST-REF-001 and ST-REF-002 read what a symbol stands for
+  from the values the answer substitutes for it with a unit too ("V = 12 V − (4.14 A × 0.50 Ω)" after "V = ε − Ir": r is a
+  resistance, never the radius the table gives the letter; recorded arena answer ph-t13); a stated operation the prose
+  negates ("Factorising, rather than dividing by t, keeps t = 0.") is a mention, no step (recorded arena answer maa-t13,
+  whose receipt stays as recorded); a year-shaped figure of the supplied data ("The uncertainty in 1620 is ±2% × 1620",
+  a count rate of the supplied table) is no year a model is evaluated at; no `written` companion is planned (20.7).
+  `ST_SEVERITY` also lists the codes of the engine-decided checks (ST-UNIT-003, ST-STEP-001, ST-ROUND-001, warning), which
+  name no front-end finding, so the overseer pack's table of ST codes is the STEM package's own.
+* **The overseer pack** (pack 1.3, corrected in place): dossier guide D32 (`02-dossier.md`) lists the thirteen new ST
+  codes with their severities and defect labels; the manifest is regenerated with `python -m epinoic_logic.overseer.export
+  --refresh-source` and the new pack digest pinned in `overseer/pack.PACK_DIGESTS`. The schemas are unchanged (no contract
+  changed).
+* Docs: `stem/README.md` and `stem/ENCODINGS.md` (the three modules and the `unit`, `op` and `rnd` kinds).
+
+### 20.7 What step 2 does not port, and why
+
+Contradicting the integrated translator:
+
+* **No `written` unit companion.** On the feature line the check a `written` ST-UNIT-003 companion accompanies was decided
+  under the as-written and the SI readings alike (so it held when the numbers held as written, and only the companion
+  failed, naming `stem_unit_error`). The integrated checks admit no as-written reading that the relation's own units
+  contradict (`checks._as_written_consistent`), so that check already decides the relation in SI alone and fails on the
+  unit error (INT-SUBJ-001, labelled by its kind); a companion would only repeat its verdict, and the integrated tests pin
+  that such a relation plans one check (`tests/stem/test_round7_arena_fixes.py`, `test_stem_repair6.py`). So only the
+  `traced` companion is ported: bare numbers that repeat the numbers of non-SI bindings or of the request's quantities,
+  which the integrated check reads as written.
+* **The STEM tolerance rule.** The feature's tolerance policy (request intents for exactness and rounding, the measured-
+  operand rule, `max(h, h')` for a value set against a value, the angle hint, the degrees-against-radians rule) is not
+  ported: the sum rule |w − b| <= h(b) + h(w) and every integrated tolerance reading stay. A ported `op` or `rnd` check
+  uses only the half-width of the value it compares, as on the feature line.
+
+Duplicates of the integrated STEM readings, or readings of the feature line's own front end that this tree makes its own
+way (the integrated reading stays; the named checks run on what it reads):
+
+* Simultaneous equations (`sys`, `_systems`, `_equations_solved_later`), stated root sets and their members
+  (`_root_set_members`, `_listed_members`), factorising and named identities (`_cued_identity`, its `inferred` alg checks),
+  Boolean evaluation and the AND dot (`_boolean_values` of the feature, `boolean._chain_links`, `lexer.writes_constant_dot`),
+  two's complement and binary literals (`_binary_operand`, `_binary_literals`), trig angles in degrees and radians, affine
+  temperatures (`to_ir.affine_role`, `checks._affine_mode`), approximation words (`tolerance.approx_qualifies`), the
+  restatement and result readings (`_results` with its sign and scale rules, `_scale_after`), comparisons the answer says
+  fail (`negated` cmp checks), conditions and inequalities about another part's symbol (`_bound_in_part`), named conditions
+  (`document._names_a_condition`), and the units, numbers, lexer, layout, segment, span and parser changes of the feature
+  line (space-grouped numerals `numbers.scan_grouped_based`, the spaced product of quantity letters `spans._quantity_run`
+  and `parser._juxtaposable`, a computation continued by its head on the next line `_repeats_head` and `head_gap`, a
+  symbol after a condition's value, emphasis and markup indexes, nuclear equations, compound quantities read from the span
+  finder's tokens).
+* The feature's dimension reading from substitutions (`dimension_of(..., substitutions=True)`, `_chain_dimension`) and its
+  coefficient reading in `_dim`: the integrated dimension check (ST-DIM-001, rule bare-factor) stays as it is.
+* The request's unit companions on general branches (`packs.request_unit_formal_checks`, `_request_unit_checks`,
+  `_worked_view`): they rest on the feature line's own reader of worked equations on general branches, a duplicate of the
+  integrated worked-arithmetic reader (`branches/worked.py`).
+
+A consequence: some shapes section 3.4 names are not named on this tree because the integrated front end reads them its own
+way (a rounding stated in words after a value is a checked restatement, a space-grouped numeral is ST-PARSE-001, a word
+equation whose figures are space-grouped keeps that finding on its new line). Each is listed with its test in 20.8.
+
+### 20.8 Tests (step 2)
+
+Ported, adapted where the integrated code differs (each test is the feature line's, with the cases this tree decides
+otherwise taken out and listed below): `tests/stem/test_reference_formulas.py`, `test_units_symbolic.py`,
+`test_steps_operations.py`, `test_rounding_range_working.py`, `test_givens_symbols.py`, `test_repair_round1_variants.py`,
+`test_repair_round2_stem.py`, `test_repair_round2_layouts.py`, `test_repair_round2_classes.py`, `test_repair_round3_stem.py`,
+`test_repair_round4_stem.py`, `test_repair_round5_stem.py`, `test_accuracy1_stem.py`, `test_accuracy2_stem.py`,
+`test_close1_stem.py`, `test_security_round1_relations.py`; and the corpus scorings `tests/contract/test_repair_round1_cases.py`,
+`test_repair_round2_cases.py`, `test_accuracy_round1_cases.py`, `test_accuracy_round2_cases.py`, each with a `NOT_PORTED`
+table of the cases left out of its scoring and the reason (the corpus files are unchanged). No test of the integrated tree is
+changed.
+
+Not ported, contradicted (the integrated behaviour wins):
+
+* `tests/stem/test_units_symbolic.py::test_written_units_that_hold_only_as_written_are_labelled_stem_unit_error` and
+  `::test_a_lost_prefix_fails_its_companion` (they pin that the check beside a written companion holds as written; 20.7).
+* `tests/stem/test_givens_symbols.py::test_control_consistent_givens_are_clean` (the integrated givens name a Given the
+  request states no quantity for, ST-UNDEC-003).
+* `tests/stem/test_accuracy2_stem.py::test_a_general_branch_names_the_requests_quantities_combined_without_their_conversion`
+  and the general-branch half of `::test_the_rounds_stem_readings_are_linear` (the request's unit companions on general
+  branches, 20.7).
+
+Not ported, duplicates or readings the integrated front end makes its own way (20.7):
+
+* Whole files: `tests/stem/test_close2_boolean_dot.py` (Boolean AND dot), `test_e2e_b2_classes.py` (the feature line's
+  false-error fixes of end-to-end B2), `test_lens_rerun_c.py` (the rerun lens review's STEM fixes), `test_review_stem_checks.py`
+  (the external STEM review: temperatures, exactness intents, angles, part scope), `test_review_merge_interaction.py` (the
+  STEM topic evidence of the channel). The feature's changes to integrated test files (`test_boolean_parse.py`,
+  `test_checks_no_false_errors.py`, `test_e2e_run1_detection.py`, `tests/stem/data/corpus_items.py`,
+  `tests/translate/test_stem_subjects.py`, `tests/channel/test_stem_channel.py`, `tests/integrity/test_stem_ledger_figures.py`)
+  follow its own readings and are not ported; those files stay as the integrated tree has them.
+* `tests/stem/test_repair_round1_variants.py`: `test_a_simplification_of_the_requests_expression_is_no_restatement`,
+  `test_an_incomplete_or_wrong_solution_set_fails`, three layouts of `test_clean_control_a_complete_set_in_any_layout_holds`
+  and one of `test_clean_control_no_full_set_is_claimed_...` (root sets), and nine variants of
+  `test_each_variant_is_decided_as_its_working_reads` (the Boolean AND dot, space-grouped numerals, '4380 = 4400 (1 s.f.)').
+* `tests/stem/test_repair_round2_stem.py`: `test_the_wrong_rearrangement_still_fails` (the feature's request bindings of a
+  rearranged step, `checks._request_step_bindings`), `test_a_law_whose_head_has_a_subscript_digit_evaluated_past_the_data_is_an_extrapolation`
+  and `test_the_same_law_evaluated_inside_the_data_is_clean` (the integrated reading of `CO₂ = 340 + 1.75(t − 1980)` fails its
+  arithmetic, as before the port), `test_a_time_converted_inline_in_brackets_binds_the_law` (ST-UNDEC-002, an integrated
+  reading), the worded case of `test_a_comparison_made_with_a_rounded_value_is_named` (a rounding stated in words is a
+  checked restatement here), and its bounded per-line work tests (`test_the_fast_paths_give_the_readings_of_the_full_readers`,
+  `test_the_markup_index_finds_exactly_the_overlapping_ranges`, `test_a_long_answer_of_list_items_is_read_in_bounded_time`:
+  the feature's own linear-time readers).
+* `tests/stem/test_repair_round2_layouts.py`: `test_a_wrong_value_after_its_computation_on_the_line_before_is_an_arithmetic_slip`,
+  `test_a_spaced_product_of_quantity_letters_is_read_and_addresses_the_item`, `test_a_spaced_product_with_a_wrong_value_is_checked`,
+  `test_the_spaced_product_is_one_span`, two layouts of `test_a_length_in_centimetres_used_as_metres_is_a_unit_error_whatever_the_layout`,
+  three cases of `test_a_symbol_after_a_conditions_value_heads_its_own_equation` and one of
+  `test_one_symbol_for_two_labelled_objects_is_a_symbol_conflict` (the spaced product, the head continued on the next line,
+  a symbol after a condition's value).
+* `tests/stem/test_repair_round2_classes.py`: `test_twos_complement_place_values_are_read_and_checked`,
+  `test_a_boolean_evaluation_chain_is_checked_link_by_link`, `test_a_dated_trend_evaluated_past_its_years_is_an_extrapolation`
+  (space-grouped numerals: ST-PARSE-001 on this tree).
+* `tests/stem/test_repair_round4_stem.py`: `test_a_false_identity_is_checked_under_a_neutral_request` (named identities),
+  `test_a_wrong_area_formula_over_a_radius_the_request_gives_is_named` and `test_an_inverted_period_over_a_mass_the_request_gives_is_named`
+  (they pin ST-DIM-001 and ST-REF-001 from the dimension of substitutions; ST-REF-002 still names both laws here),
+  `test_control_the_correct_formula_over_values_the_request_gives_raises_nothing` (the integrated ST-UNDEC-002 on the same
+  working), the case 'minutes in P = E/t' and the controls 'seconds' and 'seconds for hours' (space-grouped numerals).
+* `tests/stem/test_repair_round5_stem.py`: `test_a_count_the_request_states_in_a_sentence_is_the_value_of_n0`,
+  `test_a_plus_minus_step_inside_a_chain_is_two_equations` (roots), `test_grams_substituted_against_a_specific_heat_per_kilogram_is_a_missing_conversion`
+  (a space-grouped result), and the 'one-half glyph' and 'slash half' cases of `test_a_wrong_formula_written_as_adjacent_letters_is_a_wrong_formula`
+  (adjacent letters read as a product).
+* `tests/stem/test_close1_stem.py::test_control_a_restatement_of_the_same_sign_is_still_checked` (the result readings).
+* Corpus cases (`NOT_PORTED` in each scoring file, with the reason): repair round 1 t07_unit_symbolic_density and repair
+  round 2 xs07_kwh_written (a unit error written in units: caught by the integrated check and named by its kind, not as
+  stem_unit_error, since no written companion is planned, 20.7); repair round 1 h05b and h06 (the restated-point excerpt
+  check, 20.3), k04, k07, k09, y01, y04; repair round 2 ws05 and ws06 (a rounding stated in words), wc07, xc13 and yc03
+  (integrated STEM readings of correct working), xk02, xk05, xk10, yk01, yk05, zk14, zk15, zk16, zk18 and ch_c_lake_recovered_then;
+  accuracy round 1 acc1_phrasal_ok_brought_down, acc1_phrasal_ok_went_down, acc1_stance_ok_other_subject,
+  acc1_precision_ok_about_300_g; accuracy round 2 acc2_units_bad_geography_km_m (general-branch unit companions),
+  acc2_stance_ok_two_sentences, acc2_task_ok_unlisted_phrasal, acc2_task_ok_short_synonym, acc2_authority_ok_quoted_source.
+  The integrated request-item, support, ledger, quotation, word-bound, precision,
+  core-pack and English-structure readings flag those clean controls, where the feature line's own duplicates of those
+  fixes did not. Every one fails on the step 1 tree too (t07 and xs07 as missed there), and no case the step 1 tree
+  scores correctly is scored wrongly after step 2.
+
+### 20.9 Measured on this tree (step 2)
+
+Measured with the recorded arena rounds available to the round-dependent tests (`EPINOIC_ARENA_ROUNDS` set to a fresh copy
+for each run): `tests/stem`, `tests/e2e` and the four ported corpus scorings 4157 passed, 28 deselected (by the suite's own
+configuration); `tests/overseer` (with `test_stem_completion.py`, `test_stem_probe_bases.py` and the knowledge pack's drift,
+export and loader tests), `tests/branches`, `tests/channel`, `tests/integrity` and `tests/translate/test_stem_subjects.py`
+3940 passed. No failure. The full suite, the arena harness on every recorded round, the overseer's contained run and the
+three argument-diagnosis corpora as a whole are not measured here; they are the next step of the final integration.
+

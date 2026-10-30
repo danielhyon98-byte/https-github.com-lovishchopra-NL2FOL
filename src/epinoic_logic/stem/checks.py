@@ -69,6 +69,7 @@ from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, fr
 from .scope import Binding, si_value
 from .tolerance import SHORT_RULE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
 from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
+from .reference import unit_written_once
 from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, parse_unit
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
@@ -78,12 +79,21 @@ CHECK_KIND_NAMES = {
     "eq": "stem_arithmetic", "sub": "stem_substitution", "alg": "stem_algebra", "sol": "stem_solution", "mod": "stem_model", "cnv": "stem_conversion",
     "cmp": "stem_comparison", "res": "stem_result", "giv": "stem_given", "tgt": "stem_target", "chem": "stem_balance", "bool": "stem_boolean",
     "tt": "stem_truth_table", "base": "stem_base",
+    # the unit companion of an eq or sub check (ST-UNIT-003): a failure names a unit error (argument diagnostics)
+    "unit": "stem_conversion",
+    # a stated operation of a solving step (ST-STEP-001)
+    "op": "stem_algebra",
+    # a comparison that uses a value the working rounded (ST-ROUND-001)
+    "rnd": "stem_comparison",
 }
 _TITLES = {
     "eq": "the written arithmetic", "sub": "the substitution", "alg": "the algebraic step", "sol": "the stated roots", "mod": "the model evaluation",
     "cnv": "the unit conversion",
     "cmp": "the stated comparison", "res": "the restated result", "giv": "the Given value against the request", "tgt": "the final value against the show-that target",
     "chem": "the element and charge balance", "bool": "the Boolean identity", "tt": "the stated truth-table rows", "base": "the based-numeral conversion",
+    "unit": "ST-UNIT-003, the units of the written arithmetic",
+    "op": "ST-STEP-001, the stated operation of the step",
+    "rnd": "ST-ROUND-001, a comparison made with a rounded value",
 }
 _MAX_DESCRIPTION = 1200
 _MAX_EXCERPT = 160
@@ -111,6 +121,9 @@ class PlannedCheck:
     #: statements stating values the check relies on beside its own (a substitution's earlier stated values): a failure names
     #: them too (``Relation.related_ids``)
     related_ids: tuple[str, ...] = ()
+    #: the canonical defect label (``named.DEFECT_LABELS``) a failure of this check names, when its kind alone does not say it
+    #: (a unit companion: ``stem_unit_error``); empty otherwise (argument diagnostics, docs/ARGUMENT_DIAGNOSTICS.md section 3.4)
+    defect: str = ""
 
 
 @dataclass(frozen=True)
@@ -342,6 +355,8 @@ class _Ctx:
     details: list[str] = field(default_factory=list)
     readings: list[str] = field(default_factory=list)
     cache: dict = field(default_factory=dict)
+    #: the canonical defect label the check's failure names (``PlannedCheck.defect``)
+    defect: str = ""
 
     def __post_init__(self) -> None:
         rel = self.rel
@@ -393,7 +408,7 @@ class _Ctx:
         return PlannedCheck(
             check_id=self.rel.check_id, kind=CHECK_KIND_NAMES[self.rel.kind], description=desc, claim_ids=tuple(self.rel.statement_ids), problem=problem,
             expected_if_sound=self.expected, policy=policy, failure_severity=self.severity, inconsistent_is_failure=False, form=self.form,
-            relation_kind=self.rel.kind, readings=tuple(self.readings), related_ids=tuple(self.rel.related_ids),
+            relation_kind=self.rel.kind, readings=tuple(self.readings), related_ids=tuple(self.rel.related_ids), defect=self.defect,
         )
 
     def excerpt(self) -> str:
@@ -639,7 +654,7 @@ def _as_written_consistent(cnode: Node, snode: Node) -> bool:
 
 
 def _reading_modes(nodes: list[Node], *, symbol_units: bool = False, force: Optional[str] = None,
-                   pairs: Optional[list[tuple[Node, Node]]] = None, symbol_factors: bool = False) -> tuple[list[str], bool, list[UnitExpr]]:
+                   pairs: Optional[list[tuple[Node, Node]]] = None, symbol_factors: bool = False, both: bool = False) -> tuple[list[str], bool, list[UnitExpr]]:
     """Section 6.4. Returns the unit modes (``aw``, ``si``), whether an unknown unit restricts the
     check to the reading as written, and the ambiguous units (two readings each). ``pairs`` (computed side, stated side) admit the
     reading as written only where its units are consistent (:func:`_as_written_consistent`)."""
@@ -650,6 +665,10 @@ def _reading_modes(nodes: list[Node], *, symbol_units: bool = False, force: Opti
     percent = any(_has_percent(n) for n in nodes)
     if force:
         return [force], False, [u for u in units if len(u.readings) > 1]
+    if both:
+        # the as-written reading is not admissible beside the SI one (a unit companion, ST-UNIT-003, decides which holds): both,
+        # each its own (argument diagnostics)
+        return ["aw", "si"], False, [u for u in units if len(u.readings) > 1]
     if not units and not percent and not symbol_units:
         return ["aw"], False, []
     carried = set()
@@ -754,10 +773,10 @@ def _trig_angles(nodes: list[Node], doc: Optional[StemDocument]) -> list[str]:
 
 def _readings(nodes: list[Node], *, symbol_units: bool = False, force: Optional[str] = None, affine: tuple[bool, ...] = (False,),
               degrees_si: bool = False, pairs: Optional[list[tuple[Node, Node]]] = None,
-              doc: Optional[StemDocument] = None, symbol_factors: bool = False) -> tuple[list[Reading], bool]:
+              doc: Optional[StemDocument] = None, symbol_factors: bool = False, both: bool = False) -> tuple[list[Reading], bool]:
     """Every reading of a check (at most 4: ST-PARSE-002 beyond) and whether it is restricted to the
-    reading as written by an unknown unit."""
-    modes, unknown, ambiguous = _reading_modes(nodes, symbol_units=symbol_units, force=force, pairs=pairs, symbol_factors=symbol_factors)
+    reading as written by an unknown unit. ``both`` keeps the as-written and the SI readings apart (a unit companion)."""
+    modes, unknown, ambiguous = _reading_modes(nodes, symbol_units=symbol_units, force=force, pairs=pairs, symbol_factors=symbol_factors, both=both)
     angles = _trig_angles(nodes, doc)
     unit_choices: list[tuple[tuple[int, int], ...]] = [()]
     starts: list[tuple[int, int]] = []
@@ -1228,22 +1247,30 @@ class _Side:
 def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fraction, h_written: list[Fraction], readings: list[Reading],
              intervals: dict[tuple[int, int], IntervalLeaf], env_for: Optional[callable] = None, signs: tuple[int, ...] = (1,),
              label: str = "computed value", stated_label: str = "stated value", force_form_s: bool = False,
-             h_scale_nodes: Optional[list[tuple[Node, Node]]] = None, same_place: bool = False) -> None:
+             h_scale_nodes: Optional[list[tuple[Node, Node]]] = None, same_place: bool = False, combine: str = "or",
+             si_pairs: Optional[list[tuple[Node, Node]]] = None) -> None:
     """Build a Form E or Form S comparison ``|C − S| <= h + τ·|C|`` over every reading (OR) and every
     sign choice of a ``±`` (AND). ``pairs`` are (computed node, stated node) per operand combination;
     ``h_written`` their half-widths as written. ``env_for(reading, tag)`` installs symbol domains. With ``same_place`` (rule same-place,
     STEM repair 5: a restatement with a stated rounding), a stated value whose band equals the half-width of the value it is set
-    against (the same last place, in the reading's units) must equal it: h is 0, never the two half-widths added."""
+    against (the same last place, in the reading's units) must equal it: h is 0, never the two half-widths added.
+
+    A unit companion (ST-UNIT-003, argument diagnostics) passes ``combine="implies"``: the conclusion is that the as-written
+    readings imply the SI readings (Form E), so the check fails exactly when the numbers hold as written and fail in SI; under
+    interval readings (Form S) it is the SI readings alone. ``si_pairs`` replaces ``pairs`` in the SI readings (bare numerals
+    read in the units of the bindings they repeat). The tolerance band of each reading is the one the check beside it uses."""
     b = ctx.builder
     bands: list[dict] = []
+    band_si: list[bool] = []
     uses_intervals = force_form_s
     errors: list[EncodeError] = []
     total = len(pairs) * len(readings) * len(signs)
     idx = 0
     frames: set[int] = set()
     labels: list[str] = []
-    for ci, (cnode, snode) in enumerate(pairs):
+    for ci, (cnode0, snode0) in enumerate(pairs):
         for ri, reading in enumerate(readings):
+            cnode, snode = si_pairs[ci] if (si_pairs is not None and reading.si) else (cnode0, snode0)
             sign_bands: list[dict] = []
             failed = False
             for sign in signs:
@@ -1293,6 +1320,7 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
             if failed:
                 continue
             bands.append(nary("and", sign_bands) if len(sign_bands) > 1 else sign_bands[0])
+            band_si.append(reading.si)
             labels.append(reading.label + (f" (operand reading {ci + 1})" if len(pairs) > 1 else ""))
     if not bands:
         raise errors[0] if errors else EncodeError("ST-UNDEC-001", "no reading of the relation could be encoded")
@@ -1302,6 +1330,22 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
         b.note("decimal exponent factored: " + ", ".join(f"10^{f}" for f in nonzero))
         ctx.detail("decimal exponent factored: " + ", ".join(f"10^{f}" for f in nonzero))
     b.note("readings: " + "; ".join(ctx.readings))
+    if combine == "implies":
+        aw = [x for x, si in zip(bands, band_si) if not si]
+        si_bands = [x for x, si in zip(bands, band_si) if si]
+        if not aw or not si_bands:
+            raise EncodeError("ST-UNDEC-001", "the unit companion needs both an as-written and an SI reading")
+        aw_band = nary("or", aw) if len(aw) > 1 else aw[0]
+        si_band = nary("or", si_bands) if len(si_bands) > 1 else si_bands[0]
+        if uses_intervals:
+            ctx.form, ctx.query, ctx.expected = "S", "satisfiability", "SATISFIABLE"
+            ctx.detail("interval readings: the companion is the SI reading alone (Form S); the check beside it covers the as-written reading")
+            b.premise("BAND", si_band, "the stated value lies in its tolerance band under some admissible SI reading", grounding("figure"))
+        else:
+            ctx.form, ctx.query, ctx.expected = "E", "entailment", "ENTAILED"
+            ctx.conclusion = ("UNITS", {"op": "implies", "left": aw_band, "right": si_band},
+                              "the numbers do not hold as written while failing in SI (the units are converted)")
+        return
     band = nary("or", bands) if len(bands) > 1 else bands[0]
     if uses_intervals:
         ctx.form = "S"
@@ -1313,6 +1357,82 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
         ctx.query = "entailment"
         ctx.expected = "ENTAILED"
         ctx.conclusion = ("STATED", band, "the stated value lies in its tolerance band")
+
+
+# --------------------------------------------------------------------------- unit companions (ST-UNIT-003, argument diagnostics)
+
+
+def _unit_role(ctx: _Ctx) -> str:
+    """How the ST-UNIT-003 companion bears on this check: ``written``/``traced`` for the companion itself, ``main`` for the
+    check a ``written`` companion accompanies (it then decides the relation under the as-written and the SI reading alike),
+    '' otherwise."""
+    rel = ctx.rel
+    if rel.kind == "unit":
+        return rel.unit_case or "written"
+    # Port onto the integrated translator (docs/ARGUMENT_DIAGNOSTICS.md section 20): the check a ``written`` companion accompanies
+    # keeps the integrated readings (an as-written reading its units contradict is not admitted, ``_as_written_consistent``), so the
+    # companion only adds its own check and never widens the readings of the check beside it
+    return ""
+
+
+def _unit_setup(ctx: _Ctx, unit: str, pairs: list[tuple[Node, Node]]) -> Optional[list[tuple[Node, Node]]]:
+    """Record what the unit companion decides (description, severity, defect) and, for a ``traced`` companion, the pairs of
+    its SI readings: the bare numerals read in the units of the bindings they repeat."""
+    rel = ctx.rel
+    if unit == "main":
+        ctx.detail(f"the as-written reading is not admissible beside the SI reading ({rel.unit_reason}): both are decided here, and the "
+                   f"companion check {rel.check_id}u decides that the numbers do not hold as written while failing in SI")
+        return None
+    if unit not in ("written", "traced"):
+        return None
+    ctx.defect = "stem_unit_error"
+    if unit == "written":
+        ctx.detail(f"ST-UNIT-003: {rel.unit_reason}; this check fails when the numbers hold as written and fail in SI (stem_unit_error); the "
+                   f"check {rel.check_id[:-1]} beside it decides the relation under both readings")
+        return None
+    units = {(a, b): bd for a, b, bd in rel.traced}
+    ctx.warn("the bare numbers are read in the units of the bindings whose numbers they repeat, which the report did not state")
+    # a numeral that substitutes into no symbol repeats the request's quantity itself (relations._request_traced_companion)
+    ctx.detail("ST-UNIT-003: the working uses the bare numbers of " + ", ".join((f"{bd.symbol} = " if bd.symbol else "the request's ")
+                                                                             + f"{bd.number.text} {bd.unit.text}" for bd in units.values()
+                                                                             if bd.unit is not None)
+               + "; read in those units the stated value must still hold (stem_unit_error)")
+    if rel.stated_unit is not None:
+        ctx.detail(f"the stated value is read in the unit the answer's prose gives it ({rel.stated_unit.text})")
+    return [(_with_units(c, units), _stated_in(s, rel.stated_unit)) for c, s in pairs]
+
+
+def _stated_in(node: Node, unit) -> Node:
+    """A bare stated numeral written in ``unit`` (the unit the answer's prose gives it); any other node as it is."""
+    if unit is None:
+        return node
+    if isinstance(node, Num):
+        return Quantity(node.number, unit, node.start, node.end)
+    if isinstance(node, Neg) and isinstance(node.arg, Num):
+        return Neg(Quantity(node.arg.number, unit, node.arg.start, node.arg.end), node.start, node.end)
+    return node
+
+
+def _with_units(node: Node, units: dict) -> Node:
+    """``node`` with each numeral at the offsets of ``units`` written in its binding's unit (a :class:`Quantity`), every other
+    node as it is. Each node type is rebuilt explicitly."""
+    if isinstance(node, Num):
+        bd = units.get((node.start, node.end))
+        if bd is None or bd.unit is None:
+            return node
+        # a temperature written in °C read in kelvin carries the converted value (relations.KELVIN_READING)
+        return Quantity(bd.number if bd.wrapper == "kelvin" else node.number, bd.unit, node.start, node.end)
+    if isinstance(node, BinOp):
+        return BinOp(node.op, _with_units(node.left, units), _with_units(node.right, units), node.start, node.end, node.written, node.implicit)
+    if isinstance(node, Neg):
+        return Neg(_with_units(node.arg, units), node.start, node.end)
+    if isinstance(node, Pow):
+        return Pow(_with_units(node.base, units), node.exp, node.start, node.end)
+    if isinstance(node, Root):
+        return Root(_with_units(node.arg, units), node.index, node.start, node.end)
+    if isinstance(node, Abs):
+        return Abs(_with_units(node.arg, units), node.start, node.end)
+    return node
 
 
 _FIGURE_SI = "figure stated in the report itself, converted to SI by exact unit-table factors"
@@ -1499,7 +1619,9 @@ def _eq(ctx: _Ctx) -> None:
                    "(read from the words mod, div, the signs %, // or a stated remainder)")
     # stem-precision-5: a compound quantity ('4 min 30 s') has a value in SI only (as written its parts would be added as plain numbers)
     compound = any(isinstance(m, BinOp) and m.op == "+" and m.implicit for n in nodes for m in walk(n))
-    readings, unknown = _readings(nodes, force="si" if (scale_unit or angle or compound) else None, pairs=pairs, degrees_si=angle, doc=ctx.doc)
+    unit = _unit_role(ctx)
+    readings, unknown = _readings(nodes, force="si" if (scale_unit or angle or compound) else None, pairs=pairs, degrees_si=angle, doc=ctx.doc,
+                                  both=bool(unit))
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
     elif scale_unit:
@@ -1522,7 +1644,9 @@ def _eq(ctx: _Ctx) -> None:
     elif not (rel.title and "(rule given-function)" in (rel.reason or "")):
         ctx.detail(f"τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
-    _compare(ctx, pairs, kind="eq", tau=tau, h_written=hs, readings=readings, intervals=intervals, signs=signs, h_scale_nodes=extra)
+    si_pairs = _unit_setup(ctx, unit, pairs)
+    _compare(ctx, pairs, kind="eq", tau=tau, h_written=hs, readings=readings, intervals=intervals, signs=signs, h_scale_nodes=extra,
+             combine="implies" if ctx.rel.kind == "unit" else "or", si_pairs=si_pairs)
 
 
 def _degree_unit(unit: UnitExpr) -> bool:
@@ -2602,7 +2726,8 @@ def _sub_evaluate(ctx: _Ctx) -> None:
     exact_mode = rel.op in ("=", "≡") and not approx and all(_all_exact(n) for n in nodes) and all(
         not d.is_interval and not d.booklet for d in domains.values()) and not symbol_units
     tau = Fraction(0) if exact_mode else (TAU_APPROX if approx else TAU_EQUAL)
-    readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc, symbol_factors=symbol_factors)
+    unit = _unit_role(ctx)
+    readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc, symbol_factors=symbol_factors, both=bool(unit))
     if unknown:
         ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
     # STEM repair 11 (rule exact-rounding): a stated value of two or more significant figures against a rational symbolic side under exact
@@ -2630,8 +2755,9 @@ def _sub_evaluate(ctx: _Ctx) -> None:
                    + (" and every symbol has a stated value" if not rel.unbound else "") + ": no equation in an unknown (rule bound-relation)")
     ctx.detail("the symbolic side under the stated bindings" + (" (and readings from the written substitution)" if anchors else "") + f"; τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
+    _unit_setup(ctx, unit, pairs)
     _compare(ctx, pairs, kind="sub", tau=tau, h_written=hs, readings=readings, intervals={}, env_for=env_for, signs=signs, force_form_s=many,
-             label="written numeric side", stated_label="symbolic side under the bindings")
+             label="written numeric side", stated_label="symbolic side under the bindings", combine="implies" if ctx.rel.kind == "unit" else "or")
 
 
 # --------------------------------------------------------------------------- alg and inequality steps
@@ -3485,7 +3611,126 @@ def _mod(ctx: _Ctx) -> None:
     b.note("STEM model evaluation: SATISFIABLE means some value of the variables satisfies the relation under the relaxation, never that it holds")
 
 
+# --------------------------------------------------------------------------- named STEM method checks (argument diagnostics, section 3.4)
+
+
+def _op_half_width(node: Node) -> Fraction:
+    """A rounded value written on the next line of a step keeps half a unit of its last digit; anything else is exact."""
+    v = value_of(node) if is_value(node) else None
+    if v is None or v[1] is None or not (v[1].has_point or v[1].scientific):
+        return Fraction(0)
+    return v[1].half_width
+
+
+def _op(ctx: _Ctx) -> None:
+    """ST-STEP-001 (stem_invalid_step): the operation the answer states for a step ("adding 4 to both sides gives …"),
+    applied to each side of the preceding equation, against the next line's sides, in either order. The engine decides it
+    as an identity: a satisfiability query of "the sides differ" over every value of the unknowns (under the divisors' guards),
+    expected UNSATISFIABLE; a closed pair is compared as values (a rounded value on the next line within h of its last
+    digit). A witness shows a value of the unknowns where the stated operation does not give the line written."""
+    rel = ctx.rel
+    sides = [op.node if op is not None else None for op in (rel.premise_left, rel.premise_right, rel.left, rel.right)]
+    if any(n is None for n in sides):
+        raise EncodeError("ST-PARSE-001", "a side of the step could not be read")
+    pl, pr, nl, nr = sides  # type: ignore[misc]
+    k = rel.operation_arg
+    if rel.operation != "sq" and k is None:
+        raise EncodeError("ST-UNDEC-001", "a stated operation without its operand")
+    sign = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
+
+    def apply(side: Node) -> Node:
+        if rel.operation == "sq":
+            return Pow(side, 2, getattr(side, "start", 0), getattr(side, "end", 0))
+        return BinOp(sign[rel.operation], side, k, getattr(side, "start", 0), getattr(side, "end", 0))  # type: ignore[arg-type]
+
+    lp, rp = apply(pl), apply(pr)
+    names = sorted({n for node in (pl, pr, nl, nr) + ((k,) if k is not None else ()) for n in symbols(node)})
+    if any(n.endswith("()") for n in names):
+        raise EncodeError("ST-UNDEC-001", "a function of an unknown")
+    b = ctx.builder
+    env = {n: var_term(b.user_symbol(n, role="free", meaning=f"'{n}', any value")) for n in names}
+    enc = Encoder(b, Reading(si=False, label="as written"), env=env, cache=ctx.cache)
+
+    def differ(written: Node, result: Node) -> dict:
+        tw, tr = enc.term(written), enc.term(result)
+        (ew, er), k2 = align_terms(tw, tr)
+        if is_closed(written) and is_closed(result):
+            return {"op": "not", "arg": band_expr(er, ew, literal_in_frame(_op_half_width(written), k2), Fraction(0))}
+        return {"op": "ne", "left": ew, "right": er}
+
+    straight = nary("or", [differ(nl, lp), differ(nr, rp)])
+    swapped = nary("or", [differ(nl, rp), differ(nr, lp)])
+    b.premise("DIFFER", nary("and", [straight, swapped]),
+              f"the stated operation '{rel.operation_text[:120]}' applied to {render(pl)[:120]} = {render(pr)[:120]} differs from the next line "
+              f"{render(nl)[:120]} = {render(nr)[:120]} for some value", grounding("figure"))
+    ctx.form, ctx.query, ctx.expected = "B", "satisfiability", "UNSATISFIABLE"
+    ctx.readings = ["as written"]
+    ctx.defect = "stem_invalid_step"
+    ctx.warn("the operation is read from the answer's prose")
+    ctx.detail(f"ST-STEP-001: '{rel.operation_text[:120]}' applied to the preceding equation ({', '.join(rel.premise_ids)}) must give the next line, "
+               f"either side order; a witness distinguishes them (stem_invalid_step)")
+
+
+def _rnd(ctx: _Ctx) -> None:
+    """ST-ROUND-001 (stem_rounding_changes_conclusion): the answer compares a value its working rounded (the end of a chain
+    '… = 0.246 s ≈ 0.25 s') with a threshold ("0.25 s is not less than 0.25 s"). The engine decides that the comparison, as
+    the answer states it, holds with the value before the rounding whenever it holds with the rounded value (Form E,
+    expected ENTAILED); a counterexample shows the rounding turned the conclusion."""
+    rel = ctx.rel
+    nodes = [op.node if op is not None else None for op in (rel.premise_left, rel.left, rel.right)]
+    if any(n is None for n in nodes):
+        raise EncodeError("ST-PARSE-001", "a value of the comparison could not be read")
+    u, r, t = nodes  # type: ignore[misc]
+    op = _CMP_OPS.get(rel.op)
+    if op is None:
+        raise EncodeError("ST-UNDEC-001", f"the comparison {rel.op!r}")
+    once = unit_written_once(u, r)
+    if once is not None:
+        # the chain writes its unit (or its per cent sign) once, after the rounded value ('= 24.447 ≈ 24.45 cm³', '= 78.96 ≈
+        # 79%'): the value before the rounding, as close to the rounded one as written, is in that unit too, so a bare 24.447
+        # is never compared in SI with 24.45 cm³ read in m³ (repair round 2, own probes: the bare value made a near-threshold
+        # comparison hold for 'acceptable' and fail for 'not acceptable'); a bare value of another scale ('= 0.7896 ≈ 79%',
+        # a conversion in the rounding step) keeps its own reading
+        u = once
+    readings, unknown = _readings([u, r, t], affine=(False,))  # type: ignore[list-item]
+    if unknown:
+        raise EncodeError("ST-UNIT-001", "a unit of the comparison is not recognised")
+    rd = next((x for x in readings if x.si), readings[0])
+    b = ctx.builder
+    enc = Encoder(b, rd, cache=ctx.cache)
+    names = {}
+    for key, node, what in (("u", u, "the value before the rounding"), ("r", r, "the rounded value the comparison uses"), ("t", t, "the threshold")):
+        term = enc.term(node)
+        var = b.declare(key, meaning=f"{what}: {render(node)[:200]} ({rd.label})", role="pinned")
+        frame = 0 if term.k == 0 else term.k
+        b.premise(f"{key.upper()}_DEF", {"op": "eq", "left": {"op": "var", "name": var}, "right": to_frame(term, frame)}, f"{var} is {render(node)[:300]}",
+                  grounding("figure", _FIGURE_SI if rd.si and _si_differs([node]) else ""))
+        names[key] = var
+
+    def stated(x: str) -> dict:
+        e = {"op": op, "left": {"op": "var", "name": names[x]}, "right": {"op": "var", "name": names["t"]}}
+        return {"op": "not", "arg": e} if rel.explicit else e
+
+    ctx.readings = [rd.label]
+    ctx.defect = "stem_rounding_changes_conclusion"
+    ctx.warn("the comparison is read from the answer's prose and its rounding")
+    ctx.detail(f"ST-ROUND-001: the stated comparison ({'not ' if rel.explicit else ''}{rel.op} the threshold) with the rounded value "
+               f"{render(r)[:60]} must also hold with the value before the rounding, {render(u)[:60]} ({', '.join(rel.premise_ids)})")
+    ctx.conclusion = ("ROUNDING", {"op": "implies", "left": stated("r"), "right": stated("u")},
+                      "the stated comparison keeps its truth with the value before the rounding")
+
+
+def _unit(ctx: _Ctx) -> None:
+    """The ST-UNIT-003 companion of an eq check, or of a sub check that evaluates (section 24)."""
+    if ctx.rel.evaluate:
+        _sub_evaluate(ctx)
+    else:
+        _eq(ctx)
+
+
 _BUILDERS = {
     "eq": _eq, "cnv": _cnv, "res": _res, "tgt": _tgt, "giv": _giv, "cmp": _cmp, "sub": _sub, "alg": _step, "sol": _sol, "chem": _chem, "bool": _bool,
     "tt": _tt, "base": _base, "mod": _mod,
+    # the named STEM method checks of the argument diagnostics (docs/ARGUMENT_DIAGNOSTICS.md section 3.4)
+    "unit": _unit, "op": _op, "rnd": _rnd,
 }
