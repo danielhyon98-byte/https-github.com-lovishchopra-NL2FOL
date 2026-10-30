@@ -3,13 +3,15 @@
 Every result binds three digests beside the component versions (``Versions.build_id``, ``schema_id`` and
 ``policy_id``), so a result is current-policy evidence only for the build that produced it:
 
-* ``build_id``: SHA-256 over the source of everything that decides an engine result (``version.py``, the ``ir``
-  package and the ``engine`` package), file by file in path order;
+* ``build_id``: SHA-256 over the source of everything that decides an engine result (``version.py``, the shared
+  argument-diagnosis modules ``named.py`` and ``lexis.py``, the ``ir`` package and the ``engine`` package), file by file
+  in path order;
 * ``schema_id``: SHA-256 over the JSON Schemas of ``Problem``, ``Limits``, ``SolverConfig`` and
   ``VerificationResult`` as this build renders them;
 * ``policy_id``: SHA-256 over :func:`policy_manifest`, the decision policy as data (allowlist, default and named
   limits, the nonlinear bounds, the premise-authority rules, which diagnostics withhold a verdict and which are
-  advisory, and what evidence is always computed).
+  advisory, what evidence is always computed, the argument-diagnosis rules version and the digest of the named-code
+  table, ``named.named_codes_digest``).
 
 They are computed, never maintained by hand: a component version left unchanged by mistake cannot make an older result
 look current, and two policies used within one build (default and permissive limits) are told apart by the limits
@@ -30,7 +32,7 @@ __all__ = ["BUILD_SOURCES", "build_id", "schema_id", "policy_id", "policy_manife
 
 _PACKAGE = Path(__file__).resolve().parent.parent
 #: The sources that decide an engine result, relative to the package directory.
-BUILD_SOURCES: tuple[str, ...] = ("version.py", "ir", "engine")
+BUILD_SOURCES: tuple[str, ...] = ("version.py", "named.py", "lexis.py", "ir", "engine")
 
 
 def _unavailable() -> str:
@@ -69,7 +71,8 @@ def schema_id() -> str:
 def policy_manifest() -> dict[str, Any]:
     """The engine's decision policy as data. Its digest is :func:`policy_id`."""
     from ..ir.schema import ALLOWED_OPS, DEFAULT_LIMITS
-    from ..version import POLICY_VERSION
+    from ..named import named_codes_digest
+    from ..version import ARG_RULES_VERSION, POLICY_VERSION
     from .authority import dependency_policy
     from .errors import ADVISORY_CODES, NO_VERDICT_CODES
     from .policies import JOINT_LIMITS, NAMED_POLICIES, NONLINEAR_MAX_DEGREE, NONLINEAR_RLIMIT, PACK_POLICIES
@@ -91,6 +94,8 @@ def policy_manifest() -> dict[str, Any]:
             "coverage": ("E110/E111 only when a symbol the counterexample turns on carries a grounding verified in this process (any kind: "
                          "a source states it); otherwise the advisory W110/W111 and the COUNTEREXAMPLE stands"),
         },
+        "argument_rules": ARG_RULES_VERSION,
+        "named_codes": named_codes_digest(),
     }
 
 

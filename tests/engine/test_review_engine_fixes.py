@@ -377,19 +377,30 @@ def test_the_build_identity_changes_with_any_decision_source(tmp_path: Path, mon
     package = Path(identity_mod.__file__).resolve().parent.parent
     copy = tmp_path / "epinoic_logic"
     copy.mkdir()
-    shutil.copy(package / "version.py", copy / "version.py")
-    for sub in ("ir", "engine"):
-        shutil.copytree(package / sub, copy / sub, ignore=shutil.ignore_patterns("__pycache__"))
+    # updated for the argument-diagnosis port, stricter: the copy holds every entry of BUILD_SOURCES (the shared named.py and
+    # lexis.py included, which the engine's diagnosis depends on), and a change to the engine source and a change to the
+    # named-code module each change the build id
+    for entry in identity_mod.BUILD_SOURCES:
+        if (package / entry).is_dir():
+            shutil.copytree(package / entry, copy / entry, ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            shutil.copy(package / entry, copy / entry)
+    assert {"version.py", "named.py", "lexis.py", "ir", "engine"} <= set(identity_mod.BUILD_SOURCES)
     monkeypatch.setattr(identity_mod, "_PACKAGE", copy)
     identity_mod.build_id.cache_clear()
     try:
         same = identity_mod.build_id()
-        assert same == identity_mod.build_id.__wrapped__()
+        assert same == identity_mod.build_id.__wrapped__() and len(same) == 64
         runner = copy / "engine" / "runner.py"
         runner.write_text(runner.read_text() + "\n# a change to the engine source\n")
         identity_mod.build_id.cache_clear()
         changed = identity_mod.build_id()
         assert changed != same and len(changed) == 64
+        named = copy / "named.py"
+        named.write_text(named.read_text() + "\n# a change to the named-code table module\n")
+        identity_mod.build_id.cache_clear()
+        again = identity_mod.build_id()
+        assert again not in (same, changed) and len(again) == 64
     finally:
         identity_mod.build_id.cache_clear()
     monkeypatch.undo()

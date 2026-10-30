@@ -18,7 +18,17 @@ application code makes, and this module states the engine's part of it as one de
    premises names them); evidence that was not computed never reads as "no dependencies";
 7. **resting on established premises only**: no ungrounded and no unverified dependency. A premise whose kind claims
    task or source authority that no application check validated is an unresolved dependency (:mod:`.authority`), so
-   formal entailment from it is not permission to release.
+   formal entailment from it is not permission to release;
+8. **no named defect**: no named diagnostic (``named_diagnostics``) whose *effective* severity is warning or error. A
+   capped diagnostic (shown as info on an ambiguous reading or outside a source-bound task, its ``capped_from`` set)
+   still blocks: a cap changes what is shown, never what is permitted. Its reason line names the cap and no defect label
+   ("capped diagnostic, shown at info and still blocking release (it names no defect): EVD-LACK-001 (capped from warning:
+   not_source_bound)"), since what is shown at info accuses nothing. Info diagnostics never block on their own and never
+   permit anything;
+9. **diagnosed by these rules**: ``argument_rules`` is present and equals this build's rule version
+   (:data:`~epinoic_logic.version.ARG_RULES_VERSION`). A result verified with ``diagnose=False``, one whose diagnosis
+   did not finish (``argdiag-2/incomplete:<reason>``) and one diagnosed by other rules are refused: "not computed" is
+   never read as "none found".
 
 The output option ``SolverConfig.produce_unsat_core`` changes none of these: the engine computes the evidence either way.
 The scope statement still applies to an eligible result: it proves a property of the encoding only.
@@ -30,6 +40,8 @@ from typing import Optional
 
 from ..ir.canonical import problem_digest
 from ..ir.schema import Limits, Problem
+from ..named import blocking_release_lines, rules_state
+from ..version import ARG_RULES_VERSION
 from .errors import NO_VERDICT_CODES
 from .provenance import binding_inconsistencies, stale_reasons, verify_signature
 from .results import VerificationResult
@@ -101,4 +113,14 @@ def release_check(
         reasons.append(f"unresolved dependencies (ungrounded): {', '.join(result.ungrounded_dependencies[:16])}")
     if result.unverified_dependencies:
         reasons.append(f"unresolved dependencies (authority not validated by any check): {', '.join(result.unverified_dependencies[:16])}")
+    # 8. no named defect (by effective severity: a capped warning still blocks, under its own line that names no defect)
+    reasons.extend(blocking_release_lines(result.named_diagnostics or [], "named defect", 16))
+    # 9. diagnosed by these rules
+    state, detail = rules_state(result.argument_rules)
+    if state == "not_computed":
+        reasons.append(f"argument diagnosis not computed: the result carries no argument_rules (verify the problem with the {ARG_RULES_VERSION} diagnosis)")
+    elif state == "incomplete":
+        reasons.append(f"argument diagnosis incomplete ({detail}): no rule may be read as having found nothing; verify the problem again")
+    elif state == "other":
+        reasons.append(f"argument diagnosis by other rules ({detail!r}), not {ARG_RULES_VERSION}; verify the problem again under the current rules")
     return ReleaseCheck(eligible=not reasons, reasons=tuple(reasons))

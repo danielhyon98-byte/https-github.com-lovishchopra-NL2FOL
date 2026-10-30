@@ -85,7 +85,7 @@ from ..integrity.contracts import payload_hash
 from ..ir.canonical import canonical_json, sha256_hex
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, TaskRecord, TranslationStatus
 from ..translate.eligibility import decide_eligibility
-from ..translate.outcome import assess_release, display_status_for
+from ..translate.outcome import assess_release, display_status_for, outcome_diagnosis
 from ..translate.pipeline import apply_subject_policy
 from ..translate.providers.base import ProviderError
 from ..translate.review import review_currency
@@ -655,7 +655,9 @@ def _rederive(claim: ClaimRecord, o: ClaimVerificationOutcome, report: Specialis
             state = review_currency(review, claim, tr, report, tk)
         except Exception:
             state = ("unbound", [])
-    release = assess_release(tr, trusted, review, list(o.structural_findings), display, state, engine_check)
+    # the claim's argument diagnosis, re-derived as the composer derives it (never read from the stored outcome)
+    named, incomplete, _engine_state = outcome_diagnosis(claim, tr, ver, display, key, kid, report, task)
+    release = assess_release(tr, trusted, review, list(o.structural_findings), display, state, engine_check, named, incomplete)
     return display, release, authentic
 
 

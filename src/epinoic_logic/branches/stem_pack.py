@@ -39,6 +39,7 @@ from typing import Optional
 
 from ..adapters.stem_specialist.parser import ID_PREFIXES, MODE_PROFILES, stem_profile_key
 from ..ir.schema import Problem
+from ..named import DEFECT_LABELS, code_spec
 from ..stem.checks import CheckPlan, build_checks
 from ..stem.document import StemDocument, build_document
 from ..translate.contracts import SpecialistReport, StructuralFinding
@@ -142,13 +143,17 @@ class StemPack:
             formal.append(FormalCheck(check_id=pc.check_id, kind=pc.kind, description=claim_map.relabel(pc.description), problem=problem,
                                       expected_if_sound=pc.expected_if_sound, claim_ids=tuple(claim_ids), policy=pc.policy,
                                       failure_severity="warning" if pc.failure_severity == "warning" else "error",
-                                      inconsistent_is_failure=pc.inconsistent_is_failure, related_claim_ids=related))
+                                      inconsistent_is_failure=pc.inconsistent_is_failure, related_claim_ids=related,
+                                      # the defect a failure names, when the STEM check carries a canonical label
+                                      defect=getattr(pc, "defect", None) if getattr(pc, "defect", None) in DEFECT_LABELS else None))
         return findings, formal
 
 
 def _finding(code: str, severity: str, message: str, claim_ids: list[str]) -> StructuralFinding:
     sev = severity if severity in ("warning", "info") else "warning"  # the STEM pack itself never emits an error
-    return StructuralFinding(code=code, severity=sev, message=message[:_MAX_MESSAGE], claim_ids=claim_ids, rule_source=STEM_RULE_SOURCE)
+    spec = code_spec(code)  # a STEM code of the named-code table (named.NAMED_CODES) carries its canonical defect label
+    defect = spec.defect if spec is not None and spec.defect in DEFECT_LABELS else None
+    return StructuralFinding(code=code, severity=sev, message=message[:_MAX_MESSAGE], claim_ids=claim_ids, rule_source=STEM_RULE_SOURCE, defect=defect)
 
 
 class _ClaimMap:

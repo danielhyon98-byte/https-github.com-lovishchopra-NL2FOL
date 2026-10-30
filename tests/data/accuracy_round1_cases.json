@@ -1,0 +1,3088 @@
+{
+ "format": "argdiag-accuracy-cases/1",
+ "case_format": "argdiag-corpus/1",
+ "description": "The cases of accuracy round 1 (false alarms on correct answers, each with a defective twin that stays caught), in the corpus case format, run through the public pipeline by tests/contract/test_accuracy_round1_cases.py.",
+ "cases": [
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_rule_ok_later_conjunct_hedge",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_rule_ok_later_conjunct_hedge",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"If fuel duty rises, car journeys fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "If fuel duty rises, car journeys fall and bus companies can add more services. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_rule_ok_later_conjunct_hedge",
+    "request_id": "req-acc1_rule_ok_later_conjunct_hedge",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_rule_ok_later_conjunct_hedge"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If fuel duty rises, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-03: a hedge in another conjunct of the consequence qualifies another statement"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_rule_ok_relative_clause_hedge",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_rule_ok_relative_clause_hedge",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"If fuel duty rises, car journeys fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "If fuel duty rises, car journeys fall, which may ease congestion in city centres. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_rule_ok_relative_clause_hedge",
+    "request_id": "req-acc1_rule_ok_relative_clause_hedge",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_rule_ok_relative_clause_hedge"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If fuel duty rises, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-03: a hedge in a relative clause after the consequence is no hedge on it"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_rule_ok_affirming_frame",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_rule_ok_affirming_frame",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"if fuel duty rises, car journeys fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "Nobody doubts that if fuel duty rises, car journeys fall. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_rule_ok_affirming_frame",
+    "request_id": "req-acc1_rule_ok_affirming_frame",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_rule_ok_affirming_frame"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "if fuel duty rises, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-03: an affirming frame endorses the rule"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_rule_bad_hedged_consequence",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc1_rule_bad_hedged_consequence",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"If fuel duty rises, car journeys might fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "If fuel duty rises, car journeys might fall. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_rule_bad_hedged_consequence",
+    "request_id": "req-acc1_rule_bad_hedged_consequence",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_rule_bad_hedged_consequence"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If fuel duty rises, car journeys might fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-03 caught twin: the hedge is the consequence's own"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_rule_bad_doubting_frame",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc1_rule_bad_doubting_frame",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"if fuel duty rises, car journeys fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "Some economists doubt that if fuel duty rises, car journeys fall. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_rule_bad_doubting_frame",
+    "request_id": "req-acc1_rule_bad_doubting_frame",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_rule_bad_doubting_frame"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "if fuel duty rises, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-03 caught twin: a doubting frame is still a frame"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_when_ok_generic_rule",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_when_ok_generic_rule",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"When fuel duty rises, car journeys fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "When fuel duty rises, car journeys fall. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_when_ok_generic_rule",
+    "request_id": "req-acc1_when_ok_generic_rule",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_when_ok_generic_rule"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "When fuel duty rises, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-07: a generic 'when' rule quoted verbatim is the source's rule"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_when_ok_rule_after_its_result",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_when_ok_rule_after_its_result",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"Car journeys fall when fuel duty rises\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "Car journeys fall when fuel duty rises. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_when_ok_rule_after_its_result",
+    "request_id": "req-acc1_when_ok_rule_after_its_result",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_when_ok_rule_after_its_result"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "Car journeys fall when fuel duty rises"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-07: the rule with its condition after the result"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_when_bad_hedged",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc1_when_bad_hedged",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys fell in 2024. [3 marks]",
+   "answer": "The extract says \"When fuel duty rises, car journeys tend to fall\" and that \"fuel duty rose in 2024\", so car journeys fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "ext",
+     "text": "When fuel duty rises, car journeys tend to fall. Official figures show that fuel duty rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_when_bad_hedged",
+    "request_id": "req-acc1_when_bad_hedged",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_when_bad_hedged"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel duty rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel duty rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel duty rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel duty rises, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "When fuel duty rises, car journeys tend to fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-07 caught twin: a hedged 'when' rule"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_ok_because_of",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bare_ok_because_of",
+   "subject": "History",
+   "task_type": "short_answer",
+   "agent_id": "history-specialist",
+   "request": "Explain why the Spanish Armada failed in 1588. [4 marks]",
+   "answer": "The Spanish Armada failed in 1588 because of English fireships at Gravelines that broke its formation and storms that wrecked many ships on the voyage home.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_ok_because_of",
+    "request_id": "req-acc1_bare_ok_because_of",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_ok_because_of"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01: 'because of' gives the reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_ok_as_a_result_of",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bare_ok_as_a_result_of",
+   "subject": "Geography",
+   "task_type": "short_answer",
+   "agent_id": "geography-specialist",
+   "request": "Explain why the coastal path at Holmby collapsed in 2023. [2 marks]",
+   "answer": "The coastal path at Holmby collapsed in 2023 as a result of wave erosion at the base of the soft clay cliff, which undercut the path until it slumped.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_ok_as_a_result_of",
+    "request_id": "req-acc1_bare_ok_as_a_result_of",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_ok_as_a_result_of"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01: 'as a result of' gives the reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_ok_thanks_to",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bare_ok_thanks_to",
+   "subject": "Economics",
+   "task_type": "short_answer",
+   "agent_id": "economics-specialist",
+   "request": "Explain why exports from Country R rose in 2023. [2 marks]",
+   "answer": "Exports from Country R rose in 2023 thanks to a fall in the value of its currency, which made its goods cheaper for foreign buyers.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_ok_thanks_to",
+    "request_id": "req-acc1_bare_ok_thanks_to",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_ok_thanks_to"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01: 'thanks to' gives the reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_ok_following",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bare_ok_following",
+   "subject": "Biology",
+   "task_type": "short_answer",
+   "agent_id": "biology-specialist",
+   "request": "Explain why the leaves of the potted plant wilted. [2 marks]",
+   "answer": "The leaves of the potted plant wilted following a week without water, which left its cells without the water pressure that keeps them firm.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_ok_following",
+    "request_id": "req-acc1_bare_ok_following",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_ok_following"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01: 'following' an event gives the reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_ok_due_to",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bare_ok_due_to",
+   "subject": "Biology",
+   "task_type": "short_answer",
+   "agent_id": "biology-specialist",
+   "request": "Explain why the bread dough rose more slowly in the cold kitchen. [2 marks]",
+   "answer": "The bread dough rose more slowly in the cold kitchen due to slower respiration by the yeast, which produced less carbon dioxide to inflate the dough.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_ok_due_to",
+    "request_id": "req-acc1_bare_ok_due_to",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_ok_due_to"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01: 'due to' gives the reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bare_bad_bare",
+   "family": "argument",
+   "expected_label": "bare_assertion",
+   "acceptable_labels": [],
+   "title": "acc1_bare_bad_bare",
+   "subject": "History",
+   "task_type": "short_answer",
+   "agent_id": "history-specialist",
+   "request": "Explain why the Spanish Armada failed in 1588. [4 marks]",
+   "answer": "The Spanish Armada failed in 1588.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc1_bare_bad_bare",
+    "request_id": "req-acc1_bare_bad_bare",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bare_bad_bare"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-01 caught twin: a judgement with no reason"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bridge_ok_prose_so_sentence",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bridge_ok_prose_so_sentence",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of the repeal of the Corn Laws in 1846. [3 marks]",
+   "answer": "Parliament repealed the Corn Laws in 1846. The repeal of the Corn Laws lowered the price of bread in Britain, so bread became cheaper in Britain.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "In 1846 Parliament repealed the Corn Laws. Historian M writes: \"The repeal of the Corn Laws lowered the price of bread in Britain.\""
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_bridge_ok_prose_so_sentence",
+    "request_id": "req-acc1_bridge_ok_prose_so_sentence",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bridge_ok_prose_so_sentence"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread became cheaper in Britain",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "Parliament repealed the Corn Laws in 1846",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread became cheaper in Britain",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "Parliament repealed the Corn Laws in 1846",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the Corn Laws were repealed, bread became cheaper in Britain",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread became cheaper in Britain",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-02: the bridge stated in the sentence that ends 'so ...'"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bridge_ok_quoted",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_bridge_ok_quoted",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of the repeal of the Corn Laws in 1846. [3 marks]",
+   "answer": "Parliament repealed the Corn Laws in 1846, and Historian M writes that \"The repeal of the Corn Laws lowered the price of bread in Britain\", so bread became cheaper in Britain.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "In 1846 Parliament repealed the Corn Laws. Historian M writes: \"The repeal of the Corn Laws lowered the price of bread in Britain.\""
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_bridge_ok_quoted",
+    "request_id": "req-acc1_bridge_ok_quoted",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bridge_ok_quoted"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread became cheaper in Britain",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "Parliament repealed the Corn Laws in 1846",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread became cheaper in Britain",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "Parliament repealed the Corn Laws in 1846",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the Corn Laws were repealed, bread became cheaper in Britain",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread became cheaper in Britain",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-02: the bridge stated in a quotation"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_bridge_bad_no_bridge",
+   "family": "evidence",
+   "expected_label": "leap_in_logic",
+   "acceptable_labels": [],
+   "title": "acc1_bridge_bad_no_bridge",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of the repeal of the Corn Laws in 1846. [3 marks]",
+   "answer": "Parliament repealed the Corn Laws in 1846, so the British Empire grew.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "In 1846 Parliament repealed the Corn Laws. Historian M writes: \"The repeal of the Corn Laws lowered the price of bread in Britain.\""
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_bridge_bad_no_bridge",
+    "request_id": "req-acc1_bridge_bad_no_bridge",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_bridge_bad_no_bridge"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "the British Empire grew",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "Parliament repealed the Corn Laws in 1846",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "the British Empire grew",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "Parliament repealed the Corn Laws in 1846",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "In 1846 Parliament repealed the Corn Laws"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the Corn Laws were repealed, the British Empire grew",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "the British Empire grew",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-02 caught twin: no bridge stated anywhere"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_phrasal_ok_brought_down",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_phrasal_ok_brought_down",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "After fuel prices rose, the national rail operator brought its ticket fares down. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The national rail operator lowered its ticket fares, and the extract says \"If ticket fares fall, passenger numbers rise.\", so passenger numbers rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If ticket fares fall, passenger numbers rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_phrasal_ok_brought_down",
+    "request_id": "req-acc1_phrasal_ok_brought_down",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_phrasal_ok_brought_down"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "passenger numbers rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the national rail operator lowered its ticket fares",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "passenger numbers rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the national rail operator lowered its ticket fares",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if ticket fares fall, passenger numbers rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If ticket fares fall, passenger numbers rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "passenger numbers rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-03: 'brought ... down' states a fall, beside a verb of rising"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_phrasal_ok_went_down",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_phrasal_ok_went_down",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "As fuel prices rose, the ticket fares of the rail operator went down. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The ticket fares of the rail operator fell, and the extract says \"If ticket fares fall, passenger numbers rise.\", so passenger numbers rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If ticket fares fall, passenger numbers rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_phrasal_ok_went_down",
+    "request_id": "req-acc1_phrasal_ok_went_down",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_phrasal_ok_went_down"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "passenger numbers rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the ticket fares of the rail operator fell",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "passenger numbers rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the ticket fares of the rail operator fell",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if ticket fares fall, passenger numbers rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If ticket fares fall, passenger numbers rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "passenger numbers rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-03: 'went down' states a fall"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_phrasal_bad_opposite",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc1_phrasal_bad_opposite",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "After fuel prices rose, the national rail operator put its ticket fares up. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The national rail operator lowered its ticket fares, and the extract says \"If ticket fares fall, passenger numbers rise.\", so passenger numbers rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If ticket fares fall, passenger numbers rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_phrasal_bad_opposite",
+    "request_id": "req-acc1_phrasal_bad_opposite",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_phrasal_bad_opposite"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "passenger numbers rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the national rail operator lowered its ticket fares",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "passenger numbers rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the national rail operator lowered its ticket fares",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if ticket fares fall, passenger numbers rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If ticket fares fall, passenger numbers rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "passenger numbers rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-03 caught twin: the task states the opposite direction"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_restate_ok_synonym",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_restate_ok_synonym",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "In Country S the government raised the minimum wage. Using the extract, explain whether employment of young workers in Country S rose or fell. [3 marks]",
+   "answer": "The government in Country S increased the minimum wage, and the extract says \"If the minimum wage rises, employment of young workers falls.\", so employment of young workers in Country S fell.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If the minimum wage rises, employment of young workers falls."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_restate_ok_synonym",
+    "request_id": "req-acc1_restate_ok_synonym",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_restate_ok_synonym"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "employment of young workers in Country S fell",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the government in Country S increased the minimum wage",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "employment of young workers in Country S fell",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the government in Country S increased the minimum wage",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the minimum wage rises, employment of young workers falls",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If the minimum wage rises, employment of young workers falls."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "employment of young workers in Country S fell",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-04: the task fact restated with a synonym"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_restate_bad_unsaid",
+   "family": "evidence",
+   "expected_label": "unchecked_source",
+   "acceptable_labels": [],
+   "title": "acc1_restate_bad_unsaid",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "In Country S the government reviewed the minimum wage. Using the extract, explain whether employment of young workers in Country S rose or fell. [3 marks]",
+   "answer": "The government in Country S raised the minimum wage, and the extract says \"If the minimum wage rises, employment of young workers falls.\", so employment of young workers in Country S fell.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If the minimum wage rises, employment of young workers falls."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_restate_bad_unsaid",
+    "request_id": "req-acc1_restate_bad_unsaid",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_restate_bad_unsaid"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "employment of young workers in Country S fell",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the government in Country S raised the minimum wage",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "employment of young workers in Country S fell",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the government in Country S raised the minimum wage",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the minimum wage rises, employment of young workers falls",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If the minimum wage rises, employment of young workers falls."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "employment of young workers in Country S fell",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-04 caught twin: the task does not state the fact"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_stance_ok_other_subject",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_stance_ok_other_subject",
+   "subject": "History",
+   "task_type": "source_question",
+   "agent_id": "history-specialist",
+   "request": "What does Source B suggest about local attitudes to the new bypass? [3 marks]",
+   "answer": "Source B suggests that local residents resented the bypass, because it would cut through the meadows and cost twice its budget.",
+   "supplied_texts": [
+    {
+     "document_id": "srcB",
+     "title": "Source B",
+     "text": "The mayor welcomed the end of the long consultation, but the bypass would cut through the meadows and cost twice its budget."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_stance_ok_other_subject",
+    "request_id": "req-acc1_stance_ok_other_subject",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_stance_ok_other_subject"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-05: the approving word is about another subject"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_stance_bad_opposite",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc1_stance_bad_opposite",
+   "subject": "History",
+   "task_type": "source_question",
+   "agent_id": "history-specialist",
+   "request": "What does Source B suggest about local attitudes to the new bypass? [3 marks]",
+   "answer": "Source B suggests that local residents resented the bypass, because they saw it as a threat.",
+   "supplied_texts": [
+    {
+     "document_id": "srcB",
+     "title": "Source B",
+     "text": "Local residents welcomed the bypass as a fast and safe new road."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_stance_bad_opposite",
+    "request_id": "req-acc1_stance_bad_opposite",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_stance_bad_opposite"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-05 caught twin: the source approves the claim's own subject"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_lack_ok_own_knowledge_invited",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_lack_ok_own_knowledge_invited",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source C and your own knowledge, explain why the Berlin Wall was built in 1961. [6 marks]",
+   "answer": "Source C shows that \"Between 1949 and 1961 about 2.7 million people left East Germany for the West\". Many of those who left East Germany were skilled workers, and because their loss weakened the economy, the East German government built the Berlin Wall in 1961.",
+   "supplied_texts": [
+    {
+     "document_id": "srcC",
+     "title": "Source C",
+     "text": "Between 1949 and 1961 about 2.7 million people left East Germany for the West."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_lack_ok_own_knowledge_invited",
+    "request_id": "req-acc1_lack_ok_own_knowledge_invited",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_lack_ok_own_knowledge_invited"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "built the Berlin Wall in 1961",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "about 2.7 million people left East Germany for the West between 1949 and 1961",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcC",
+            "excerpt": "Between 1949 and 1961 about 2.7 million people left East Germany for the West"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "k",
+         "sort": "Bool",
+         "meaning": "many of those who left East Germany were skilled workers",
+         "grounding": {
+          "kind": "general_knowledge",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "the East German government built the Berlin Wall in 1961",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "about 2.7 million people left East Germany for the West between 1949 and 1961",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcC",
+            "excerpt": "Between 1949 and 1961 about 2.7 million people left East Germany for the West"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "k1",
+         "expr": {
+          "op": "var",
+          "name": "k"
+         },
+         "label": "many of those who left East Germany were skilled workers",
+         "materiality": "material",
+         "grounding": {
+          "kind": "general_knowledge",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "and",
+           "args": [
+            {
+             "op": "var",
+             "name": "a"
+            },
+            {
+             "op": "var",
+             "name": "k"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "the loss of skilled workers led the government to close the border",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "the East German government built the Berlin Wall in 1961",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-06: the request invites own knowledge"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_lack_bad_invented_universal",
+   "family": "evidence",
+   "expected_label": "lack_of_evidence",
+   "acceptable_labels": [],
+   "title": "acc1_lack_bad_invented_universal",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source C and your own knowledge, explain why the Berlin Wall was built in 1961. [6 marks]",
+   "answer": "Source C shows that \"Between 1949 and 1961 about 2.7 million people left East Germany for the West\". Every person who left East Germany was a skilled worker, and because their loss weakened the economy, the East German government built the Berlin Wall in 1961.",
+   "supplied_texts": [
+    {
+     "document_id": "srcC",
+     "title": "Source C",
+     "text": "Between 1949 and 1961 about 2.7 million people left East Germany for the West."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_lack_bad_invented_universal",
+    "request_id": "req-acc1_lack_bad_invented_universal",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_lack_bad_invented_universal"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "built the Berlin Wall in 1961",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "about 2.7 million people left East Germany for the West between 1949 and 1961",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcC",
+            "excerpt": "Between 1949 and 1961 about 2.7 million people left East Germany for the West"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "k",
+         "sort": "Bool",
+         "meaning": "every person who left East Germany was a skilled worker",
+         "grounding": {
+          "kind": "general_knowledge",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "the East German government built the Berlin Wall in 1961",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "about 2.7 million people left East Germany for the West between 1949 and 1961",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcC",
+            "excerpt": "Between 1949 and 1961 about 2.7 million people left East Germany for the West"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "k1",
+         "expr": {
+          "op": "var",
+          "name": "k"
+         },
+         "label": "every person who left East Germany was a skilled worker",
+         "materiality": "material",
+         "grounding": {
+          "kind": "general_knowledge",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "and",
+           "args": [
+            {
+             "op": "var",
+             "name": "a"
+            },
+            {
+             "op": "var",
+             "name": "k"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "the loss of skilled workers led the government to close the border",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "the East German government built the Berlin Wall in 1961",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DIFF3-06 caught twin: an invented universal fact"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc1_precision_ok_about_300_g",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc1_precision_ok_about_300_g",
+   "subject": "Geography",
+   "task_type": "short_answer",
+   "agent_id": "geography-specialist",
+   "request": "Using the extract, state the approximate mass of the rock sample. [1 mark]",
+   "answer": "The rock sample had a mass of about 300 g.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "The rock sample had a mass of 260 g."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc1_precision_ok_about_300_g",
+    "request_id": "req-acc1_precision_ok_about_300_g",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc1_precision_ok_about_300_g"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "The rock sample had a mass of",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "m",
+         "sort": "Real",
+         "meaning": "mass of the rock sample in grams",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "The rock sample had a mass of 260 g"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "ev1",
+         "expr": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "m"
+          },
+          "right": {
+           "op": "real",
+           "value": "260"
+          }
+         },
+         "label": "The rock sample had a mass of 260 g",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "The rock sample had a mass of 260 g"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "and",
+         "args": [
+          {
+           "op": "ge",
+           "left": {
+            "op": "var",
+            "name": "m"
+           },
+           "right": {
+            "op": "real",
+            "value": "250"
+           }
+          },
+          {
+           "op": "lt",
+           "left": {
+            "op": "var",
+            "name": "m"
+           },
+           "right": {
+            "op": "real",
+            "value": "350"
+           }
+          }
+         ]
+        },
+        "label": "the rock sample had a mass of about 300 g",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 1 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 1 own probe",
+    "note": "DV2-08: the first significant digit's interval stands on its own"
+   }
+  }
+ ]
+}

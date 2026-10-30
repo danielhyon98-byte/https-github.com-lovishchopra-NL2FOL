@@ -415,7 +415,7 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
     (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
     (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
-    (PACK_NAME, "1.3"): "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
+    (PACK_NAME, "1.3"): "0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb",
 })
 
 MANIFEST_VERSION = "1.0"

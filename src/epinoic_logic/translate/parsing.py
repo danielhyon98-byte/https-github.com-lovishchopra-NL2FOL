@@ -130,3 +130,31 @@ def _refuse_surrogates(obj: Any) -> None:
             stack.extend(node)
         elif isinstance(node, str) and _SURROGATE_RE.search(node):
             raise ProviderOutputError("provider output holds a lone UTF-16 surrogate code point in a string (not valid Unicode text)")
+
+
+# --------------------------------------------------------------------------------------------- argument diagnosis record
+
+#: The most ``verified`` paths :func:`asserted_verified_paths` reports (the walk itself is bounded by the parse limits).
+MAX_ASSERTED_PATHS = 256
+
+
+def asserted_verified_paths(raw: Any) -> list[str]:
+    """The paths (``problem.premises[2].grounding``, ...) where the provider's parsed JSON object wrote ``verified: true``
+    on a grounding. Only checks in this process set ``verified``; every path found is recorded in
+    ``TranslationResult.asserted_verified`` and as the translation diagnostic "E505: the translation asserted verified=true
+    at <path>; discarded: only checks set it". A grounding is any object held under a ``grounding`` key (a symbol's, a
+    premise's, the conclusion's, a glossary entry's). The walk is iterative over dicts and lists, so it is bounded by what
+    the parser accepted (its byte bound and nesting depth), and at most :data:`MAX_ASSERTED_PATHS` paths are reported.
+    ``verified: false`` or ``null`` claims no authority and is not reported. Nothing is evaluated."""
+    out: list[str] = []
+    stack: list[tuple[Any, str, bool]] = [(raw, "", False)]
+    while stack and len(out) < MAX_ASSERTED_PATHS:
+        node, path, is_grounding = stack.pop()
+        if isinstance(node, dict):
+            if is_grounding and node.get("verified") is True:
+                out.append(path or "grounding")
+            children = [(v, f"{path}.{k}" if path else str(k), k == "grounding") for k, v in node.items() if isinstance(v, (dict, list))]
+            stack.extend(reversed(children))
+        elif isinstance(node, list):
+            stack.extend(reversed([(v, f"{path}[{i}]", False) for i, v in enumerate(node) if isinstance(v, (dict, list))]))
+    return out
