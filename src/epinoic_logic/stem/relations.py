@@ -4593,6 +4593,8 @@ class _Planner:
         stmt_text = item.context()
         complete_phrase = any(p in stmt_text for p in _COMPLETE_PHRASES)
         restricted = any(w in stmt_text for w in _RESTRICT_WORDS) or self.request.restricts_domain
+        if source == "answer" and self.profile.is_mathematics:
+            self._division_note(item, x, root)  # argument diagnostics: ST-STEP-002 on a root line
         if key in group:
             idx = group[key]
             rel = self.relations[idx]
@@ -8436,6 +8438,15 @@ class _Planner:
         if len(vals) == 1 and not text[: vals[0].start - a].strip() and not text[vals[0].end - a:].strip():
             return vals[0].node
         word = text.strip()
+        if not vals and _PLAIN_OPERAND_RE.fullmatch(word):
+            # Port onto the integrated translator: on a line of working the integrated reader keeps no prose value but a restated
+            # result (rule inline-restatement), so the plain numeral the operation names ("Subtracting 4 from both sides then gives
+            # x = 8 − 4") is read from the operation's own words
+            lead = len(text) - len(text.lstrip())
+            sc = scan_number(word, 0, scientific=False)
+            if sc is not None and sc.number is not None and sc.end == len(word):
+                return Num(sc.number, a + lead, a + lead + len(word))
+            return None
         if 1 <= len(word) <= 3 and word.isalpha() and word.isascii():
             return Sym(word, "symbol", a, b)
         return None
@@ -8475,6 +8486,24 @@ class _Planner:
                  premise_left=prev["left"], premise_op=prev["op"], premise_right=prev["right"], premise_ids=prev["sids"], part=item.part, explicit=True,
                  operation=name, operation_arg=arg, operation_text=phrase,
                  reason=f"ST-STEP-001: the stated operation '{phrase}' applied to the preceding equation must give the next line")
+
+    def _division_note(self, item: MathItem, x: str, root: Node) -> None:
+        """ST-STEP-002 (info) for a root line whose stated step divides by the unknown ('Dividing by x, x = 3') with no guard:
+        the root where the divisor is zero may be lost; the root check (stem-sol) decides whether the set is complete."""
+        gap = item.gap_before
+        rx = dict(_OPERATION_RES)["div"]
+        m = rx.search(gap) if gap and len(gap) <= 240 else None
+        if m is None or _NEGATED_OPERATION_RE.search(gap[max(0, m.start() - 24):m.start()]):
+            return
+        arg = m.group("k").strip()
+        if arg != x and not (len(arg) <= 12 and x in arg):
+            return
+        context = item.context() + " " + self._request_lower
+        if any(c in context for c in _NONZERO_CUES):
+            return
+        self.finding("ST-STEP-002", f"the step '{' '.join(m.group(0).split())}' divides by {arg}, an expression of the unknown, and no '{arg} ≠ 0' is "
+                                    f"stated: a solution where it is zero may be lost (stem_invalid_step; the root check decides whether the stated set "
+                                    f"is complete)", (item.statement_id,), item.start, item.end)
 
     def _rounding_comparisons(self) -> None:
         """ST-ROUND-001 (engine-decided): a comparison against a threshold ("0.25 s is not less than 0.25 s", or a stated
@@ -9958,7 +9987,23 @@ class _Planner:
         substitutes ('c = 0.200 mol dm⁻³ and V = 0.0400 dm³, so n = cV = 0.200 × 0.0400'), is read against the request's
         binding of the symbol or its quantities of the same dimension, as a Given is (``giv``, a warning: the identity of a
         symbol across the request and the answer is a reading). A value the answer derives is no given: none is read when a
-        chain of the answer ends in a value of that dimension, or when the value is the end of a chain."""
+        chain of the answer ends in a value of that dimension, or when the value is the end of a chain.
+
+        Port onto the integrated translator: a value that repeats one of the candidates exactly (the same value in the same
+        unit, or the same SI value) plans no check. The integrated translator plans no check for a request value the working
+        substitutes as written (``v = d / t = 120 km / 2 h`` carries only its arithmetic check,
+        ``tests/integration/test_stem_budget.py``), and such a check could only hold; a value that contradicts the request
+        is still checked and named."""
+        def repeats(value: Fraction, unit, cands: list[Binding]) -> bool:
+            si = si_value(value, unit)
+            text = " ".join(unit.text.split()) if unit is not None else ""
+            for c in cands:
+                if c.value == value and c.unit is not None and " ".join(c.unit.text.split()) == text and not c.wrapper:
+                    return True
+                if si is not None and c.si is not None and c.si == si:
+                    return True
+            return False
+
         derived_dims: list = []
         derived_values: set = set()
         for fv in self.final_values:
@@ -10002,6 +10047,8 @@ class _Planner:
                 if not cands or (name, b.start) in seen:
                     continue
                 seen.add((name, b.start))
+                if not b.wrapper and repeats(b.value, b.unit, cands):
+                    continue  # the request's own value, as written: no check (see above)
                 node = Quantity(b.number, b.unit, b.start, b.end)
                 self.add(kind="giv", outcome="check", statement_ids=(b.statement_id,), start=b.start, end=b.end, op="=", right=Operand((node,), b.start, b.end),
                          left=Operand((Sym(name, start=b.start, end=b.start),), b.start, b.start), candidates=tuple(cands[:8]),
@@ -10025,6 +10072,8 @@ class _Planner:
                 if not cands:
                     continue
                 seen.add((name, node.start))
+                if v[3] == "" and repeats(v[0], node.unit, cands):
+                    continue  # the request's own value, as written: no check (see above)
                 self.add(kind="giv", outcome="check", statement_ids=rel.statement_ids, start=node.start, end=node.end, op="=",
                          right=Operand((written,), node.start, node.end), left=Operand((Sym(name, start=node.start, end=node.start),), node.start, node.start),
                          candidates=tuple(cands[:8]),
@@ -11229,6 +11278,10 @@ def _operation_hits(gap: str) -> list:
     """The operations ``gap`` states (:data:`_OPERATION_RES`), each as (name, match), leaving out one the prose negates."""
     return [(name, m) for name, rx in _OPERATION_RES for m in [rx.search(gap)]
             if m is not None and not _NEGATED_OPERATION_RE.search(gap[max(0, m.start() - 24):m.start()])]
+
+
+#: a plain numeral named as the operand of a stated operation ('subtracting 4 from both sides', 'dividing by 2.5')
+_PLAIN_OPERAND_RE = re.compile(r"\d{1,9}(?:\.\d{1,9})?")
 
 
 _NONZERO_CUES = ("≠ 0", "≠0", "!= 0", "not zero", "non-zero", "nonzero", "not equal to zero", "not equal to 0", "> 0", "≥ 0", "positive")

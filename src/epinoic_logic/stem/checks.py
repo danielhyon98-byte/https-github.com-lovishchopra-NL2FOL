@@ -915,6 +915,59 @@ def _rational(node: Node) -> Optional[Fraction]:
     return None
 
 
+def _rational_env(node: Node, env: dict[str, Fraction], depth: int = 0) -> Optional[Fraction]:
+    """:func:`_rational` with each symbol of ``env`` read as its value as written; None for any other symbol or node."""
+    if depth > 64:
+        return None
+    if isinstance(node, Sym):
+        return env.get(node.name)
+    if isinstance(node, (Num, Quantity)):
+        return node.number.value
+    if isinstance(node, WithUnit):
+        return _rational_env(node.arg, env, depth + 1)
+    if isinstance(node, Neg):
+        v = _rational_env(node.arg, env, depth + 1)
+        return None if v is None else -v
+    if isinstance(node, Pow):
+        v = _rational_env(node.base, env, depth + 1)
+        if v is None or (v == 0 and node.exp <= 0) or abs(node.exp) > 12:
+            return None
+        return v ** node.exp
+    if isinstance(node, BinOp) and not (node.implicit and node.op == "+"):  # a compound quantity ('4 min 30 s') has no value as written
+        a, b = _rational_env(node.left, env, depth + 1), _rational_env(node.right, env, depth + 1)
+        if a is None or b is None:
+            return None
+        if node.op == "+":
+            return a + b
+        if node.op == "-":
+            return a - b
+        if node.op == "*":
+            return a * b
+        if node.op == "/":
+            return None if b == 0 else a / b
+    return None
+
+
+def _label_unit_error(ctx: "_Ctx", pairs: list[tuple[Node, Node]], hs: list[Fraction], tau: Fraction, readings: list,
+                      env: Optional[dict[str, Fraction]] = None) -> None:
+    """Port of the argument diagnostics onto the integrated translator (docs/ARGUMENT_DIAGNOSTICS.md section 20.7): a check decided in
+    SI alone, because the as-written reading is not admitted beside it (its units contradict it, or every value carries a unit), whose
+    numbers hold as written, names a failure ``stem_unit_error`` (ST-UNIT-003: the units were not converted). Only the label of a
+    failure changes: the check, its readings and its verdict are the integrated ones, and no companion check is planned. Exact
+    rational bookkeeping on the written numerals; it decides nothing."""
+    if ctx.defect or not readings or not all(r.si for r in readings):
+        return
+    for (cnode, snode), h in zip(pairs, hs):
+        c, s = _rational_env(cnode, env or {}), _rational_env(snode, env or {})
+        if c is None or s is None:
+            continue
+        if abs(c - s) <= h + tau * abs(c):
+            ctx.defect = "stem_unit_error"
+            ctx.detail("ST-UNIT-003: the numbers hold as written and the relation is decided in SI: a failure is a unit not converted "
+                       "(stem_unit_error)")
+            return
+
+
 def _exact_result(doc: StemDocument, node: Node, depth: int = 0) -> bool:
     """Rule ``exact-carry`` (STEM repair 2): the stated value ``node`` closes written arithmetic that gives it exactly, as written, from
     numerals none of which carries a rounded result (``C = 1600 counts min⁻¹ × (1/2)⁴ = 100 counts min⁻¹``, ``820 − 20 = 800``): the
@@ -1645,6 +1698,8 @@ def _eq(ctx: _Ctx) -> None:
         ctx.detail(f"τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
     si_pairs = _unit_setup(ctx, unit, pairs)
+    if not unit and not unknown and not (scale_unit or angle or compound):
+        _label_unit_error(ctx, pairs, hs, tau, readings)
     _compare(ctx, pairs, kind="eq", tau=tau, h_written=hs, readings=readings, intervals=intervals, signs=signs, h_scale_nodes=extra,
              combine="implies" if ctx.rel.kind == "unit" else "or", si_pairs=si_pairs)
 
@@ -2756,6 +2811,17 @@ def _sub_evaluate(ctx: _Ctx) -> None:
     ctx.detail("the symbolic side under the stated bindings" + (" (and readings from the written substitution)" if anchors else "") + f"; τ = {_ratio(tau)}")
     signs = (1, -1) if _has_plus_minus(*nodes) else (1,)
     _unit_setup(ctx, unit, pairs)
+    if not unit and not unknown and not booklet_used and not euler:
+        written: dict[str, Fraction] = {}
+        for name in names:
+            vals = {bd.value for bd in ctx.doc.bindings.get(name, ()) if not bd.wrapper}
+            if not vals and name in anchors:
+                v = value_of(anchors[name])
+                vals = {v[0]} if v is not None and not v[3] else set()
+            if len(vals) == 1:
+                written[name] = next(iter(vals))
+        if len(written) == len(names):
+            _label_unit_error(ctx, pairs, hs, tau, readings, written)
     _compare(ctx, pairs, kind="sub", tau=tau, h_written=hs, readings=readings, intervals={}, env_for=env_for, signs=signs, force_form_s=many,
              label="written numeric side", stated_label="symbolic side under the bindings", combine="implies" if ctx.rel.kind == "unit" else "or")
 

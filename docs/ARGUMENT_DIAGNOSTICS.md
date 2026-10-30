@@ -2480,7 +2480,8 @@ Contradicting the integrated translator:
   unit error (INT-SUBJ-001, labelled by its kind); a companion would only repeat its verdict, and the integrated tests pin
   that such a relation plans one check (`tests/stem/test_round7_arena_fixes.py`, `test_stem_repair6.py`). So only the
   `traced` companion is ported: bare numbers that repeat the numbers of non-SI bindings or of the request's quantities,
-  which the integrated check reads as written.
+  which the integrated check reads as written. The name the companion gave is kept on the one integrated check instead
+  (section 20.10): a check decided in SI alone whose numbers hold as written names its failure `stem_unit_error`.
 * **The STEM tolerance rule.** The feature's tolerance policy (request intents for exactness and rounding, the measured-
   operand rule, `max(h, h')` for a value set against a value, the angle hint, the degrees-against-radians rule) is not
   ported: the sum rule |w − b| <= h(b) + h(w) and every integrated tolerance reading stay. A ported `op` or `rnd` check
@@ -2595,3 +2596,88 @@ export and loader tests), `tests/branches`, `tests/channel`, `tests/integrity` a
 3940 passed. No failure. The full suite, the arena harness on every recorded round, the overseer's contained run and the
 three argument-diagnosis corpora as a whole are not measured here; they are the next step of the final integration.
 
+
+### 20.10 Verification findings (repair 1)
+
+The verification of steps 1 and 2 found one failing test of the integrated tree and corpus cases the port named less well
+than the feature line. Each is fixed at its cause in the port, or, when the integrated translator's own reading causes it,
+recorded here with its case id.
+
+**Fixed in the port.**
+
+* `tests/integration/test_stem_budget.py::test_a_spent_budget_leaves_the_stem_checks_undecided_never_success` (an
+  integrated test, unchanged). The ported `_inline_givens` planned a `giv` check for every value the working substitutes
+  inline, so `v = d / t = 120 km / 2 h = 60 km/h` carried two Given checks beside its arithmetic, where the integrated
+  translator plans the arithmetic check alone. A value that repeats one of the request's candidates exactly (the same
+  value in the same unit, or the same SI value) now plans no check: such a check could only hold. A value that contradicts
+  the request is still checked and named `stem_contradictory_givens` (repair round 5's ADV5-04 tests are unchanged).
+* `ho_d_step_maa` (missed, now named `stem_invalid_step`). On a line of working the integrated reader keeps no prose value
+  but a restated result (rule inline-restatement), so the operand of "Subtracting 4 from both sides then gives x = 8 − 4"
+  was never read and no `op` check was planned. `_operand_at` now reads a plain numeral from the operation's own words when
+  no prose value lies there.
+* `h2_d_step_maa_divide_by_x` (caught without a name, now named). `_division_note` (ST-STEP-002 on a root line that divides
+  by the unknown with no guard), listed as ported in 20.6, had not been carried: the feature called it from its own root
+  reader, which is not ported. It is now called from the integrated `_roots_candidate`, for roots of the answer's own
+  equation in mathematics, as on the feature line; a negated operation is no step, as for ST-STEP-001.
+* `s03b_unit_no_conversion_units`, `s03d_unit_symbolic_bindings`, `ho_d_ue_phys_minutes`, `h2_d_unit_chem_cm3_inline`
+  (caught without a name, now named `stem_unit_error`). The feature named these through its `written` companion, which is
+  not ported (20.7). The integrated check, decided in SI alone because its units contradict the as-written reading or every
+  value carries a unit, now carries the name itself: when its numbers hold as written (exact rational bookkeeping on the
+  written numerals and, for a substitution, the one value each symbol is bound to), its failure names `stem_unit_error`
+  (ST-UNIT-003) instead of `stem_arithmetic_slip`. The check, its readings, its verdict and its severity are the integrated
+  ones, no check is added, and a slip that is wrong as written too stays an arithmetic slip.
+
+Tests: `tests/stem/test_port_verification_fixes.py` (each fix with its clean controls).
+
+**Not fixed: the integrated translator's own readings cause them.** In every case below the port's verdict equals the
+integrated base's (5990526), and no case of the three corpora is worse on the port than on the base.
+
+* Controls the feature leaves clean and the integrated readings flag (the feature line's own duplicates of these fixes are
+  not ported, 20.3):
+  * grounding of a table or figure excerpt refused by the integrated grounding (GROUNDING:FAILED, which the port's
+    EVD-SRC-003 names): `c01_control_econ_table`, `c01b_control_econ_table_short_excerpts`, `e2e-B23-bm`,
+    `ho_c_alldata_geo`, `ho_c_alldata_mai`, `ho_c_auth_ess`, `ho_c_supported_bm`, `h2_c_dated_figures_econ_landline`;
+  * the synthesis ledger's readings (INT-LEDGER-020 an excerpt that differs under the same locator, INT-LEDGER-032 a name
+    the sources do not give): `c02_control_history_quotes`, `c03_control_psych_study` (also PS-SRC-001),
+    `c04_control_english_quote`, `ho_c_attribution_hist`, `ho_c_controlled_bio`, `ho_c_excerpt_lit`,
+    `ho_c_quote_restated_ll`, `ho_c_rubric_sp`, `ho_c_stated_links_geo`, `ho_c_supported_ess`, `h2_c_fullrange_ess_reef`;
+  * the request-item heuristic (INT-REQ-004, end-to-end item B18): `c03_true_dichotomy`, `c04_quoted_transcription`
+    (also ES-STR-001), `e2e-B18-cs`, `e2e-B18-ge`, `e2e-B18-lit`, `e2e-B18-mai`, `e2e-B18-sp`, `i02c_control_rct_cause`
+    (also CORE-QNT-001), `h2_c_bio_chi_squared_decision`, `h2_c_mai_p_value_decision`, `h2_c_mt_bio_starch_test`,
+    `h2_c_quote_hist_right_source`, `h2_c_samesense_bio_fitness`, `h2_c_fullrange_geog_tourism` (also CORE-QNT-001 and
+    INT-LEDGER-020), `h2_c_cs_de_morgan` and `h2_c_phys_heater_chain` (both also ST-PARSE-001);
+  * word and paragraph bounds (INT-REQ-005 and the request constraint, end-to-end items B4, B13 and B19): `e2e-B4-bm`,
+    `e2e-B4-ec`, `e2e-B4-en`, `e2e-B4-ps`, `e2e-B13-ec` (also an INT-SUBJ-001 of pair_direction), `e2e-B13-ll`,
+    `e2e-B13-ps` (also a COUNTEREXAMPLE display), `e2e-B19-ll`;
+  * quotation roles and credit (INT-REQ-003, ES-SRC-001, CORE-SRC-003, end-to-end items B5, B6 and B13): `e2e-B13-sp`,
+    `e2e-B5-sp`, `e2e-B6-en`, `ho_c_mention_ll` (also INT-LEDGER-020);
+  * claims whose verification gave no verdict (INT-REQ-006): `e2e-B21-ge`, `e2e-B22-ph`;
+  * UNLINKED_CONJUNCT (20.3: a refuted conjunct keeps its COUNTEREXAMPLE): `e2e-B8-en`, `e2e-B8-ps`;
+  * the core pack's figure readings (CORE-QNT-001): `ho_c_arith_econ`, `ho_c_derived_bm`, `ho_c_paraphrase_geo`,
+    `ho_c_stated_rule_bm`, `h2_c_consistent_hist_turnout`, `h2_c_derived_mean_econ_inflation`,
+    `h2_c_geog_runoff_interpolation`, `h2_c_sourced_geog_rainfall` (also INT-LEDGER-020);
+  * the integrated STEM readings of correct working (20.7, 20.8): `c06_consistent_givens_stem` (ST-UNDEC-003, a Given
+    the request states no quantity for), `ho_c_arith_cs` and `h2_c_cs_twos_complement_worked` (a binary literal set
+    equal to its place values), `ho_c_iff_cs` and `ho_c_trichotomy_maa` (a condition inside a stated rule, 'if Δ < 0',
+    read as a stated comparison: named conditions), `ho_c_interp_ess` (a bare sum set equal to a value in ppm, read in
+    SI), `h2_c_maa_radical_checked` (a root the answer checks and rejects: root sets), `h2_c_bio_magnification_convert`
+    (a space-grouped numeral, ST-PARSE-001).
+* Defects named in the report delivery and caught without a name in the text delivery, because the integrated text
+  parsers read the answer their own way (the feature line's parser fixes are not ported, 20.3): `ho_d_bare_hist` (its one
+  sentence is roled a note, INT-REQ-012), `ho_d_unch_rubric_sp` (the judgement is left with no supporting claim, so it is
+  not translated), `h2_d_inv_bm_turnover` (the conclusion is roled analysis, not eligible for a solver question).
+* `h2_d_arith_phys_heater_chain` (missed): the slip is in '21 990 J', a space-grouped numeral the integrated front end
+  names ST-PARSE-001 and does not check (20.7).
+* `ho_d_ue_bio_magnification` (missed, as on the base): 'A = I/M = 0.030 μm' with I = 12 mm and M = 400. The integrated
+  substitution check (Form S, satisfiability) holds for every stated value, because the half-width of the stated value is
+  taken in its written unit and compared in SI ('0.5' for '99 μm' against values in metres). This is a defect of the
+  integrated check, reported here and not changed by the port (the integrated behaviour stays). The feature's `written`
+  companion named it on the feature line; on this tree a companion inherits the same band, so porting it would not name
+  this case and would only repeat the main check's verdict elsewhere.
+
+**Measured after repair 1** (`EPINOIC_ARENA_ROUNDS` set to a fresh copy of the recorded rounds): the full suite 12544
+passed, 45 deselected (by the suite's own configuration), 3 xfailed, no failure. Corpora (the feature line's figures in
+brackets): development 44/44 defects named [44/44], 27/57 controls clean [57/57]; hold-out 61 named, 4 caught without a
+name, 1 missed [64 named, 2 caught without a name], 48/68 controls clean [68/68]; second hold-out 68 named, 1 caught
+without a name, 1 missed [70/70 named], 38/66 controls clean [55/66]. Every remaining difference is listed above, and no
+case is worse than on the integrated base.
