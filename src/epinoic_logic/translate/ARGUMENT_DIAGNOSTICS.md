@@ -1,5 +1,12 @@
 # The argument family in the translator (rules `argdiag-2`)
 
+*On this tree (the port onto the integrated translator, docs/ARGUMENT_DIAGNOSTICS.md, section 20):* UNLINKED_CONJUNCT is
+not ported (an unlinked conjunct keeps its COUNTEREXAMPLE), the engine keeps the integrated authority rule for
+circularity (only the ungrounded kinds, an unverified `arithmetic_fact` and a refuted premise count as the writer's own;
+a figure-free task premise that restates the point is refuted when the task record is given), the runner's restatement
+"in other terms" (`runner.equivalent_premises`) is the feature line's and is not ported, and the prompt in use stays
+`translate_v2`. Where this document says otherwise, section 20 holds.
+
 The engine names the shape of an encoded argument (`engine/ARGUMENT.md`). The translator adds three things around it:
 
 - the claim and report rules of the argument family (`diag_argument.py`);

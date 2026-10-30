@@ -1,5 +1,10 @@
 # Argument diagnostics (rules `argdiag-2`)
 
+*On this tree.* Sections 1 to 19 describe the feature as it was built and measured on its own line (commit c219b4f, on the
+17 October base). This tree carries a port of it onto the integrated translator; where the two differ, section 20
+("Port onto the integrated translator") states what was ported, what was not and why, and it takes precedence over the
+earlier sections (versions, measurements and the behaviours it names).
+
 A named diagnostic says, in a closed vocabulary, what is wrong with how an answer argues, cites or calculates, as far as
 deterministic code can tell from the engine result, the IR, the grounding records made in this process and closed
 reference data. This document lists every canonical defect label: what it means, how it is derived, the code that names
@@ -2196,3 +2201,220 @@ or do not entail under the stated configuration, which premises a check in this 
 the encoding has. It does not establish that a premise is factually true, that a natural-language claim was translated
 faithfully, that a literary, historical or rubric judgement is correct, that a law applies or that data are true.
 Grounding and semantic-fidelity information is reported separately and is advisory.
+
+## 20. Port onto the integrated translator
+
+The feature was built on its own line (c219b4f, on the 17 October base 7991e8b). The integrated translator fixed many of
+the same review and arena findings independently and differently, so a merge conflicts in 48 files. The feature is
+therefore ported, not merged, under one rule (the owner's): **the integrated translator's behaviour wins every
+contradiction.** Where c219b4f carries its own version of a fix the integrated tree already has (request validation,
+signatures and provenance, translation staleness, word counting, worked arithmetic on general branches, figure subjects
+and years in grounding, precision readings, peer documents, unit readings, parser and pack readers made linear, ledger
+readings, relay history, ...), the integrated version stays and the duplicate is not ported. In particular a request over
+the contract's limits stays REJECTED with INT-REQ-009 (never truncated with INT-REQ-018), and the STEM tolerance keeps the
+sum rule |w - b| <= h(b) + h(w).
+
+The port has two steps. **Step 1** (this section) ports everything of the feature outside `src/epinoic_logic/stem/`:
+unchecked sources (issue 1) and unstated links (issue 2). **Step 2** ports the STEM method faults (issue 3:
+`stem/reference.py`, `stem/reference_data.py`, `stem/word_formulas.py` and their hooks); until it lands, the ST-* labels
+of section 3.4 are not named on this tree.
+
+### 20.1 What step 1 ports
+
+* **Modules of the feature** (new files): `named.py` (the named-code table, display lines, release lines), `lexis.py`,
+  `engine/argument.py` and `engine/argument_cues.py` with `engine/ARGUMENT.md`, `translate/diag_core.py`,
+  `translate/diag_argument.py`, `translate/diag_evidence.py`, `translate/roles.py`, `translate/stated_rules.py` with
+  `translate/ARGUMENT_DIAGNOSTICS.md`, `channel/gate.py`, and the prompt `translate/prompts/translate_v3.md` (packaged,
+  not in use: see 20.3). `translate/diag_figures.py` is new on this tree: it holds the figure readings the evidence rules
+  were measured with (EVD-FIG-001, EVD-LACK-001), kept apart so that they decide no grounding.
+* **Hooks in existing modules**, adapted to the integrated code: the argument stage of `engine.verify` and its
+  `named_diagnostics` and `argument_rules` on `VerificationResult` (signed with the result); release rules 8 (no named
+  defect at effective warning or error) and 9 (diagnosed by these rules) in `engine/release.py`; `named.py`, `lexis.py`,
+  the rules version and the named-code digest bound into the build and policy identities (`engine/identity.py`);
+  `ARG_RULES_VERSION` in `version.py`; premise roles and the provider's asserted `verified` paths on the translation
+  record (`translate/contracts.py`, `pipeline.py`, `parsing.py`); claim and report diagnostics on outcomes and receipts
+  (`translate/outcome.py`, `channel/bus.py`, `channel/contracts.py`); the task-fact readings of `grounding._check_authority` (a rule or a proposition a task
+  sentence states validates a task-authority premise); the UNENCODED_REASON encoding flag; the readers the diagnosis
+  uses in `adapters/markdown.py` (reason and conclusion leads, `cited_quotation_spans`); the overseer's reading of the
+  new receipt fields (`overseer/checks/receipts.py`, `translation.py`, `delivery_policy.py`) and its shadow channel,
+  which verifies a recorded ambiguous translation with the same info cap as `translate.outcome.verify_claim`
+  (`overseer/checks/shadow.py`; without it the shadow re-derived INT-ARG-001 warnings the receipts rightly carry at
+  info, `tests/overseer/test_rebuild_rekeyed_r7.py`); the integrity and branch
+  hooks that carry the records.
+* **Diagnostics only add information**: no status is upgraded, release only becomes stricter (rules 8 and 9), and the
+  signed result covers the named diagnostics and the rules version.
+
+### 20.2 Versions
+
+The four component versions stay as the integrated tree has them (engine 0.4.0, policy 2026.10-v4, translator 0.4.0,
+IR 1.0): the integration kit's compatibility record pins them. The build and policy identities already separate a
+diagnosed result from one of an earlier build (they bind `named.py`, `lexis.py`, the rules version `argdiag-2` and the
+named-code digest). The release assessment keeps its name `release-v1` with rules 8 and 9 added. Whether the release that
+ships the diagnostics bumps the versions, and moves the prompt in use to `translate_v3`, is a decision of the final
+integration.
+
+### 20.3 What is not ported, and why
+
+Behaviours of c219b4f that contradict the integrated translator (the integrated behaviour stays):
+
+* **UNLINKED_CONJUNCT (end-to-end item B8).** On the feature line an encoding whose conclusion has a conjunct no premise
+  mentions, while its linked part follows, became AMBIGUOUS_TRANSLATION. On this tree it keeps its COUNTEREXAMPLE, so a
+  refuted answer is withheld with its score (`tests/e2e/test_arena_deliveries.py`, `test_a_refuted_answer_is_withheld_with_its_score`
+  and `test_the_pass_never_goes_through_a_replaced_verifier`). The engine's ARG-PART-001 info record still names the
+  unlinked judgement.
+* **Authority for circularity.** The feature made every premise no check established the writer's own for circularity
+  (`engine.authority.assumed_grounding` = `not has_authority`), so a label-only `task_setting` restating the point was a
+  circle even with no task record. On this tree such a premise is unvalidated, not a circle, and is shown as the
+  encoding's result, never released (`tests/engine/test_round7_engine.py::test_a_restated_task_setting_is_a_transcription_not_a_circle`,
+  `tests/translate/test_review_2026_10_12_translate.py::test_a_restated_trusted_kind_is_a_transcription_only_when_the_task_states_it`,
+  `tests/translate/test_round7_translate.py::test_a_transcription_of_the_task_is_no_circle`).
+* **A figure-free task premise that restates the point, with the task record given.** The feature left a figure-free
+  task-authority premise no check verified unvalidated (`verified=None`) whenever the records hold its words, and relied
+  on its authority rule (above) to keep a restatement of the point a circle. This tree keeps the integrated grounding's
+  refutation ("no record validates it") for a premise that restates the point (every atom it mentions is the
+  conclusion's), so the restatement stays a circle (E112) under the integrated authority rule; a proposition the task
+  only quotes for discussion is refuted and its restatement is a circle, as `tests/translate/test_close2_task_proposition.py`
+  expects. Every other figure-free task premise stays unvalidated and is named `unchecked_source`, as on the feature
+  line.
+* **A located quotation that restates the point.** The feature refuted a premise that restates the point when its
+  located excerpt does not state the point's words (`content_in_excerpt`, re-run review ADV-01). On this tree a verified
+  quotation premise identical to the conclusion is a transcription, not a circle and no finding
+  (`tests/overseer/test_review1_content_checks.py::test_a_verified_quotation_premise_identical_to_the_conclusion_is_a_transcription_not_circular`,
+  `tests/overseer/test_rebuild_merged_translator.py::test_control_a_restatement_whose_excerpt_the_check_locates_is_a_transcription_with_no_finding`),
+  so that check is not ported.
+* **The prompt in use.** `translate_v3` is packaged but the prompt in use stays `translate_v2`, which the integrated tests
+  pin (`tests/translate/test_pipeline.py`, `tests/translate/test_stem_subjects.py`); the marking guidance of the argued
+  profiles (`subjects.ARGUMENT_MARKING_GUIDANCE`) goes with v3 and is not ported.
+
+Duplicates (the integrated tree's own fix stays; the feature line's version is not ported): the engine's arithmetic
+restatement normal form and the coefficient and forced-value digit bounds (E307), result signing and provenance, the
+service's and the command line's signature and key handling, request validation, the figure-subject, year, list, mean
+and conversion readings of grounding and the grounding from the answer's own worked arithmetic
+(`grounding.answer_derived_figures`), precision readings, peer-document labels, unit readings, the quotation-role reader
+in the parsers (end-to-end items B5 and B6), quotation credit, self-certification readers, the parsers' conclusion-lead
+reading, the linear-time rewrites of shared readers, the synthesis ledger's readings, relay history (INT-HIST-001),
+request items, word-bound scopes and meta-text, JSON envelopes, and the STEM review's claim ids and coverage.
+
+`docs/DESIGN.md` of the feature line is not ported: it describes that line as a whole, under its own versions.
+
+### 20.4 Tests
+
+Every test of the integrated tree is kept. Two pin exactly what the port adds to, and are updated no less strictly:
+`tests/engine/test_pack_policies.py::test_the_result_model_gained_exactly_one_field` still pins the result model's field
+set exactly, now with the two signed diagnosis fields (`named_diagnostics`, `argument_rules`, each defaulting to None),
+and `tests/engine/test_review_engine_fixes.py::test_the_build_identity_changes_with_any_decision_source` copies every
+entry of `BUILD_SOURCES` (now with `named.py` and `lexis.py`) and also asserts that a change to `named.py` changes the
+build id. The feature's test files that test its modules and behaviour are
+ported, adapted where the integrated code differs (a helper that passes no answer texts, the release name `release-v1`,
+the prompt in use). The tests below are not ported, each with its reason.
+
+Contradicted (the test pins the feature line's own version of a behaviour the integrated translator decides otherwise):
+
+* `tests/translate/test_partial_encodings.py`: `test_no_b8_claim_is_counted_as_a_counterexample_on_the_receipt` and
+  `test_the_seven_b8_counterexamples_are_ambiguous_with_the_unlinked_judgement_named` (UNLINKED_CONJUNCT, above).
+* `tests/translate/test_close1_circular.py::test_a_heading_question_is_an_info_record_with_no_task_record_too`,
+  `tests/engine/test_argument_diagnostics.py::test_a_restated_task_or_text_premise_is_a_circle_unless_a_check_validated_it`,
+  `tests/translate/test_argument_rules.py::test_a_restated_task_premise_is_a_circular_refusal_unless_a_check_validated_it`
+  and `::test_the_circularity_rejection_names_the_authority_rule`, and the whole of
+  `tests/engine/test_authority_circularity.py` (the feature's authority rule for circularity, above).
+* `tests/translate/test_unchecked_sources.py::test_a_figureless_task_premise_with_no_excerpt_is_unvalidated_and_a_conflicting_figure_still_refutes`
+  and `tests/translate/test_repair_round4_grounding.py::test_a_task_premise_citing_only_a_peer_report_is_unvalidated_not_refuted`
+  (each pins as unvalidated a figure-free task premise that restates the point; this tree refutes it, above).
+* `tests/translate/test_repair_round1_grounding.py::test_a_quotation_whose_excerpt_does_not_state_the_premise_is_refused`
+  (the restated-point excerpt check, above).
+* `tests/translate/test_prompt_v3.py`: `test_v3_is_packaged_and_in_use_and_the_earlier_prompts_are_byte_identical`,
+  `test_the_version_is_bound_into_every_translation`, `test_a_prompt_name_is_matched_whole` and
+  `test_argued_profiles_carry_the_marking_guidance_and_stem_profiles_do_not` (v3 in use; the prompt in use stays v2).
+* `tests/channel/test_response_gate_b13.py`: `test_the_correct_answers_are_delivered_not_verified` and
+  `test_the_other_correct_answers_are_delivered_not_verified_once_the_false_findings_are_gone` (they pin how the gate
+  shows end-to-end answers once the feature line's own versions of the channel and pack fixes, and B8, removed their
+  false findings; on this tree those answers keep the integrated tree's findings and display), and
+  `test_a_finding_carried_from_a_receipt_the_gate_reads_is_not_counted_twice` (relay history).
+
+Duplicates (the test pins the feature line's version of a fix the integrated tree makes its own way):
+
+* `tests/engine/test_argument_diagnostics.py::test_an_equivalent_restatement_is_circular_circ_002` and
+  `tests/engine/test_argument_rerun_repairs.py::test_a_restatement_in_arithmetic_form_is_e112` and
+  `::test_an_equation_equivalent_to_the_point_is_circular_beyond_the_normal_form` (the engine runner's restatement normal
+  form); `tests/engine/test_argument_diagnostics.py::test_e06b_the_verified_table_refutes_the_point_refute_001` (it
+  needs the feature line's year-and-subject reading of the table excerpt, which the integrated grounding decides its own
+  way).
+* Grounding readings: `tests/translate/test_repair_round1_grounding.py` (`test_clean_control_the_converse_or_another_threshold_is_not_stated_by_the_rule`,
+  `test_an_excerpt_about_another_entity_or_quantity_does_not_ground_the_figure`, `test_each_figure_of_a_dated_change_is_stated`,
+  `test_the_divisor_of_a_mean_is_no_figure_the_excerpts_must_state`, `test_a_figure_the_answers_written_calculation_derived_grounds`,
+  `test_clean_control_a_figure_nothing_derived_is_refused`), `tests/translate/test_repair_round2_grounding.py`
+  (`test_an_exports_figure_cited_to_the_imports_clause_is_refuted`, `test_a_calculation_derives_its_result_only_when_it_gives_it`,
+  `test_a_figure_the_answer_works_out_in_an_earlier_sentence_grounds_the_relation`), `tests/translate/test_repair_round3_grounding.py`
+  (`test_a_bound_states_the_figure_of_a_symbol_that_names_the_bound`, `test_an_excerpt_states_its_figure_only_for_its_own_entity`,
+  `test_an_excerpt_states_its_figure_only_for_its_own_quantity`, `test_control_the_compared_figure_is_not_the_other_quantitys`),
+  `tests/translate/test_repair_round4_grounding.py` (`test_a_conversion_the_task_gives_in_an_instruction_validates_the_premise`,
+  `test_a_figure_one_sentence_states_for_another_quantity_is_refused`, `test_the_answers_working_is_read_once_per_text_and_gives_the_same_figures`,
+  `test_the_count_total_and_mean_of_a_stated_list_give_its_figures`, `test_the_length_of_a_quoted_list_is_read_off_the_excerpt`),
+  `tests/translate/test_repair_round5_translate.py::test_an_excerpt_grounds_only_the_figure_of_its_own_quantity` and
+  `tests/translate/test_close1_grounding_words.py::test_control_a_record_that_gives_the_quantity_another_figure_still_refutes_the_excerpt`.
+* Precision, units and peers: `tests/translate/test_repair_round5_translate.py` (`test_a_cross_multiplied_ratio_at_its_wide_reading_is_a_precision_site`,
+  `test_a_unit_glossed_in_parentheses_is_the_declared_unit_and_in_a_is_a_label`, `test_a_relayed_agents_text_is_a_peer_document_under_its_labels`).
+* Parsers and packs: `tests/translate/test_repair_round1_evidence.py` (`test_a_derived_figure_is_checked_where_its_figures_are_stated`,
+  `test_a_sole_judgement_line_is_the_answer_and_a_sign_off_is_a_note`, `test_the_history_pack_reads_a_historians_verdict_with_has_or_have`)
+  and `tests/translate/test_repair_round3_reports.py` (`test_a_sentence_that_opens_with_a_conclusion_lead_rests_on_the_one_before`,
+  `test_the_text_parsers_rest_a_ground_phrase_on_the_sentence_before`).
+* Partial encodings: `tests/translate/test_partial_encodings.py::test_a_claim_with_only_its_first_clause_encoded_is_a_partial_encoding`
+  (this tree's own `partial_encoding` rule decides it).
+* Shared-module caches: `tests/translate/test_repair_round2_perf.py::test_the_circularity_cache_answers_by_content` and the
+  markup half of `::test_the_token_and_markup_caches_give_the_uncached_readings` (the engine runner's and
+  `adapters.markdown`'s caches are not ported; the token-cache half is kept as `test_the_token_cache_gives_the_uncached_readings`).
+* Relay history (not on the integrated channel): the ADV3-02 half of `tests/channel/test_repair_round3_gate.py`
+  (`test_a_carried_error_stays_failed_whatever_the_report_id_says`, `test_a_carried_finding_the_history_does_not_make_is_classified_as_itself`,
+  `test_a_carried_warning_is_unresolved_and_the_constructor_is_the_channels_own`,
+  `test_a_correct_answer_relayed_carries_nothing_and_is_not_withheld_for_history`; its INV-7 half is ported, with the
+  clean control `i00_control_valid_rule` in place of `c01_control_econ_table`, whose table excerpt for another year the
+  integrated grounding refutes), and the whole of `tests/channel/test_accuracy1_relay_history.py`,
+  `tests/channel/test_close2_synthesis_layout.py`, `tests/channel/test_relay_history.py`.
+* Whole files of the feature line's own fixes outside the feature, not ported: the quotation-role reader in the parsers
+  (`tests/adapters/test_quotation_roles.py`, `test_close1_quotation_roles.py`, `test_close2_quotation_roles.py`,
+  `test_close3_quotation_roles.py`, `test_repair_round4_quotations.py`, `test_repair_round5_quotations.py`,
+  `tests/contract/test_quotation_stub.py`); quotation credit and self-certification (`tests/adapters/test_credit_by_title.py`,
+  `test_sources_round8.py`, `test_security_round1_credit.py`, `test_security_round2_credit.py`,
+  `test_repair_round2_self_certification.py`, `test_security_round2_self_certification.py`, `test_close1_selfcert_linear.py`,
+  `tests/integrity/test_repair_round2_credit.py`); linear-time readers (`tests/adapters/test_linear_text_readers.py`,
+  `test_note_clauses_linear.py`, `tests/adapters_history/test_repair_round3_chronology_scale.py`, `test_rerun_review_sentences.py`,
+  `test_security_round1_historian.py`, `test_security_round1_wrap.py`, `tests/branches/test_accuracy_marks_linear.py`,
+  `test_annotation_strip_linear.py`, `test_repair_round5_generic_lists.py`, `test_security_round1_dated_series.py`,
+  `test_security_round1_digits.py`, `test_security_round1_lists.py`, `test_security_round1_rates.py`,
+  `test_security_round1_request_relation.py`, `test_security_round2_clause_index.py`, `test_security_round2_share.py`,
+  `test_security_round2_total.py`, `test_security_round2_transcribed.py`, `tests/channel/test_request_scope_linear.py`,
+  `test_security_round1_marks.py`, `test_security_round1_meta.py`, `test_security_round1_parts.py`,
+  `tests/integrity/test_close3_ledger_linear.py`, `test_security_round1_decrease.py`,
+  `tests/translate/test_security_round1_conversion.py`); identifiers and contracts (`tests/adapters/test_whole_identifiers_sweep.py`,
+  `tests/adapters/test_english_strands_scope.py`, `tests/branches/test_rerun_review_hub.py`, `tests/channel/test_strict_mappings.py`,
+  `test_json_envelopes.py`, `test_resupplied_metadata.py`, `test_forward_reply_link.py`, `test_arena_conflicts.py`,
+  `test_receipt_no_verdict.py`, `test_lens_round_d.py`, `test_repair_round2_channel.py`, `test_repair_round5_channel.py`,
+  `tests/integrity/test_rerun_review_course_level.py`, `tests/translate/test_provider_output_bound.py`,
+  `test_rerun_review_records.py`); end-to-end items of the channel, the branches and the ledger (`tests/branches/test_core_equations_b25.py`,
+  `test_lens_rerun_c_branches.py`, `test_repair_round2_generic.py`, `test_repair_round2_packs.py`, `test_repair_round2_quant.py`,
+  `test_repair_round4_mentions.py`, `test_repair_round4_quant.py`, `test_repair_round4_table_figures.py`, `test_stem_ids_b17.py`,
+  `test_stem_review_claim_map.py`, `tests/channel/test_constraint_scopes_b4.py`, `test_meta_text_b19.py`, `test_relay_b3.py`,
+  `test_request_items_b18.py`, `test_repair_round4_answer_words.py`, `test_stem_review_coverage.py`, `test_stem_task_agents_b17.py`,
+  `tests/integrity/test_close1_ledger.py`, `test_close3_joint_memo.py`, `test_joint_invalid_claim_fr4.py`,
+  `test_ledger_check_status.py`, `test_ledger_round8.py`, `test_pooled_precision_b7.py`, `test_pooled_precision_disjoint.py`,
+  `test_repair_round2_figures.py`, `test_repair_round3_ledger.py`, `test_repair_round4_ledger.py`, `test_repair_round5_ledger.py`,
+  `test_stem_review_ledger.py`); engine and service robustness, signatures and provenance (`tests/engine/test_repair_round2_coefficients.py`,
+  `test_repair_round2_restatement.py`, `test_repair_round3_signatures.py`, `test_repair_round4_engine.py`,
+  `test_rerun_review_provenance.py`, `test_rerun_review_runner.py`, `tests/service/test_e505_contract_b15.py`,
+  `test_repair_round3_signatures_http.py`, `test_repair_round5_cli.py`, `test_rerun_review_cli.py`,
+  `test_rerun_review_signatures.py`, `test_security_round8.py`); translation readings (`tests/translate/test_close2_precision_counts.py`,
+  `test_grounding_round8.py`, `test_precision_b16_b22.py`, `test_repair_round2_readings.py`, `test_repair_round3_peer_ids.py`,
+  `test_repair_round4_peer_labels.py`, `test_request_figures_b23.py`, `test_stated_precision_grounding.py`).
+
+Deferred to step 2 (they score whole corpora whose cases include STEM method faults): `tests/contract/test_repair_round1_cases.py`,
+`test_repair_round2_cases.py`, `test_accuracy_round1_cases.py` and `test_accuracy_round2_cases.py` (their data files are
+already carried), and every STEM test of the feature (`tests/stem/`, step 2).
+
+### 20.5 Measured on this tree (step 1)
+
+Measured with the recorded arena rounds available to the round-dependent tests (`EPINOIC_ARENA_ROUNDS` set to a copy),
+on the directories step 1 touches and every ported test file: `tests/translate` and `tests/contract` 1792 passed;
+`tests/engine`, `tests/channel`, `tests/branches`, `tests/integrity`, `tests/e2e` and `tests/service` 2581 passed,
+3 xfailed, 1 deselected (by the suite's own configuration); `tests/overseer`, `tests/adapters` and
+`tests/adapters_history` 3260 passed. No failure. The full suite, the arena harness on every recorded round, the
+overseer's contained run and the three argument-diagnosis corpora are measured once, after step 2.

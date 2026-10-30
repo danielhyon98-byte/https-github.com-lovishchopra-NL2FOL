@@ -58,13 +58,6 @@ def test_a_heading_that_restates_the_task_is_an_info_record_not_a_circle():
     assert not o.release.permitted
 
 
-def test_a_heading_question_is_an_info_record_with_no_task_record_too():
-    # the arena harness verifies claims with no task record: a question asserts nothing, so it restates no point either
-    o = _outcome("Task: How does the poet present the storm?", task=None)
-    [d] = _circ(o)
-    assert d.severity == "info" and not o.release.permitted
-
-
 def test_control_a_reason_given_for_a_point_its_task_premise_only_restates_is_still_a_circle():
     o = _outcome("The task asks how the poet presents the storm, because the task asks how the poet presents the storm.")
     assert o.display_status.value == "INVALID_FORMALIZATION"

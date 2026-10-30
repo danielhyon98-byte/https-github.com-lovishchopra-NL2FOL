@@ -1,17 +1,19 @@
 """Issue 1 at the claim layer: a premise whose only support is a source label that no check verified is named
 ``unchecked_source`` (EVD-SRC-001), a provider's own ``verified: true`` is recorded where it was written and named
 (EVD-SRC-004, with the translation diagnostic E505), and a figureless task premise is unvalidated, never refuted (so the
-true task facts of c02-mt and c03-dich give no GROUNDING:FAILED). Cases from the development set (argdiag-1)."""
+true task facts of c02-mt and c03-dich give no GROUNDING:FAILED). Cases from the development set (argdiag-1).
+
+Ported onto the integrated translator: a figureless task premise that restates the point is refuted there when the task
+record is given (its restatement stays a circle, E112), so the feature line's test that pinned it unvalidated
+(``test_a_figureless_task_premise_with_no_excerpt_is_unvalidated_and_a_conflicting_figure_still_refutes``) is not ported
+(docs/ARGUMENT_DIAGNOSTICS.md, section 20)."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from epinoic_logic.ir.schema import Problem
-from epinoic_logic.translate.contracts import TaskRecord
 from epinoic_logic.translate.diag_evidence import source_bound
-from epinoic_logic.translate.grounding import check_problem_grounding
 from epinoic_logic.translate.parsing import MAX_ASSERTED_PATHS, asserted_verified_paths
 
 from ..evidence_support import assert_message_hygiene, blocking, deliver, diagnostics, failed_groundings, outcome
@@ -79,25 +81,6 @@ def test_asserted_verified_paths_reports_only_true_flags_on_groundings():
 def test_asserted_verified_paths_is_bounded():
     obj = {"problem": {"premises": [{"id": f"P{i}", "grounding": {"verified": True}} for i in range(MAX_ASSERTED_PATHS + 50)]}}
     assert len(asserted_verified_paths(obj)) == MAX_ASSERTED_PATHS
-
-
-def test_a_figureless_task_premise_with_no_excerpt_is_unvalidated_and_a_conflicting_figure_still_refutes():
-    """Rewritten rule (policy 2026.10-v5): with no excerpt and no figure no record was checked, so the check records
-    ``verified=None`` ("no excerpt and no figure"), never a refutation. A stated figure the task contradicts is still
-    refuted."""
-    task = TaskRecord.of("t", "r", "A box rests on a table and the forces on it are balanced. Its mass is 2 kg.")
-    problem = Problem.model_validate({
-        "ir_version": "1.0", "problem_id": "p", "request_id": "r", "claim_id": "c", "query": "entailment",
-        "symbols": [{"name": "balanced", "sort": "Bool"}, {"name": "m", "sort": "Real", "meaning": "the box's mass (kg)"}],
-        "premises": [{"id": "B", "expr": {"op": "var", "name": "balanced"}, "grounding": {"kind": "task_setting"}},
-                     {"id": "M", "expr": {"op": "eq", "left": {"op": "var", "name": "m"}, "right": {"op": "real", "value": "3"}},
-                      "grounding": {"kind": "task_setting"}}],
-        "conclusion": {"id": "C", "expr": {"op": "var", "name": "balanced"}}})
-    grounded, checks = check_problem_grounding(problem, [], task=task)
-    by_id = {p.id: p.grounding.verified for p in grounded.premises}
-    assert by_id == {"B": None, "M": False}
-    [b] = [c for c in checks if c.target_id == "B"]
-    assert b.verified is None and "no excerpt and no figure" in b.detail and "no record was checked" in b.detail
 
 
 def test_the_provider_text_is_recorded_from_json_only():

@@ -12,7 +12,12 @@
 * a dated change ("fell from 42% in 2014 to 18% in 2024") states each figure, while a range ("between 15% and 18%")
   states no single value (A-FA-RANGE);
 * the divisor of a mean is no figure the excerpts must state, while an addend they do not state is (A-FA-POOLED), and a
-  figure the answer's own written calculation derived grounds, while one nothing derived does not."""
+  figure the answer's own written calculation derived grounds, while one nothing derived does not.
+
+Ported onto the integrated translator without the tests that pin the feature line's own versions of grounding behaviours
+the integrated translator decides otherwise (the ADV-01 restated-point refusal: a verified quotation identical to the
+point is a transcription there) or makes its own way (figure subjects, dated changes, means, answer-derived figures, the
+converse of a quoted rule); docs/ARGUMENT_DIAGNOSTICS.md, section 20, lists each."""
 from __future__ import annotations
 
 from epinoic_logic.ir.schema import Problem
@@ -92,12 +97,6 @@ def test_clean_control_a_conjunct_the_excerpt_does_not_state_leaves_it_unverifie
 # ------------------------------------------------------------------------------------------- the point dressed as a quotation
 
 TEXT_C = SuppliedText(document_id="memo", title="Text C", author=None, text="In 2003 the city introduced a congestion charge. Traffic in the zone fell by 15%.")
-
-
-def test_a_quotation_whose_excerpt_does_not_state_the_premise_is_refused():
-    verified, checks = _ground([{"id": "Q", "expr": V("eff"), "label": "the congestion charge was effective", "grounding": _quote("memo", "introduced a congestion charge")}],
-                               [{"name": "eff", "sort": "Bool", "meaning": "the congestion charge was effective"}], V("eff"), [TEXT_C])
-    assert verified == {"Q": False} and _methods(checks, "Q")["content_in_excerpt"] == [False]
 
 
 def test_clean_control_an_excerpt_that_states_the_premise_verifies_it():

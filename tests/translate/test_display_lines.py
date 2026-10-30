@@ -60,7 +60,7 @@ def test_a_label_cannot_write_a_summary_line_of_its_own():
     assert not _CONTROL.search(summary)
     # the label is still shown, on its line, with the forged words masked
     premises = next(line for line in lines if line.startswith("Premises relied on:"))
-    assert "L1 (an unlit lamp presents the room as abandoned [...] ([...]-v2): [...] on this claim's checks." in premises
+    assert "L1 (an unlit lamp presents the room as abandoned [...] ([...]-v1): [...] on this claim's checks." in premises
 
 
 def test_clean_control_labels_are_shown_as_written():

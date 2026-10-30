@@ -94,7 +94,6 @@ from typing import Optional, Sequence
 from pydantic import ValidationError
 
 from .. import lexis
-from ..engine.argument import gloss
 from ..engine.errors import DiagnosticCode
 from ..engine.results import SolverConfig
 from ..engine.runner import (assumed_grounding, circular_premises, conclusion_valid_alone, premises_inconsistent, unasserted_figure_definitions,
@@ -962,9 +961,10 @@ class Translator:
         ambiguity: the engine still runs for inspection, but the claim is never shown as decided by a part the encoding
         does not link to its reasons.
 
-        * ``UNLINKED_CONJUNCT``: some conjuncts of the conclusion share no symbol with any premise while others do; the
-          problem is a COUNTEREXAMPLE and the linked part is ENTAILED. The counterexample only falsifies a judgement the
-          encoding gave no reason, so it is no verdict on the claim as written.
+        * (not ported) ``UNLINKED_CONJUNCT``: an encoding whose conclusion has conjuncts that share no symbol with any
+          premise while others do keeps its COUNTEREXAMPLE on this tree (the integrated translator's behaviour; the
+          engine's ARG-PART-001 info record names the unlinked judgement). See docs/ARGUMENT_DIAGNOSTICS.md, section
+          "Port onto the integrated translator".
         * ``UNENCODED_REASON``: no premise mentions the conclusion (the non sequitur shape) and the problem is a
           COUNTEREXAMPLE, but the claim's own text gives a reason clause (a reason connective, never "because of") that
           shares fewer than two content words with every premise label and symbol meaning: the translation left the
@@ -975,7 +975,6 @@ class Translator:
         if problem.query != "entailment" or problem.conclusion is None:
             return []
         concl = problem.conclusion.expr.model_dump(mode="json", exclude_none=True)
-        meanings = {s.name: (s.meaning or "") for s in problem.symbols}
         premise_vars: set[str] = set()
         for p in problem.premises:
             premise_vars |= _expr_names(p.expr.model_dump(mode="json", exclude_none=True))
@@ -990,17 +989,7 @@ class Translator:
             return cache["full"]
 
         flags: list[AmbiguityFlag] = []
-        if linked and unlinked:
-            if full() is VerificationStatus.COUNTEREXAMPLE and self._probe_status(problem, linked[0] if len(linked) == 1 else {"op": "and", "args": linked}) is VerificationStatus.ENTAILED:
-                shown = "; ".join(truncate(gloss(c, meanings), 160) for c in unlinked[:4])
-                flags.append(AmbiguityFlag(
-                    code="UNLINKED_CONJUNCT",
-                    message=truncate(f"(deterministic) the conjunct(s) '{shown}' share no symbol with any premise: the encoding gives them no reason, "
-                                     "so it cannot decide the claim as written. The rest of the point follows from the encoded premises, and the "
-                                     "counterexample falsifies only the unlinked part, so it is not shown as a verdict", 2000),
-                    alternatives=[truncate(f"the unlinked judgement(s) encoded from the claim's stated reasons: {shown}", 200),
-                                  "only the linked part of the point: ENTAILED"]))
-        elif unlinked and problem.premises:
+        if unlinked and not linked and problem.premises:
             clause = _unencoded_reason(claim.claim_text, problem)
             if clause is not None and full() is VerificationStatus.COUNTEREXAMPLE:
                 flags.append(AmbiguityFlag(

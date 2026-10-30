@@ -1365,8 +1365,8 @@ def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[
     (:func:`_literals_in_task`, a ``content_in_task`` check), refuted when the task record was given and the records hold
     neither its label's words nor its symbols' meanings (:func:`_words_no_record_holds`), when a task sentence holding
     its words states it otherwise (:func:`_task_sentence_misread`) or when it claims a connective no record states, and
-    unvalidated (``verified=None``) otherwise; one whose excerpt was located (a reference for words, not for its whole
-    content) stays unvalidated."""
+    otherwise unvalidated (``verified=None``), except that a premise restating the point is refuted when the task record
+    was given (the integrated translator's rule for it, so its restatement stays a circle: E112)."""
     kind = grounding.kind
     sources, named = _authority_sources(grounding, docs, supplied, task)
     searched = ", ".join(dict.fromkeys(s.ident for s in sources)) or "no supplied text and no task record"
@@ -1426,15 +1426,26 @@ def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[
             return grounding.model_copy(update={"verified": False})
         why = ("its located excerpt is a reference for words, not a statement of the premise's whole content" if located
                else "no excerpt and no figure: no record was checked by an excerpt, and the records hold the premise's words")
+        # A premise that restates the point (every atom it mentions is the conclusion's) is refuted when the task record was
+        # given, as the integrated translator refutes every such premise ("no record validates it"): its restatement is then
+        # left to the circularity rules (E112), which on this tree count a refuted premise as the writer's own and never an
+        # unvalidated one (engine.authority.assumed_grounding). Any other premise stays unvalidated, as on the feature line.
+        restates_point = bool(point_atoms) and set(_atoms(assertion.expr)) <= set(point_atoms)
+        verified = False if (task is not None and restates_point) else None
+        verdict = ("no record validates it, and the premise restates the point" if verified is False
+                   else f"its authority is unvalidated{no_task}")
         if relation:
             detail = (f"the kind {kind} claims the task's authority, but no record states the premise's relation {_relation_text(assertion)} (searched: "
-                      f"{searched}) and it states no figure a record could hold ({why}): its authority is unvalidated{no_task}")
-        else:
+                      f"{searched}) and it states no figure a record could hold ({why}): {verdict}")
+        elif verified is None:
             detail = (f"the kind {kind} claims the task's authority, but the premise states no figure, so no record can confirm or refute it "
-                      f"(searched: {searched}; {why}): its authority is unvalidated{no_task}; until a check locates it the premise is not a task fact")
+                      f"(searched: {searched}; {why}): {verdict}; until a check locates it the premise is not a task fact")
+        else:
+            detail = (f"the kind {kind} claims the task's authority, but the premise states no figure and no check verified it "
+                      f"(searched: {searched}; {why}): {verdict}")
         checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source" if relation else "numeric_in_task",  # type: ignore[arg-type]
-                                     verified=None, document_id=doc_id, detail=detail[:2000]))
-        return grounding.model_copy(update={"verified": None})
+                                     verified=verified, document_id=doc_id, detail=detail[:2000]))
+        return grounding.model_copy(update={"verified": verified})
     verified, check, missing = _figures_check(assertion.id, kind, literals, sources, doc_id, "numeric_in_task", f"the task material ({searched})")
     if verified is True:
         if relation:

@@ -1,5 +1,10 @@
 # The argument stage of the engine (rules `argdiag-2`)
 
+*On this tree (the port onto the integrated translator, docs/ARGUMENT_DIAGNOSTICS.md, section 20):* E112 follows the
+integrated authority rule (only the ungrounded kinds, an unverified `arithmetic_fact` and a refuted premise count as the
+writer's own), not the feature line's `not has_authority`, and the restatement normal form beyond the integrated
+`runner.circular_premises` is not ported. Where this document says otherwise, section 20 holds.
+
 `engine/argument.py` names what is wrong with how an encoded argument reasons, as far as the bound problem, its result and
 derived engine runs can tell. `engine/argument_cues.py` holds the closed cue tables it reads glosses with. The model of a
 diagnostic (`NamedDiagnostic`, the code table, caps and suppression) is `epinoic_logic/named.py`; the tokenizer is

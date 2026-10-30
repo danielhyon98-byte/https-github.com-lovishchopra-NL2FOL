@@ -1,9 +1,9 @@
-"""Encodings that leave part of the claim out (``translate/pipeline.py``, the B8 and B21 end-to-end items).
+"""Encodings that leave part of the claim out (``translate/pipeline.py``, the B21 end-to-end item and the UNENCODED_REASON guard).
 
-* UNLINKED_CONJUNCT (B8): some conjuncts of the conclusion share no symbol with any premise, the problem is a
-  COUNTEREXAMPLE and the linked part follows. The counterexample only falsifies a judgement the encoding gave no reason,
-  so it is no verdict on the claim as written: the translation is AMBIGUOUS_TRANSLATION, the engine still runs for
-  inspection, and ARG-PART-001 (info) names the unlinked judgement.
+* UNLINKED_CONJUNCT (B8) is not ported onto the integrated translator: an encoding with an unlinked conjunct keeps its
+  COUNTEREXAMPLE there (its own tests/e2e/test_arena_deliveries.py), so the B8 receipt test is not ported
+  (docs/ARGUMENT_DIAGNOSTICS.md, "Port onto the integrated translator"); a linked part that does not follow still keeps
+  its counterexample (tested below).
 * UNENCODED_REASON (its guard): no premise mentions the point (the f01 shape) and the claim's own text gives a reason
   clause that no premise encodes: the translation left the claim's stated reason out. f01 ("because of the Treaty" is a
   cause phrase, not a reason clause) keeps its COUNTEREXAMPLE and its ARG-NS-001 warning.
@@ -33,21 +33,6 @@ def _delivered(case_id: str, mode: str = "text"):
 def _flags(out) -> list[str]:
     interp = out.translation.interpretation
     return [f.code for f in interp.ambiguity_flags] if interp is not None else []
-
-
-B8 = [("e2e-B8-ps", "Judgement: The study supports a causal claim about anticipating a judged speech"),
-      ("e2e-B8-ps", "Unit 1 (causality), claim: random allocation and manipulation make a causal claim"),
-      ("e2e-B8-ps", "The outcome is also objective, a count of words recalled, but it is narrow"),
-      ("e2e-B8-ps", "The result therefore shows lower recall of a word list after one delay"),
-      ("e2e-B8-ps", "The researchers concluded that stress impairs memory, which goes further"),
-      ("e2e-B8-ps", "On your 30% figure: 2.6 ÷ 8.6 = 0.30 is correct arithmetic, but 8.6 is the wrong base."),
-      ("e2e-B8-en", "The dark is real, as \"We walk home with the dark already in our coats\" shows")]
-
-
-def test_no_b8_claim_is_counted_as_a_counterexample_on_the_receipt():
-    for case_id in ("e2e-B8-ps", "e2e-B8-en"):
-        rc = _delivered(case_id).receipt
-        assert not [o for o in rc.outcomes if o.display_status is S.COUNTEREXAMPLE]
 
 
 def test_f01_keeps_its_counterexample_and_its_warning():
