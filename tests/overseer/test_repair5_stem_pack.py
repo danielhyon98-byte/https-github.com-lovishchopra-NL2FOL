@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from epinoic_logic.ir.schema import ALLOWED_OPS, IntConst, RealConst
-from epinoic_logic.overseer.pack import installed_pack_dir
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir
 from epinoic_logic.translate.subjects import STEM_ENCODING_GUIDANCE
 
 #: Sentences of pack 1.3 before the fifth repair that present the STEM translator's instructions as rules every
@@ -55,7 +55,7 @@ def _problems(d) -> list[str]:
 
 
 def test_the_installed_pack_presents_the_stem_guidance_as_instructions_and_the_enforced_rules_as_rules():
-    assert _problems(installed_pack_dir("1.3")) == []
+    assert _problems(installed_pack_dir(PACK_VERSION)) == []
 
 
 @pytest.mark.parametrize("sentence", STEM_INSTRUCTIONS_AS_RULES)

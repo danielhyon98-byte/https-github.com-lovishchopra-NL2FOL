@@ -48,7 +48,7 @@ import tamper as T  # noqa: E402
 from epinoic_logic.overseer import OVS_CODES  # noqa: E402
 from epinoic_logic.overseer.checks.fidelity import strip_mark_annotations  # noqa: E402
 from epinoic_logic.overseer.checks.translation import STEM_BRANCH_KEYS, number_traced, stem_report, text_numbers  # noqa: E402
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 R7_DATA = Path(__file__).resolve().parents[1] / "channel" / "data"
 #: The STEM receipt cases, the codes each must raise naming the tampered transfer, and the STEM targets it runs on.
@@ -434,7 +434,7 @@ def test_the_contained_run_gates_the_stem_probes_when_r7_is_run():
 
 # ============================================================================================ the pack beside the code
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 def test_the_pack_lists_every_st_code_with_the_severity_the_stem_package_gives_it():

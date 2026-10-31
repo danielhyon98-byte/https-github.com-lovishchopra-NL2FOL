@@ -97,10 +97,13 @@ def test_the_overseer_prefers_the_more_accurate_candidate_over_the_canonical_one
         contested = [c for c in w1.claims if c.assessment != "accurate"]
         assert [(c.claim_id, c.assessment) for c in contested] == [("w1.3", "contested")]
         assert any("unresolved" in e and "overseer-pool-1" in e for e in contested[0].evidence)
-        assert all(c.assessment == "accurate" and c.evidence for c in w2.claims) and w2.reviewed_by == ["overseer-pool-1"]
+        # integration step: the essays' receipt carries a named defect at warning (INT-ARG-001, ARG-BARE-001), a risk signal that
+        # escalates the review to two independent instances (rewritten from one instance to the stricter planning rule)
+        assert all(c.assessment == "accurate" and c.evidence for c in w2.claims) and w2.reviewed_by == ["overseer-pool-1", "overseer-pool-2"]
         assert "12/12 material claims accurate, above the 0.9 threshold" in d.label and d.label.startswith("OVERSEER-SELECTED (not formally checked, not verified)")
         assert rec.fallback.why == rec.formal.reasons and any("CONFLICTING" in r for r in rec.formal.reasons)
-        assert agents.calls == ["overseer-pool-1"] and rec.fallback.overseer.instances == ["overseer-pool-1"]
+        assert agents.calls == ["overseer-pool-1", "overseer-pool-2"] and rec.fallback.overseer.instances == ["overseer-pool-1", "overseer-pool-2"]
+        assert rec.fallback.overseer.plan_reasons == ["one instance by default", "1 dossier(s) with risk signals (named_defect): each goes to 2 independent instances (a signal only ever escalates oversight)"]
         assert_honest(d)
         assert verify_delivery_receipt(rec, run.keyring) and verify_delivered_answer(d.answer, rec, run.keyring)
         # the delivered answer carries why the formal path did not complete and the selection evidence, from the receipt
@@ -192,8 +195,10 @@ def test_an_accusation_a_check_refutes_lowers_no_score_and_the_verdict_still_cou
     run = essays(("writer-1", 12, {}), policy=policy)
     try:
         rec = run.receipt
-        [standing] = rec.fallback.overseer.verdicts
-        assert standing.valid and standing.counted and standing.accusations == 1
+        # integration step: the named defect on the essays' receipt sends the dossier to two independent instances, each giving
+        # the same false accusation (rewritten from one verdict to the stricter planning rule: each is set aside and counts)
+        verdicts = rec.fallback.overseer.verdicts
+        assert len(verdicts) == 2 and all(s.valid and s.counted and s.accusations == 1 for s in verdicts)
         assert rec.fallback.candidates[0].accuracy_fraction == "12/12" and run.decision.mode == "overseer_selected"
     finally:
         run.close()
@@ -337,7 +342,9 @@ def test_a_single_candidate_is_scored_and_delivered_only_above_the_threshold(clo
         [c] = rec.fallback.candidates
         assert c.canonical and c.canonical_rank == 0 and c.deliverable and c.accuracy_fraction == "12/12"
         assert d.mode == "overseer_selected" and d.message_id == c.message_id and rec.fallback.non_candidates == []
-        assert agents.calls == ["overseer-pool-1"] and rec.fallback.overseer.plan_reasons == ["one instance by default"]
+        # integration step: the receipt's named defect at warning (INT-ARG-001, ARG-BARE-001) escalates the review (rewritten from
+        # "one instance by default" alone to the stricter planning rule)
+        assert agents.calls == ["overseer-pool-1", "overseer-pool-2"] and rec.fallback.overseer.plan_reasons == ["one instance by default", "1 dossier(s) with risk signals (named_defect): each goes to 2 independent instances (a signal only ever escalates oversight)"]
     finally:
         run.close()
 

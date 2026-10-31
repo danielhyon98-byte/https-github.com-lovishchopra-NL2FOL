@@ -115,7 +115,7 @@ _REKEYED_FIELDS = ("recorded_claim_id",)
 _SOURCE_FIELDS = ("recorded_answer", "recorded_plan", "recorded_proposal")
 #: Codes by which the shadow re-derivation disagrees with a receipt.
 SHADOW_DISAGREE = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
-OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.4", sha256="cd" * 32)  # a version other than the installed one
+OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.5", sha256="cd" * 32)  # a version other than the installed one (1.4)
 
 
 class Stopped(RuntimeError):

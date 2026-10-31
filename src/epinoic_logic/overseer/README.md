@@ -166,8 +166,8 @@ the overseer's corrected rules (OVS-TRN-010 for C-g4.2 and OVS-TRN-011 for T-q25
 table); the contained run replays and gates r7's re-keyed pass, serving a recorded fixture only to the claim
 it was written for (rule `recorded-ids/2`; `scripts/overseer/README.md`), and since the fifth repair (decision 58) the
 dossier export issues that pass's dossiers and the contained run's probe agents review it, so the agents are shown the
-recorded STEM translations (gate `recorded_stem_translations_reviewed_by_agents`). The knowledge pack is version 1.3 (1.0, 1.1 and
-1.2 stay pinned beside it): it describes the merged translator's STEM and original translations as they reach a dossier
+recorded STEM translations (gate `recorded_stem_translations_reviewed_by_agents`). The knowledge pack was then version 1.3 (1.0, 1.1 and
+1.2 pinned beside it; 1.4 since the integration step, below): it describes the merged translator's STEM and original translations as they reach a dossier
 (a STEM unit recorded as an assumption, never inside an expression, in the guidance's own words; what the code enforces
 of a STEM translation apart from what the translator is only told, decision 59), and teaches exactly the circularity
 rules of the checks (a kind is a label, not evidence, and no number match is; a restatement in another form or in part; a
@@ -484,6 +484,28 @@ lens `translation_fidelity` starts an agent on the translations. An accusation i
 needs actually ran on the named claim's translation; their verdicts stay advisory, and only the deterministic checks
 and the signed results decide.
 
+## What the translator emits (the integration step before arena round 8)
+
+The overseer knows everything the merged translator and its channel can put on a transfer (design section 47):
+
+- **Code tables** (`emitted.py`): every receipt code with every severity it is raised at and the defect labels its
+  finding can carry, every named diagnostic (`ARG-*`, `EVD-*`, the STEM method codes) with its label, highest severity,
+  layers and caps, the 28 labels, every engine, translation and receipt status, every engine diagnostic code, every reason
+  of the release check (rules 1 to 9, rules 8 and 9 the argument diagnosis's) and of the outcome's release assessment, the
+  named engine policies and the named rejections (INT-SYNTH-014 among them). Drift tests hold the tables to the
+  translator's own sources (`tests/overseer/test_integration_codes.py`).
+- **The audit reads them** (nothing is downgraded): rule `argument-image` (OVS-RCPT-004) holds every receipt's labels,
+  INT-ARG-001 findings, `named_diagnostics`, overflow count and INT-XENC-001 to what the channel derives, the report level
+  re-run on the journaled report (a failed branch check's label, the check's own first, is compared in R2 with the check
+  the branch pack re-derives, since the receipt does not journal it); rule `diagnosis-image` (OVS-TRN-007, widened) holds every outcome's `named_diagnostics`,
+  `diagnosis_incomplete` and `release` to its translation and signed result. A load-bearing writer's assumption, an
+  unchecked source or a STEM method error dropped, lowered or relabelled fails the transfer.
+- **Dossiers** show a receipt's argument diagnosis and a signed result's `named_diagnostics` and `argument_rules` (each only
+  when present); **pack 1.4** teaches them (Dossier guide D33 to D37, Inspection I99, K8, the Kinds and codes §8 table of
+  every code, N14); pack 1.3 stays pinned to the digest it was released under.
+- **The pool** reads each task's risk signals and records from the journal (`emitted.risk_reading`): a signal sends the
+  dossier to two independent instances, a record weighs two review units; neither ever makes a plan smaller.
+
 ## Parts of the package
 
 | Part | Module | What it does |
@@ -503,7 +525,8 @@ and the signed results decide.
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-1.3/` | the agent's whole configuration (below); 1.0, 1.1 and 1.2 stay beside it, pinned |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-1.4/` | the agent's whole configuration (below); 1.0 to 1.3 stay beside it, pinned |
+| Emitted codes | `emitted.py` | everything the translator and the channel emit, as the overseer knows it: every receipt code with its severities and labels, every named diagnostic, the 28 labels, every status and engine code, every release refusal (rules 1 to 9, `release-v1`), the named policies and rejections; `risk_reading` (the risk signals and records a task carries) |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_logic.overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
 | Agent runner | `runner.py` | `OverseerAgentRunner`: model input from a loaded pack and one dossier, one provider call, the reply handed to the intake as data |
@@ -521,7 +544,7 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 ## The knowledge pack
 
-`knowledge/overseer-knowledge-docs-1.3/` is the overseer agent's whole configuration, laid out like the specialists'
+`knowledge/overseer-knowledge-docs-1.4/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
 evidence rule, the verdict format, the kinds and codes, 32 worked examples, what never to do, what to do when unsure,
@@ -532,7 +555,8 @@ formal checks; since pack 1.3, the merged translator's translations as they reac
 it withholds itself, the engine's withheld verdicts, the merged rules for word bounds and the ledger codes as the merged
 channel raises them; since the STEM completion, a STEM receipt: the ST codes with their severities, a STEM check's
 detail, the tolerance rule and enclosures, the engine's values in a failure finding, and the receipt held to its
-results),
+results; since pack 1.4, the argument diagnosis and every code the translator and the channel emit: D33 to D37, I99, K8,
+the kinds-and-codes §8 table and N14),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -543,7 +567,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-1.3/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-1.4/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text

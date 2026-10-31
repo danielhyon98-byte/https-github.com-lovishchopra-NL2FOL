@@ -242,6 +242,10 @@ UNRESOLVED = {
 }
 
 
+#: The cases whose receipt carries a risk signal (integration step: the pool sends their dossier to two instances).
+ESCALATED_CASES = frozenset({"substituted figure"})
+
+
 @pytest.mark.parametrize("case", sorted(UNRESOLVED))
 def test_an_unresolved_formal_path_falls_back_and_names_the_cause(clock, pack, case):
     kw, cause = UNRESOLVED[case]
@@ -252,7 +256,11 @@ def test_an_unresolved_formal_path_falls_back_and_names_the_cause(clock, pack, c
         d, rec = run.decision, run.receipt
         assert d.mode != "formally_checked" and not rec.formal.complete and rec.formal.within_budget  # inside the budget: unresolved, not late
         assert any(cause in r for r in rec.formal.reasons), rec.formal.reasons
-        assert rec.fallback is not None and rec.fallback.why == rec.formal.reasons and agents.calls == ["overseer-pool-1"]
+        # integration step: a receipt carrying a risk signal (the substituted figure's claim rests on a task premise its task
+        # refutes: INT-ARG-001, EVD-SRC-005, an unchecked source) goes to two independent instances; the other causes carry
+        # none (rewritten from one instance in every case to the stricter planning rule)
+        want = ["overseer-pool-1", "overseer-pool-2"] if case in ESCALATED_CASES else ["overseer-pool-1"]
+        assert rec.fallback is not None and rec.fallback.why == rec.formal.reasons and agents.calls == want
         assert rec.fallback.overseer.started_at_s == 0.0  # an unresolved path falls back at once: no wait for the budget
         if case == "refuted claim":
             # the only candidate's one material claim is refuted by a signed engine result: 0/1, withheld

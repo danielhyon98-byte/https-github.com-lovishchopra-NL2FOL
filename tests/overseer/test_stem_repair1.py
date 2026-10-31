@@ -33,7 +33,7 @@ import stem_probes as SP  # noqa: E402
 
 from epinoic_logic.ir.schema import Problem  # noqa: E402
 from epinoic_logic.overseer.checks import translation as T  # noqa: E402
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text  # noqa: E402
 from epinoic_logic.translate.grounding import check_problem_grounding  # noqa: E402
 
@@ -179,12 +179,12 @@ def test_pack_kind_finds_no_kind_where_the_pack_states_no_rule(pack):
 
 
 def test_the_inspection_rules_recognise_the_agent_only_stem_translation_faults():
-    inspection = (installed_pack_dir("1.3") / "03-inspection.md").read_text(encoding="utf-8")
+    inspection = (installed_pack_dir(PACK_VERSION) / "03-inspection.md").read_text(encoding="utf-8")
     i78 = inspection.split("**I78 ", 1)[1].split("\n- **I79", 1)[0]
     for n, words in ((7, "Another stated given substituted"), (8, "Another relation encoded"), (9, "Two incompatible quantities combined")):
         assert f"  {n}. **{words}.**" in i78, words
     assert i78.rstrip().endswith("No check compares meanings, so the accusation goes to human review.") and "kind `translation_unfaithful`" in i78.rsplit("9. ", 1)[1]
-    dossier = (installed_pack_dir("1.3") / "02-dossier.md").read_text(encoding="utf-8")
+    dossier = (installed_pack_dir(PACK_VERSION) / "02-dossier.md").read_text(encoding="utf-8")
     d31 = dossier.split("**D31 ", 1)[1].split("\n- **D32", 1)[0]
     assert ("The finding of a failed substitution names the claims of its statement first, then, for each symbol it substitutes whose value one "
             "earlier statement alone states, that statement's claims") in d31
@@ -195,7 +195,7 @@ def test_example_33_teaches_another_stated_given_substituted():
     D subtracts the 25 °C uptake where the claim's working subtracts the 20 °C one, and the verdict accuses it as
     translation_unfaithful, quoting the working and pointing at the premises, with no engine statement."""
     from .test_knowledge_examples import parse_examples
-    _shared, examples, table = parse_examples((installed_pack_dir("1.3") / "07-examples.md").read_text(encoding="utf-8"))
+    _shared, examples, table = parse_examples((installed_pack_dir(PACK_VERSION) / "07-examples.md").read_text(encoding="utf-8"))
     ex = next(e for e in examples if e.number == 33)
     assert table[33] == ("faulty, decided by no check", "`translation_unfaithful`") and ex.type.startswith("faulty")
     claim = ex.value("/transfers/1/payload/claims/0/claim_text")

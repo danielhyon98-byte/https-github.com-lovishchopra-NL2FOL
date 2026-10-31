@@ -30,7 +30,7 @@ from epinoic_logic.integrity import WorkPlan  # noqa: E402
 from epinoic_logic.ir.schema import Problem  # noqa: E402
 from epinoic_logic.overseer.checks.translation import (  # noqa: E402
     TABLE_UNITS_RULE, _table_conversions, stem_subject, unprefixed_factors, untraced_content)
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 R7 = json.loads((Path(__file__).resolve().parents[1] / "channel" / "data" / "r7_material.json").read_text(encoding="utf-8"))["specialists"]
 ESS_TABLE = R7["ess-t13"]["supplied_texts"][0]["text"]
@@ -39,7 +39,7 @@ KEY = b"stem-repair-2-test-key-0123456789abcdef"
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 # ============================================================================================ rule table-units

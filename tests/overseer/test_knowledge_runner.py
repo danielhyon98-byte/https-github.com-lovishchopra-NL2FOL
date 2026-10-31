@@ -103,7 +103,7 @@ def test_end_to_end_a_confirmed_accusation(auditor, pack):
     assert hashlib.sha256(call.system.encode()).hexdigest() == pack.composition_sha256(modules) == pack.manifest.system_compositions[
         "+".join(("core",) + modules)]
     assert call.user == data_block("dossier", d) == render_dossier_block(d) and call.prompt_version == pack.prompt_version
-    assert pack.prompt_version == f"overseer-knowledge-docs/{pack.identity.version}+{pack.identity.sha256[:16]}" and pack.identity.version == "1.3"
+    assert pack.prompt_version == f"overseer-knowledge-docs/{pack.identity.version}+{pack.identity.sha256[:16]}" and pack.identity.version == "1.4"
     assert run.provider_info["prompt_version"] == pack.prompt_version and run.system_sha256 == pack.composition_sha256(modules)
     assert run.system_modules == modules
     assert run.user_sha256 == hashlib.sha256(call.user.encode()).hexdigest()

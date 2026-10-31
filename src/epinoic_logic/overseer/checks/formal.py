@@ -22,6 +22,12 @@ L4 (live, from the receipt and the stored result):
 
 R2 (deterministic code on journaled data; nothing in agent text is executed):
 
+* (integration step, rule ``argument-image``) the INT-SUBJ-001 or INT-SUBJ-004 naming a branch check's result carries
+  the label the channel gives that failure: the re-derived check's own canonical label first, else its kind's
+  (``TranslatorChannel._check_defect``, bound at import), else what ``named.DEFECT_OF_CODE`` reads from the finding; a
+  label dropped or changed is RCPT-004 (:func:`subject_label`). The receipt does not journal the check's own label, so
+  the live receipt check only requires a label where the check's kind names one.
+
 * the branch packs are re-run on the journaled report and request text (``branch.run_packs``); every STEM structural
   finding they give (rule ``stem-structural``, STEM completion: the ``ST-*`` codes, which the STEM pack emits at warning or
   info severity only, compared as a multiset of code, severity, claims and message with the receipt's, since the channel
@@ -81,7 +87,7 @@ from ..view import Transfer
 from . import CheckContext, Rederived
 
 __all__ = ["check_formal_status", "rederive", "check_branch_satisfied", "constraint_problem_mismatch", "R2_KINDS", "branch_image", "live_branch_image",
-           "check_rules_of", "identity_bindings", "identity_variables", "IDENTITY_RULE"]
+           "check_rules_of", "identity_bindings", "identity_variables", "IDENTITY_RULE", "subject_label"]
 
 #: Rule ``identity-statement`` (STEM repair 12): an identity step's problem gives no symbol a value or a formula.
 IDENTITY_RULE = "identity-statement"
@@ -95,6 +101,9 @@ _CHANNEL_CHECK_CLAIMS = TranslatorChannel._check_claims_named
 #: on: STEM repair 1), bound at import like the statement itself.
 _CHANNEL_FAILURE_CLAIMS = TranslatorChannel._failure_claims
 _CHANNEL_MODEL_NOTE = TranslatorChannel._model_note
+#: The label the channel gives a failed branch check's finding (the check's own canonical label first, else its kind's:
+#: rule ``argument-image`` in R2), bound at import like the statement itself.
+_CHANNEL_CHECK_DEFECT = TranslatorChannel._check_defect
 #: The STEM branches' own structural codes (rule ``stem-structural``).
 _STEM_CODE_PREFIX = "ST-"
 _BOUND_OPS = {"max_words": "le", "min_words": "ge", "max_paragraphs": "le", "min_paragraphs": "ge"}
@@ -506,6 +515,39 @@ def _first_difference(a: str, b: str) -> str:
     return f"first difference at character {i}: {a[max(0, i - 30):i + 50]!r} vs {b[max(0, i - 30):i + 50]!r}"
 
 
+def subject_label(rc, t: Transfer, fc: Any, held: Any, ids: dict) -> list:
+    """Rule ``argument-image`` in R2 (integration step) for one branch check the receipt carries: the INT-SUBJ-001 or
+    INT-SUBJ-004 naming its result carries the label the channel gives that failure, which is the check's own canonical
+    label first, else its kind's (``TranslatorChannel._check_defect`` of the check the branch pack re-derives, bound at
+    import), else what ``named.DEFECT_OF_CODE`` reads from the finding (``TranslatorChannel._labelled``). The receipt does
+    not journal the check's own label, so only the re-derived check decides it: a label dropped or changed (a STEM unit
+    error relabelled as an arithmetic slip, say) is RCPT-004, since the receipt's argument diagnosis then names another
+    defect than the one the channel found. A label on a failure the channel labels with none is an extra diagnostic, which
+    accuses no transfer (decision 75)."""
+    rid = getattr(held, "formal_result_id", None)
+    if not rid:
+        return []
+    from ..codes import ovs_finding
+    from ...named import defect_of
+    try:
+        own = _CHANNEL_CHECK_DEFECT(fc)
+    except Exception:  # noqa: BLE001 - a check whose label cannot be read is compared by no rule, never guessed
+        return []
+    out = []
+    for f in rc.findings:
+        if f.formal_result_id != rid or f.code not in ("INT-SUBJ-001", "INT-SUBJ-004"):
+            continue
+        want = own if own is not None else defect_of(f.code, f.message)
+        if want is None or f.defect == want:
+            continue  # a label where the channel gives none is an extra diagnostic: noted by the receipt check, never an accusation
+        how = "lacks it" if f.defect is None else f"carries {f.defect!r}"
+        out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id}, formal check {fc.check_id} ({fc.kind}): its {f.code} on "
+                               f"{sorted(f.claim_ids)[:6]} implies the defect label {want!r} but {how}: the channel labels a failed check's finding with the "
+                               "check's own label first, else its kind's, and the branch pack re-derives this check from the journaled report "
+                               "(R2, rule argument-image)", formal_result_id=rid, **ids))
+    return out
+
+
 def _check_statement(ctx: CheckContext, t: Transfer, rc, rep, fc: Any, held: Any, ids: dict) -> list:
     """Rule ``check-statements`` (STEM completion, decision 60) for one branch check the receipt carries with a signed run:
     the check's claims and ``detail``, and the message and claims of the finding naming its result, are what the channel
@@ -614,6 +656,7 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
         if held is None:
             red.findings.append(ovs_finding("OVS-FORM-004", f"the branch pack re-derives formal check {fc.check_id} ({fc.kind}: {fc.description[:120]}) from report {rep.report_id}, but the receipt does not carry it", **ids))
             continue
+        red.findings.extend(subject_label(rc, t, fc, held, ids))
         stored = ctx.store.get(held.formal_result_id) if held.formal_result_id else None
         if stored is None:
             continue  # an unresolved result id is decided by L3

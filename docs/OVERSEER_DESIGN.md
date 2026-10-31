@@ -4756,3 +4756,130 @@ kept):
   channel whose state was corrupted (the fabricated report seeded into `transmitted_reports`).
 - `test_stem_completion.py` STEM_TASK_CONTENT: ph-t13 18 -> 20 and bi-t13 7 -> 8 (the parsers' direction-word checks,
   each holding; every ST code set unchanged).
+
+## 47. The integration step before arena round 8: the overseer reads everything the merged translator emits
+
+The argument diagnostics were ported onto the merged translator (`docs/ARGUMENT_DIAGNOSTICS.md` section 20) with only the
+overseer reading it needed to keep its checks green. This step makes the overseer and the translator one system: every
+receipt code, named argument diagnostic (label and code), engine status, release refusal and named rejection the
+translator and the channel can emit is known to the overseer's code tables, read by its deterministic audit, shown in its
+dossiers and taught by its knowledge pack, and the pool reads them as risk signals that only ever escalate oversight.
+Nothing here changes a status, a finding or a receipt of the translator: the overseer only reads.
+
+**Decision 74 (the code tables, `overseer/emitted.py`).** One table of what the translator and the channel emit, kept
+identical to the translator's own sources by drift tests (`tests/overseer/test_integration_codes.py`): every receipt code
+with every severity it is raised at (the channel's and integrity layer's, held to `checks.receipts.FIXED_SEVERITY` and
+`VARIABLE_SEVERITY`; the subject packs', held to the severity literals of their emission sites, read from the source,
+shared quotation and structure checks included; the STEM branches', held to `stem.relations.ST_SEVERITY`) and the defect
+labels its finding can carry (`named.DEFECT_OF_CODE`); every named code with its label, highest severity, layers and caps
+(`named.NAMED_CODES`) and the 28 labels; every engine status, translation status and receipt status; every engine
+diagnostic code, classed (E108, E110, E111, E112 withhold a verdict; W110, W111 are advisory); the leads of every reason
+of the engine's release check, by rule (1 to 9; rules 8 and 9 the argument diagnosis's) and of the outcome's release
+assessment (`release-v1`); the named engine policies; the blocking prefixes; and the named rejections (INT-REQ-009 and
+INT-SYNTH-014, the service's E100 for a policy name that is not exactly an allowlisted one, E306, E502 to E505). Every code
+constant the translator's source names is known; three are named but raised by no check of this tree (CORE-SRC-007,
+INT-HIST-001, INT-REQ-017: `NAMED_ONLY`, each with its reason).
+
+**Decision 75 (rule `argument-image`, OVS-RCPT-004).** Every receipt's argument diagnosis is held to the channel's image of
+what it checked, live and in the batch tier: every finding carries the label the channel gives its code
+(`named.DEFECT_OF_CODE`). INT-SUBJ-001 and INT-SUBJ-004 carry the failed branch check's own label first
+(`TranslatorChannel._check_defect`: a unit companion, or a check decided in SI alone whose numbers hold as written,
+names `stem_unit_error` on a check whose kind reads as `stem_arithmetic_slip`), which the receipt does not journal (its
+`formal_checks` are constraint results): the receipt check requires a label only where the check's kind names one, and
+R2 compares the label with the check the branch pack re-derives (`formal.subject_label`, bound at import). As first
+built, the receipt check took the kind's label as the only truth and raised a false RCPT-004 on genuine STEM transfers
+(the STEM probes units-task-only and units-prefix); a control test now holds the check's own label clean and two tests
+fail the transfer when it is relabelled as its kind's (only R2 can see that) or dropped. Every diagnostic shown at
+warning or error on a material claim, of an outcome or of the report level (`translate.diag_core.report_diagnostics` re-run on the journaled report, the
+task record and items of the request, and the receipt's outcomes; a relayed report has no request), has its INT-ARG-001 at
+that severity carrying its label (ARG-CONTRA-001 excepted, which INT-REQ-007 states); the receipt's `named_diagnostics`
+hold every diagnostic the channel derives, at no lower shown or effective severity and with no cap lifted, and its
+`named_overflow` counts what the bound left out; two encodings of one claim that reach opposite definitive answers have
+their INT-XENC-001 (`TranslatorChannel._encoding_disagreements`, bound at import, so a patched channel is re-derived with
+the rule as shipped). A diagnosis dropped, lowered or relabelled fails the transfer, whatever it marks: a load-bearing
+writer's assumption (ARG-LINK-001, ARG-LINK-002, ARG-FACT-001), an unchecked source (EVD-SRC-*, CORE-SRC-003, a capped
+EVD-SRC-001), a STEM method error (ST-REF-*, ST-STEP-*, ST-ROUND-001, ST-RANGE-001, ST-WORK-001, ST-GIVEN-*, ST-SCOPE-*,
+ST-UNIT-003, a failed STEM check's label) or any named defect. An extra diagnostic the channel does not derive is only
+noted: it accuses no transfer and blocks release at most.
+
+**Decision 76 (rule `diagnosis-image`, OVS-TRN-007 widened).** An outcome's `named_diagnostics`, `diagnosis_incomplete`
+and `release` are derived again from its translation and the stored signed result exactly as the composer derives them
+(`translate.outcome.outcome_diagnosis`, `assess_release`), under every signing configuration and context the composer
+could have used, and must all three match one derivation. The summary check could not see these fields: a summary left as
+composed reads correctly while the structured fields say otherwise (a diagnosis dropped from the outcome, a cap's record
+removed so a blocking diagnostic reads as an info one, a release refusal dropped so the outcome says `permitted`). TRN-007's
+meaning is widened to them, and the kind `receipt_altered` confirms it as before; no new code, so the verdict contract and
+the kinds are unchanged.
+
+**Decision 77 (the dossier, contract 1.0 extended in place).** A receipt shows its `named_diagnostics`, `named_overflow`
+and `diagnosis_incomplete`, each only when not empty, and a retained result its signed `named_diagnostics` and
+`argument_rules` when it carries them. A transfer or a result without them is shown exactly as before. The dossier version
+stays 1.0, as with the consolidation members (decision 33): every pinned pack still loads, and an agent configured with an
+older pack meets members its schema does not list only when the receipt carries a diagnosis.
+
+**Decision 78 (the pool: risk only escalates).** `PoolItem` carries the task's `risk_signals` and `risk_records`
+(`emitted.risk_reading` of the journaled view, read at the EFFECTIVE severity, so a capped diagnostic is the signal of
+what it blocks): a signal (a named defect at effective warning or error, an unchecked source or a STEM method error at that
+severity, an encoding conflict, a contradiction, a withheld verdict, a rejection, an argument diagnosis that did not finish,
+an error finding) sends the dossier to two independent instances, as a repeated fault does; a record (an info diagnostic of
+the three named families) weighs two review units toward the quota. A plan never has fewer instances, nor gives a dossier
+fewer reviewers, than the same batch without them, and never grows past the maximum (a property test over every subset).
+The delivery policy's fallback reviews through the pool, so a candidate with a signal is reviewed by two instances: six
+assertions that pinned one instance for tasks that carry a signal (a report-level ARG-BARE-001, a capped EVD-SRC-001, an
+EVD-SRC-005, a CORE-SRC-003 at warning) were rewritten to the stricter rule, each stating the signal (47.1). The fast profile and the oversight planner stay
+deferred; the flash router and the twofold steps come after round 8.
+
+**Decision 79 (pack versions).** Pack 1.3 had been corrected in place by the argument-diagnostics port (its digest
+`b44776a1…` became `0fdf8581…`) although a pinned version never changes (section 17.12). 1.3 is restored byte for byte to
+`b44776a1…` and pinned so again (a copy of the in-place correction is refused, trusted or not); its corrections and this
+step's text are released as pack 1.4 (a MINOR version: the verdict contract, the kinds and the dossier version are
+unchanged). 1.4 adds Dossier guide §15 (D33 to D37: the argument diagnosis on outcomes, receipts and results, the 28 labels
+and their codes, severity and caps, release, the codes, statuses, rejections and policies), D7's and the transfer table's
+new members, Inspection §13 (I99: what a diagnosis asks of a receipt and its outcomes, and that records are no faults),
+K8, the Kinds and codes §8 table of every code (the overseer's table, checked row by row by the completeness test) and N14;
+D34 and a common-mistakes row say that a failed STEM check's label is the check's own first (decision 75), so that an
+agent does not accuse a `stem_unit_error` on an arithmetic check as a relabelling.
+The tests that read 1.3's text read the installed pack (1.4 carries all of it); the version-history tests pin 1.3 to its
+released digest and take 1.5 as the next unpinned version. The fast compact pack does not exist on this tree (the fast
+profile is deferred), so only the standard pack is regenerated.
+
+**Decision 80 (the named rejection INT-SYNTH-014, OVS-RCPT-004).** A relayed synthesis whose journaled payload carries a
+value outside the synthesis contract's closed vocabularies implies INT-REQ-009 and INT-SYNTH-014: the channel's own contract
+reading (`bus._coerce_payload`, bound at import) is re-run on the journaled payload, so a receipt that drops the name, or
+delivers the synthesis, fails the transfer. The journal holds that payload when the synthesis arrived as an object built
+around validation (it is journaled as the synthesis it claims to be). A mapping that does not validate is journaled as an
+unreadable payload, by its digest and type only, so no check can re-derive the name of its rejection: the rejection itself
+(REJECTED, INT-REQ-009, nothing delivered) is still held by the status and delivery rules (OVS-RCPT-002, OVS-RCPT-003), and
+the pool reads it as a risk signal. This limit is the journal's, recorded with its test.
+
+### 47.1 Tests this step changed
+
+None was weakened or deleted. `tests/overseer/test_integration_codes.py` is new (the drift tests of decision 74, a positive
+case and a clean control for each family the audit reads, the pool's escalation and its property test, the dossier's
+fields, the pack's completeness with four cut controls, and 1.3's pinned text). Each existing test changed asserts the
+same behaviour equally or more strictly:
+
+- **Rewritten to the stricter planning rule (decision 78).** `test_consolidation_pool.py` (the clean task carries a capped
+  unchecked source, so it goes to two instances, and its signals and records are asserted exactly),
+  `test_delivery_fallback.py` (three tests: the essays' receipt names ARG-BARE-001 at warning, so two instances review it,
+  the plan's reasons are asserted in full, and each of the two verdicts is set aside and counted) and
+  `test_delivery_policy.py` (the substituted figure's receipt carries EVD-SRC-005, so its fallback calls two instances; the
+  other causes still one, asserted exactly), and `tests/e2e/test_arena_deliveries.py` (the arena's History answer carries
+  CORE-SRC-003 at warning, an unchecked source, so the delivery pass's fallback is reviewed by two instances, asserted
+  exactly; found by the full suite after the first build).
+- **Stricter field set.** `test_protocol_dossier.py`: the receipt's exact member set now includes `named_diagnostics`,
+  held equal to the journaled receipt's, and asserts that the empty members are not shown.
+- **Pack versions (decision 79).** `test_knowledge_pack.py` pins 1.4 as installed and 1.3 to its released digest
+  (`b44776a1…`) beside 1.0 to 1.2, and adds that a copy of the in-place correction is refused, trusted or not; the tests that
+  used 1.4 as the next, unpinned version use 1.5 (`test_knowledge_pack.py`, `test_knowledge_export.py`,
+  `test_knowledge_examples.py`, `test_harness_contained_pack.py`, the tamper suite's T20d and the contained run's
+  other-pack check); `test_knowledge_runner.py` expects the installed 1.4.
+- **The installed pack's text.** The STEM-repair, STEM-completion and merged-translator tests that read pack text read the
+  installed pack (`installed_pack_dir(PACK_VERSION)`) instead of 1.3: 1.3 is frozen by its pinned digest, the port had
+  changed it in place, and the installed pack carries all of that text; the ledger-codes test reads both 1.3 and the
+  installed pack. `test_knowledge_drift.py` adds the argument diagnosis's models and vocabularies to the names the pack may
+  use and moves each rule range to its new last rule (D37, I99, K8, N14) and Common mistakes to §16 (the Inspection guide's
+  to §14, in `test_stem_repair10.py`).
+- **Contract 0.5.** `tests/integration/test_readiness.py` and `test_playbook.py` expect the contract line 0.5.
+- **The label rule (decision 75).** Three tests: the check's own label held clean (the control that failed under the first
+  build of the rule), and a relabelled or dropped label failing the transfer.

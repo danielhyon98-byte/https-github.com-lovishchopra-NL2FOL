@@ -1205,7 +1205,7 @@ def _ledger_codes_for_the_synthesis_rules() -> tuple[str, str]:
 
 
 def _i68_i69(pack_version: str) -> tuple[str, str]:
-    from epinoic_logic.overseer.pack import installed_pack_dir
+    from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir
     insp = (installed_pack_dir(pack_version) / "03-inspection.md").read_text(encoding="utf-8")
     i68 = insp.split("**I68 ", 1)[1].split("\n- **I69", 1)[0]
     i69 = insp.split("**I69 ", 1)[1].split("\n- **I70", 1)[0]
@@ -1372,10 +1372,10 @@ def test_the_installed_pack_reads_no_grounding_kind_label_as_a_transcription(tmp
     ``knowledge_document`` or ``library_source`` is a transcription not to accuse, with no cited source, excerpt or
     verified check required. The corrected pack says a kind is a label, not evidence, as the overseer's rule
     ``grounded-transcription`` decides; a copy with one faulty sentence put back fails (the check is not vacuous)."""
-    from epinoic_logic.overseer.pack import installed_pack_dir
+    from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir
 
     from .test_knowledge_pack import copy_pack
-    assert _label_steering(installed_pack_dir("1.3")) == []
+    assert _label_steering(installed_pack_dir(PACK_VERSION)) == []
     d = copy_pack(tmp_path)
     prompt = (d / "master_prompt.txt").read_text(encoding="utf-8")
     old = ("- A translation the translator itself withheld as circular (INVALID_FORMALIZATION with E112) is not a circular translation to accuse, and neither "
@@ -1458,10 +1458,10 @@ def test_the_pack_says_where_the_translator_records_stem_units_in_its_own_words(
     """Finding (d) of the review: D30 and I92 said a unit is in the symbol's meaning or the premise's label, while the
     translator's guidance says to record a unit as an assumption, never inside an expression. The pack now quotes the
     guidance's own words (and the places such a record may be found); the guidance is pinned here so the two cannot drift."""
-    from epinoic_logic.overseer.pack import installed_pack_dir
+    from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir
     from epinoic_logic.translate.subjects import STEM_ENCODING_GUIDANCE
     assert "record a unit as an assumption, never inside an expression" in STEM_ENCODING_GUIDANCE
-    d = installed_pack_dir("1.3")
+    d = installed_pack_dir(PACK_VERSION)
     for name in ("02-dossier.md", "03-inspection.md", "master_prompt.txt"):
         text = (d / name).read_text(encoding="utf-8")
         assert "record a unit as an assumption" in text or "records a unit as an assumption" in text, name
@@ -1492,9 +1492,11 @@ def test_the_installed_pack_names_the_ledger_codes_the_merged_channel_raises():
     import re
     comp, neg = _ledger_codes_for_the_synthesis_rules()
     assert (comp, neg) == ("INT-LEDGER-031", "INT-LEDGER-030")
-    i68, i69 = _i68_i69("1.3")
-    assert comp in i68 and neg in i69
-    assert not set(re.findall(r"INT-LEDGER-\d{3}", i68 + i69)) & {"INT-LEDGER-027", "INT-LEDGER-028"}
+    from epinoic_logic.overseer.pack import PACK_VERSION
+    for version in ("1.3", PACK_VERSION):  # the pinned 1.3 the merge corrected, and the installed pack (1.4 since the integration step)
+        i68, i69 = _i68_i69(version)
+        assert comp in i68 and neg in i69
+        assert not set(re.findall(r"INT-LEDGER-\d{3}", i68 + i69)) & {"INT-LEDGER-027", "INT-LEDGER-028"}
     # control: the pinned pre-merge pack 1.2 names the numbers the merge gave to other rules
     old68, old69 = _i68_i69("1.2")
     assert comp not in old68 and "INT-LEDGER-028" in old68 and neg not in old69 and "INT-LEDGER-027" in old69

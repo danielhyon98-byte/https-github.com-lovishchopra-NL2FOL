@@ -90,7 +90,7 @@ python integration/tools/manifest.py        # MANIFEST.sha256 files, last       
   `apply.mjs`, `ANCHORS.md`, `RESULT.sha256`; the vectors.
 - **T8.** The simulation: the synthetic corpus in the arena round format, the reference harness, the comparison, the
   faults, the fixture verifier, the tampering cases, the drivers, the readiness scripts.
-- **T9.** Docs: `integration/*.md`, the integration contract 0.4, the README pointer. Engine and policy semantics do
+- **T9.** Docs: `integration/*.md`, the integration contract (0.4 then; 0.5 since the argument diagnosis), the README pointer. Engine and policy semantics do
   not change. The manifest is generated last.
 - **T10. Publishing** is Daniel's action after D20: an annotated tag `integration-kit-v1` on the kit commit, pushed only
   to the repository `COMPATIBILITY.json` `kit_tag_repository` names (`translator_development`: the development

@@ -54,6 +54,12 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.2, listed as each stage re
   same report: what the translator was given as the claim), and the result id the outcome cites. The translation itself
   (status, eligibility, problem, interpretation with its ambiguity flags, grounding checks, provider, diagnostics) is the
   receipt's outcome as journaled, already in the transfer;
+* argument diagnosis (integration step, pack 1.4): a receipt that carries its argument diagnosis shows it in both modes, as
+  the channel issued it (``named_diagnostics``, ``named_overflow`` and ``diagnosis_incomplete``, each when not empty: the
+  receipt's own fields, like its findings), and a retained result shows its signed ``named_diagnostics`` and
+  ``argument_rules`` when it carries them (:data:`RECEIPT_DIAGNOSIS_FIELDS`, :data:`RESULT_DIAGNOSIS_FIELDS`). The dossier
+  contract 1.0 is extended in place with these optional members: a transfer or a result without them is shown exactly as
+  before, so a dossier of the earlier receipts keeps its digest;
 * consolidation (design section 19): in informed mode, ``consolidations`` lists the signed consolidated responses of the
   channel (one per input several agents answered, the latest of each), each with its own pointer ``at``: its status, its
   groups (members with the pointer of their transfer, the representative, the merge check), the excluded answers with
@@ -85,6 +91,7 @@ __all__ = [
     "DossierTask", "DossierConsolidation", "ConsolidationMember", "ConsolidationGroup", "ConsolidationCheck", "ConsolidationExcluded",
     "ConsolidationConflict", "ConsolidationRepeat", "ConsolidationAdvisory", "consolidation_entry", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
     "visible_text", "truncated_pointers", "dossier_identifiers", "dossier_json", "TRUNCATE_AT", "TRUNCATION_MARKER", "RECEIPT_FIELDS",
+    "RECEIPT_DIAGNOSIS_FIELDS", "RESULT_DIAGNOSIS_FIELDS",
 ]
 
 #: String fields longer than this are cut (design section 9.2).
@@ -93,6 +100,10 @@ TRUNCATE_AT = 20_000
 TRUNCATION_MARKER = "…[truncated]"
 #: The receipt fields a dossier shows (the receipt's identifiers and direction are on the transfer itself).
 RECEIPT_FIELDS = ("status", "findings", "coverage", "constraint_results", "outcomes", "structural_findings", "formal_checks", "formal_result_ids", "summary")
+#: The receipt's argument diagnosis, each member shown only when it is not empty.
+RECEIPT_DIAGNOSIS_FIELDS = ("named_diagnostics", "named_overflow", "diagnosis_incomplete")
+#: A signed result's argument diagnosis, shown when the result carries it (absent means "not computed").
+RESULT_DIAGNOSIS_FIELDS = ("named_diagnostics", "argument_rules")
 _TRUNCATED_SECTIONS = ("task", "transfers", "results", "links", "auditor", "consolidations")
 
 IndexType = Literal["message", "receipt", "report", "claim", "synthesized_claim", "result", "document", "conflict"]
@@ -120,6 +131,9 @@ class DossierReceipt(BaseModel):
     formal_checks: list[dict[str, Any]] = Field(default_factory=list)
     formal_result_ids: list[str] = Field(default_factory=list)
     summary: str = ""
+    named_diagnostics: Optional[list[dict[str, Any]]] = None
+    named_overflow: Optional[int] = None
+    diagnosis_incomplete: Optional[list[str]] = None
 
 
 class DossierPoolEntry(BaseModel):
@@ -176,6 +190,8 @@ class DossierResult(BaseModel):
     signature_present: bool
     signature_key_id: Optional[str] = None
     problem: Optional[dict[str, Any]] = None
+    named_diagnostics: Optional[list[dict[str, Any]]] = None
+    argument_rules: Optional[str] = None
 
 
 class ForwardLink(BaseModel):
@@ -537,6 +553,14 @@ def _receipt(t: Transfer) -> Optional[dict]:
     for k in RECEIPT_FIELDS:
         default: Any = "" if k == "summary" else ([] if k != "status" else None)
         out[k] = _redact(copy.deepcopy(dump.get(k, default)))
+    # the argument diagnosis as the channel issued it (pack 1.4), each member only when it is not empty: a receipt that names
+    # no diagnostic is shown exactly as before (its summary says whether the diagnosis ran)
+    if isinstance(dump.get("named_diagnostics"), list) and dump["named_diagnostics"]:
+        out["named_diagnostics"] = _redact(copy.deepcopy(dump["named_diagnostics"]))
+    if isinstance(dump.get("named_overflow"), int) and dump["named_overflow"] > 0:
+        out["named_overflow"] = dump["named_overflow"]
+    if isinstance(dump.get("diagnosis_incomplete"), list) and dump["diagnosis_incomplete"]:
+        out["diagnosis_incomplete"] = [str(x) for x in dump["diagnosis_incomplete"]]
     return out
 
 
@@ -573,6 +597,11 @@ def _result_entry(view: OverseerView, rid: str) -> Optional[dict]:
         "premises_relied_on": list(res.premises_relied_on), "ungrounded_dependencies": list(res.ungrounded_dependencies),
         "signature_present": bool(res.signature), "signature_key_id": res.signature_key_id,
     }
+    # the signed argument diagnosis (pack 1.4): present only when the result carries it; absent reads "not computed"
+    if res.named_diagnostics is not None:
+        entry["named_diagnostics"] = [d.model_dump(mode="json") for d in res.named_diagnostics]
+    if res.argument_rules is not None:
+        entry["argument_rules"] = res.argument_rules
     if rec.problem_json:
         try:
             entry["problem"] = _redact(json.loads(rec.problem_json))

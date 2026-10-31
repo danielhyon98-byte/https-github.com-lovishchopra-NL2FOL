@@ -42,6 +42,22 @@
     transfer's sender role may issue its contract (INT-ENV-007); a response whose event captured a signed
     INCONSISTENT_PREMISES run of the channel's cross-report joint check names a conflict (INT-CONFLICT-001/005/004);
     and a request's word and paragraph bounds are not weaker than its own user input states (``extract_constraints``).
+  - (integration step, rule ``argument-image``) the receipt's argument diagnosis is the channel's image of what it checked:
+    every finding carries the defect label the channel gives its code (``named.DEFECT_OF_CODE``; INT-SUBJ-001 and
+    INT-SUBJ-004 carry the failed branch check's own label first, ``TranslatorChannel._check_defect``, which the receipt
+    does not journal: here they need a label where their check's kind names one, and R2 compares the label with the check
+    the branch pack re-derives, ``formal.subject_label``), every warning or error named diagnostic of an outcome or of the
+    report level (``translate.diag_core.report_diagnostics`` re-run on the journaled report, request and outcomes) on a
+    material claim has its INT-ARG-001 at that severity (ARG-CONTRA-001 excepted: INT-REQ-007 states it), the receipt's
+    ``named_diagnostics`` hold every diagnosis the channel derives (each outcome's, the report level's and one for each
+    labelled finding) at no lower severity, with no cap lifted or added and no label changed, and its ``named_overflow``
+    counts what the bound left out; and two encodings of one claim that reach opposite definitive answers need their
+    INT-XENC-001 (``TranslatorChannel._encoding_disagreements``, called, not copied). A diagnosis dropped, lowered or
+    relabelled (a load-bearing writer's assumption, an unchecked source, a STEM method error, any named defect) is RCPT-004
+    and fails the transfer; nothing is downgraded: severities are compared as shown and as effective (``capped_from``).
+  - (integration step) a relayed synthesis whose journaled payload carries a value outside the synthesis contract's closed
+    vocabularies needs INT-REQ-009 and INT-SYNTH-014 (``bus._coerce_payload`` re-run on the journaled payload; a mapping
+    that does not validate is journaled by its digest only, so its rejection's name is not re-derived).
 """
 from __future__ import annotations
 
@@ -49,11 +65,13 @@ import json
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from ...channel.bus import _BLOCKING_PREFIXES, _SCOPE_TAIL, TranslatorChannel, _fit_summary
+from ...channel.bus import _BLOCKING_PREFIXES, _SCOPE_TAIL, TranslatorChannel, _coerce_payload, _fit_summary
+from ...named import (MAX_PER_RECEIPT, NAMED_CODES, effective_severity, from_finding, ordered as order_named)
+from ...named import defect_of as _defect_of
 from ...channel.contracts import TransmissionReceipt, TransmissionStatus
 from ...channel.events import model_json
 from ...engine.statuses import is_definitive
-from ...ir.canonical import sha256_hex
+from ...ir.canonical import canonical_json, sha256_hex
 from ..view import REPORT_KINDS, Transfer
 from . import CheckContext, json_diff_paths
 
@@ -101,6 +119,9 @@ VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-REQ-007", "INT
 #: patched later (a rule replaced at run time) is re-derived with the rule as shipped, not with the patch.
 _CHANNEL_COVERAGE = TranslatorChannel._coverage
 _CHANNEL_RELAY_PARTIES = TranslatorChannel._relay_parties
+_CHANNEL_ENCODINGS = TranslatorChannel._encoding_disagreements
+_CHANNEL_TASK_RECORD = TranslatorChannel._task_record
+_CHANNEL_COERCE = _coerce_payload
 _RANK = {"info": 0, "warning": 1, "error": 2}
 
 
@@ -435,6 +456,9 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
         out.extend(_role_implied(ctx, t))
     if t.kind in ("response", "response_text", "relay_report"):
         out.extend(_joint_implied(ctx, t))
+    out.extend(_argument_implied(ctx, t))
+    if t.kind == "relay_synthesis":
+        out.extend(_vocabulary_implied(ctx, t))
     return out
 
 
@@ -745,11 +769,179 @@ def _identity_implied(ctx: CheckContext, t: Transfer, req) -> list[tuple[str, st
     return out
 
 
+#: The receipt codes whose label is the failed branch check's own label first (``TranslatorChannel._check_defect``).
+SUBJECT_LABEL_CODES = ("INT-SUBJ-001", "INT-SUBJ-004")
+
+
+def expected_label(f: Any) -> Optional[str]:
+    """The defect label the channel gives a receipt finding (``TranslatorChannel._labelled``), as far as the receipt itself
+    says it: a STEM code of the named table carries its table label (``stem_pack``), any other code the label
+    ``named.DEFECT_OF_CODE`` gives its code and message. INT-SUBJ-001 and INT-SUBJ-004 carry the failed branch check's own
+    label first (``TranslatorChannel._check_defect``: a unit companion's ``stem_unit_error`` on an arithmetic check), which
+    the receipt does not journal (its ``formal_checks`` are constraint results): a label such a finding carries is taken as
+    it stands here and compared in R2 with the label of the check the branch pack re-derives (``formal.subject_label``),
+    and an unlabelled one is held to the label of its check's kind, since the channel labels every failure of a kind that
+    names one. None when no rule labels it."""
+    code = getattr(f, "code", "")
+    if code in SUBJECT_LABEL_CODES and getattr(f, "defect", None) is not None:
+        return f.defect
+    spec = NAMED_CODES.get(code)
+    if spec is not None and not spec.finding_only and spec.defect and code.startswith("ST-"):
+        return spec.defect
+    return _defect_of(code, getattr(f, "message", ""))
+
+
+def _key(d: Any) -> tuple:
+    return (d.code, tuple(sorted(d.claim_ids)), tuple(sorted(d.assertion_ids)))
+
+
+def _report_named(ctx: CheckContext, t: Transfer) -> Optional[list]:
+    """The report-level argument diagnosis the channel ran for this delivered report (``report_diagnostics`` on the journaled
+    report, the task record and items of the request a response answers, and the receipt's outcomes; a relayed report has
+    no request), or None when the channel did not run it (a REJECTED or early-returned transfer, or one whose receipt names
+    the diagnosis as failed internally)."""
+    rc, rep = t.receipt, t.report
+    if rc is None or rep is None or t.kind not in ("response", "response_text", "relay_report") or rc.status is TransmissionStatus.REJECTED:
+        return None
+    if any(f.code == "INT-INTERNAL-001" and "argument diagnosis" in f.message for f in rc.findings):
+        return None
+    from ...translate.diag_core import report_diagnostics
+    req = None
+    if t.kind != "relay_report" and t.request_seq is not None and t.request_seq in ctx.view.by_seq:
+        req = ctx.view.by_seq[t.request_seq].request
+    try:
+        diagnosis = report_diagnostics(rep, _CHANNEL_TASK_RECORD(req), list(rc.outcomes), items=list(req.items) if req is not None else [])
+    except Exception as exc:
+        ctx.note(f"{t.kind} {t.message_id}: the report-level argument diagnosis could not be re-run on the journaled report ({type(exc).__name__}); "
+                 "its INT-ARG-001 findings and named diagnostics are not re-derived")
+        return None
+    return list(diagnosis.diagnostics)
+
+
+def _argument_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """Rule ``argument-image`` (module docstring): the argument diagnosis the receipt carries against the one the channel
+    derives from what it checked. Every outcome's named diagnostics are as journaled (the translation check holds them to
+    their signed result and translation, OVS-TRN-007); the report level is re-run; labelled findings are re-labelled."""
+    rc = t.receipt
+    if rc is None:
+        return []
+    out: list[tuple[str, str, str]] = []
+    labelled = []
+    for f in list(rc.findings) + list(rc.structural_findings):
+        want = expected_label(f)
+        have = getattr(f, "defect", None)
+        if want is not None and have != want:
+            by = ("its check's own label first, else its kind's: at least a label, never none (R2 compares it with the re-derived check)"
+                  if f.code in SUBJECT_LABEL_CODES else "named.DEFECT_OF_CODE")
+            out.append(("finding labels", "absent" if have is None else "different",
+                        f"{f.code} on {sorted(f.claim_ids)[:6]} carries the defect label {have!r}; the channel labels it {want!r} "
+                        f"({by}), so its named diagnostic is dropped or changed"))
+        if f.code != "INT-ARG-001":
+            labelled.append(f.model_copy(update={"defect": want}) if want is not None and have is None else f)
+    report_named = _report_named(ctx, t)
+    materiality = {c.claim_id: c.materiality for c in t.report.claims} if t.report is not None else {}
+
+    def material(d, claim_id) -> bool:
+        ids = list(d.claim_ids) or ([claim_id] if claim_id else [])
+        if not materiality or not ids:
+            return True
+        return any(materiality.get(c, "material") == "material" for c in ids)
+
+    expected: list = []
+    sources: list[tuple[Any, Optional[str]]] = []
+    for o in rc.outcomes:
+        for d in o.named_diagnostics:
+            expected.append(d)
+            sources.append((d, o.claim_id))
+    for d in report_named or ():
+        expected.append(d)
+        sources.append((d, None))
+    for d, claim_id in sources:
+        spec = NAMED_CODES.get(d.code)
+        if d.severity not in ("warning", "error") or (spec is not None and spec.stated_by) or not material(d, claim_id):
+            continue
+        ids = set(d.claim_ids) or ({claim_id} if claim_id else set())
+        prefix = f"{d.defect} [{d.code}]:"
+        how = _present(rc.findings, "INT-ARG-001", d.severity, message_prefix=prefix, claim_ids=ids or None)
+        if how is None and not any(f.code == "INT-ARG-001" and f.message.startswith(prefix) and f.defect == d.defect for f in rc.findings):
+            how = "relabelled"
+        if how:
+            out.append(("INT-ARG-001", how, f"the named diagnostic {d.code} ({d.defect}, {d.severity}) on material claim(s) {sorted(ids)[:6]} is on the "
+                        "receipt's outcomes or its report-level diagnosis, so the channel raises INT-ARG-001 at its severity carrying its defect"))
+    if report_named is None and t.kind in ("response", "response_text", "relay_report") and rc.status is not TransmissionStatus.REJECTED:
+        # the report level was not re-derived (noted); its diagnostics are compared as the receipt states them
+        expected.extend(d for d in rc.named_diagnostics if d.layer == "report")
+    for f in labelled:
+        nd = from_finding(f)
+        if nd is not None:
+            expected.append(nd)
+    unique = list({canonical_json(d): d for d in expected}.values())
+    items = order_named(unique)
+    bound, overflow = items[:MAX_PER_RECEIPT], max(0, len(items) - MAX_PER_RECEIPT)
+    held: dict[tuple, list] = {}
+    for d in rc.named_diagnostics:
+        held.setdefault(_key(d), []).append(d)
+    have_json = {canonical_json(d) for d in rc.named_diagnostics}
+    for d in bound:
+        if canonical_json(d) in have_json:
+            continue
+        same = held.get(_key(d), [])
+        what = f"{d.code} ({d.defect}) on {sorted(d.claim_ids)[:6] or 'the report'} at {d.severity}" + (f", capped from {d.capped_from}: {d.cap_reason}" if d.capped_from else "")
+        if not same:
+            out.append(("named diagnostics", "absent", f"the channel's argument diagnosis of what it checked gives {what}, which the receipt's named_diagnostics do not hold"))
+            continue
+        rank = {"info": 0, "warning": 1, "error": 2}
+        if any(rank[x.severity] < rank[d.severity] or rank[effective_severity(x)] < rank[effective_severity(d)] for x in same):
+            out.append(("named diagnostics", "lower", f"the receipt holds {d.code} on {sorted(d.claim_ids)[:6]} at a lower severity than the channel derives ({what})"))
+        else:
+            out.append(("named diagnostics", "different", f"the receipt holds {d.code} on {sorted(d.claim_ids)[:6]} in another form than the channel derives "
+                        f"({what}): a label, a cap, its evidence or its message changed"))
+    if overflow > rc.named_overflow:
+        out.append(("named diagnostics", "uncounted", f"the channel's argument diagnosis gives {len(items)} named diagnostics, {overflow} past the receipt's bound of "
+                    f"{MAX_PER_RECEIPT}, but the receipt counts {rc.named_overflow} left out"))
+    try:
+        xenc = _CHANNEL_ENCODINGS(SimpleNamespace(), list(rc.outcomes), list(rc.formal_checks), [])
+    except Exception as exc:
+        ctx.note(f"{t.kind} {t.message_id}: the channel's encoding comparison could not be re-run on the receipt ({type(exc).__name__}); INT-XENC-001 is not re-derived")
+        xenc = []
+    for f in xenc:
+        how = _present(rc.findings, "INT-XENC-001", "warning", formal_result_id=f.formal_result_id, claim_ids=set(f.claim_ids))
+        if how:
+            out.append(("INT-XENC-001", how, f"the branch check {f.formal_result_id} of claim {f.claim_ids} fails while the claim's translation "
+                        f"{f.related_result_ids} is displayed with a positive verdict: two encodings of one claim reach opposite answers"))
+    return out
+
+
+def _vocabulary_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """The named rejection of the end-to-end fixes (bug 7): a relayed synthesis whose journaled payload carries a value
+    outside the synthesis contract's closed vocabularies does not validate, so the channel REJECTS it with INT-REQ-009 and
+    names the values with INT-SYNTH-014 (``bus._coerce_payload``, called, not copied, bound at import). Both are re-derived
+    from the journaled payload: a receipt that drops the name, or delivers the synthesis, lacks what the payload implies."""
+    rc = t.receipt
+    if rc is None or not isinstance(t.payload, dict):
+        return []
+    try:
+        _model, _why, named = _CHANNEL_COERCE(dict(t.payload))
+    except Exception as exc:
+        ctx.note(f"relay {t.message_id}: the synthesis contract could not be re-run on the journaled payload ({type(exc).__name__}); INT-SYNTH-014 is not re-derived")
+        return []
+    out: list[tuple[str, str, str]] = []
+    for f in named:
+        if f.code != "INT-SYNTH-014":
+            continue
+        for code in ("INT-REQ-009", "INT-SYNTH-014"):
+            how = _present(rc.findings, code, "error", claim_ids=set(f.claim_ids) if code == "INT-SYNTH-014" and f.claim_ids else None)
+            if how:
+                out.append((code, how, "the journaled synthesis carries values outside the synthesis contract's closed vocabularies (claims "
+                            f"{f.claim_ids[:6]}): the channel refuses it with INT-REQ-009 and names them with INT-SYNTH-014, and never delivers it"))
+    return out
+
+
 def check_implied_findings(ctx: CheckContext, t: Transfer) -> None:
     """RCPT-004 for every implied finding the receipt lacks or carries at a lower severity (module docstring)."""
     for code, how, why in implied_findings(ctx, t):
         if not code.startswith("INT-"):  # a structured field (coverage records, request constraints), not a finding
             ctx.ovs(t.seq, "OVS-RCPT-004", f"receipt {t.receipt_id} of {t.kind} {t.message_id}: {code} {how}: {why}", **t.ids())
             continue
-        what = "lacks it" if how == "absent" else f"carries it at severity {how}"
+        what = "lacks it" if how == "absent" else ("carries it with another defect label" if how == "relabelled" else f"carries it at severity {how}")
         ctx.ovs(t.seq, "OVS-RCPT-004", f"receipt {t.receipt_id} of {t.kind} {t.message_id} implies {code} but {what}: {why}", **t.ids())

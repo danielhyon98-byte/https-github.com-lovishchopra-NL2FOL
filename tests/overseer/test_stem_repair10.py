@@ -25,7 +25,7 @@ if str(SCRIPTS) not in sys.path:
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402
 from .test_stem_repair5 import _decided  # noqa: E402
@@ -45,7 +45,7 @@ CS_END = "Next step: trace"
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 def _section(text: str, start: str, end: str) -> str:
@@ -304,8 +304,8 @@ def test_i97_the_master_prompt_and_the_mistakes_rows_name_the_new_rules():
 
 def test_the_common_mistakes_rows_say_what_the_code_decides():
     """The dossier guide's three rows and the inspection guide's one for the readings of this repair, each quote executed."""
-    dossier = _section(_pack_text("02-dossier.md"), "## 15. Common mistakes", "\nPack version")
-    inspection = _section(_pack_text("03-inspection.md"), "## 13. Common mistakes", "\nPack version")
+    dossier = _section(_pack_text("02-dossier.md"), "## 16. Common mistakes", "\nPack version")  # §16 since pack 1.4 (§15 is the argument diagnosis)
+    inspection = _section(_pack_text("03-inspection.md"), "## 14. Common mistakes", "\nPack version")  # §14 since pack 1.4
     for row in ('| Expecting a value at a supplied table\'s row to be checked only when the line names the row first ("At site C, dissolved oxygen = '
                 '3.9 mg dm⁻³.") | A value its own clause states at exactly one row and one column, in any order',
                 '| Reading a value restated from a decimal written with its digits cut ("= 4787.58…", then "= 4788 euros, to the nearest euro") as '

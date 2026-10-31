@@ -51,7 +51,7 @@ export const COMPATIBILITY = deepFreeze({
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
   "components": {
     "contract": [
-      "0.4"
+      "0.5"
     ],
     "engine": [
       "0.4.0"
@@ -191,4 +191,4 @@ export const COMPATIBILITY = deepFreeze({
   }
 });
 
-export const COMPATIBILITY_SHA256 = "ec62b3c7b2a3b4a757adff6616e1ade8fa6fd3e6775bf94392a07949ed1324ca";
+export const COMPATIBILITY_SHA256 = "f6f1345cd09d3f288f7be4f08e107cdd296d440e10d157c4a77a90ddea87e297";

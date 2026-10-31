@@ -36,7 +36,7 @@ PROTOCOL = "epinoic.integration.v1"
 #: Value of the ``Epinoic-Protocol`` header on every protocol request.
 PROTOCOL_HEADER = "integration.v1"
 #: The translator's integration contract version this protocol belongs to (``docs/integration-contract.md``).
-INTEGRATION_CONTRACT_VERSION = "0.4"
+INTEGRATION_CONTRACT_VERSION = "0.5"
 
 #: The engine scope statement (``engine.statuses.SCOPE_STATEMENT``), carried verbatim by every verdict.
 SCOPE_STATEMENT = (

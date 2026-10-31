@@ -92,10 +92,11 @@ def _overseer_port_adapter(kit: Path) -> bool:
 
 def g1(kit: Path, rows: list) -> None:
     version, named, overseer = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
-    # the contract line moves to 0.4 when phase 2 merges contract 0.3: before that merge (no named policies yet) a
-    # contract older than 0.4 is the expected pre-build state; after it, an older line is a defect
-    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.4)" if version != "0.4" and not named else ""
-    row(rows, "G1 contract 0.4", PASS if version == "0.4" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
+    # the contract line moves to 0.4 when phase 2 merges contract 0.3, and to 0.5 with the argument diagnosis (the integration
+    # step before arena round 8: two signed result fields and release rules 8 and 9); before the contract 0.3 merge (no named
+    # policies yet) an older line is the expected pre-build state; after it, an older line is a defect
+    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.5)" if version != "0.5" and not named else ""
+    row(rows, "G1 contract 0.5", PASS if version == "0.5" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
     row(rows, "G1 overseer package", PASS if overseer else BLOCKER,
         "src/epinoic_logic/overseer/" + ("" if overseer else " absent (connected in phase 2: the rebuilt overseer and its port adapter)"))
     reg = (kit / "src" / "epinoic_logic" / "branches" / "registry.py").read_text(encoding="utf-8")

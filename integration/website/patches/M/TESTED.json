@@ -4,7 +4,7 @@
  "website_commit": "2cd318208980e5b236d16b4281dfc0560a7b9610",
  "tested_on": "a disposable export of the website's main at the commit above, marked with UNREVIEWED-SIMULATION-COPY.txt; no website branch, commit or deployment",
  "node": "v22.22.0",
- "date": "2026-10-23",
+ "date": "2026-10-31",
  "commands": [
   "node integration/website/apply.mjs --base M --target <export> --write-result",
   "node --test --test-timeout=30000 tests/*.test.js   (in the export)",
@@ -40,5 +40,6 @@
   "base P (no base-P website)"
  ],
  "patch_files": "W1.patch to W6.patch are not published while the translator repository is public (decision D20); apply.mjs applies the same kit-authored blocks",
- "note": "re-run after COMPATIBILITY.json's repositories and agents pins changed src/verify/compat.js (data only: no code reads those fields): only the src/verify/compat.js line of RESULT.sha256 changed; the counts, the anchors, the verify result and the rollback rehearsal are as before. Earlier re-run: after the protocol step's changes (the router port reads the runtime's own capabilities, entries; the release gate and the handshake cache wording; three new kit tests)"
+ "note": "re-run after COMPATIBILITY.json's repositories and agents pins changed src/verify/compat.js (data only: no code reads those fields): only the src/verify/compat.js line of RESULT.sha256 changed; the counts, the anchors, the verify result and the rollback rehearsal are as before. Earlier re-run: after the protocol step's changes (the router port reads the runtime's own capabilities, entries; the release gate and the handshake cache wording; three new kit tests)",
+ "retested_because": "integration contract 0.5 (the argument diagnosis): the copied files changed (src/verify/compat.js accepts contract 0.5, and the handshake and verdict-binding vectors carry it); the blocks and anchors are unchanged. Re-run with the same commands on fresh disposable exports of the same website commit: baseline and patched counts, the three failing tests, --verify (exact), the anchor counts and the rollback rehearsal are as on 2026-10-23"
 }

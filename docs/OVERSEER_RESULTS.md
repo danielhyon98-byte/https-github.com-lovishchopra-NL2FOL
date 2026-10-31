@@ -4268,6 +4268,106 @@ Deferred to the optimisation checks (recorded with measurements, not fixed): one
 twenty replays above take 43.5 s), and the replayed problem's 2.1 s is almost all a solver check the result's stage
 timings do not report (about 33 ms reported).
 
+## 32. After the integration step (design section 47)
+
+The integration step before arena round 8, on the working tree and not committed (design section 47, decisions 74 to 80
+and 47.1: the code tables of everything the translator and the channel emit, rules `argument-image` and
+`diagnosis-image`, the dossier's argument diagnosis, risk signals in the pool, the named rejection INT-SYNTH-014, pack
+1.4 with 1.3 restored to its released digest, and integration contract 0.5). Python 3.13.16, z3 5.1.0, pydantic 2.14.0;
+measured 2026-10-31 on fresh copies of the recorded rounds (the recorded rounds were never written: their 463 files have
+the same checksums before and after the measurements). Knowledge pack `overseer-knowledge-docs` 1.4, digest
+`a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc` (pinned beside 1.0, 1.1, 1.2 and 1.3; its schemas
+and manifest written by `export --refresh-source`); 1.3 is pinned again to the digest it was released under,
+`b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67`.
+
+### A false alarm the measurements found (fixed)
+
+The first build of rule `argument-image` read the label of a failed branch check's INT-SUBJ-001 or INT-SUBJ-004 from the
+receipt alone, where only the check's kind is visible, while the channel gives the check's own label first. The STEM
+probes units-task-only and units-prefix (a check decided in SI alone whose numbers hold as written: `stem_unit_error` on
+a `stem_arithmetic` check) raised OVS-RCPT-004 ("finding labels different") on genuine working, which failed the gate
+`stem_fault_classes_named`. The receipt check now asks for a label only where the check's kind names one, and R2 compares
+the label with the check the branch pack re-derives (`formal.subject_label`, decision 75). A control test, which fails
+under the first build, and two tamper tests (the label replaced by the kind's, which only R2 sees, and the label dropped)
+hold the rule; pack 1.4's D34, its ST-UNIT-003 row and a common-mistakes row tell the agents the same.
+
+### The translator
+
+```
+cp -r ROUNDS/<round> OUT/harness/<round> && python scripts/arena/run_arena.py OUT/harness/<round>      (every round)
+```
+
+| Round | r1 | r1-adv | r2 | r3 | r4 | r5 | r6 | r7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Functional | 30/30 | 150/151 | 46/46 | 46/46 | 46/46 | 46/46 | 46/46 | 177/177 |
+
+No functional count is lower (r1-adv's planted empty answer stays REJECTED with INT-REQ-009). The delivery pass decided
+79 answers (4, 23, 6 in each of r2 to r6, and 22), every one withheld with no error, as `docs/DELIVERY.md` records: the
+harness configures no overseer agent and no fidelity reviewer, since it calls no model.
+
+### Contained runs
+
+```
+python scripts/overseer/run_contained.py --out OUT/contained --rounds ROUNDS
+python scripts/overseer/run_contained.py --out OUT/contained-all --rounds ROUNDS --round r2 --round r3 --round r4 --round r5 --round r7 --probe-scope all
+```
+
+Both exit 0 with every gate PASS, inline replay, each on its own fresh copies of r2, r3, r4, r5 and r7 (the machine's
+four cores shared with the test suite). The first, the default sample of probe reviews, ran 1,960 s; the second,
+every channel reviewed as at section 30, ran 2,144 s. The two agree on every count below but the probe reviews.
+
+| Gate | Value | |
+| --- | --- | --- |
+| agents_only_from_the_exported_pack | the run's export of pack 1.4 (`a80fb042…`) | PASS |
+| no_false_alarm_on_genuine_transfers | 0 (the rounds' genuine passes 0; r7's re-keyed pass 0) | PASS |
+| adjudicated_genuine_faults_raised | record version 7: 3 of 3 entries raised; 3 of 3 retirements confirmed on the re-keyed pass | PASS |
+| arena_faults_named_by_receipts_and_confirmed | 269 of 269 | PASS |
+| replay_agreement_on_definitive_results | 3,518 replayed in each run (3,076 on the rounds, 442 on r7's re-keyed pass), 0 disagreements, 0 inconclusive (in-process only) | PASS |
+| arena_unchanged_by_the_auditor | each round, and r7's re-keyed pass, identical without the auditor | PASS |
+| every_task_audit_verifies | | PASS |
+| probes_as_expected | 63 probe reviews (the sample), 287 (every channel) | PASS |
+| reviews_change_no_clearance | | PASS |
+| recorded_translations_served_under_merged_ids | r7: 200 recorded fixtures match no delivered claim, so its re-keyed pass ran: 150 re-keyed, 26 withheld by rule `recorded-ids/2`, 173 translations checked, 78 of them for STEM claims (`s` 26, `c` 15, `m` 37) | PASS |
+| recorded_stem_translations_reviewed_by_agents | eight channels (bi-t13 s2.1, ch-t13 s1.1, cs-t13 c3.1, ess-t13 s1.1, maa-t13 m2.1, mai-t13 m1.1, p7b s1.3, ph-t13 s1.2) | PASS |
+| stem_fault_classes_named | 677 probes, 677 counted, none failing, no translator gap | PASS |
+| tamper_suite | 358 of 358 tamperings detected; 1,022 entries, 378 ran, 644 skipped; 16 controls with no OVS error; 4 meaning faults unresolved, never refuted | PASS |
+
+Per round: r2 to r5 each 46/46 functional, 5 genuine channels (18 transfers), no false alarm (replayed 380, 275, 489 and
+288); r7 177/177, 19 genuine channels (66 transfers; one AUDIT_FAILED, lit-t13, the adjudicated entry), no false alarm,
+1,644 replayed, 161 translations checked; r7's re-keyed pass 44/44. The rule findings (OVS-DIV, the time-dependent
+INT-HANDOFF-016 and INT-SYNTH-006's rule ownership) are 7, 19, 9, 20 and 80, as at section 30. The served STEM
+translations are one `s` and one `m` more than at section 30 (`s` 25, `m` 36), from the translator changes merged since
+then: this step changes no translator code.
+
+### Test suite
+
+```
+EPINOIC_ARENA_ROUNDS=ROUNDS python -m pytest -q -p no:cacheprovider
+12592 passed, 45 deselected, 3 xfailed in 2414.30s (0:40:14)
+```
+
+The whole suite in one run, on a fresh copy of the rounds: 48 more tests than before the step (12,544), the new
+`tests/overseer/test_integration_codes.py`; none removed. The 45 deselected are the `stress` marker (deselected by
+default, never run here); the 3 xfailed are the development branch's own strict markers. The run before it, on the same
+tree but for one test, failed exactly one: `tests/e2e/test_arena_deliveries.py` pinned one overseer instance for an
+arena History answer whose receipt carries CORE-SRC-003 at warning (an unchecked source), which the pool now reviews
+with two; the assertion was rewritten to the stricter rule (design 47.1), and this run is the whole suite after it.
+Before the measurements, the files the label rule touches were run on a fresh copy of the rounds (STEM completion, the
+tamper suite, the review protocol, the contained pack, the integration codes and STEM repair 11: 357 passed), and the
+pack, drift, export, runner, examples, contained-pack, integration-codes and STEM repair 10 and 11 tests after the
+pack's last text (390 passed; the four contained-pack tests that need the rounds were skipped there and passed in the 357).
+
+### The integration kit
+
+Contract 0.5 (the argument diagnosis: the signed result's `named_diagnostics` and `argument_rules`, what outcomes and
+receipts carry, and release rules 8 and 9; `docs/integration-contract.md` section 5a) is recorded with the kit's own tooling: `COMPATIBILITY.json`, the generated `compat.py` and `compat.js`, the 48 vectors that
+carry the contract version, the readiness check (G1 contract 0.5) and `MANIFEST.sha256`. The website patch set M was re-tested because its copied
+files changed (`src/verify/compat.js` accepts 0.5): on fresh disposable exports of the website's commit `2cd3182` (no
+website branch, commit or deployment), 290 tests with 287 passing before the patch set and 364 with 361 passing after it,
+the same three tests failing both times (they need the Playwright dev dependency, which an export does not install);
+`--verify` exact; the anchor counts as expected; rollback rehearsal steps 1 to 4 PASS, step 5 not run (no patch set P in
+the kit). `integration/website/patches/M/TESTED.json` records it.
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction
@@ -4276,3 +4376,6 @@ timings do not report (about 33 ms reported).
 - **Any live model**: no overseer agent ran on a model; the agent gates of 13.8 (contradictions, false accusations at most
   2% of clean transfers, injection followed 0) and the cheapest-tier fit of the pack (design 17.13) await verdicts
   recorded from a model configured with the exported pack (`score_verdicts.py`, or `run_contained.py --replies`).
+- **The fast profile's compact pack and the oversight planner** (integration step, design section 47): deferred with the
+  fast profile; no compact pack exists on this tree, so only the standard pack (1.4) was regenerated and pinned. The
+  flash router and the twofold steps come after arena round 8.

@@ -30,7 +30,7 @@ import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
 from epinoic_logic.overseer.pack import (  # noqa: E402
-    SYSTEM_MODULES, build_manifest, build_system_text, composition_key, compositions_of, dossier_modules, installed_pack_dir, load_pack,
+    PACK_VERSION, SYSTEM_MODULES, build_manifest, build_system_text, composition_key, compositions_of, dossier_modules, installed_pack_dir, load_pack,
     module_markup_faults, modules_marked, select_modules,
 )
 
@@ -54,7 +54,7 @@ CS_END = "Next step: trace"
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 def _section(text: str, start: str, end: str) -> str:
@@ -93,7 +93,7 @@ def _rule(checks, rule: str) -> list:
 
 @pytest.fixture(scope="module")
 def pack():
-    return load_pack(installed_pack_dir("1.3"))
+    return load_pack(installed_pack_dir(PACK_VERSION))
 
 
 # ============================================================================================ the pack's modules
@@ -150,7 +150,7 @@ def test_malformed_module_markers_are_refused(text, fault):
     builder refuses a pack that has one."""
     faults = module_markup_faults("02-dossier.md", text)
     assert any(fault in f for f in faults), faults
-    files = {p: d for p, d in load_pack(installed_pack_dir("1.3")).files if p != "manifest.json"}
+    files = {p: d for p, d in load_pack(installed_pack_dir(PACK_VERSION)).files if p != "manifest.json"}
     files["02-dossier.md"] = files["02-dossier.md"] + b"\n" + text.encode("utf-8") + b"\n"
     with pytest.raises(ValueError, match="module markers"):
         build_manifest(files)
@@ -169,7 +169,7 @@ def test_a_manifest_whose_compositions_the_documents_do_not_give_is_refused(tmp_
     """The loader recomputes every composition: a manifest naming another digest, or modules the documents do not mark, is refused
     (the pinned digest would refuse it first, so the check runs on a copy whose manifest is rebuilt and trusted by the operator)."""
     from epinoic_logic.overseer.pack import PackError, manifest_pack_digest, render_manifest
-    src = installed_pack_dir("1.3")
+    src = installed_pack_dir(PACK_VERSION)
     for change in ("composition", "modules"):
         dst = tmp_path / change / src.name
         dst.mkdir(parents=True)

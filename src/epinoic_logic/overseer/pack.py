@@ -372,6 +372,20 @@ overseer's checks do not take as a transcription (decision 73): I77, its mistake
 master prompt say that such a ``verified`` is a number match and verifies nothing, and the README's input budget states the
 compositions' sizes and the dossiers' as they now measure (the merged receipts make the largest re-keyed dossier 1,297 KB, so the
 window it asks for is 404,000 tokens). 1.0 to 1.2 keep their own numbering.)
+
+**Pack 1.4** (the integration step before arena round 8: the overseer knows everything the merged translator emits; 1.0 to 1.3
+stay pinned and unchanged; a MINOR version: the verdict contract, the kinds and the dossier version are unchanged, the dossier
+gains optional fields). It starts from 1.3 as the port of the argument diagnostics left it: that port corrected 1.3 in place
+after 1.3 had been pinned and released (its digest b44776a1... became 0fdf8581...: D32 listed the thirteen ST codes of the STEM
+method faults and the README the new composition sizes), against the rule above that a pinned version never changes. 1.3 is
+restored byte for byte to its pinned digest, and the corrections it carried are released here. Pack 1.4 adds the dossier
+guide's section 15 (D33 to D37: the argument diagnosis on outcomes, receipts and signed results, the 28 defect labels and every
+named code with its severity and cap, release rules 8 and 9 and the argument rules ``argdiag-2``, the engine's statuses and
+diagnostic codes, the named engine policies and the named rejections), the dossier fields that carry them (D7 and the transfer
+table), the inspection rule I99 (what a named diagnostic on a receipt asks of the receipt and of its outcomes, and that an
+info record is no fault), K8 and the kinds-and-codes §9 table of every code the translator and the channel emit (generated rows checked
+against ``overseer.emitted`` by a drift test), and a Never rule (N14); every header and footer names 1.4 (Example 13 still
+names 1.1).
 """
 from __future__ import annotations
 
@@ -407,7 +421,7 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.3"
+PACK_VERSION = "1.4"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -415,7 +429,8 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.0"): "df73e1e60913fc6ce35d8fadb74612e6be75dff6ae292aef4496a06c3201a448",
     (PACK_NAME, "1.1"): "f0999e7096ef461cf66ba1c74e5a95c8d28b95595d0c2f04e938f18529691c09",
     (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
-    (PACK_NAME, "1.3"): "0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb",
+    (PACK_NAME, "1.3"): "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
+    (PACK_NAME, "1.4"): "a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc",
 })
 
 MANIFEST_VERSION = "1.0"

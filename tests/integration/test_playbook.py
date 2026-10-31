@@ -73,7 +73,7 @@ def test_a_pre_build_commit_is_rehearsed_only_on_request_and_reported_as_blocked
         assert phrase in rule.replace("\n> ", " "), phrase
     assert "A pre-build commit is not a published kit" in _step("Step 2.")
     step5 = _step("Step 5.")
-    assert "Contract 0.4" in step5 and "contract 0.3 merge" in step5 and "(connected in phase 2: ...)" in step5
+    assert "Contract 0.5" in step5 and "contract 0.3 merge" in step5 and "(connected in phase 2: ...)" in step5  # 0.5 since the argument diagnosis (was 0.4)
     assert "A published kit stops here" in step5 and "rehearsal" in step5 and "A BLOCKER row without that mark stops both" in step5
 
 
