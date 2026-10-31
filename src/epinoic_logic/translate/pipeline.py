@@ -93,9 +93,11 @@ from typing import Optional, Sequence
 
 from pydantic import ValidationError
 
+from .. import lexis
 from ..engine.errors import DiagnosticCode
 from ..engine.results import SolverConfig
-from ..engine.runner import assumed_grounding, circular_premises, unasserted_figure_definitions, verify as engine_verify
+from ..engine.runner import (assumed_grounding, circular_premises, conclusion_valid_alone, premises_inconsistent, unasserted_figure_definitions,
+                             verify as engine_verify)
 from ..engine.statuses import VerificationStatus
 from ..engine.validator import validate_problem
 from ..ir.schema import DEFAULT_LIMITS, Limits, Problem
@@ -121,12 +123,14 @@ from .contracts import (
     sha256_text,
 )
 from .coverage import apply_coverage_evidence, assess_definitions, assess_unconstrained
+from .diag_argument import REASON_CONNECTIVES, mask_quotations
 from .eligibility import decide_eligibility
 from .grounding import check_problem_grounding, grounding_support
-from .parsing import ProviderOutputError, parse_json_object
+from .parsing import ProviderOutputError, asserted_verified_paths, parse_json_object
 from .precision import added_premise_support, compare_conclusions, decide_precision, premise_changes, read_sites, reference_reading
 from .providers.base import ProviderError, TranslationProvider, TranslationRequest
 from .quantities import SourceText
+from .roles import premise_roles as _premise_roles
 from .subjects import SubjectProfile
 
 __all__ = ["Translator", "apply_subject_policy", "REQUIRED_OUTPUT_KEYS", "SEMANTIC_REASONS", "source_texts", "widen_rounded_literals"]
@@ -319,6 +323,8 @@ class _Accepted:
     readings: list[FigureReading] = field(default_factory=list)
     coverage: list[CoverageNote] = field(default_factory=list)
     support: list[GroundingSupport] = field(default_factory=list)
+    roles: list = field(default_factory=list)
+    asserted_verified: list[str] = field(default_factory=list)
 
 
 def _half_unit(value: str) -> Optional[tuple[str, str]]:
@@ -424,6 +430,86 @@ def widen_rounded_literals(problem: Problem) -> tuple[Optional[Problem], list[st
         return Problem.model_validate(data), list(dict.fromkeys(found))
     except (ValidationError, ValueError):
         return None, []
+
+
+def _expr_names(node) -> set[str]:
+    """The symbol names an expression dict mentions (iterative)."""
+    out: set[str] = set()
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict):
+            if n.get("op") == "var" and isinstance(n.get("name"), str):
+                out.add(n["name"])
+                continue
+            stack.extend(v for v in n.values() if isinstance(v, (dict, list)))
+        elif isinstance(n, list):
+            stack.extend(n)
+    return out
+
+
+def _conjunct_dicts(node: dict) -> list[dict]:
+    """The "and" conjuncts of an expression dict, nested conjunctions flattened."""
+    out: list[dict] = []
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict) and n.get("op") == "and":
+            stack.extend(reversed(n.get("args") or []))
+        else:
+            out.append(n)
+    return out
+
+
+#: Reason connectives whose reason FOLLOWS them ("X because Y", "since Y, X"); with every other connective of
+#: ``diag_argument.REASON_CONNECTIVES`` the reason precedes it ("Y, so X").
+_REASON_AFTER = frozenset({("because",), ("since",), ("given", "that"), ("due", "to", "the", "fact", "that"), ("as", "shown", "by"), ("as", "seen", "in"),
+                           ("as", "demonstrated", "by"), ("as", "evidenced", "by")})
+_SENTENCE_END = frozenset(".!?;")
+
+
+def _boundaries(text: str) -> list[int]:
+    """Character offsets that end a clause: ".", "!", "?" and ";" (a "." between digits is a decimal point)."""
+    n = len(text)
+    return [k for k, ch in enumerate(text) if ch in _SENTENCE_END and not (ch == "." and 0 < k < n - 1 and text[k - 1].isdigit() and text[k + 1].isdigit())]
+
+
+def _encoded_stem_sets(problem: Problem) -> list[set[str]]:
+    """The content stems of each premise label and of each meaning of a symbol a premise uses."""
+    used: set[str] = set()
+    for p in problem.premises:
+        used |= _expr_names(p.expr.model_dump(mode="json", exclude_none=True))
+    texts = [p.label or "" for p in problem.premises] + [s.meaning or "" for s in problem.symbols if s.name in used]
+    return [set(lexis.content_stems(t)) for t in texts if t.strip()]
+
+
+def _unencoded_reason(text: str, problem: Problem) -> Optional[str]:
+    """The claim's first reason clause that shares fewer than two content stems with every premise label and every meaning
+    of a symbol the premises use, or None. A clause is read on the side of its connective where the reason stands, up to
+    the clause's end; "because of" is a cause phrase, never a reason clause. Quotations are masked."""
+    masked = mask_quotations(text or "")
+    spans = lexis.token_spans(masked)
+    toks = tuple(t for _s, _e, t in spans)
+    ends = _boundaries(masked)
+    encoded = _encoded_stem_sets(problem)
+    for i, cue in lexis.find_cues(toks, REASON_CONNECTIVES):
+        if cue == ("because",) and i + 1 < len(toks) and toks[i + 1] == "of":
+            continue
+        at = spans[i][0]
+        if cue in _REASON_AFTER:
+            stop = next((e for e in ends if e > at), len(masked))
+            part = [k for k in range(i + len(cue), len(spans)) if spans[k][0] < stop]
+        else:
+            start = max((e for e in ends if e < at), default=-1)
+            part = [k for k in range(0, i) if spans[k][0] > start]
+        if not part:
+            continue
+        stems = set(lexis.content_stems([toks[k] for k in part]))
+        if len(stems) < 2:
+            continue
+        if all(len(stems & e) < 2 for e in encoded):
+            return truncate(" ".join(text[spans[part[0]][0]:spans[part[-1]][1]].split()), 300)
+    return None
 
 
 def source_texts(claim: ClaimRecord, supporting: list[ClaimRecord], report: SpecialistReport, task: Optional[TaskRecord] = None) -> list[SourceText]:
@@ -570,6 +656,8 @@ class Translator:
                 repairs=repairs,
                 coverage=accepted.coverage,
                 grounding_support=accepted.support,
+                premise_roles=accepted.roles,
+                asserted_verified=accepted.asserted_verified,
             )
             self._log(result, attempts=attempts)
             return result
@@ -640,7 +728,22 @@ class Translator:
 
     # ----------------------------------------------------------------- private
 
-    def _process(
+    def _process(self, raw_text: str, *args, **kwargs) -> _Accepted:
+        """:meth:`_process_attempt`, with a refused output's self-certification kept: the refusal keeps its own reason, and the
+        provider's verification claim is recorded beside it (E505), never lost with the output (EVD-SRC-004 reads it)."""
+        try:
+            return self._process_attempt(raw_text, *args, **kwargs)
+        except _Rejected as exc:
+            try:
+                asserted = list(asserted_verified_paths(parse_json_object(raw_text)))[:256]
+            except Exception:  # noqa: BLE001 - an output that is no JSON object asserted nothing
+                asserted = []
+            tag = f"attempt {args[3] if len(args) > 3 else kwargs.get('attempt', '?')}"
+            exc.diagnostics.extend(truncate(f"{tag}: {DiagnosticCode.SELF_CERTIFICATION_REJECTED.value}: the translation asserted verified=true at "
+                                            f"{path}; discarded: only checks set it", _MAX_DIAGNOSTIC_CHARS) for path in asserted)
+            raise
+
+    def _process_attempt(
         self,
         raw_text: str,
         claim: ClaimRecord,
@@ -656,6 +759,8 @@ class Translator:
             obj = parse_json_object(raw_text)
         except ProviderOutputError as exc:
             raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [f"{tag}: {exc}"], retryable=True) from None
+        # the paths where the provider wrote verified=true on a grounding: recorded and discarded (only checks set it)
+        asserted = list(asserted_verified_paths(obj))[:256]
 
         missing = [k for k in REQUIRED_OUTPUT_KEYS if k not in obj]
         if missing:
@@ -761,11 +866,18 @@ class Translator:
         if unchecked:
             notes.append(truncate("part of the claim only: the conclusion checks no figure of the clause(s) " + "; ".join(repr(c) for c in unchecked[:4])
                                   + ", while it checks another clause of the claim: the verdict concerns the clauses it checks", _MAX_DIAGNOSTIC_CHARS * 2))
+        encoding = self._encoding_flags(grounded, claim)
+        if encoding:
+            interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, *encoding]})
+            notes += [truncate(f"{f.code}: {f.message}", _MAX_DIAGNOSTIC_CHARS * 2) for f in encoding]
         status = TranslationStatus.AMBIGUOUS_TRANSLATION if (ambiguous or interpretation.ambiguity_flags) else TranslationStatus.TRANSLATED
         if ambiguous and not interpretation.ambiguity_flags:
             notes.append("provider marked the claim ambiguous without listing ambiguity flags")
+        notes += [truncate(f"{DiagnosticCode.SELF_CERTIFICATION_REJECTED.value}: the translation asserted verified=true at {path}; discarded: only checks set it",
+                           _MAX_DIAGNOSTIC_CHARS) for path in asserted]
         return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes,
-                         readings=decision.readings, coverage=coverage, support=grounding_support(checks))
+                         readings=decision.readings, coverage=coverage, support=grounding_support(checks),
+                         roles=_premise_roles(grounded, checks), asserted_verified=asserted)
 
     @staticmethod
     def _coverage(problem: Problem, sources: list[SourceText]) -> list[CoverageNote]:
@@ -797,7 +909,7 @@ class Translator:
         notes: list[str] = []
         named_coverage = False
         if problem.query == "entailment" and problem.conclusion is not None:
-            probe = engine_verify(problem, self.config)
+            probe = self._probe(problem)
             by_code = {d.code: d for d in probe.diagnostics}
             model = ", ".join(f"{a.symbol}={a.value}" for a in (probe.counterexample.assignments if probe.counterexample else [])[:8])
             diag = by_code.get(DiagnosticCode.UNASSERTED_FIGURE.value)
@@ -827,18 +939,92 @@ class Translator:
                                   f"{', '.join(d.premise_id for d in defs[:8])} only define it: no premise asserts it, so the flag does not match the IR", _MAX_DIAGNOSTIC_CHARS * 2))
         return notes
 
+    def _probe(self, problem: Problem):
+        """The engine's answer for ``problem`` as an internal probe: no argument diagnosis, never release-eligible. Every
+        probe of this module goes through here."""
+        return engine_verify(problem, self.config, diagnose=False)  # an internal probe: no argument diagnosis
+
+    def _probe_status(self, problem: Problem, conclusion: Optional[dict] = None) -> Optional[VerificationStatus]:
+        """The status of ``problem`` (with ``conclusion`` in place of its own, when given), or None when the rewritten
+        problem is not valid."""
+        if conclusion is not None:
+            data = problem.model_dump(mode="json", exclude_none=True)
+            data["conclusion"] = {**data["conclusion"], "expr": conclusion}
+            try:
+                problem = Problem.model_validate(data)
+            except (ValidationError, ValueError):
+                return None
+        return self._probe(problem).status
+
+    def _encoding_flags(self, problem: Problem, claim: ClaimRecord) -> list[AmbiguityFlag]:
+        """The flags of an encoding that leaves the claim's link out (the missing link of the argument diagnosis), each an
+        ambiguity: the engine still runs for inspection, but the claim is never shown as decided by a part the encoding
+        does not link to its reasons.
+
+        * (not ported) ``UNLINKED_CONJUNCT``: an encoding whose conclusion has conjuncts that share no symbol with any
+          premise while others do keeps its COUNTEREXAMPLE on this tree (the integrated translator's behaviour; the
+          engine's ARG-PART-001 info record names the unlinked judgement). See docs/ARGUMENT_DIAGNOSTICS.md, section
+          "Port onto the integrated translator".
+        * ``UNENCODED_REASON``: no premise mentions the conclusion (the non sequitur shape) and the problem is a
+          COUNTEREXAMPLE, but the claim's own text gives a reason clause (a reason connective, never "because of") that
+          shares fewer than two content words with every premise label and symbol meaning: the translation left the
+          claim's stated reason out. A claim whose reason is encoded, or that gives none, keeps its counterexample.
+
+        An encoding that covers only part of the claim is this tree's own ``partial_encoding`` rule (:func:`partial_encoding`).
+        A problem the precondition does not fit is never probed; every probe passes ``diagnose=False``."""
+        if problem.query != "entailment" or problem.conclusion is None:
+            return []
+        concl = problem.conclusion.expr.model_dump(mode="json", exclude_none=True)
+        premise_vars: set[str] = set()
+        for p in problem.premises:
+            premise_vars |= _expr_names(p.expr.model_dump(mode="json", exclude_none=True))
+        parts = _conjunct_dicts(concl)
+        linked = [c for c in parts if _expr_names(c) & premise_vars]
+        unlinked = [c for c in parts if not (_expr_names(c) & premise_vars)]
+        cache: dict[str, Optional[VerificationStatus]] = {}
+
+        def full() -> Optional[VerificationStatus]:
+            if "full" not in cache:
+                cache["full"] = self._probe_status(problem)
+            return cache["full"]
+
+        flags: list[AmbiguityFlag] = []
+        if unlinked and not linked and problem.premises:
+            clause = _unencoded_reason(claim.claim_text, problem)
+            if clause is not None and full() is VerificationStatus.COUNTEREXAMPLE:
+                flags.append(AmbiguityFlag(
+                    code="UNENCODED_REASON",
+                    message=truncate(f"(deterministic) the claim gives a reason ('{clause}') that no premise encodes (it shares fewer than two content "
+                                     "words with every premise label and symbol meaning), and no premise mentions the point: the translation left "
+                                     "the claim's own reason out, so its counterexample is no verdict on the claim as written", 2000),
+                    alternatives=[truncate(f"the claim with its stated reason encoded: {clause}", 200), "the encoding as given: COUNTEREXAMPLE"]))
+        return flags
+
     @staticmethod
     def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None) -> None:
         """Reject a problem whose conclusion (or each of its conjuncts) is asserted by premises the writer supplies itself:
-        the solver would prove the claim from the claim (the engine's ``E112``)."""
+        the solver would prove the claim from the claim (the engine's ``E112``; ``engine.authority.assumed_grounding`` decides
+        which premises are the writer's own). Premises that contradict each other (``engine.runner.premises_inconsistent``) are
+        no circle: the engine names the contradiction first (consistency before entailment); neither is a conclusion that
+        holds with no premise at all (``engine.runner.conclusion_valid_alone``): it is vacuous, and the engine names that."""
         if problem.query != "entailment" or problem.conclusion is None:
             return
         restating = circular_premises(problem)
         by_id = {pr.id: pr for pr in problem.premises}
         if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
             return
+        if premises_inconsistent(problem):
+            # premises that contradict each other prove nothing: the engine decides INCONSISTENT_PREMISES first (consistency
+            # before entailment), so the contradiction is named, not hidden behind a circularity refusal
+            return
+        if conclusion_valid_alone(problem):
+            # a conclusion that holds whatever the premises say is vacuous, not circular: the engine names it (E108, ARG-VAC-001)
+            return
+        # each restating premise with the kind its grounding claims ("none" without one): the record the claim rules read
+        # (translate.diag_argument reads "premise(s) <id> (<kind>), ... restate")
+        named = ", ".join(f"{pid} ({by_id[pid].grounding.kind if pid in by_id and by_id[pid].grounding is not None else 'none'})" for pid in restating[:8])
         raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
-            f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {', '.join(restating[:8])} restate the conclusion "
+            f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {named} restate the conclusion "
             "(it, or each of its conjuncts) with no grounding of their own (assumption, specialist_inference, general_knowledge, an "
             "arithmetic_fact no supplied text or task record validates, or a grounding a check refuted), so the claim would be proved from itself; "
             "encode what the claim rests on (its evidence and its stated links), or return problem null when it states a bare fact with no "
@@ -860,6 +1046,8 @@ class Translator:
         repairs: Optional[list[RepairRecord]] = None,
         coverage: Optional[list[CoverageNote]] = None,
         grounding_support: Optional[list[GroundingSupport]] = None,
+        premise_roles: Optional[list] = None,
+        asserted_verified: Optional[list[str]] = None,
     ) -> TranslationResult:
         return TranslationResult(
             translation_id=new_id("tr"),
@@ -882,6 +1070,8 @@ class Translator:
             repairs=list(repairs or []),
             coverage=list(coverage or []),
             task_sha256=task.text_sha256 if task is not None else None,
+            premise_roles=list(premise_roles or []),
+            asserted_verified=list(asserted_verified or []),
         )
 
     @staticmethod

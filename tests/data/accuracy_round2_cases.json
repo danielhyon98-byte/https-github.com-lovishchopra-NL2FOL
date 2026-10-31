@@ -1,0 +1,1749 @@
+{
+ "format": "argdiag-accuracy-cases/1",
+ "case_format": "argdiag-corpus/1",
+ "description": "The cases of accuracy round 2 (each fixed item's correct answer beside its defective twin, in wording of the round's own), in the corpus case format, run through the public pipeline by tests/contract/test_accuracy_round2_cases.py.",
+ "cases": [
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_stance_ok_holder_named",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_stance_ok_holder_named",
+   "subject": "History",
+   "task_type": "source_analysis",
+   "agent_id": "history-specialist",
+   "request": "What does Source A suggest about teachers' attitudes to the longer school day? [3 marks]",
+   "answer": "Source A suggests that teachers opposed the longer school day, because it exhausted them.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "Teachers welcomed the new laptops, but the longer school day exhausted them."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_stance_ok_holder_named",
+    "request_id": "req-acc2_stance_ok_holder_named",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_stance_ok_holder_named"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-01: the approving clause names the holder only; the clause about the school day has no listed stance word"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_stance_ok_two_sentences",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_stance_ok_two_sentences",
+   "subject": "History",
+   "task_type": "source_analysis",
+   "agent_id": "history-specialist",
+   "request": "What does Source A suggest about teachers' attitudes to the longer school day? [3 marks]",
+   "answer": "Source A suggests that teachers opposed the longer school day.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "Teachers welcomed the new laptops. The longer school day exhausted them."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_stance_ok_two_sentences",
+    "request_id": "req-acc2_stance_ok_two_sentences",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_stance_ok_two_sentences"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-01: two sentences about two subjects, no contrast word"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_stance_bad_opposite",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc2_stance_bad_opposite",
+   "subject": "History",
+   "task_type": "source_analysis",
+   "agent_id": "history-specialist",
+   "request": "What does Source A suggest about teachers' attitudes to the longer school day? [3 marks]",
+   "answer": "Source A suggests that teachers opposed the longer school day.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "Teachers welcomed the longer school day as a chance to finish the syllabus."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_stance_bad_opposite",
+    "request_id": "req-acc2_stance_bad_opposite",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_stance_bad_opposite"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-01 caught twin: the document's one statement about it approves"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_stance_bad_pronoun",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc2_stance_bad_pronoun",
+   "subject": "History",
+   "task_type": "source_analysis",
+   "agent_id": "history-specialist",
+   "request": "What does Source A suggest about teachers' attitudes to the longer school day? [3 marks]",
+   "answer": "Source A suggests that teachers opposed the longer school day.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "The longer school day began in September. Teachers welcomed it warmly."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_stance_bad_pronoun",
+    "request_id": "req-acc2_stance_bad_pronoun",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_stance_bad_pronoun"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-01 caught twin: the stance on what the first sentence names, by an object pronoun"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_task_ok_unlisted_phrasal",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_task_ok_unlisted_phrasal",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "As flour costs grew, the bakery knocked its bread prices down. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The bakery lowered its bread prices, and the extract says \"If bread prices fall, bread sales rise.\", so bread sales rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If bread prices fall, bread sales rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_task_ok_unlisted_phrasal",
+    "request_id": "req-acc2_task_ok_unlisted_phrasal",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_task_ok_unlisted_phrasal"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread sales rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the bakery lowered its bread prices",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread sales rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the bakery lowered its bread prices",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if bread prices fall, bread sales rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If bread prices fall, bread sales rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread sales rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-02: a phrasal verb the closed lists do not hold ('knocked ... down') beside a verb of rising"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_task_ok_short_synonym",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_task_ok_short_synonym",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "The bakery drove its bread prices down. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The bakery lowered its bread prices, and the extract says \"If bread prices fall, bread sales rise.\", so bread sales rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If bread prices fall, bread sales rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_task_ok_short_synonym",
+    "request_id": "req-acc2_task_ok_short_synonym",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_task_ok_short_synonym"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread sales rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the bakery lowered its bread prices",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread sales rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the bakery lowered its bread prices",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if bread prices fall, bread sales rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If bread prices fall, bread sales rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread sales rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-02: a three-word fact restated with a synonym of its verb"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_task_bad_opposite",
+   "family": "evidence",
+   "expected_label": "source_mismatch",
+   "acceptable_labels": [],
+   "title": "acc2_task_bad_opposite",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "As flour costs grew, the bakery put its bread prices up. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The bakery lowered its bread prices, and the extract says \"If bread prices fall, bread sales rise.\", so bread sales rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If bread prices fall, bread sales rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_task_bad_opposite",
+    "request_id": "req-acc2_task_bad_opposite",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_task_bad_opposite"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread sales rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the bakery lowered its bread prices",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread sales rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the bakery lowered its bread prices",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if bread prices fall, bread sales rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If bread prices fall, bread sales rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread sales rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-02 caught twin: the task states the opposite direction"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_task_bad_only_expected",
+   "family": "evidence",
+   "expected_label": "unchecked_source",
+   "acceptable_labels": [
+    "source_mismatch"
+   ],
+   "title": "acc2_task_bad_only_expected",
+   "subject": "Economics",
+   "task_type": "data_response",
+   "agent_id": "economics-specialist",
+   "request": "The bakery kept its bread prices unchanged, although customers had expected it to cut its bread prices. Using the extract, explain the likely effect. [3 marks]",
+   "answer": "The bakery lowered its bread prices, and the extract says \"If bread prices fall, bread sales rise.\", so bread sales rise.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If bread prices fall, bread sales rise."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_task_bad_only_expected",
+    "request_id": "req-acc2_task_bad_only_expected",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_task_bad_only_expected"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "bread sales rise",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the bakery lowered its bread prices",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "bread sales rise",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the bakery lowered its bread prices",
+         "materiality": "material",
+         "grounding": {
+          "kind": "task_setting",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if bread prices fall, bread sales rise",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If bread prices fall, bread sales rise."
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "bread sales rise",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1-RESTATE-SUSPENDED caught twin: the premise states as done what the task says was only expected"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_circle_bad_cause_restates_point",
+   "family": "argument",
+   "expected_label": "circular_reasoning",
+   "acceptable_labels": [
+    "bare_assertion"
+   ],
+   "title": "acc2_circle_bad_cause_restates_point",
+   "subject": "History",
+   "task_type": "short_answer",
+   "agent_id": "history-specialist",
+   "request": "Explain why the value of the German mark fell in 1923. [4 marks]",
+   "answer": "The value of the German mark fell in 1923 due to the fall in the value of the German mark in 1923.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_circle_bad_cause_restates_point",
+    "request_id": "req-acc2_circle_bad_cause_restates_point",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_circle_bad_cause_restates_point"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-03 caught twin: the cause phrase restates the point"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_circle_ok_cause_named",
+   "family": "argument",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_circle_ok_cause_named",
+   "subject": "History",
+   "task_type": "short_answer",
+   "agent_id": "history-specialist",
+   "request": "Explain why the value of the German mark fell in 1923. [4 marks]",
+   "answer": "The value of the German mark fell in 1923 due to the printing of vast amounts of paper money to pay striking workers in the Ruhr.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_circle_ok_cause_named",
+    "request_id": "req-acc2_circle_ok_cause_named",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_circle_ok_cause_named"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-03 control: a cause phrase that names a cause"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_rule_ok_instance_place",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_rule_ok_instance_place",
+   "subject": "Economics",
+   "task_type": "source_analysis",
+   "agent_id": "economics-specialist",
+   "request": "Using the extract, explain whether car journeys in County W fell in 2024. [3 marks]",
+   "answer": "The extract says \"If fuel prices rise, car journeys fall\" and that \"fuel prices rose in 2024\", so car journeys in County W fell in 2024.",
+   "supplied_texts": [
+    {
+     "document_id": "ext",
+     "title": "Extract",
+     "text": "If fuel prices rise, car journeys fall. In County W fuel prices rose in 2024."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_rule_ok_instance_place",
+    "request_id": "req-acc2_rule_ok_instance_place",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_rule_ok_instance_place"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "car journeys in County W fell in 2024",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "fuel prices rose in 2024",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel prices rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "car journeys in County W fell in 2024",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "fuel prices rose in 2024",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "fuel prices rose in 2024"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if fuel prices rise, car journeys fall",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "ext",
+            "excerpt": "If fuel prices rise, car journeys fall"
+           }
+          ],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "car journeys in County W fell in 2024",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-05: the rule applied to the place the question names ('in County W'), released as on the base"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_leap_ok_own_step",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_leap_ok_own_step",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of the Black Death on wages in England. [3 marks]",
+   "answer": "The Black Death struck England in 1348. The plague killed so many labourers that landowners competed for workers, so wages in England rose.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "The Black Death struck England in 1348. It killed about a third of the population."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_leap_ok_own_step",
+    "request_id": "req-acc2_leap_ok_own_step",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_leap_ok_own_step"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "wages in England rose",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the Black Death struck England in 1348",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "The Black Death struck England in 1348"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "wages in England rose after 1348",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the Black Death struck England in 1348",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "The Black Death struck England in 1348"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the Black Death struck, wages in England rose",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "wages in England rose after 1348",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-07: the 'so' sentence states a step of the writer's own between the reason and the conclusion"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_leap_bad_bare_so",
+   "family": "evidence",
+   "expected_label": "leap_in_logic",
+   "acceptable_labels": [],
+   "title": "acc2_leap_bad_bare_so",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of the Black Death on wages in England. [3 marks]",
+   "answer": "The Black Death struck England in 1348, so wages in England rose.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "The Black Death struck England in 1348. It killed about a third of the population."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_leap_bad_bare_so",
+    "request_id": "req-acc2_leap_bad_bare_so",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_leap_bad_bare_so"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "wages in England rose",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "the Black Death struck England in 1348",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "The Black Death struck England in 1348"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "wages in England rose after 1348",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "the Black Death struck England in 1348",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "The Black Death struck England in 1348"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if the Black Death struck, wages in England rose",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "wages in England rose after 1348",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-07 caught twin: the reason itself joined to the conclusion by 'so'"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_authority_ok_quoted_source",
+   "family": "evidence",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_authority_ok_quoted_source",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of enclosure. [3 marks]",
+   "answer": "Common land was enclosed in the 1760s, and Historian R argues that \"enclosure drove villagers into the growing towns\", so villagers moved into the towns.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "Common land was enclosed in the 1760s. Historian R argues that enclosure drove villagers into the growing towns."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_authority_ok_quoted_source",
+    "request_id": "req-acc2_authority_ok_quoted_source",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_authority_ok_quoted_source"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "villagers moved into the towns",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "common land was enclosed in the 1760s",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "Common land was enclosed in the 1760s"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "villagers moved into the towns",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "common land was enclosed in the 1760s",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "Common land was enclosed in the 1760s"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if common land was enclosed, villagers moved into the towns",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "villagers moved into the towns",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "an authority cue that introduces a quotation located in the source names the source's authority"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_authority_bad_unattributed",
+   "family": "evidence",
+   "expected_label": "uncheckable_authority",
+   "acceptable_labels": [],
+   "title": "acc2_authority_bad_unattributed",
+   "subject": "History",
+   "task_type": "data_response",
+   "agent_id": "history-specialist",
+   "request": "Using Source A, explain one effect of enclosure. [3 marks]",
+   "answer": "Common land was enclosed in the 1760s, and experts agree that enclosure emptied the villages, so villagers moved into the towns.",
+   "supplied_texts": [
+    {
+     "document_id": "srcA",
+     "title": "Source A",
+     "text": "Common land was enclosed in the 1760s. Historian R argues that enclosure drove villagers into the growing towns."
+    }
+   ],
+   "ids": {
+    "task_id": "task-acc2_authority_bad_unattributed",
+    "request_id": "req-acc2_authority_bad_unattributed",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_authority_bad_unattributed"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [
+    {
+     "contains": "villagers moved into the towns",
+     "proposal": {
+      "problem": {
+       "ir_version": "1.0",
+       "problem_id": "p",
+       "request_id": "x",
+       "claim_id": "x",
+       "query": "entailment",
+       "symbols": [
+        {
+         "name": "a",
+         "sort": "Bool",
+         "meaning": "common land was enclosed in the 1760s",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "Common land was enclosed in the 1760s"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "name": "b",
+         "sort": "Bool",
+         "meaning": "villagers moved into the towns",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "premises": [
+        {
+         "id": "t1",
+         "expr": {
+          "op": "var",
+          "name": "a"
+         },
+         "label": "common land was enclosed in the 1760s",
+         "materiality": "material",
+         "grounding": {
+          "kind": "quotation",
+          "source_refs": [
+           {
+            "document_id": "srcA",
+            "excerpt": "Common land was enclosed in the 1760s"
+           }
+          ],
+          "certainty": "established"
+         }
+        },
+        {
+         "id": "q1",
+         "expr": {
+          "op": "implies",
+          "left": {
+           "op": "var",
+           "name": "a"
+          },
+          "right": {
+           "op": "var",
+           "name": "b"
+          }
+         },
+         "label": "if common land was enclosed, villagers moved into the towns",
+         "materiality": "material",
+         "grounding": {
+          "kind": "specialist_inference",
+          "source_refs": [],
+          "certainty": "established"
+         }
+        }
+       ],
+       "conclusion": {
+        "id": "C",
+        "expr": {
+         "op": "var",
+         "name": "b"
+        },
+        "label": "villagers moved into the towns",
+        "materiality": "material",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      },
+      "interpretation": {
+       "reading": "accuracy round 2 case",
+       "glossary": [],
+       "ambiguity_flags": []
+      },
+      "ambiguous": false,
+      "unsupported_reason": null
+     }
+    }
+   ],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "caught twin: an appeal to unnamed experts the source does not hold"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_round_ok_compares_unrounded",
+   "family": "stem",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_round_ok_compares_unrounded",
+   "subject": "Physics",
+   "task_type": "structured_question",
+   "agent_id": "physics-specialist",
+   "request": "A lift is overloaded if its load exceeds 800 kg. Nine people of mean mass 89.2 kg get in. Is the lift overloaded? [2 marks]",
+   "answer": "m = 9 × 89.2 = 802.8 kg, which rounds to 800 kg; but 802.8 kg exceeds 800 kg, so the lift is overloaded.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_round_ok_compares_unrounded",
+    "request_id": "req-acc2_round_ok_compares_unrounded",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_round_ok_compares_unrounded"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-04: the rounding is mentioned and the comparison is made with the value before it"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_round_bad_rounded_conclusion",
+   "family": "stem",
+   "expected_label": "stem_rounding_changes_conclusion",
+   "acceptable_labels": [],
+   "title": "acc2_round_bad_rounded_conclusion",
+   "subject": "Physics",
+   "task_type": "structured_question",
+   "agent_id": "physics-specialist",
+   "request": "A lift is overloaded if its load exceeds 800 kg. Nine people of mean mass 89.2 kg get in. Is the lift overloaded? [2 marks]",
+   "answer": "m = 9 × 89.2 = 802.8 kg, which rounds to 800 kg, so the lift is not overloaded.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_round_bad_rounded_conclusion",
+    "request_id": "req-acc2_round_bad_rounded_conclusion",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_round_bad_rounded_conclusion"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-04 caught twin: the conclusion is drawn from the rounded value"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_givens_ok_boiling_point",
+   "family": "stem",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_givens_ok_boiling_point",
+   "subject": "Physics",
+   "task_type": "structured_question",
+   "agent_id": "physics-specialist",
+   "request": "1.5 kg of water at 15 °C is heated in a pan until it boils. The kitchen is at 22 °C. The specific heat capacity of water is 4200 J kg⁻¹ °C⁻¹. Calculate the energy needed to bring the water to the boil. [3 marks]",
+   "answer": "ΔT = 100 − 15 = 85 °C.\nE = mcΔT = 1.5 × 4200 × 85 = 535500 J.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_givens_ok_boiling_point",
+    "request_id": "req-acc2_givens_ok_boiling_point",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_givens_ok_boiling_point"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1-STEM-GIV-FA: the boiling point is subject knowledge, not a replaced given (the kitchen's temperature is a distractor)"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_givens_ok_speed_of_sound",
+   "family": "stem",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_givens_ok_speed_of_sound",
+   "subject": "Physics",
+   "task_type": "structured_question",
+   "agent_id": "physics-specialist",
+   "request": "A train moves at 30 m s⁻¹ while its whistle sounds at a frequency of 850 Hz. Calculate the wavelength of the sound in air. [2 marks]",
+   "answer": "λ = v/f = 340/850 = 0.40 m.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_givens_ok_speed_of_sound",
+    "request_id": "req-acc2_givens_ok_speed_of_sound",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_givens_ok_speed_of_sound"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1-STEM-GIV-FA: the speed of sound in air is subject knowledge, not the train's speed"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_givens_bad_miscopied",
+   "family": "stem",
+   "expected_label": "stem_contradictory_givens",
+   "acceptable_labels": [],
+   "title": "acc2_givens_bad_miscopied",
+   "subject": "Physics",
+   "task_type": "structured_question",
+   "agent_id": "physics-specialist",
+   "request": "A cyclist speeds up from 4.0 m s⁻¹ to 10 m s⁻¹ in 3.0 s. Calculate the acceleration. [2 marks]",
+   "answer": "a = (v − u)/t = (10 − 7.0)/3.0 = 1.0 m s⁻².",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_givens_bad_miscopied",
+    "request_id": "req-acc2_givens_bad_miscopied",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_givens_bad_miscopied"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1-STEM-GIV-FA caught twin: the initial speed miscopied (7.0 for 4.0)"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_units_bad_geography_km_m",
+   "family": "stem",
+   "expected_label": "stem_unit_error",
+   "acceptable_labels": [],
+   "title": "acc2_units_bad_geography_km_m",
+   "subject": "Geography",
+   "task_type": "structured_question",
+   "agent_id": "geography-specialist",
+   "request": "A hiker walks 2.4 km along a ridge and then 450 m down into a valley. Calculate the total distance walked in metres. [1 mark]",
+   "answer": "Total distance = 2.4 + 450 = 452.4 m.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_units_bad_geography_km_m",
+    "request_id": "req-acc2_units_bad_geography_km_m",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_units_bad_geography_km_m"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-06: the general branch now reads the request's units of a worked sum"
+   }
+  },
+  {
+   "case_format": "argdiag-corpus/1",
+   "id": "acc2_units_ok_geography_converted",
+   "family": "stem",
+   "expected_label": "none",
+   "acceptable_labels": [],
+   "title": "acc2_units_ok_geography_converted",
+   "subject": "Geography",
+   "task_type": "structured_question",
+   "agent_id": "geography-specialist",
+   "request": "A hiker walks 2.4 km along a ridge and then 450 m down into a valley. Calculate the total distance walked in metres. [1 mark]",
+   "answer": "Total distance = 2400 + 450 = 2850 m.",
+   "supplied_texts": [],
+   "ids": {
+    "task_id": "task-acc2_units_ok_geography_converted",
+    "request_id": "req-acc2_units_ok_geography_converted",
+    "report_id": "rep-1",
+    "plan_id": "plan-acc2_units_ok_geography_converted"
+   },
+   "modes": [
+    {
+     "name": "text",
+     "delivery": "text",
+     "synthesis": "none"
+    }
+   ],
+   "report_claims": [],
+   "translations": [],
+   "fidelity_review": "faithful",
+   "origin": {
+    "source": "accuracy round 2 own probe",
+    "note": "V1I-06 control: the sum converted to metres"
+   }
+  }
+ ]
+}

@@ -323,8 +323,12 @@ class _Box(BaseModel):
 
 
 def test_the_result_model_gained_exactly_one_field():
-    assert set(VerificationResult.model_fields) == OLD_FIELDS | {"limits"}
-    assert VerificationResult.model_fields["limits"].default is None
+    # updated for the argument-diagnosis port, as strict as before: the field set is still pinned exactly, now with the two
+    # signed diagnosis fields beside ``limits`` (docs/ARGUMENT_DIAGNOSTICS.md, section 20), and every added field defaults to
+    # None, so it is left out of every dump while None
+    assert set(VerificationResult.model_fields) == OLD_FIELDS | {"limits", "named_diagnostics", "argument_rules"}
+    for name in ("limits", "named_diagnostics", "argument_rules"):
+        assert VerificationResult.model_fields[name].default is None
 
 
 @pytest.mark.parametrize("limits", [DEFAULT_LIMITS, Limits(), Limits(allow_nonlinear=False), DEFAULT_LIMITS.model_copy(), LINEAR_LIMITS])

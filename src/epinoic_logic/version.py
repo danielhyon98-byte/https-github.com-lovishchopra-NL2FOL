@@ -52,8 +52,22 @@ History of the review-fix bumps (external review of 12 October 2026):
   evidence-carrying, bound fidelity review; the release assessment (``release-v1``); the
   prompts ``translate_v2`` and ``review_v2`` (``translate_v1`` and ``review_v1`` stay
   packaged unchanged).
+
+Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
+integrated translator"):
+
+* ARG_RULES_VERSION ``argdiag-2``: the rule version every named diagnostic carries
+  (``named.NamedDiagnostic.rule_version``) and every diagnosed result records
+  (``VerificationResult.argument_rules``). The port leaves the four component versions as they
+  are: the integration kit's compatibility record pins them, and the build and policy identities
+  (``engine.identity``, which bind ``named.py``, ``lexis.py``, the rules version and the
+  named-code table by digest) already separate a diagnosed result from one of an earlier build.
+  Whether the release that ships the diagnostics bumps them is a decision of the final
+  integration (docs/handoff).
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
 POLICY_VERSION = "2026.10-v4"
 TRANSLATOR_VERSION = "0.4.0"
+#: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
+ARG_RULES_VERSION = "argdiag-2"

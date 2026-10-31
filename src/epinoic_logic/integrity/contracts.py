@@ -26,10 +26,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal, Mapping, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 
 from ..ir.canonical import canonical_json, sha256_hex
 from ..ir.schema import Assertion, Certainty, SourceRef
+from ..named import DefectLabel
 
 MESSAGE_MAX_CHARS = 2000
 _ELLIPSIS = " ...[truncated]"
@@ -372,6 +373,10 @@ class IntegrityFinding(BaseModel):
     formal_result_id: Optional[str] = Field(default=None, description="VerificationResult.result_id when Z3 established the finding")
     related_result_ids: list[str] = Field(default_factory=list, description="further engine results consulted for this finding")
     deterministic: bool = True
+    defect: Optional[DefectLabel] = Field(default=None, description=(
+        "the canonical defect label the finding names (named.DEFECT_LABELS): set by the channel through named.DEFECT_OF_CODE "
+        "when it builds the receipt (INT-SUBJ-001 and INT-SUBJ-004 take the FormalCheck's own defect first), and carried by "
+        "INT-ARG-001 from its named diagnostic; left out of every dump while None"))
 
     @field_validator("message", mode="before")
     @classmethod
@@ -379,6 +384,13 @@ class IntegrityFinding(BaseModel):
         if isinstance(v, str) and len(v) > MESSAGE_MAX_CHARS:
             return v[: MESSAGE_MAX_CHARS - len(_ELLIPSIS)] + _ELLIPSIS
         return v
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_defect(self, handler: SerializerFunctionWrapHandler) -> Any:
+        data = handler(self)
+        if isinstance(data, dict) and data.get("defect", "") is None:
+            del data["defect"]
+        return data
 
     def has_identifier(self) -> bool:
         return bool(self.claim_ids or self.message_ids or self.report_ids or self.agent_ids or self.document_ids or self.formal_result_id)

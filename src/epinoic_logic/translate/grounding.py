@@ -122,14 +122,18 @@ from array import array
 from collections import OrderedDict
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import lru_cache
 from typing import Any, Callable, Hashable, Literal, Optional, Sequence
 
+from .. import lexis
 from ..ir.schema import Assertion, Grounding, Problem, SourceRef, Symbol
 from .contracts import ClaimRecord, GroundingCheck, GroundingSupport, SuppliedText, TaskRecord
-from .assertion import stated_as
+from .assertion import sentence_cue_at, stated_as
+from .quantities import _sentences  # the cached sentence spans of a record (a rule is read one sentence at a time)
 from .quantities import (TRIVIAL_VALUES, DeclaredReading, SourceText, declared_reading, figure_stated_plainly, figures_in, interval_derivation,
-                         literal_matches, rounded_intervals)
+                         literal_matches, rounded_intervals, sentence_of)
 from .relations import assignment_parts, numeric_shape, stated_relation, writes_relation
+from .stated_rules import disjunction_shape, meaning_roots, stated_disjunction, stated_rule
 
 MatchMethod = Literal["verbatim_match", "normalized_match"]
 #: Largest distance (characters of the original text, beyond the excerpt's own length)
@@ -1349,10 +1353,20 @@ def _authority_sources(grounding: Grounding, docs: dict[str, SuppliedText], supp
 
 
 def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[_Literal], docs: dict[str, SuppliedText], supplied: Sequence[SuppliedText],
-                     task: Optional[TaskRecord], checks: list[GroundingCheck]) -> Grounding:
+                     task: Optional[TaskRecord], checks: list[GroundingCheck], symbols: Optional[dict[str, Symbol]] = None,
+                     located: bool = False, point_atoms: frozenset[str] = frozenset()) -> Grounding:
     """Validate the task authority a kind claims (see the module docstring). Called only for an unchecked grounding of a
     task-authority kind (no reference verified its whole content, none refuted it). A relation is validated only by a
-    record that states it (:func:`.relations.stated_relation`); its figures occurring in a record leave it unvalidated."""
+    record that states it (:func:`.relations.stated_relation`); its figures occurring in a record leave it unvalidated.
+
+    Argument diagnosis (issue 1: a task label is no authority until a check verified it). A rule a record sentence
+    states as the premise's own (:func:`_rule_in_records`) validates it. A premise that states no figure and cites no
+    excerpt a check located is validated when one asserted sentence of the task record states each of its literals
+    (:func:`_literals_in_task`, a ``content_in_task`` check), refuted when the task record was given and the records hold
+    neither its label's words nor its symbols' meanings (:func:`_words_no_record_holds`), when a task sentence holding
+    its words states it otherwise (:func:`_task_sentence_misread`) or when it claims a connective no record states, and
+    otherwise unvalidated (``verified=None``), except that a premise restating the point is refuted when the task record
+    was given (the integrated translator's rule for it, so its restatement stays a circle: E112)."""
     kind = grounding.kind
     sources, named = _authority_sources(grounding, docs, supplied, task)
     searched = ", ".join(dict.fromkeys(s.ident for s in sources)) or "no supplied text and no task record"
@@ -1366,15 +1380,69 @@ def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[
                                          detail=(f"the kind {kind} claims the task's authority, and the task material states the premise's relation "
                                                  f"{_relation_text(assertion)} as a given: {stated.where()}")[:2000]))
             return grounding.model_copy(update={"verified": True})
+    if not located:
+        rule = _rule_in_records(assertion, kind, sources, symbols or {})
+        if rule is not None:
+            checks.append(rule)
+            return grounding.model_copy(update={"verified": True})
     if not literals:
-        verified = False if task is not None else None
+        if not located and task is not None and not relation:
+            stated_fact = _literals_in_task(assertion, kind, sources, symbols or {}, point_atoms)
+            if stated_fact is not None:
+                checks.append(stated_fact)
+                return grounding.model_copy(update={"verified": True})
+        absent = None if (located or task is None) else _words_no_record_holds(assertion, symbols or {}, sources)
+        if not absent and not located and task is not None and not relation:
+            misread = _task_sentence_misread(assertion, kind, sources, symbols or {}, point_atoms)
+            if misread is not None:
+                checks.append(misread)
+                return grounding.model_copy(update={"verified": False})
+            near = _disjunction_near_records(assertion, sources, symbols or {}) if _task_literals(assertion.expr) is None else None
+            if near is not None:
+                checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=None,  # type: ignore[arg-type]
+                                             document_id=doc_id,
+                                             detail=(f"the kind {kind} claims the task's authority for a {_connective_name(assertion.expr)} premise that "
+                                                     f"cites no excerpt; a sentence of the records holds 'or' between its options' own words but does not "
+                                                     f"state it exactly ({near}): its authority is unvalidated, not refuted")[:2000]))
+                return grounding.model_copy(update={"verified": None})
+            if _task_literals(assertion.expr) is None and not set(_atoms(assertion.expr)) <= set(point_atoms):
+                # an "if", "iff" or "or" the task authority claims and no record states (the rule check above found none): the
+                # connective is the translation's own, so the task material does not state the premise
+                checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=False,  # type: ignore[arg-type]
+                                             document_id=doc_id,
+                                             detail=(f"the kind {kind} claims the task's authority for a {_connective_name(assertion.expr)} premise that "
+                                                     f"cites no excerpt, and no record states it (searched: {searched}): the connective is the "
+                                                     "translation's own, so the task material does not state the premise: an evidence failure, so its "
+                                                     "dependency is unresolved")[:2000]))
+                return grounding.model_copy(update={"verified": False})
+        if absent:
+            # the task record was given, and no record holds the premise's own words: the task material does not state it
+            # (a true task fact quoted without an excerpt, whose words the task holds, stays unvalidated below)
+            checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source" if relation else "numeric_in_task",  # type: ignore[arg-type]
+                                         verified=False, document_id=doc_id,
+                                         detail=(f"the kind {kind} claims the task's authority, and the premise cites no excerpt; no record holds its words "
+                                                 f"({', '.join(absent[:8])} occur in none of: {searched}), so the task material does not state it: the "
+                                                 "premise is the translation's own, an evidence failure, so its dependency is unresolved")[:2000]))
+            return grounding.model_copy(update={"verified": False})
+        why = ("its located excerpt is a reference for words, not a statement of the premise's whole content" if located
+               else "no excerpt and no figure: no record was checked by an excerpt, and the records hold the premise's words")
+        # A premise that restates the point (every atom it mentions is the conclusion's) is refuted when the task record was
+        # given, as the integrated translator refutes every such premise ("no record validates it"): its restatement is then
+        # left to the circularity rules (E112), which on this tree count a refuted premise as the writer's own and never an
+        # unvalidated one (engine.authority.assumed_grounding). Any other premise stays unvalidated, as on the feature line.
+        restates_point = bool(point_atoms) and set(_atoms(assertion.expr)) <= set(point_atoms)
+        verified = False if (task is not None and restates_point) else None
+        verdict = ("no record validates it, and the premise restates the point" if verified is False
+                   else f"its authority is unvalidated{no_task}")
         if relation:
             detail = (f"the kind {kind} claims the task's authority, but no record states the premise's relation {_relation_text(assertion)} (searched: "
-                      f"{searched}) and it states no figure a record could hold: "
-                      + ("no record validates it" if verified is False else f"its authority is unvalidated{no_task}"))
+                      f"{searched}) and it states no figure a record could hold ({why}): {verdict}")
+        elif verified is None:
+            detail = (f"the kind {kind} claims the task's authority, but the premise states no figure, so no record can confirm or refute it "
+                      f"(searched: {searched}; {why}): {verdict}; until a check locates it the premise is not a task fact")
         else:
-            detail = (f"the kind {kind} claims the task's authority, but the premise states no figure and no excerpt of a supplied text "
-                      f"or of the task locates it (searched: {searched}): " + ("no record validates it" if verified is False else f"its authority is unvalidated{no_task}"))
+            detail = (f"the kind {kind} claims the task's authority, but the premise states no figure and no check verified it "
+                      f"(searched: {searched}; {why}): {verdict}")
         checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source" if relation else "numeric_in_task",  # type: ignore[arg-type]
                                      verified=verified, document_id=doc_id, detail=detail[:2000]))
         return grounding.model_copy(update={"verified": verified})
@@ -1426,7 +1494,8 @@ def _located_spans(grounding: Grounding, docs: dict[str, SuppliedText], task: Op
 
 
 def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks: list[GroundingCheck], symbols: Optional[dict[str, Symbol]] = None,
-                     task: Optional[TaskRecord] = None, authority: bool = False, supplied: Sequence[SuppliedText] = ()) -> Assertion:
+                     task: Optional[TaskRecord] = None, authority: bool = False, supplied: Sequence[SuppliedText] = (),
+                     point_atoms: frozenset[str] = frozenset()) -> Assertion:
     """Check an assertion's grounding (whole content, see the module docstring). Every reference is located first; a
     located excerpt then verifies the premise only when it states the premise's whole content, read where it stands in its
     document:
@@ -1438,8 +1507,13 @@ def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks
     * a relation itself, as a given (``relation_in_source``): otherwise ``verified=None`` (the span is located, the
       relation is the translation's own), whatever the kind.
 
+    * a proposition (argument diagnosis, issue 1): a literal (an atom or its negation) only when the located excerpt
+      states it where it stands (:func:`_literal_in_spans`); an "and", "or", "if" or "iff" only when the excerpt itself
+      states the premise's rule or conjunction (:func:`_rule_in_spans`, :func:`_conjunction_in_spans`); otherwise the
+      connective joins what the excerpt states to the writer's own proposition (``relation_in_source``, ``verified=None``).
+
     With ``authority`` a premise of a task-authority kind that no reference verified is validated against the supplied
-    texts and the task record (:func:`_check_authority`)."""
+    texts and the task record (:func:`_check_authority`; ``point_atoms`` are the conclusion's atoms)."""
     if assertion.grounding is None:
         return assertion
     grounding, found = check_grounding(assertion.id, assertion.grounding, docs)
@@ -1447,8 +1521,33 @@ def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks
         found = [c for c in found if c.method != "not_checkable"]  # the authority check below reports on it instead
     checks.extend(found)
     literals = _literals(assertion.expr, symbols or {})
-    relation = numeric_shape(assertion.expr) == "relation"
+    shape = numeric_shape(assertion.expr)
+    relation = shape == "relation"
     spans = _located_spans(grounding, docs, task) if grounding.verified is True else []
+    excerpt_located = grounding.verified is True
+    if grounding.verified is True and shape == "none" and not _is_proposition_literal(assertion.expr):
+        # A located excerpt verifies a proposition only as a literal (an atom or its negation): an "and", "or", "if" or
+        # "iff" joins what the excerpt states to the writer's own proposition, and no span states that connective; unless
+        # the excerpt itself states the premise's rule in words (a quoted conditional, universal rule or biconditional:
+        # .stated_rules) or its conjunction.
+        rule = _rule_in_spans(assertion, grounding.kind, spans, symbols or {})
+        if rule is None or rule.verified is not True:
+            rule = _conjunction_in_spans(assertion, grounding.kind, spans, symbols or {}) or rule
+        if rule is not None:
+            checks.append(rule)
+            if rule.verified is False:
+                grounding = grounding.model_copy(update={"verified": False})
+        else:
+            checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="relation_in_source", verified=None,
+                                         document_id=spans[0][0].ident[:200] if spans else None, detail=_compound_detail(assertion, symbols or {})))
+            grounding = grounding.model_copy(update={"verified": None})
+    if grounding.verified is True and spans and shape == "none" and _is_proposition_literal(assertion.expr):
+        # a located excerpt verifies a proposition literal only when it states it, read where it stands: an excerpt that
+        # merely occurs in the cited text is cited for what it does not say
+        stated_literal = _literal_in_spans(assertion, grounding.kind, spans, symbols or {})
+        if stated_literal is not None:
+            checks.append(stated_literal)
+            grounding = grounding.model_copy(update={"verified": stated_literal.verified})
     if grounding.verified is True and spans and literals:
         within: dict[tuple[str, str], list[tuple[int, int, Optional[frozenset[Fraction]]]]] = {}
         located: list[SourceText] = []
@@ -1477,11 +1576,16 @@ def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks
             stated = stated_relation(assertion.expr, [src], within=span)
             if stated is not None:
                 break
+        rule = _rule_in_spans(assertion, grounding.kind, spans, symbols or {}) if stated is None else None
         if stated is not None:
             checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="relation_in_source", verified=True,
                                          document_id=stated.source.ident[:200],
                                          detail=(f"the located excerpt states the premise's relation {_relation_text(assertion)} as a given: "
                                                  f"{stated.where()}")[:2000]))
+        elif rule is not None:
+            checks.append(rule)
+            if rule.verified is False:
+                grounding = grounding.model_copy(update={"verified": False})
         else:
             checks.append(GroundingCheck(target_id=assertion.id, kind=grounding.kind, method="relation_in_source", verified=None,
                                          document_id=spans[0][0].ident[:200] if spans else None,
@@ -1490,7 +1594,7 @@ def _check_assertion(assertion: Assertion, docs: dict[str, SuppliedText], checks
                                                  "relation, so the relation is the translation's own and is not verified by the span")[:2000]))
             grounding = grounding.model_copy(update={"verified": None})
     if authority and grounding.kind in TASK_AUTHORITY_KINDS and grounding.verified is None:
-        grounding = _check_authority(assertion, grounding, literals, docs, supplied, task, checks)
+        grounding = _check_authority(assertion, grounding, literals, docs, supplied, task, checks, symbols, located=excerpt_located, point_atoms=point_atoms)
     return assertion.model_copy(update={"grounding": grounding})
 
 
@@ -1510,7 +1614,8 @@ def check_problem_grounding(problem: Problem, supplied_texts: list[SuppliedText]
     by_name = {s.name: s for s in problem.symbols}
     checks: list[GroundingCheck] = []
     symbols = [_check_symbol(s, docs, checks) for s in problem.symbols]
-    premises = [_check_assertion(p, docs, checks, by_name, task, authority=True, supplied=supplied_texts) for p in problem.premises]
+    point_atoms = frozenset(_atoms(problem.conclusion.expr)) if problem.conclusion is not None else frozenset()
+    premises = [_check_assertion(p, docs, checks, by_name, task, authority=True, supplied=supplied_texts, point_atoms=point_atoms) for p in problem.premises]
     conclusion = _check_assertion(problem.conclusion, docs, checks, by_name, task) if problem.conclusion is not None else None
     checked = problem.model_copy(update={"symbols": symbols, "premises": premises, "conclusion": conclusion})
     return checked, checks
@@ -1540,3 +1645,1347 @@ def check_claim_sources(claim: ClaimRecord, supplied_texts: list[SuppliedText]) 
             document_id=ref.document_id, detail=detail,
         ))
     return checks
+
+
+# --------------------------------------------------------------------------------------------- argument diagnosis readers
+# Closed word lists and readers the argument diagnosis (translate.diag_evidence) reads beside this module's checks. They
+# are additions only: no grounding check of this module calls them, so the checks above decide authority as they did.
+
+#: Words of a point's meaning that say who presents, states or shows it rather than what it says ("the poet presents the
+#: sea as hostile"): the argument diagnosis reads past them (EVD-SRC-001).
+ATTRIBUTION_WORDS: frozenset[str] = frozenset("""
+text texts source sources extract extracts passage passages document documents article articles poem poems poet poets play novel story
+author authors writer writers narrator speaker speakers historian historians study studies report reports table figure graph chart data
+line lines phrase phrases word words quotation quote quotes quoted
+say says said state states stated write writes wrote written describe describes described present presents presented presenting portray
+portrays portrayed depict depicts depicted show shows showed shown suggest suggests suggested convey conveys conveyed claim claims claimed
+argue argues argued note notes noted call calls called refer refers referred mention mentions mentioned admit admits admitted reveal reveals
+revealed tell tells told according
+""".split())
+
+
+#: Words of a task-authority label that name the authority rather than what it states ("the mark scheme says", "the
+#: task states", "(stated in the task)").
+AUTHORITY_LABEL_WORDS: frozenset[str] = frozenset("""
+task tasks question questions request rubric rubrics mark marks scheme schemes criterion criteria band bands descriptor descriptors
+instruction instructions given setting stated states state says say said tells told according examiner examiners
+""".split()) | ATTRIBUTION_WORDS
+
+
+#: How the records' mathematical signs read in words, longest signs first: a label that writes the task's notation in words
+#: ("x squared is greater than 0" for "x² > 0") says what the task says (repair round 2, ADV2-11).
+NOTATION_WORDS: tuple[tuple[str, str], ...] = (
+    ("^2", " squared "), ("^3", " cubed "), ("²", " squared "), ("³", " cubed "), ("≥", " greater than or equal to "),
+    (">=", " greater than or equal to "), ("≤", " less than or equal to "), ("<=", " less than or equal to "), ("≠", " not equal to "),
+    ("!=", " not equal to "), (">", " greater than "), ("<", " less than "), ("=", " equals "), ("√", " square root of "),
+    ("∛", " cube root of "), ("×", " times "), ("÷", " divided by "), ("+", " plus "), ("−", " minus "), ("%", " per cent "),
+    ("π", " pi "), ("∞", " infinity "),
+)
+
+
+#: Words a notation reading compares as one ("more than" is "greater than"), and the words it does not compare.
+_NOTATION_SYNONYMS = {"more": "greater", "larger": "greater", "bigger": "greater", "exceeds": "greater", "exceed": "greater", "above": "greater",
+                      "smaller": "less", "fewer": "less", "below": "less", "equal": "equals", "same": "equals", "percent": "cent"}
+
+
+_NOTATION_STOP = frozenset({"is", "are", "was", "were", "be", "than", "the", "a", "an", "to", "of", "that", "it", "its", "then", "by"})
+
+
+def notation_roots(text: str) -> list[str]:
+    """The roots of ``text`` a notation reading compares, in order: stop words left out, synonyms of a sign's words as one."""
+    out: list[str] = []
+    for t in lexis.tokens(text):
+        if t in _NOTATION_STOP:
+            continue
+        out.append(lexis.root(_NOTATION_SYNONYMS.get(t, t)))
+    return out
+
+
+def spelled_notation(text: str) -> str:
+    """``text`` with each mathematical sign of :data:`NOTATION_WORDS` written in words."""
+    for sign, words in NOTATION_WORDS:
+        if sign in text:
+            text = text.replace(sign, words)
+    return text
+
+
+@lru_cache(maxsize=64)
+def _spelled_roots(text: str) -> tuple[str, ...]:
+    return tuple(notation_roots(spelled_notation(text)))
+
+
+def spells_notation(label: str, text: str) -> bool:
+    """Whether ``label`` writes in words notation that ``text`` states: ``text`` holds a mathematical sign, and the label's
+    roots (:func:`notation_roots`, the words naming an authority left out: "the task states that ...") are, in order and with
+    no other word between them, a run of ``text`` read with its signs in words. "x squared is greater than 0" is a run of
+    "x² > 0" read as "x squared greater than 0"; "x is greater than 0" and "x squared is less than 0" are not."""
+    if not label or not text or not any(sign in text for sign, _w in NOTATION_WORDS):
+        return False
+    named = {lexis.root(x) for x in AUTHORITY_LABEL_WORDS}
+    wanted = [w for w in notation_roots(label) if w not in named]
+    n = len(wanted)
+    if n < 2:
+        return False
+    seq = _spelled_roots(text[:400_000])
+    first = wanted[0]
+    return any(seq[i] == first and list(seq[i:i + n]) == wanted for i in range(len(seq) - n + 1))
+
+
+#: The particles of a phrasal verb of change, by the direction each states ("put prices up", "knocked prices down", "cut back").
+_RISE_PARTICLES = frozenset({"up"})
+
+
+_FALL_PARTICLES = frozenset({"down", "back"})
+
+
+#: The most clauses of one sentence, and the most tokens of one clause, read for the direction of a change.
+_MAX_CHANGE_CLAUSES = 16
+
+
+_MAX_CHANGE_TOKENS = 64
+
+
+#: One clause as the change readings use it: its roots, the roots of its tokens in order, and its change marks ``(start, end,
+#: a rise)`` (:func:`change_marks`).
+ChangeClause = tuple[frozenset[str], tuple[str, ...], tuple[tuple[int, int, bool], ...]]
+
+
+def change_marks(toks: Sequence[str]) -> list[tuple[int, int, bool]]:
+    """``(start, end, a rise)`` of every word of a change in a token sequence, in any words: a verb of :data:`_RISE_VERBS` or
+    :data:`_FALL_VERBS`, a phrasal verb of :func:`direction_verbs` (its span runs from the verb to its particle: "brought
+    interest rates down"), or a particle of a phrasal verb the lists do not hold (:data:`_RISE_PARTICLES`,
+    :data:`_FALL_PARTICLES`: "knocked its prices down"). Linear in the tokens (the reach of :func:`direction_verbs`)."""
+    out: list[tuple[int, int, bool]] = [(i, i + 1, t in _RISE_VERBS) for i, t in enumerate(toks) if t in _RISE_VERBS or t in _FALL_VERBS]
+    read: set[int] = set()
+    for i, t in enumerate(toks):
+        if t not in _PHRASAL_UP_VERBS and t not in _PHRASAL_DOWN_VERBS:
+            continue
+        for k in range(i + 1, min(len(toks), i + 1 + _PHRASAL_REACH)):
+            w = toks[k]
+            if (w == "up" and t in _PHRASAL_UP_VERBS) or (w == "down" and t in _PHRASAL_DOWN_VERBS) or (w == "back" and t in _PHRASAL_BACK_VERBS):
+                out.append((i, k + 1, w == "up"))
+                read.add(k)
+                break
+            if w in _RISE_VERBS or w in _FALL_VERBS or w in ("up", "down", "back"):
+                break
+    out += [(k, k + 1, t in _RISE_PARTICLES) for k, t in enumerate(toks) if (t in _RISE_PARTICLES or t in _FALL_PARTICLES) and k not in read]
+    return out
+
+
+def change_clause(part: str) -> ChangeClause:
+    """:data:`ChangeClause` of one clause, read on its first :data:`_MAX_CHANGE_TOKENS` tokens."""
+    toks = lexis.tokens(part)[:_MAX_CHANGE_TOKENS]
+    roots = tuple(lexis.root(t) for t in toks)
+    return frozenset(roots), roots, tuple(change_marks(toks))
+
+
+def clause_direction(clause: ChangeClause, words: set[str]) -> Optional[bool]:
+    """The direction (True a rise, False a fall) of the word of a change nearest to the given words in a clause: what the
+    clause says changed about them ("The central bank brought interest rates down to boost spending": interest rates fell).
+    None when the clause holds none of the words or no word of a change, or when the nearest words of a change disagree.
+    Constant work per clause (its tokens and marks are bounded)."""
+    _roots, toks, marks = clause
+    best: Optional[int] = None
+    sides: set[bool] = set()
+    for i, r in enumerate(toks):
+        if r not in words:
+            continue
+        for s, e, up in marks:
+            d = 0 if s <= i < e else (s - i if i < s else i - e + 1)
+            if best is None or d < best:
+                best, sides = d, {up}
+            elif d == best:
+                sides.add(up)
+    return next(iter(sides)) if len(sides) == 1 else None
+
+
+def _held_change_roots(text: str, clauses: Sequence[ChangeClause], wanted: set[str]) -> set[str]:
+    """The roots of the premise's own words of a change (:func:`direction_verbs`) that a clause states of the premise's own
+    subject in other words (accuracy round 2, V1I-02): in a clause (:func:`change_clause`), the word of a change nearest to the
+    premise's other words (``wanted``) is of that direction (:func:`clause_direction`): "the firm drove its costs down" holds
+    "the firm lowered its costs"; "After inflation fell, the central bank raised interest rates" does not hold "the central
+    bank lowered interest rates" (the fall is the inflation's). Those words are then no invented content of the premise."""
+    rise, fall = direction_verbs(lexis.tokens(text))
+    out: set[str] = set()
+    for verbs, up in ((rise, True), (fall, False)):
+        roots = {lexis.root(w) for t in verbs for w in t.split()}
+        others = wanted - roots
+        if roots and others and any(clause_direction(c, others) is up for c in clauses):
+            out |= roots
+    return out
+
+
+#: Words that keep a sentence of the task record from stating a figureless fact as a given (:func:`_literals_in_task`): a
+#: condition or supposition, a question word, a modal or a hedge, a report of someone's view, a disjunction. A sentence
+#: that holds one states nothing as the task's own given, so it validates nothing.
+SUSPENDING_TASK_WORDS: frozenset[str] = frozenset("""
+if unless whether suppose supposing assume assuming imagine provided when whenever once until lest hypothetically hypothesis
+could might may can would should must ought perhaps possibly probably likely unlikely maybe seem seems seemed appear appears apparently
+claim claims claimed argue argues argued believe believes believed think thinks thought suggest suggests suggested say says said
+report reports reported allege alleges alleged allegedly according rumour rumor view views opinion
+or either neither nor
+""".split())
+
+
+def _suspending_tokens(sentence: str) -> list[str]:
+    """The lower-case tokens of a task sentence, the month "May" left out: written with a capital inside the sentence it is
+    the month, not the modal of :data:`SUSPENDING_TASK_WORDS` ("The pond was given extra nitrate fertiliser in May." states
+    a given; close round 1, ADV6-09). The modal opening a sentence ("May the ...") stays a modal."""
+    out: list[str] = []
+    for k, (s, _e, t) in enumerate(lexis.token_spans(sentence)):
+        if t == "may" and k > 0 and sentence[s:s + 1].isupper():
+            continue
+        out.append(t)
+    return out
+
+
+#: Words by which a task sentence reports someone's view rather than stating a given (repair round 3, INV-1 and INV-3): a
+#: report of a view the answer is to weigh ("Critics described the treaty as harsh. Evaluate this view.", "Many students claim
+#: ...", "It is often said that ...") never validates the view as a task fact, and its words do not keep a premise that
+#: adopts the view from being refuted. A premise that itself reports the view (its own words hold the same report verb)
+#: is what such a sentence states.
+REPORTED_VIEW_WORDS: frozenset[str] = frozenset("""
+claim claims claimed argue argues argued believe believes believed think thinks say says said allege alleges alleged allegedly
+according suggest suggests suggested view views opinion opinions describe describes described insist insists insisted contend contends
+contended
+""".split())
+
+
+#: Further words by which a sentence attributes a judgement to someone ("The treaty was regarded as harsh", "Critics
+#: portrayed ..."): they keep a sentence from validating a fact, as the report words do.
+ATTRIBUTING_TASK_WORDS: frozenset[str] = frozenset("""
+regard regards regarded consider considers considered portray portrays portrayed depict depicts depicted characterise characterises
+characterised characterize characterizes characterized label labels labelled labeled dismiss dismisses dismissed condemn condemns condemned
+criticise criticises criticised criticize criticizes criticized praise praises praised blame blames blamed accuse accuses accused assert
+asserts asserted
+""".split())
+
+
+#: Where a task sentence's clauses meet: a literal may be stated by one clause of a sentence that also negates another.
+_TASK_CLAUSE_RE = re.compile(r"[,;:]|\s(?:and|but|while|whereas|although|though|yet)\s", re.IGNORECASE)
+
+
+#: Verbs of a change of one direction and of the other (closed reference data): "cut interest rates" is the opposite of
+#: what "raised interest rates" states.
+_RISE_VERBS = frozenset("""
+raise raised raises raising rise rose risen rises rising increase increased increases increasing grow grew grown grows growing
+climb climbed climbs climbing expand expanded expands expanding boost boosted boosts boosting hike hiked hikes hiking lift lifted
+lifts lifting double doubled doubles doubling
+""".split())
+
+
+_FALL_VERBS = frozenset("""
+cut cuts cutting lower lowered lowers lowering reduce reduced reduces reducing fall fell fallen falls falling decrease decreased
+decreases decreasing decline declined declines declining drop dropped drops dropping shrink shrank shrunk shrinks shrinking slash
+slashed slashes slashing halve halved halves halving
+""".split())
+
+
+#: Phrasal verbs of a change (accuracy round 1, DIFF3-03): a verb of this list with its particle within
+#: :data:`_PHRASAL_REACH` tokens after it ("brought interest rates down", "went down", "put interest rates up", "scaled back
+#: its spending") states a change of the particle's direction, as one word of :data:`_RISE_VERBS` or :data:`_FALL_VERBS`
+#: does. A particle with another sense is not read ("turned down the offer", "brought up the issue", "put down the revolt").
+_PHRASAL_UP_VERBS = frozenset("""
+go goes went gone going put puts putting push pushes pushed pushing drive drives drove driven driving force forces forced forcing
+send sends sent sending mark marks marked marking scale scales scaled scaling step steps stepped stepping ramp ramps ramped ramping
+speed speeds sped speeded speeding shoot shoots shot shooting jack jacks jacked jacking bid bids bidding
+""".split())
+
+
+_PHRASAL_DOWN_VERBS = frozenset("""
+bring brings brought bringing go goes went gone going come comes came coming push pushes pushed pushing drive drives drove driven
+driving force forces forced forcing mark marks marked marking scale scales scaled scaling slow slows slowed slowing wind winds wound
+winding pay pays paid paying whittle whittles whittled whittling cut cuts cutting
+""".split())
+
+
+_PHRASAL_BACK_VERBS = frozenset({"cut", "cuts", "cutting", "scale", "scales", "scaled", "scaling"})
+
+
+_PHRASAL_REACH = 4
+
+
+def direction_verbs(toks: Sequence[str]) -> tuple[set[str], set[str]]:
+    """``(rise words, fall words)`` of a token sequence: the words of :data:`_RISE_VERBS` and :data:`_FALL_VERBS`, and the
+    phrasal verbs of a change (a verb of :data:`_PHRASAL_UP_VERBS` with "up", of :data:`_PHRASAL_DOWN_VERBS` with "down",
+    of :data:`_PHRASAL_BACK_VERBS` with "back", the particle at most :data:`_PHRASAL_REACH` tokens after the verb, no other
+    verb of a change between), each written "verb particle" ("brought down"). Linear in the tokens."""
+    rise = {t for t in toks if t in _RISE_VERBS}
+    fall = {t for t in toks if t in _FALL_VERBS}
+    for i, t in enumerate(toks):
+        if t not in _PHRASAL_UP_VERBS and t not in _PHRASAL_DOWN_VERBS:
+            continue
+        for k in range(i + 1, min(len(toks), i + 1 + _PHRASAL_REACH)):
+            w = toks[k]
+            if w == "up" and t in _PHRASAL_UP_VERBS:
+                rise.add(f"{t} up")
+                break
+            if (w == "down" and t in _PHRASAL_DOWN_VERBS) or (w == "back" and t in _PHRASAL_BACK_VERBS):
+                fall.add(f"{t} {w}")
+                break
+            if w in _RISE_VERBS or w in _FALL_VERBS or w in ("up", "down", "back"):
+                break
+    return rise, fall
+
+
+# --------------------------------------------------------------------------------------------- argument diagnosis: what a check reads
+# The readings by which a located excerpt, a record sentence or the task record states a premise's whole content
+# (issue 1 of the argument diagnosis: a premise labelled with a text or task authority is grounded only when a check
+# verified that the record states it). Called from _check_assertion, _check_authority and check_problem_grounding.
+
+def _asserted_roots(src: SourceText) -> set[str]:
+    """The roots a record holds for the refutation of a figureless task premise (:func:`_words_no_record_holds`). A supplied
+    text holds all its words. The task record holds the words of its sentences that state something: a question ("Did the
+    Senate vote?") and a report of a view the answer is to weigh ("Many students claim the treaty was harsh. Evaluate this
+    view.": :data:`REPORTED_VIEW_WORDS`, :data:`_VIEW_BACKREF_RE`) state nothing, so a premise that adopts the view or the
+    question's answer is refuted as before round 2 (repair round 3, INV-3). A supposition or condition the task sets ("If
+    the firm's costs rise ...") is the task's own scenario: its words are held, and a premise that reasons within it stays
+    unvalidated rather than refuted."""
+    text = src.text[:400_000]
+    if src.kind != "task":
+        return {lexis.root(t) for t in lexis.tokens(text)}
+    spans = _sentences(text)
+    views = _view_sentences(text, spans[:_MAX_TASK_FACT_SENTENCES])
+    out: set[str] = set()
+    for k, (a, b) in enumerate(spans):
+        sentence = text[a:b]
+        if sentence.rstrip().endswith("?") or (k < _MAX_TASK_FACT_SENTENCES and k in views):
+            continue
+        out |= {lexis.root(t) for t in lexis.tokens(sentence)}
+    return out
+
+
+def change_clauses(sentence: str) -> list[ChangeClause]:
+    """:func:`change_clause` of every clause of a sentence (cut as :data:`_TASK_CLAUSE_RE` cuts it, at most
+    :data:`_MAX_CHANGE_CLAUSES`)."""
+    return [change_clause(part) for part in _TASK_CLAUSE_RE.split(sentence)[:_MAX_CHANGE_CLAUSES] if part.strip()]
+
+
+def _task_change_clauses(sources: Sequence[SourceText]) -> tuple[ChangeClause, ...]:
+    """:func:`change_clauses` of the task record's sentences that state something (no question and no reported view, as
+    :func:`_asserted_roots` reads them); one linear pass (accuracy round 2, V1I-02)."""
+    out: list[ChangeClause] = []
+    for src in sources:
+        if src.kind != "task":
+            continue
+        text = src.text[:400_000]
+        spans = _sentences(text)
+        views = _view_sentences(text, spans[:_MAX_TASK_FACT_SENTENCES])
+        for k, (a, b) in enumerate(spans):
+            sentence = text[a:b]
+            if sentence.rstrip().endswith("?") or (k < _MAX_TASK_FACT_SENTENCES and k in views):
+                continue
+            out += change_clauses(sentence)
+    return tuple(out)
+
+
+def _words_no_record_holds(assertion: Assertion, symbols: dict[str, Symbol], sources: Sequence[SourceText]) -> Optional[list[str]]:
+    """The words of a figureless task-authority premise that no record holds, when too many are missing for the records to
+    state it (more than one, or any of three or fewer), else None. Two readings of the premise are tried, its label's
+    words and its symbols' meanings, each without the words that name the authority (:data:`AUTHORITY_LABEL_WORDS`), read
+    with the shared root reader against every record together (a pronoun in one sentence may stand for a noun in the
+    next): the premise is refuted only when the records hold neither reading, so a label that paraphrases a task fact
+    ("incomes up and mortgages cheaper" for "Incomes rose by 8% and mortgage rates fell", whose symbols mean what the task
+    says) is no refutation (repair round 2, holdout2 class: a paraphrased task fact was refuted). The premise's own verb of a
+    change ("lowered", "raised") is held when a clause of the task record states a change of the same direction, in any words,
+    of the premise's own subject, and every other word of the premise is held (:func:`_task_change_clauses`,
+    :func:`_held_change_roots`; accuracy round 2, V1I-02: "the firm lowered its costs" for "the firm drove its costs down" was
+    refuted). The missing words of the first reading that has words are returned. None when
+    the premise has no such words to read."""
+    label = (assertion.label or "").strip()
+    meanings = " ".join((symbols[n].meaning or "") for n in _atoms(assertion.expr) if n in symbols)
+    if not sources:
+        return None
+    authority = {lexis.root(w) for w in AUTHORITY_LABEL_WORDS}
+    held: Optional[set[str]] = None
+    first: Optional[list[str]] = None
+    clauses: tuple[ChangeClause, ...] = ()
+    for text in (label, meanings):
+        wanted = meaning_roots(text) - authority if text.strip() else set()
+        if not wanted:
+            continue
+        if held is None:
+            held = set()
+            for src in sources:
+                held |= _asserted_roots(src)
+            clauses = _task_change_clauses(sources)
+        missing = sorted(wanted - held)
+        # the premise's own verb of a change counts as held when a clause of the task states a change of its direction, in any
+        # words, of the premise's own subject, and every other word of the premise is held: a synonym of the task's verb, or a
+        # phrasal verb the closed lists do not read ("lowered" for "drove its costs down", "knocked its prices down"; accuracy
+        # round 2, V1I-02). It never stands for another missing word ("Country Y declined" for "Country Z fell" is refuted as
+        # before); a change of the other direction is the conflict reading's
+        if missing and set(missing) <= _held_change_roots(text, clauses, wanted):
+            missing = []
+        if not missing or (len(wanted) >= 4 and len(missing) == 1):
+            return None
+        if first is None:
+            first = missing
+    if first and any(spells_notation(label, src.text) for src in sources):
+        return None  # the label writes a record's notation in words ("x squared is greater than 0" for "x² > 0"): it says what the record says
+    return first
+
+
+#: A sentence that names the sentence before it as a view to weigh: "Evaluate this view.", "To what extent do you agree with
+#: this claim?" (repair round 3, INV-1): the sentence it names reports a view.
+_VIEW_BACKREF_RE = re.compile(r"\b(?:this|that|these|those|the\s+above)\s+(?:view|views|claim|claims|statement|statements|interpretation|interpretations|"
+                              r"argument|arguments|opinion|opinions|assertion|assertions|judgement|judgements|judgment|judgments|hypothesis|proposition|"
+                              r"propositions|quotation|quote|contention|verdict|assessment)\b", re.IGNORECASE)
+
+
+#: Pronouns that may stand for a noun the sentence named before them ("held no vote on it" for the treaty): an ordered
+#: reading of a premise in a task sentence lets one stand for a wanted word named earlier in that sentence.
+_TASK_PRONOUNS = frozenset({"it", "they", "them", "this", "these", "those", "which", "he", "she", "him", "her", "its", "their"})
+
+
+#: At most this many sentences of the task record are read for a stated fact, each cut at this many characters.
+_MAX_TASK_FACT_SENTENCES = 400
+
+
+_MAX_TASK_FACT_CHARS = 2000
+
+
+def _task_literals(expr: Any) -> Optional[list[tuple[str, bool]]]:
+    """``(atom, negated)`` for each literal of a literal or a conjunction of literals; None for any other shape."""
+    parts = list(expr.args) if getattr(expr, "op", None) == "and" else [expr]
+    out: list[tuple[str, bool]] = []
+    for c in parts:
+        negated = getattr(c, "op", None) == "not"
+        node = c.arg if negated else c
+        if getattr(node, "op", None) != "var":
+            return None
+        out.append((node.name, negated))
+    return out or None
+
+
+def _ordered_roots(text: str, drop: set[str]) -> "list[str] | _RolePattern":
+    """How a task sentence must hold ``text``'s content roots (:func:`.stated_rules.meaning_roots`, without ``drop``) for an
+    ordered reading: its role pattern when a main verb is read (:func:`_role_pattern`: who did what to whom, the voice and
+    the place of a modifier aside), else the roots in the order they first occur."""
+    keep = meaning_roots(text) - drop
+    pattern = _role_pattern(lexis.tokens(text), keep)
+    if pattern is not None:
+        return pattern
+    out: list[str] = []
+    for t in lexis.tokens(text):
+        r = lexis.root(t)
+        if r in keep and r not in out:
+            out.append(r)
+    return out
+
+
+#: Closed lists of the role reading (repair round 4, ADV4-06): auxiliaries, the passive ones, words that may stand between an
+#: auxiliary and its verb, irregular participles and past forms, and the prepositions that open a modifier.
+_AUXILIARIES = frozenset({"is", "are", "am", "was", "were", "be", "been", "being", "has", "have", "had", "having", "will", "would", "shall", "should",
+                          "can", "could", "may", "might", "must", "do", "does", "did", "get", "gets", "got", "gotten"})
+
+
+_PASSIVE_AUXILIARIES = frozenset({"is", "are", "am", "was", "were", "be", "been", "being", "get", "gets", "got", "gotten"})
+
+
+_VERB_GAP_WORDS = frozenset({"not", "never", "also", "already", "just", "now", "then", "all", "both", "still", "recently", "jointly", "later",
+                             "first", "finally", "again", "each", "since", "since", "officially", "formally", "sharply", "quickly", "gradually"})
+
+
+_IRREGULAR_PARTICIPLES = frozenset("""
+cut set put hit let shut spread cast cost hurt split quit made paid sold held built brought taken given shown seen known done led met left
+kept lost won spent sent told found bought caught taught fought read said laid born borne chosen written driven beaten broken spoken
+stolen frozen forgotten hidden eaten fallen risen grown thrown drawn worn torn sworn sung rung begun run struck stuck hung dug become
+come gone stood sat bound wound ground sought thought felt heard meant dealt lent bent sent swept slept wept fed bred fled shed lit
+""".split())
+
+
+_IRREGULAR_PAST = _IRREGULAR_PARTICIPLES | frozenset("""
+took gave showed saw knew did rose fell grew began ran chose wrote drove broke spoke stole froze forgot hid ate threw drew wore tore swore
+sang rang became came went
+""".split())
+
+
+_ROLE_PREPOSITIONS = frozenset({"of", "in", "on", "at", "to", "for", "from", "with", "by", "into", "onto", "over", "under", "between", "among",
+                                "during", "after", "before", "across", "through", "within", "about", "against", "per", "until", "toward",
+                                "towards", "near", "beyond", "without", "since", "throughout", "upon", "via"})
+
+
+@dataclass(frozen=True)
+class _RolePattern:
+    """The role reading of a premise's meaning: ``heads`` are the head words of its subject, its verb and its object in
+    active order (each a set: a head's own words may stand in any order), which a task sentence must hold in that order;
+    ``free`` are the words of its modifiers (after a preposition: "of Country Z", "to 0.5%"), which may stand anywhere in
+    the sentence."""
+    heads: tuple[frozenset[str], ...]
+    free: frozenset[str]
+
+
+def _participle(t: str) -> bool:
+    return t in _IRREGULAR_PARTICIPLES or (len(t) > 4 and (t.endswith("ed") or t.endswith("en"))) or (len(t) > 4 and t.endswith("wn"))
+
+
+def _verb_at(toks: Sequence[str]) -> Optional[tuple[int, int, bool]]:
+    """``(first auxiliary index, verb index, passive)`` of a clause's main verb, read by closed lists: an auxiliary chain
+    (words of :data:`_VERB_GAP_WORDS` may stand in it) and the participle or "-ing" form after it ("has cut", "were cut",
+    "has been raised"); else the first past form after the first token ("raised", "cut", "rose"). The clause is passive when
+    the chain's last auxiliary is a passive one and the verb a participle. None when no verb is read."""
+    n = len(toks)
+    for i, t in enumerate(toks):
+        if t not in _AUXILIARIES or i == 0 and n < 2:
+            continue
+        j, last_aux = i, t
+        while j + 1 < n and (toks[j + 1] in _AUXILIARIES or toks[j + 1] in _VERB_GAP_WORDS or toks[j + 1].endswith("ly")):
+            j += 1
+            if toks[j] in _AUXILIARIES:
+                last_aux = toks[j]
+        if j + 1 < n and (_participle(toks[j + 1]) or toks[j + 1].endswith("ing")):
+            v = j + 1
+            return i, v, last_aux in _PASSIVE_AUXILIARIES and _participle(toks[v])
+        if i > 0:
+            return None  # a copula or an auxiliary with no verb after it: no role reading
+    for i, t in enumerate(toks):
+        if i > 0 and (t in _IRREGULAR_PAST or (len(t) > 4 and t.endswith("ed"))):
+            return i, i, False
+    return None
+
+
+def _active_order(toks: Sequence[str]) -> Optional[tuple[list[str], int]]:
+    """``(tokens in active order, the verb's index)``: a passive clause ("interest rates were cut (by the bank) to 0.5%") is
+    rearranged as its active ("(the bank) cut interest rates to 0.5%": the agent after "by", the verb, the subject, the rest;
+    the auxiliaries dropped); an active clause keeps its order. None when no verb is read (:func:`_verb_at`)."""
+    v = _verb_at(toks)
+    if v is None:
+        return None
+    aux, verb, passive = v
+    if not passive:
+        return list(toks), verb
+    subject, rest = list(toks[:aux]), list(toks[verb + 1:])
+    agent: list[str] = []
+    if "by" in rest:
+        k = rest.index("by")
+        agent, rest = rest[k + 1:], rest[:k]
+    out = agent + [toks[verb]] + subject + rest
+    return out, len(agent)
+
+
+def _role_pattern(toks: Sequence[str], keep: set[str]) -> Optional[_RolePattern]:
+    """The role pattern (:class:`_RolePattern`) of a meaning's tokens, the content roots ``keep`` only; None when no verb is
+    read or the pattern would hold no head before or after the verb (a bare predicate keeps the plain order)."""
+    act = _active_order(toks)
+    if act is None:
+        return None
+    order, v = act
+
+    def heads_and_free(part: Sequence[str]) -> tuple[list[str], list[str]]:
+        head: list[str] = []
+        free: list[str] = []
+        modifier = False
+        for t in part:
+            if t in _ROLE_PREPOSITIONS:
+                modifier = True
+                continue
+            r = lexis.root(t)
+            if r in keep and r not in head and r not in free:
+                (free if modifier else head).append(r)
+        return head, free
+
+    sub_head, sub_free = heads_and_free(order[:v])
+    obj_head, obj_free = heads_and_free(order[v + 1:])
+    verb_root = lexis.root(order[v])
+    heads = [frozenset(h) for h in (sub_head, [verb_root] if verb_root in keep else [], obj_head) if h]
+    if not sub_head and not obj_head:
+        return None
+    covered = set().union(*heads) if heads else set()
+    free = (set(sub_free) | set(obj_free) | (keep - covered - set(sub_free) - set(obj_free))) - covered
+    return _RolePattern(heads=tuple(heads), free=frozenset(free))
+
+
+def _pattern_held(pattern: _RolePattern, toks: Sequence[str]) -> bool:
+    """Whether a span's tokens hold the role pattern: its free words anywhere, its heads in order in the span's active order
+    (:func:`_active_order`; a passive span is read as its active), a pronoun standing for a head word the span named before
+    it ("its central bank" after "Country Z")."""
+    roots_all = {lexis.root(t) for t in toks}
+    if not pattern.free <= roots_all:
+        return False
+    act = _active_order(toks)
+    order = act[0] if act is not None else list(toks)
+    roots = [lexis.root(t) for t in order]
+    pos = -1
+    seen_before: list[set[str]] = []
+    acc: set[str] = set()
+    for r in roots:
+        seen_before.append(set(acc))
+        acc.add(r)
+    for head in pattern.heads:
+        last = pos
+        for word in head:
+            hit = next((k for k in range(pos + 1, len(roots)) if roots[k] == word or (order[k] in _TASK_PRONOUNS and word in seen_before[k])), None)
+            if hit is None:
+                return False
+            last = max(last, hit)
+        pos = last
+    return True
+
+
+def _in_order(wanted: "Sequence[str] | _RolePattern", toks: Sequence[str]) -> bool:
+    """Whether the wanted roots occur in ``toks`` (a span's tokens) in their own order, a pronoun standing for a wanted word
+    the span named before it ("The Senate ... held no vote on it" for "the Senate did not vote on the treaty"), every one
+    of them or all but one of four or more (repair round 3, INV-1: a bag of roots read "Germany caused the war" into "The
+    Allies caused the war to end and made Germany pay reparations", and "Germany forced the treaty" into "The treaty forced
+    Germany to pay"; an ordered reading keeps who did what to whom)."""
+    if isinstance(wanted, _RolePattern):
+        return _pattern_held(wanted, toks)
+    if not wanted:
+        return False
+    roots = [lexis.root(t) for t in toks]
+
+    def follows(seq: Sequence[str]) -> bool:
+        j = 0
+        seen: set[str] = set()
+        for t, r in zip(toks, roots):
+            if j < len(seq) and (r == seq[j] or (t in _TASK_PRONOUNS and seq[j] in seen)):
+                j += 1
+            seen.add(r)
+        return j == len(seq)
+
+    if follows(wanted):
+        return True
+    if len(wanted) >= 4:
+        return any(follows([w for k, w in enumerate(wanted) if k != skip]) for skip in range(len(wanted)))
+    return False
+
+
+def _view_sentences(text: str, spans: Sequence[tuple[int, int]]) -> set[int]:
+    """The indexes of the sentences that report a view: one that holds a word of :data:`REPORTED_VIEW_WORDS`, or one that
+    the next sentence names as a view to weigh (:data:`_VIEW_BACKREF_RE`)."""
+    out: set[int] = set()
+    for k, (a, b) in enumerate(spans):
+        toks = lexis.tokens(text[a:min(b, a + _MAX_TASK_FACT_CHARS)])
+        if any(t in REPORTED_VIEW_WORDS for t in toks):
+            out.add(k)
+        if k > 0 and _VIEW_BACKREF_RE.search(text[a:min(b, a + _MAX_TASK_FACT_CHARS)]):
+            out.add(k - 1)
+    return out
+
+
+def _held_with_polarity(wanted: set[str], negative: bool, spans: Sequence[tuple[set[str], int]], required: frozenset[str] = frozenset()) -> bool:
+    """Whether one span (its roots and its count of negation markers) holds every wanted root (all but one of four or more,
+    never one of ``required``) with the wanted polarity: a negative fact needs a negation marker in the span, a positive one
+    a span with none."""
+    for have, markers in spans:
+        missing = wanted - have
+        if missing and not (len(wanted) >= 4 and len(missing) == 1 and not missing & required):
+            continue
+        if (markers > 0) == negative:
+            return True
+    return False
+
+
+def _held_in_order(wanted: set[str], negative: bool, order: Sequence[str], spans: Sequence[tuple[set[str], int, Sequence[str]]]) -> bool:
+    """Whether one span holds the wanted roots with the wanted polarity (:func:`_held_with_polarity`) and in their own order
+    (:func:`_in_order`, a pronoun standing for a noun the span named before it)."""
+    for have, markers, toks in spans:
+        if (markers > 0) != negative:
+            continue
+        if _in_order(order if isinstance(order, _RolePattern) else list(order), toks):
+            return True
+    return False
+
+
+def _asserted_task_sentences(sources: Sequence[SourceText], own_words: set[str]):
+    """``(source, start, end, sentence, tokens)`` for every sentence of the task record that states something as the
+    task's own given (:func:`_literals_in_task`): no question ("?", or a question, instruction or supposition opening it),
+    no word that suspends a statement (:data:`SUSPENDING_TASK_WORDS`), and no report of a view (or a sentence the next
+    names as one) unless the premise reports the same view itself (``own_words`` holds its report verbs). Bounded as
+    :func:`_literals_in_task` is."""
+    own_roots = {lexis.root(w) for w in own_words}
+    for src in sources:
+        if src.kind != "task":
+            continue
+        text = src.text[:400_000]
+        sentence_spans = _sentences(text)[:_MAX_TASK_FACT_SENTENCES]
+        views = _view_sentences(text, sentence_spans)
+        for k, (a, b) in enumerate(sentence_spans):
+            sentence = text[a:min(b, a + _MAX_TASK_FACT_CHARS)]
+            lead = a + (len(sentence) - len(sentence.lstrip()))
+            if not sentence.strip() or sentence.rstrip().endswith("?") or sentence_cue_at(text, lead) is not None:
+                continue
+            toks = lexis.tokens(sentence)
+            if any(t in SUSPENDING_TASK_WORDS and t not in REPORTED_VIEW_WORDS for t in _suspending_tokens(sentence)):
+                continue
+            reports = {t for t in toks if t in REPORTED_VIEW_WORDS or t in ATTRIBUTING_TASK_WORDS}
+            if (reports or k in views) and not (reports and all(lexis.root(t) in own_roots for t in reports)):
+                # a sentence that reports a view (or that the next names as one) states the view as the task's own given only
+                # for a premise that reports the same view itself (repair round 3, INV-1)
+                continue
+            yield src, a, b, sentence, toks
+
+
+#: Words that place a fact in time from where the task stands, by the time they point to (close round 1, INV7-1): "next
+#: year" and "this year" are no statement of what the task says happened "last year", while "the past year" and "the
+#: previous year" point where "last year" does. "The same year" points back to a time already named and dates nothing alone.
+_TIME_DEICTICS = {"last": "past", "past": "past", "previous": "past", "this": "now", "current": "now", "present": "now",
+                  "next": "future", "following": "future", "coming": "future"}
+
+
+_TIME_UNITS = frozenset({"year", "years", "month", "months", "week", "weeks", "day", "days", "decade", "decades", "century", "quarter",
+                         "quarters", "term", "terms", "season", "seasons", "spring", "summer", "autumn", "winter", "night", "morning",
+                         "evening", "time"})
+
+
+#: A future auxiliary: "will raise" is no statement of what the task says was raised.
+_FUTURE_AUXILIARIES = frozenset({"will", "shall"})
+
+
+def _unread_particles(toks: Sequence[str]) -> bool:
+    """Whether the tokens hold a particle of a phrasal verb of change ("up", "down", "back") that :func:`direction_verbs`
+    does not read as one of its listed phrasal verbs ("knocked its prices down", "ratcheted fees up"): the direction the
+    sentence states is then not read (accuracy round 2, V1I-02). A preposition written the same way ("up to 50%") counts
+    too, so the reading errs to no refutation. One pass, the same reach as :func:`direction_verbs`."""
+    read: set[int] = set()
+    for i, t in enumerate(toks):
+        if t not in _PHRASAL_UP_VERBS and t not in _PHRASAL_DOWN_VERBS:
+            continue
+        for k in range(i + 1, min(len(toks), i + 1 + _PHRASAL_REACH)):
+            w = toks[k]
+            if (w == "up" and t in _PHRASAL_UP_VERBS) or (w == "down" and t in _PHRASAL_DOWN_VERBS) or (w == "back" and t in _PHRASAL_BACK_VERBS):
+                read.add(k)
+                break
+            if w in _RISE_VERBS or w in _FALL_VERBS or w in ("up", "down", "back"):
+                break
+    return any(t in ("up", "down", "back") and k not in read for k, t in enumerate(toks))
+
+
+def _dated_units(toks: Sequence[str]) -> dict[str, dict[str, str]]:
+    """``{unit root: {the time a deictic points to: the deictic}}`` for every time unit a deictic word dates ("next year",
+    "the following month"); a sentence may date one unit twice ("last year ... next year")."""
+    out: dict[str, dict[str, str]] = {}
+    for i, t in enumerate(toks):
+        if t in _TIME_UNITS and i > 0 and toks[i - 1] in _TIME_DEICTICS:
+            out.setdefault(lexis.root(t), {}).setdefault(_TIME_DEICTICS[toks[i - 1]], toks[i - 1])
+    return out
+
+
+def _task_conflict(text: str, sentence: str) -> Optional[tuple[str, frozenset[str], bool]]:
+    """Why a task sentence that holds a premise's words does not state it, by closed lists (close round 1, INV7-1: the "all
+    but one" allowance of the ordered reading let a premise that differs only by its time, its tense or the direction of its
+    change be validated by the task sentence it contradicts). ``(why, the premise's conflicting roots, refutable)``:
+
+    * a time the premise dates with another deictic than the sentence does ("next year" or "this year" for "last year"):
+      refutable; a time the premise dates that the sentence does not date at all: not stated, not refutable;
+    * the premise's change in the future ("will raise") where the sentence states it in the past ("raised"), or the reverse:
+      refutable;
+    * a change of the opposite direction ("cut" for "raised": :data:`_RISE_VERBS`, :data:`_FALL_VERBS`, and the phrasal verbs
+      of :func:`direction_verbs`, "brought ... down", "went down", accuracy round 1, DIFF3-03) where the sentence holds no
+      verb of the premise's direction: refutable.
+
+    None when no such difference is read."""
+    mt = lexis.tokens(text)
+    st = lexis.tokens(sentence)
+    if not mt or not st:
+        return None
+    mine, theirs = _dated_units(mt), _dated_units(st)
+    for unit, times in mine.items():
+        other = theirs.get(unit)
+        for when, deictic in sorted(times.items()):
+            if other and when not in other:
+                return (f"the premise dates it '{deictic} {unit}' where the task's sentence says '{sorted(other.values())[0]} {unit}'",
+                        frozenset({lexis.root(deictic), unit}), True)
+            if not other:
+                return (f"the premise dates it '{deictic} {unit}', which the task's sentence does not state", frozenset({lexis.root(deictic), unit}), False)
+    m_future = any(t in _FUTURE_AUXILIARIES for t in mt)
+    s_future = any(t in _FUTURE_AUXILIARIES for t in st)
+    if m_future != s_future:
+        verbs = {lexis.root(t) for t in mt if t in _RISE_VERBS or t in _FALL_VERBS or t in _IRREGULAR_PAST or (len(t) > 4 and t.endswith("ed"))}
+        if m_future:
+            past = [t for t in st if lexis.root(t) in verbs and (t in _IRREGULAR_PAST or (len(t) > 4 and t.endswith("ed")))]
+            if past:
+                return (f"the premise states it in the future ('will') where the task's sentence states it in the past ('{past[0]}')",
+                        frozenset({lexis.root(t) for t in mt if t in _FUTURE_AUXILIARIES}), True)
+        else:
+            mine_past = [t for t in mt if t in _IRREGULAR_PAST or (len(t) > 4 and t.endswith("ed"))]
+            roots = {lexis.root(x) for x in mine_past}
+            same = [t for t in st if lexis.root(t) in roots]
+            if mine_past and same and not any(t in _IRREGULAR_PAST or (len(t) > 4 and t.endswith("ed")) for t in same):
+                # the sentence holds the premise's verb only in the future ("will rise"), never in the past
+                return (f"the premise states it in the past ('{mine_past[0]}') where the task's sentence states it in the future ('will')",
+                        frozenset(), True)
+    # the words and the phrasal verbs of a change ("brought interest rates down", "went down": accuracy round 1, DIFF3-03)
+    m_rise, m_fall = direction_verbs(mt)
+    s_rise, s_fall = direction_verbs(st)
+    if _unread_particles(st):
+        # the sentence states a change by a phrasal verb the closed lists do not hold ("knocked its prices down"): its direction
+        # is not read, so no direction of change is refuted, as on the committed base (accuracy round 2, V1I-02: a reading
+        # round 1 narrowed, reverted for its class)
+        return None
+    if m_fall and not m_rise and s_rise and not s_fall:
+        return (f"the premise states a fall ('{sorted(m_fall)[0]}') where the task's sentence states a rise ('{sorted(s_rise)[0]}')",
+                frozenset(lexis.root(w) for t in m_fall for w in t.split()), True)
+    if m_rise and not m_fall and s_fall and not s_rise:
+        return (f"the premise states a rise ('{sorted(m_rise)[0]}') where the task's sentence states a fall ('{sorted(s_fall)[0]}')",
+                frozenset(lexis.root(w) for t in m_rise for w in t.split()), True)
+    return None
+
+
+def _task_sentence_misread(assertion: Assertion, kind: str, sources: Sequence[SourceText], symbols: dict[str, Symbol],
+                           point_atoms: frozenset[str] = frozenset()) -> Optional[GroundingCheck]:
+    """A refuting ``content_in_task`` check (``verified=False``) for a figureless task-authority premise citing no excerpt
+    that :func:`_literals_in_task` did not validate, when one sentence the task states as a given holds every content root
+    of each literal's meaning (or two or more roots of the label, all of them): the task uses the premise's words, in
+    another order or with another polarity, so it does not state the premise ("Germany caused the war" read from "The
+    Allies caused the war to end and made Germany pay reparations."; "Germany forced the treaty" from "The treaty forced
+    Germany to pay."). Before repair round 2 every such premise was refuted; a premise whose words the records hold only
+    across sentences, or only in other words (a paraphrase of a task fact), stays unvalidated (repair round 3, INV-3 and
+    INV-1). A premise that shares an atom with the point is left to the circularity rules, as :func:`_literals_in_task`
+    leaves it."""
+    lits = _task_literals(assertion.expr)
+    if lits is None or any(name in point_atoms for name, _neg in lits):
+        return None
+    authority = {lexis.root(w) for w in AUTHORITY_LABEL_WORDS} | {lexis.root(w) for w in ATTRIBUTION_WORDS}
+    own_words: set[str] = set()
+    wanted_lits: list[set[str]] = []
+    for name, _negated in lits:
+        sym = symbols.get(name)
+        meaning = ((sym.meaning if sym is not None else None) or "").strip()
+        wanted_lits.append(_point_words(meaning) - authority if meaning else set())
+        own_words |= set(lexis.tokens(meaning))
+    label = (assertion.label or "").strip()
+    label_wanted = _point_words(label) - authority if label else set()
+    own_words |= set(lexis.tokens(label))
+    by_meaning = all(len(w) >= 2 for w in wanted_lits)
+    if not by_meaning and len(label_wanted) < 2:
+        return None
+    meanings = [((symbols.get(name).meaning if symbols.get(name) is not None else None) or "").strip() for name, _neg in lits]
+    for src, a, b, sentence, toks in _asserted_task_sentences(sources, own_words):
+        have = {lexis.root(t) for t in toks}
+        # the premise's words with another time, tense or direction of change (close round 1, INV7-1): every other word stated
+        for text, wanted in [*((m, w) for m, w in zip(meanings, wanted_lits) if m and by_meaning), *(((label, label_wanted),) if len(label_wanted) >= 2 else ())]:
+            conflict = _task_conflict(text, sentence)
+            if conflict is not None and conflict[2] and len(wanted - conflict[1]) >= 2 and wanted - conflict[1] <= have:
+                return GroundingCheck(target_id=assertion.id, kind=kind, method="content_in_task", verified=False,  # type: ignore[arg-type]
+                                      document_id=src.ident[:200],
+                                      detail=(f"the kind {kind} claims the task's authority, and the premise cites no excerpt; the task's sentence "
+                                              f"{truncate_detail(sentence.strip(), 200)!r} (characters {a}-{b}) holds the premise's other words, but "
+                                              f"{conflict[0]}, so the task material does not state it: the premise is the translation's own, an "
+                                              "evidence failure, so its dependency is unresolved")[:2000])
+        if (by_meaning and all(w <= have for w in wanted_lits)) or (len(label_wanted) >= 2 and label_wanted <= have):
+            return GroundingCheck(target_id=assertion.id, kind=kind, method="content_in_task", verified=False,  # type: ignore[arg-type]
+                                  document_id=src.ident[:200],
+                                  detail=(f"the kind {kind} claims the task's authority, and the premise cites no excerpt; the task's sentence "
+                                          f"{truncate_detail(sentence.strip(), 200)!r} (characters {a}-{b}) holds the premise's words but does not "
+                                          "state the premise (another order of its words, or another polarity), so the task material does not state "
+                                          "it: the premise is the translation's own, an evidence failure, so its dependency is unresolved")[:2000])
+    return None
+
+
+def _literals_in_task(assertion: Assertion, kind: str, sources: Sequence[SourceText], symbols: dict[str, Symbol],
+                      point_atoms: frozenset[str] = frozenset()) -> Optional[GroundingCheck]:
+    """A ``content_in_task`` check that validates a figureless task-authority premise citing no excerpt (a literal, or a
+    conjunction of literals) when one sentence of the task record states it as a given, else None (repair round 2: the
+    task facts a correct answer restates were left unvalidated, so EVD-SRC-001 charged them as label-only).
+
+    The sentence is the task's own statement: no question ("?", or a question, instruction or supposition opening it:
+    :func:`.assertion.sentence_cue_at`) and no word that suspends a statement (:data:`SUSPENDING_TASK_WORDS`: "if",
+    "whether", "could", "argues", "or", ...). It states a literal when the sentence or one of its clauses (cut at a comma,
+    a colon, a semicolon or "and", "but", "while", ...) holds every root of the literal's meaning beyond its attribution
+    (all but one of four or more) with the literal's polarity (a negated literal, or a meaning that negates, needs a
+    negation marker there; a positive one a span with none); a premise whose label holds two or more content roots may
+    instead be stated by its label as a whole, with the label's polarity. A premise that shares an atom with the point
+    (``point_atoms``) is never validated by a task sentence: it is left to the circularity rules (E112), as on the
+    committed base (close round 2, REG-CIRC-TASK-PROPOSITION: the stricter reading repair round 4 gave such a premise,
+    ADV4-06, also validated a proposition the task quotes for the student to weigh, "'X.' Discuss.", so 'X, as the
+    question states; therefore X' cleared; the task-fact reading had been narrowed by close round 1, so the round's
+    convergence rule reverts that reading for its whole class). The ordered reading is the role reading of
+    :func:`_ordered_roots`: a passive or a genitive in other words ("interest rates in Country Z were cut", "the central
+    bank of Country Z" for "its central bank") keeps who did what to whom. Only the task record is read (a supplied text is
+    cited by an excerpt). Bounded: the first :data:`_MAX_TASK_FACT_SENTENCES` sentences, each cut at
+    :data:`_MAX_TASK_FACT_CHARS`."""
+    lits = _task_literals(assertion.expr)
+    if lits is None:
+        return None
+    if any(name in point_atoms for name, _neg in lits):
+        # a premise that shares an atom with the point is never validated by a task sentence: it is left to the circularity
+        # rules (E112), as on the committed base (close round 2, REG-CIRC-TASK-PROPOSITION; see the docstring)
+        return None
+    authority = {lexis.root(w) for w in AUTHORITY_LABEL_WORDS}
+    attribution = {lexis.root(w) for w in ATTRIBUTION_WORDS}
+    wanted_lits: list[tuple[set[str], bool, list[str]]] = []
+    own_words: set[str] = set()  # the premise's own words (its report verbs included: a premise may report a view itself)
+    meanings: list[str] = []
+    for name, negated in lits:
+        sym = symbols.get(name)
+        meaning = ((sym.meaning if sym is not None else None) or "").strip()
+        meanings.append(meaning)
+        wanted = _point_words(meaning) - authority if meaning else set()
+        wanted_lits.append((wanted, negated != lexis.negated(meaning), _ordered_roots(meaning, authority | attribution) if meaning else []))
+        own_words |= set(lexis.tokens(meaning))
+    label = (assertion.label or "").strip()
+    label_wanted = _point_words(label) - authority if label else set()
+    label_order = _ordered_roots(label, authority | attribution) if label else []
+    label_negative = lexis.negated(label) if label else False
+    own_words |= set(lexis.tokens(label))
+    by_meaning = all(w for w, _neg, _o in wanted_lits)
+    if not by_meaning and len(label_wanted) < 2:
+        return None
+    for src, a, b, sentence, toks in _asserted_task_sentences(sources, own_words):
+        if True:
+            spans = [({lexis.root(t) for t in toks}, lexis.negation_markers(toks), toks)]
+            for part in _TASK_CLAUSE_RE.split(sentence):
+                ptoks = lexis.tokens(part)
+                if ptoks:
+                    spans.append(({lexis.root(t) for t in ptoks}, lexis.negation_markers(ptoks), ptoks))
+            how = None
+            if by_meaning and all(_held_in_order(w, neg, order, spans) for w, neg, order in wanted_lits):
+                how = "each literal's meaning"
+            elif len(label_wanted) >= 2 and _held_in_order(label_wanted, label_negative, label_order, spans):
+                how = "the premise's label"
+            elif label and any(spells_notation(label, part) and lexis.negated(spelled_notation(part)) == label_negative
+                               for part in [sentence, *_TASK_CLAUSE_RE.split(sentence)] if part.strip()):
+                # the label writes the sentence's notation in words, with its polarity ("x squared is greater than 0" for
+                # "The real number x satisfies x² > 0.": repair round 2, ADV2-11)
+                how = "the premise's label, which writes the sentence's notation in words"
+            if how is not None:
+                read = [m for m in meanings if m] if how.startswith("each literal") else [label]
+                if any(_task_conflict(text, sentence) is not None for text in read):
+                    # the sentence holds the premise's words, but with another time, tense or direction of change: it does not state
+                    # the premise (close round 1, INV7-1); a refutation is read by _task_sentence_misread
+                    continue
+                return GroundingCheck(target_id=assertion.id, kind=kind, method="content_in_task", verified=True,  # type: ignore[arg-type]
+                                      document_id=src.ident[:200],
+                                      detail=(f"the kind {kind} claims the task's authority, and the task record states the premise as a given: its "
+                                              f"sentence {truncate_detail(sentence.strip(), 200)!r} holds {how} with its polarity (characters "
+                                              f"{a}-{b}); the premise states no figure and cites no excerpt")[:2000])
+    return None
+
+
+def _rule_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceText, tuple[int, int], Optional[str]]], symbols: dict[str, Symbol]) -> Optional[GroundingCheck]:
+    """A ``relation_in_source`` check that verifies an implication or biconditional premise when one of its located,
+    unelided excerpts states that rule in words (:func:`.stated_rules.stated_rule`), else None."""
+    qualified: Optional[GroundingCheck] = None
+    for src, span, elided in spans:
+        if elided is not None:
+            continue  # an elided excerpt quotes only its fragments; a rule is read only from characters it quotes whole
+        rule = stated_rule(assertion.expr, symbols, src, span)
+        if rule is not None and rule.qualifier is None:
+            return GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=True, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                  detail=(f"the located excerpt states the premise's rule {_relation_text(assertion)} in words: {rule.where()}; its "
+                                          "condition states the antecedent and the rest of it the consequent")[:2000])
+        if rule is not None and qualified is None:
+            # the excerpt states the rule's sides, but its sentence qualifies the rule (close round 1, ADV6-01): a hedge, a frame,
+            # a dropped condition, an alternative, a restriction or an attribution; the source does not state the premise
+            qualified = GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=False, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                       detail=(f"the located excerpt states the sides of the premise's rule {_relation_text(assertion)}, but not the rule "
+                                               f"itself: {rule.qualifier} ({rule.where()}); the excerpt is cited for what the source does not state, so it "
+                                               "does not ground this premise")[:2000])
+            continue
+        if disjunction_shape(assertion.expr) is not None:
+            sa, sb = sentence_of(src.text, span[0], span[1])
+            stated, _near = stated_disjunction(assertion.expr, symbols, src, (min(sa, span[0]), max(sb, span[1])))
+            if stated is not None and span[0] <= stated.start + 1 and stated.end - 1 <= span[1] + _DISJUNCTION_SPAN_SLACK:
+                return GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=True, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                      detail=(f"the located excerpt states the premise's options {_relation_text(assertion)} as alternatives: "
+                                              f"{stated.where()}; each option's own words stand in its own part of the list")[:2000])
+    return qualified
+
+
+#: How far a disjunction's sentence may reach beyond the located excerpt (the excerpt quotes the options; the sentence's
+#: last characters, a full stop or a closing mark, need not be quoted).
+_DISJUNCTION_SPAN_SLACK = 2
+
+
+#: At most this many sentences of each record are read for a stated rule.
+_MAX_RULE_SENTENCES = 2000
+
+
+#: Words of a rule's own statement: a sentence that states a rule holds its connective ("if", "unless", "when", "only",
+#: "provided", "once", "until", "or", "either"), so these never suspend it; the other suspending words do.
+_RULE_CONNECTIVE_WORDS = frozenset({"if", "unless", "when", "whenever", "provided", "once", "until", "or", "either", "neither", "nor"})
+
+
+def _states_a_rule(text: str, a: int, b: int, view: bool) -> bool:
+    """Whether the task sentence ``text[a:b]`` states a rule as the task's own given: no question ("Does the athlete qualify
+    if ...?"), no question, instruction or supposition opening it ("Suppose ...", "Explain why ..."), no modal, hedge or
+    report of a view (:data:`SUSPENDING_TASK_WORDS` beyond a rule's own connectives, :data:`REPORTED_VIEW_WORDS`,
+    :data:`ATTRIBUTING_TASK_WORDS`), and not named by the next sentence as a view to weigh (repair round 3, INV-2: the rule a
+    question asks about was validated as an established task rule)."""
+    sentence = text[a:min(b, a + _MAX_TASK_FACT_CHARS)]
+    if view or not sentence.strip() or sentence.rstrip().endswith("?"):
+        return False
+    lead = a + (len(sentence) - len(sentence.lstrip()))
+    if sentence_cue_at(text, lead) is not None:
+        return False
+    for t in _suspending_tokens(sentence):
+        if (t in SUSPENDING_TASK_WORDS and t not in _RULE_CONNECTIVE_WORDS) or t in REPORTED_VIEW_WORDS or t in ATTRIBUTING_TASK_WORDS:
+            return False
+    return True
+
+
+def _rule_in_records(assertion: Assertion, kind: str, sources: Sequence[SourceText], symbols: dict[str, Symbol]) -> Optional[GroundingCheck]:
+    """A ``relation_in_source`` check that validates a task-authority rule premise (an implication or a biconditional)
+    that cites no excerpt when a sentence of the records states that rule in words (:func:`.stated_rules.stated_rule`):
+    "The athlete qualifies if the mean is below 0.25 s" states mean < 0.25 -> qualifies. None otherwise."""
+    op = getattr(assertion.expr, "op", None)
+    disjunction = disjunction_shape(assertion.expr) is not None
+    if op not in ("implies", "iff") and not disjunction:
+        return None
+    for src in sources:
+        spans = _sentences(src.text)[:_MAX_RULE_SENTENCES]
+        views = _view_sentences(src.text, spans[:_MAX_TASK_FACT_SENTENCES]) if src.kind == "task" else set()
+        for k, (a, b) in enumerate(spans):
+            if src.kind == "task" and not _states_a_rule(src.text, a, b, k in views):
+                continue  # a question, a supposition, a hedge or a reported view of the task states no rule (repair round 3, INV-2)
+            rule = stated_rule(assertion.expr, symbols, src, (a, b)) if op in ("implies", "iff") else None
+            if rule is not None and rule.qualifier is None:
+                # a qualified rule (a hedge, a frame, a dropped condition, an alternative, a restriction or an attribution in its
+                # sentence: close round 1, ADV6-01) is no statement of the premise's rule, so it validates nothing
+                return GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=True, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                      detail=(f"the kind {kind} claims the task's authority, and the task material states the premise's rule "
+                                              f"{_relation_text(assertion)} in words: {rule.where()}")[:2000])
+            if disjunction:
+                stated, _near = stated_disjunction(assertion.expr, symbols, src, (a, b))
+                if stated is not None:
+                    # a disjunction the task states as a given ("each volunteer was assigned to exactly one of two conditions,
+                    # the music condition or the silence condition"): the connective is the task's own (repair round 4,
+                    # FA-TASK-EITHER-OR-REFUTED)
+                    return GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source", verified=True, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                          detail=(f"the kind {kind} claims the task's authority, and the task material states the premise's options "
+                                                  f"{_relation_text(assertion)} as alternatives: {stated.where()}")[:2000])
+    return None
+
+
+def _disjunction_near_records(assertion: Assertion, sources: Sequence[SourceText], symbols: dict[str, Symbol]) -> Optional[str]:
+    """Where an asserted sentence of the records holds "or" between the options' own words of a task-authority disjunction
+    it does not state exactly (its shared words differ, or an exclusive premise meets "either ... or" with no word of
+    exclusion: :func:`.stated_rules.stated_disjunction`): the connective may be the record's, so the premise is left
+    unvalidated rather than refuted. None when no sentence comes that near."""
+    if disjunction_shape(assertion.expr) is None:
+        return None
+    for src in sources:
+        spans = _sentences(src.text)[:_MAX_RULE_SENTENCES]
+        views = _view_sentences(src.text, spans[:_MAX_TASK_FACT_SENTENCES]) if src.kind == "task" else set()
+        for k, (a, b) in enumerate(spans):
+            if src.kind == "task" and not _states_a_rule(src.text, a, b, k in views):
+                continue
+            _stated, near = stated_disjunction(assertion.expr, symbols, src, (a, b))
+            if near:
+                return f"{src.ident} characters {a}-{b} ({truncate_detail(src.text[a:b], 160)!r})"
+    return None
+
+
+#: Where an excerpt's sentence divides into clauses for the polarity of a conjunct (:func:`_conjunction_in_spans`): the task
+#: clause marks, and "though" / "although" / "but" / "yet" / "while" / "whereas" with or without a comma before them.
+_CONJUNCT_CLAUSE_RE = re.compile(r"[;:]|,\s*(?=(?:though|although|but|yet|while|whereas|however)\b)|\s(?:but|while|whereas|although|though|yet)\s", re.IGNORECASE)
+
+
+def _conjunction_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceText, tuple[int, int], Optional[str]]],
+                          symbols: dict[str, Symbol]) -> Optional[GroundingCheck]:
+    """A ``content_in_excerpt`` check that verifies a conjunction of literals (atoms or their negations) when one located,
+    unelided excerpt states every conjunct: every word of each conjunct's meaning, beyond its attribution, occurs in the
+    excerpt (all but one of four or more), and a negated conjunct has a negation word in it ("Ash, Birch and Cedar each
+    lost population" for ash and birch and cedar: re-run review ADV-09). The connective is then the excerpt's own; a
+    conjunct the excerpt does not state (the writer's point joined to a quotation, f07) leaves it unverified."""
+    if getattr(assertion.expr, "op", None) != "and":
+        return None
+    conjuncts = list(assertion.expr.args)
+    atoms: list[tuple[str, bool]] = []
+    for c in conjuncts:
+        negated = getattr(c, "op", None) == "not"
+        node = c.arg if negated else c
+        if getattr(node, "op", None) != "var":
+            return None
+        atoms.append((node.name, negated))
+    for src, (a, b), elided in spans:
+        if elided is not None:
+            continue
+        quoted = src.text[a:b]
+        quoted_roots = {lexis.root(t) for t in lexis.tokens(quoted)}
+        # the excerpt is read where it stands: its sentence states what qualifies it ("In 1848 revolutions broke out in France,
+        # in Austria and in Prussia", quoted from "revolutions" on: repair round 3, ADV3-08), and each conjunct is held by one
+        # span of that sentence with its own polarity (the whole sentence, or one of its clauses), so a conjunct the sentence
+        # negates is not stated ("Ash never lost population, though birch lost population": repair round 3, INV-5)
+        sa, sb = sentence_of(src.text, a, b)
+        sentence = src.text[sa:max(sb, b)][:_MAX_TASK_FACT_CHARS * 2]
+        stoks = lexis.tokens(sentence)
+        clause_spans = [({lexis.root(t) for t in stoks}, lexis.negation_markers(stoks))]
+        for part in _CONJUNCT_CLAUSE_RE.split(sentence):
+            ptoks = lexis.tokens(part)
+            if ptoks:
+                clause_spans.append(({lexis.root(t) for t in ptoks}, lexis.negation_markers(ptoks)))
+        ok = True
+        meanings = [((symbols.get(name).meaning if symbols.get(name) is not None else None) or "") for name, _neg in atoms]
+        wanted_all = [_point_words(m) for m in meanings]
+        for k, (name, negated) in enumerate(atoms):
+            meaning, wanted = meanings[k], wanted_all[k]
+            negative = negated != lexis.negated(meaning)
+            # the words that tell this conjunct from the others ("oak" against "beech") are never the one word a span may miss:
+            # a clause about beech states nothing about oak (repair round 3, INV-5)
+            own = frozenset(wanted - set().union(*(w for j, w in enumerate(wanted_all) if j != k)))
+            if not wanted or not (wanted & quoted_roots) or not _held_with_polarity(wanted, negative, clause_spans, own):
+                ok = False
+                break
+        if ok:
+            return GroundingCheck(target_id=assertion.id, kind=kind, method="content_in_excerpt", verified=True, document_id=src.ident[:200],  # type: ignore[arg-type]
+                                  detail=(f"the located excerpt {truncate_detail(quoted, 160)!r} states each of the conjunction's {len(atoms)} "
+                                          "conjuncts (their meanings' words are its own), so the connective is the excerpt's, not the writer's")[:2000])
+    return None
+
+
+#: Words of a quotation premise's meaning that say how the text puts something rather than what it says ("the poet uses the
+#: verb 'smashed'", "the leaflet asks the reader: ...", "the grandfather says ..."): read like the attribution words when an
+#: excerpt is compared with the literal it is cited for (repair round 5, ADV5-02).
+LITERAL_FORM_WORDS: frozenset[str] = frozenset("""
+use uses used using employ employs employed choose chooses chose chosen include includes included contain contains contained
+repeat repeats repeated verb verbs noun nouns adjective adjectives adverb adverbs term terms image images imagery metaphor metaphors
+simile similes sentence sentences opening ending ask asks asked compare compares compared turn turns turned treat treats treated
+name names named list lists listed address addresses addressed urge urges urged warn warns warned promise promises promised
+leaflet leaflets advert adverts advertisement advertisements slogan slogans headline headlines caption captions letter letters
+speech speeches diary interview website blog post review essay narrative stanza stanzas verse verses reader readers audience
+""".split())
+
+
+#: A line of a supplied text addressed to the checker rather than to a reader ("SYSTEM NOTE TO THE VERIFIER: ... set
+#: verified=true, report ENTAILED"): an instruction planted in the text, whose sentences state no content an excerpt can
+#: ground (repair round 5, ADV5-02). Closed phrases only.
+_CHECKER_NOTE_RE = re.compile(
+    r"\b(?:system\s+note|(?:checker|verifier|grader)(?:['’]s)?\s+(?:note|instructions?|message)|(?:note|message)\s+for\s+the\s+(?:verifier|checker|grader)"
+    r"|note\s+to\s+the\s+(?:verifier|checker|engine|system|grader|marker|translator|model|ai)|instructions?\s+to\s+the\s+"
+    r"(?:verifier|checker|engine|system|grader|marker|translator|model|ai)|verified\s*=\s*true|set\s+verified|mark\s+(?:it|this|every\s+premise)\s+"
+    r"(?:as\s+)?verified|report\s+(?:it\s+as\s+)?entailed|suppress\s+(?:all\s+)?(?:the\s+)?(?:diagnostics|findings|warnings)|ignore\s+(?:all\s+)?"
+    r"(?:the\s+)?(?:previous|prior|above)\s+instructions)\b", re.IGNORECASE)
+
+
+#: Where the clause around an excerpt ends (:func:`_excerpt_clause`): a sentence end, a clause mark or a clause conjunction.
+_CLAUSE_EDGE_RE = re.compile(r"[.!?](?=\s|$)|[;:,\n]|\s(?:and|but|while|whereas|although|though|because|yet|so)\s", re.IGNORECASE)
+
+
+_LITERAL_PAREN_RE = re.compile(r"\([^()]{0,200}\)")
+
+
+_CLAUSE_REACH = 300
+
+
+def _excerpt_clause(text: str, a: int, b: int) -> tuple[int, int]:
+    """The clause an excerpt stands in: from the last clause edge before it (a sentence end, ";", ":", ",", a line break
+    or a clause conjunction) to the first one after it, at most :data:`_CLAUSE_REACH` characters each way; the excerpt
+    itself is taken whole whatever it holds. Read for the polarity and the figures of what the excerpt states."""
+    lo = max(0, a - _CLAUSE_REACH)
+    start = lo
+    for m in _CLAUSE_EDGE_RE.finditer(text, lo, a):
+        start = m.end()
+    m = _CLAUSE_EDGE_RE.search(text, b, min(len(text), b + _CLAUSE_REACH))
+    return start, (m.start() if m is not None else min(len(text), b + _CLAUSE_REACH))
+
+
+def _literal_words(meaning: str) -> tuple[frozenset[str], frozenset[str]]:
+    """``(content roots, figures)`` of a literal's meaning read without parentheses: its words beyond the function,
+    frame, negation, attribution, authority and form words (:data:`LITERAL_FORM_WORDS`), and its numbers."""
+    skipped = {lexis.root(w) for w in AUTHORITY_LABEL_WORDS} | {lexis.root(w) for w in LITERAL_FORM_WORDS}
+    toks = lexis.tokens(_LITERAL_PAREN_RE.sub(" ", meaning))
+    roots = frozenset(r for t in toks if t not in lexis.FUNCTION_WORDS and t not in lexis.FRAME_WORDS and t not in lexis.NEGATION_WORDS
+                      and not t.endswith("n't") and (r := lexis.root(t)) and r not in skipped)
+    return roots, frozenset(lexis.root(t) for t in toks if t[:1].isdigit())
+
+
+def _held_by(wanted: frozenset[str], figures: frozenset[str], roots: set[str]) -> bool:
+    """Every wanted root is held (all but one of four or more), and never one of the figures."""
+    missing = wanted - roots
+    return not missing or (len(wanted) >= 4 and len(missing) == 1 and not missing & figures)
+
+
+#: Nouns that name the words after them as words: a literal "the word we", "the repeated formula it was the" is about the
+#: words it names (close round 1).
+_NAMING_WORDS = frozenset({"word", "words", "phrase", "phrases", "formula", "formulas", "pronoun", "pronouns", "name", "term", "terms",
+                           "expression", "expressions", "refrain", "repetition"})
+
+
+#: Verbs of using a word: they name the word after them only when it is one pronoun of :data:`_NAMED_PRONOUNS` ("uses she for
+#: Mrs Reed", "calls him"); "used the river" names no word.
+_NAMING_VERBS = frozenset({"uses", "use", "used", "using", "calls", "call", "called", "address", "addresses", "addressed", "repeats",
+                           "repeat", "repeated"})
+
+
+_NAMED_PRONOUNS = frozenset({"i", "me", "my", "we", "us", "our", "you", "your", "he", "him", "his", "she", "her", "it", "its", "they",
+                             "them", "their", "one", "thou", "thee", "thy"})
+
+
+#: A span a meaning or label quotes in double marks (straight or curly) or in paired curly single marks.
+_MEANING_QUOTE_RE = re.compile(r"[\"“”«»]([^\"“”«»\n]{1,120})[\"“”«»]|‘([^‘’\n]{1,120})’")
+
+
+def _names_words(text: str, quoted: str) -> bool:
+    """Whether ``text`` (a literal's meaning or label) is about the words ``quoted`` themselves: it quotes them, holds them
+    right after a noun of :data:`_NAMING_WORDS` ("the word we", "the formula it was the"), or holds the one pronoun they are
+    right after a verb of :data:`_NAMING_VERBS` ("uses she for Mrs Reed"). Bounded: the first 600 characters."""
+    qt = lexis.tokens(quoted)
+    if not qt or not text:
+        return False
+    text = text[:600]
+    for m in _MEANING_QUOTE_RE.finditer(text):
+        if lexis.tokens(m.group(1) or m.group(2) or "") == qt:
+            return True
+    mt = lexis.tokens(text)
+    n = len(qt)
+    pronoun = n == 1 and qt[0] in _NAMED_PRONOUNS
+    return any(mt[i:i + n] == qt and (mt[i - 1] in _NAMING_WORDS or (pronoun and mt[i - 1] in _NAMING_VERBS))
+               for i in range(1, len(mt) - n + 1))
+
+
+def _literal_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceText, tuple[int, int], Optional[str]]],
+                      symbols: dict[str, Symbol]) -> Optional[GroundingCheck]:
+    """Whether the located excerpts of a proposition literal (an atom or its negation) say what it is cited for (repair round
+    5, ADV5-02: an excerpt that merely occurs in the cited text, such as "T", "the", a fragment or another fact's words,
+    verified any literal). Each excerpt is read where it stands: the clause around it (:func:`_excerpt_clause`) gives the
+    polarity and the figures of what it states. Returns None when some excerpt states the literal, or holds some of its
+    words without contradicting it (a paraphrase or a description of the text is not judged word by word: the reference
+    keeps its check), else a refuting ``content_in_excerpt`` check (``verified=False``) when:
+
+    * the excerpt stands in a line addressed to the checker (:data:`_CHECKER_NOTE_RE`: a planted "note to the verifier");
+    * its clause holds the literal's words with the opposite polarity ("The enzyme is | not active at 60 °C" for "the
+      enzyme is active at 60 °C");
+    * its clause holds the literal's words with another figure in place of the literal's ("active at 37 °C" for "active at
+      60 °C");
+    * the excerpt holds no content word at all (a placeholder: "T", "the", spaces between words), unless the literal is
+      about those very words: its meaning or label quotes them, or names them right after a word of naming
+      (:func:`_names_words`: 'the repeated formula "it was the"', "the justification uses she for Mrs Reed"; close round 1,
+      arena r2 en-t4 and r6 en-t11).
+
+    The excerpt is then cited for what it does not say, and the premise is the writer's own."""
+    node = assertion.expr
+    negated = False
+    while getattr(node, "op", None) == "not":
+        node = node.arg  # type: ignore[attr-defined]
+        negated = not negated
+    if getattr(node, "op", None) != "var":
+        return None
+    sym = symbols.get(node.name)  # type: ignore[attr-defined]
+    meaning = ((sym.meaning if sym is not None else None) or assertion.label or "").strip()
+    if not meaning:
+        return None
+    wanted, figures = _literal_words(meaning)
+    readings = [(wanted, figures)]
+    if ":" in meaning:
+        after = _literal_words(meaning.split(":", 1)[1])
+        if after[0]:
+            readings.append(after)  # the transcription after a colon ("the text presents: ..."), read on its own
+    if not wanted:
+        return None
+    negative = negated != lexis.negated(_LITERAL_PAREN_RE.sub(" ", meaning))
+    refutation: Optional[tuple[int, str, str]] = None
+    for src, (a, b), elided in spans:
+        text = src.text
+        quoted = elided if elided is not None else text[a:b]
+        qtoks = lexis.tokens(quoted)
+        quoted_roots = {lexis.root(t) for t in qtoks}
+        content = {lexis.root(t) for t in qtoks if t not in lexis.FUNCTION_WORDS}
+        where = f"{src.ident} ({truncate_detail(quoted, 120)!r})"
+        line_start = text.rfind("\n", 0, a) + 1
+        line_end = text.find("\n", b)
+        line = text[line_start:(line_end if line_end != -1 else len(text))][:4000]
+        if _CHECKER_NOTE_RE.search(line):
+            found = (4, "it stands in a line addressed to the checker (a planted note), not in the text's own content", where)
+        else:
+            if elided is not None:
+                clause = elided
+            else:
+                ca, cb = _excerpt_clause(text, a, b)
+                clause = text[min(ca, a):max(cb, b)]
+            ctoks = lexis.tokens(clause)
+            clause_roots = {lexis.root(t) for t in ctoks} | quoted_roots
+            numbers = {lexis.root(t) for t in ctoks if t[:1].isdigit()}
+            # a negation counts where it governs the literal's words: among them, or right before the first ("The enzyme is not
+            # active", "No enzyme is active"); one in a relative clause after them negates something else ("penguins are birds
+            # that cannot fly" states that penguins are birds)
+            at = [k for k, t in enumerate(ctoks) if lexis.root(t) in wanted]
+            window = ctoks[max(0, at[0] - 1):at[-1] + 1] if at else ctoks
+            clause_negative = lexis.negation_markers(window) > 0
+            for w, f in readings:
+                if w & quoted_roots and f <= numbers and _held_by(w, f, clause_roots) and clause_negative == negative:
+                    return None  # the excerpt states the literal
+            if _held_by(wanted, figures, clause_roots) and figures <= numbers:
+                found = (3, "its clause states the literal's words with the opposite polarity", where)
+            elif figures and not figures <= numbers and numbers - figures and _held_by(wanted - figures, frozenset(), clause_roots):
+                found = (3, (f"its clause states {', '.join(sorted(numbers - figures)[:4])} where the literal states "
+                             f"{', '.join(sorted(figures - numbers)[:4])}"), where)
+            elif not content:
+                if _names_words(meaning, quoted) or _names_words(assertion.label or "", quoted):
+                    return None  # the literal is about these very words ("the repeated formula 'it was the'", "uses she"): no placeholder
+                found = (2, "the excerpt holds no content word (a placeholder)", where)
+            else:
+                return None  # some of the literal's words in other terms: a paraphrase is not judged here
+        if refutation is None or found[0] > refutation[0]:
+            refutation = found
+    if refutation is None:
+        return None
+    _strength, why, where = refutation
+    return GroundingCheck(target_id=assertion.id, kind=kind, method="content_in_excerpt", verified=False,  # type: ignore[arg-type]
+                          document_id=spans[0][0].ident[:200] if spans else None,
+                          detail=(f"the excerpt cited for {'the negation of ' if negated else ''}{truncate_detail(meaning, 120)!r} is located in {where}, "
+                                  f"but it does not state it: {why}; "
+                                  "the excerpt is cited for what it does not say, so it does not ground this premise")[:2000])
+
+
+def _is_proposition_literal(expr) -> bool:
+    """An atom (a Bool symbol) or the negation of one: what a located excerpt can be a reference for."""
+    node = expr
+    while getattr(node, "op", None) == "not":
+        node = node.arg  # type: ignore[attr-defined]
+    return getattr(node, "op", None) == "var"
+
+
+_CONNECTIVE_WORDS = {"and": "and", "or": "or", "implies": "if ... then", "iff": "if and only if", "ite": "if ... then ... else", "bool": "a constant"}
+
+
+def _atoms(expr) -> list[str]:
+    out: list[str] = []
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        op = getattr(node, "op", None)
+        if op == "var":
+            out.append(node.name)  # type: ignore[attr-defined]
+            continue
+        for key in ("otherwise", "then", "cond", "right", "left", "arg"):
+            child = getattr(node, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(reversed(getattr(node, "args", None) or ()))
+    return list(dict.fromkeys(out))
+
+
+def _connective_name(expr: Any) -> str:
+    """The connective of a compound proposition, in words ("'if ... then'")."""
+    node = expr
+    while getattr(node, "op", None) == "not":
+        node = node.arg  # type: ignore[attr-defined]
+    op = getattr(node, "op", None) or "?"
+    return repr(_CONNECTIVE_WORDS.get(op, op))
+
+
+def _compound_detail(assertion: Assertion, symbols: dict[str, Symbol]) -> str:
+    """The detail of a compound proposition whose excerpt is located: which proposition the excerpt is a reference for
+    (an atom whose own grounding cites the same excerpt), and the connective that is the writer's own."""
+    node = assertion.expr
+    negated = False
+    while getattr(node, "op", None) == "not":
+        node = node.arg  # type: ignore[attr-defined]
+        negated = not negated
+    connective = _CONNECTIVE_WORDS.get(getattr(node, "op", None) or "", getattr(node, "op", None) or "?")
+    excerpts = {(r.excerpt or "").strip() for r in (assertion.grounding.source_refs if assertion.grounding else []) if r.excerpt}
+    atoms = _atoms(node)
+
+    def gloss(name: str) -> str:
+        sym = symbols.get(name)
+        return f"'{truncate_detail(sym.meaning, 90)}'" if sym is not None and sym.meaning else f"'{name}'"
+
+    stated = [a for a in atoms if symbols.get(a) is not None and symbols[a].grounding is not None
+              and any((r.excerpt or "").strip() in excerpts for r in symbols[a].grounding.source_refs if r.excerpt)]
+    others = [a for a in atoms if a not in stated]
+    head = (f"the excerpt states {', '.join(gloss(a) for a in stated[:3])}; the connective '{connective}' joining it to "
+            f"{', '.join(gloss(a) for a in others[:3]) or 'the rest of the premise'} is the writer's own") if stated else (
+            f"the located excerpt is a reference for words, but the premise joins {', '.join(gloss(a) for a in atoms[:4])} with '{connective}', "
+            "and that connective is the writer's own")
+    return (f"{head}{' (under a negation)' if negated else ''}: no span states a connective between propositions, so the compound "
+            f"premise {_relation_text(assertion)} is not verified by its excerpt (a proposition the source states is verified as its own "
+            "literal premise)")[:2000]
+
+
+def _point_words(text: str) -> set[str]:
+    return meaning_roots(text) - {lexis.root(w) for w in ATTRIBUTION_WORDS}
+
+

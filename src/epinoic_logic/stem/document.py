@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from fractions import Fraction
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from types import MappingProxyType
@@ -34,6 +35,7 @@ from .nodes import Neg, Num, Percent, Sym, is_value, value_of
 from .normalize import reading_view
 from .numbers import scan_number
 from .parser import ParseContext, parse_math
+from .word_formulas import word_formula_view
 from .relations import (
     FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, _inline_restatement, _name_words, _word_after,
     named_quantities, plan_relations,
@@ -598,8 +600,71 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
             targets.append(ShowThatTarget(node=node, approx=approx, text=st_text, start=getattr(node, "start", pos), end=getattr(node, "end", pos)))
     restricts = any(w in request_text.lower() for w in _RESTRICT)
     values = _request_values(request_text, rd)
+    series, years = _request_series(rd)
     return RequestReading(bindings=bindings, quantities=tuple(quantities), relations=tuple(req_relations), targets=tuple(targets), text=request_text,
-                          restricts_domain=restricts, tables=tables, values=values, named_quantities=_named_quantities(request_text, quantities)), scope
+                          restricts_domain=restricts, tables=tables, values=values, named_quantities=_named_quantities(request_text, quantities),
+                          series=series, years=years), scope
+
+
+#: argument diagnostics (ST-RANGE-001): a list of bare numbers right before a value with a unit, which shares the unit ('10, 20 and 30 °C'),
+#: read in a bounded window
+_SHARED_UNIT_LIST_RE = re.compile(r"(?<![\w.,])((?:\d{1,12}(?:\.\d{1,12})?\s*,\s*){0,24}\d{1,12}(?:\.\d{1,12})?)\s*,?\s+(?:and|or)\s+$")
+_SERIES_NUMERAL_RE = re.compile(r"\d{1,12}(?:\.\d{1,12})?")
+_SHARED_UNIT_WINDOW = 240
+
+
+def _request_series(rd) -> tuple[tuple, tuple]:
+    """The data series and the data years of the request (argument diagnostics, ST-RANGE-001; docs/ARGUMENT_DIAGNOSTICS.md
+    section 3.4): three or more values written with one unit in one statement ("measured at 10 °C, 20 °C and 30 °C", a list that
+    writes its unit once, "at 10, 20 and 30 °C"), and the years the data name ("14.2 °C in 2000, 14.4 °C in 2005"): bare
+    four-digit integers of a statement that names two years or more, or a year and a value with a unit."""
+    per_statement: dict[tuple[str, str], set] = {}
+    unit_text: dict[str, str] = {}
+    for item in rd.items:
+        for ch in item.chains:
+            for op in ch.operands:
+                node = op.node
+                v = value_of(node) if node is not None and is_value(node) else None
+                if v is not None and v[2] is not None and not v[2].unknown and not v[3]:
+                    key = " ".join(v[2].text.split())
+                    per_statement.setdefault((item.statement_id, key), set()).add(v[0])
+                    unit_text[key] = v[2].text
+    starts = {st.id: st.start for st in rd.seg.statements}
+    for pv in rd.prose_values:
+        v = value_of(pv.node)
+        if v is not None and v[2] is not None and not v[2].unknown and not v[3]:
+            key = " ".join(v[2].text.split())
+            per_statement.setdefault((pv.statement_id, key), set()).add(v[0])
+            unit_text[key] = v[2].text
+            lo = max(starts.get(pv.statement_id, 0), pv.start - _SHARED_UNIT_WINDOW)
+            m = _SHARED_UNIT_LIST_RE.search(rd.reading[lo:pv.start])
+            if m is not None:
+                for numeral in _SERIES_NUMERAL_RE.findall(m.group(1)):
+                    per_statement[(pv.statement_id, key)].add(Fraction(numeral))
+    series = tuple((unit_text[key], tuple(sorted(vals))) for (_sid, key), vals in per_statement.items() if len(vals) >= 3)
+    per_year: dict[str, set[Fraction]] = {}
+    per_unit_values: dict[str, int] = {}
+
+    def _year(v) -> bool:
+        return v is not None and v[2] is None and not v[3] and v[1] is not None and not v[1].has_point and not v[1].scientific \
+            and v[0].denominator == 1 and 1000 <= v[0] <= 2999
+
+    for pv in rd.prose_values:
+        v = value_of(pv.node)
+        if _year(v):
+            per_year.setdefault(pv.statement_id, set()).add(v[0])
+        elif v is not None and v[2] is not None:
+            per_unit_values[pv.statement_id] = per_unit_values.get(pv.statement_id, 0) + 1
+    for item in rd.items:
+        for ch in item.chains:
+            for op in ch.operands:
+                v = value_of(op.node) if op.node is not None and is_value(op.node) else None
+                if _year(v):
+                    per_year.setdefault(item.statement_id, set()).add(v[0])
+                elif v is not None and v[2] is not None:
+                    per_unit_values[item.statement_id] = per_unit_values.get(item.statement_id, 0) + 1
+    years = tuple(sorted({y for sid, ys in per_year.items() if len(ys) >= 2 or per_unit_values.get(sid, 0) >= 1 for y in ys}))
+    return series, years
 
 
 def _request_values(request_text: str, rd: "_Read") -> tuple:
@@ -816,12 +881,17 @@ def _supplied_reading(data: tuple[str, ...], profile: StemProfile, limits: StemL
             tuple(uncertainties[:_MAX_SUPPLIED_VALUES]))
 
 
-def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimits, data: tuple[str, ...] = ()) -> StemDocument:
-    key = (_sha(text), _sha(request_text) if request_text else "", profile.key) + ((_sha("\x00".join(data)),) if data else ())
+def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimits, data: tuple[str, ...] = (), *,
+           reference_checks: bool = True) -> StemDocument:
+    key = (_sha(text), _sha(request_text) if request_text else "", profile.key) + ((_sha("\x00".join(data)),) if data else ()) \
+        + (() if reference_checks else ("no-reference-checks",))
     if len(text) > limits.max_response_chars:
         return _empty(text, request_text, profile, limits, f"the response has {len(text)} characters; the report contract allows {limits.max_response_chars}",
                       code="ST-LIM-001")
     reading = reading_view(text)
+    if profile.mode == "sciences" and reference_checks:
+        # argument diagnostics (ST-REF-002): word equations read in symbols, in the 1:1 reading view only (stem/word_formulas.py)
+        reading = word_formula_view(reading, profile.key)
     names = prescan_names(reading, limits=limits, cs=profile.computer_science)
     req_names = prescan_names(reading_view(request_text), limits=limits, cs=profile.computer_science) if request_text else frozenset()
     all_names = names | req_names
@@ -848,7 +918,8 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     definitions = [(rd.order[st.id], st.part, sym, variants, st.id) for st in rd.seg.statements if st.kind in ("sentence", "list_item")
                    for sym, variants in named_quantities(reading[st.start:st.end])]
     relations, findings, _ = plan_relations(rd.items, rd.prose_values, scope, request, profile, limits=limits, statement_order=rd.order,
-                                            code_items=rd.code_items, definitions=definitions, reading=rd.reading, text=reading)
+                                            code_items=rd.code_items, definitions=definitions, reading=rd.reading, text=reading, answer_text=text,
+                                            reference_checks=reference_checks)
     findings.extend(_unread_relation_signs(rd))
     findings.extend(_nuclear_equations(rd))
     if rd.skipped:

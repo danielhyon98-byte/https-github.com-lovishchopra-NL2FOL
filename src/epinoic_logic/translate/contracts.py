@@ -23,11 +23,22 @@ import hashlib
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from ..engine.results import VerificationResult
 from ..engine.statuses import VerificationStatus
 from ..ir.schema import Certainty, Grounding, GroundingKind, Problem, SourceRef
+from ..named import DefectLabel, NamedDiagnostic
+
+
+def _drop_empty(data, fields: tuple[str, ...]):
+    """Leave ``fields`` out of a dump while they are ``None`` or empty: fields added with the argument diagnosis, so a record
+    of an earlier release (and a record that carries none of them) dumps exactly as before."""
+    if isinstance(data, dict):
+        for name in fields:
+            if name in data and (data[name] is None or data[name] == []):
+                del data[name]
+    return data
 
 ClaimRole = Literal[
     # shared
@@ -181,12 +192,16 @@ class GroundingCheck(BaseModel):
     (a premise whose numeric content is a relation, not an assignment of stated figures: whether a record states that
     relation itself as a given; its figures occurring in a record never verify it), ``asserts_figure`` (on a symbol an under-determined encoding
     leaves open: whether a source clause asserts its figure; this coverage check alone decides the symbol's
-    ``verified`` flag, which is what the engine reads as coverage evidence), ``not_checkable`` (a kind with no
+    ``verified`` flag, which is what the engine reads as coverage evidence), ``content_in_excerpt`` (a premise that
+    restates the point: whether its located excerpt states the point's words, beyond their attribution; refuted when it
+    does not), ``content_in_task`` (a figureless task-authority premise that cites no excerpt: whether one asserted
+    sentence of the task record states each of its literals, with its polarity), ``not_checkable`` (a kind with no
     reference)."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     target_id: str = Field(description="symbol name or assertion id")
     kind: GroundingKind
-    method: Literal["verbatim_match", "normalized_match", "locator_exists", "numeric_in_task", "figures_in_excerpt", "relation_in_source", "asserts_figure", "not_checkable"]
+    method: Literal["verbatim_match", "normalized_match", "locator_exists", "numeric_in_task", "figures_in_excerpt", "relation_in_source", "asserts_figure",
+                    "content_in_excerpt", "content_in_task", "not_checkable"]
     verified: Optional[bool] = None
     document_id: Optional[str] = None
     detail: Optional[str] = Field(default=None, max_length=2000)
@@ -353,6 +368,45 @@ class StructuralFinding(BaseModel):
     claim_ids: list[str] = Field(default_factory=list)
     rule_source: Optional[str] = Field(default=None, max_length=200, description="e.g. 'english_specialist/paragraphs.md P7' (working rule, not an official IB rule)")
     deterministic: bool = True
+    defect: Optional[DefectLabel] = Field(default=None, description=(
+        "the canonical defect label the finding names (named.DEFECT_LABELS), set by its pack or by the channel through "
+        "named.DEFECT_OF_CODE; left out of every dump while None"))
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_defect(self, handler: SerializerFunctionWrapHandler):
+        return _drop_empty(handler(self), ("defect",))
+
+
+PremiseRoleKind = Literal["fact", "link", "either_or", "definition", "figure_relation"]
+PremiseAuthority = Literal["established", "unverified", "refuted", "writer_own"]
+PremiseMarking = Literal["translator_link", "translator_rule", "fact", "unmarked_link", "label_conflict", "source_link"]
+
+
+class PremiseRole(BaseModel):
+    """How the translation marks one premise (``roles.premise_roles``), recorded at translation time.
+
+    ``role`` is read from the expression, never from the label: ``link`` (an implication, or a biconditional of
+    propositions), ``either_or`` (a disjunction), ``definition`` (a biconditional with an atom on one side), ``figure_relation``
+    (a numeric relation that combines symbols), ``fact`` (everything else: atoms, negations, assignments, conjunctions).
+    ``authority`` is read from ``verified`` and the kind: ``established`` (a check in this process verified it),
+    ``refuted`` (a check failed), ``writer_own`` (no grounding, or an assumption, specialist inference or general knowledge),
+    ``unverified`` (a task or source kind no check verified). ``marked`` says how the translation marked a link-shaped
+    premise: ``translator_link`` (``specialist_inference`` with a ``link: <connective>`` note: the writer's own step, marked
+    as such), ``translator_rule`` (``general_knowledge``: a rule stated from subject knowledge), ``source_link`` (a check
+    verified the relation against a source), ``label_conflict`` (its kind claims a text or task authority while no check
+    verified the relation), ``unmarked_link`` (any other kind, unverified: the writer's link, not marked); every
+    other premise is ``fact``. ``connective`` is the connective of a ``link:`` note."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    assertion_id: str
+    role: PremiseRoleKind
+    authority: PremiseAuthority
+    marked: PremiseMarking
+    kind: Optional[GroundingKind] = None
+    connective: Optional[str] = Field(default=None, max_length=80)
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler: SerializerFunctionWrapHandler):
+        return _drop_empty(handler(self), ("kind", "connective"))
 
 
 class TranslationResult(BaseModel):
@@ -380,6 +434,16 @@ class TranslationResult(BaseModel):
     repairs: list[RepairRecord] = Field(default_factory=list, description="accepted retries: syntax repairs and semantic changes, recorded separately")
     coverage: list[CoverageNote] = Field(default_factory=list, description="whether the source asserts what an under-determined encoding leaves open")
     task_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64, description="sha256 of the task record the translation was validated against, when one was given")
+    premise_roles: list[PremiseRole] = Field(default_factory=list, description=(
+        "how the translation marks each premise of its problem (roles.premise_roles): the record that tells the writer's own "
+        "links from stated rules and checked facts; left out of every dump while empty"))
+    asserted_verified: list[str] = Field(default_factory=list, max_length=256, description=(
+        "the paths where the provider's JSON wrote a 'verified' key (parsing.asserted_verified_paths): discarded, because only "
+        "checks set it; left out of every dump while empty"))
+
+    @model_serializer(mode="wrap")
+    def _omit_new_empty(self, handler: SerializerFunctionWrapHandler):
+        return _drop_empty(handler(self), ("premise_roles", "asserted_verified"))
 
 
 class SourceIdentity(BaseModel):
@@ -487,3 +551,14 @@ class ClaimVerificationOutcome(BaseModel):
     summary: str = Field(max_length=4000, description="plain-language statement of what was checked, under which assumptions, and what remains unverified")
     created_at: str
     release: Optional[ReleaseAssessment] = Field(default=None, description="permission to release, separate from the formal status (set by compose_outcome)")
+    named_diagnostics: list[NamedDiagnostic] = Field(default_factory=list, description=(
+        "the argument diagnosis of this claim (rules argdiag-2): the trusted engine result's diagnostics merged with the claim "
+        "layer's; advisory, they never change display_status, and release refuses any whose effective severity is warning or "
+        "error. Left out of every dump while empty"))
+    diagnosis_incomplete: list[str] = Field(default_factory=list, description=(
+        "every rule or layer of the diagnosis that raised, ran out of budget or overflowed its bound, named: what it would "
+        "have found is not known, never 'none found'. Left out of every dump while empty"))
+
+    @model_serializer(mode="wrap")
+    def _omit_new_empty(self, handler: SerializerFunctionWrapHandler):
+        return _drop_empty(handler(self), ("named_diagnostics", "diagnosis_incomplete"))

@@ -81,11 +81,16 @@ Everything here is deterministic text handling; no finding is decided here.
 """
 from __future__ import annotations
 
+import bisect
+import contextlib
+import contextvars
 import functools
 import itertools
 import json
 import re
-from typing import NamedTuple, Optional
+from typing import Iterator, NamedTuple, Optional, Sequence
+
+from .. import lexis
 
 __all__ = [
     "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
@@ -2136,3 +2141,723 @@ def undelimited_quote_spans(text: str) -> list[tuple[int, int, str]]:
             out.append((a[0], b[1] + 1, inner))
     out.sort(key=lambda s: s[0])
     return out
+
+
+# --------------------------------------------------------------------------------------------- argument diagnosis readers
+# Reason and conclusion clauses and the roles of quotations, read for the argument diagnosis (translate.diag_argument,
+# translate.diag_evidence, translate.diag_core) and the one-sentence argument rule of translate.eligibility. Additions
+# only: the parsers and the quotation checks of this tree read quotations as they did.
+
+#: Subordinators that open a reason clause ("Since households borrowed less, ...", "Because the delegate objected to the
+#: terms, ..."). "because of" is a cause phrase, not a clause; "as" and "for" are left out (their temporal and
+#: prepositional readings are the common ones).
+REASON_LEADS: tuple[tuple[str, ...], ...] = (("since",), ("because",), ("given", "that"), ("seeing", "that"), ("now", "that"))
+
+
+#: A reason clause is read up to the comma that closes it, at most this many characters into the sentence.
+_REASON_CLAUSE_MAX = 240
+
+
+def leading_reason_clause(sentence: str) -> Optional[str]:
+    """The reason clause ``sentence`` opens with, read with its quotations masked: the words after a subordinator of
+    :data:`REASON_LEADS` up to the comma that closes the clause, when a main clause follows that comma ("Since households
+    borrowed less, the rate rise reduced consumer spending." gives "households borrowed less"). None otherwise ("Since 2010
+    prices have risen." has no comma; "Because of the war, ..." is a cause phrase). Linear in the sentence."""
+    head = mask_quotations(sentence[: _REASON_CLAUSE_MAX + 200]) if sentence else ""
+    spans = lexis.token_spans(head)
+    if not spans:
+        return None
+    toks = [t for _s, _e, t in spans]
+    lead = next((len(cue) for cue in REASON_LEADS if tuple(toks[: len(cue)]) == cue), 0)
+    if not lead or (toks[0] == "because" and len(toks) > 1 and toks[1] == "of"):
+        return None
+    if head[: spans[0][0]].strip(" \t\"'“”‘’([*_-"):
+        return None  # something other than markup stands before the subordinator
+    start = spans[lead - 1][1]
+    comma = head.find(",", start, _REASON_CLAUSE_MAX)
+    if comma < 0 or not any(c.isalpha() for c in head[comma + 1:]):
+        return None
+    clause = head[start:comma].strip()
+    return clause or None
+
+
+#: Conclusion connectives: the clause after one is drawn from what stands before it ("A, so B", "So B.", "A; therefore B").
+CONCLUSION_LEADS: tuple[tuple[str, ...], ...] = (
+    ("so",), ("therefore",), ("thus",), ("hence",), ("consequently",), ("as", "a", "result"), ("it", "follows", "that"),
+)
+
+
+#: The verbs of an evidential relative clause that draws a conclusion from the clause before it ("..., which shows that B").
+_EVIDENTIAL_VERBS = frozenset({"shows", "showed", "suggests", "suggested", "proves", "proved", "demonstrates", "demonstrated", "indicates",
+                               "indicated", "implies", "implied", "means", "meant", "confirms", "confirmed"})
+
+
+#: Words after "so" that make it no connective ("so far", "so many", "so that": a time, a degree, a purpose).
+_SO_NOT_CONNECTIVE = frozenset({"far", "much", "many", "long", "too", "that", "as", "called", "on", "forth", "few", "little", "very", "well", "often"})
+
+
+_MIN_CLAUSE_WORDS = 2
+
+
+def _clause_words(spans: Sequence[tuple[int, int, str]]) -> int:
+    return sum(1 for _a, _b, w in spans if w.isalpha() and w not in lexis.FUNCTION_WORDS)
+
+
+#: Pronouns that open a conclusion clause as its subject: they name what the reason clause is about ("The organism is a
+#: vertebrate, so it is a mammal"), so they count as a word of the conclusion (repair round 4, ADV4-13).
+_CONCLUSION_PRONOUNS = frozenset({"it", "they", "he", "she", "this", "these", "those", "we"})
+
+
+def _conclusion_words(spans: Sequence[tuple[int, int, str]]) -> int:
+    """The content words of a conclusion clause, a pronoun subject opening it counted as one."""
+    return _clause_words(spans) + (1 if spans and spans[0][2] in _CONCLUSION_PRONOUNS else 0)
+
+
+def states_own_reason(sentence: str) -> Optional[str]:
+    """The connective by which ``sentence`` (quotations masked) draws a conclusion from a reason it states itself, or None:
+    a conclusion connective after a clause boundary ("Graphite is not a metal, so graphite does not conduct electricity";
+    "...; therefore ..."; "... and so ..."), an evidential relative clause after one ("..., which shows that the narrator is
+    unreliable"), a reason clause opening the sentence ("Since households borrowed less, the rate rise reduced spending"),
+    or "because" joining two clauses ("Demand fell because prices rose"; "because of" is a cause phrase, not a reason
+    clause), with at least two content words on each side. Such a sentence is an argument in one
+    sentence: its reason and its conclusion are both in its text. Linear in the sentence."""
+    head = mask_quotations(sentence[:4000]) if sentence else ""
+    spans = lexis.token_spans(head)
+    toks = [w for _a, _b, w in spans]
+    if not toks:
+        return None
+    if leading_reason_clause(sentence or "") is not None:
+        return toks[0]
+    for i, w in enumerate(toks):
+        if i == 0:
+            continue
+        before = head[spans[i - 1][1]:spans[i][0]]
+        boundary = any(c in before for c in ",;:—–") or toks[i - 1] == "and"
+        cue = next((c for c in CONCLUSION_LEADS if tuple(toks[i:i + len(c)]) == c), None)
+        if cue is not None and boundary:
+            if cue == ("so",) and i + 1 < len(toks) and toks[i + 1] in _SO_NOT_CONNECTIVE:
+                continue
+            if _clause_words(spans[:i]) >= _MIN_CLAUSE_WORDS and _conclusion_words(spans[i + len(cue):]) >= _MIN_CLAUSE_WORDS:
+                return " ".join(cue)
+        if w == "because" and not (i + 1 < len(toks) and toks[i + 1] == "of"):
+            if _clause_words(spans[:i]) >= _MIN_CLAUSE_WORDS and _clause_words(spans[i + 1:]) >= _MIN_CLAUSE_WORDS:
+                return "because"
+        if w == "which" and boundary and i + 1 < len(toks) and toks[i + 1] in _EVIDENTIAL_VERBS:
+            if _clause_words(spans[:i]) >= _MIN_CLAUSE_WORDS and _clause_words(spans[i + 2:]) >= _MIN_CLAUSE_WORDS:
+                return f"which {toks[i + 1]}"
+    return None
+
+
+#: The task types (the router's plan) in which the writer corrects, marks or models a text: a ``correction`` or a
+#: ``suggestion`` is read only in such a task (repair round 4, INV-Q1). In an analysis of a supplied text (a literary
+#: analysis, a source analysis, an essay) the same frames ('The phrase → "..."', 'Model: "..."', '; use "..."', 'Not "x" but
+#: "y"', '"x" should be "y"') would let a writer pass altered words off as the text's, so there every such span stays a
+#: quotation and is checked. The plan's task type is read whole: a word of the closed list between word boundaries
+#: ("marking_feedback", "feedback", "proofreading", "redraft", "editing").
+FEEDBACK_TASK_RE = re.compile(r"(?<![a-z])(?:mark|marks|marking|feedback|correct|corrects|corrected|correcting|correction|corrections|proof-?read"
+                              r"|proof-?reading|redraft|redrafting|edit|editing)(?![a-z])", re.IGNORECASE)
+
+
+#: The task type under which quotation roles are read (:func:`quotation_task`); ``None`` when no task is known.
+_QUOTATION_TASK: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("epinoic_quotation_task", default=None)
+
+
+def corrections_apply(task_type: Optional[str]) -> bool:
+    """Whether a correction or a suggestion frame can give a quoted span its role in a task of type ``task_type``: only
+    in a marking, feedback, correction or proofreading task (:data:`FEEDBACK_TASK_RE`). An unknown task is none."""
+    return isinstance(task_type, str) and FEEDBACK_TASK_RE.search(task_type[:128]) is not None
+
+
+@contextlib.contextmanager
+def quotation_task(task_type: Optional[str], *, authoritative: bool = False, advisory: bool = False) -> Iterator[None]:
+    """Read the quotation roles of the enclosed calls in a task of type ``task_type`` (:func:`corrections_apply`).
+
+    The channel sets the plan's task type for the agent (``authoritative``), so a report that names another task type of
+    its own cannot widen the roles; a parser, a pack or a rule called on its own sets the task type it was given only when
+    no enclosing call set one. With no task set, no correction or suggestion role is read: every such span is checked as
+    a quotation (the conservative reading).
+
+    ``advisory`` marks a task type that a record states about itself: the ``task_type`` field of a delivered report or of
+    one of its claims, which the agent's own report carries. It never widens the roles: the enclosing call's task (the
+    channel's plan, or what the caller states) is kept, and with none the roles are read in no task (repair round 5,
+    INV-QROLE-1: outside the channel a report that declared a marking task for an analysis answer took an altered
+    quotation after a correction frame out of the checks)."""
+    if not authoritative and _QUOTATION_TASK.get() is not None:
+        yield
+        return
+    token = _QUOTATION_TASK.set(task_type if isinstance(task_type, str) and not advisory else "")
+    try:
+        yield
+    finally:
+        _QUOTATION_TASK.reset(token)
+
+
+def feedback_task(feedback: Optional[bool] = None) -> bool:
+    """Whether the roles are read in a feedback task: ``feedback`` when given, else the task the enclosing
+    :func:`quotation_task` set (none: False)."""
+    if feedback is not None:
+        return bool(feedback)
+    return corrections_apply(_QUOTATION_TASK.get())
+
+
+def in_quotation_task(fn):
+    """Decorator for a parser's ``parse_response``: its quotations are read in the task type it is given (its keyword
+    ``task_type``, else the signature's default), unless an enclosing call (the channel) already set the task."""
+    import inspect
+    param = inspect.signature(fn).parameters.get("task_type")
+    default = param.default if param is not None and param.default is not inspect.Parameter.empty else None
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with quotation_task(kwargs.get("task_type", default)):
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+#: Function words a writer quotes to MENTION them (a grammatical term, 'without "like" or "as"'), never to cite a source.
+MENTION_FUNCTION_WORDS: frozenset[str] = frozenset({"like", "as", "and", "but", "or", "the", "a", "an", "of", "to", "in", "so", "if", "because"})
+
+
+#: Connectives a writer may name as words: a quoted one is a mention only right after a naming frame
+#: (:data:`_NAMING_FRAME_RE`: 'the word "although"', 'the connective "however"'; repair round 1, re-run review ADV-07).
+#: Without the frame it may cite the text ('the unfinished "although" that ends the stanza', 'linked by "Also" and
+#: "When"'), so it stays a quotation and is checked.
+MENTION_CONNECTIVES: frozenset[str] = frozenset({
+    "although", "though", "however", "therefore", "whereas", "while", "whilst", "despite", "unless", "since", "yet", "moreover",
+    "furthermore", "nevertheless", "nonetheless", "meanwhile", "thus", "hence", "besides", "instead", "otherwise", "then", "also",
+    "too", "when", "because", "but", "and", "so", "or"})
+
+
+#: The frame that names the span after it as a word: "the word", "the connective", "the conjunction", "the linking word",
+#: "the discourse marker", "the adverb" (with "the", "a", "this" or "that"), right before the span.
+_NAMING_FRAME_RE = re.compile(r"\b(?:the|a|this|that)\s+(?:word|connective|conjunction|linking\s+word|discourse\s+marker|adverb)$", re.IGNORECASE)
+
+
+#: Markup and spacing between a frame and the span it governs ("→ "*x*"", "**Model:** "...").
+_FRAME_GAP = " \t*_`"
+
+
+#: A correction frame right before a span that needs nothing else: an arrow, or an explicit correction label.
+_CORRECTION_BEFORE_RE = re.compile(r"(?:→|⟶|⇒|->|=>|\bcorrect(?:ed)?\s+(?:form|version|sentence)\s*:|\bcorrection\s*:)$", re.IGNORECASE)
+
+
+#: Feedback frames that present the span after them as the corrected or model form, with no original span before it
+#: (repair round 4, ADV4-04; read only in a feedback task): "it should read", "this should be", "the corrected sentence is",
+#: "a better version would be", "rewrite it as", "the sentence becomes".
+_FEEDBACK_BEFORE_RE = re.compile(
+    r"(?:\b(?:should|would|could|must|ought\s+to|needs?\s+to|has\s+to)\s+(?:then\s+)?(?:be|read|say|become)"
+    r"|\b(?:correct(?:ed|ion)?|right|accurate|better|improved|stronger|clearer|more\s+(?:accurate|natural|idiomatic|formal|precise)|model)"
+    r"\s+(?:form|version|sentence|phrase|phrasing|spelling|word|wording|verb|ending|answer|option|choice|alternative|line|clause|paragraph)s?"
+    r"\s*(?:(?:is|are|would\s+be|could\s+be|might\s+be|will\s+be|reads?|would\s+read)\b)?"
+    r"|\b(?:rewrite|rewriting|rephrase|rephrasing|reword|rewording|redraft|redrafting|write|writing|correct|correcting)\s+"
+    r"(?:it|this|that|them|these|the\s+(?:whole\s+)?(?:sentence|phrase|clause|line|paragraph|verb|ending))\s+as"
+    r"|\b(?:becomes?|became|turns?\s+into|is\s+(?:corrected|changed)\s+to))\s*:?$", re.IGNORECASE)
+
+
+#: What a correction leads to, after a correction span on the same line ('change "soy fue" to "fui", giving "Yo fui al
+#: mercado ayer."'): the span after it is the corrected whole (feedback tasks only).
+_CORRECTION_RESULT_RE = re.compile(r"(?:giving|to\s+give|which\s+gives|so\s+(?:that\s+)?(?:it|the\s+(?:sentence|line|phrase))\s+reads?|to\s+read)\s*:?$",
+                                   re.IGNORECASE)
+
+
+#: A correction written in words between an original span and the span that corrects it ('"x" should be "y"', '"x" should
+#: read "y"', 'change "x" to "y"', 'replace "x" with "y"'): the frame names a correction only when an original span stands
+#: right before it, so 'the speaker should be "free"' with no original stays a quotation and is checked. "Becomes" is a
+#: correction frame only in a feedback task ('"simpático" becomes "simpática"'); in an analysis 'the "rose" becomes a
+#: "canker"' describes the text, and both quotations are checked.
+#: The gap patterns between two spans consume each run of spaces and markup once (possessive quantifiers: close round 2,
+#: SEC-QROLE-QUADRATIC): the greedy runs they replace read a long run of spaces between two quotations again from every
+#: position of it. They match exactly the strings the greedy forms matched, since a run of spaces or markup is never what
+#: the next part of a pattern needs.
+_WORD_CORRECTION_GAP_RE = re.compile(r"^[\s*_`]*+(?:,\s*+)?(?:should\s+(?:be|read)|is\s+(?:corrected|changed)\s+to|(?:with|by)|to|into)\s*+:?[\s*_`]*+$",
+                                     re.IGNORECASE)
+
+
+_BECOMES_GAP_RE = re.compile(r"^[\s*_`]*+(?:,\s*+)?(?:becomes?|became|turns?\s+into|changes?\s+to|must\s+be|needs?\s+to\s+be)\s*+:?[\s*_`]*+$", re.IGNORECASE)
+
+
+#: What opens a 'change "x" to "y"' correction before its original span.
+_CHANGE_BEFORE_RE = re.compile(r"\b(?:change|changing|correct|correcting|replace|replacing|swap|swapping|rewrite|rewriting)\s*$", re.IGNORECASE)
+
+
+#: Where a sentence of a line starts: a label may open the line or a sentence after a stop.
+_SENTENCE_START_RE = re.compile(r"[.!?;]\s+")
+
+
+#: The head of a label (:data:`_CORRECTION_LABEL_RE`, :data:`_SUGGESTION_LABEL_RE` without their anchors and their closing
+#: run of spaces and markup), read once from where a line or a sentence starts (:class:`_LineIndex`). The colon a head ends
+#: at is the first one after the label word, so a stretch matches the anchored label pattern exactly when it holds the head
+#: and nothing but spaces and markup after its colon.
+_CORRECTION_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+(?:model(?:\s+(?:answer|sentence|version|paragraph))?|corrected(?:\s+(?:version|sentence|form))?|correction"
+                                       r"|better|improved(?:\s+version)?|rewrite|rewritten)\b[^:\"“”«»\n]{0,40}:", re.IGNORECASE)
+
+
+_MARKUP_RUN_RE = re.compile(r"[\s*_`]*+")
+
+
+#: A suggestion frame right before a span: "you could write / add / use / say / try", "instead write", "write instead".
+_SUGGESTION_BEFORE_RE = re.compile(r"(?:\byou\s+(?:could|might|can|may)\s+(?:also\s+)?(?:write|add|use|say|try)|\binstead\s+write|\bwrite\s+instead)\s*:?$",
+                                   re.IGNORECASE)
+
+
+#: "try" or "add" as an imperative right before a span: at the start of the line or of a sentence or clause, or after "or",
+#: "and", "perhaps", "maybe", "please" or "then" ("Try "para ayudar"", "or add "sin embargo""); never a reporting use ("the
+#: speaker goes on to add "...""), which stays a quotation.
+_IMPERATIVE_SUGGESTION_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\b(?:or|and|perhaps|maybe|please|then)\s+)(?:try|add|write|use|say|put|choose)\s*:?$", re.IGNORECASE)
+
+
+_SUGGESTION_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+suggestions?\b[^:\"“”«»\n]{0,40}:", re.IGNORECASE)
+
+
+#: A negating frame that mentions a span of any length: the writer says the text does not use it ('never uses "I"'), avoids
+#: or leaves it out ('the writer avoids "very"'), or could have used it but did not ('the writer could have used "moved"';
+#: repair round 4, ADV4-03). Each says the words are NOT the text's, so the span attributes nothing to the text.
+_MENTION_ANY_BEFORE_RE = re.compile(
+    r"(?:\bnever\s+uses?|\bdoes\s+not\s+use|\bdoesn['’]t\s+use|\bdo\s+not\s+use|\bdon['’]t\s+use|\bdid\s+not\s+use|\bdidn['’]t\s+use"
+    r"|\bavoids?|\bavoided|\bavoiding|\bomits?|\bomitted|\bomitting|\bleaves\s+out|\bleft\s+out|\bleaving\s+out"
+    r"|\b(?:could|might|would|may)\s+(?:also\s+)?(?:have|instead\s+have)\s+(?:used|written|said|chosen|picked|put|preferred)"
+    r"|\b(?:chose|chooses|choosing|decided|decides)\s+not\s+to\s+(?:use|write|say)"
+    r"|\b(?:instead\s+of|rather\s+than|in\s+place\s+of)\s+(?:using|writing|saying|choosing))$", re.IGNORECASE)
+
+
+#: A negated report that mentions what the text does NOT say ('It does not say that the plan has "failed"', 'the source never
+#: calls it "a success"'): the span is the writer's word for a claim the text does not make, never a quotation of it
+#: (repair round 1, re-run review A-FA-MENTION). The report verb may stand up to 80 characters before the span, in the
+#: same clause: no other quotation mark, no comma, semicolon or colon and no clause word ("so", "but", "which", "whose",
+#: "because", ...) between them ('The poem never mentions the war, so ... whose "dates and figures"' quotes).
+_MENTION_NEGATED_REPORT_RE = re.compile(
+    r"(?:\bdoes\s+not|\bdoesn['’]t|\bdid\s+not|\bdidn['’]t|\bdo\s+not|\bdon['’]t|\bnever|\bnowhere)\s+(?:say|says|said|state|states|stated|claim|claims|"
+    r"claimed|call|calls|called|describe|describes|described|mention|mentions|mentioned|write|writes|wrote|suggest|suggests|suggested)\b"
+    r"(?![^\n]*?\b(?:so|but|which|whose|because|while|whereas|although|though)\b[^\n]*$)[^.!?\n\"“”«»,;:]{0,80}$", re.IGNORECASE)
+
+
+#: A contrast that corrects: 'Not "We was" but "We were"': the span after "but" corrects the span after "not" (feedback
+#: tasks only).
+_NOT_BEFORE_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\s)not\s*$", re.IGNORECASE)
+
+
+_BUT_GAP_RE = re.compile(r"^[\s*_`]*+,?\s*+but[\s*_`]*+$", re.IGNORECASE)  # possessive runs: each read once (close round 2)
+
+
+#: A negating frame that mentions a short span (at most :data:`_SHORT_MENTION_WORDS` words): 'without "like" or "as"', 'with no
+#: "rhyme"'. A longer span after "without" ('departs without "a backward glance"') may be the text's own words, so it stays a
+#: quotation and is checked. A contrast ("unlike", "rather than", "instead of") is no such frame: what it sets aside is as
+#: often the text's own words ('Unlike "the bright fields" of the morning, the river ...') as a word the text does not use, so the
+#: span after it stays a quotation and is checked, as on the committed base (close round 2, DIFF-02: the contrast frames,
+#: "unlike" among them since repair round 5, ADV5-08, hid an invented quotation presented as the text's; the mention frames
+#: had been narrowed by close round 1, so this reading is reverted for its whole class under the round's convergence rule).
+_MENTION_SHORT_BEFORE_RE = re.compile(r"(?:\bwithout|\bwith\s+no|\bno)$", re.IGNORECASE)
+
+
+_SHORT_MENTION_WORDS = 3
+
+
+#: A verb phrase the writer negates with a single quoted word as its verb or object ('the waves do not "crash"', 'the speaker
+#: is not "afraid"'): the text is said NOT to have that word (repair round 5, ADV5-08). Only one word: a longer span after a
+#: negated verb ('The king does not "rule with mercy"', 'the speaker is not "utterly defeated"') may present words as the
+#: source's, so it stays a quotation and is checked (close round 1, rerun-verify6-weakened-negated-quotation-mention). A bare
+#: "not" after a comma or opening a line ('Not "x" but "y"', '"x", not "y"') is a contrast and stays a quotation.
+_MENTION_NEGATED_VERB_BEFORE_RE = re.compile(r"(?:\b(?:do|does|did|is|are|was|were|has|have|had|will|would|can|could|should|must)\s+not"
+                                             r"|\b(?:don|doesn|didn|isn|aren|wasn|weren|hasn|haven|hadn|won|wouldn|can|couldn|shouldn|mustn)['’]t)$",
+                                             re.IGNORECASE)
+
+
+#: A credit to a source right after a span ('..., as the chronicle claims', '(as the poet puts it)', '— as the report says'):
+#: the span is given as the source's words, so it stays a quotation whatever frame stands before it (close round 1).
+_CREDIT_AFTER_RE = re.compile(r"^[\s*_`]*[,;(—–-]?[ \t]*as[ \t]+(?:(?:the|a|an|this|that|his|her|its|their)[ \t]+)?(?:[^\W\d_]+[ \t]+){0,3}?"
+                              r"(?:says?|said|claims?|claimed|states?|stated|writes?|wrote|puts[ \t]+it|put[ \t]+it|calls?[ \t]+it|has[ \t]+it|reports?|"
+                              r"reported|records?|recorded|notes?|noted|tells[ \t]+us|describes?[ \t]+it|insists?)\b", re.IGNORECASE)
+
+
+#: An example the writer offers of a kind of word, with an indefinite article ('a neutral word such as "moved"', 'a calm word
+#: like "rolled"', 'an alternative such as "drifted"'): a word the text could have used, not one it uses (repair round 5,
+#: ADV5-08). A plural or definite phrase ('violent verbs such as "smashed"', 'the verb "smashed"') names the text's own words
+#: and stays a quotation.
+_MENTION_EXAMPLE_BEFORE_RE = re.compile(
+    r"\b(?:a|an|any|another|some\s+other)\s+(?:[^\W\d_]+[\s,]+){0,3}?(?:word|verb|noun|adjective|adverb|term|phrase|expression|synonym|"
+    r"alternative|option|choice|wording)\s*,?\s*(?:such\s+as|like|e\.?\s?g\.?,?|for\s+example,?|for\s+instance,?)$", re.IGNORECASE)
+
+
+#: A reporting verb under a negation right before a span ('the poet does not write "splashed"', 'never says "afraid"') is an
+#: attribution like any other, so the span is a quotation and is checked, as on the committed base. Repair round 5 (ADV5-08)
+#: read such a span as a mention, with one word allowed between the negation and the verb; that also read 'not only writes
+#: "..."', 'does not just say "..."' and 'not only says "..."', which affirm the attribution, as "the text does not say
+#: this", so an invented quotation put after them was never checked (close round 3, INV-QR-1). The mention frames of
+#: ADV5-08 had been narrowed by close round 1, so under the round's convergence rule this reading is reverted for its whole
+#: class (every negated reporting verb right before a span); a negated report with words between the verb and the span ('It
+#: does not say that the plan has "failed"', 'never calls it "a success"': :data:`_MENTION_NEGATED_REPORT_RE`) keeps its
+#: mention, as before repair round 5.
+#: What joins a span to the one before it in a list that the first span's frame governs ('"x" → "y", or "z"', '"like" or "as"').
+_LIST_JOIN_RE = re.compile(r"^[\s*_`]*+(?:,|;|,?\s*+(?:or|and|nor))[\s*_`]*+$", re.IGNORECASE)  # possessive runs (close round 2)
+
+
+#: An attribution before a span or a citation after it: such a span stays a quotation whatever frame surrounds it, so a
+#: writer cannot pass words off as a source's by also calling them a correction.
+_ATTRIBUTION_BEFORE_RE = re.compile(r"\b(?:says?|said|states?|stated|writes?|wrote|reads?|calls?|called|describes?|described|quotes?|quoted|the\s+(?:poem|poet|text|"
+                                    r"extract|passage|source|author|speaker|narrator|line|document))\s*[,:]?$", re.IGNORECASE)
+
+
+_CITATION_AFTER_RE = re.compile(r"^[\s*_`]*[(\[]\s*(?:l{1,2}\.?|lines?|stanza|para(?:graph)?|p{1,2}\.?|page|source)\s*\d", re.IGNORECASE)
+
+
+#: A frame whose subject is a quotation of a text ('the last quotation should read "..."', 'your quote "x" should be "y"',
+#: 'the poem's exact words are "..."'): the span after it is the text's words as they should be quoted, so it stays a
+#: quotation and is checked even in a feedback task (repair round 4).
+_QUOTATION_SUBJECT_RE = re.compile(r"(?:\b(?:the|your|his|her|their|this|that|each|every|last|first|second|third|final|opening|closing)\s+(?:[^\W\d_]+\s+){0,2}"
+                                   r"(?:quotations?|quotes?|citations?|excerpts?)"
+                                   r"|\b(?:poem|poet|text|extract|passage|source|author|writer|novel|play|speaker)['’]s\s+(?:own\s+|exact\s+|actual\s+)?"
+                                   r"(?:words?|line|phrase|wording))\b(?:(?![.!?;]\s).){0,80}$", re.IGNORECASE)
+
+
+#: A reporting verb under a modal prescribes, it does not report ("it should read", "the sentence would say"): in a feedback
+#: task such a frame is a correction, not an attribution.
+_PRESCRIBED_REPORT_RE = re.compile(r"\b(?:should|would|could|must|ought\s+to|needs?\s+to|has\s+to)\s+(?:then\s+)?(?:read|say|state)\s*[,:]?$", re.IGNORECASE)
+
+
+_ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|->|=>)")
+
+
+_QUOTE_STRIP = "\"'“”‘’«»„‟ *_`.,;:!?"
+
+
+class _LineIndex:
+    """Where the lines of one text start, and the sentences of each line (:data:`_SENTENCE_START_RE`), read once: the
+    quotation-role reader looks them up for each span by bisection, so the roles of many spans on one long line cost one
+    pass over the text (close round 2, SEC-QROLE-QUADRATIC: the reader read the whole line before every span, and every
+    earlier span for each span). A label head (:data:`_CORRECTION_LABEL_HEAD_RE`) is read once from each place a line or a
+    sentence starts. Nothing here changes a role: each lookup answers what the slice it replaces answered."""
+
+    __slots__ = ("text", "newlines", "_sentences", "_heads")
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.newlines = [m.start() for m in re.finditer("\n", text)]
+        self._sentences: dict[int, tuple[list[int], list[int]]] = {}
+        self._heads: dict[tuple[int, int], Optional[tuple[int, int]]] = {}
+
+    def line_start(self, pos: int) -> int:
+        """``text.rfind("\\n", 0, pos) + 1``."""
+        k = bisect.bisect_left(self.newlines, pos)
+        return self.newlines[k - 1] + 1 if k else 0
+
+    def line_end(self, pos: int) -> int:
+        """The first line break at or after ``pos``, else the end of the text."""
+        k = bisect.bisect_left(self.newlines, pos)
+        return self.newlines[k] if k < len(self.newlines) else len(self.text)
+
+    def frame_before(self, start: int) -> str:
+        """:func:`_frame_before` with the line start looked up."""
+        return self.text[max(self.line_start(start), start - 120):start].rstrip(_FRAME_GAP)
+
+    def _sentence_marks(self, ls: int) -> tuple[list[int], list[int]]:
+        got = self._sentences.get(ls)
+        if got is None:
+            starts: list[int] = []
+            ends: list[int] = []
+            for m in _SENTENCE_START_RE.finditer(self.text, ls, self.line_end(ls)):
+                starts.append(m.start())
+                ends.append(m.end())
+            got = self._sentences[ls] = (starts, ends)
+        return got
+
+    def _head(self, s: int, head: "re.Pattern[str]") -> Optional[tuple[int, int]]:
+        """``(the end of the label head read from s, the end of the run of spaces and markup after it)``, or None."""
+        key = (s, id(head))
+        if key not in self._heads:
+            le = self.line_end(s)
+            m = head.match(self.text, s, le)
+            self._heads[key] = None if m is None else (m.end(), _MARKUP_RUN_RE.match(self.text, m.end(), le).end())
+        return self._heads[key]
+
+    def label_governs(self, a: int, head: "re.Pattern[str]") -> bool:
+        """Whether a label opens the line of the span at ``a``, or the last sentence of that line before it, and nothing but
+        spaces and markup stands between its colon and the span: what matching the anchored label pattern on the line's
+        text before the span from the line start, or from the end of its last sentence mark, read (sentence marks never
+        straddle a span's opening mark, so each is read from the whole line once)."""
+        ls = self.line_start(a)
+        starts, ends = self._sentence_marks(ls)
+        k = bisect.bisect_left(starts, a)
+        for s in (ls, ends[k - 1] if k else None):
+            if s is None:
+                continue
+            got = self._head(s, head)
+            if got is not None and got[0] <= a <= got[1]:
+                return True
+        return False
+
+
+def _frame_before(text: str, start: int, lines: "Optional[_LineIndex]" = None) -> str:
+    """The text before a span on its line, with the markup and spaces next to the span removed."""
+    if lines is not None:
+        return lines.frame_before(start)
+    line_start = text.rfind("\n", 0, start) + 1
+    return text[max(line_start, start - 120):start].rstrip(_FRAME_GAP)
+
+
+def _word_correction(text: str, spans: Sequence[tuple[int, int, str]], k: int, *, feedback: bool, lines: "Optional[_LineIndex]" = None) -> bool:
+    """Whether span ``k`` is the corrected form of the span right before it on its line, joined by a correction written in
+    words ('"x" should be "y"', 'change "x" to "y"', 'replace "x" with "y"'; in a feedback task also '"x" becomes "y"')."""
+    if k == 0:
+        return False
+    pa, pb, _inner = spans[k - 1]
+    a = spans[k][0]
+    if pb > a or "\n" in text[pb:a]:
+        return False
+    gap = text[pb:a]
+    if feedback and _BECOMES_GAP_RE.match(gap) is not None:
+        return True
+    if _WORD_CORRECTION_GAP_RE.match(gap) is None:
+        return False
+    word = gap.strip(" \t*_`:,").lower()
+    if word in ("to", "into", "with", "by"):  # 'change "x" to "y"', 'replace "x" with "y"': the verb stands before the original
+        return _CHANGE_BEFORE_RE.search(_frame_before(text, pa, lines)) is not None
+    return True
+
+
+#: Role lists of at most this many texts are kept (the parser, the packs and the structural checks read one answer's roles
+#: six to nine times); a text is kept with the roles read from it, so a cached answer is the one the reader gives.
+_ROLE_CACHE_SIZE = 16
+
+
+def _span_roles(text: str, spans: Sequence[tuple[int, int, str]], *, feedback: Optional[bool] = None) -> list[str]:
+    """The role of every span of ``spans`` (in order), by closed frames only (see :data:`QUOTATION_ROLES`):
+
+    * ``correction`` (a feedback task only, :func:`feedback_task`): the span follows an arrow or an explicit correction
+      label ("correct form:", "correction:"), or a feedback frame with no original before it ("it should read", "the
+      corrected sentence is", "a better version would be", "rewrite it as"), or it corrects the span right before it on its
+      line with a correction in words ('"x" should be "y"', '"x" becomes "y"', 'change "x" to "y"', 'replace "x" with
+      "y"', 'not "x" but "y"'), or follows what a correction gives (', giving "..."'), or it opens a line or a sentence
+      under a correction label ("Model:", "Corrected:", "Better:") without being the original an arrow corrects, or it
+      continues a list the previous correction span opened ('→ "x", or "y"');
+    * ``suggestion`` (a feedback task only): it follows "you could write / add / use / say / try", "instead write", or an
+      imperative "try", "add", "write", "use", "say", "put" or "choose" (at the start of a line, sentence or clause:
+      'write "my friend and I"', 'use "we went"'), or sits on a "Suggestion" line without being the original an arrow
+      corrects;
+    * ``mention`` (any task): it is one quoted function word (:data:`MENTION_FUNCTION_WORDS`), or one connective a naming
+      frame names as a word (:data:`MENTION_CONNECTIVES`: 'the word "although"', 'the connective "however"'), or follows
+      a frame that says the text does not use the words ("never uses", "does not use", "avoids", "leaves out", "could have
+      used"), or a negated report ('It does not say that the plan has "failed"'), or is a span of at most three words
+      after "without", "with no" or "no" (never after a contrast: "unlike", "rather than", "instead of"), or continues a list
+      such a frame opened;
+    * ``quotation``: anything else, and any span that an attribution precedes (a negated reporting verb right before the
+      span included: 'never says "x"', 'not only writes "x"', 'does not just say "x"'; close round 3, INV-QR-1) or a line
+      citation follows (an imperative "write" or "say" at the start of a clause has no subject and attributes nothing: it
+      is a suggestion in a feedback task and a quotation in any other).
+
+    A content word under "the word" or "the verb" stays a quotation ("the verb 'smashed'" is still checked), and so does a
+    span after a word frame with no original before it ('the speaker should be "free"' outside a feedback task). Outside a
+    feedback task no frame makes a span the writer's own words except a mention, which says the words are not the
+    text's: an arrow, a "Model:" label, an imperative, 'Not "x" but "y"' or '"x" should be "y"' in a literary or a
+    source analysis leaves the span a quotation, so an altered quotation framed that way is still named (repair round 4,
+    INV-Q1).
+
+    Linear in the text (close round 2, SEC-QROLE-QUADRATIC): the line of each span, its sentence marks and its label heads
+    are looked up in a :class:`_LineIndex` read once, an earlier correction on the span's line is known from the end of the
+    last correction span, and the gap patterns read each run of spaces once."""
+    return list(_roles_read(text, tuple(spans), feedback_task(feedback)))
+
+
+def _roles_read(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read: bool) -> tuple[str, ...]:
+    if len(spans) < 2:
+        return _roles_of(text, spans, feedback_read)
+    return _roles_cached(text, spans, feedback_read)
+
+
+@functools.lru_cache(maxsize=_ROLE_CACHE_SIZE)
+def _roles_cached(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read: bool) -> tuple[str, ...]:
+    return _roles_of(text, spans, feedback_read)
+
+
+def _roles_of(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read: bool) -> tuple[str, ...]:
+    lines = _LineIndex(text)
+    roles: list[str] = []
+    last_correction_end = -1  # the end of the last span read as a correction
+    for k, (a, b, inner) in enumerate(spans):
+        before = lines.frame_before(a)
+        # a correction or suggestion frame whose subject is a quotation prescribes the text's words: no role of the writer's own
+        fb = feedback_read and _QUOTATION_SUBJECT_RE.search(before) is None
+        after = text[b:b + 24]
+        core = inner.strip(_QUOTE_STRIP).lower()
+        role = "quotation"
+        imperative = _IMPERATIVE_SUGGESTION_RE.search(before) is not None  # 'write "x"', 'say "y"': no subject, so no attribution
+        prescribed = fb and _PRESCRIBED_REPORT_RE.search(before) is not None  # 'it should read "..."': no report of a text
+        # a negated reporting verb right before the span ('never says "x"', 'not only writes "x"') is an attribution like any
+        # other: the span is a quotation and is checked (close round 3, INV-QR-1: the repair round 5 reading is reverted)
+        if ((_ATTRIBUTION_BEFORE_RE.search(before) and not (imperative and fb) and not prescribed) or _CITATION_AFTER_RE.match(after)
+                or _CREDIT_AFTER_RE.match(text[b:b + 120])):
+            roles.append(role)
+            continue
+        gap = text[spans[k - 1][1]:a] if k > 0 and spans[k - 1][1] <= a else None
+        joined = gap is not None and _LIST_JOIN_RE.match(gap) is not None
+        arrow_follows = _ARROW_AFTER_RE.match(after) is not None
+        contrast = (gap is not None and _BUT_GAP_RE.match(gap) is not None
+                    and _NOT_BEFORE_RE.search(lines.frame_before(spans[k - 1][0])) is not None)
+        # an earlier correction span that ends on this span's line (no line break between its end and this span)
+        corrected_before = last_correction_end >= lines.line_start(a)
+        if fb and (_CORRECTION_BEFORE_RE.search(before) or _word_correction(text, spans, k, feedback=fb, lines=lines) or contrast
+                   or (_FEEDBACK_BEFORE_RE.search(before) and not arrow_follows)
+                   or (corrected_before and _CORRECTION_RESULT_RE.search(before))
+                   or (lines.label_governs(a, _CORRECTION_LABEL_HEAD_RE) and not arrow_follows)):
+            role = "correction"
+        elif joined and roles[k - 1] in ("correction", "mention", "suggestion"):
+            role = roles[k - 1]
+        elif fb and (_SUGGESTION_BEFORE_RE.search(before) or imperative
+                     or (lines.label_governs(a, _SUGGESTION_LABEL_HEAD_RE) and not arrow_follows)):
+            role = "suggestion"
+        elif (core in MENTION_FUNCTION_WORDS or (core in MENTION_CONNECTIVES and _NAMING_FRAME_RE.search(before))
+              or _MENTION_ANY_BEFORE_RE.search(before) or _MENTION_NEGATED_REPORT_RE.search(before)
+              or ((_MENTION_SHORT_BEFORE_RE.search(before) or _MENTION_EXAMPLE_BEFORE_RE.search(before)) and len(core.split()) <= _SHORT_MENTION_WORDS)
+              or (_MENTION_NEGATED_VERB_BEFORE_RE.search(before) and len(core.split()) == 1)):
+            role = "mention"
+        if role == "correction":
+            last_correction_end = max(last_correction_end, b)
+        roles.append(role)
+    return tuple(roles)
+
+
+def cited_quotation_spans(text: str, *, min_single_words: int = 2, feedback: Optional[bool] = None) -> list[tuple[int, int, str]]:
+    """The quoted spans of ``text`` (:func:`find_quotation_spans`) whose role is ``quotation`` (:func:`quotation_role`): the
+    spans a check of words against a source, or an attribution to a source, reads. A correction, a suggestion or a
+    mention is the writer's own words: it is never checked or presented as a quotation, and carries no source reference.
+    Masking text and testing whether a position lies inside a quotation keep :func:`find_quotation_spans`, so every
+    quoted span stays masked whatever its role."""
+    spans = find_quotation_spans(text, min_single_words=min_single_words)
+    if not spans:
+        return []
+    return [sp for sp, role in zip(spans, _span_roles(text, spans, feedback=feedback)) if role == "quotation"]
+
+
+# --------------------------------------------------------------------------------------------- argument diagnosis readers (2)
+# Readers of a sentence that concludes from an earlier one, for the argument diagnosis and its tests. Additions only: no
+# parser of this tree calls them.
+
+#: Doubled final consonants a stem keeps after "-ing" or "-ed" ("cutting" is "cutt"); folded on both sides of a comparison.
+_DOUBLED_FINALS = frozenset("bdgmnprt")
+
+
+def _word_stems(text: str) -> set[str]:
+    """The content stems of ``text`` that are words of three or more letters (numbers and one-letter symbols such as ``y``
+    say nothing about what a clause restates), a doubled final consonant folded ("cutting" meets "cut")."""
+    out: set[str] = set()
+    for s in lexis.content_stems(text):
+        if len(s) >= 3 and s.isalpha():
+            out.add(s[:-1] if len(s) >= 4 and s[-1] == s[-2] and s[-1] in _DOUBLED_FINALS else s)
+    return out
+
+
+def concludes_from_earlier(sentence: str, earlier: Sequence[str]) -> bool:
+    """Whether ``sentence`` draws its conclusion from a sentence before it: it opens with a reason clause
+    (:func:`leading_reason_clause`) that restates one of ``earlier``: at least two of the clause's word stems
+    (:func:`_word_stems`) occur in that sentence, and the clause adds at most one stem of its own. "Household borrowing fell
+    sharply during 2023. Since households borrowed less, the rate rise reduced consumer spending.": the second sentence
+    concludes from the first, so it rests on it. A reason clause that brings a reason of its own draws nothing from the
+    sentence before it: "The treaty weakened the republic. Because it imposed heavy reparations, the government faced a
+    crisis."; "Germany resented the treaty. Since the treaty took territory from Germany, ..." (repair round 2,
+    NAME-LINK-NONDISCRIMINATING: the text delivery then reads the argument as a structured report does). A sentence that
+    opens with no reason clause concludes from an earlier one when it opens with a ground phrase pointing back to it
+    (:func:`grounded_on_earlier`: "With turnover that high, ...")."""
+    clause = leading_reason_clause(sentence)
+    if clause is None:
+        return grounded_on_earlier(sentence, earlier)
+    mine = _word_stems(clause)
+    if len(mine) < 2:
+        return False
+    for text in earlier:
+        shared = mine & _word_stems(mask_quotations(text or ""))
+        if len(shared) >= 2 and len(shared) >= len(mine) - 1:
+            return True
+    return False
+
+
+#: Prepositions that open a phrase giving what was said before as the ground of the main clause ("With turnover that high,
+#: ...", "Given these figures, ...", "Because of this, ...", "In light of that, ..."). Longer leads first.
+GROUND_PHRASE_LEADS: tuple[tuple[str, ...], ...] = (
+    ("as", "a", "result", "of"), ("in", "light", "of"), ("in", "view", "of"), ("because", "of"), ("owing", "to"), ("due", "to"),
+    ("faced", "with"), ("given",), ("with",),
+)
+
+
+#: Words that point back to what was said: a demonstrative ("this", "these figures", "turnover that high"), "such" or a
+#: degree "so" ("turnover so high").
+_BACK_REFERENCES = frozenset({"this", "that", "these", "those", "such", "so"})
+
+
+#: Back-references that, after a word of the phrase, are degree adverbs: the word after them is the degree said before
+#: ("figures this stark", "turnover that high"), not a subject of its own.
+_DEGREE_REFERENCES = frozenset({"this", "that", "so"})
+
+
+#: Last words that make a back-reference a discourse marker, not a ground ("With that said, ...", "That aside, ...").
+_MARKER_ENDS = frozenset({"said", "aside", "noted"})
+
+
+#: A ground phrase is a phrase: at most this many words between the lead and its comma.
+_GROUND_PHRASE_MAX_WORDS = 8
+
+
+#: Nouns that name what was said in general ("these figures", "this evidence", "with this in mind"): a back-reference
+#: through one of them restates the sentence before without naming its subject.
+_REFERRING_NOUN_STEMS: frozenset[str] = frozenset(_word_stems(
+    "figures figure numbers results findings evidence data facts points reasons factors trends levels rates changes problems "
+    "conditions circumstances situation case mind argument arguments view views sources source extract statistics information "
+    "considerations limitations issues"))
+
+
+def grounded_on_earlier(sentence: str, earlier: Sequence[str]) -> bool:
+    """Whether ``sentence`` opens with a ground phrase that points back to a sentence before it: a preposition of
+    :data:`GROUND_PHRASE_LEADS`, then a phrase of at most :data:`_GROUND_PHRASE_MAX_WORDS` words holding a demonstrative or
+    "such", closed by a comma a main clause follows; the phrase names nothing beyond what was said ("Given this, ...",
+    "Because of these figures, ...") or shares a word stem with one of ``earlier`` ("The case study reports staff turnover
+    of 23% a year. With turnover that high, staffing a third branch would be a serious risk."): the main clause is drawn
+    from that sentence, as a reason clause that restates it is (:func:`concludes_from_earlier`; repair round 3, V3-H2:
+    the text delivery then reads the argument as a structured report does). The word after a degree "this", "that" or
+    "so" inside the phrase is the degree said before ("Given figures this stark, ..."), not a subject of its own. No ground:
+    a phrase without a back-reference
+    ("With the war over, ..."), a discourse marker ("With that said, ..."), a bare "With that," or "With this," (a time:
+    'thereupon'), a phrase that names something no earlier sentence mentions ("Because of this law, ..." after sentences
+    about prices). Quotations are masked; linear in the sentence."""
+    head = mask_quotations(sentence[: _REASON_CLAUSE_MAX + 200]) if sentence else ""
+    spans = lexis.token_spans(head)
+    if not spans or head[: spans[0][0]].strip(" \t\"'“”‘’([*_-"):
+        return False
+    toks = [t for _s, _e, t in spans]
+    lead = next((cue for cue in GROUND_PHRASE_LEADS if tuple(toks[: len(cue)]) == cue), None)
+    if lead is None or (lead == ("given",) and len(toks) > 1 and toks[1] == "that"):
+        return False  # "Given that ..." opens a reason clause (leading_reason_clause), never a phrase
+    start = spans[len(lead) - 1][1]
+    comma = head.find(",", start, _REASON_CLAUSE_MAX)
+    if comma < 0 or not any(c.isalpha() for c in head[comma + 1:]):
+        return False
+    phrase = [t for s, _e, t in spans[len(lead):] if s < comma]
+    if not phrase or len(phrase) > _GROUND_PHRASE_MAX_WORDS or not _BACK_REFERENCES.intersection(phrase):
+        return False
+    if phrase[-1] in _MARKER_ENDS or (lead == ("with",) and len(phrase) < 2):
+        return False
+    degree = {phrase[k + 1] for k in range(1, len(phrase) - 1) if phrase[k] in _DEGREE_REFERENCES}
+    named = _word_stems(head[start:comma]) - _REFERRING_NOUN_STEMS - _word_stems(" ".join(degree))
+    if not named:
+        return True
+    return any(named & _word_stems(mask_quotations(text or "")) for text in earlier)
+
+
+#: Evidential leads that open a conclusion drawn from the sentence before ("This shows that B.", "These figures suggest that B.").
+_EVIDENTIAL_LEAD_RE = re.compile(
+    r"^\W*(?:this|that|these|those|it|which)(?:\s+[a-z’'-]+){0,2}\s+(?:shows?|showed|suggests?|suggested|proves?|proved|demonstrates?|demonstrated"
+    r"|indicates?|indicated|implies|implied|means|meant|confirms?|confirmed)\s+(?:that\s+)?\w", re.IGNORECASE)
+
+
+def opens_with_conclusion(sentence: str) -> bool:
+    """Whether ``sentence`` (quotations masked) opens with a conclusion lead ("So ...", "Therefore ...", "As a result ...",
+    "It follows that ...", "This shows that ...", "These figures suggest that ..."): it draws its conclusion from what stands
+    before it. "So far ...", "So many ..." are no lead."""
+    head = mask_quotations(sentence[:400]) if sentence else ""
+    if _EVIDENTIAL_LEAD_RE.match(head):
+        return True
+    spans = lexis.token_spans(head)
+    if not spans or head[: spans[0][0]].strip(" \t\"'“”‘’([*_-"):
+        return False
+    toks = [w for _a, _b, w in spans]
+    for cue in CONCLUSION_LEADS:
+        if tuple(toks[: len(cue)]) == cue:
+            return not (cue == ("so",) and len(toks) > 1 and toks[1] in _SO_NOT_CONNECTIVE) and _clause_words(spans[len(cue):]) >= _MIN_CLAUSE_WORDS
+    return False

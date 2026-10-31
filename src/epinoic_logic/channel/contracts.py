@@ -12,10 +12,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from ..ir.canonical import sha256_hex
 from ..integrity.contracts import IntegrityFinding
+from ..named import NamedDiagnostic
 from ..translate.contracts import ClaimVerificationOutcome, StructuralFinding, SuppliedText
 
 ConstraintKind = Literal["max_words", "min_words", "max_paragraphs", "min_paragraphs", "must_cite_supplied_text", "must_address_all_items", "other"]
@@ -121,6 +122,26 @@ class TransmissionReceipt(BaseModel):
     formal_result_ids: list[str] = Field(default_factory=list)
     summary: str = Field(max_length=SUMMARY_MAX_CHARS)
     created_at: str
+    named_diagnostics: list[NamedDiagnostic] = Field(default_factory=list, description=(
+        "the argument diagnosis of this transmission (rules argdiag-2): every outcome's named diagnostics, the report-level "
+        "ones, and a named diagnostic for each structural or integrity finding that carries a defect label; at most "
+        "named.MAX_PER_RECEIPT (an overflow is counted in the summary). Advisory: a warning or error one on a material claim "
+        "is also an INT-ARG-001 finding, info ones never change the receipt status. Left out of every dump while empty"))
+    named_overflow: int = Field(default=0, ge=0, description=(
+        "how many named diagnostics beyond named.MAX_PER_RECEIPT the transmission had and the receipt does not list (counted, "
+        "never dropped silently); left out of every dump while 0"))
+    diagnosis_incomplete: list[str] = Field(default_factory=list, max_length=64, description=(
+        "the report-level argument-diagnosis rules that raised, ran out of budget or overflowed their bound: what they would have "
+        "found is not known, never 'none found'. Left out of every dump while empty"))
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_named(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if isinstance(data, dict):
+            for name, empty in (("named_diagnostics", []), ("named_overflow", 0), ("diagnosis_incomplete", [])):
+                if name in data and data[name] == empty:
+                    del data[name]
+        return data
 
     @property
     def errors(self) -> list[IntegrityFinding]:

@@ -27,6 +27,15 @@ Summary of the rules (applied in this order; the first match decides):
                                      its only encoding would restate it)
 7. role other: by kind            -> formal_logic: PROPOSITIONAL_ARGUMENT; arithmetic: QUANTITATIVE_CLAIM
                                      (with cues); interpretive: NOT_ELIGIBLE_INTERPRETIVE; unknown: NOT_ELIGIBLE_OTHER
+
+An argument in one sentence (argument diagnosis). A claim of an argument role with no supporting claims (rule 3), or of an
+interpretive or factual role (rules 5 and 6, before their routing), whose own text draws a conclusion from a reason it
+states itself (``adapters.markdown.states_own_reason``: "Graphite is not a metal, so graphite does not conduct
+electricity"; "Since households borrowed less, the rate rise reduced spending"; "Demand fell because prices rose") is a
+PROPOSITIONAL_ARGUMENT: its reason and its point are both in its text, so the argument can be encoded, and the writer's
+step from one to the other is diagnosed like any other. A quantitative or structural claim keeps rule 4, except in a
+subject profile that allows no quantitative claims, where a figured sentence that argues is read as the argument; a note
+(role other) keeps rule 7.
 """
 from __future__ import annotations
 
@@ -139,8 +148,22 @@ def _argument_role(claim: ClaimRecord, reasons: list[str], pv: str) -> Eligibili
             "argument structure (evidence -> inference -> point) can be encoded"
         )
         return _decision(EligibilityClass.PROPOSITIONAL_ARGUMENT, True, reasons, pv)
+    own = _own_reason(claim, reasons, pv)
+    if own is not None:
+        return own
     reasons.append("no supporting claims" + (" other than itself" if claim.supporting_claim_ids else ""))
     return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
+
+
+def _own_reason(claim: ClaimRecord, reasons: list[str], pv: str = POLICY_VERSION) -> Optional[EligibilityDecision]:
+    """PROPOSITIONAL_ARGUMENT when the claim's own text draws a conclusion from a reason it states (module docstring)."""
+    from ..adapters.markdown import states_own_reason
+    connective = states_own_reason(claim.claim_text or "")
+    if connective is None:
+        return None
+    reasons.append(f"role {claim.claim_role}: the claim states its own reason ('{connective}' joins a reason and the conclusion drawn from it), "
+                   "so it is an argument in one sentence and can be encoded")
+    return _decision(EligibilityClass.PROPOSITIONAL_ARGUMENT, True, reasons, pv)
 
 
 def _count_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityDecision:
@@ -153,6 +176,12 @@ def _count_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityD
     if not (numeral or comparative or relation):
         reasons.append("no numerals or comparatives in claim text" + (" (mark annotations, part labels and named items are not figures)" if text != claim.claim_text else ""))
         return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
+    if not resolve_profile(claim.subject).allows(EligibilityClass.QUANTITATIVE_CLAIM):
+        # a profile with no quantitative claims reads a figured sentence that argues as the argument it is ("Attendance rose in
+        # 2020, so the breakfast club caused attendance to rise"), not as a quantity it would refuse
+        own = _own_reason(claim, reasons, pv)
+        if own is not None:
+            return own
     cues = ", ".join(c for c, present in (("numerals", numeral), ("comparatives", comparative), ("a mathematical relation sign", relation)) if present)
     reasons.append(f"role {claim.claim_role} with {cues} in the text")
     cls = EligibilityClass.ARITHMETIC_CONSTRAINT if claim.claim_role == "structural" else EligibilityClass.QUANTITATIVE_CLAIM
@@ -196,6 +225,10 @@ def decide_eligibility(claim: ClaimRecord, policy_version: str = POLICY_VERSION)
         return _argument_role(claim, reasons, policy_version)
     if role in COUNT_ROLES:
         return _count_role(claim, reasons, policy_version)
+    if role in INTERPRETIVE_ROLES or role in FACTUAL_ROLES:
+        own = _own_reason(claim, reasons, policy_version)
+        if own is not None:
+            return own
     if role in INTERPRETIVE_ROLES:
         reasons.append(f"standalone {role} claim: interpretation, analysis or evaluation is not a solver question")
         return _decision(EligibilityClass.NOT_ELIGIBLE_INTERPRETIVE, False, reasons, policy_version, "subject_evaluator")

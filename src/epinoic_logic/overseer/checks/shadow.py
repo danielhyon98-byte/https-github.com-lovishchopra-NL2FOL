@@ -132,7 +132,10 @@ def run_shadow(ctx: CheckContext) -> str:
             return None
         ver: Optional[VerificationResult] = None
         if tr.problem is not None and tr.status in (TranslationStatus.TRANSLATED, TranslationStatus.AMBIGUOUS_TRANSLATION):
-            ver = verify(tr.problem, cfg, signing_key=runs_key, key_id=RUN_KEY_ID)
+            # as translate.outcome.verify_claim runs it: on an ambiguous translation the argument diagnosis is capped at
+            # info on the assumed reading (capped_from keeps the uncapped severity)
+            cap = ("info", "ambiguous_translation") if tr.status is TranslationStatus.AMBIGUOUS_TRANSLATION else None
+            ver = verify(tr.problem, cfg, signing_key=runs_key, key_id=RUN_KEY_ID, severity_cap=cap)
         return compose_outcome(claim, tr, ver, signing_key=runs_key, key_id=RUN_KEY_ID)
 
     shadow = TranslatorChannel(plan, signing_key=runs_key, key_id=RUN_KEY_ID, verify_claim_fn=serve, config=cfg, registry=registry)

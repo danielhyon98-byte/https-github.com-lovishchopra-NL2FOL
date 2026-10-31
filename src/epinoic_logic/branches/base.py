@@ -47,7 +47,9 @@ class FormalCheck:
     ``related_claim_ids``: the delivered claims that state values the check relies on beside its own statement (a
     substitution's earlier stated values, STEM repair 1); a failure finding names them after ``claim_ids``, so a stated value
     a later line contradicts is named where it is stated, not only where the contradiction shows. Empty for every pack but
-    the STEM pack."""
+    the STEM pack. ``defect``: the canonical defect label (``named.DEFECT_LABELS``) a failure of this check names; the
+    channel puts it on the INT-SUBJ-001 / INT-SUBJ-004 finding, and without it labels the finding by the check's kind
+    (``named.DEFECT_OF_CHECK_KIND``)."""
     check_id: str
     kind: str
     description: str
@@ -58,6 +60,7 @@ class FormalCheck:
     failure_severity: Literal["error", "warning"] = "error"
     inconsistent_is_failure: bool = True
     related_claim_ids: tuple[str, ...] = ()
+    defect: Optional[str] = None
 
 
 @runtime_checkable

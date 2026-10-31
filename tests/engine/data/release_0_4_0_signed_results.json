@@ -1,0 +1,338 @@
+{
+ "established_modus_ponens": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "g1",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "e",
+     "sort": "Bool",
+     "meaning": null,
+     "grounding": null
+    },
+    {
+     "name": "p",
+     "sort": "Bool",
+     "meaning": null,
+     "grounding": null
+    }
+   ],
+   "premises": [
+    {
+     "id": "e",
+     "expr": {
+      "op": "var",
+      "name": "e"
+     },
+     "label": null,
+     "grounding": {
+      "kind": "task_setting",
+      "source_refs": [],
+      "certainty": "established",
+      "verified": true,
+      "note": null
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "l",
+     "expr": {
+      "op": "implies",
+      "left": {
+       "op": "var",
+       "name": "e"
+      },
+      "right": {
+       "op": "var",
+       "name": "p"
+      }
+     },
+     "label": null,
+     "grounding": {
+      "kind": "task_setting",
+      "source_refs": [],
+      "certainty": "established",
+      "verified": true,
+      "note": null
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "var",
+     "name": "p"
+    },
+    "label": null,
+    "grounding": null,
+    "materiality": "material"
+   },
+   "notes": null
+  },
+  "config": {
+   "timeout_ms": 4000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "5536d8dd4d5e4e6ca50ac263a734361f",
+   "request_id": "r1",
+   "claim_id": "c1",
+   "problem_id": "g1",
+   "query": "entailment",
+   "status": "ENTAILED",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "d959437d4ec2382ca0c14379650ef141dc5477ee1a32dcfc701855d0c8361529",
+    "config_digest": "059343b90f1307c898f3aaf45719fbb4d323e225760be977a009878a33b4fd48",
+    "versions_digest": "0a0096acd2b7861f2fa4836cae9b17ac00dbf597b727603406ae9876f06941f4",
+    "binding_digest": "42aafa706a4e3fb395bd1b98a76975dfbbf4564d656bcffcef6a1661ff6a9abc",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun e () Bool)\n(declare-fun p () Bool)\n(assert\n e)\n(assert\n (=> e p))\n(assert\n (not p))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.4.0",
+    "policy_version": "2026.10-v4",
+    "z3_version": "5.1.0",
+    "build_id": "8312509e6611038a011f6fcf75f64b453782c68d5287445cd11f5cfd975e9580",
+    "schema_id": "1329cb32fb3159a0e97cdb8d837753a5450730f624d8214fedf15a0ccdbcb0a3",
+    "policy_id": "403bf22a8c088cfb6ea3939e0a5b9a597f0e124c128387f7d01b93121c89f1d0"
+   },
+   "solver_config": {
+    "timeout_ms": 4000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": {
+    "premise_ids": [
+     "e",
+     "l"
+    ],
+    "includes_negated_conclusion": true
+   },
+   "premises_relied_on": [
+    "e",
+    "l"
+   ],
+   "ungrounded_dependencies": [],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.09551999937684741
+    },
+    {
+     "stage": "compile",
+     "ms": 8.574687000873382
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.6320590000541415
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.425014999564155
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-17T04:44:34Z",
+   "signature": "1463e283012c60365c57f1ee721e1fbaa5390749b0a7329806cb3676d51467bc",
+   "signature_key_id": "upgrade"
+  }
+ },
+ "writer_link": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "g2",
+   "request_id": "r1",
+   "claim_id": "c2",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "e",
+     "sort": "Bool",
+     "meaning": "the evidence holds",
+     "grounding": null
+    },
+    {
+     "name": "p",
+     "sort": "Bool",
+     "meaning": "the point holds",
+     "grounding": null
+    }
+   ],
+   "premises": [
+    {
+     "id": "e",
+     "expr": {
+      "op": "var",
+      "name": "e"
+     },
+     "label": "the evidence holds",
+     "grounding": {
+      "kind": "task_setting",
+      "source_refs": [],
+      "certainty": "established",
+      "verified": true,
+      "note": null
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "l_so",
+     "expr": {
+      "op": "implies",
+      "left": {
+       "op": "var",
+       "name": "e"
+      },
+      "right": {
+       "op": "var",
+       "name": "p"
+      }
+     },
+     "label": "so the point holds",
+     "grounding": {
+      "kind": "specialist_inference",
+      "source_refs": [],
+      "certainty": "established",
+      "verified": null,
+      "note": "link: so"
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "C",
+    "expr": {
+     "op": "var",
+     "name": "p"
+    },
+    "label": "the point holds",
+    "grounding": null,
+    "materiality": "material"
+   },
+   "notes": null
+  },
+  "config": {
+   "timeout_ms": 4000,
+   "rlimit": null,
+   "random_seed": 0,
+   "memory_max_mb": null,
+   "model_completion": true,
+   "produce_unsat_core": true,
+   "produce_smt2": true
+  },
+  "limits": {
+   "max_symbols": 64,
+   "max_premises": 128,
+   "max_nodes": 2000,
+   "max_depth": 40,
+   "max_nary_args": 32,
+   "max_const_digits": 40,
+   "allow_nonlinear": false,
+   "allow_real_division": true,
+   "allow_int_division": true
+  },
+  "result": {
+   "result_id": "cb9de589951e4110bb24c649dfec1c58",
+   "request_id": "r1",
+   "claim_id": "c2",
+   "problem_id": "g2",
+   "query": "entailment",
+   "status": "ENTAILED",
+   "scope_statement": "This result concerns only the formal encoding it is bound to, under the encoded premises and the stated solver configuration. It does not establish that the premises are factually true, that the natural-language claim was translated faithfully, or that any interpretive judgement is correct. Grounding and semantic-fidelity information is reported separately and is advisory.",
+   "binding": {
+    "problem_digest": "3f680f3c5f32fb1c033abee7109c846ddb1fc0e9e87edfd6ed97fd197ce4dcb7",
+    "config_digest": "059343b90f1307c898f3aaf45719fbb4d323e225760be977a009878a33b4fd48",
+    "versions_digest": "0a0096acd2b7861f2fa4836cae9b17ac00dbf597b727603406ae9876f06941f4",
+    "binding_digest": "e7a31a2c6a9f9c90f48f7d5bf9b9f9f7780488a71f634f070278a97bc493437b",
+    "smt2": "; benchmark generated from python API\n(set-info :status unknown)\n(declare-fun e () Bool)\n(declare-fun p () Bool)\n(assert\n e)\n(assert\n (=> e p))\n(assert\n (not p))\n(check-sat)\n"
+   },
+   "versions": {
+    "ir_version": "1.0",
+    "engine_version": "0.4.0",
+    "policy_version": "2026.10-v4",
+    "z3_version": "5.1.0",
+    "build_id": "8312509e6611038a011f6fcf75f64b453782c68d5287445cd11f5cfd975e9580",
+    "schema_id": "1329cb32fb3159a0e97cdb8d837753a5450730f624d8214fedf15a0ccdbcb0a3",
+    "policy_id": "403bf22a8c088cfb6ea3939e0a5b9a597f0e124c128387f7d01b93121c89f1d0"
+   },
+   "solver_config": {
+    "timeout_ms": 4000,
+    "rlimit": null,
+    "random_seed": 0,
+    "memory_max_mb": null,
+    "model_completion": true,
+    "produce_unsat_core": true,
+    "produce_smt2": true
+   },
+   "counterexample": null,
+   "unsat_core": {
+    "premise_ids": [
+     "e",
+     "l_so"
+    ],
+    "includes_negated_conclusion": true
+   },
+   "premises_relied_on": [
+    "e",
+    "l_so"
+   ],
+   "ungrounded_dependencies": [
+    "l_so"
+   ],
+   "unverified_dependencies": [],
+   "witness_model": null,
+   "diagnostics": [],
+   "timings": [
+    {
+     "stage": "validate",
+     "ms": 0.07049400119285565
+    },
+    {
+     "stage": "compile",
+     "ms": 7.28439399972558
+    },
+    {
+     "stage": "consistency",
+     "ms": 0.38170299922057893
+    },
+    {
+     "stage": "entailment",
+     "ms": 0.2738499988481635
+    }
+   ],
+   "reason_unknown": null,
+   "issued_at": "2026-10-17T04:44:34Z",
+   "signature": "a500cd420e0f9e05a5a84a1b6731858511de1af89b3154a7c460ee5cfb97937f",
+   "signature_key_id": "upgrade"
+  }
+ }
+}

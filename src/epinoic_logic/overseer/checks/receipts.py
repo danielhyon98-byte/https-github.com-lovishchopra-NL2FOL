@@ -81,7 +81,9 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-LEDGER-020", "INT-LEDGER-021", "INT-LEDGER-024", "INT-LEDGER-026", "INT-LEDGER-027", "INT-LEDGER-028", "INT-LEDGER-029", "INT-REQ-006",
         "INT-REQ-008",
         "INT-REQ-010", "INT-REQ-013", "INT-REQ-014", "INT-REQ-016", "INT-SUBJ-002", "INT-SUBJ-004", "INT-SYNTH-003", "INT-SYNTH-004", "INT-SYNTH-005", "INT-SYNTH-007", "INT-SYNTH-008", "INT-SYNTH-009",
-        "INT-SYNTH-012", "INT-SYNTH-013")},
+        "INT-SYNTH-012", "INT-SYNTH-013",
+        # the argument-diagnosis port: two encodings of one claim reach opposite definitive answers (channel._encoding_disagreements)
+        "INT-XENC-001")},
     **{c: "info" for c in ("INT-CONFLICT-006", "INT-GLOSSARY-002", "INT-HANDOFF-006", "INT-LEDGER-011", "INT-LEDGER-022", "INT-SYNTH-002", "INT-SYNTH-011")},
 }
 #: Codes raised at a severity that depends on the case (INT-REQ-004: required item or not; INT-REQ-005: word or
@@ -93,7 +95,8 @@ FIXED_SEVERITY: dict[str, str] = {
 #: development branch's synthesis self-report (a warning); the Overseer's name-substitution error raised under that number before the
 #: second translator merge is INT-LEDGER-032. INT-SYNTH-014 (a value outside the synthesis contract's closed vocabularies) and
 #: INT-CONFLICT-006 (a disclosed conflict the hub found no contradiction for) are the development branch's too.
-VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-REQ-007", "INT-CONFLICT-005"})
+VARIABLE_SEVERITY = frozenset({"INT-REQ-004", "INT-REQ-005", "INT-REQ-007", "INT-CONFLICT-005",
+                               "INT-ARG-001"})  # INT-ARG-001: the severity of the named diagnostic it carries (argument-diagnosis port)
 #: The channel's own rules the implied findings re-run, bound when this module is imported: a channel whose class is
 #: patched later (a rule replaced at run time) is re-derived with the rule as shipped, not with the patch.
 _CHANNEL_COVERAGE = TranslatorChannel._coverage
@@ -337,8 +340,12 @@ def check_summary(ctx: CheckContext, t: Transfer) -> None:
         if not rc.summary.endswith(_SCOPE_TAIL):
             ctx.ovs(t.seq, "OVS-RCPT-007", f"receipt {t.receipt_id} does not end with the channel's scope sentence", **t.ids())
             return
+        # the argument-diagnosis sentence is regenerated from the receipt's own diagnosis fields (named_diagnostics,
+        # named_overflow, diagnosis_incomplete) and its outcomes, as the channel writes it
+        named_info = TranslatorChannel.named_info(rc.outcomes, rc.named_overflow, rc.diagnosis_incomplete)
         expected = _fit_summary(TranslatorChannel._summary_response(rc.status, rc.findings, rc.coverage, rc.constraint_results, rc.outcomes,
-                                                                    rc.structural_findings, rc.formal_checks, rc.branch or "generic"))
+                                                                    rc.structural_findings, rc.formal_checks, rc.branch or "generic",
+                                                                    named=rc.named_diagnostics, named_info=named_info))
     if rc.summary != expected:
         a, b = rc.summary, expected
         i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))

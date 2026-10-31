@@ -431,7 +431,7 @@ def _check_pool(problems: list[Problem], *, request_id: str, joint_id: str, cfg:
     joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id=joint_id)
     if joint is None:
         return None, jmap
-    return verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity"), jmap
+    return verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False), jmap
 
 
 def _attribute_contradiction(problems: list[Problem], result: VerificationResult, jmap: JointMap, *, request_id: str, cfg: SolverConfig, limits: Limits,
@@ -633,7 +633,7 @@ def _without_rounding_only_conflicts(findings: list[IntegrityFinding], problems:
         if joint is None:
             out.append(f)
             continue
-        res = verify(joint, policy_config("nonlinear", cfg), PRECISION_LIMITS, signing_key=signing_key, key_id="integrity")
+        res = verify(joint, policy_config("nonlinear", cfg), PRECISION_LIMITS, signing_key=signing_key, key_id="integrity", diagnose=False)
         if res.status is not S.CONSISTENT:
             out.append(f)
     return out
@@ -658,7 +658,7 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
-    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if result.status is S.INCONSISTENT_PREMISES:
         attributed = _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
         findings += _without_rounding_only_conflicts(attributed, apart, request_id=request_id, cfg=cfg, signing_key=signing_key)
@@ -678,7 +678,7 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
     joint, _f, jmap = joint_problem(problems, request_id=request_id, joint_id="cross-report-pooled")
     if joint is None:
         return []
-    pooled = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    pooled = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if pooled.status is not S.INCONSISTENT_PREMISES:
         return []
     claims = claim_ids_from_core(pooled.premises_relied_on, jmap) or sorted(set(jmap.claim_ids))
@@ -745,7 +745,7 @@ def check_synthesis_entailment(
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
-    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity")
+    result = verify(joint, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     pooled = sorted(set(jmap.claim_ids))
     coverage = f"checked against {len(pooled)} of {len(pooled) + len(unformalized)} cited sources; unformalized: {unformalized}"
     if result.status is S.COUNTEREXAMPLE:
@@ -782,7 +782,7 @@ def _refutation(joint: Problem, cfg: SolverConfig, limits: Limits, signing_key: 
         prob = Problem.model_validate(data)
     except Exception:
         return None
-    return verify(prob, cfg, limits, signing_key=signing_key, key_id="integrity")
+    return verify(prob, cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
 
 
 def _is_ungrounded(a: Assertion) -> bool:
@@ -798,13 +798,13 @@ def _reliance_findings(joint: Problem, result: VerificationResult, jmap: JointMa
     if not result.ungrounded_dependencies:
         return []
     ungrounded_all = {a.id for a in joint.premises if _is_ungrounded(a)}
-    grounded_only = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in ungrounded_all]}), cfg, limits, signing_key=signing_key, key_id="integrity")
+    grounded_only = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in ungrounded_all]}), cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     if grounded_only.status is S.ENTAILED:
         return []  # the claim follows from grounded premises alone; the ungrounded proof was incidental
     related = [grounded_only.result_id]
     pooled_all = {i for i in ungrounded_all if i in jmap.assertions and jmap.assertions[i][2]}
     if pooled_all:
-        no_pooled = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in pooled_all]}), cfg, limits, signing_key=signing_key, key_id="integrity")
+        no_pooled = verify(joint.model_copy(update={"premises": [a for a in joint.premises if a.id not in pooled_all]}), cfg, limits, signing_key=signing_key, key_id="integrity", diagnose=False)
         related.append(no_pooled.result_id)
     else:
         no_pooled = result
@@ -845,7 +845,7 @@ def check_paraphrase_coverage(source_problem: Problem, synthesized_conclusion: A
         prob = Problem.model_validate(data)
     except Exception as exc:
         return None, [IntegrityFinding(code="INT-GLOSSARY-004", severity="error", message=f"coverage problem could not be built for {synthesized_claim_id!r} from {source_problem.claim_id!r}: {type(exc).__name__}: {str(exc)[:500]}", claim_ids=[synthesized_claim_id, source_problem.claim_id])]
-    result = verify(prob, config.model_copy(update={"produce_unsat_core": True}), limits, signing_key=signing_key, key_id="integrity")
+    result = verify(prob, config.model_copy(update={"produce_unsat_core": True}), limits, signing_key=signing_key, key_id="integrity", diagnose=False)
     findings: list[IntegrityFinding] = []
     if result.status is S.COUNTEREXAMPLE:
         findings.append(IntegrityFinding(code="INT-SYNTH-007", severity="warning", message=f"synthesized claim is strictly WEAKER than its source {source_problem.claim_id!r}: the source's conclusion does not follow from the synthesized statement, so content was removed under a 'carried'/'paraphrased' label", claim_ids=[synthesized_claim_id, source_problem.claim_id], formal_result_id=result.result_id, deterministic=False))
