@@ -1090,3 +1090,17 @@ Work in progress after it is labelled as such.
   report-level hook a second time. The overseer-attached suite the playbook asks for measured 12,577 passed, 2 failed
   (those two), 13 skipped, in 63 minutes.
 - The fix round for all 115 findings is running; the full suite and every recorded round follow before the commit.
+
+### Progress, 18:00 UTC (31 October)
+
+- Integration gate, round 1, fixed and committed (35f1be1): 101 of the 115 findings fixed, each with regression tests,
+  including fixes for all 21 critical findings (the regular-expression blow-ups on long inputs, the solver time limits,
+  the receipt left clean when a verifier returns no outcome, the relabelled peer report, the combinator citation rewrite,
+  the colliding STEM claim ids, the delivery label and the overseer-attached request errors). Independent check of the
+  committed tree: 13,157 tests passed, 12 skipped (round-dependent), none failed; every recorded arena round at its
+  recorded count (r1 30/30, r1-adv 150/151, r2-r6 46/46 each, r7 177/177).
+- Left as known defects, each needing a coordinated release rather than a gate fix: a new overseer pack for two new codes,
+  the translator version bump that the signed kit vectors pin, a signature-scheme change, the overseer-audit key in the
+  service, and a rebuild of the website patch set against the website's current main. The development corpus still flags
+  25 of 57 clean answers (detection quality, not critical).
+- Integration gate, round 2: the 7 lenses that reported a critical finding in round 1 are re-checking the committed tree.
