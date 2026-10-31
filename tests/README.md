@@ -1061,3 +1061,14 @@ Work in progress after it is labelled as such.
   outcome leaves no trace) and 1 provenance gap (a relayed peer report relabelled as a primary source).
 - Every finding goes to a fix round with a regression test per fix, then the full suite and every recorded round; round 2
   of the gate re-runs the lenses that found a critical issue. Arena round 8 starts only when no critical issue is left.
+
+### Progress, 07:00 UTC (31 October)
+
+- Integration gate, round 1, complete: all 14 lenses reported 115 findings, 21 of them critical to the infrastructure.
+  (Correction to the 06:00 entry: the first 12 lenses had reported 103 findings, not 102.)
+- The two critical findings added since 06:00 come from the fresh-session integration lens, which follows the
+  integration kit's playbook in scratch clones: with the overseer attached to a channel, a request whose user input is
+  not a string raises an error instead of being rejected with INT-REQ-009; and the overseer's receipt check runs the
+  report-level hook a second time. The overseer-attached suite the playbook asks for measured 12,577 passed, 2 failed
+  (those two), 13 skipped, in 63 minutes.
+- The fix round for all 115 findings is running; the full suite and every recorded round follow before the commit.
