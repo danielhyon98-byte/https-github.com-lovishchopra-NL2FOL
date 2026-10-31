@@ -204,8 +204,14 @@ def test_review_pool_sends_a_repeated_fault_dossier_to_two_independent_instances
     plan = pr.plan
     assert pool.plans == (plan,) and len(plan.instances) == 2  # a repeated fault: at least two instances
     uid_f, uid_c = faulty.ch.channel_uid, clean.ch.channel_uid
-    assert plan.assignments[uid_f] == ["overseer-pool-1", "overseer-pool-2"] and len(plan.assignments[uid_c]) == 1
+    # integration step: the clean task has no repeated fault but carries a risk signal (a capped unchecked source, still blocking
+    # release at its effective severity), so it too goes to two independent instances (rewritten from one instance to the
+    # stricter planning rule); the faulty task goes to two for its repeated fault, as before
+    assert plan.assignments[uid_f] == ["overseer-pool-1", "overseer-pool-2"] and len(plan.assignments[uid_c]) == 2
     assert {it.key: it.repeated_faults for it in plan.items} == {uid_f: 1, uid_c: 0} and pr.task_keys == {uid_c: "task-clean", uid_f: "task-faulty"}
+    items = {it.key: it for it in plan.items}
+    assert items[uid_c].risk_signals == ("unchecked_source",) and items[uid_c].risk_records == ("writer_assumption",)
+    assert set(items[uid_f].risk_signals) >= {"integrity_error", "named_defect", "unchecked_source"}
     rf = pr.reviews[uid_f]
     assert sorted(r.agent_id for r in rf.runs) == ["overseer-pool-1", "overseer-pool-2"] and rf.combined is not None
     assert sorted(a.agent_id for a in rf.combined.agents) == ["overseer-pool-1", "overseer-pool-2"]

@@ -296,7 +296,7 @@ from . import CheckContext
 __all__ = [
     "TranslationRecord", "translation_records", "check_translations", "circular_premises", "untraced_content", "grounding_faults", "status_faults",
     "sibling_status_faults", "same_fact_inconsistencies",
-    "revalidate", "summary_matches", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES", "is_transcription",
+    "revalidate", "summary_matches", "statement_image", "ir_numbers", "text_numbers", "number_traced", "TRANSLATION_CHECKS", "TRANSLATED_STATUSES", "is_transcription",
     "TRANSCRIPTION_KINDS", "Necessity", "without_premises", "restatement_necessity", "NECESSITY_RULE", "Restatement", "restatement", "AGREEMENT_RULE",
     "withheld_as_circular", "VERIFIED_TRANSCRIPTION_KINDS", "TRANSCRIPTION_RULE", "transcription_fault", "FIGURE_TRANSCRIPTION_KINDS", "FIGURE_RULE",
     "SEMANTIC_RULE", "DISCLOSURE_RULE", "RESTATEMENT_WAYS", "SEMANTIC_WAYS", "RESTATEMENT_RLIMIT", "RESTATEMENT_TIMEOUT_MS", "nnf_conjuncts",
@@ -3424,6 +3424,24 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     with and without ``report`` and ``task`` (the report the claim was delivered in, the task record of the request it
     answers), as the composer is given them or not (the channel passes the task record only to a verifier that declares a
     ``task`` parameter); with no review there is nothing to read."""
+    return statement_image(o, claim, verification, keyring, report=report, task=task)[0]
+
+
+def _same_json(a: Any, b: Any) -> bool:
+    try:
+        return canonical_json(a) == canonical_json(b)
+    except Exception:
+        return False
+
+
+def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verification: Optional[VerificationResult], keyring: Any,
+                    report: Optional[SpecialistReport] = None, task: Optional[TaskRecord] = None) -> tuple[bool, bool]:
+    """``(summary, diagnosis and release)``: whether the outcome's summary is the composer's statement (see
+    :func:`summary_matches`), and whether its argument diagnosis (``named_diagnostics``, ``diagnosis_incomplete``) and its
+    release assessment (``release``) are, all three from one signing configuration and one context the composer could have
+    used (rule ``diagnosis-image``, integration step). A diagnosis dropped, lowered, uncapped or relabelled, or a release
+    refusal dropped (rules 8 and 9 included), is not the image: the summary may still read as the composer wrote it, so the
+    structured fields are compared on their own."""
     tr = o.translation
     review = o.semantic_review
     structural = list(o.structural_findings)
@@ -3459,6 +3477,10 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
             diagnoses[key] = outcome_diagnosis(claim, tr, verification, display, k, k_id, rep, tk)
         return diagnoses[key]
 
+    have_named = [d.model_dump(mode="json") for d in o.named_diagnostics]
+    have_incomplete = list(o.diagnosis_incomplete)
+    have_release = o.release.model_dump(mode="json") if o.release is not None else None
+    summary_ok = rest_ok = False
     for k, k_id in options:
         try:
             display = display_status_for(tr, verification, k, k_id)
@@ -3467,14 +3489,19 @@ def summary_matches(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
                             if trusted is not None and tr.problem is not None else None)
             for ci in range(len(contexts)):
                 named, incomplete, engine_state = diagnosis(k, k_id, display, ci)
+                same_diagnosis = _same_json([d.model_dump(mode="json") for d in named], have_named) and list(incomplete) == have_incomplete
                 for st in states:
                     release = assess_release(tr, trusted, review, structural, display, st, engine_check, named, incomplete)
-                    if build_summary(claim, tr, verification, review, structural, display, k, k_id, release, st,
-                                     named=named, engine_state=engine_state, incomplete=incomplete) == o.summary:
-                        return True
+                    if not summary_ok and build_summary(claim, tr, verification, review, structural, display, k, k_id, release, st,
+                                                        named=named, engine_state=engine_state, incomplete=incomplete) == o.summary:
+                        summary_ok = True
+                    if not rest_ok and same_diagnosis and (have_release is None or _same_json(release.model_dump(mode="json"), have_release)):
+                        rest_ok = True
+                    if summary_ok and rest_ok:
+                        return True, True
         except Exception:
             continue
-    return False
+    return summary_ok, rest_ok
 
 
 # ============================================================================================ TRN-008 / TRN-009
@@ -3871,9 +3898,22 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                         "store and the receipt's copy is not the verified content the store recorded; the transfer cannot pass", claim_ids=cid, formal_result_id=rid, **ids)
         if rid is None or stored is not None:
             ran.append("summary")
-            if not summary_matches(o, claim, stored, ctx.keyring, report=t.report, task=_task_of(ctx, t)):
+            summary_ok, rest_ok = statement_image(o, claim, stored, ctx.keyring, report=t.report, task=_task_of(ctx, t))
+            if not summary_ok:
                 ctx.ovs(t.seq, "OVS-TRN-007", f"the summary of outcome {path} (claim {claim.claim_id}) is not the deterministic statement of its translation "
                         + (f"and the signed result {rid}" if rid else "with no engine result") + ": it states something the translation and the signed result do not",
+                        claim_ids=cid, formal_result_id=rid, **ids)
+            if not rest_ok:
+                # rule diagnosis-image: the outcome's named diagnostics, the rules that did not finish and the release assessment
+                # are the composer's derivation from the translation and the signed result (translate.outcome.outcome_diagnosis,
+                # assess_release); a load-bearing writer's assumption, an unchecked source, a STEM method error or a release
+                # refusal (rules 8 and 9 included) dropped, lowered, uncapped or relabelled fails the transfer
+                shown = ", ".join(f"{d.code} ({d.severity}{'; capped from ' + d.capped_from if d.capped_from else ''})" for d in o.named_diagnostics[:6]) or "none"
+                ctx.ovs(t.seq, "OVS-TRN-007", f"the argument diagnosis or the release assessment of outcome {path} (claim {claim.claim_id}) is not the "
+                        "deterministic statement of its translation " + (f"and the signed result {rid}" if rid else "with no engine result")
+                        + f" (rule diagnosis-image): the outcome states named diagnostics [{shown}], incomplete {list(o.diagnosis_incomplete)[:3]} and "
+                        f"release {'permitted' if o.release is not None and o.release.permitted else 'not permitted'}, which no derivation the composer "
+                        "could make gives (a diagnosis dropped, lowered, uncapped or relabelled, or a release refusal dropped)",
                         claim_ids=cid, formal_result_id=rid, **ids)
         records.append(_record(ctx.view, ctx.store, t, i, o, dump, claim, ran, reval, outside_cited if "trace" in ran else ()))
     _receipt_level(ctx, t)

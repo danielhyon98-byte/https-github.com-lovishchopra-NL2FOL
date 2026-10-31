@@ -2466,7 +2466,10 @@ overseer's contained run and the three argument-diagnosis corpora are measured o
 * **The overseer pack** (pack 1.3, corrected in place): dossier guide D32 (`02-dossier.md`) lists the thirteen new ST
   codes with their severities and defect labels; the manifest is regenerated with `python -m epinoic_logic.overseer.export
   --refresh-source` and the new pack digest pinned in `overseer/pack.PACK_DIGESTS`. The schemas are unchanged (no contract
-  changed).
+  changed). *Corrected by the integration step (31 October; `docs/OVERSEER_DESIGN.md` section 47, decision 79):* a pinned
+  pack version never changes, so 1.3 is restored to the digest it was released under (`b44776a1…`, pinned again) and this
+  correction is released as pack 1.4, with the overseer's reading of everything the translator emits (the argument
+  diagnosis on outcomes, receipts and signed results, release rules 8 and 9, every code with its severity).
 * Docs: `stem/README.md` and `stem/ENCODINGS.md` (the three modules and the `unit`, `op` and `rnd` kinds).
 
 ### 20.7 What step 2 does not port, and why

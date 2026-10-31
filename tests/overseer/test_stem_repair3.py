@@ -27,7 +27,7 @@ from epinoic_logic.branches import RouterHub  # noqa: E402
 from epinoic_logic.engine import SolverConfig  # noqa: E402
 from epinoic_logic.integrity import WorkPlan  # noqa: E402
 from epinoic_logic.ir.schema import Problem  # noqa: E402
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 from epinoic_logic.stem.datatables import parse_data_tables  # noqa: E402
 from epinoic_logic.translate.contracts import SuppliedText  # noqa: E402
 
@@ -37,7 +37,7 @@ KEY = b"stem-repair-3-test-key-0123456789abcdef"
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 # ============================================================================================ the probes and the tamper cases

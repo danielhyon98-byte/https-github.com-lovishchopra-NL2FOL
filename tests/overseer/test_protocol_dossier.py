@@ -70,8 +70,13 @@ def test_transfers_in_sequence_order_each_with_its_own_pointer(auditor, task):
     assert rep["direction"] == "specialist_to_router" and rep["sender"] == {"agent_id": "english-specialist", "role": "specialist"}
     assert rep["contract"].startswith("specialist_report/") and rep["in_reply_to"] == task.mids["req_en"]
     assert rep["payload"]["report_id"] == "rep-en-1" and rep["payload_sha256"] and rep["receipt"]["status"] == "ACCEPTED"
+    # pack 1.4 (integration step): the receipt also shows the argument diagnosis the channel issued, exactly as journaled
+    # (this English answer's receipt names diagnostics; a member that is empty is not shown, so the field set is exact)
     assert set(rep["receipt"]) == {"status", "findings", "coverage", "constraint_results", "outcomes", "structural_findings", "formal_checks",
-                                   "formal_result_ids", "summary"}
+                                   "formal_result_ids", "summary", "named_diagnostics"}
+    journaled = task.receipts["rep_en"].model_dump(mode="json")
+    assert rep["receipt"]["named_diagnostics"] == journaled["named_diagnostics"] and journaled["named_diagnostics"]
+    assert "named_overflow" not in rep["receipt"] and "diagnosis_incomplete" not in rep["receipt"]
     assert d["transfers"][4]["raw_text"] == HI_TEXT and "raw_text" not in d["transfers"][1]
     assert rep["pool_after"] and {"claim_id", "problem_digest", "ambiguous", "agent_id", "report_id"} == set(rep["pool_after"][0])
 

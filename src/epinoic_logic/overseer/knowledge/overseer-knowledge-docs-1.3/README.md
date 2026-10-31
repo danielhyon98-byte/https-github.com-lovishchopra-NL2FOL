@@ -139,8 +139,8 @@ output together:
 
 - the system text depends on the dossier (the rule above): the core alone, for a dossier with neither STEM answers nor
   translations, is 187,724 characters (about 24,800 words; roughly 46,900 tokens at four characters a token); the core
-  with the STEM module 399,686 characters (roughly 99,900 tokens); with the translations module 283,695 characters
-  (roughly 70,900 tokens); with both, the whole text, 495,657 characters (about 68,900 words; roughly 123,900 tokens);
+  with the STEM module 396,772 characters (roughly 99,200 tokens); with the translations module 283,695 characters
+  (roughly 70,900 tokens); with both, the whole text, 492,743 characters (about 68,400 words; roughly 123,200 tokens);
 - a dossier has no fixed total size: the infrastructure cuts each string field at 20,000 characters, and the dossiers
   measured so far (the exporter's, for the recorded rounds r2 to r5 and r7, r7's re-keyed pass included) ran from 17 KB
   to 1,297 KB (roughly 4,300 to 324,300 tokens). The largest are tasks of the re-keyed pass, which carry the recorded
@@ -149,8 +149,6 @@ output together:
   JSON) before choosing a model;
 - the output budget above (8,000 tokens).
 
-The dossier figures below were measured with the STEM module before its table of ST codes gained the argument
-diagnostics' codes (2,914 characters, about 730 tokens): a need that includes the STEM module is about 730 tokens more.
 Of the 1,435 dossiers measured, 190 need the core alone (at most about 94,600 tokens with the output), 315 the STEM
 module (at most about 196,300), 890 the translations module (at most about 403,200) and 40 both (at most about 336,100).
 To review every one, deploy on a model whose context window is at least 404,000 tokens (the largest need, the re-keyed

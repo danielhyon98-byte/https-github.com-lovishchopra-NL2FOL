@@ -35,7 +35,7 @@ from epinoic_logic.ir.schema import Problem  # noqa: E402
 from epinoic_logic.overseer import KIND_CHECKS, OVS_CODES  # noqa: E402
 from epinoic_logic.overseer.checks.formal import IDENTITY_RULE, identity_bindings, identity_variables  # noqa: E402
 from epinoic_logic.overseer.checks.translation import RESTATEMENT_WAYS, SEMANTIC_WAYS, restatement  # noqa: E402
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 from epinoic_logic.stem import build_document, clear_document_cache  # noqa: E402
 from epinoic_logic.stem.checks import build_checks  # noqa: E402
 
@@ -47,7 +47,7 @@ INFER = {"kind": "specialist_inference"}
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 def _section(text: str, start: str, end: str) -> str:

@@ -224,7 +224,7 @@ def synthetic_verdict(claims: list[dict], *, answer: str = ANSWER, user_text: st
         "schema": "epinoic.integration.turn-verdict.v1", "protocol": PROTOCOL, "verdict_id": f"vd_{ATTEMPT}", "issued_at": "2026-10-17T00:00:00.000Z",
         "ids": {"task_id": TASK, "request_id": ATTEMPT, "plan_id": f"plan-{ATTEMPT}", "channel_uid": "ch-synthetic"},
         "bound": {"user_text_sha256": sha256_text(user_text), "policy": policy, "mode": mode, "answers": answers},
-        "service": {"service_env": "sim", "versions": {"ir": "1.0", "engine": "0.4.0", "policy": "2026.10-v4", "translator": "0.4.0", "z3": "5.1.0", "contract": "0.4"},
+        "service": {"service_env": "sim", "versions": {"ir": "1.0", "engine": "0.4.0", "policy": "2026.10-v4", "translator": "0.4.0", "z3": "5.1.0", "contract": "0.5"},
                     "build": {"build_id": "b0" * 32, "schema_id": "b1" * 32, "policy_id": "b2" * 32}, "subject_map_sha256": "b5" * 32},
         "delivery": {"decision": decision, "deliverable": ({"agent_id": "history", "answer_sha256": sha256_text(answer), "message_id": "m-answer"} if decision == "deliver" else None),
                      "reasons": reasons, "consolidation": {"id": "cons-synthetic", "status": consolidation_status, "basis": "single"}, "synthesis": None},

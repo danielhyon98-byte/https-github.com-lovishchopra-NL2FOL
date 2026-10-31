@@ -521,7 +521,15 @@ class RouterHub:
             if ch.channel_uid in chans:
                 raise ValueError("a task is given twice in one batch")
             chans[ch.channel_uid], keys[ch.channel_uid] = ch, k
-        items = [PoolItem(key=uid, repeated_faults=sum(1 for r in self.repeats(ch).repeats if r.channel_uid == uid)) for uid, ch in chans.items()]
+        from ..overseer.emitted import risk_reading
+        auditor = self._require_auditor()
+        # integration step: the risk signals and records each task's journaled transfers carry (named defects, load-bearing
+        # writer's assumptions, unchecked sources, STEM method errors, ...) only ever escalate its review (``pool.plan_pool``)
+        items = []
+        for uid, ch in chans.items():
+            signals, records = risk_reading(auditor.view(self._journaled_uid(auditor, ch)))
+            items.append(PoolItem(key=uid, repeated_faults=sum(1 for r in self.repeats(ch).repeats if r.channel_uid == uid),
+                                  risk_signals=signals, risk_records=records))
         plan = pool.plan(items)
         reviews: dict[str, HubReview] = {}
         for it in plan.items:

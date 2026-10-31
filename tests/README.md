@@ -1035,3 +1035,17 @@ Work in progress after it is labelled as such.
 - The argument diagnostics are being ported onto the integrated translator on their own branch, keeping the integrated
   behaviour wherever the two lines disagree; they are merged only after the full suite, the arena rounds, the contained
   overseer run and the three argument-diagnostics corpora pass on the port.
+
+### Progress, 05:00 UTC (31 October)
+
+- The argument diagnostics are ported onto the integrated translator and merged (9dec1e7). Independent verification on
+  the port: 12,544 tests passed and none failed; every recorded arena round at its recorded count (r1 30/30, r1-adv
+  150/151, r2-r6 46/46 each, r7 177/177); the overseer's contained run passed all 13 gates. The pre-upload simulation of
+  exactly that code passed too (358 of 358 tamperings detected), and it is published on the main repository.
+- Argument-diagnostics corpora on the port: development 44 of 44 defects named, 27 of 57 clean answers left clean;
+  hold-out 61 of 66 named, 48 of 68 clean; second hold-out 68 of 70 named, 38 of 66 clean. Every clean answer still
+  flagged is flagged by the integrated translator's own readings, with the same result as before the port.
+- Integration step: the overseer now reads every code and diagnostic the translator emits (6ac78cc; 12,580 tests passed,
+  none failed). Its knowledge pack 1.3 is restored to its released content and the changes ship as pack 1.4; the
+  integration contract moves to 0.5 and documents the two new signed result fields.
+- The integration gate (14 independent lenses) is running before arena round 8.

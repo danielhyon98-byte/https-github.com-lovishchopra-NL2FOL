@@ -88,7 +88,9 @@ def test_with_overseer_agents_the_round_reports_the_candidates_and_the_chosen_on
     assert t["mode"] == "overseer_selected" and t["delivered"] and t["chosen"]["agent_id"] == "history-specialist"
     [c] = t["candidates"]
     assert c["chosen"] is True and c["accuracy_fraction"] == "2/2" and c["above_threshold"] and c["claims"]["accurate"] == 2
-    assert t["overseer"]["ran"] and t["overseer"]["instances"] == ["overseer-pool-1"] and t["overseer_s"] is not None
+    # integration step: the History answer's receipt carries CORE-SRC-003 at warning (unchecked_source), a risk signal that
+    # sends the dossier to two independent instances (rewritten from one instance to the stricter planning rule)
+    assert t["overseer"]["ran"] and t["overseer"]["instances"] == ["overseer-pool-1", "overseer-pool-2"] and t["overseer_s"] is not None
     assert t["label"].startswith("OVERSEER-SELECTED (not formally checked, not verified)")
     row = next(line for line in (tmp_path / "o" / "summary.md").read_text().splitlines() if line.startswith(f"| {TASK}.json |"))
     assert "| overseer_selected |" in row and "history-specialist 2/2" in row and row.split("|")[7].strip() == "history-specialist"

@@ -100,8 +100,8 @@ def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router
     else:
         assert out.returncode == 1
         assert "BLOCKER" in rows["G1 overseer package"]
-    if _named_policies_merged():  # contract 0.3 merged: its row passes, and the contract line moved to 0.4 with it
-        assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.4"], out.stdout
+    if _named_policies_merged():  # contract 0.3 merged: its row passes, and the contract line moved on with it (0.5 since the argument diagnosis)
+        assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.5"], out.stdout
     else:
         assert "BLOCKER" in rows["G1 named policies (contract 0.3)"]
     assert "PASS" in rows["G1 STEM branches"] and "PASS" in rows["G1 protocol"]
@@ -129,7 +129,7 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
         assert [line.split("  ")[0] for line in blockers] == ["G1 overseer package"], out.stdout
     else:
         assert len(blockers) == 3, out.stdout
-        assert any(line.startswith("G1 contract 0.4") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
+        assert any(line.startswith("G1 contract 0.5") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--translator", str(ROOT)], capture_output=True, text=True, timeout=600, env=env)
     [preflight] = [line for line in out.stdout.splitlines() if line.startswith("service preflight")]

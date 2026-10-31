@@ -9,9 +9,9 @@
     },
     {
       "audience": "agent",
-      "bytes": 120694,
+      "bytes": 117780,
       "path": "02-dossier.md",
-      "sha256": "eb20224662c88c90efdd22a9295d0cb134caee4a450dc26247275f7c09a7e5e3"
+      "sha256": "4ff6becbc76ab6ac1bd5db8f3265f3be61b6334fe2b4a12421e731d7adb8b354"
     },
     {
       "audience": "agent",
@@ -57,9 +57,9 @@
     },
     {
       "audience": "deployer",
-      "bytes": 16365,
+      "bytes": 16135,
       "path": "README.md",
-      "sha256": "96a2d03ddaffae0e23e318737933edc929e3eac43f9de4268913bc32b905adf3"
+      "sha256": "20b92a31e2bcc8dc4e5c563718626b60f3523c9be42d9fe3a84ba5397218a555"
     },
     {
       "audience": "machine",
@@ -82,12 +82,12 @@
   ],
   "manifest_version": "1.0",
   "pack_name": "overseer-knowledge-docs",
-  "pack_sha256": "0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb",
+  "pack_sha256": "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
   "pack_version": "1.3",
   "system_compositions": {
     "core": "6692fbfd4374c5e5d1b73fa26c215a9a33fd51e78ed71cef45639bc8a36def90",
-    "core+stem": "759a4b157e0c1af232115d9a6434b28b69177f57f0361f8d092ead14d7210696",
-    "core+stem+translations": "8e9d9db5969557779d0f3f9f30d5e434ec7cc41545cca35ae239d7b488843c4c",
+    "core+stem": "60c35232954990d2f50473d44db45a7d5e6da90a521def949e9cc9b8ebcbb08a",
+    "core+stem+translations": "9f0d232b40fa5b8d01740768f801163dfc331903c3058770ebbc6b5d09222fb6",
     "core+translations": "e4ccc874b77a0c7c750f05037e0155537c119b7084aace4ced84124190cdfcc3"
   },
   "system_modules": [
@@ -107,6 +107,6 @@
     "09-when-unsure.md"
   ],
   "system_separator": "===== {path} =====",
-  "system_sha256": "8e9d9db5969557779d0f3f9f30d5e434ec7cc41545cca35ae239d7b488843c4c",
+  "system_sha256": "9f0d232b40fa5b8d01740768f801163dfc331903c3058770ebbc6b5d09222fb6",
   "verdict_contract": "overseer_verdict/1.0"
 }

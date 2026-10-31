@@ -41,9 +41,9 @@ Run every script from the repository root with `PYTHONPATH=src`.
 python scripts/overseer/tamper.py --out OUT/tamper --rounds ROUNDS
 python scripts/overseer/stem_probes.py --out OUT/stem --rounds ROUNDS
 python scripts/overseer/run_contained.py --out OUT/contained --rounds ROUNDS [--replay-mode process]
-python scripts/overseer/export_dossier.py --pack OUT/contained/pack/overseer-knowledge-docs-1.3 --out OUT/export --rounds ROUNDS --tamper OUT/contained/tamper
-python scripts/overseer/score_verdicts.py --export OUT/export --verdicts REPLIES --pack OUT/contained/pack/overseer-knowledge-docs-1.3 --out OUT/scores [--adjudications ADJ.json]
-python scripts/overseer/run_contained.py --out OUT/replay --pack OUT/contained/pack/overseer-knowledge-docs-1.3 --no-tamper --replies REPLIES --transfers OUT/export
+python scripts/overseer/export_dossier.py --pack OUT/contained/pack/overseer-knowledge-docs-1.4 --out OUT/export --rounds ROUNDS --tamper OUT/contained/tamper
+python scripts/overseer/score_verdicts.py --export OUT/export --verdicts REPLIES --pack OUT/contained/pack/overseer-knowledge-docs-1.4 --out OUT/scores [--adjudications ADJ.json]
+python scripts/overseer/run_contained.py --out OUT/replay --pack OUT/contained/pack/overseer-knowledge-docs-1.4 --no-tamper --replies REPLIES --transfers OUT/export
 python scripts/overseer/mutate_auditor.py --out OUT/mutation
 PYTHONPATH=src:scripts/overseer python -m pytest -q -p pytest_attach
 ```

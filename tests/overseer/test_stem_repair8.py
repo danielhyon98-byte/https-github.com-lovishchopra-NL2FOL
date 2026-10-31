@@ -34,7 +34,7 @@ import tamper as T  # noqa: E402
 from epinoic_logic.branches import RouterHub  # noqa: E402
 from epinoic_logic.engine import SolverConfig  # noqa: E402
 from epinoic_logic.integrity import WorkPlan  # noqa: E402
-from epinoic_logic.overseer.pack import installed_pack_dir  # noqa: E402
+from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402
 from .test_stem_repair5 import _decided  # noqa: E402
@@ -54,7 +54,7 @@ ES_A = "(a) Percentage decrease = (9.6 − 3.8) ÷ 9.6 × 100\n= 60.4% decrease 
 
 
 def _pack_text(name: str) -> str:
-    return (installed_pack_dir("1.3") / name).read_text(encoding="utf-8")
+    return (installed_pack_dir(PACK_VERSION) / name).read_text(encoding="utf-8")
 
 
 def _section(text: str, start: str, end: str) -> str:

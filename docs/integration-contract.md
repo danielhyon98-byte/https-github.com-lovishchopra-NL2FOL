@@ -1,19 +1,22 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.4 (2026-10-17). Version 0.1 described commit
+- **Contract version:** 0.5 (2026-10-31). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
   HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
-  integration protocol on top of 0.3 (section 9a; see section 11 for what changed). The component
-  versions are unchanged by 0.3 and 0.4.
+  integration protocol on top of 0.3 (section 9a); 0.5 adds the argument diagnosis (rules
+  `argdiag-2`): the two signed result fields `named_diagnostics` and `argument_rules`, and release
+  rules 8 and 9 (section 5a; see section 11 for what changed). The component versions are unchanged
+  by 0.3, 0.4 and 0.5.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
   - policy `2026.10-v4`
   - translator `0.4.0`
 
-  These come from `src/epinoic_logic/version.py`. Every result also binds the immutable identity
-  of the build that produced it (`build_id`, `schema_id`, `policy_id`; section 6).
+  These come from `src/epinoic_logic/version.py`, beside the argument rules `argdiag-2`
+  (`ARG_RULES_VERSION`, section 5a). Every result also binds the immutable identity of the build
+  that produced it (`build_id`, `schema_id`, `policy_id`; section 6).
 
 This document states what the code at that commit accepts, what it returns and what a result
 establishes. Anything marked **PROPOSED** is not implemented. Every example below was produced
@@ -200,12 +203,47 @@ the status.
 
 **Formal entailment is not permission to release.** `engine.release.release_check(result,
 problem, signing_key=..., required_limits=...)` (HTTP: `POST /v1/results/release-check`) is the
-engine's part of that decision. A result is eligible only when it is authentic (its signature
-verifies), bound (to the problem, internally consistent), current (this engine's versions and
-identity, and the validation limits the receiver requires), a positive verdict (ENTAILED,
-CONSISTENT or SATISFIABLE for the query), a verdict on the claim (no E108, E110, E111 or E112),
-with its evidence computed, and resting on established premises only (no ungrounded or
-unverified dependency). Every reason it fails is listed.
+engine's part of that decision. A result is eligible only when it is (1) authentic (its signature
+verifies), (2) bound (to the problem, internally consistent), (3) current (this engine's versions
+and identity, and the validation limits the receiver requires), (4) a positive verdict (ENTAILED,
+CONSISTENT or SATISFIABLE for the query), (5) a verdict on the claim (no E108, E110, E111 or
+E112), (6) with its evidence computed, (7) resting on established premises only (no ungrounded or
+unverified dependency), (8) free of named defects (no named diagnostic whose effective severity is
+warning or error, a capped one included) and (9) diagnosed by this build's argument rules
+(`argument_rules` equal to `argdiag-2`). Rules 8 and 9 are the argument diagnosis's (contract 0.5,
+section 5a). Every reason it fails is listed, each starting with the words of its rule
+("unauthenticated", "binding inconsistent", "not bound to this problem", "not bound to this claim",
+"stale", "no positive verdict", "no verdict on the claim", "no dependency evidence", "unresolved
+dependencies", "named defect" or "capped diagnostic, shown at info and still blocking release (it
+names no defect)", "argument diagnosis not computed", "argument diagnosis incomplete", "argument
+diagnosis by other rules").
+
+## 5a. Argument diagnosis (contract 0.5; rules `argdiag-2`)
+
+The engine also says, in a closed vocabulary, what is wrong with how the encoded argument argues,
+as far as deterministic code can tell from the result, the IR and derived runs on the same
+compiled terms (at most 24 runs, 1 s each, 8 s in all; `docs/ARGUMENT_DIAGNOSTICS.md`). The
+diagnosis only adds: it never changes a status, a dependency list or a diagnostic code, and it
+never makes a result more releasable. Two result fields carry it, both covered by the signature
+and the binding, and both left out of every dump while absent, so a result of contract 0.4
+re-serialises byte-identically (and is stale under this build's identity):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `named_diagnostics` | list of named diagnostics, or absent | Each has `code` (one of the closed table `named.NAMED_CODES`: `ARG-*`, `EVD-*`, `ST-*`), `defect` (one of 28 labels, `named.DEFECT_LABELS`), `severity` (`error`, `warning` or `info`, never above the code's maximum), `layer`, `derivation` and `message`, and when they apply `claim_ids`, `assertion_ids`, `missing_link` (an IR expression, validated and never evaluated, with its text), `evidence`, `derived_problem_digests`, `related_result_ids`, `capped_from` and `cap_reason` (a cap lowers a severity to info and records what it was: `ambiguous_translation`, `not_source_bound`), and `rule_version`. Present only when not empty. |
+| `argument_rules` | string, or absent | `argdiag-2` when this build's rules diagnosed the result; `argdiag-2/incomplete:<reason>` when a rule raised, overflowed or ran out of budget (it fired nothing); absent when the result was not diagnosed (`verify(..., diagnose=False)`: the translator's internal probes, the integrity cross checks and the channel's code-built checks). Absent is "not computed", never "none found". |
+
+The effective severity of a diagnostic is the higher of `severity` and `capped_from`: release rule 8
+reads it, so a capped warning still blocks release (its reason line names its cap and no defect).
+Release rule 9 refuses a result whose `argument_rules` is absent, incomplete or of other rules.
+`engine.verify`, `POST /v1/verify` and the CLI diagnose by default. Above the engine, each claim
+outcome carries `named_diagnostics` (the trusted result's own, merged with the claim rules') and
+`diagnosis_incomplete`, and its release assessment (`release-v1`) lists "named defect on this
+claim: ..." and "argument diagnosis incomplete ..." among the unresolved items; each receipt
+carries `named_diagnostics` (every outcome's, the report level's and one for each finding the
+translator labels), `named_overflow` and `diagnosis_incomplete`, and one INT-ARG-001 finding for
+each diagnostic shown at warning or error on a material claim. These finding codes are not frozen
+by this contract (section 9).
 
 ## 6. Provenance and integrity
 
@@ -220,9 +258,10 @@ Each result is bound to exactly what produced it:
     `limits_digest` is present;
   - `smt2`: the SMT-LIB 2 text, for audit.
 - **`versions`:** `ir_version`, `engine_version`, `policy_version`, `z3_version`, and the
-  immutable identity `build_id` (digest of the engine, IR and version source), `schema_id`
-  (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest
-  of the decision policy as data).
+  immutable identity `build_id` (digest of the engine, IR and version source, and of the argument
+  diagnosis's `named.py` and `lexis.py`), `schema_id` (digest of the problem, limits,
+  configuration and result JSON Schemas) and `policy_id` (digest of the decision policy as data,
+  which binds the argument rules version and the digest of the named-code table).
 - **`solver_config`:** the configuration the solver ran with.
 - **`limits`:** the non-default validation limits the problem was validated under.
 
@@ -274,7 +313,8 @@ Input:
  "conclusion": {"id": "C", "expr": {"op": "gt", "left": {"op": "var", "name": "x"}, "right": {"op": "var", "name": "z"}}}}
 ```
 
-Output (abridged; the identity digests change with every build and are elided):
+Output (abridged; run again through the CLI on 2026-10-31 for contract 0.5; the identity
+digests and the derived problems' digests change with every build and are elided):
 
 ```json
 {"query": "entailment", "status": "ENTAILED",
@@ -282,14 +322,23 @@ Output (abridged; the identity digests change with every build and are elided):
  "premises_relied_on": ["P1", "P2"],
  "ungrounded_dependencies": ["P1", "P2"], "unverified_dependencies": [],
  "counterexample": null, "diagnostics": [],
+ "named_diagnostics": [{"code": "ARG-FACT-001", "defect": "lack_of_evidence", "severity": "info", "layer": "engine",
+                        "claim_ids": ["c1"], "assertion_ids": ["P1", "P2"], "derivation": "engine_recheck",
+                        "derived_problem_digests": ["…", "…", "…"], "rule_version": "argdiag-2",
+                        "message": "the proof also needs fact premise(s) that no check established: P1; P2 (…)"}],
+ "argument_rules": "argdiag-2",
  "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.10-v4", "z3_version": "5.1.0",
               "build_id": "…", "schema_id": "…", "policy_id": "…"}}
 ```
 
-`ungrounded_dependencies` lists both premises because they carry no grounding metadata. The
-entailment holds for the encoding only, and `release_check` refuses it:
-`{"eligible": false, "reasons": ["unresolved dependencies (ungrounded): P1, P2"]}` (signed with
-a key and checked under it).
+`ungrounded_dependencies` lists both premises because they carry no grounding metadata, and the
+argument diagnosis records them as facts the proof needs that no check established (ARG-FACT-001,
+info: a record, which blocks nothing on its own). The entailment holds for the encoding only, and
+`release_check` refuses it: `{"eligible": false, "reasons": ["unresolved dependencies (ungrounded):
+P1, P2"]}` (signed with a key and checked under it). The same problem verified with
+`diagnose=False` carries no `argument_rules`, and `release_check` adds "argument diagnosis not
+computed: the result carries no argument_rules (verify the problem with the argdiag-2 diagnosis)"
+(rule 9).
 
 ### Failure: a nonlinear product is UNSUPPORTED (`test_invalid_and_unsupported_payloads_become_results_not_exceptions`)
 
@@ -404,8 +453,13 @@ record carries none of them and must be translated and verified again, not trust
   status for the query, the engine's release check of the signed result under the composer's key
   (section 5), every relied-on premise established, no failed grounding check, no partial
   reference support, no unvalidated task authority, no retry that changed the claim, no
-  structural error, and a `faithful` review that is current and was made with the evidence. Every
-  unresolved item is listed; nothing in the channel or hub releases an answer by itself.
+  structural error, no named diagnostic at effective warning or error on the claim and no
+  argument diagnosis left incomplete (contract 0.5, section 5a), and a `faithful` review that is
+  current and was made with the evidence. Every unresolved item is listed; nothing in the channel
+  or hub releases an answer by itself.
+- **`named_diagnostics` and `diagnosis_incomplete`** (`ClaimVerificationOutcome`, contract 0.5):
+  the claim's argument diagnosis, as `outcome.outcome_diagnosis` derives it from the trusted
+  engine result and the claim rules (section 5a).
 
 ## 9a. Integration protocol `epinoic.integration.v1` (contract 0.4)
 
@@ -417,8 +471,9 @@ every existing route are unchanged, and the component versions above do not chan
 policy or IR semantics. **0.4 takes effect together with contract 0.3** (the named policies `linear`,
 `nonlinear` and `joint`): a tree without them keeps an older version line and the service refuses to start in an
 integration profile (`KIT-HS-006`). The pre-build branch merged contract 0.3 with the end-to-end fixes on 17 October
-2026, so its version line says 0.4 (playbook step 5 reads it); its service now stops at the overseer instead
-(`KIT-HS-007`) until phase 2 connects the overseer port adapter.
+2026, so its version line said 0.4 (playbook step 5 reads it; 0.5 since the argument diagnosis, which changes no route
+of the protocol); its service now stops at the overseer instead (`KIT-HS-007`) until phase 2 connects the overseer port
+adapter.
 
 What the protocol states about this contract's own surfaces (all within 0.4; no engine, policy or IR change):
 
@@ -460,6 +515,25 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.4 to 0.5** (component versions unchanged; the build and policy identities change with the source):
+- the argument diagnosis, rules `argdiag-2` (section 5a; `docs/ARGUMENT_DIAGNOSTICS.md`): two signed
+  result fields, `named_diagnostics` and `argument_rules`, both absent when not computed and left
+  out of every dump while absent; the build identity binds `named.py` and `lexis.py`, the policy
+  identity the rules version and the named-code table's digest;
+- release rules 8 (no named diagnostic at effective warning or error, a capped one included) and 9
+  (diagnosed by this build's rules: `argument_rules` equal to `argdiag-2`) in
+  `engine.release.release_check` and `POST /v1/results/release-check`; the outcome's release
+  assessment (`release-v1`) lists the named defects and an incomplete diagnosis as unresolved;
+- above the engine (not frozen, section 9): the outcome's `named_diagnostics` and
+  `diagnosis_incomplete`, the receipt's `named_diagnostics`, `named_overflow` and
+  `diagnosis_incomplete`, and the receipt findings INT-ARG-001 and INT-XENC-001;
+- why the component versions stay: the diagnosis changes no status, no compilation and no
+  decision procedure (`engine/procedures.py`, `compiler.py` and `validator.py` are unchanged), it
+  only adds signed records and refuses more releases; the build and policy identities already make
+  every result of an earlier build stale. Whether the release that ships it also bumps the
+  component versions is the owner's decision (`version.py`), and the integration kit's
+  compatibility record pins contract 0.5 with them.
 
 **0.3 to 0.4** (component versions unchanged; no engine, policy or IR semantics):
 - the integration protocol `epinoic.integration.v1` (section 9a; `integration/PROTOCOL.md`): the routes

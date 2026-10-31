@@ -22,6 +22,7 @@ import pytest
 
 import epinoic_logic
 import epinoic_logic.channel.bus as bus
+import epinoic_logic.named as named_mod
 from epinoic_logic.channel import contracts as channel_contracts
 from epinoic_logic.engine.results import VerificationResult
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
@@ -323,12 +324,16 @@ def _known_names() -> set[str]:
               ir_schema.Problem, ir_schema.Symbol, ir_schema.Assertion, ir_schema.Grounding,
               # consolidation (design section 19): the consolidations an informed dossier shows
               dossier_mod.DossierConsolidation, dossier_mod.ConsolidationGroup, dossier_mod.ConsolidationMember, dossier_mod.ConsolidationCheck,
-              dossier_mod.ConsolidationExcluded, dossier_mod.ConsolidationConflict, dossier_mod.ConsolidationRepeat, dossier_mod.ConsolidationAdvisory]
+              dossier_mod.ConsolidationExcluded, dossier_mod.ConsolidationConflict, dossier_mod.ConsolidationRepeat, dossier_mod.ConsolidationAdvisory,
+              # the argument diagnosis (pack 1.4, integration step): a named diagnostic and its parts, which Dossier guide D33 teaches
+              named_mod.NamedDiagnostic, named_mod.MissingLink, named_mod.EvidenceSpan, translate_contracts.ReleaseAssessment]
     names: set[str] = set()
     for m in models:
         names |= set(m.model_fields)
     values = set(KIND_CHECKS) | set(LENSES) | set(MODES) | set(typing.get_args(dossier_mod.TransferKind)) | set(typing.get_args(dossier_mod.IndexType))
     values |= {r.value for r in integrity_contracts.AgentRole}
+    # the argument diagnosis's closed vocabularies (pack 1.4): the 28 defect labels, the layers, the derivations, the cap reasons
+    values |= set(named_mod.DEFECT_LABELS) | set(named_mod.LAYERS) | set(named_mod.DERIVATIONS) | set(named_mod.CAP_REASONS)
     # the IR's expression nodes (their fields and operators), grounding kinds and query kinds (Dossier guide D22)
     for node in vars(ir_schema).values():
         if isinstance(node, type) and "op" in getattr(node, "model_fields", {}):
@@ -430,13 +435,15 @@ def test_every_rule_code_is_defined_once():
     # stage (design section 19) added T13-T14, D24-D27, K7, N13, U11 and the consolidation checks I82-I89; pack 1.1
     # (after the contained round c1) added D28, the request parser's constraint rules; pack 1.2 (after the round-7
     # simulation) added D29-D31 and I90-I97, the STEM answers; the STEM completion (design section 31) added D32, the ST
-    # codes, and I98, a STEM receipt.
-    for prefix, last in {"T": 14, "D": 32, "E": 15, "V": 20, "K": 7, "X": 3, "N": 13, "U": 11}.items():
+    # codes, and I98, a STEM receipt. The integration step (pack 1.4) added D33-D37 (the argument diagnosis, release, the
+    # codes, statuses, rejections and policies), I99 (reading a diagnosis), K8 and N14.
+    for prefix, last in {"T": 14, "D": 37, "E": 15, "V": 20, "K": 8, "X": 3, "N": 14, "U": 11}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 98
+    assert nums["I"][0] == 1 and nums["I"][-1] == 99
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
     assert [n for n in nums["I"] if 82 <= n < 90] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
-    assert [n for n in nums["I"] if n >= 90] == list(range(90, 99))  # the STEM answers, I90 to I98
+    assert [n for n in nums["I"] if 90 <= n < 99] == list(range(90, 99))  # the STEM answers, I90 to I98
+    assert [n for n in nums["I"] if n >= 99] == [99]  # the argument diagnosis, I99 (two-digit rule ids: I99 is the last)
 
 
 def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
@@ -448,11 +455,11 @@ def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
     d = copy_pack(tmp_path)
     text = read(d, "02-dossier.md")
     facts = text.split("## 10. Facts you can rely on", 1)[1].split("\n## ", 1)[0]
-    # (pack 1.2: Common mistakes is §15, after the STEM answers' D29-D31)
-    assert "## 15. Common mistakes" in text
-    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 15. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 15. Common mistakes")
+    # (pack 1.2: Common mistakes is §15, after the STEM answers' D29-D31; pack 1.4: §16, after the argument diagnosis's D33-D37)
+    assert "## 16. Common mistakes" in text
+    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 16. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 16. Common mistakes")
     (d / "02-dossier.md").write_text(moved, encoding="utf-8")
-    assert any("D14 is defined after D32" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D32 (STEM completion) is now the last rule before
+    assert any("D14 is defined after D37" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D37 (the integration step) is now the last rule before
     with pytest.raises(ExportError) as ei:
         refresh_source(d)
     assert ei.value.reason == "source_invalid" and "out of ascending order" in ei.value.detail
@@ -492,7 +499,7 @@ ONE_BYTE = {
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
     # the footer names another version than the pack's own (the pack is 1.3 since the translator merge)
-    "titles_and_footers": ("08-never.md", "Pack version 1.3 · overseer-knowledge-docs", "Pack version 1.4 · overseer-knowledge-docs"),
+    "titles_and_footers": ("08-never.md", "Pack version 1.4 · overseer-knowledge-docs", "Pack version 1.5 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

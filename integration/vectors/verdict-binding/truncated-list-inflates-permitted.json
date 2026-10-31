@@ -133,7 +133,7 @@
       "service_env": "sim",
       "subject_map_sha256": "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5",
       "versions": {
-        "contract": "0.4",
+        "contract": "0.5",
         "engine": "0.4.0",
         "ir": "1.0",
         "policy": "2026.10-v4",
@@ -144,7 +144,7 @@
     "signature": {
       "alg": "hmac-sha256",
       "key_id": "verdict-vectors",
-      "value": "6c2280291447d99ef803001e431f15a9f140a94b2998b603763c66afec38d8b4"
+      "value": "bdcd046c79bf2d9adda4a185e1135b36a12a78719f8b8f46445c4e2b3aa4bac8"
     },
     "summary": "formally_checked",
     "timings": {

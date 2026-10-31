@@ -201,9 +201,9 @@
 - **Do,** in `<kit>`: `python3 integration/readiness/check.py --g1 .`
   (contract version line of `docs/integration-contract.md`, the overseer package, the STEM branches, the named policies,
   the protocol in `COMPATIBILITY.json`, and the flash router and the combinator sub-projects, reported but not required).
-- **Expect:** contract 0.4, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
+- **Expect:** contract 0.5, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
 - **Stop if:** any required part is missing: the service would refuse with `KIT-HS-006`, `KIT-HS-007` or `KIT-HS-005`.
-  Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.4, which follows the contract 0.3 merge, the
+  Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.5, which follows the contract 0.3 merge and 0.4, the
   overseer package and the named policies of contract 0.3 are connected in phase 2: on a pre-build commit from before
   the contract 0.3 merge these three rows are BLOCKERs whose detail says "(connected in phase 2: ...)"; on one after it
   (the pre-build branch since 17 October 2026) only the overseer package row is. A published kit stops here; a

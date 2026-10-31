@@ -6,16 +6,24 @@ number of repeated faults in its task, :mod:`~epinoic_logic.overseer.repeats`). 
 :class:`PoolPlan`:
 
 * **review units**: one per dossier, two per dossier whose task has a repeated fault (it goes to two independent
-  instances, :data:`MIN_REPEAT_REVIEWERS`);
+  instances, :data:`MIN_REPEAT_REVIEWERS`), two per dossier whose task carries a risk signal and two per dossier whose task
+  carries only risk records (integration step: :func:`~epinoic_logic.overseer.emitted.risk_reading` reads both from the
+  journal; a signal is what blocks release or names a fault: a named defect at effective warning or error, an unchecked
+  source or a STEM method error at that severity, an encoding conflict, a contradiction, a withheld verdict, a rejection,
+  an argument diagnosis that did not finish, an error-level finding; a record is an info diagnostic of the three named
+  families: a load-bearing writer's assumption, an unchecked source, a STEM method record). Both only ever escalate
+  oversight: a dossier with a signal goes to two independent instances like a repeated fault, one with records only weighs
+  two review units toward the quota, and a plan never has fewer instances, nor gives any dossier fewer reviewers, than the
+  same batch without them (always within the maximum);
 * **instances**: ONE by default; more when the review units exceed the per-instance quota
   (``ceil(units / per_instance_quota)``) or when any dossier has a repeated fault (at least two); never more than
   ``max_instances`` (default :data:`DEFAULT_MAX_INSTANCES`, at most :data:`HARD_MAX_INSTANCES`, never below two so a
   repeated-fault dossier can always reach two instances). When the cap binds, the plan says so (``capped``) and an
   instance may carry more than its quota (``over_quota``): the plan never grows past the maximum. An empty batch plans no
   instance;
-* **assignment**, deterministic and independent of the input order: repeated-fault dossiers first, then the others, each
-  in key order, every review unit to the least-loaded instance (ties to the lower instance number); a repeated-fault
-  dossier goes to the two least-loaded DISTINCT instances. Instance agent ids are ``<base_agent_id>-<n>``;
+* **assignment**, deterministic and independent of the input order: repeated-fault dossiers first, then the dossiers with
+  risk signals, then the others, each in key order, every review unit to the least-loaded instance (ties to the lower
+  instance number); a repeated-fault dossier, and one with risk signals, goes to the two least-loaded DISTINCT instances. Instance agent ids are ``<base_agent_id>-<n>``;
 * ``plan_id``: a digest of the configuration, the pack identity, the items and the assignment; ``reasons`` say in words
   why the plan has its size.
 
@@ -76,10 +84,31 @@ class PoolConfig(BaseModel):
 
 
 class PoolItem(BaseModel):
-    """One dossier of a batch: its key (the hub uses the channel uid) and the repeated faults in its task."""
+    """One dossier of a batch: its key (the hub uses the channel uid), the repeated faults in its task and the risk signals
+    its task carries (the classes of :data:`~epinoic_logic.overseer.emitted.RISK_CLASSES`, sorted and unique)."""
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     key: str = Field(pattern=_KEY_PATTERN)
     repeated_faults: int = Field(default=0, ge=0)
+    risk_signals: tuple[str, ...] = Field(default=(), strict=False)  # a JSON list re-validates (a plan read back from its dump)
+    risk_records: tuple[str, ...] = Field(default=(), strict=False)
+
+    @model_validator(mode="after")
+    def _signals(self) -> "PoolItem":
+        from .emitted import RISK_CLASSES
+        for xs in (self.risk_signals, self.risk_records):
+            if any(x not in RISK_CLASSES for x in xs) or list(xs) != sorted(set(xs)):
+                raise ValueError("risk signals and records are classes of emitted.RISK_CLASSES, sorted and unique")
+        return self
+
+    @property
+    def units(self) -> int:
+        """The review units the dossier weighs: one, two when it is escalated or carries risk records."""
+        return MIN_REPEAT_REVIEWERS if (self.escalated or self.risk_records) else 1
+
+    @property
+    def escalated(self) -> bool:
+        """Whether the dossier goes to two independent instances: a repeated fault or a risk signal."""
+        return bool(self.repeated_faults or self.risk_signals)
 
 
 class PoolPlan(BaseModel):
@@ -112,8 +141,8 @@ class PoolPlan(BaseModel):
             chosen = self.assignments.get(it.key, [])
             if not chosen or len(set(chosen)) != len(chosen) or not set(chosen) <= known:
                 raise ValueError(f"dossier {it.key!r} has no valid assignment")
-            if it.repeated_faults and len(chosen) < MIN_REPEAT_REVIEWERS:
-                raise ValueError(f"repeated-fault dossier {it.key!r} goes to fewer than {MIN_REPEAT_REVIEWERS} instances")
+            if it.escalated and len(chosen) < MIN_REPEAT_REVIEWERS:
+                raise ValueError(f"escalated dossier {it.key!r} (a repeated fault or a risk signal) goes to fewer than {MIN_REPEAT_REVIEWERS} instances")
         if set(self.assignments) != {it.key for it in self.items}:
             raise ValueError("every dossier, and only those, is assigned")
         return self
@@ -150,7 +179,10 @@ def plan_pool(items: Sequence[PoolItem], config: PoolConfig, pack: PackIdentity)
         raise ValueError("a dossier key is given twice in one batch")
     its.sort(key=lambda it: it.key)
     repeated = [it for it in its if it.repeated_faults]
-    units = len(its) + (MIN_REPEAT_REVIEWERS - 1) * len(repeated)
+    risky = [it for it in its if it.risk_signals and not it.repeated_faults]
+    escalated = repeated + risky
+    weighted = [it for it in its if it.risk_records and not it.escalated]
+    units = sum(it.units for it in its)
     reasons: list[str] = []
     if not its:
         needed = 0
@@ -165,6 +197,15 @@ def plan_pool(items: Sequence[PoolItem], config: PoolConfig, pack: PackIdentity)
         if repeated:
             needed = max(needed, MIN_REPEAT_REVIEWERS)
             reasons.append(f"{len(repeated)} dossier(s) with repeated faults: each goes to {MIN_REPEAT_REVIEWERS} independent instances")
+        if risky:
+            needed = max(needed, MIN_REPEAT_REVIEWERS)
+            classes = sorted({x for it in risky for x in it.risk_signals})
+            reasons.append(f"{len(risky)} dossier(s) with risk signals ({', '.join(classes)}): each goes to {MIN_REPEAT_REVIEWERS} independent instances "
+                           "(a signal only ever escalates oversight)")
+        if weighted:
+            records = sorted({x for it in weighted for x in it.risk_records})
+            reasons.append(f"{len(weighted)} dossier(s) with risk records only ({', '.join(records)}): each weighs {MIN_REPEAT_REVIEWERS} review units "
+                           "toward the quota (a record only ever escalates oversight)")
     count = min(needed, config.max_instances)
     capped = needed > config.max_instances
     if capped:
@@ -175,11 +216,11 @@ def plan_pool(items: Sequence[PoolItem], config: PoolConfig, pack: PackIdentity)
             raise ValueError(f"instance id {a!r} is not a valid agent id")
     loads = {a: 0 for a in instances}
     assignments: dict[str, list[str]] = {}
-    for it in [*repeated, *[x for x in its if not x.repeated_faults]]:
-        want = MIN_REPEAT_REVIEWERS if it.repeated_faults else 1
+    for it in [*repeated, *risky, *[x for x in its if not x.escalated]]:
+        want = MIN_REPEAT_REVIEWERS if it.escalated else 1
         chosen = sorted(instances, key=lambda a: (loads[a], instances.index(a)))[:want]
         for a in chosen:
-            loads[a] += 1
+            loads[a] += 1 if it.escalated else it.units
         assignments[it.key] = sorted(chosen, key=instances.index)
     over = any(v > config.per_instance_quota for v in loads.values())
     if over:

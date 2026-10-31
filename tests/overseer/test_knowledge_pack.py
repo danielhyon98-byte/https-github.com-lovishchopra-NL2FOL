@@ -188,19 +188,26 @@ def test_verify_catches_a_pack_changed_in_memory(scratch):
 
 def test_accepted_identities_are_the_pinned_ones_plus_explicit_trust():
     pinned = installed_pack().identity
-    # packs 1.0, 1.1 and 1.2 stay pinned beside the installed 1.3 (design section 17.12: an older version whose contracts
-    # the code still supports stays accepted, so its verdicts still validate)
+    # packs 1.0 to 1.3 stay pinned beside the installed 1.4 (design section 17.12: an older version whose contracts the code
+    # still supports stays accepted, so its verdicts still validate). Integration step: 1.3 is pinned to the digest it was
+    # released under (b44776a1...), restored after the argument-diagnostics port had changed it in place; the corrected
+    # content is 1.4. A copy of the in-place correction (0fdf8581...) is refused, since a pinned version never changes.
     older = PackIdentity(name=PACK_NAME, version="1.0", sha256=PACK_DIGESTS[(PACK_NAME, "1.0")])
     older11 = PackIdentity(name=PACK_NAME, version="1.1", sha256=PACK_DIGESTS[(PACK_NAME, "1.1")])
     older12 = PackIdentity(name=PACK_NAME, version="1.2", sha256=PACK_DIGESTS[(PACK_NAME, "1.2")])
+    older13 = PackIdentity(name=PACK_NAME, version="1.3", sha256=PACK_DIGESTS[(PACK_NAME, "1.3")])
     other = PackIdentity(name=PACK_NAME, version="9.9", sha256="cd" * 32)
     override = PackIdentity(name=PACK_NAME, version=PACK_VERSION, sha256="ef" * 32)
-    assert pinned.version == PACK_VERSION == "1.3"
-    assert accepted_identities() == frozenset({pinned, older, older11, older12}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
-    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, other})  # trust never overrides a pinned version
+    assert pinned.version == PACK_VERSION == "1.4"
+    assert older13.sha256 == "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67"
+    assert accepted_identities() == frozenset({pinned, older, older11, older12, older13}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
+    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, older13, other})  # trust never overrides a pinned version
+    in_place = PackIdentity(name=PACK_NAME, version="1.3", sha256="0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb")
+    assert in_place not in accepted_identities([in_place])  # the in-place correction of 1.3 is never accepted, trusted or not
     assert load_pack(installed_pack_dir("1.0")).identity == older  # the older pinned packs still load, unchanged
     assert load_pack(installed_pack_dir("1.1")).identity == older11
     assert load_pack(installed_pack_dir("1.2")).identity == older12
+    assert load_pack(installed_pack_dir("1.3")).identity == older13
 
 
 def test_pack_error_reasons_are_closed():
@@ -232,14 +239,14 @@ def test_t20c_a_file_added(scratch):
 
 
 def test_t20d_the_version_string_changed(scratch):
-    remanifest(scratch, version="1.4")
+    remanifest(scratch, version="1.5")
     refused(scratch, "unknown_pack")
-    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.4")
-    remanifest(scratch, version="1.4")
+    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.5")
+    remanifest(scratch, version="1.5")
     refused(scratch, "unknown_pack")
     # an operator may trust it explicitly, by its exact identity only
-    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.4"
-    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.4", sha256="ab" * 32)])
+    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.5"
+    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.5", sha256="ab" * 32)])
 
 
 def test_a_refused_pack_yields_nothing_to_configure_an_agent_with(scratch):

@@ -8,7 +8,7 @@
     "engine": ["0.4.0"],
     "policy": ["2026.10-v4"],
     "translator": ["0.4.0"],
-    "contract": ["0.4"],
+    "contract": ["0.5"],
     "z3_solver": {"min": "4.13", "below": "6"}
   },
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",

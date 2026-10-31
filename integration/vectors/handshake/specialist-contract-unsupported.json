@@ -109,7 +109,7 @@
       "version": "2026-10-17.2"
     },
     "versions": {
-      "contract": "0.4",
+      "contract": "0.5",
       "engine": "0.4.0",
       "ir": "1.0",
       "policy": "2026.10-v4",
