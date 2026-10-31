@@ -244,6 +244,44 @@ def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
     return list(dict.fromkeys(missing))
 
 
+#: Grounding kinds whose premise says its figure comes from what the writer or a supplied text states (or from nothing):
+#: an assignment of such a premise must state a figure some source states. Kinds with an authority check of their own
+#: (task settings, arithmetic facts, rubric rules) and figures from memory or a knowledge document are read elsewhere.
+_STATED_FIGURE_KINDS = frozenset({None, "quotation", "supplied_text", "specialist_inference", "assumption"})
+
+
+def introduced_figures(problem: Problem, sources: Sequence[SourceText]) -> list[str]:
+    """The assignment premises (a symbol equal to a literal) whose figure no source states, in any typed form: neither the
+    claim, nor a supporting claim, nor a supplied text, nor the task record (``quantities.literal_matches`` against every
+    figure the sources state; a domain value 0, 1, 10, 100 or 1000 is not read). Such a figure is the translation's own:
+    used to reach the point, it decides the verdict while no source supports it (integration gate, round 1: '2010
+    population = 110', where the text states 200, made a false claim ENTAILED). Only premises whose grounding kind says the
+    figure is stated (:data:`_STATED_FIGURE_KINDS`) are read. Nothing is evaluated: literals and stated figures compare as
+    exact values."""
+    from .quantities import TRIVIAL_VALUES, figures_in, literal_matches
+    stated = [f for src in sources for f in figures_in(src)]
+    out: list[str] = []
+    for pr in problem.premises:
+        kind = pr.grounding.kind if pr.grounding is not None else None
+        if kind not in _STATED_FIGURE_KINDS:
+            continue
+        e = pr.expr
+        if getattr(e, "op", None) != "eq":
+            continue
+        sides = (e.left, e.right)
+        lit = next((x for x in sides if getattr(x, "op", None) in ("int", "real")), None)
+        var = next((x for x in sides if getattr(x, "op", None) == "var"), None)
+        if lit is None or var is None:
+            continue
+        value = _fraction(lit.value)
+        if value is None or abs(value) in TRIVIAL_VALUES:
+            continue
+        if literal_matches(value, stated)[0]:
+            continue
+        out.append(f"{pr.id} ({var.name} = {lit.value})")
+    return out
+
+
 def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optional[Interpretation]) -> Optional[AmbiguityFlag]:
     """The ``partial_encoding`` flag when the translation's own reading says part of the claim is not encoded ("The
     'likely cause' is an interpretation and is not encoded"): the encoding covers only part of the claim, so the outcome
@@ -339,6 +377,9 @@ def _half_unit(value: str) -> Optional[tuple[str, str]]:
 
 
 _LABEL_FIGURE_RE = re.compile(r"(?<![\w.])[-\u2212]?\d(?:[\d,]*\d)?(?:\.\d+)?(?![\w])")
+#: A number that states a precision, not a figure of the claim ("to 2 decimal places", "3 s.f.", "2 d.p."): read right
+#: after the number, at one place.
+_PRECISION_COUNT_RE = re.compile(r"\s*(?:decimal\s+places?|significant\s+figures?|sig\.?\s*figs?\.?|s\.\s?f\.|d\.\s?p\.|dp\b|sf\b)", re.IGNORECASE)
 
 
 def _fraction(text: str) -> Optional[Fraction]:
@@ -376,6 +417,13 @@ def label_beyond_expression(problem: Problem) -> list[str]:
     walk(expr)
     glossed = " ".join(sym.meaning or "" for sym in problem.symbols if sym.name in names)
     gloss_values = {abs(v) for v in (_fraction(m) for m in _LABEL_FIGURE_RE.findall(glossed)) if v is not None}
+    # the intervals the conclusion encodes ("about 100%" as [0.995, 1.005)): a label figure an interval holds, directly or
+    # as a percentage, is checked (integration gate, round 1: an integer figure read at its stated interval was named)
+    from .precision import collect_sites
+    try:
+        intervals = [(site.lo, site.hi) for site in collect_sites(problem) if site.in_conclusion and site.kind == "interval" and site.lo is not None and site.hi is not None]
+    except Exception:
+        intervals = []
 
     def checked(text: str) -> bool:
         v = _fraction(text)
@@ -389,8 +437,9 @@ def label_beyond_expression(problem: Problem) -> list[str]:
             for scaled in (lit, lit * 100, lit / 100):
                 if scaled == v or (bounds is not None and Fraction(bounds[0]) <= scaled < Fraction(bounds[1])):
                     return True
-        return False
-    missing = [f for f in dict.fromkeys(_LABEL_FIGURE_RE.findall(concl.label)) if not checked(f)]
+        return any(lo <= scaled <= hi for lo, hi in intervals for scaled in (v, v / 100, v * 100))
+    figures = [m.group(0) for m in _LABEL_FIGURE_RE.finditer(concl.label) if not _PRECISION_COUNT_RE.match(concl.label, m.end())]
+    missing = [f for f in dict.fromkeys(figures) if not checked(f)]
     if not missing:
         return []
     return [truncate(f"conclusion label states figure(s) {missing[:6]} that its expression does not check (no literal of the conclusion "
@@ -866,6 +915,18 @@ class Translator:
         if unchecked:
             notes.append(truncate("part of the claim only: the conclusion checks no figure of the clause(s) " + "; ".join(repr(c) for c in unchecked[:4])
                                   + ", while it checks another clause of the claim: the verdict concerns the clauses it checks", _MAX_DIAGNOSTIC_CHARS * 2))
+        introduced = introduced_figures(grounded, sources)
+        if introduced:
+            if self._figures_decide_entailment(grounded, [x.split(" ", 1)[0] for x in introduced]):
+                flag = AmbiguityFlag(code="introduced_figure", message=truncate(
+                    "the translation introduces figure(s) no source states (" + "; ".join(introduced[:6]) + "), and the conclusion follows only with "
+                    "them: neither the claim, its supporting claims, the supplied texts nor the task states them, so the verdict is the "
+                    "translation's, not the claim's", 2000))
+                interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, flag]})
+                notes.append(truncate(f"introduced figure: {flag.message}", _MAX_DIAGNOSTIC_CHARS * 2))
+            else:
+                notes.append(truncate("introduced figure (it does not decide the verdict): the translation encodes figure(s) no source states ("
+                                      + "; ".join(introduced[:6]) + ")", _MAX_DIAGNOSTIC_CHARS * 2))
         encoding = self._encoding_flags(grounded, claim)
         if encoding:
             interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, *encoding]})
@@ -878,6 +939,20 @@ class Translator:
         return _Accepted(status=status, problem=grounded, interpretation=interpretation, grounding_checks=checks, notes=notes,
                          readings=decision.readings, coverage=coverage, support=grounding_support(checks),
                          roles=_premise_roles(grounded, checks), asserted_verified=asserted)
+
+    def _figures_decide_entailment(self, problem: Problem, premise_ids: Sequence[str]) -> bool:
+        """Whether the conclusion of ``problem`` is ENTAILED with the premises ``premise_ids`` and not without them (two
+        internal runs, no argument diagnosis): the translation's own figures then decide the verdict. An undecided run,
+        or a problem that is not an entailment, decides nothing."""
+        if problem.query != "entailment" or problem.conclusion is None or not premise_ids:
+            return False
+        try:
+            if self._probe(problem).status is not VerificationStatus.ENTAILED:
+                return False
+            without = problem.model_copy(update={"premises": [p for p in problem.premises if p.id not in set(premise_ids)]})
+            return self._probe(without).status is VerificationStatus.COUNTEREXAMPLE
+        except Exception:
+            return False
 
     @staticmethod
     def _coverage(problem: Problem, sources: list[SourceText]) -> list[CoverageNote]:

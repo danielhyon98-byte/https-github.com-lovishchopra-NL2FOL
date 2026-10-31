@@ -1455,6 +1455,40 @@ Measured once on the staged tree, on fresh copies of every round, with no live a
   `c = 0.0969/0.0024 = 0.0404 mol dm⁻³` with the volume in m³). It is recorded as a known gap (`docs/STEM_RESULTS.md`, section 9),
   not fixed.
 
+## Integration gate, round 1: the harness's own fixes
+
+Three findings of the integration gate's first round were in the harness, and a fourth change keeps one of its claim
+counts true under the same round's channel change (`scripts/arena/run_arena.py`; tests in
+`scripts/arena/test_arena_rules.py`; rules in `scripts/arena/README.md`):
+
+- **Citations rewritten before the hub saw them** (critical). A synthesized claim kept only the cited ids its file's own
+  member's report held whenever one of them did, so an invented id beside a real one never reached the hub
+  (INT-LEDGER-001 never appeared on an arena receipt) and a peer group's combined output lost its citations of the other
+  member's claims and listed one report (a false INT-LEDGER-023 in run1's e1a group). The citations now reach the hub as
+  written, every delivered report of the group is listed, and the README names the file a combined output takes.
+- **Syntheses out of the combinator's contract counted as delivered** (major). Each syntheses file is now read by the
+  combinator port's published output rules; a file out of contract (a control or bidirectional character, a blank text or
+  reason, a repeated citation, a key or field the contract does not have) is named on its record with its KIT-CB code and
+  the record fails. The hub's own contract still lets these through; that change is the integrity and channel owner's.
+- **The delivery pass's key ring** (minor) now declares every key id the hub's components sign under (`integrity`
+  included), so a result the cross-agent check signs is no longer audited as untrusted (OVS-RES-003).
+- **The claim counts' "attempted"** stays what it says, a recorded translation was offered. The same fix round has the
+  channel name a material eligible claim that got no outcome under INT-REQ-006 (NOT_ATTEMPTED), and the counts read every
+  INT-REQ-006 as a verification that ran and raised, so in a replay every eligible claim with no recorded translation was
+  counted attempted (`tests/e2e/test_arena_measures.py`). On r7 the count reads 22 attempted of 296 eligible, as the
+  recorded round reports, where the unchanged counts read 118 on this fix round's tree.
+
+Replayed with the fixed harness and with the harness before the fix on the same tree, on fresh copies: transport is
+unchanged on every recorded round (r1 30/30, r2 to r6 46/46, r7 177/177). One receipt moves: r1's en-t1 synthesis cites
+`p3-s02`, an id of the parse it was written against, beside ids the current parse delivers, and now carries
+INT-LEDGER-001 for it (one more genuine record with an error-level finding, still counted functional). No recorded
+syntheses file is out of the combinator's contract. The simulation's round run1 keeps transport 120 of 134: its 14
+synthesis records were already failures (REJECTED, INT-REQ-009 and INT-SYNTH-014) and each now also names its files'
+free-text transformations as KIT-CB-003. The delivery decisions keep their modes (every answer withheld, no
+overseer agent being configured), but r4's hi-t8 and r7's lit-p7c are no longer excluded for OVS-RES-003, and r7's
+hi-p7c is excluded only for its own INT-SUBJ-001. These are the harness's changes alone; the gate's measurement of the
+whole fix round follows it.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |

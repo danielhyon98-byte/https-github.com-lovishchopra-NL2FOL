@@ -49,6 +49,7 @@ from pathlib import Path
 
 from epinoic_logic.adapters.sources import check_excerpt
 from epinoic_logic.branches import default_registry
+from epinoic_logic.channel.bus import ids_held_by_other_agents, needs_qualified_ids
 from epinoic_logic.integrity.contracts import CERTAINTY_RANK, SYNTHESIZED_CLAIM_TRANSFORMATIONS, TRANSFORMATION_MEANINGS
 from epinoic_logic.translate.contracts import SuppliedText, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
@@ -139,9 +140,11 @@ def synthesis_format(manifest: dict, fmt: dict) -> dict:
             "instructions": "INSTRUCTIONS.md of the exported pack (python -m epinoic_combinator.export --out <dir>)"}
 
 
-def specialist_report(spec_path: Path):
+def specialist_report(spec_path: Path, held: frozenset = frozenset()):
     """``(item, branch, profile, texts, group, report)``: a specialist output file parsed as run_arena.py parses it (a
-    peer-dependent task with the peer's relayed report supplied as ``peer:<task>``)."""
+    peer-dependent task with the peer's relayed report supplied as ``peer:<task>``). ``held`` are the claim ids the reports
+    of OTHER agents delivered before it on the task hold: the hub's rule (``channel.bus.needs_qualified_ids``) then parses
+    a report whose ids collide with them with agent-qualified ids, so the group's reports share no claim id."""
     item = json.loads(spec_path.read_text())
     if item.get("peer_of"):
         relayed = spec_path.parent.parent / "relayed" / f"{item['task_id']}.json"
@@ -152,8 +155,12 @@ def specialist_report(spec_path: Path):
     branch, profile = default_registry().for_subject(item["subject"])
     texts = [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
     group = item.get("group") or spec_path.stem  # tasks of one group share one hub task and request, as in run_arena.py
-    report = branch.parser().parse_response(item["response_text"], request_id=f"req-{group}", task_id=group, report_id=f"rep-{item['task_id']}-0",
-                                            subject=item["subject"], task_type=item.get("task_type", "analytical_paragraph"), supplied_texts=texts, agent_id=item["agent_id"])
+    parser = branch.parser()
+    args = dict(request_id=f"req-{group}", task_id=group, report_id=f"rep-{item['task_id']}-0", subject=item["subject"],
+                task_type=item.get("task_type", "analytical_paragraph"), supplied_texts=texts, agent_id=item["agent_id"])
+    report = parser.parse_response(item["response_text"], **args)
+    if needs_qualified_ids(parser, report, set(held)):
+        report = parser.parse_response(item["response_text"], **args, qualify_ids=True)
     return item, branch, profile, texts, group, report
 
 
@@ -176,7 +183,10 @@ def agent_view(spec_paths: list[Path], manifest: dict) -> str:
     from epinoic_logic.integration.protocol import dump
     if not (COMBINATOR_SRC / "epinoic_combinator").is_dir():
         _refuse("no combinator sub-project in this repository: the agent's view is rendered by the combinator's own code")
-    parsed = [specialist_report(p) for p in spec_paths]
+    parsed = []  # in the given order, as the hub delivers them: a report whose ids another agent's report already holds is qualified
+    for p in spec_paths:
+        held = frozenset(ids_held_by_other_agents([r for *_x, r in parsed], json.loads(p.read_text()).get("agent_id", "")))
+        parsed.append(specialist_report(p, held))
     groups = sorted({g for _i, _b, _p, _t, g, _r in parsed})
     if len(groups) != 1:
         _refuse(f"--agent-view takes the reports of one group (one request); these belong to {groups}")

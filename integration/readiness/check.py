@@ -39,7 +39,9 @@ Exit status 1 when a row is a BLOCKER. Four kinds of BLOCKER rows, each named as
   phase 2 connects, the row carries that part's "(connected in phase 2: ...)" mark too.
 
 ``--website-copy`` checks the patched disposable export against the tested patch set (``RESULT.sha256``, read-only:
-``exact`` is PASS, drift is a BLOCKER that names the drifted files); ``--sim-out`` reads the simulation's own output as
+``exact`` is PASS, drift is a BLOCKER that names the drifted files); with ``--website`` it also binds the export to the
+website's current ``origin/main``: an export of another commit (the first line of ``UNREVIEWED-SIMULATION-COPY.txt``
+names it) is a BLOCKER labelled stale, whatever its patch set reads (integration gate 1); ``--sim-out`` reads the simulation's own output as
 written there (``results.json``, which ``run_sim.py`` writes into the session's scratch directory; it is evidence of
 that run, not re-derived here).
 """
@@ -243,12 +245,40 @@ def router(kit: Path, rows: list, module: str) -> None:
         "; ".join(unstable) or "the same request text gives the same plan text")
 
 
-def website_copy(kit: Path, rows: list, export: str | None) -> None:
+#: The commit an export names on the first line of its ``UNREVIEWED-SIMULATION-COPY.txt`` (playbook step 9 writes it).
+_EXPORT_COMMIT_RE = re.compile(r"\bof origin/main ([0-9a-f]{7,40})\b")
+
+
+def _export_commit(root: Path) -> str | None:
+    try:
+        first = (root / "UNREVIEWED-SIMULATION-COPY.txt").read_text(encoding="utf-8").splitlines()[:1]
+    except (OSError, UnicodeDecodeError):
+        return None
+    m = _EXPORT_COMMIT_RE.search(first[0]) if first else None
+    return m.group(1) if m else None
+
+
+def _origin_main(website: str) -> str | None:
+    """``git -C <website> rev-parse origin/main``, or None when it cannot be read (no git, no such ref)."""
+    git = shutil.which("git")
+    if not git:
+        return None
+    try:
+        p = subprocess.run([git, "-C", website, "rev-parse", "--verify", "--quiet", "origin/main^{commit}"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = p.stdout.strip()
+    return out if p.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", out) else None
+
+
+def website_copy(kit: Path, rows: list, export: str | None, website: str | None = None) -> None:
     """The patched disposable export against the tested patch set (read-only): every file ``RESULT.sha256`` lists, as it
     is in the export. ``exact`` is the only PASS. The patch set not applied at all, and ``drift`` (a listed file missing
     or with another digest, each named), are BLOCKERs, as playbook step 10 stops on both: the patch set on the export is
     not the tested one, so the website tests of step 11 decide nothing on their own, and the row never counts toward
-    "Integration ready (local)". Without an export the row is NOT RUN."""
+    "Integration ready (local)". Without an export the row is NOT RUN. With ``website`` (the checkout of step 1) the
+    export must be of that checkout's ``origin/main``: an export of an older or another commit is a BLOCKER labelled
+    stale, since an exact patch set on it says nothing about the website as it is now (integration gate 1)."""
     import hashlib
     if not export:
         row(rows, "website patch set (export)", NOT_RUN, "no --website-copy")
@@ -257,6 +287,18 @@ def website_copy(kit: Path, rows: list, export: str | None) -> None:
     if not (root / "UNREVIEWED-SIMULATION-COPY.txt").exists():
         row(rows, "website patch set (export)", BLOCKER, "not a disposable export (no UNREVIEWED-SIMULATION-COPY.txt)")
         return
+    if website:
+        commit, main = _export_commit(root), _origin_main(website)
+        if commit is None:
+            row(rows, "website patch set (export)", BLOCKER, "unbound export: UNREVIEWED-SIMULATION-COPY.txt names no origin/main commit")
+            return
+        if main is None:
+            row(rows, "website patch set (export)", BLOCKER, f"unbound export {commit}: origin/main of {website} cannot be read")
+            return
+        if not main.startswith(commit):
+            row(rows, "website patch set (export)", BLOCKER, f"stale: {commit} is not the website's origin/main ({main[:12]}); export origin/main again "
+                "(playbook step 9)")
+            return
     base = "P" if (root / "src" / "chat" / "pilot.js").exists() else "M"
     result = kit / "integration" / "website" / "patches" / base / "RESULT.sha256"
     if not result.exists():
@@ -294,7 +336,7 @@ def everything(args, rows: list) -> None:
             detail + ("" if lifted else " (owner gate: only Bruno records the decision, W0; it blocks website work, not the rehearsal)"))
     else:
         row(rows, "website G0 (owner gate, origin/main)", NOT_RUN, "no Node.js or no --website")
-    website_copy(kit, rows, args.website_copy)
+    website_copy(kit, rows, args.website_copy, args.website)
     agents_rows(kit, rows, node, runtime=args.agents_runtime, routing=args.agents_routing, harness=args.agents_harness, one_copy=args.agents)
     simulation(kit, rows, args.sim_out)
     simulation_copies(kit, rows, args.sim_out)

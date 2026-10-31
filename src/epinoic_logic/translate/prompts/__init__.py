@@ -23,7 +23,7 @@ from importlib import resources
 TRANSLATE_PROMPT_VERSION = "translate_v2"
 REVIEW_PROMPT_VERSION = "review_v2"
 
-_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")  # \Z, not $: a trailing line break is no part of a name
 
 
 def load_prompt(name: str) -> str:

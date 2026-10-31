@@ -55,14 +55,27 @@ translation AMBIGUOUS_TRANSLATION with both readings recorded → retries: an ac
 rejected one is recorded in `TranslationResult.repairs`, a syntax repair or a semantic change with every
 change listed; after a semantic rejection the new conclusion is compared with the earlier one read as its
 source states it, and a weaker or incomparable conclusion is AMBIGUOUS_TRANSLATION (`retry_changed_claim`):
-a retry that weakens the claim cannot inherit its approval → a conclusion label that states a figure its
-expression does not check is recorded as a note (`label_beyond_expression`) and shown beside the label in
-the outcome summary; the verdict is unchanged → status TRANSLATED, AMBIGUOUS_TRANSLATION, UNSUPPORTED,
+a retry that weakens the claim cannot inherit its approval → introduced figures: an assignment premise
+(a symbol equal to a literal) of a stated-figure grounding kind (none, quotation, supplied text, specialist
+inference, assumption) whose figure no source states in any typed form (neither the claim, a supporting
+claim, a supplied text nor the task: `introduced_figures`) is the translation's own; when the conclusion is
+ENTAILED with those premises and not without them (two internal runs), the translation is
+AMBIGUOUS_TRANSLATION (`introduced_figure`: the verdict is the translation's, not the claim's), otherwise
+a note records them (integration gate, round 1: "2010 population = 110" where the text states 200 made a
+false claim ENTAILED) → a conclusion label that states a figure its expression does not check is recorded
+as a note (`label_beyond_expression`; a figure an interval of the conclusion holds, directly or as a
+percentage, is checked, and a number that states a precision, "2 decimal places", is no figure) and shown
+beside the label in the outcome summary, as is each "part of the claim only" note (at most three); the
+verdict is unchanged → status TRANSLATED, AMBIGUOUS_TRANSLATION, UNSUPPORTED,
 INVALID_FORMALIZATION, NOT_ELIGIBLE or TRANSLATION_FAILED. `outcome.display_status_for` displays a
 definitive result carrying `E108` (vacuous), `E110` (unasserted figure), `E111` (unencoded reason) or `E112`
 (circular) as INVALID_FORMALIZATION, never as a verdict (the engine's `NO_VERDICT_CODES`; it reports
 `E110`/`E111` only with the source evidence the coverage step handed over); the advisory `W110`/`W111` leave
-the counterexample standing and the summary carries an "Advisory coverage warnings" line. A result that is
+the counterexample standing and the summary carries an "Advisory coverage warnings" line, with one exception
+(`outcome.unlinked_judgement`, E2E B8): a COUNTEREXAMPLE with the engine's W111 "judgement not linked" whose
+every conclusion atom no premise mentions is a Bool grounded as the specialist's own inference
+(`specialist_inference`) is displayed AMBIGUOUS_TRANSLATION ("Judgement not encoded"), never a failed check;
+a factual atom no premise establishes (from memory, a quotation, no grounding) keeps the COUNTEREXAMPLE. A result that is
 not current-policy evidence (another release's versions, build, schema or policy identity, or non-default
 limits: `engine.provenance.stale_reasons`) is displayed INTERNAL_ERROR: verify the problem again. An
 AMBIGUOUS_TRANSLATION's result is described as the translator's chosen encoding of one reading, run for
@@ -96,6 +109,22 @@ Rules added for the round-7 arena hand-off:
   A record a caller built in process with no release version is read as it stands.
 - Provider output holding a lone UTF-16 surrogate is a `ProviderOutputError` (`parsing.parse_json_object`), so the
   translation is INVALID_FORMALIZATION and nothing raises (POST `/v1/outcomes` answers it).
+- Code fences around provider output are read in linear time (`parsing.strip_code_fences` and the strict body
+  reader): an opening fence is found once, its language tag and blank lines are skipped by anchored runs, and the
+  closing fence is searched once from there, so no input (a run of backticks, thousands of openers with no closer,
+  megabytes of blank lines) is re-scanned from every opener (integration gate, round 1: the earlier patterns took
+  quadratic time; the regression tests run the worst cases under a wide time bound and compare every answer with the
+  earlier readers on a differential corpus).
+- The stated-precision guard reads every interval the conclusion states on one term: a negated comparison is the
+  bound it states (`not(t < a)` is `t >= a`), and lower and upper bounds pair into intervals per term
+  (`precision._interval_pairs`), so a conclusion that adds an extra bound beside its interval no longer bypasses the
+  check (integration gate, round 1).
+- A stated rule (`stated_rules.stated_rule`) is read as the source states it: the literal's words and polarity are
+  read in ONE clause of the consequence ("consumption rises, and savings fall" states no "consumption falls"); words
+  that deny what they qualify ("hardly", "fails to") count as negations; a consequence that states an expectation
+  ("is expected to fall"), a rule its sentence or the next one refutes ("this was disproved", "a myth"), or one
+  attributed to something that is no document ("according to a rumour") verifies no premise rule (integration gate,
+  round 1).
 
 Assertion (`assertion.py`). Mentioning a figure is not asserting it. A figure supports a coverage finding only
 when (1) its clause asserts it: no question, instruction or supposition opening the sentence, and no

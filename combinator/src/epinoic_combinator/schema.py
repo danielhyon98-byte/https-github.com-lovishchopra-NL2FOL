@@ -72,9 +72,11 @@ def _is_type(value: Any, name: str) -> bool:
     if name == "string":
         return type(value) is str
     if name == "array":
-        return type(value) is list
+        return isinstance(value, list)
     if name == "object":
-        return type(value) is dict
+        # an object passed already parsed may be a dict subclass (collections.OrderedDict): read as an object, as
+        # ``_type_name`` names it and the translator's port reads it (integration gate 1, both sides' verdict alike)
+        return isinstance(value, dict)
     return False
 
 

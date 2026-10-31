@@ -115,13 +115,40 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   by `dangling_quote_offset` so the marks around it still pair, `undelimited_quote_span` names
   the span it leaves unchecked, and `undelimited_quote_spans` adds every pair of an unbalanced
   paragraph whose marks contradict their context, so the writer's prose between quotations is
-  neither delivered as a quotation nor reported as invented).
+  neither delivered as a quotation nor reported as invented). The parsers read the quotations of a
+  claim with `parser_quotation_spans`: every quoted span except the writer's own words, a correction
+  or a suggestion in a marking, feedback, correction or editing task (`_span_roles`: '"una mujer
+  muy simpático" → "una mujer muy simpática"', '"x" should be "y"', a "Model:" label); in any
+  other task every span, read without the roles, so an altered quotation framed that way is still
+  checked (integration gate 1, end-to-end B5). A mention stays a quotation claim. A mention of words
+  the text lacks ('without "like" or "as"', 'has no "like"', 'never uses "I"'), read so by both readers
+  (`absent_word_mentions`: the role reader and the absence frames `ABSENT_BEFORE_RE` /
+  `absent_mentions` that the core pack, the channel and the Overseer read mentions by, moved here
+  from `branches/packs.py` unchanged; a span of at most three words, so a longer span joined to a
+  mention by "and" stays credited), is credited to no text when no supplied text holds it (the
+  shared rule, `sources.attribute_excerpt`; end-to-end B6); 'never says "x"' (an attribution, close
+  round 3 INV-QR-1), a quoted word under a naming frame ('the conjunction "But"') and a mention one
+  reader alone reads are credited and checked as before. Each text parser's `parse_response` reads in the task type it is given
+  (`in_quotation_task`) and remembers it for the report it returns (`parse_task_of`, keyed by the
+  report's content, so a copy such as the overseer's journaled one finds it too), so the branch's
+  packs read the same report under the same task; a report delivered as a mapping has none, and its
+  own `task_type` field never widens the roles (repair round 5, INV-QROLE-1). The
+  shared readers are linear on hostile input (integration gate 1, each with an equality test
+  against the old reading): a sentence's end is read back from the end (`_terminal_len`), the
+  trailing "from memory" label and the parentheticals of the note-clause splitter start only where
+  no blank precedes, and emphasis markers are removed in one pass (`strip_emphasis`, which gives
+  `EMPHASIS_RE.sub(r"\2", text)` character for character; `EMPHASIS_RE` itself is unchanged).
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
   joined-span tolerance; a form difference such as an initial capital, a verse line-break
   mark, diacritics or a long elision is a located status, never "not found") used by every
   adapter's source-integrity findings, and the one attribution rule every parser applies
-  (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text is
-  credited to the one text its sentence names, whether or not that text holds the words; when
+  (`attribute_excerpt`): the text that holds the words wins; a quotation held by no text that its
+  sentence gives as a word the text lacks ('without "like" or "as"', 'Source A has no "apology"',
+  'never uses "deflation"': `says_text_lacks`, read by both quotation-role readers,
+  `markdown.absent_word_mentions`, a span of at most three words) is credited to no text, so it is no invented quotation of the
+  text the sentence names or of the text under analysis (end-to-end B6, integration gate 1; 'never
+  says "x"' is an attribution and stays credited and checked, close round 3 INV-QR-1); any other
+  quotation held by no text is credited to the one text its sentence names, whether or not that text holds the words; when
   the sentence names several texts, the English, History and generic parsers pass the sentence and the
   quotation is credited to the text whose possessive governs it, else the speaker of the
   nearest reporting clause, else the text named nearest before it (`governing_document`), never
@@ -237,7 +264,9 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   with `=` is one claim), each the statement's stretch of the original answer with interior
   markup left out, cut to the contract's 4,000 characters, with ids `s<paragraph>.<n>` (`m<paragraph>.<n>` in mathematics,
   `c<paragraph>.<n>` in Computer Science, so two STEM branches never share a claim id on one
-  task); `original_response` is verbatim and nothing vanishes (statements beyond 512 merge into
+  task; a report whose ids another agent's report on the task already holds, as a second agent of
+  the same branch would, is parsed with its ids qualified by its agent, `s1.2@ess-specialist`);
+  `original_response` is verbatim and nothing vanishes (statements beyond 512 merge into
   `s.tail` with the unresolved-issue text the channel turns into INT-REQ-013). Roles, materiality
   and supports are the generic parser's round-7 reading (`generic_parser.assign_roles`, run on
   units built from the STEM statements), so a STEM answer keeps the claims round 7 verified

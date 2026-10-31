@@ -45,6 +45,7 @@ the text, so caching never changes it.
 """
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 from typing import Literal, Mapping, Optional, Sequence
@@ -665,6 +666,29 @@ def _credit_to_unsupplied(sentence: str, excerpt: str, docs: Mapping[str, Suppli
             f"{', '.join(located)}, in the colleague's own prose (a colleague's words credited to the source)")
 
 
+def _mention_key(words: str) -> str:
+    """Words compared as the core pack compares a quotation with a mention (``packs._quote_key``): blanks collapsed,
+    quotation marks and trailing punctuation stripped, case folded."""
+    return strip_trailing_punctuation(" ".join(words.split()).strip(" '\"“”‘’«»„")).casefold()
+
+
+@functools.lru_cache(maxsize=256)
+def _absent_mention_keys(sentence: str, feedback_read: bool) -> frozenset[str]:
+    from .markdown import absent_word_mentions
+    return frozenset(_mention_key(inner) for _a, _b, inner in absent_word_mentions(sentence, feedback=feedback_read))
+
+
+def says_text_lacks(sentence: str, excerpt: str) -> bool:
+    """Whether ``sentence`` quotes ``excerpt`` as a word it says the text lacks: a span of
+    :func:`~epinoic_logic.adapters.markdown.absent_word_mentions` (the role reader reads it as a mention under an absence
+    frame and the frame reader of the core pack, the channel and the Overseer reads it as absent) with the same words,
+    compared as those readers compare a mention by its words (:func:`_mention_key`). Read once per sentence and task
+    (cached)."""
+    from .markdown import feedback_task
+    key = _mention_key(excerpt)
+    return bool(key) and key in _absent_mention_keys(sentence, feedback_task(None))
+
+
 def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, SuppliedText], *,
                       text_under_analysis: Optional[str] = None, sentence: Optional[str] = None) -> tuple[Optional[str], list[str]]:
     """``(document_id, assumptions)`` for one quotation of a sentence that names the supplied
@@ -681,6 +705,15 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
       only when that mention credits it (:func:`quotation_credit`: a possessive right before its
       opening mark, or a crediting verb with no clause boundary between): in "the History
       specialist's '...': 'By Wednesday ...'" the possessive governs the first quotation only;
+    * a quotation located in no text that its ``sentence`` gives as a word the text lacks
+      ('without "like" or "as"', 'Source A has no "apology"', 'the bulletin never uses
+      "deflation"': :func:`says_text_lacks`, which both quotation-role readers must read so) is
+      credited to NO text, before any of the credits below: the sentence states that the text
+      does not use the words, so crediting them to the text it names or to the text under
+      analysis would refute the writer for the very absence stated (end-to-end B6, integration
+      gate 1). The core pack, the channel and the Overseer read it as a mention and verify
+      nothing of it. A negated reporting verb ('never says "x"') is an attribution, so its span is
+      credited and checked as before (close round 3, INV-QR-1);
     * otherwise it is credited to NO text and the :func:`uncredited_assumption` is recorded, so
       the core pack reports it as unverifiable (``CORE-SRC-003``), and the channel checks it against
       the supplied texts itself (``bus._uncredited_quotations``: an altered quotation of a supplied
@@ -716,6 +749,9 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
             if note:
                 return located[0], [note]
         return located[0], []
+    if sentence and says_text_lacks(sentence, excerpt):
+        return None, [uncredited_assumption(excerpt, "the sentence says the text lacks these words, a mention of a word rather than a quotation, "
+                                                     f"and they occur in none of [{searched}]")]
     if len(named) == 1:
         return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
     if len(named) > 1 and sentence:

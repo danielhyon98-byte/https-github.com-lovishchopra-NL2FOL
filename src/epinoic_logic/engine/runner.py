@@ -119,7 +119,7 @@ from .procedures import (
 )
 from .provenance import binding_for_unparsed, compute_binding, compute_versions, sign_result
 from .results import Counterexample, Diagnostic, ModelAssignment, SolverConfig, StageTiming, VerificationResult
-from .statuses import VerificationStatus
+from .statuses import VerificationStatus, is_definitive
 from .validator import ValidationOutcome, parse_and_validate, validate_problem
 
 _PROCEDURES = {"entailment": run_entailment, "consistency": run_consistency, "satisfiability": run_satisfiability}
@@ -219,6 +219,12 @@ def _assertion_vars(problem: Problem) -> tuple[set[str], set[str]]:
     return premise_vars, concl_vars
 
 
+def unlinked_conclusion_symbols(problem: Problem) -> set[str]:
+    """The symbols the conclusion mentions and no premise does (empty without a conclusion)."""
+    premise_vars, concl_vars = _assertion_vars(problem)
+    return concl_vars - premise_vars
+
+
 def source_stated_symbols(problem: Problem, names) -> list[Symbol]:
     """The symbols among ``names`` whose own grounding a check in this process verified (``verified=True``): source-linked
     evidence that a source states them. A label, a meaning or a grounding kind the translation chose is never such
@@ -243,7 +249,37 @@ def _evidence_text(symbols: list[Symbol]) -> str:
     return ", ".join(out)
 
 
-def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig) -> Optional[Diagnostic]:
+@dataclass(frozen=True)
+class _Probe:
+    """What a coverage probe found: its diagnostic (None when it names nothing) and whether the probe was undecided (its
+    solver call answered unknown, ran out of the probes' budget, or failed). An undecided probe is never read as "decided:
+    nothing to name" (integration gate, round 1): ``verify`` records it in the argument stage's rules
+    (``incomplete:coverage_probe_undecided``), and when a source states what the probe would have decided about, the
+    probe's no-verdict code withholds the counterexample (its message says the probe was undecided)."""
+    diagnostic: Optional[Diagnostic] = None
+    undecided: bool = False
+
+
+#: How the advisory W111 of a judgement the encoding left unlinked begins: the counterexample falsifies the conclusion only
+#: through Bool atoms no premise mentions while the premises reach the rest of it. The outcome layer shows such a
+#: COUNTEREXAMPLE as not decided (``translate.outcome.display_status_for``), never as a failed check of the claim.
+JUDGEMENT_NOT_LINKED = "coverage (advisory): judgement not linked:"
+
+
+#: The coverage probes after a COUNTEREXAMPLE (the E110/W110 re-run and the E111/W111 check) share ONE budget: the
+#: configuration's timeout in all, measured from the end of the main decision. Each probe solver call is bounded by what
+#: remains of it, and each probe is timed as its own stage (``probe_unasserted_figure``, ``probe_unencoded_reason``).
+#: Before integration gate round 1 each probe ran with the full timeout and outside the result's timings, so one call
+#: could take 2T (decision) + 3T (probes) + the argument stage against the documented 2T.
+PROBE_STAGES = ("probe_unasserted_figure", "probe_unencoded_reason")
+
+
+def _probe_deadline(config: SolverConfig) -> float:
+    return time.perf_counter() + int(config.timeout_ms) / 1000.0
+
+
+def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compiled, config: SolverConfig, *,
+                                 deadline: Optional[float] = None, timings: Optional[list[StageTiming]] = None) -> _Probe:
     """A COUNTEREXAMPLE (over at least one premise) that falsifies the conclusion only through symbols no premise
     mentions: for every assignment that satisfies the premises, some value of those free symbols makes the conclusion
     true (decided by Z3 over ``premises AND forall free. NOT conclusion``, unsat).
@@ -251,15 +287,17 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
     That is structural underdetermination, which can be the right answer to the question ("is x < y for an arbitrary
     y?"), so by itself it is the advisory ``W111`` and the counterexample stands. It is ``E111`` (unencoded reason: no
     verdict on the claim) only with source-linked evidence that a source states one of the free symbols
-    (:func:`source_stated_symbols`): then the translation omitted what its source states. Undecided probes leave the
-    counterexample as it is, with no diagnostic."""
+    (:func:`source_stated_symbols`): then the translation omitted what its source states. The probe's one solver call is
+    bounded by ``deadline`` (the probes' shared budget) and timed into ``timings``. An undecided probe is recorded
+    (:class:`_Probe`): with source-linked evidence on a free numeric symbol it is ``E111`` (undecided: the counterexample
+    may only reassign what a source states, so it is withheld), otherwise the counterexample stands."""
     if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None or not problem.premises or compiled.conclusion is None:
-        return None
+        return _Probe()
     premise_vars, concl_vars = _assertion_vars(problem)
     sorts = {sym.name: sym.sort for sym in problem.symbols}
     free = sorted(v for v in concl_vars - premise_vars if v in compiled.symbols)
     if not free:
-        return None
+        return _Probe()
     # A Bool point no premise links to at all is the classic non sequitur: "the evidence holds and the point fails" is a
     # verdict on the claim. A figure the conclusion compares that no premise states is not: any value refutes it. Between
     # the two, a conclusion the premises reach in part whose counterexample falsifies only Bool atoms no premise mentions
@@ -267,42 +305,61 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
     # W111 names it, and the counterexample stands (no coverage evidence is computed for an atom, so never E111).
     bool_only = not any(sorts.get(v) in _NUMERIC_SORTS for v in free)
     if bool_only and not (concl_vars & premise_vars):
-        return None
-    try:
-        solver = z3.Solver(ctx=compiled.ctx)
-        solver.set("timeout", int(config.timeout_ms))
-        if config.rlimit is not None:
-            solver.set("rlimit", int(config.rlimit))
-        for term in compiled.premises.values():
-            solver.add(term)
-        solver.add(z3.ForAll([compiled.symbols[v] for v in free], z3.Not(compiled.conclusion)))
-        answer = solver.check()
-    except z3.Z3Exception:
-        return None
-    if answer != z3.unsat:
-        return None
+        return _Probe()
     model = proc.model or {}
     shown = ", ".join(f"{v}={model[v]}" for v in free if v in model) or ", ".join(free)
+    remaining = int((deadline - time.perf_counter()) * 1000.0) if deadline is not None else int(config.timeout_ms)
+    answer = None
+    start = time.perf_counter()
+    try:
+        if remaining >= 1:
+            solver = z3.Solver(ctx=compiled.ctx)
+            solver.set("timeout", max(1, min(int(config.timeout_ms), remaining)))
+            if config.rlimit is not None:
+                solver.set("rlimit", int(config.rlimit))
+            for term in compiled.premises.values():
+                solver.add(term)
+            solver.add(z3.ForAll([compiled.symbols[v] for v in free], z3.Not(compiled.conclusion)))
+            answer = solver.check()
+    except z3.Z3Exception:
+        answer = None
+    finally:
+        if timings is not None:
+            timings.append(StageTiming(stage=PROBE_STAGES[1], ms=(time.perf_counter() - start) * 1000.0))
+    if answer == z3.sat:
+        return _Probe()
+    if answer != z3.unsat:  # undecided: unknown, out of the probes' budget, or the solver failed
+        stated = [] if bool_only else source_stated_symbols(problem, free)
+        if not stated:
+            return _Probe(undecided=True)
+        return _Probe(Diagnostic(
+            code=DiagnosticCode.UNENCODED_REASON.value,
+            message=(f"unencoded reason (probe undecided): the conclusion's symbol(s) {', '.join(free)} are mentioned by no premise ({shown}) and a "
+                     f"source states {_evidence_text(stated)}; the probe that decides whether the counterexample falsifies the conclusion only "
+                     "through them was undecided within its budget, so this COUNTEREXAMPLE may only reassign what the source states and is no "
+                     "verdict on the claim"),
+            path="conclusion",
+        ), undecided=True)
     if bool_only:
-        return Diagnostic(
+        return _Probe(Diagnostic(
             code=DiagnosticCode.UNENCODED_REASON_ADVISORY.value,
-            message=(f"coverage (advisory): judgement not linked: the counterexample falsifies the conclusion only through the atom(s) "
+            message=(f"{JUDGEMENT_NOT_LINKED} the counterexample falsifies the conclusion only through the atom(s) "
                      f"{', '.join(free)}, which no premise mentions ({shown}), while the premises reach the rest of the conclusion; for every "
                      "assignment of the premises some value of these atoms makes the conclusion true. The COUNTEREXAMPLE says only that "
                      "nothing encoded supports them: if the claim states a reason for them, the translation left it out"),
             path="conclusion",
-        )
+        ))
     stated = source_stated_symbols(problem, free)
     if stated:
-        return Diagnostic(
+        return _Probe(Diagnostic(
             code=DiagnosticCode.UNENCODED_REASON.value,
             message=(f"unencoded reason: the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
                      f"mentions ({shown}), and a source states {_evidence_text(stated)}: for every assignment of the premises some value of "
                      "them makes the conclusion true, so the translation omitted what its source states and this COUNTEREXAMPLE is no "
                      "verdict on the claim"),
             path="conclusion",
-        )
-    return Diagnostic(
+        ))
+    return _Probe(Diagnostic(
         code=DiagnosticCode.UNENCODED_REASON_ADVISORY.value,
         message=(f"coverage (advisory): the counterexample falsifies the conclusion only through symbol(s) {', '.join(free)}, which no premise "
                  f"mentions ({shown}); for every assignment of the premises some value of them makes the conclusion true. No source-linked "
@@ -310,7 +367,7 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
                  "the question may leave them unconstrained and the COUNTEREXAMPLE stands as the verdict on the encoding; if a source does "
                  "state them, the translation omitted that premise"),
         path="conclusion",
-    )
+    ))
 
 
 def _conjuncts(expr) -> list:
@@ -577,7 +634,8 @@ def unasserted_figure_definitions(problem: Problem) -> list[FigureDefinition]:
             for pid, atom, figs, label in defs if not (figs & mentioned)]
 
 
-def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig) -> Optional[Diagnostic]:
+def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig, *,
+                                  deadline: Optional[float] = None, timings: Optional[list[StageTiming]] = None) -> _Probe:
     """A COUNTEREXAMPLE that only reassigns figures the problem defines but never asserts: the entailment is re-run with
     each such defined atom asserted and is then ENTAILED.
 
@@ -586,13 +644,16 @@ def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, conf
     encoding. It is ``E110`` (unasserted figure: no verdict on the claim, displayed as INVALID_FORMALIZATION) only with
     source-linked evidence that a source asserts the figure: a grounding on one of the reassigned figures or defined
     atoms that a check in this process verified (:func:`source_stated_symbols`). That the re-run is ENTAILED is never
-    by itself a reason to add the premise. A re-run that is not ENTAILED leaves the counterexample as it is, with no
-    diagnostic."""
+    by itself a reason to add the premise. A re-run that is decided and not ENTAILED leaves the counterexample as it is,
+    with no diagnostic. The re-run's solver calls are bounded by ``deadline`` (the probes' shared budget) and timed into
+    ``timings``; a re-run that is undecided (TIMEOUT, UNKNOWN, a failure) is recorded (:class:`_Probe`): with
+    source-linked evidence it is ``E110`` (undecided: the counterexample may only reassign the source-stated figure, so
+    it is withheld), otherwise the counterexample stands."""
     if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None:
-        return None
+        return _Probe()
     defs = unasserted_figure_definitions(problem)
     if not defs:
-        return None
+        return _Probe()
     taken = {p.id for p in problem.premises} | {problem.conclusion.id}
     extra: list[Assertion] = []
     by_id: dict[str, FigureDefinition] = {}
@@ -604,15 +665,22 @@ def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, conf
         by_id[aid] = d
         extra.append(Assertion(id=aid, expr=Var(op="var", name=d.atom)))
     probe = problem.model_copy(update={"premises": list(problem.premises) + extra})
+    start = time.perf_counter()
     try:
-        again = _PROCEDURES["entailment"](compile_problem(probe), config.model_copy(update={"produce_smt2": False, "produce_unsat_core": True}))
-    except Exception:  # a probe that cannot run leaves the counterexample as the solver gave it
-        return None
-    if again.status is not VerificationStatus.ENTAILED:
-        return None
+        again: Optional[ProcedureOutcome] = run_entailment(compile_problem(probe), config.model_copy(update={"produce_smt2": False, "produce_unsat_core": True}),
+                                                           deadline=deadline, extract=False)
+    except Exception:  # a probe that cannot run is undecided, never "decided: not entailed"
+        again = None
+    finally:
+        if timings is not None:
+            timings.append(StageTiming(stage=PROBE_STAGES[0], ms=(time.perf_counter() - start) * 1000.0))
     model = proc.model or {}
+    if again is not None and again.status in (VerificationStatus.COUNTEREXAMPLE, VerificationStatus.INCONSISTENT_PREMISES):
+        return _Probe()  # decided: asserting the defined atoms does not make the conclusion follow
+    undecided = again is None or again.status is not VerificationStatus.ENTAILED
     # The figures the conclusion needs are the asserted atoms the re-run's proof used (its unsat core).
-    reassigned = [by_id[pid] for pid in again.core if pid in by_id] or [d for d in defs if model.get(d.atom) == "false"] or defs
+    reassigned = ([by_id[pid] for pid in again.core if pid in by_id] if again is not None and not undecided else []) \
+        or [d for d in defs if model.get(d.atom) == "false"] or defs
     parts = []
     for d in reassigned:
         values = ", ".join(f"{f}={model[f]}" for f in d.figures if f in model)
@@ -620,16 +688,27 @@ def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, conf
         parts.append(f"premise {d.premise_id}{label} defines {d.atom} by a comparison of {', '.join(d.figures)}, which no premise asserts or constrains"
                      + (f" (the counterexample sets {values}, {d.atom}={model.get(d.atom, '?')})" if values else ""))
     stated = source_stated_symbols(problem, [name for d in reassigned for name in (d.atom, *d.figures)])
+    if undecided:
+        if not stated:
+            return _Probe(undecided=True)
+        return _Probe(Diagnostic(
+            code=DiagnosticCode.UNASSERTED_FIGURE.value,
+            message=("unasserted figure (probe undecided): the problem defines figures it never asserts: " + "; ".join(parts)
+                     + f"; a source states {_evidence_text(stated)}, and the re-run that decides whether the conclusion follows with the "
+                     "defined atom(s) asserted was undecided within its budget, so this COUNTEREXAMPLE may only reassign a figure the source "
+                     "states and is no verdict on the claim (encode the stated figure, the atom or the comparison itself, as a premise)"),
+            path=f"premises.{reassigned[0].premise_id}",
+        ), undecided=True)
     if stated:
-        return Diagnostic(
+        return _Probe(Diagnostic(
             code=DiagnosticCode.UNASSERTED_FIGURE.value,
             message=("unasserted figure: the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
                      + f"; a source states {_evidence_text(stated)}, and with the defined atom(s) asserted the conclusion is ENTAILED, so the "
                      "translation omitted an assertion its source makes and this COUNTEREXAMPLE is no verdict on the claim (encode the stated "
                      "figure, the atom or the comparison itself, as a premise)"),
             path=f"premises.{reassigned[0].premise_id}",
-        )
-    return Diagnostic(
+        ))
+    return _Probe(Diagnostic(
         code=DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value,
         message=("coverage (advisory): the counterexample only reassigns figures the problem defines but never asserts: " + "; ".join(parts)
                  + "; with the defined atom(s) asserted the conclusion would be ENTAILED, but a definition is not an assertion and no "
@@ -637,7 +716,7 @@ def _unasserted_figure_diagnostic(problem: Problem, proc: ProcedureOutcome, conf
                  "source asserts them, so the COUNTEREXAMPLE stands as the verdict on the encoding; if a source does assert the figure, "
                  "the translation omitted it"),
         path=f"premises.{reassigned[0].premise_id}",
-    )
+    ))
 
 
 def _limits_record(limits: Limits) -> Optional[Limits]:
@@ -679,6 +758,9 @@ def _assignments(problem: Problem, model: dict[str, str]) -> list[ModelAssignmen
 def _solver_diagnostics(outcome: ProcedureOutcome) -> list[Diagnostic]:
     if outcome.status is VerificationStatus.TIMEOUT:
         return [Diagnostic(code=DiagnosticCode.SOLVER_TIMEOUT.value, message=f"solver stopped at its resource bound: {outcome.reason_unknown}")]
+    if outcome.status is VerificationStatus.UNKNOWN and outcome.model_out_of_range:
+        return [Diagnostic(code=DiagnosticCode.SOLVER_UNKNOWN.value, message=f"the solver's answer could not be reported: {outcome.reason_unknown}; "
+                                                                          "no model is shown and the status is no verdict")]
     if outcome.status is VerificationStatus.UNKNOWN:
         code = DiagnosticCode.SOLVER_MEMOUT if outcome.memout else DiagnosticCode.SOLVER_UNKNOWN
         return [Diagnostic(code=code.value, message=f"solver returned unknown: {outcome.reason_unknown}")]
@@ -822,13 +904,19 @@ def verify(
         apply_global_memory_limit(config)
         figure_note: Optional[Diagnostic] = None
         reason_note: Optional[Diagnostic] = None
+        probe_undecided = False
+        probe_timings: list[StageTiming] = []
         try:
             proc = _PROCEDURES[problem.query](compiled, config)
-            figure_note = _unasserted_figure_diagnostic(problem, proc, config)
+            # The coverage probes share one budget (PROBE_STAGES): the configuration's timeout in all, each timed.
+            deadline = _probe_deadline(config)
+            figure = _unasserted_figure_diagnostic(problem, proc, config, deadline=deadline, timings=probe_timings)
+            figure_note, probe_undecided = figure.diagnostic, figure.undecided
             # An advisory W110 leaves the counterexample standing, so the free-symbol probe still runs: a source-stated
             # free symbol (E111) withholds the verdict whatever the definitions say. E110 already withholds it.
             if figure_note is None or figure_note.code == DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value:
-                reason_note = _unencoded_reason_diagnostic(problem, proc, compiled, config)
+                reason = _unencoded_reason_diagnostic(problem, proc, compiled, config, deadline=deadline, timings=probe_timings)
+                reason_note, probe_undecided = reason.diagnostic, probe_undecided or reason.undecided
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
             # verifications can work within so later calls are not left under the exhausted one.
@@ -859,11 +947,22 @@ def verify(
         if circular is not None:
             diagnostics.append(circular)
         named_diagnostics, argument_rules = None, None
-        stage_timings = list(proc.timings)
+        stage_timings = list(proc.timings) + probe_timings
         if diagnose:
-            t2 = time.perf_counter()
-            named_diagnostics, argument_rules = _diagnose(problem, proc, compiled, config, enforced, diagnostics, severity_cap)
-            stage_timings.append(StageTiming(stage="diagnose", ms=(time.perf_counter() - t2) * 1000.0))
+            if not is_definitive(proc.status):
+                # no verdict (TIMEOUT, UNKNOWN): no entailment or counterexample rule can run, so the stage does not run and
+                # records no rules: the diagnosis reads "not computed", never "none found" (integration gate, round 1). The
+                # status is already no verdict, so this is no further risk signal (an incomplete diagnosis of a DECIDED result
+                # is: an undecided coverage probe, a derived run out of its budget)
+                argument_rules = None
+            elif probe_undecided:
+                # an undecided coverage probe leaves open whether the counterexample is a verdict on the claim at all: the
+                # stage fires nothing and says why (integration gate, round 1)
+                argument_rules = _named.incomplete_rules("coverage_probe_undecided")
+            else:
+                t2 = time.perf_counter()
+                named_diagnostics, argument_rules = _diagnose(problem, proc, compiled, config, enforced, diagnostics, severity_cap)
+                stage_timings.append(StageTiming(stage="diagnose", ms=(time.perf_counter() - t2) * 1000.0))
         result = VerificationResult(
             **base, **ids, status=proc.status,
             binding=compute_binding(problem, config, versions, proc.smt2, record),
@@ -880,7 +979,10 @@ def verify(
             result.counterexample = Counterexample(assignments=_assignments(problem, proc.model))
         elif proc.status in (VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE) and proc.model is not None:
             result.witness_model = _assignments(problem, proc.model)
-        if config.produce_unsat_core and proc.status in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.UNSATISFIABLE, VerificationStatus.ENTAILED) and relied:
+        # ENTAILED carries its core whenever the flag is set, a vacuous one too (no premise: premise_ids is empty and the
+        # negated conclusion alone is unsat; contract section 4).
+        if config.produce_unsat_core and (proc.status is VerificationStatus.ENTAILED
+                                          or (proc.status in (VerificationStatus.INCONSISTENT_PREMISES, VerificationStatus.UNSATISFIABLE) and relied)):
             from .results import UnsatCore
             result.unsat_core = UnsatCore(premise_ids=relied, includes_negated_conclusion=proc.includes_negated_conclusion)
         return finish(result)

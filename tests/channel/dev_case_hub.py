@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from epinoic_logic.branches import RouterHub
+from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import AgentRole, WorkPlan
 from epinoic_logic.translate.contracts import SuppliedText
@@ -56,7 +57,7 @@ def verifier(case: dict, fidelity: Optional[str] = None):
     def fn(claim, report, task=None):
         text = proposal_text(case, claim)
         if text is None:
-            return None
+            return CLAIM_OUT_OF_SCOPE  # the case serves translations for its claims of interest only (not a skipped check)
         translator = Translator(FixtureTranslationProvider({claim.claim_id: text}))
         reviewer = SemanticReviewer(FixtureReviewProvider({claim.claim_id: json.dumps({"verdict": verdict, "issues": []})}))
         return verify_claim(claim, report, translator, reviewer=reviewer, config=CFG, signing_key=KEY, key_id="channel", task=task)

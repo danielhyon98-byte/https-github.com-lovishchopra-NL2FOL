@@ -647,3 +647,39 @@ def test_roles_names_only_github_urls_and_a_loopback_git_proxy(tmp_path):
         out = subprocess.run([NODE, str(READINESS / "check-agents.mjs"), "--vendored", str(_vendored_export(tmp_path / f"v{len(list(tmp_path.iterdir()))}", repo=repo))],
                              capture_output=True, text=True, timeout=60)
         assert _rows(out)["vendored runtime source"] == status and out.returncode == (1 if status == "BLOCKER" else 0), (repo, out.stdout)
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git")
+def test_the_website_patch_set_row_is_bound_to_the_websites_origin_main(tmp_path):
+    """Integration gate 1: an exact patch set on an export of an older commit read PASS while the website's origin/main had
+    moved on, so readiness could read YES for a website that is not the current one. With the website checkout given, the
+    export's commit (the first line of UNREVIEWED-SIMULATION-COPY.txt) must be origin/main; otherwise the row is a BLOCKER
+    labelled stale. Without the checkout the row reads the export alone, as before."""
+    check = _check_module()
+    patched = {"src/verify/with-verification.js": "export const withVerification = 1;\n", "wrangler.jsonc": "{ \"name\": \"site\" }\n"}
+    kit = _write(tmp_path / "kit", {"integration/website/patches/M/RESULT.sha256": _result_sha256(patched)})
+    site = tmp_path / "website"
+    site.mkdir()
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "old"], ["update-ref", "refs/old", "HEAD"],
+                 ["commit", "-q", "--allow-empty", "-m", "main"], ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+        subprocess.run([GIT, "-C", str(site), *args], check=True, capture_output=True, env=env, timeout=60)
+    head = subprocess.run([GIT, "-C", str(site), "rev-parse", "origin/main"], check=True, capture_output=True, text=True, env=env).stdout.strip()
+    old = subprocess.run([GIT, "-C", str(site), "rev-parse", "refs/old"], check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+    def row_for(commit: str, website) -> tuple:
+        export = _write(tmp_path / f"export-{commit[:7]}-{bool(website)}", {"UNREVIEWED-SIMULATION-COPY.txt": f"UNREVIEWED SIMULATION COPY of origin/main {commit}.\n", **patched})
+        rows: list = []
+        check.website_copy(kit, rows, str(export), str(website) if website else None)
+        [r] = rows
+        return r
+    r = row_for(head, site)
+    assert r[1] == check.PASS and "exact" in r[2], r
+    r = row_for(head[:7], site)  # a short commit names it too
+    assert r[1] == check.PASS, r
+    stale = row_for(old, site)
+    assert stale[1] == check.BLOCKER and stale[2].startswith(f"stale: {old}") and not check.local_ready([stale]), stale
+    assert row_for(old, None)[1] == check.PASS  # without the checkout: the export alone, as before
+    unbound = row_for(head, tmp_path / "not-a-repository")
+    assert unbound[1] == check.BLOCKER and "cannot be read" in unbound[2], unbound

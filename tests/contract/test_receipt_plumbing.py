@@ -3,6 +3,8 @@ diagnostic on a material claim (info never reaches the findings), the labels of 
 ``FormalCheck.defect`` on INT-SUBJ-001, the report-level hook (once per delivered report) and the summary line."""
 from __future__ import annotations
 
+import sys
+
 from epinoic_logic.branches.base import BranchRegistry, FormalCheck, SubjectBranch
 from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
 from epinoic_logic.channel import bus as bus_module
@@ -174,16 +176,36 @@ def test_the_branch_checks_run_without_the_argument_diagnosis(monkeypatch):
 # ----------------------------------------------------------------------------------------- the report-level hook
 
 
+def _called_from_the_overseer() -> bool:
+    """Whether the current call runs under the overseer package: a transfer auditor attached to the channel (the
+    overseer-attached suite, ``scripts/overseer/pytest_attach.py``) re-derives the report-level diagnosis from the
+    journaled report to check the receipt, after the channel's call has returned."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        if str(frame.f_globals.get("__name__", "")).startswith("epinoic_logic.overseer"):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def test_the_report_level_hook_runs_once_per_delivered_report(monkeypatch):
-    calls = []
+    # The channel calls the hook exactly once per delivered report. The only other caller allowed is an attached
+    # overseer's re-derivation (none in the plain suite, so there the hook runs exactly once in all), and it must see
+    # exactly the inputs the channel saw.
+    calls, overseer_calls = [], []
 
     def bare(rctx):
-        calls.append((rctx.report.report_id, len(rctx.outcomes), [i.text for i in rctx.items], rctx.task.text if rctx.task else None))
+        seen = (rctx.report.report_id, len(rctx.outcomes), [i.text for i in rctx.items], rctx.task.text if rctx.task else None)
+        (overseer_calls if _called_from_the_overseer() else calls).append(seen)
         return [stub_claim_rule("ARG-BARE-001", layer="report")(rctx)[0].model_copy(update={"claim_ids": ["c"]})]
 
     monkeypatch.setattr(diag_argument, "REPORT_RULES", (bare,))
     rc = _receipt()
     assert calls == [("rep-ad", 1, [REQUEST], REQUEST)]
+    if "pytest_attach" not in sys.modules:  # the plain suite: no other caller, so the hook ran exactly once in all
+        assert overseer_calls == []
+    else:  # an attached auditor re-derives the diagnosis at most once, from exactly the inputs the channel saw
+        assert overseer_calls in ([], [calls[0]])
     arg = [f for f in rc.findings if f.code == "INT-ARG-001"]
     assert len(arg) == 1 and arg[0].defect == "bare_assertion" and arg[0].formal_result_id is None
     assert [d.code for d in rc.named_diagnostics] == ["ARG-BARE-001"] and rc.outcomes[0].named_diagnostics == []

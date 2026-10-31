@@ -105,7 +105,7 @@ from ..engine.policies import UnknownPolicyError, policy_config, policy_limits
 from ..engine.results import SolverConfig, VerificationResult
 from ..engine.runner import verify
 from ..engine.statuses import VerificationStatus as S, is_definitive
-from ..integrity.contracts import (AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, LedgerEntry, SYNTHESIZED_CLAIM_TRANSFORMATIONS, Synthesis,
+from ..integrity.contracts import (AgentMessage, AgentRole, ConflictRecord, IntegrityFinding, LedgerEntry, SYNTHESIS_CITATION_RULE, SYNTHESIZED_CLAIM_TRANSFORMATIONS, Synthesis,
                                    SynthesizedClaim, WorkPlan, payload_hash)
 from ..integrity.cross_check import check_conflict_disclosure, check_conflict_records, check_cross_report_consistency, check_paraphrase_coverage, check_synthesis_entailment
 from ..integrity.envelope import MessageLog, bind_payload
@@ -327,13 +327,35 @@ def _is_blocking(findings) -> bool:
     return any(f.severity == "error" and f.code.startswith(_BLOCKING_PREFIXES) for f in findings)
 
 
-def _shape_reason(exc: BaseException) -> str:
-    """Describe why parsing or validation failed without echoing the agent's text."""
+#: The contracts' own model-validator messages that hold no agent text (fixed sentences): the only validator messages a
+#: receipt repeats, so a synthesis refused for a wrong text digest says so instead of 'value_error' (integration gate,
+#: round 1, combinator-faults-11).
+_FIXED_VALIDATOR_MESSAGES = frozenset({
+    "text_sha256 does not match text", "duplicate synthesized claim_id", "payload_sha256 does not match payload", "plan_sha256 does not match the plan",
+    "conflict record lists the same claim id more than once; a conflict needs two distinct parties", SYNTHESIS_CITATION_RULE})
+#: What a synthesis text that breaks the contract's text rule (``integrity.contracts.SYNTHESIS_TEXT_PATTERN``) is refused for:
+#: the rule, never the text (integration gate 1, harness handoff 1).
+_SYNTHESIS_TEXT_RULE = ("the synthesis text rule: at least one visible character, no control character other than a tab or a line break, "
+                        "no bidirectional embedding, override or isolate")
+
+
+def _shape_reason(exc: BaseException, contract: str = "report") -> str:
+    """Describe why parsing or validation failed without echoing the agent's text. A model-level error (no field location)
+    is named by ``contract``, with the validator's own message when it is one of :data:`_FIXED_VALIDATOR_MESSAGES` (a nested
+    model's fixed message is stated at its location too); a synthesis text that breaks the text rule states the rule."""
     if isinstance(exc, ValidationError):
         parts = []
         for e in exc.errors()[:6]:
             loc = ".".join(str(x) for x in e.get("loc", ()))
-            parts.append(f"{loc or 'report'}: {e.get('type', 'invalid')}")
+            part = f"{loc or contract}: {e.get('type', 'invalid')}"
+            if e.get("type") == "value_error":
+                msg = str(e.get("msg", ""))
+                msg = msg[len("Value error, "):] if msg.startswith("Value error, ") else msg
+                if msg in _FIXED_VALIDATOR_MESSAGES:
+                    part = f"{loc or contract}: {msg}"
+            elif e.get("type") in ("string_pattern_mismatch", "string_too_short") and contract == "synthesis":
+                part = f"{part} ({_SYNTHESIS_TEXT_RULE})"
+            parts.append(part)
         more = len(exc.errors()) - 6
         return "; ".join(parts) + (f"; +{more} more" if more > 0 else "")
     return str(exc)[:300]
@@ -429,6 +451,8 @@ _USER_INPUT_MAX = _contract_max_length(TaskRequest, "user_input")
 _REQUEST_ITEMS_MAX = _contract_max_length(TaskRequest, "items")
 _REQUEST_CONSTRAINTS_MAX = _contract_max_length(TaskRequest, "constraints")
 _REQUEST_TEXTS_MAX = _contract_max_length(TaskRequest, "supplied_texts")
+#: The labels the router gives a supplied text besides its id and text: a report must carry them unchanged (INT-REQ-002).
+_SUPPLIED_TEXT_LABELS = ("title", "author", "provenance", "locator_scheme")
 _ID_MAX = _contract_max_length(TaskRequest, "to_agent_id")
 #: The agent id recorded for a request whose sender or addressee is not a usable id.
 _UNKNOWN_AGENT = "unknown-agent"
@@ -579,12 +603,111 @@ def _credits_another_source(sentence: str, start: int, end: int) -> bool:
     return bool(_any_credit_before_re().search(clause) or _ANY_CREDIT_AFTER_RE.match(sentence[end:]))
 
 
-_CHECK_SUBJECT_RE = re.compile(r"\b(?:formal|automatic|automated|hub(?:'s|’s)?|engine(?:'s|’s)?|system(?:'s|’s)?|solver(?:'s|’s)?|z3)\s+(?:checks?|verification)\b"
-                               r"|\b(?:own|its)\s+checks?\b|\b(?:the\s+)?(?:receipt|engine|solver)\s+(?:found|finds|flag(?:s|ged)?|confirm(?:s|ed)?|rejected|says|said|shows|showed)\b",
-                               re.IGNORECASE)
+#: Check results of THIS exchange, credited to this system's own checks as such (integration gate, round 1): a formal check,
+#: "formally verified", the hub's checks or receipt, Z3, the checker, the translator, the verifier, the overseer, the
+#: verification engine, a receipt status, a finding code of the hub's families. Always a check result of the exchange.
+_STRONG_CHECK_RE = re.compile(
+    r"\bformal(?:ly)?\s+(?:checks?|check(?:ed|ing)|verification|verif(?:y|ies|ied)|prov(?:ed|en)|confirmed)\b"
+    r"|\bhub(?:'s|’s)?\s+(?:checks?|verification|receipts?|engine|solver|translator)\b"
+    r"|\bz3\b|\bthe\s+(?:checker|translator|verifier|overseer)(?:'s|’s)?\b|\b(?:verification|logic)\s+engine\b"
+    r"|\b(?:transmission|hub)\s+receipt\b|\bACCEPTED_WITH_FINDINGS\b|\bAUDIT_(?:PASSED|FAILED)\w*", re.IGNORECASE)
+#: A finding code of the hub's families ("INT-SUBJ-001", "OVS-PEER-003", "CORE-SRC-005", "HI-SRC-004"): router-side check
+#: output, never content of an answer or of a document an agent is given.
+_CHECK_CODE_RE = re.compile(r"\b(?:INT|CORE|OVS|ST|KIT|ARG|EVD|PACK|BR|GEN|HI|ES|PS|EC|BM)-[A-Z]{2,10}-\d{3}\b")
+#: Words a subject's own content uses for checks too ("checks", "automated checks", "own checks", "the receipt shows", "the
+#: engine's checks"): a check result of this exchange only when a report or answer of the exchange is its object in the
+#: same sentence (:data:`_REPORT_OBJECT_RE`), so "Automated checks fail when the sensor data are missing" in a case study
+#: is content, and "The Mathematics report passed all checks" is a relayed check result.
+_GENERIC_CHECK_RE = re.compile(
+    r"\b(?:(?:automatic|automated|system(?:'s|’s)?|engine(?:'s|’s)?|solver(?:'s|’s)?|own|its|their|all(?:\s+the)?|every|the)\s+)?(?:checks|check|verification)\b"
+    r"|\b(?:the\s+)?(?:receipt|engine|solver)\s+(?:found|finds|flag(?:s|ged)?|confirm(?:s|ed)?|rejected|says|said|shows|showed)\b", re.IGNORECASE)
+#: A report or answer of this exchange named as the object of a check: "the Mathematics report", "the English specialist's
+#: answer", "this answer", "the peer report", "the colleague's report" (a capitalised name before "report" or "answer" is
+#: read case-sensitively, so "the annual report" is no report of the exchange).
+_REPORT_OBJECT_RE = re.compile(r"\b(?:[Tt]he|[Tt]his|[Tt]hat|[Ii]ts|[Tt]heir)\s+(?:[A-Z][\w-]*\s+){1,3}(?:specialist(?:'s|’s)?\s+)?(?:report|answer|response|reply|working)s?\b"
+                               r"|\b[A-Z][\w-]*\s+specialist(?:'s|’s)?\b"
+                               r"|\b(?i:this\s+answer|the\s+(?:peer|colleague(?:'s|’s)?|relayed|specialist(?:'s|’s)?)\s+(?:report|answer))\b")
 #: The outcome such a statement reports.
-_CHECK_OUTCOME_RE = re.compile(r"\b(?:fail(?:s|ed)?|flag(?:s|ged)?|(?:does|do|did)\s+not\s+hold|not\s+holding|holds?|passed|pass(?:es)?|"
-                               r"confirm(?:s|ed)?|verif(?:y|ies|ied)|rejected|counterexample)\b", re.IGNORECASE)
+_CHECK_OUTCOME_RE = re.compile(r"\b(?:fail(?:s|ed|ing)?|flag(?:s|ged)?|(?:does|do|did)\s+not\s+hold|not\s+holding|holds?|held|pass(?:es|ed)?|"
+                               r"confirm(?:s|ed)?|verif(?:y|ies|ied)|prov(?:e|es|ed|en)|rejected|accepted|counterexample|"
+                               r"found\s+no\s+(?:errors?|faults?|problems?|mistakes?)|(?:no|zero)\s+(?:errors?|faults?)\s+(?:was|were)\s+found)\b", re.IGNORECASE)
+#: Every subject either rule reads (the Overseer's own reading of the rule, ``overseer.checks.fidelity``, imports it with
+#: :data:`_CHECK_OUTCOME_RE`; :func:`check_result_statement` is the channel's rule).
+_CHECK_SUBJECT_RE = re.compile(f"(?:{_STRONG_CHECK_RE.pattern})|(?:{_GENERIC_CHECK_RE.pattern})", re.IGNORECASE)
+_STATEMENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def check_result_statement(text: str, *, object_words: Sequence[str] = (), strong_only: bool = False) -> Optional[str]:
+    """The words of ``text`` that state a check result of this exchange, or None (rule of INT-REQ-014 and of the request
+    scan). Read per sentence: a finding code of the hub's families; this system's own check named as such
+    (:data:`_STRONG_CHECK_RE`) with an outcome (:data:`_CHECK_OUTCOME_RE`); or, unless ``strong_only``, a generic check
+    word (:data:`_GENERIC_CHECK_RE`) with an outcome and a report or answer of the exchange as its object
+    (:data:`_REPORT_OBJECT_RE`, or a word of ``object_words``: the titles and authors of the peer documents supplied).
+    Nothing is evaluated; every pattern is anchored at a word boundary and bounded by the sentence."""
+    if not text:
+        return None
+    words = [w.casefold() for w in object_words if w and len(w) >= 3]
+    for sentence in _STATEMENT_SPLIT_RE.split(text):
+        code = _CHECK_CODE_RE.search(sentence)
+        if code is not None:
+            return code.group(0)
+        if _CHECK_OUTCOME_RE.search(sentence) is None:
+            continue
+        strong = _STRONG_CHECK_RE.search(sentence)
+        if strong is not None:
+            return strong.group(0)
+        if strong_only:
+            continue
+        generic = _GENERIC_CHECK_RE.search(sentence)
+        if generic is None:
+            continue
+        low = sentence.casefold()
+        if _REPORT_OBJECT_RE.search(sentence) or any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words):
+            return generic.group(0)
+    return None
+
+
+def ids_held_by_other_agents(reports, agent_id: str) -> set[str]:
+    """The claim ids of ``reports`` (the reports delivered on a task so far) that agents other than ``agent_id`` hold."""
+    return {c.claim_id for r in reports if r.agent_id != agent_id for c in r.claims}
+
+
+def needs_qualified_ids(parser, report: SpecialistReport, held: set[str]) -> bool:
+    """Whether a text report must be parsed again with agent-qualified claim ids (integration gate 1,
+    combinator-faults-9): its parser offers it (``accepts_qualify_ids``: the STEM parsers) and one of its claim ids is
+    already held by a report another agent delivered on the task. A report whose ids collide with none keeps its ids, so
+    every key written for them stays valid. The channel and the overseer's re-parse (CUST-006) apply this one rule."""
+    return bool(held) and getattr(parser, "accepts_qualify_ids", False) is True and any(c.claim_id in held for c in report.claims)
+
+
+class _OutOfScope:
+    """The type of :data:`CLAIM_OUT_OF_SCOPE`."""
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "CLAIM_OUT_OF_SCOPE"
+
+
+#: What a claim verifier returns for a claim it was never meant to check (a test harness that serves translations for the
+#: claims of interest only): no outcome and nothing named. ``None`` means the verifier produced no outcome for a claim it
+#: was meant to check (a deadline or a budget reached, no translation served), and a material, deterministically eligible
+#: claim with ``None`` is named NOT_ATTEMPTED (INT-REQ-006). The default is the safe reading: only an explicit sentinel
+#: says a claim needs no check here.
+CLAIM_OUT_OF_SCOPE = _OutOfScope()
+
+
+def _as_role(role):
+    """``role`` as an :class:`AgentRole` when it is one or names one by its value ("router"); otherwise unchanged (the
+    relay's own checks refuse it). A forward is decided on the role, never on the object's identity, so a genuine router
+    forward given the role as text is a forward (integration gate, round 1)."""
+    if isinstance(role, AgentRole):
+        return role
+    if isinstance(role, str):
+        try:
+            return AgentRole(role)
+        except ValueError:
+            return role
+    return role
 
 
 def _check_observer(observer) -> ChannelObserver:
@@ -825,7 +948,7 @@ def _coerce_payload(payload) -> tuple[Optional[Union[SpecialistReport, Synthesis
             return model.model_validate(data), "", []
         except (ValidationError, TypeError, ValueError) as exc:
             named = _vocabulary_findings(data, exc) if model is Synthesis and isinstance(exc, ValidationError) else []
-            return None, f"a mapping that does not validate against the {'synthesis' if model is Synthesis else 'specialist_report'} contract: {_shape_reason(exc)}", named
+            return None, f"a mapping that does not validate against the {'synthesis' if model is Synthesis else 'specialist_report'} contract: {_shape_reason(exc, 'synthesis' if model is Synthesis else 'report')}", named
     return None, f"a payload of type {type(payload).__name__}, which is neither a specialist report nor a synthesis", []
 
 
@@ -898,6 +1021,7 @@ class TranslatorChannel:
         self.ambiguous_pooled: set[str] = set()              # pooled claims whose translation is AMBIGUOUS_TRANSLATION (one assumed reading)
         self.transmitted_reports: dict[str, SpecialistReport] = {}  # report_id -> the FIRST payload delivered under that id; never overwritten
         self.forwards: dict[str, list[tuple[str, str]]] = {}  # report_id -> [(recipient agent, message id)] router forwards
+        self.report_deliveries: dict[str, set[str]] = {}     # report_id -> message ids under which that report was delivered to the router
         self.superseded: dict[str, str] = {}                 # report_id -> report id that superseded it (INT-HANDOFF-009)
         self.conflicts_seen: list[tuple[frozenset[str], Optional[str]]] = []  # INT-CONFLICT-001 claim sets named on this channel
         self.receipts: list[TransmissionReceipt] = []
@@ -1000,6 +1124,16 @@ class TranslatorChannel:
         if problems:
             findings.append(IntegrityFinding(code="INT-REQ-009", severity="error", message="request REJECTED as malformed: " + "; ".join(problems[:_MAX_NAMED]), agent_ids=[to_agent_id]))
         supplied_texts = req.supplied_texts
+        try:
+            relayed_results = self._router_check_results(req)
+        except Exception as exc:  # fail closed: a scan that cannot run never lets a check result through
+            relayed_results = [f"the scan for router-side check results failed internally ({type(exc).__name__})"]
+        if relayed_results:
+            findings.append(IntegrityFinding(code="INT-REQ-009", severity="error",
+                                             message="request REJECTED as malformed: " + "; ".join(relayed_results[:_MAX_NAMED]) + ": a router-side check result "
+                                                     "(a receipt, a finding code, a formal check's outcome) is never content an agent is given",
+                                             document_ids=sorted({t.document_id for t in supplied_texts if any(f"'{t.document_id}'" in r for r in relayed_results)}),
+                                             agent_ids=[to_agent_id]))
         if to_agent_id not in self.plan.selected_agent_ids:
             findings.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"router addressed {to_agent_id}, which the plan did not select", agent_ids=[to_agent_id]))
         if self.plan.allowed_document_ids:
@@ -1017,6 +1151,27 @@ class TranslatorChannel:
             self.router_ids.add(from_agent_id)
         receipt = self._receipt(msg.message_id, "router_to_specialist", status, findings, summary=self._summary_request(req, findings, status))
         return (msg if status is not TransmissionStatus.REJECTED else None), req, receipt
+
+    def _router_check_results(self, req: TaskRequest) -> list[str]:
+        """What a request hands an agent as content that is a router-side check result (integration gate, round 1: a
+        'router-note' or 'hub-receipt' document saying "INT-SUBJ-001 error: a formal check failed its point" was delivered
+        to the dependent agent, which repeated it): a supplied text or the request text holding a finding code of the
+        hub's families, a receipt status, or this system's own check named with an outcome (:func:`check_result_statement`,
+        strong subjects only, so a document about checks in the world is no check result). A supplied text byte-identical
+        to a report delivered on this channel is the report itself, relayed as delivered: its content was checked at its
+        delivery, and it is not read again here."""
+        delivered = {r.original_response for r in self.transmitted_reports.values()}
+        out: list[str] = []
+        what = check_result_statement(req.user_input or "", strong_only=True)
+        if what is not None:
+            out.append(f"the request text states a check result ({what!r})")
+        for t in req.supplied_texts:
+            if t.text in delivered:
+                continue
+            what = check_result_statement(t.text, strong_only=True)
+            if what is not None:
+                out.append(f"supplied text '{t.document_id}' states a check result ({what!r})")
+        return out
 
     # ----------------------------------------------------------------- responses
     @_observed
@@ -1055,6 +1210,14 @@ class TranslatorChannel:
             report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
                                            task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version, agent_id=agent_id,
                                            **extra)
+            if needs_qualified_ids(parser, report, ids_held_by_other_agents(self.transmitted_reports.values(), agent_id)):
+                # integration gate 1 (combinator-faults-9): the report's ids are ids a report of ANOTHER agent already delivered
+                # on this task holds (two agents of one STEM branch number their statements alike), so it is parsed with its
+                # ids qualified by its agent: no two reports on one task share a claim id, and a synthesis citing them can be
+                # accounted for (INT-LEDGER-014) and handed to the combinator port (KIT-CB-001)
+                report = parser.parse_response(text, request_id=self.plan.request_id, task_id=self.plan.task_id, report_id=report_id, subject=self._subject_for(agent_id),
+                                               task_type=self._task_type_for(agent_id), supplied_texts=list(texts), course_level=self.plan.course_level or "unknown", agent_version=agent_version,
+                                               agent_id=agent_id, qualify_ids=True, **extra)
         except Exception as exc:  # adapter and contract errors become a rejection, never an exception out of the hub
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=f"response could not be parsed into a report by branch {branch.key}: {type(exc).__name__}: {_shape_reason(exc)}", report_ids=[report_id], agent_ids=[agent_id])])
@@ -1152,18 +1315,37 @@ class TranslatorChannel:
 
     @staticmethod
     def _supplied_text_mismatch(report: SpecialistReport, req: TaskRequest) -> list[IntegrityFinding]:
-        """INT-REQ-002 (error, blocking): the report's supplied texts against the request's, by document id and the digest
-        of the text. A document the request did not send (also when it sent none) and a text that differs from the one
-        sent under its id are named; the router's texts are the only ones a quotation is checked against."""
-        sent = {t.document_id: sha256_text(t.text) for t in req.supplied_texts}
+        """INT-REQ-002 (error, blocking): the report's supplied texts against the request's, by document id, the digest of
+        the text and every label the router gave it (title, author, provenance, locator scheme). A document the request
+        did not send (also when it sent none), a text that differs from the one sent under its id, and a text sent under
+        its id whose labels differ are named; the router's texts and labels are the only ones a quotation is checked
+        against. A label is never the specialist's to change: whether a text is a relayed peer report or a primary source
+        is read from it (``adapters.sources.is_peer_text``), so a peer report relabelled with another author would turn
+        the peer's figures into established evidence (integration gate, round 1). The message names the fields, never
+        the labels' text."""
+        sent_texts = {t.document_id: t for t in req.supplied_texts}
+        sent = {doc_id: sha256_text(t.text) for doc_id, t in sent_texts.items()}
         extra = sorted({t.document_id for t in report.supplied_texts if t.document_id not in sent})
         changed = sorted({t.document_id for t in report.supplied_texts if t.document_id in sent and sha256_text(t.text) != sent[t.document_id]})
+        relabelled: dict[str, set[str]] = {}
+        for t in report.supplied_texts:
+            ref = sent_texts.get(t.document_id)
+            if ref is None or t.document_id in changed:
+                continue
+            fields = {f for f in _SUPPLIED_TEXT_LABELS if getattr(t, f) != getattr(ref, f)}
+            if fields:
+                relabelled.setdefault(t.document_id, set()).update(fields)
         out: list[IntegrityFinding] = []
         if extra:
             out.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response cites texts that were not in the request: {extra}"
                                         + ("" if sent else " (the request sent no texts)") + "; a text the specialist supplies itself is never a source", document_ids=extra))
         if changed:
             out.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response carries texts that differ from the ones the request sent under the same document ids: {changed} (a supplied text replaced)", document_ids=changed))
+        if relabelled:
+            docs = sorted(relabelled)
+            what = "; ".join(f"{d}: {', '.join(sorted(relabelled[d]))}" for d in docs)
+            out.append(IntegrityFinding(code="INT-REQ-002", severity="error", message=f"response carries texts whose labels differ from the ones the request sent under the same document ids ({what}): "
+                                        "a supplied text relabelled (a relayed peer report presented as a primary source, say); only the router's texts and labels are sources", document_ids=docs))
         return out
 
     def _report_id_reuse(self, report: SpecialistReport, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
@@ -1442,6 +1624,7 @@ class TranslatorChannel:
         report_named = self._guarded("argument diagnosis (report level)", findings, lambda: self._report_diagnosis(report, req, outcomes), None, **rid)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
+            self.report_deliveries.setdefault(report.report_id, set()).add(msg.message_id)
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
                             report=report, report_named=report_named)
 
@@ -1455,6 +1638,8 @@ class TranslatorChannel:
         that fails on a value outside one of the contract's closed vocabularies (a transformation written as free text,
         say) is also named with INT-SYNTH-014; a synthesis object built around validation is re-validated and refused the
         same way (``_revalidate_synthesis``)."""
+        # a role given as its value ("router") is that role, as the envelope reads it; anything else is left as given
+        from_role, to_role = _as_role(from_role), _as_role(to_role)
         if not isinstance(payload_obj, (SpecialistReport, Synthesis)):
             provenance = _raw_claim_provenance(payload_obj) if isinstance(payload_obj, Mapping) and "report_id" in payload_obj and "synthesis_id" not in payload_obj else []
             if provenance:  # decided on the payload as received, before contract validation (never a bare value error)
@@ -1512,6 +1697,15 @@ class TranslatorChannel:
                     findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error", message=f"router forwarded report {payload_obj.report_id!r}, which was never delivered on this channel", report_ids=[payload_obj.report_id], agent_ids=[from_agent_id, to_agent_id], message_ids=[msg.message_id]))
                 elif payload_hash(held.model_dump(mode="json", exclude_none=True)) != msg.payload_sha256:
                     findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error", message=f"router forwarded report {payload_obj.report_id!r} with a payload that differs from the one delivered on this channel (altered in transit)", report_ids=[payload_obj.report_id], agent_ids=[from_agent_id, to_agent_id], message_ids=[msg.message_id]))
+                elif (msg.in_reply_to is not None and msg.in_reply_to not in self.report_deliveries.get(payload_obj.report_id, ())
+                      and not any(f.code == "INT-ENV-003" for f in findings)):
+                    # a forward replies to the delivery of the report it carries: one replying to another message (another
+                    # report's delivery, a request) is not tied to that delivery (router-envelope-5; an unknown id is INT-ENV-003)
+                    delivered = sorted(self.report_deliveries.get(payload_obj.report_id, ()))
+                    findings.append(IntegrityFinding(code="INT-HANDOFF-013", severity="error",
+                                                     message=f"router forwarded report {payload_obj.report_id!r} in reply to message {msg.in_reply_to!r}, which is not a delivery of that report on this channel "
+                                                             f"(delivered as {', '.join(repr(m) for m in delivered) or 'no message'}); a forward must reply to the delivery of the report it carries",
+                                                     report_ids=[payload_obj.report_id], agent_ids=[from_agent_id, to_agent_id], message_ids=[msg.message_id, msg.in_reply_to] + delivered))
                 if _is_blocking(findings):
                     return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
                 # The delivered report was already parsed, checked and pooled on arrival; a faithful forward re-runs
@@ -1577,7 +1771,7 @@ class TranslatorChannel:
         except (ValidationError, TypeError, ValueError) as exc:
             sid, cid = _scrub(str(getattr(synthesis, "synthesis_id", "") or ""))[:128], _scrub(str(getattr(synthesis, "combinator_agent_id", "") or ""))[:128]
             out = [IntegrityFinding(code="INT-REQ-009", severity="error",
-                                    message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc)}",
+                                    message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc, 'synthesis')}",
                                     claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])]
             return out + (_vocabulary_findings(payload, exc) if isinstance(exc, ValidationError) else [])
         return []
@@ -1968,27 +2162,41 @@ class TranslatorChannel:
                 out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} credits the peer report(s) {credited} with a date the peer gives for another event: " + "; ".join(dict.fromkeys(repaired)) + ": a colleague's date misreported in an unquoted paraphrase", **ids))
         return out
 
-    @staticmethod
-    def _relayed_check_results(report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
-        """INT-REQ-014 (warning): an agent that answers after a peer's report was relayed to it states, as a claim of its
-        own, a check result credited to the system or to a report ("A formal check failed the report's restated 0.1 pH
-        result", "the Mathematics report's own checks flag its written lines as not holding"). No check result is content
-        of a report: a router-side receipt, an engine verdict or an invented one relayed as the agent's own words is a
-        self-report, named so the router never reads it as checked (agent self-reports are advisory). Every claim is read,
-        notes roled 'other' included, with its quotations masked."""
+    def _peer_documents(self, supplied: list[SuppliedText]) -> list[SuppliedText]:
+        """The supplied texts that hold a peer specialist's report: a 'peer:<task>' document, a text a specialist wrote
+        (its author ends in '-specialist' or ' specialist'), or, whatever the router named it, a text byte-identical to
+        a report delivered on this channel (integration gate, round 1: the forwarded report supplied as 'en-report' with
+        no author switched the rule off)."""
+        delivered = {r.original_response for r in self.transmitted_reports.values()}
+        return [t for t in supplied if t.document_id.startswith("peer:") or (t.author or "").strip().lower().endswith(("-specialist", " specialist"))
+                or t.text in delivered]
+
+    def _relayed_check_results(self, report: SpecialistReport, supplied: list[SuppliedText]) -> list[IntegrityFinding]:
+        """INT-REQ-014 (warning): an agent that answers after a peer's report was given to it (:meth:`_peer_documents`)
+        states, as a claim of its own, a check result of this exchange (:func:`check_result_statement`: "A formal check
+        failed the report's restated 0.1 pH result", "Z3 proved the Mathematics report's speed correct", "The Mathematics
+        report passed all checks", "the Mathematics report's own checks flag its written lines as not holding"). No check
+        result is content of a report: a router-side receipt, an engine verdict or an invented one relayed as the agent's
+        own words is a self-report, named so the router never reads it as checked (agent self-reports are advisory).
+        Ordinary content about checks ("Automated checks fail when the sensor data are missing", "The receipt shows the
+        payment failed") names no report or answer of the exchange and is not read as one. Every claim is read, notes
+        roled 'other' included, with its quotations masked."""
         from ..adapters.markdown import find_quotation_spans
-        if not any(t.document_id.startswith("peer:") or (t.author or "").strip().lower().endswith(("-specialist", " specialist")) for t in supplied):
+        peers = self._peer_documents(supplied)
+        if not peers:
             return []
+        object_words = [w for t in peers for w in re.findall(r"[^\W\d_][\w'’-]*", f"{t.title or ''} {(t.author or '').replace('-', ' ')}")
+                        if w.casefold() not in ("the", "report", "relayed", "through", "hub", "specialist", "answer")]
         out: list[IntegrityFinding] = []
         for c in report.claims:
             text = c.claim_text
             for start, end, _inner in reversed(find_quotation_spans(text)):
                 text = text[:start] + " " * (end - start) + text[end:]
-            noun = _CHECK_SUBJECT_RE.search(text)
-            if noun is None or _CHECK_OUTCOME_RE.search(text) is None:
+            noun = check_result_statement(text, object_words=object_words)
+            if noun is None:
                 continue
             out.append(IntegrityFinding(code="INT-REQ-014", severity="warning", message=f"claim {c.claim_id} (role {c.claim_role}) states a check result credited to the system or "
-                                        f"to a report ({noun.group(0)!r}): a check result is no content of a report; the agent relays a router-side or invented "
+                                        f"to a report ({noun!r}): a check result is no content of a report; the agent relays a router-side or invented "
                                         "outcome as its own words, a self-report the router must not read as checked",
                                         claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id]))
         return out
@@ -2447,7 +2655,14 @@ class TranslatorChannel:
             except Exception as exc:  # the channel never drops a message because verification crashed
                 findings.append(IntegrityFinding(code="INT-REQ-006", severity="warning", message=f"claim verification failed internally for {c.claim_id}: {type(exc).__name__}", claim_ids=[c.claim_id]))
                 continue
+            if out is CLAIM_OUT_OF_SCOPE:
+                continue  # the verifier says the claim is outside what it was asked to check (a test harness's scope)
             if out is None:
+                # a verifier that returns nothing (a deadline or budget reached, no translation served) leaves the claim
+                # unchecked: a material claim the deterministic eligibility rules would formalize is named NOT_ATTEMPTED, so
+                # the receipt never reads as a clean acceptance of a claim no check decided (integration gate, round 1)
+                if c.materiality == "material" and self._deterministically_eligible(c):
+                    findings.append(self._not_attempted(c, report))
                 continue
             stale = self._stale_translation(c, report, out)
             if stale is not None:
@@ -2479,6 +2694,31 @@ class TranslatorChannel:
             findings.extend(f)
             self.conflicts_seen.extend((frozenset(x.claim_ids), x.formal_result_id) for x in f if x.code == "INT-CONFLICT-001")
         return outcomes
+
+    @staticmethod
+    def _deterministically_eligible(claim: ClaimRecord) -> bool:
+        """Whether the deterministic eligibility rules and the claim's subject policy make ``claim`` eligible for the
+        formal check (no model: ``decide_eligibility`` narrowed by ``apply_subject_policy``, as the pipeline and the
+        delivery policy decide it). A decision that cannot be made is never "not eligible"."""
+        try:
+            from ..translate.eligibility import decide_eligibility
+            from ..translate.pipeline import apply_subject_policy
+            from ..translate.subjects import resolve_profile
+            return bool(apply_subject_policy(decide_eligibility(claim), resolve_profile(claim.subject)).eligible)
+        except Exception:
+            return True
+
+    @staticmethod
+    def _not_attempted(claim: ClaimRecord, report: SpecialistReport) -> IntegrityFinding:
+        """INT-REQ-006 (warning): a material claim the deterministic eligibility rules make eligible has no outcome (the
+        verifier returned none: a translation budget or deadline reached, or no translation served). The claim is
+        NOT_ATTEMPTED: no check decided it, so the router must not read it as checked, and the receipt is never a clean
+        acceptance on its account."""
+        return IntegrityFinding(code="INT-REQ-006", severity="warning",
+                                message=f"claim {claim.claim_id} is material and eligible for the formal check (deterministic eligibility under its subject policy), "
+                                        "but its verification produced no outcome: NOT_ATTEMPTED (no translation or engine result reached this receipt), "
+                                        "so the router must not read the claim as checked", claim_ids=[claim.claim_id],
+                                report_ids=[report.report_id], agent_ids=[report.agent_id])
 
     @staticmethod
     def _not_verified(claim: ClaimRecord, out: ClaimVerificationOutcome) -> IntegrityFinding:

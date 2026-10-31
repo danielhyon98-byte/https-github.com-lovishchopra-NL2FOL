@@ -130,9 +130,12 @@ def content_form(text: Any) -> str:
 
 def figures_of(text: Any) -> tuple[str, ...]:
     """The figures and dates of ``text``, sorted and unique: a numeral as written (thousands separators removed), a
-    figure with a scale word as ``"<numeral> <scale>"``, a month-year as ``"<month> <year>"``."""
+    figure with a scale word as ``"<numeral> <scale>"``, a month-year as ``"<month> <year>"``. Read through
+    ``checks.fidelity.figure_text`` (rule ``linear-readers``, integration gate round 1: the same figures, in time linear in
+    a run of blank lines, since the anchor of a fault may join many claims)."""
+    from .checks.fidelity import figure_text
     out: set[str] = set()
-    for label, keys in figure_spellings(text if isinstance(text, str) else ""):
+    for label, keys in figure_spellings(figure_text(text if isinstance(text, str) else "")):
         scaled = sorted(k for k in keys if " " in k and k[:1].isdigit())
         out.add(scaled[0] if scaled else label.casefold())
     return tuple(sorted(out, key=lambda s: (len(s), s)))

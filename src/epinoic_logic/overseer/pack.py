@@ -473,8 +473,9 @@ _MODULE_OPEN_RE = re.compile(r"<!-- module: ([a-z]+) -->")
 _MODULE_CLOSE_RE = re.compile(r"<!-- end module: ([a-z]+) -->")
 #: a line that looks like a module marker (to refuse a misspelt one that would otherwise be sent as text)
 _MODULE_LIKE_RE = re.compile(r"\s*<!--.*\bmodule\b.*-->\s*")
-#: the claim ids of the STEM parsers (``adapters.stem_specialist.parser.ID_PREFIXES``) and their tails
-_STEM_CLAIM_RE = re.compile(r"[smc](?:\d+\.\d+|\.tail)")
+#: the claim ids of the STEM parsers (``adapters.stem_specialist.parser.ID_PREFIXES``) and their tails, qualified with the
+#: agent since integration gate 1 (``s1.2@physics-specialist``); an unqualified id of an earlier report is read too
+_STEM_CLAIM_RE = re.compile(r"[smc](?:\d+\.\d+|\.tail)(?:@[A-Za-z0-9._-]{1,64})?")
 
 
 class PackError(ValueError):

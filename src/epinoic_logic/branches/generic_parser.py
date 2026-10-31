@@ -99,11 +99,13 @@ from ..adapters.english_specialist.parser import documents_named
 from ..adapters.history_specialist.parser import is_source_caveat
 from ..adapters.markdown import (
     BARE_NOTE_LEAD_RE,
-    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, is_note_sentence, is_self_certification, mask_quotations,
+    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_note_sentence, is_self_certification, mask_quotations,
+    parser_quotation_spans,
     split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
 from ..adapters.sources import attribute_excerpt
 from ..ir.schema import SourceRef
+from ..stem.layout import strip_trailing_annotations
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 #: A sentence ends at ``.``, ``?`` or ``!`` (a closing quotation mark may follow: '."', '.”', '.»', ".’") or at the ``}`` /
@@ -127,13 +129,15 @@ _PART_LEAD_RE = re.compile(rf"^\s*(?:(?:part|question|q)\s*)?(?P<label>{_LABEL_T
 #: A mark allocation: "[2]", "[1 spare]", "[2 marks]", "(3 marks)".
 _MARK_ALLOC = r"(?:\[\s*\d{1,2}(?:\s*(?:marks?|spare))?\s*\]|\(\s*\d{1,2}\s*marks?\s*\))"
 #: What may follow a part label on a label-only line: a command term between dashes and a mark allocation ("— find — 3 marks").
-_LABEL_ONLY_REST_RE = re.compile(rf"\s*(?:[—–:-]\s*)?(?:[A-Za-z][A-Za-z ]{{0,30}}?\s*[—–-]\s*)?(?:{_MARK_ALLOC}|\d{{1,2}}\s*marks?)?\s*[:.]?\s*", re.IGNORECASE)
+#: Blank runs read possessively (rule linear-readers, integration gate 1; the same strings match): as written it was cubic in a
+#: run of blanks after a part label (``stem.layout.LABEL_ONLY_REST_RE`` holds the same pattern).
+_LABEL_ONLY_REST_RE = re.compile(rf"\s*+(?:[—–:-]\s*+)?(?:[A-Za-z][A-Za-z ]{{0,30}}?\s*+[—–-]\s*+)?(?:{_MARK_ALLOC}|\d{{1,2}}\s*+marks?)?\s*+[:.]?\s*+", re.IGNORECASE)
 #: Markscheme codes: "M1", "A1", "R1", "N2", "AG", bare after two spaces or a tab, or in brackets.
 _MARK_CODE = r"(?:[MARN]\d{1,2}|AG)"
 _TRAILING_ANNOTATION_RE = re.compile(rf"(?:\s*{_MARK_ALLOC}|(?:\s{{2,}}|\t)\(?{_MARK_CODE}\)?|\s*\({_MARK_CODE}\))+(?=[.;,]?\s*$)")
 _ANNOTATION_ONLY_RE = re.compile(rf"\s*(?:(?:{_MARK_ALLOC}|\(?{_MARK_CODE}\)?)\s*)+[.;,]?\s*")
 _BULLET_RE = re.compile(r"^\s*[-*•–—]\s+")
-_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*+\|?\s*+:?-{2,}+:?\s*+(?:\|\s*+:?-{2,}+:?\s*+)*+\|?\s*+$")  # linear (stem.layout)
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 
 # ------------------------------------------------------------------ line leads
@@ -171,7 +175,7 @@ _ARITHMETIC_RE = re.compile(r"\d\s*[×÷*^]\s*[\d($]|\d\s+[+−-]\s+[\d$(]|\d\s*
 _COPULA_RE = re.compile(r"\b(?:is|are|was|were|be|been|has|have|had|gives?|equals?|means?|falls?|rises?|shows?)\b", re.IGNORECASE)
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?…][\"'”’»)\]]*\s*$")
 _QUESTION_RE = re.compile(r"\?[\"'”’»)\]]*\s*$")
-_CONTINUATION_RE = re.compile(r"^\s*\$?\s*[=≈]")
+_CONTINUATION_RE = re.compile(r"^\s*+\$?\s*+[=≈]")  # blank runs possessive: linear, the same lines (stem.layout)
 _CONNECTIVE_END_RE = re.compile(r"(?:,|\b(?:so|and|or|but|then|because|since|that|which|where|whereas|hence|thus|therefore|giving))\s*$", re.IGNORECASE)
 _SOFT_WRAP_NEXT_RE = re.compile(r"^\s*[a-z][a-z]")
 
@@ -191,11 +195,18 @@ def _is_working(masked: str) -> bool:
 
 
 def _strip_annotations(text: str) -> str:
-    return _TRAILING_ANNOTATION_RE.sub("", text).rstrip()
+    """``_TRAILING_ANNOTATION_RE.sub("", text).rstrip()`` in linear time: the STEM layout's reader of the same pattern
+    (``stem.layout.strip_trailing_annotations``; tests/stem/test_layout.py holds the two patterns identical). The pattern
+    searched as written re-read a run of annotations from each of them, quadratic in the run (integration gate 1)."""
+    return strip_trailing_annotations(text)
 
 
-#: An accuracy mark ("A1", "(A1)") closing a line of working: the markscheme credits that line's result.
-_ACCURACY_MARK_RE = re.compile(r"(?:(?:\s{2,}|\t)\(?A\d{1,2}\)?|\s*\(A\d{1,2}\))(?:\s*(?:\(?[MARN]\d{1,2}\)?|AG))*[.;,]?\s*$")
+#: An accuracy mark ("A1", "(A1)") closing a line of working: the markscheme credits that line's result. A match starts only
+#: where no whitespace precedes (``(?<!\s)``): a match starting inside a run of blanks ends where the run's own match ends (the
+#: blanks before the mark are read greedily either way), so the matches are those of the pattern without the anchor, read in
+#: linear time; unanchored, the search read the rest of a long run of blanks from each of them, n² steps (integration gate 1:
+#: 3.2 s of a 4.0 s Physics crossing of 20,000 blanks, through the STEM parser's units).
+_ACCURACY_MARK_RE = re.compile(r"(?<!\s)(?:(?:\s{2,}|\t)\(?A\d{1,2}\)?|\s*\(A\d{1,2}\))(?:\s*(?:\(?[MARN]\d{1,2}\)?|AG))*[.;,]?\s*$")
 
 
 def _logical_lines(paragraph: str) -> list[tuple[str, bool, bool]]:
@@ -351,7 +362,7 @@ def quotations_in(sentence: str) -> list[str]:
     """The quoted excerpts of ``sentence``: double marks of any kind (paired around the
     dangling mark of an unbalanced sentence, two adjacent marks as one nested mark) and
     single marks around two or more words; the strings of a pasted JSON span are not quotations."""
-    return [inner for _s, _e, inner in find_quotation_spans(sentence) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
+    return [inner for _s, _e, inner in parser_quotation_spans(sentence) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
 
 
 def _lead_shape(text: str) -> str:
@@ -453,6 +464,7 @@ class GenericTextParser:
     def __init__(self, agent_id: str = "specialist") -> None:
         self.agent_id = agent_id
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str, task_type: str, supplied_texts: list[SuppliedText] = (),
                        course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         if not text or not text.strip():

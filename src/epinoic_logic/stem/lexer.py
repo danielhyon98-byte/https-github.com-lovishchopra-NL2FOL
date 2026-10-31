@@ -384,6 +384,8 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
     toks: list[Token] = []
     space = False
     bracket_depth = 0
+    #: integration gate 1: the bracket depths of open probability brackets 'P(' (outside Computer Science), inside which ∪ and ∩ are operators
+    prob_depths: list[int] = []
     cap = max_tokens
 
     append = toks.append
@@ -415,10 +417,14 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
         if ch in "([)]":
             # brackets first: no other branch below reads them (they are the commonest one-character tokens of a long input)
             if ch in "([":
+                if ch == "(" and not cs and toks and toks[-1].kind == "IDENT" and toks[-1].text == "P" and toks[-1].end == i and not toks[-1].sub:
+                    prob_depths.append(bracket_depth)  # integration gate 1: probability brackets 'P( … )'
                 bracket_depth += 1
                 append(Token("LPAR", ch, i, i + 1, space))
             else:
                 bracket_depth = max(0, bracket_depth - 1)
+                if prob_depths and prob_depths[-1] >= bracket_depth:
+                    prob_depths.pop()
                 append(Token("RPAR", ch, i, i + 1, space))
             space = False
             i += 1
@@ -643,6 +649,16 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                         emit("NUM", s[i:grouped.end()], i, grouped.end(), value=num)
                         i = grouped.end()
                         continue
+                nibbles = _NIBBLES_RE.match(s, i, min(n, i + 160)) if grouped is None else None
+                if nibbles is not None and (nibbles.end() >= n or not (s[nibbles.end()].isalnum() or s[nibbles.end()] in SUBSCRIPT_DIGITS
+                                                                        or s[nibbles.end()] in "_.,")):
+                    # integration gate 1: in Computer Science, binary digits in groups of four, one space apart, with no base subscript
+                    # ('1011 0110 = B6 in hexadecimal') are one binary numeral; read apart, the last nibble was set against the other side
+                    num = exact_based(s[i:nibbles.end()], "".join(nibbles.group(0).split()), 2, limits=limits)
+                    if num is not None:
+                        emit("NUM", s[i:nibbles.end()], i, nibbles.end(), value=num)
+                        i = nibbles.end()
+                        continue
             based = None
             if ch != "." and ((ch == "0" and s.startswith(("0x", "0b", "0o", "0X", "0B", "0O"), i)) or not digit or _base_mark_after_digits(s, i, n)
                               or (cs and _based_ahead(s, i, n))):  # '2A₁₆': a hexadecimal numeral may open with a decimal digit
@@ -739,6 +755,10 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
         if ch in ")]":
             bracket_depth = max(0, bracket_depth - 1)
             emit("RPAR", ch, i, i + 1)
+            i += 1
+            continue
+        if ch in "∪∩" and prob_depths:
+            emit("OP", ch, i, i + 1)  # integration gate 1: an event of probability notation ('P(A ∩ B)'), read whole by the parser
             i += 1
             continue
         if ch == "{":
@@ -853,6 +873,14 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             emit("UNSUP", ch, i, i + 1, value="a sum (Σ)")
             i += 1
             continue
+        if ch in _SUPERSCRIPT_LETTERS and toks and toks[-1].end == i and toks[-1].kind in ("NUM", "IDENT", "RPAR", "RGROUP") \
+                and not (i + 1 < n and (s[i + 1] in _SUPERSCRIPT_LETTERS or s[i + 1].isalnum())):
+            # integration gate 1: one superscript letter right after a base is its exponent ('2ˣ = 16', 'eˣ = 5', '3ⁿ'), read as '^x'; before,
+            # it was a letter of another script, so the relation was dropped with nothing named (while '2^x = 16' is named ST-UNDEC-001)
+            emit("CARET", "^", i, i)
+            emit("IDENT", _SUPERSCRIPT_LETTERS[ch], i, i + 1)
+            i += 1
+            continue
         if ch.isalpha():
             # a letter of another script, or a mathematical alphanumeric symbol: never read as a Latin letter
             k = i + 1
@@ -873,6 +901,13 @@ _EXPRESSION_SIGNS = frozenset("×÷*/+-−·=≈<>≤≥^")
 #: stem-precision-10: a binary or hexadecimal numeral in groups of four or eight digits, one space apart, ending in its base subscript
 _GROUPED_BASED_RE = re.compile(r"(?P<digits>(?:[01]{4}|[01]{8})(?: (?:[01]{4}|[01]{8})){1,7})(?P<base>₂|_2)"
                                r"|(?P<hdigits>(?:[0-9A-F]{4})(?: [0-9A-F]{4}){1,7})(?P<hbase>₁₆|_16)")
+
+
+#: integration gate 1: the superscript (modifier) letters an exponent is written with, and the letter each stands for
+_SUPERSCRIPT_LETTERS = {"ˣ": "x", "ⁿ": "n", "ʸ": "y", "ᵗ": "t", "ᵏ": "k", "ⁱ": "i", "ʲ": "j", "ᵃ": "a", "ᵇ": "b", "ᶜ": "c", "ᵈ": "d",
+                        "ᵐ": "m", "ᵖ": "p", "ʳ": "r", "ˢ": "s", "ᵘ": "u", "ᵛ": "v", "ʷ": "w", "ᶻ": "z"}
+#: integration gate 1: binary digits in groups of four, one space apart, with no base subscript (Computer Science only)
+_NIBBLES_RE = re.compile(r"[01]{4}(?: [01]{4}){1,7}")
 
 
 def _and_dot(s: str, i: int, n: int, toks: list[Token]) -> bool:

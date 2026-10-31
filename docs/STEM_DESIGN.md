@@ -1032,7 +1032,12 @@ All of these are content findings: the report is delivered, never REJECTED.
   Physics and a Mathematics report on one task never share a claim id (the combinator's ledger
   refuses shared ids, INT-LEDGER-014). Ids are stable and deterministic. `StemTextParser` takes
   `agent_id` and `mode`, declares `accepts_request_text`, and the channel passes it the
-  request text, so the parser and the pack read the same document.
+  request text, so the parser and the pack read the same document. It also declares
+  `accepts_qualify_ids` (integration gate 1, combinator-faults-9): when a report's ids would be
+  ids a report of another agent already delivered on the task holds (two agents of one STEM
+  branch), the channel parses it with its ids qualified by its agent (`s1.2@ess-specialist`,
+  `channel.bus.needs_qualified_ids`; the overseer's re-parse applies the same rule), so no two
+  reports on one task share a claim id; a report that collides with nothing keeps its ids.
 - **Overflow.** Claims beyond 512 merge into `s.tail` (`m.tail`, `c.tail`) with the
   unresolved-issue text the bus turns into INT-REQ-013, as in the generic parser.
 - **Empty text** still raises `AdapterError` (`tests/channel/test_channel_robustness.py:57`).
@@ -3783,3 +3788,101 @@ STEM check by an internal failure (`tests/branches/test_r7_handoff_stem_pack.py`
 `tests/stem/test_checks_safety.py::test_too_many_readings_is_st_parse_002` is rewritten to a stricter assertion: its old input
 (`sin(30)`, now read in degrees only) is asserted decided with its three readings, and the bound of four readings is
 exercised with an argument read both ways (`sin(0.5)`).
+
+## 35. Integration gate 1: the STEM findings before arena round 8
+
+The independent lenses of integration gate 1 (soundness, precision, parser safety, correctness) found readings that passed
+wrong working, failed correct working or named nothing. Each is fixed where the reading went wrong, and
+`tests/stem/test_integration_gate1_stem.py` pins every one with clean controls (correct working that holds and wrong working
+that still fails). Performance findings that change no receipt (parser-safety-5, -10, -11: quadratic scans in
+`layout.plain_line`, `spans._verbal` and `segment.segment_statements`) are recorded with their measurements for the
+optimisation checks that run last, as the founder's order requires, and not changed here.
+
+- **The band of a substitution** (`checks._compare`, `h_of`): the half-width of a value is scaled into each reading's units
+  with the unit of the node it belongs to. A substitution's half-width is its numeric side's (`_sub_evaluate`), which had been
+  scaled with the symbolic side's unit (none): 'A = I/M = 99 µm' with I = 12 mm, M = 400 had a band of ±0.5 m in SI, so every
+  value of that order passed (docs/ARGUMENT_DIAGNOSTICS.md section 20.10, `ho_d_ue_bio_magnification`). A value read from the
+  written substitution scales its SI interval by its unit's factor too.
+- **Two units of one dimension** (rule mixed-units, `checks._symbol_written_units`): a single stated value of a substitution
+  whose symbols are bound in units of one dimension with different factors (`I = 6.0 mm`, `A = 20 µm`, then `M = I/A = 0.3`) is
+  read in SI only, as written arithmetic is (`_as_written_consistent`), and a failure whose numbers hold as written is labelled
+  ST-UNIT-003 (stem_unit_error). A bare numeral that repeats a bare binding of a quantity the reference fixes as a pure number
+  (`M = 400`, a magnification the request names) is accounted for in the traced unit companion, so `12/400 = 0.030 µm` with
+  I = 12 mm is read with 12 in mm and fails as ST-UNIT-003.
+- **Bare substitutions against the request** (rule request-substitution, `relations._request_substitutions`): bare numerals
+  substituted for symbols the answer binds nowhere, where every symbol that is no booklet constant has a dimension (from the
+  reference, an ambiguous letter by the one dimension the request gives quantities of; a change Δx its quantity's) of which the
+  request states exactly one quantity, each a different one, are set against those quantities: a `giv` check per numeral that
+  is not the quantity as written, in SI, or (a temperature in a law of absolute temperature) in kelvin, read in the quantity's
+  unit, at warning severity. Only a numeral that is the quantity written wrongly is read: a power-of-ten shift of it, a miscopy
+  (`_miscopied`), another request value in its place (a swap) or a temperature left in °C; a value of another size is the answer's
+  own, often from subject knowledge ('340' for the speed of sound beside a train's 30 m s⁻¹, accuracy round 2), and a working
+  none of whose numerals is its symbol's quantity, nor all of them request values, substitutes no givens ('E = 3.0 × 3.6 × 10⁶'
+  carrying a result on). '2.0 × 9.8 × 50' for 5.0 m, '100' for a heating by 10 K, 'v/f = 170/340' for 340 m s⁻¹ and 170 Hz
+  and '27' for 27 °C in pV = nRT are named; a numeral repeating a booklet constant ('8.31' for R) is accounted for in SI by the
+  unit companion (`_booklet_binding`), so '0.50 × 8.31 × 300/100 = 12 m³' for 100 kPa fails as ST-UNIT-003. Counts with no
+  reference quantity (the Lincoln index) are not read.
+- **Probability notation** (`parser._probability_event`, the lexer's probability brackets, `spans.in_probability`): P( … ) whose
+  bracket holds an event (capital letters with a complement mark, joined by ∪, ∩ or |) or a random variable set against a number is
+  one symbol, as P(B) was by chance (a chemical label). So 'P(A) = 1.2' is ST-GIVEN-003 and the substitution of the request's
+  P(A), P(B), P(A ∩ B), P(B|A) into P(A ∪ B) = P(A) + P(B) − P(A ∩ B), 1 − P(A) and P(A) × P(B|A) is checked.
+- **Root sets joined by 'or'** (rule or-roots, `relations._or_disjuncts`, `checks._step`): the relations a statement joins to a
+  step's conclusion by 'or' (`x = −3 or x = 3`, `x + 2 = 3 or x + 2 = −3`, a value alone after 'or': `x = 3 or −3`) are one
+  conclusion, their disjunction, with no principal root read and no ST-ALG-001; a value alone after 'or' is a further stated root.
+  A '±' step inside a chain (`x + 2 = ±3 ⇒ x = 1 or x = −5`) is two equations, as docs/ARGUMENT_DIAGNOSTICS.md section 3.4 states.
+- **Step participles** (`_STEP_WORDS`): 'Expanding,', 'Simplifying,', 'Solving,', 'Factorising,', 'Collecting terms,',
+  'Cancelling,' open a step from the line before.
+- **Superscript letter exponents** (lexer, `_SUPERSCRIPT_LETTERS`): one superscript letter right after a base (2ˣ, eˣ, 3ⁿ) is read
+  as '^x', so the relation reaches the symbolic-power rule (ST-UNDEC-001) instead of being dropped.
+- **The year and the hectare** (`units`): `yr` (the Julian year, 31 557 600 s) and `ha` (10⁴ m²); the word 'years' stays a word
+  (rule given-kinds reads it). An unknown unit makes a failure a warning only where another reading was possible
+  (`checks._warn_unknown`: a known unit with an SI factor other than 1, or a per cent, beside it); decided as written alone, a
+  failure is the report's own.
+- **Comparisons in words** (rule value-comparison, `relations._value_prose_comparisons`): 'S is below/above/at least/at most V'
+  after a chain that computed S is a `cmp` check of the computed value against V (a negation its complement), with or without a
+  rounding before it.
+- **Angles in degrees** (rule degree-reading, `checks._eq`): an angle in degrees set against a side that writes no angle unit
+  keeps the as-written reading (the bare side in degrees; a per cent read as its fraction too) beside the radian reading; only a
+  side that writes a radian unit makes the comparison radians only (stem-soundness-8's conversions).
+- **Amounts of data** (rule data-count, `units._DATA_DECIMAL`): kB, KB, MB, GB, TB are read as decimal and as binary multiples
+  of the byte (ST-UNIT-002); a side that writes no unit beside an amount of data is admitted as written (a count in the other
+  side's unit) and, in SI, also read as a count of bytes ('64 bits = 64/8 = 8 bytes', '2 KiB = 2 × 1024 = 2048 bytes').
+- **Binary numerals** (rule binary-reading, `relations._binary_link`, `_twos_alternative`, `_prose_twos_complement`): in Computer
+  Science an unmarked numeral of binary digits set equal to a value is read in base 2 when a place-value sum of powers of two, a
+  leading zero, or the words of the statement or the request (binary, bits, two's complement) say so, and in two's complement as
+  a second reading where two's complement is named or the sum's leading power is negative; binary digits in groups of four with
+  no subscript are one numeral; 'n in two's complement is v' in prose is checked. A sum's value written as a decimal numeral of
+  binary digits ('8 + 2 + 1 = 11') keeps its decimal reading.
+- **Restatements of another quantity** (stem-precision-1 broadened, `_restates_other_quantity`, `_assigns_other_variable`): any
+  value with no unit whose clause names another quantity both before and after it ('so it wastes 13% of the energy', 'so the
+  loop runs 3 times'), a trace step giving another variable a value ('so low becomes 5'), and, after a chain whose value is no
+  whole number, a two-letter abbreviation or the words after the value ('so df is 3', '2 degrees of freedom') are no
+  restatements; 'degrees of freedom' is no angle. 'The decrease is 61%' and 'there are 4 half-lives' still are.
+- **Compound quantities in prose and part ties** (`document._compound_quantity`, `relations._unbound_symbol`): '4 minutes 30
+  seconds' in prose is one quantity, 270 s; a request value stated inside a part of the request ties a symbol only in the
+  answer's part of that label (rule unbound-substitution), while one its stem states ties it everywhere.
+- **The answer proper** (`hub_hooks.word_count_view`): a line of numerals and signs no span reads (digit groups by spaces or
+  apostrophes) and a one-line bar 'table' with no separator row ('|−3| + |2| = 5') count as one word of maths, so such an answer
+  is never INT-REQ-012.
+- **Bare re-expressions** (rule unit-system, `checks._statement_units`): a stated side that writes no unit and re-expresses a side
+  written in units is also read in the units its statement gives that dimension ('0.0250 mol / 250 cm³ = 0.0250 / 0.250' in
+  mol dm⁻³).
+- **Integer division** (`relations._as_integer_division`): '/' between written whole numbers is the integer quotient where the
+  statement says integer division (Computer Science).
+- **A rounding, then a contrast** (rule rounding-cue, `_CONTRAST_RE`): a rounding the prose states before a value no longer names
+  the value when a contrast word stands between them ('To 2 s.f. this is 80%, but the unrounded value is 79.6%'): 79.6% is not
+  read as rounded to 2 s.f. (it had been set against the rounding's place, INT-SUBJ-004 on correct working).
+
+Tests rewritten to a stricter rule or to an atom that stays unknown (none weakened, none deleted):
+`tests/stem/test_reading_extensions.py::test_a_restatement_in_an_unknown_unit_pairs_only_with_the_same_unit` (a failing
+restatement decided as written alone is now an error, INT-SUBJ-001, not a warning; the year is known and 'mth' is the unknown
+atom), and `tests/stem/test_relations.py::test_dimension_and_unit_findings`,
+`tests/stem/test_checks_no_false_errors.py::test_booklet_and_unknown_unit_readings_fail_only_as_warnings`,
+`tests/stem/test_units.py::test_unknown_atoms_are_kept_and_named`, `test_unit_dimension_helper` and
+`tests/stem/test_to_ir.py::test_an_unknown_unit_has_no_si_reading` (the unknown atom 'yr' replaced by 'mth', the same rule
+asserted, and the year asserted known).
+
+Handed to their owners (outside `stem/`): the STEM parser's claim cut without the '...' mark (OVS-FID-003 on a faithful
+transfer) and its claim ids unqualified by the agent (combinator-faults-9), both `adapters/stem_specialist/parser.py`.
+Not read in this gate: the relative formula mass of a formula (`Mr(CaCO₃) = 68.09`, no table of atomic masses), a mole ratio
+from a balanced equation, and the roles of the counts of the Lincoln index.

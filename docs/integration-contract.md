@@ -289,12 +289,16 @@ result and a `signature_key_id`. Tampering with any field makes `verify_signatur
 
 | Setting | Default and range | Notes |
 | --- | --- | --- |
-| `timeout_ms` | 2,000 ms; 1–120,000 | Applies to each solver call, so entailment may take up to twice the timeout. |
+| `timeout_ms` | 2,000 ms; 1–120,000 | Applies to each solver call. With timeout T one verify call is bounded by 2T for consistency and entailment, plus T in all for the two coverage probes run after a COUNTEREXAMPLE (one shared budget; each probe is timed as its own stage, `probe_unasserted_figure` and `probe_unencoded_reason`), plus `min(4T, 8 s)` for the argument stage, re-checked after its last run (integration gate 1). |
 | `rlimit` | none | Optional Z3 resource limit, for deterministic cut-offs. |
 | `memory_max_mb` | 512; at least 128 | Z3's memory limit is process-wide. The engine therefore scales it with the number of verifications running at once and never lowers it while any run. |
 | `random_seed` | 0 | |
 
 Each verification uses a fresh Z3 context.
+
+Model extraction is a stage of its own (`model` in `timings`) and is never run for the entailment's consistency precheck.
+Every model value is bounded at `MAX_MODEL_VALUE_DIGITS` (1,000) digits before it is converted: beyond it the answer is
+UNKNOWN (E401, reason "model value out of range"), never a stall outside the timeout (integration gate 1).
 
 ## 8. Examples, produced by running the baseline
 
@@ -380,6 +384,31 @@ Above the engine, the package turns specialist reports into IR. This translation
   by this contract version.** They are still changing in active development. An injected
   verifier that declares a `task` parameter receives the task record of the request the report
   answers (`fn(claim, report, task=...)`); a two-argument verifier is called as before.
+  - **Verifier outcomes** (integration gate 1): a verifier returns an outcome; `None` means it
+    produced none for a claim it was meant to check (a deadline or budget reached, no translation
+    served), and a material, deterministically eligible claim is then named NOT_ATTEMPTED on the
+    receipt (INT-REQ-006, warning), so a receipt is never a clean ACCEPTED on a claim no check
+    decided; `channel.bus.CLAIM_OUT_OF_SCOPE` means the claim is outside the verifier's scope
+    (nothing is named).
+  - **Refusals added in integration gate 1:** INT-REQ-002 also refuses a supplied text returned
+    with another title, author, provenance or locator scheme; INT-REQ-009 also refuses a request
+    whose request text or supplied text states a router-side check result, and a synthesis whose
+    own text (a claim's text, a dropped entry's reason, a conflict's description or basis, the
+    student-facing text) holds a control character other than a tab or a line break, a
+    bidirectional embedding, override or isolate, or no visible character, or a claim citing one
+    source claim twice (the combinator port's published text rule,
+    `integrity.contracts.SYNTHESIS_TEXT_PATTERN`); INT-REQ-014 is a failed check in the response
+    gate; INT-HANDOFF-013 also refuses a router forward that replies to another message than the
+    delivery of the report it carries.
+  - **Claim ids:** the generic parser qualifies its claim ids with the agent
+    (`g1.2@economics-specialist`); the STEM parsers do so (`s1.2@ess-specialist`) when the report's
+    ids would be ids a report of another agent already delivered on the task holds (integration gate
+    1, `channel.bus.needs_qualified_ids`), so two agents of these branches on one task never share a
+    claim id.
+- **Command line** (integration gate 1): the signing key comes from `--signing-key-file`,
+  `--signing-key-hex` or the `EPINOIC_SIGNING_KEY` environment variable (one source only) and is
+  at least 16 bytes, as the service requires; `--adapter` is checked against the closed allowlist
+  before anything is imported.
 
 ### Translation records (contract 0.2; `translate/contracts.py`, translator `0.4.0`)
 

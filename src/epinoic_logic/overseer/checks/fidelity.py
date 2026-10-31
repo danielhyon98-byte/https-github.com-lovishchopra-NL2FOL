@@ -15,7 +15,9 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   stop belongs to the quoting sentence);
 * ``contract-cut``: a claim the adapter cut at the contract limit (``MAX_CLAIM_TEXT_CHARS``, marked with ``...``) is
   compared without the mark, as a prefix of a span of the response; its figures (FID-003) and quotations (FID-002,
-  FID-004) are read without the mark and without the partial token left at the cut;
+  FID-004) are read without the mark and without the partial token left at the cut. Unmarked (integration gate round 1,
+  :func:`unmarked_cut_text`): a claim of exactly the limit's length that occurs in the raw response and stops inside a
+  token the response goes on with (the STEM parser's cut) has its figures read without that partial token;
 * ``joined-list-markers`` (in the normalisation): list markers an adapter's line join left inside a claim are removed
   on both sides alike, and list numbering is never read as a stated figure (FID-003);
 * ``context-free`` (review round 2): FID-001 first compares the claim and the response in the plain form (invisible
@@ -45,9 +47,20 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   a word the sentence says the text lacks ('has no "like" or "as"', 'never says "ayudar"': a mention, read by the pack's
   ``_absent_mentions``).
 
+Linear readers (integration gate round 1): the response is read once by readers whose running time is linear in its
+length, whatever whitespace it holds (``strip_mark_annotations`` reads each run of mark annotations once; ``figure_text``
+bounds the line starts the figure reader rescans in a run of blank lines); each gives exactly the text or the figures of the
+reading it replaces, so no finding changes.
+
 * FID-001: a delivered ``claim_text`` does not occur in the normalised response (rule ``raw-occurrence``: a claim that
   occurs in the raw response as written, or whose comparison forms are all empty, always occurs).
-* FID-002: a quotation span inside a claim, or a ``source_refs[].excerpt``, does not occur in the response.
+* FID-002: a quotation span inside a claim, or a ``source_refs[].excerpt``, does not occur in the response. Rule
+  ``located-citation`` (integration gate round 1, one rule with the channel, which accepts such a report with no finding):
+  on a report the specialist structured itself (``response``, ``relay_report``), a ``source_refs`` excerpt of a claim that
+  occurs in the response, located by the channel's locator in the supplied text the reference names, is the specialist's
+  citation of a text it was given and not content the response lacks, so it is no FID-002 (the pack's ``quotation_absent``
+  is an excerpt found neither in the response nor in the cited document); a quotation span written in the claim's own text,
+  an excerpt located only in another text, and every excerpt of a parsed raw-text report keep the rule.
 * FID-003: a figure or date of a claim (``ledger.figure_spellings``) occurs in the response under no spelling.
 * FID-004: a quotation that occurs in no supplied text has no receipt finding naming that claim (INT-REQ-003,
   INT-REQ-010, INT-REQ-013, INT-SUBJ-003 for a source rule, or a branch ``-SRC-`` rule), nor any other claim of the
@@ -85,7 +98,7 @@ from ...adapters.markdown import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_
 from ...adapters.sources import check_excerpt
 from ...branches.generic_parser import _MARK_ALLOC, _MARK_CODE
 from ...branches.packs import _absent_mentions, _quote_key
-from ...channel.bus import _CHECK_OUTCOME_RE, _CHECK_SUBJECT_RE, _FOLDED_TAIL_RE, _located
+from ...channel.bus import _FOLDED_TAIL_RE, _located, check_result_statement, ids_held_by_other_agents, needs_qualified_ids
 from ...integrity.ledger import figure_spellings
 from ...stem.layout import annotation_ranges
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText
@@ -94,7 +107,7 @@ from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
-           "uncut_text", "response_list_numbers", "strip_mark_annotations", "no_quotation_to_verify"]
+           "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
                   "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify")
@@ -154,8 +167,20 @@ def response_list_numbers(response: str) -> set[str]:
 
 
 #: Rule ``mark-annotation``: a run of mark annotations (the generic and STEM parsers' own patterns: a mark allocation, a
-#: mark code in brackets or after two spaces) that ends a sentence or a line.
+#: mark code in brackets or after two spaces) that ends a sentence or a line. The reference statement of the rule; it is
+#: applied in linear time by :data:`_MARK_RUN_RE` and :data:`_MARK_END_RE` (rule ``linear-readers``), which give the same
+#: text (a test holds them equal on hostile and random inputs): searched as written, its leading ``[ \t]*`` restarts at every
+#: space or tab of a run, so a run of n spaces costs n² steps (integration gate round 1).
 _MARK_ANNOTATION_RE = re.compile(rf"(?:[ \t]*{_MARK_ALLOC}|(?:[ \t]{{2,}}|\t)\(?{_MARK_CODE}\)?|[ \t]*\({_MARK_CODE}\))+(?=[.;,]?[ \t]*$|\.[ \t])", re.MULTILINE)
+#: Rule ``linear-readers``: a maximal run of mark annotations, found once. It starts only where no space or tab precedes it
+#: (a run that can start inside a whitespace run can start at its first character, which the search reaches first), its
+#: whitespace is taken possessively and the run atomically: each annotation's end is fixed by its own characters, so the
+#: run :data:`_MARK_ANNOTATION_RE` can end on is the maximal one, and the search resumes after it instead of inside it.
+_MARK_RUN_RE = re.compile(rf"(?<![ \t])(?>(?:[ \t]*+{_MARK_ALLOC}|(?:[ \t]{{2,}}+|\t)\(?{_MARK_CODE}\)?|[ \t]*+\({_MARK_CODE}\))+)")
+#: What must follow a run for it to be removed: the end of a sentence or of a line (the lookahead of the rule).
+_MARK_END_RE = re.compile(r"[.;,]?[ \t]*$|\.[ \t]", re.MULTILINE)
+#: Rule ``linear-readers``: a whitespace run holding two or more line breaks, from its first line break to its last.
+_BLANK_LINES_RE = re.compile(r"\n\s*\n")
 
 
 def _parser_unmarked(text: str) -> str:
@@ -179,8 +204,29 @@ def _parser_unmarked(text: str) -> str:
 def strip_mark_annotations(text: str) -> str:
     """``text`` without the mark annotations that end a sentence or a line (rule ``mark-annotation``): what the generic and
     STEM parsers leave out of a claim ("only 9 [1]." is delivered as "only 9."; "100% [1] Mean uptake = ..." as "100% Mean
-    uptake = ..."), read with the parsers' line rule and then with this module's pattern."""
-    return _MARK_ANNOTATION_RE.sub("", _parser_unmarked(text or ""))
+    uptake = ..."), read with the parsers' line rule and then with this module's pattern. Linear in the text (rule
+    ``linear-readers``): the same text as ``_MARK_ANNOTATION_RE.sub("", ...)``, each run of annotations read once."""
+    t = _parser_unmarked(text or "")
+    pieces: list[str] = []
+    pos = 0
+    for m in _MARK_RUN_RE.finditer(t):
+        if _MARK_END_RE.match(t, m.end()):
+            pieces.append(t[pos:m.start()])
+            pos = m.end()
+    if not pieces:
+        return t
+    pieces.append(t[pos:])
+    return "".join(pieces)
+
+
+def figure_text(text: str) -> str:
+    """Rule ``linear-readers``: ``text`` as the figure reader (``ledger.figure_spellings``) takes a whole response: every
+    whitespace run holding two or more line breaks keeps what stands before its first line break and after its last, with
+    two line breaks between. The figures read are those of ``text`` (a list marker after the run is still removed with the
+    run before it, and every other figure pattern sees a run of the same first and last character and of length two or more),
+    while the reader's list-marker pattern, which rescans a whitespace run from each line start inside it, now meets at most
+    two line starts per run instead of one per blank line (a run of n blank lines cost n² steps: integration gate round 1)."""
+    return _BLANK_LINES_RE.sub("\n\n", text or "")
 
 
 def no_quotation_to_verify(quotations: list[str], request_text: Optional[str], mention_keys: set[str]) -> list[str]:
@@ -214,6 +260,21 @@ def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
 
 def _claim_figures(text: str, list_numbers: set[str] = frozenset()):
     return figure_spellings(strip_list_markers(_strip_carried_numbers(uncut_text(text), set(list_numbers))))
+
+
+def unmarked_cut_text(text: str, raw_response: Optional[str]) -> str:
+    """Rule ``contract-cut``, unmarked (integration gate round 1): a claim an adapter cut at the contract limit WITHOUT the
+    ``...`` mark (the STEM parser keeps the first ``MAX_CLAIM_TEXT_CHARS`` characters of an over-long statement) ends in the
+    middle of a token of its response ("... after 19" from "... after 1990 ..."). When the claim is exactly that long, occurs
+    in the raw response as written, and the response goes on with a character of the same token, its figures are read
+    without that partial token, as a marked cut's are; anything else is read as it stands."""
+    t = text or ""
+    if len(t) != MAX_CLAIM_TEXT_CHARS or t.rstrip().endswith(_TRUNC_MARKS) or not raw_response:
+        return t
+    i = raw_response.find(t)
+    if i < 0 or i + len(t) >= len(raw_response) or raw_response[i + len(t)].isspace() or t[-1:].isspace():
+        return t
+    return t.rsplit(None, 1)[0] if len(t.split()) > 1 else ""
 
 
 def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False, plain_response: Optional[str] = None,
@@ -257,6 +318,19 @@ def claim_occurs(claim_text: str, norm_response: str, *, tail: bool = False, pla
         if t and t in norm_response:
             return True
         parts = [p.strip() for p in _SENT_SPLIT.split(t) if p.strip()]
+        if bool(parts) and all(p in norm_response for p in parts):
+            return True
+        # rule folded-tail, line by line (integration gate round 1): the STEM parser folds the statements beyond its claim
+        # limit into the tail joined by line breaks, each statement without the part or list label its line opens with
+        # ("(iii) x = 2" is delivered as "x = 2"), so the tail is read as its lines' sentences, each of which must occur
+        lines = [x for x in (claim_text or "").split("\n") if x.strip()]
+        if len(lines) < 2:
+            return False
+        last = lines[-1].rstrip()
+        for mark in _TRUNC_MARKS:
+            if last.endswith(mark):
+                lines[-1] = last[: -len(mark)].rstrip()
+        parts = [p.strip() for line in lines for p in _SENT_SPLIT.split(normalise(line)) if p.strip()]
         return bool(parts) and all(p in norm_response for p in parts)
     return False
 
@@ -327,6 +401,30 @@ def located_anywhere(q: str, supplied: list[SuppliedText]) -> bool:
     return any(_located(x, s.text, s.document_id) for x in cands for s in supplied)
 
 
+#: The transfers that deliver a report the specialist structured itself (its claims and their ``source_refs`` are the
+#: specialist's own fields), as opposed to a report an adapter parsed from raw text.
+STRUCTURED_KINDS = ("response", "relay_report")
+
+
+def _located_citation(c: ClaimRecord, quote: str, supplied: list[SuppliedText]) -> bool:
+    """Rule ``located-citation`` (integration gate round 1): ``quote`` is a ``source_refs`` excerpt of the claim (never a
+    quotation span written in the claim's own text) that the channel's locator finds in the supplied text its reference
+    names, among the texts the channel checked quotations against. Such an excerpt is the specialist's citation of a text
+    it was given, which its prose may paraphrase; it is no content the response lacks (the pack's ``quotation_absent``: an
+    excerpt that occurs neither in the response nor in the cited document). An excerpt located in no text, or only in
+    another text than the one it names, stays FID-002 (and FID-004 names a quotation located in no supplied text)."""
+    q = (quote or "").strip()
+    if not q or any(q == inner.strip() for _s, _e, inner in find_quotation_spans(uncut_text(c.claim_text))):
+        return False
+    for r in c.source_refs:
+        if (r.excerpt or "").strip() != q:
+            continue
+        named = [s for s in supplied if s.document_id == r.document_id]
+        if named and located_anywhere(q, named):
+            return True
+    return False
+
+
 def _quotations(c: ClaimRecord) -> list[str]:
     out = [inner.strip() for _s, _e, inner in find_quotation_spans(uncut_text(c.claim_text)) if inner.strip()]
     out += [(r.excerpt or "").strip() for r in c.source_refs if (r.excerpt or "").strip()]
@@ -347,10 +445,10 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     unmarked_forms = (normalise(unmarked), plain_form(unmarked)) if unmarked != rep.original_response else None
     tails = _folded_tail_ids(rep)
     known_figs: set[str] = set()
-    for _label, keys in figure_spellings(rep.original_response):
+    for _label, keys in figure_spellings(figure_text(rep.original_response)):  # rule linear-readers: the same figures
         known_figs |= keys
     list_numbers = response_list_numbers(rep.original_response)
-    claim_figures = {c.claim_id: _claim_figures(c.claim_text, list_numbers) for c in rep.claims}
+    claim_figures = {c.claim_id: _claim_figures(unmarked_cut_text(c.claim_text, rep.original_response), list_numbers) for c in rep.claims}
     covering = {cid for cov in (t.receipt.coverage if t.receipt else []) for cid in cov.addressed_by_claim_ids}
     supplied, req_had_texts, self_supplied = _supplied_for(ctx, t, rep)
     named = _named_claims(t)
@@ -362,13 +460,16 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
         cid = [c.claim_id]
         claim_texts_norm.append(normalise(c.claim_text))
         # FID-001
-        if not claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp, raw_response=rep.original_response) and not (
+        occurs = claim_occurs(c.claim_text, norm_resp, tail=c.claim_id in tails, plain_response=plain_resp, raw_response=rep.original_response) or (
                 unmarked_forms is not None and claim_occurs(strip_mark_annotations(c.claim_text), unmarked_forms[0], tail=c.claim_id in tails,
-                                                            plain_response=unmarked_forms[1], raw_response=unmarked)):
+                                                            plain_response=unmarked_forms[1], raw_response=unmarked))
+        if not occurs:
             ctx.ovs(t.seq, "OVS-FID-001", f"claim {c.claim_id} of report {rep.report_id} does not occur in the specialist's original_response: {c.claim_text[:160]!r}",
                     claim_ids=cid, **ids)
         # FID-002
         absent = [q for q in _quotations(c) if normalise(q) not in norm_resp and normalise(strip_enclosing_quotes(q)) not in norm_resp]
+        if absent and t.kind in STRUCTURED_KINDS and occurs:  # rule located-citation (integration gate round 1)
+            absent = [q for q in absent if not _located_citation(c, q, supplied)]
         if absent and c.claim_id not in tails:
             ctx.ovs(t.seq, "OVS-FID-002", f"claim {c.claim_id} carries quotations or excerpts the original_response does not contain: {[q[:80] for q in absent[:4]]}",
                     claim_ids=cid, document_ids=[r.document_id for r in c.source_refs], **ids)
@@ -447,20 +548,34 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
                     document_ids=changed, **ids)
 
 
-def _dependent_texts(supplied: list[SuppliedText]) -> bool:
-    """Whether the texts the channel checked against hold a relayed peer report (``peer:<task>``) or a text a specialist
-    wrote (its author ends in "-specialist" or " specialist"): the channel's condition for reading relayed check results."""
-    return any(s.document_id.startswith("peer:") or (s.author or "").strip().lower().endswith(("-specialist", " specialist")) for s in supplied)
+#: Words of a peer document's title and author that name no report of the exchange (the channel's own list).
+_PEER_TITLE_STOP = ("the", "report", "relayed", "through", "hub", "specialist", "answer")
+
+
+def _peer_texts(ctx: CheckContext, t: Transfer, supplied: list[SuppliedText]) -> list[SuppliedText]:
+    """The supplied texts that hold a peer specialist's report, read as the channel reads them (``bus._peer_documents``):
+    a 'peer:<task>' document, a text a specialist wrote (its author ends in '-specialist' or ' specialist'), or a text
+    byte-identical to a report delivered on the task before this transfer (the journal's), whatever the router named it."""
+    delivered = {x.report.original_response for x in ctx.view.transfers if x.seq < t.seq and x.kind in RESPONSE_KINDS and x.delivered and x.report is not None}
+    return [s for s in supplied if s.document_id.startswith("peer:") or (s.author or "").strip().lower().endswith(("-specialist", " specialist"))
+            or s.text in delivered]
 
 
 def _relayed_check_results(ctx: CheckContext, t: Transfer, rep: SpecialistReport, supplied: list[SuppliedText], ids: dict) -> None:
-    """OVS-FID-009 for a delivered claim of a dependent agent that states a check result credited to the system or to a
-    report (the channel's ``_CHECK_SUBJECT_RE`` and ``_CHECK_OUTCOME_RE``, quotations masked) while the receipt carries
-    no INT-REQ-014 naming the claim: the Overseer's own reading of the channel's rule, so a channel that fails to name
-    the self-report is caught. Advisory: a relayed check result is a self-report, never evidence. Read on the response
-    paths only, where the channel runs the rule (a relay hands on a report already delivered and named)."""
-    if t.kind not in RESPONSE_KINDS or not _dependent_texts(supplied):
+    """OVS-FID-009 for a delivered claim of a dependent agent that states a check result of the exchange while the receipt
+    carries no INT-REQ-014 naming the claim: the Overseer's own reading of the channel's rule (``bus.check_result_statement``,
+    called, not copied, with the object words the channel derives from the peer documents; quotations masked), so a channel
+    that fails to name the self-report is caught, and ordinary content about checks ("Automated checks fail when the sensor
+    data are missing") is not accused where the channel reads it as content (integration gate 1, core handoff 2c). Advisory:
+    a relayed check result is a self-report, never evidence. Read on the response paths only, where the channel runs the rule
+    (a relay hands on a report already delivered and named)."""
+    if t.kind not in RESPONSE_KINDS:
         return
+    peers = _peer_texts(ctx, t, supplied)
+    if not peers:
+        return
+    object_words = [w for p in peers for w in re.findall(r"[^\W\d_][\w'’-]*", f"{p.title or ''} {(p.author or '').replace('-', ' ')}")
+                    if w.casefold() not in _PEER_TITLE_STOP]
     named = {cid for f in (t.receipt.findings if t.receipt else []) if f.code == "INT-REQ-014" for cid in f.claim_ids}
     for c in rep.claims:
         if c.claim_id in named:
@@ -468,10 +583,10 @@ def _relayed_check_results(ctx: CheckContext, t: Transfer, rep: SpecialistReport
         text = c.claim_text
         for start, end, _inner in reversed(find_quotation_spans(text)):  # masked as the channel masks them (spaces)
             text = text[:start] + " " * (end - start) + text[end:]
-        noun = _CHECK_SUBJECT_RE.search(text)
-        if noun is None or _CHECK_OUTCOME_RE.search(text) is None:
+        noun = check_result_statement(text, object_words=object_words)
+        if noun is None:
             continue
-        ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} (role {c.claim_role}) states a check result credited to the system or to a report ({noun.group(0)!r}) "
+        ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} (role {c.claim_role}) states a check result credited to the system or to a report ({noun!r}) "
                 "and no INT-REQ-014 on the receipt names it: a relayed check result is a self-report (advisory), never evidence",
                 claim_ids=[c.claim_id], **ids)
 
@@ -546,6 +661,12 @@ def check_reparse(ctx: CheckContext, t: Transfer) -> None:
         req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
         extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
         again = parser.parse_response(t.raw_text, **args, **extra)
+        # the channel's own rule (``bus.needs_qualified_ids``): ids another agent's earlier delivery holds are qualified by
+        # the agent (integration gate 1, combinator-faults-9); the reports delivered before this transfer are the journal's
+        held = ids_held_by_other_agents([x.report for x in ctx.view.transfers if x.seq < t.seq and x.kind in RESPONSE_KINDS and x.delivered
+                                         and x.report is not None], rep.agent_id)
+        if needs_qualified_ids(parser, again, held):
+            again = parser.parse_response(t.raw_text, **args, **extra, qualify_ids=True)
     except Exception as exc:
         ctx.ovs(t.seq, "OVS-CUST-006", f"the raw text of {t.kind} {t.message_id} does not parse with branch {branch.key} when the auditor re-parses it "
                 f"({type(exc).__name__}), yet a parsed report was delivered", **t.ids())

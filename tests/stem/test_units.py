@@ -106,10 +106,12 @@ def test_affine_temperatures():
 
 
 def test_unknown_atoms_are_kept_and_named():
-    u = parse_unit("kJ m⁻² yr⁻¹")
-    assert u is not None and u.unknown == ("yr",)
+    # integration gate 1: the year is a known unit now ('yr' had been this test's unknown atom); 'mth' stays unknown
+    u = parse_unit("kJ m⁻² mth⁻¹")
+    assert u is not None and u.unknown == ("mth",)
     assert u.readings[0].dim is None and u.readings[0].factor is None
     assert u.dim is None and not u.known
+    assert not parse_unit("kJ m⁻² yr⁻¹").unknown
 
 
 @pytest.mark.parametrize("text", ["", "abc", "5 m", "has", "m//s", "m^", "(m s", "m s)", "per", "x" * 200, "m 2", "squared"])
@@ -130,4 +132,5 @@ def test_atoms():
 def test_unit_dimension_helper():
     assert unit_dimension("N") == FORCE
     assert unit_dimension("ms⁻¹") is None
-    assert unit_dimension("yr") is None
+    assert unit_dimension("mth") is None  # integration gate 1: 'yr' is the year now, a time; 'mth' stays unknown
+    assert unit_dimension("yr") == unit_dimension("s")

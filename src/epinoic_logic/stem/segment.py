@@ -197,6 +197,13 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
     part_at = {p.start: p for p in spans.part_labels}
     part_by_line = {p.line: p for p in spans.part_labels}
     list_lines = {_line_of(lines, a) for a, _b in spans.list_markers}
+    # the content start each list line's markers give (the end of the last marker on the line), indexed once: looking every
+    # marker up for every list line was O(lines x markers) (integration gate 1, parser-safety-11)
+    list_content: dict[int, int] = {}
+    for a0, b0 in spans.list_markers:
+        at = _line_of(lines, a0)
+        if lines and lines[at].start <= a0 < lines[at].end:
+            list_content[at] = max(list_content.get(at, b0), b0)
     heading_lines = set(spans.heading_lines)
     line_spans = _line_math_spans(spans)
     math_ends = frozenset(sp.end for sp in spans.spans if sp.is_math)
@@ -320,9 +327,8 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
         is_list = ln.index in list_lines and seg_start == ln.start
         if is_list:
             flush()
-            for a0, b0 in spans.list_markers:
-                if ln.start <= a0 < ln.end:
-                    content_start = max(content_start, b0)
+            if li in list_content:
+                content_start = max(content_start, list_content[li])
             p2 = part_at.get(_first_nonspace(rview, content_start, ln.end))
             if p2 is not None and p2.line == ln.index:
                 b.part = p2.text

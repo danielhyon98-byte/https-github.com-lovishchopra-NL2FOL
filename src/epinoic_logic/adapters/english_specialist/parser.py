@@ -133,7 +133,13 @@ Role rules (body paragraphs)
   assumption ``quotation with no supplied text to check it against: "..."``, which the core
   pack reports as unverifiable (``CORE-SRC-003``). A text is never cited for being supplied
   first. A quotation located only in a text other than the one the sentence names keeps the
-  located reference and records the discrepancy (``ES-SRC-008`` names it).
+  located reference and records the discrepancy (``ES-SRC-008`` names it). A quoted word the
+  sentence says the text lacks ('without "like" or "as"', 'has no "like"') that no supplied
+  text holds is credited to no text by the same shared rule
+  (:func:`~epinoic_logic.adapters.sources.says_text_lacks`): crediting it to the text under
+  analysis would refute the writer for the very absence the sentence states (end-to-end B6).
+  It stays an ``evidence`` claim, which the core pack, the channel and the Overseer read as a
+  mention and verify nothing of.
 
 Thesis sentences get role ``thesis`` and are supported by the body points;
 conclusion sentences get role ``link`` and are likewise supported by the points.
@@ -163,8 +169,8 @@ from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, Sup
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_json_spans, find_quotation_spans, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
-    is_self_certification, mask_json_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
+    find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
+    is_self_certification, mask_json_spans, parser_quotation_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
 from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
@@ -311,8 +317,9 @@ class Paragraph:
 
 
 def _iter_quotes(text: str) -> Iterator[tuple[int, int, str]]:
-    """Yield ``(start, end, inner)`` for every delimited quotation span of ``text`` in order."""
-    yield from find_quotation_spans(text)
+    """Yield ``(start, end, inner)`` for every delimited quotation span of ``text`` in order, the writer's own corrections and
+    suggestions in a feedback task left out (``markdown.parser_quotation_spans``; every span in any other task)."""
+    yield from parser_quotation_spans(text)
 
 
 def find_quotations(sentence: str) -> tuple[Quotation, ...]:
@@ -864,7 +871,9 @@ def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText], se
     also names the poet is still refuted by the hub; when the sentence names none, to the one
     literary text under analysis (so an altered quotation of the poem is still refuted by the
     hub); otherwise to no text, with the assumption that the core pack reports as unverifiable
-    (``CORE-SRC-003``). Never to a text for being supplied first."""
+    (``CORE-SRC-003``). Never to a text for being supplied first. A quoted word the sentence says
+    the text lacks ('without "like" or "as"') that no text holds is credited to no text, never to the
+    text under analysis (the shared rule, ``sources.says_text_lacks``; end-to-end B6)."""
     return attribute_excerpt(excerpt, named, docs, text_under_analysis=text_under_analysis(docs), sentence=sentence)
 
 
@@ -946,6 +955,7 @@ def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[
     return pruned, [issue]
 
 
+@in_quotation_task
 def parse_response(
     text: str,
     *,

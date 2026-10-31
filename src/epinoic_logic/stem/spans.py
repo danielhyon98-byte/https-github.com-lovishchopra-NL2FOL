@@ -627,6 +627,24 @@ class _RunFinder:
             return True  # a word symbol closing a bracketed word formula: '(final − initial) ÷ initial × 100'
         return False
 
+    def in_probability(self, k: int) -> bool:
+        """Integration gate 1: token ``k`` stands inside probability brackets 'P( … )' (an open 'P(' at most six tokens back, its
+        bracket not closed before ``k``), outside Computer Science."""
+        if self.profile.computer_science:
+            return False
+        for j in range(k - 1, max(-1, k - 7), -1):
+            tj = self.t[j]
+            if tj.kind == "RPAR":
+                return False
+            if tj.kind == "LPAR":
+                return tj.text == "(" and j > 0 and self.t[j - 1].kind == "IDENT" and self.t[j - 1].text == "P" and self.t[j - 1].end == tj.start
+        return False
+
+    def event_letter(self, k: int) -> bool:
+        """Integration gate 1: token ``k`` is a capital letter naming an event inside probability brackets ('P(A ∩ B)', 'P(B | A)')."""
+        t = self.t[k]
+        return len(t.text) == 1 and "A" <= t.text <= "Z" and self.in_probability(k)
+
     def unit_here(self, k: int) -> bool:
         t = self.t[k]
         if t.kind == "DEGREE" and t.text in ("°C", "°F"):
@@ -639,6 +657,9 @@ class _RunFinder:
             return False  # an abbreviation such as 's.f.'
         if t.space and english_word_atom(t.text):
             return False  # '5 at D', 'x = 5 as before': an English word, never an atto-prefixed unit
+        if t.text.lower() in ("degree", "degrees") and nxt is not None and nxt.kind == "IDENT" and nxt.text.lower() == "of" \
+                and after is not None and after.kind == "IDENT" and after.text.lower() == "freedom":
+            return False  # integration gate 1: '2 degrees of freedom' counts something; it is no angle
         if is_unit_atom(t.text, bare_m=self.profile.bare_m, tonne=self.profile.tonne):
             return True
         if t.text in ("μ", "µ") and k + 1 < len(self.t) and self.t[k + 1].kind == "IDENT" and not self.t[k + 1].space:
@@ -761,7 +782,7 @@ class _RunFinder:
                         continue
                 if kind == "IDENT":
                     if not self.mathy_operand(k) and not (k > i and toks[k - 1].kind == "LPAR" and not toks[k - 1].space and k + 1 < n
-                                                        and toks[k + 1].kind == "RPAR" and t.text.isalpha()):
+                                                        and toks[k + 1].kind == "RPAR" and t.text.isalpha()) and not self.event_letter(k):
                         break
                     operand, prev_value, in_unit = False, False, False
                 elif kind in ("NUM", "NUMERR"):
@@ -832,6 +853,8 @@ class _RunFinder:
                 elif kind == "BAR":
                     if stack and stack[-1] == "|":
                         stack.pop()
+                    elif self.in_probability(k):
+                        operand = True  # integration gate 1: the conditional bar of 'P(B | A)'
                     else:
                         break
                 elif kind == "IDENT":
@@ -1022,7 +1045,12 @@ def _verbal(toks: tuple[Token, ...]) -> list[tuple[int, int, tuple[Token, ...]]]
                 done = True
             break
         if not done:
-            i += 1
+            # The chain from i stopped at k without a stated result. Every number inside it (each number between i and k is
+            # one of its operands) starts the same chain's suffix, which stops at the same k for the same reason (with no
+            # operator left before k when it starts at the last operand), so none of them can start a match: resume at k.
+            # Restarting at i + 1 re-read the chain from every operand, quadratic in its length (integration gate 1,
+            # parser-safety-10); the matches are the same.
+            i = max(k, i + 1)
     return out
 
 

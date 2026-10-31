@@ -620,6 +620,16 @@ def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ct
                 return (f"the {', '.join(missing)} check(s) did not run on the translation of claim {c} (recorded under another policy version, "
                         "no problem, or its result not retained), so the translation checks could not decide")
     if kind == "translation_circular":
+        # rule task-equation (integration gate round 1, design decision 85): the circular check reads a task_setting premise
+        # that is the task's own stated equation, solved by the conclusion, as the task's data; pack 1.4 does not teach that
+        # reading yet (its Inspection I77 names such a premise shown not to be data), so an agent that follows the pack is
+        # neither confirmed nor refuted there: the accusation goes to human review
+        for c in claims:
+            for r in base.translations:
+                if r.claim_id == c and (not reports or r.report_id in reports) and (not msgs or r.message_id in msgs) and _task_equation_premises(r, ctx):
+                    return (f"the circular check read premise(s) {', '.join(_task_equation_premises(r, ctx)[:4])} of the translation of claim {c} as the "
+                            "task's own stated equation, which the conclusion solves (rule task-equation), a reading the knowledge pack in use does not "
+                            "teach; whether the encoding assumes the claim is left to human review")
         # rule engine-shown (decision 55): the circular check that ran left the restatement UNDECIDED (OVS-TRN-011: premises
         # whose whole content rule same-quantity reads as their source's data, which no deterministic check verifies or
         # refutes, carry the result; decision 56: never a premise a label alone presents as data), so it neither confirms
@@ -631,6 +641,29 @@ def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ct
                         "whose figures rule same-quantity reads as their source's data, which no deterministic check verifies or refutes), so whether it "
                         "assumes the claim is a meaning question the checks do not decide")
     return None
+
+
+def _task_equation_premises(record: Any, ctx: _Ctx) -> list[str]:
+    """The premises of a checked translation that rule ``task-equation`` reads as the task's own stated equation
+    (``checks.translation.task_equation``, against the journaled request the translation's transfer answers). Never raises:
+    a translation it cannot read has none."""
+    try:
+        from .checks.translation import task_equation
+        from ..ir.schema import Problem
+        if not record.problem_json:
+            return []
+        problem = Problem.model_validate_json(record.problem_json)
+        t = ctx.view.by_seq.get(record.seq)
+        rt = ctx.view.by_seq.get(t.request_seq) if t is not None and t.request_seq is not None else None
+        req = rt.request if rt is not None else None
+        if req is None or not req.user_input:
+            return []
+        texts = [req.user_input] + [c.text for c in req.constraints if getattr(c, "text", None)]
+        sorts = {s.name: s.sort for s in problem.symbols}
+        return [p.id for p in problem.premises if p.grounding is not None and p.grounding.kind == "task_setting"
+                and task_equation(p, problem, texts, sorts) is not None]
+    except Exception:
+        return []
 
 
 def _refuted_by(kind: str, ids: dict[str, list[str]], ctx: _Ctx) -> RefutedBy:

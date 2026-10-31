@@ -283,17 +283,39 @@ def seal_plan(plan: WorkPlan) -> WorkPlan:
 # Combinator output
 # --------------------------------------------------------------------------- #
 
+#: What a combinator's own text may hold (a synthesized claim's text, a dropped entry's reason, a conflict's description and
+#: basis, the student-facing text): at least one visible character, and no control character other than a tab or a line break
+#: and no bidirectional embedding, override or isolate, which would let the text a reader sees differ from the text the hub
+#: checked. This is the combinator port's published output rule (``integration.combinator_port.TEXT_PATTERN``, a copy the
+#: integrity layer does not import, held equal by tests/channel/test_integration_gate1_synthesis_text.py), held by the hub on
+#: every path, a synthesis relayed as JSON or built around validation included (integration gate 1, harness handoff 1). The
+#: classes are written out, never ``\s``, so pydantic-core's regular expressions and Python read the pattern alike.
+SYNTHESIS_SPACE_CLASS = r"\t\n\r \u00a0\u1680\u2000-\u200d\u2028\u2029\u202f\u205f\u2060\u3000\ufeff"
+SYNTHESIS_FORBIDDEN_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069"
+SYNTHESIS_TEXT_PATTERN = rf"^[{SYNTHESIS_SPACE_CLASS}]*[^{SYNTHESIS_FORBIDDEN_CLASS}{SYNTHESIS_SPACE_CLASS}][^{SYNTHESIS_FORBIDDEN_CLASS}]*$"
+#: The fixed sentence a synthesized claim that cites one source claim twice is refused with (the port's own rule).
+SYNTHESIS_CITATION_RULE = "a synthesized claim cites each source claim once"
+
+
 class SynthesizedClaim(BaseModel):
-    """A claim in the combinator's synthesis, with its provenance to source claims."""
+    """A claim in the combinator's synthesis, with its provenance to source claims. Its text is held to
+    :data:`SYNTHESIS_TEXT_PATTERN`, and it cites each source claim once (:data:`SYNTHESIS_CITATION_RULE`): a claim citing one
+    source twice would count that source twice in every ledger rule that weighs its sources."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     claim_id: str = Field(min_length=1, max_length=128)
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1, max_length=4000, pattern=SYNTHESIS_TEXT_PATTERN)
     certainty: Certainty = "established"
     materiality: Literal["material", "supporting"] = "material"
     source_claim_ids: list[str] = Field(default_factory=list, max_length=64)
     transformation: Transformation = "carried"
     evidence_refs: list[SourceRef] = Field(default_factory=list, max_length=64)
     formal_conclusion: Optional[Assertion] = Field(default=None, description="the combinator's formal statement of this claim over the cited sources' shared glossary; when present the channel checks that the cited formalized sources entail it")
+
+    @model_validator(mode="after")
+    def _cites_each_once(self) -> "SynthesizedClaim":
+        if len(set(self.source_claim_ids)) != len(self.source_claim_ids):
+            raise ValueError(SYNTHESIS_CITATION_RULE)
+        return self
 
 
 class LedgerEntry(BaseModel):
@@ -306,16 +328,16 @@ class LedgerEntry(BaseModel):
     source_claim_ids: list[str] = Field(min_length=1, max_length=64)
     transformation: Transformation
     synthesized_claim_id: Optional[str] = None
-    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=1000, pattern=SYNTHESIS_TEXT_PATTERN)  # None stays INT-LEDGER-006's
 
 
 class ConflictRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     conflict_id: str = Field(min_length=1, max_length=128)
     claim_ids: list[str] = Field(min_length=2, max_length=64)
-    description: str = Field(max_length=2000)
+    description: str = Field(min_length=1, max_length=2000, pattern=SYNTHESIS_TEXT_PATTERN)
     status: Literal["unresolved", "resolved_with_basis"] = "unresolved"
-    basis: Optional[str] = Field(default=None, max_length=2000)
+    basis: Optional[str] = Field(default=None, max_length=2000, pattern=SYNTHESIS_TEXT_PATTERN)
 
     @model_validator(mode="after")
     def _distinct(self) -> "ConflictRecord":
@@ -335,7 +357,7 @@ class Synthesis(BaseModel):
     claims: list[SynthesizedClaim] = Field(default_factory=list, max_length=512)
     ledger: list[LedgerEntry] = Field(default_factory=list, max_length=512)
     conflicts: list[ConflictRecord] = Field(default_factory=list, max_length=64)
-    text: str = Field(min_length=1, max_length=400_000)
+    text: str = Field(min_length=1, max_length=400_000, pattern=SYNTHESIS_TEXT_PATTERN)
     text_sha256: str = Field(min_length=64, max_length=64)
     created_at: str = Field(description="RFC 3339 timestamp with explicit offset or Z")
 

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from epinoic_logic.branches import RouterHub
+from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.translate.contracts import ClaimRecord, ProviderInfo, SpecialistReport, sha256_text
@@ -123,7 +124,9 @@ class Verifier:
         if claim.claim_id in self.outcomes:
             return self.outcomes[claim.claim_id](claim, report)
         if claim.claim_role != "quantitative":
-            return None
+            # the Physics fixture translates quantitative claims only: any other claim is outside this verifier's scope
+            # (the ``none=[...]`` claims above are the ones it fails to reach, read NOT_ATTEMPTED)
+            return CLAIM_OUT_OF_SCOPE
         translation = self.translations.get(claim.claim_id) or speed_translation(claim.claim_id, request_id=claim.request_id)
         translator = Translator(FixtureTranslationProvider({claim.claim_id: translation}), config=self.config)
         reviewer = None

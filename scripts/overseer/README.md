@@ -48,7 +48,11 @@ python scripts/overseer/mutate_auditor.py --out OUT/mutation
 PYTHONPATH=src:scripts/overseer python -m pytest -q -p pytest_attach
 ```
 
-`ROUNDS` is the directory that holds the recorded rounds (`r1`, `r1-adv`, `r2` ... `r7`); each is used only when present.
+`ROUNDS` is the directory that holds the recorded rounds (`r1`, `r1-adv`, `r2` ... `r7`). The tampering suite, the STEM
+probes and the dossier export use each round only when present. `run_contained.py` fails its gate `requested_rounds_present`
+when a round it was asked for (the default set r2 to r5 and r7, or each `--round`) is not found, so "every gate passes"
+always means every requested round was replayed; `--allow-missing-rounds` lets such a run pass and still names the missing
+rounds (integration gate round 1).
 
 ## The tampering cases
 

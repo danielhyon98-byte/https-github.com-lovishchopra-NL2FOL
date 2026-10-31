@@ -732,10 +732,8 @@ def test_malformed_payloads_are_rejected_without_raising(text: Any):
         assert (r.limits is None) == (name == LINEAR)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-existing IR schema defect, outside this stage (no IR schema change): IDENT_RE, ASSERTION_ID_RE and the numeric "
-    "literal patterns end in '$', which also matches before a trailing newline, so 'x\\n' is accepted as a symbol distinct "
-    "from 'x' and '1\\n' as a literal. Fix: anchor with \\Z or use fullmatch; then remove this marker."))
+# The IR schema defect this test was marked xfail(strict) for is fixed (integration gate round 1, correctness-6 / E2E B26:
+# IDENT_RE, ASSERTION_ID_RE and the literal patterns are anchored with \Z), so the marker is removed and the test must pass.
 @pytest.mark.parametrize("field", ["identifier", "assertion id", "literal"])
 def test_trailing_newline_is_not_part_of_an_identifier_or_literal(field: str):
     name, pid, literal = ("x\n", "P", "1") if field == "identifier" else (("x", "P\n", "1") if field == "assertion id" else ("x", "P", "1\n"))

@@ -85,9 +85,12 @@ import bisect
 import contextlib
 import contextvars
 import functools
+import hashlib
 import itertools
 import json
 import re
+import threading
+from collections import OrderedDict
 from typing import Iterator, NamedTuple, Optional, Sequence
 
 from .. import lexis
@@ -124,7 +127,67 @@ _FENCE_SENTENCE_END_RE = re.compile(r"[.!?][\"”’')\]]*(?=\s|$)")
 _MIN_FENCED_PROSE_WORDS = 20
 #: Emphasis markers must stand at word boundaries: ``_emphasis_`` is markup, but the
 #: underscores of ``receipt_id`` or ``Reichsbank_crisis`` are part of the word and stay.
+#: :func:`strip_markup` removes them with :func:`strip_emphasis`, which gives ``EMPHASIS_RE.sub(r"\2", text)`` in linear time.
 EMPHASIS_RE = re.compile(r"(?<!\w)(\*\*|__|\*|_|`)(?=\S)(.+?)(?<=\S)\1(?!\w)")
+#: The markers :data:`EMPHASIS_RE` tries at a position, in its alternation's order.
+_EMPHASIS_MARKERS = ("**", "__", "*", "_", "`")
+_NEWLINE_RE = re.compile("\n")
+
+
+def _is_word_char(ch: str) -> bool:
+    """``\\w`` of a str pattern: a letter, a digit or a numeric character of any script, or the underscore."""
+    return ch.isalnum() or ch == "_"
+
+
+def strip_emphasis(text: str) -> str:
+    r"""``EMPHASIS_RE.sub(r"\2", text)``, read in one pass. The pattern's lazy body reads to the end of the line from every
+    opener that has no closer, so a line of n openers with none closed ('**a ' * k) cost n² steps (integration gate 1,
+    parser-safety-5). Whether a marker closes an emphasis does not depend on where the emphasis opened: the marker is preceded
+    by a non-blank and followed by no word character. So the closers of each marker are found once, and an opener takes the
+    first closer of its marker after its first body character and before the end of its line, which is the closer the lazy
+    body stops at. Openers are tried in the pattern's order at each position the substitution reaches (none inside a match
+    already made), so the result is the substitution's, character for character."""
+    if not any(m in text for m in ("*", "_", "`")):
+        return text
+    n = len(text)
+    closers: dict[str, list[int]] = {}
+    for marker in _EMPHASIS_MARKERS:
+        found: list[int] = []
+        at = text.find(marker, 1)
+        while at >= 0:
+            end = at + len(marker)
+            if not text[at - 1].isspace() and (end == n or not _is_word_char(text[end])):
+                found.append(at)
+            at = text.find(marker, at + 1)
+        closers[marker] = found
+    cursor = {marker: 0 for marker in _EMPHASIS_MARKERS}
+    newlines = [m.start() for m in _NEWLINE_RE.finditer(text)]  # a body never crosses a line end ('.' reads no newline)
+    out: list[str] = []
+    last = i = 0
+    while i < n:
+        if text[i] not in "*_`" or (i and _is_word_char(text[i - 1])):
+            i += 1
+            continue
+        for marker in _EMPHASIS_MARKERS:
+            body = i + len(marker)
+            if not text.startswith(marker, i) or body >= n or text[body].isspace():
+                continue
+            found, k = closers[marker], cursor[marker]
+            while k < len(found) and found[k] < body + 1:  # positions only grow, so each list is read once
+                k += 1
+            cursor[marker] = k
+            nl = bisect.bisect_left(newlines, body)
+            if k < len(found) and (nl == len(newlines) or found[k] < newlines[nl]):
+                out.append(text[last:i])
+                out.append(text[body:found[k]])
+                last = i = found[k] + len(marker)
+                break
+        else:
+            i += 1
+    if not out:
+        return text
+    out.append(text[last:])
+    return "".join(out)
 #: Every double quotation mark the parsers treat as one class: straight, curly (open and
 #: close), guillemets and the low-9 / high-reversed-9 marks of other typographic traditions.
 DOUBLE_QUOTE_MARKS = ('"', "\u201c", "\u201d", "\u00ab", "\u00bb", "\u201e", "\u201f")
@@ -628,7 +691,7 @@ def strip_markup(text: str) -> str:
     s = _FENCE_PARTS_RE.sub(_fenced_body, s)
     s = FENCE_LINE_RE.sub("", s)
     s, _removed = strip_json_blocks(s)
-    s = EMPHASIS_RE.sub(r"\2", s)
+    s = strip_emphasis(s)  # EMPHASIS_RE.sub(r"\2", s), in linear time
     return s
 
 
@@ -649,8 +712,18 @@ def split_list_items(paragraph: str) -> list[str]:
 
 
 def truncate_claim_text(text: str, limit: int = MAX_CLAIM_TEXT_CHARS) -> str:
-    """Cut ``text`` to the contract limit, marking the cut with ``...``."""
+    """Cut ``text`` to the contract limit, marking the cut with ``...``.
+
+    An over-long text has its whitespace runs collapsed to one space before the cut (integration gate 1, overseer handoff
+    4): a cut that landed inside a long run of blanks was stripped back to the word before the run, far below the limit, so
+    the claim no longer read as cut at the contract limit (the overseer's rule ``contract-cut``: at least the limit less the
+    mark, ending in the mark) and a faithful transfer failed its audit (OVS-FID-001 on 'The value is 5 m....'). Collapsing
+    changes no word of the claim: every fidelity reading compares a claim with its whitespace normalised. A text within the
+    limit is returned as it is."""
     text = text.strip()
+    if len(text) <= limit:
+        return text
+    text = " ".join(text.split())
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
@@ -1413,8 +1486,11 @@ _PREDICATE_LABEL_RE = re.compile(
 )
 #: A subject that is itself a clause ("Wordsworth wrote that the images ...") is not a label's subject.
 _SUBORDINATE_RE = re.compile(r"\b(?:that|which|who|whom|because|since|when|while|whether|if|although|though|where)\b", re.IGNORECASE)
-#: A bare "from memory" closing a dated sentence ("... in February 1932 from memory.").
-_TRAILING_BARE_LABEL_RE = re.compile(r"\s+(?:(?:quoted|given|cited|stated|recalled)\s+)?from (?:memory|recollection)(?=[.!?]?[\"'”’»)\]]*\s*$)", re.IGNORECASE)
+#: A bare "from memory" closing a dated sentence ("... in February 1932 from memory."). A match starts only where no whitespace
+#: precedes (``(?<!\s)``): the leftmost match of the blanks before the label starts at the first blank of their run, so the
+#: matches are those of the pattern without the anchor, read in linear time (the unanchored search read the rest of a run of n
+#: blanks from each of them, n² steps; integration gate 1, parser-safety-3).
+_TRAILING_BARE_LABEL_RE = re.compile(r"(?<!\s)\s+(?:(?:quoted|given|cited|stated|recalled)\s+)?from (?:memory|recollection)(?=[.!?]?[\"'”’»)\]]*\s*$)", re.IGNORECASE)
 #: A note on how the answer was composed (quotations masked, terminal punctuation removed): its subject is the answer, one of
 #: its parts or a received report ("The historical setting", "The judgement on which decade ...", "The English specialist's
 #: paragraph"), its whole predicate is authorship or provenance ("is my own addition", "is not part of that paragraph", "is
@@ -1521,7 +1597,7 @@ def _provenance_body(sentence: str) -> str:
         cursor = b
     parts.append(sentence[cursor:])
     text = "".join(parts)
-    text = text[: len(text) - len(_TERMINAL_RE.search(text).group(0))]
+    text = text[: len(text) - _terminal_len(text)]
     return re.sub(r"\s+([,;])", r"\1", " ".join(text.split()))
 
 
@@ -1612,11 +1688,33 @@ def opens_note_paragraph(paragraph: str) -> bool:
     as a whole, so a word or paragraph bound leaves out all of it, as the parsers role all of it non-material."""
     text = paragraph.lstrip()
     return bool(text) and BARE_NOTE_LEAD_RE.match(mask_quotations(text[:400])) is not None
-_PAREN_SPAN_RE = re.compile(r"\s*\([^()]*\)")
+#: A parenthetical with the blanks before it. A match starts only where no whitespace precedes (``(?<!\s)``): a match starting
+#: inside a run of blanks ends where the run's own match ends, so these are the matches of ``\s*\([^()]*\)``, read in linear time
+#: (from every blank of a run of n blanks the old pattern read the rest of the run, n² steps; integration gate 1).
+_PAREN_SPAN_RE = re.compile(r"(?<!\s)\s*\([^()]*\)")
 _PAREN_INNER_RE = re.compile(r"\([^()]*\)")
 _CLAUSE_SEPARATOR_RE = re.compile(r"[;—–]")
-_TERMINAL_RE = re.compile(r"[.!?…]*[\"'”’»)\]]*\s*$")
+#: The closing stops, closing marks and blanks that end a sentence (``[.!?…]*["'”’»)\]]*\s*$`` searched in the text), read from the
+#: end by :func:`_terminal_len`.
+_TERMINAL_STOPS = frozenset(".!?…")
+_TERMINAL_CLOSERS = frozenset("\"'”’»)]")
 _LETTER_RE = re.compile(r"[^\W\d_]")
+
+
+def _terminal_len(text: str) -> int:
+    r"""The length of the sentence end of ``text``: the length of the match of ``[.!?…]*["'”’»)\]]*\s*$`` searched in ``text``,
+    read from the end. That match is the longest suffix made of stops, then closing marks, then blanks: the three character sets
+    are disjoint, so reading them back from the end gives that suffix, which is where the pattern's leftmost match starts. Linear
+    in the suffix; the unanchored search restarted at every blank of a long run of blanks inside the text and read the rest of
+    the run each time, n² steps (integration gate 1, parser-safety-3)."""
+    i = len(text)
+    while i and text[i - 1].isspace():
+        i -= 1
+    while i and text[i - 1] in _TERMINAL_CLOSERS:
+        i -= 1
+    while i and text[i - 1] in _TERMINAL_STOPS:
+        i -= 1
+    return len(text) - i
 
 
 def _filler_only(masked: str) -> bool:
@@ -1721,7 +1819,7 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
         if all(labels):
             return "", (sentence.strip(),)
         cuts = []
-        body_end = len(masked) - len(_TERMINAL_RE.search(masked).group(0))  # the sentence's closing stop stays with the core
+        body_end = len(masked) - _terminal_len(masked)  # the sentence's closing stop stays with the core
         for k, (a, b) in enumerate(segments):
             if labels[k]:
                 b = max(a, min(b, body_end)) if k == len(segments) - 1 else b
@@ -1742,7 +1840,7 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     # 5. trailing appositive or concessive labels (", a figure I give from memory", ", though this date is from memory",
     #    ", so check your notes") and, in a dated sentence, a bare closing "from memory"
     for _ in range(3):
-        body_end = len(masked) - len(_TERMINAL_RE.search(masked).group(0))
+        body_end = len(masked) - _terminal_len(masked)
         comma = _PAREN_INNER_RE.sub(lambda m: "x" * len(m.group(0)), masked).rfind(",", 0, body_end)
         if comma < 0 or not masked[comma + 1:body_end].strip() or not _label_shaped(masked[comma + 1:body_end]):
             break
@@ -2300,9 +2398,53 @@ def feedback_task(feedback: Optional[bool] = None) -> bool:
     return corrections_apply(_QUOTATION_TASK.get())
 
 
+#: The task type each report a parser of this process built was read in (:func:`in_quotation_task`), so the packs that run on
+#: the same report read its quotations under the same task (:func:`parse_task_of`). Keyed by the report's content (its id, its own
+#: task type field, its original response and its claims), so a copy of the report (the overseer's journaled one) finds the same
+#: task, and a report this process did not parse (one delivered as a mapping, whatever task type it names) finds none. Bounded:
+#: the most recent reports.
+_PARSE_TASKS: "OrderedDict[str, str]" = OrderedDict()
+_PARSE_TASKS_MAX = 4096
+_PARSE_TASKS_LOCK = threading.Lock()
+
+
+def _parse_key(report: object) -> Optional[str]:
+    try:
+        content = [getattr(report, "report_id"), getattr(report, "task_type"), getattr(report, "original_response"),
+                   [[c.claim_id, c.claim_text] for c in getattr(report, "claims")]]
+        return hashlib.sha256(json.dumps(content, ensure_ascii=False).encode("utf-8", "surrogatepass")).hexdigest()
+    except (AttributeError, TypeError, ValueError):
+        return None  # not a report: no task is known for it
+
+
+def _remember_parse_task(report: object, task_type: Optional[str]) -> None:
+    key = _parse_key(report) if task_type is not None else None
+    if key is None:
+        return
+    with _PARSE_TASKS_LOCK:
+        _PARSE_TASKS[key] = task_type
+        _PARSE_TASKS.move_to_end(key)
+        while len(_PARSE_TASKS) > _PARSE_TASKS_MAX:
+            _PARSE_TASKS.popitem(last=False)
+
+
+def parse_task_of(report: object) -> Optional[str]:
+    """The task type under which a parser of this process read the quotations of ``report`` (the task its
+    :func:`in_quotation_task` set, or an enclosing call's), or None for a report no parser here built: a branch reads the
+    report's quotations again in its packs under that same task, so a correction the parser left out of the quotations is
+    not read as an unaccounted quotation of the claim (integration gate 1). A report delivered as a mapping finds no task,
+    whatever its own ``task_type`` field says (that field is advisory, repair round 5, INV-QROLE-1)."""
+    key = _parse_key(report)
+    if key is None:
+        return None
+    with _PARSE_TASKS_LOCK:
+        return _PARSE_TASKS.get(key)
+
+
 def in_quotation_task(fn):
     """Decorator for a parser's ``parse_response``: its quotations are read in the task type it is given (its keyword
-    ``task_type``, else the signature's default), unless an enclosing call (the channel) already set the task."""
+    ``task_type``, else the signature's default), unless an enclosing call (the channel) already set the task. The task the
+    parse was read in is remembered for the report it returns (:func:`parse_task_of`)."""
     import inspect
     param = inspect.signature(fn).parameters.get("task_type")
     default = param.default if param is not None and param.default is not inspect.Parameter.empty else None
@@ -2310,7 +2452,9 @@ def in_quotation_task(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         with quotation_task(kwargs.get("task_type", default)):
-            return fn(*args, **kwargs)
+            report = fn(*args, **kwargs)
+            _remember_parse_task(report, _QUOTATION_TASK.get())
+            return report
     return wrapper
 
 
@@ -2713,6 +2857,113 @@ def _roles_of(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read:
             last_correction_end = max(last_correction_end, b)
         roles.append(role)
     return tuple(roles)
+
+
+#: The frame right before a quoted span that says the text lacks the span's words ('has no "like"', 'without "like"', 'never
+#: uses "I"', 'lacks the word "x"', 'neither "like" ...'): the core pack (CORE-SRC-003), the channel (INT-REQ-003) and the
+#: Overseer (FID-004) read such a span as a mention of a word, not a quotation of a text, and verify nothing of it. Moved here
+#: unchanged from ``branches.packs`` (which keeps its names for it), so a parser reads the same frames (integration gate 1).
+ABSENT_BEFORE_RE = re.compile(
+    r"(?:\b(?:has|have|had|contains?|uses?|includes?|gives?|offers?)\s+no\s+(?:(?:word|words|term|mention|instance|use)\s+(?:of\s+|like\s+)?)?"
+    r"|\b(?:never|nowhere)\s+(?:says?|uses?|writes?|mentions?|contains?|includes?|states?)\s+(?:the\s+word\s+)?"
+    r"|\b(?:does|did|do)\s*(?:not|n['’]t)\s+(?:say|use|write|mention|contain|include|state)\s+(?:the\s+word\s+)?"
+    r"|\blacks?\s+(?:the\s+word\s+)?|\bwithout\s+(?:the\s+word\s+|a\s+|an\s+)?|\bno\s+(?:word\s+)?|\bneither\s+)$", re.IGNORECASE)
+#: What may stand between two quoted words of one absent mention: 'has no "like" or "as"', 'neither "like" nor "as"'.
+ABSENT_JOIN_RE = re.compile(r"^\s*(?:,\s*)?(?:or|nor|and)\s+$|^\s*,\s*$", re.IGNORECASE)
+
+
+def _absent_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
+    """For each span, whether :data:`ABSENT_BEFORE_RE` ends right before it (read in the 60 characters before it), or it
+    follows such a span with only :data:`ABSENT_JOIN_RE` between them."""
+    out: list[bool] = []
+    prev_absent_end: Optional[int] = None
+    for s, e, _inner in spans:
+        before = text[max(0, s - 60): s]
+        if ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and ABSENT_JOIN_RE.match(text[prev_absent_end: s])):
+            out.append(True)
+            prev_absent_end = e
+        else:
+            out.append(False)
+            prev_absent_end = None
+    return out
+
+
+def absent_mentions(text: str, spans: Sequence[tuple[int, int, str]]) -> list[str]:
+    """The quoted words of ``text`` that its sentence says the text lacks ('the bruise comparison has no "like" or "as"', 'the text never
+    says "ayudar"'): a mention of a word, not a quotation of a text."""
+    return [inner.strip() for (_s, _e, inner), absent in zip(spans, _absent_flags(text, spans)) if absent]
+
+
+def _absence_mentions(text: str, spans: Sequence[tuple[int, int, str]], roles: Sequence[str]) -> list[bool]:
+    """For each span, whether the role reader reads it as a mention that says the text lacks its words: a role of
+    ``mention`` read under an absence frame ("without", "with no", "no" before at most three words; "never uses", "avoids",
+    "could have used"; a negated report; a negated verb before one word), an example frame ('a verb such as "x"'), or a
+    span joined by "or", "and" or a comma to such a mention ('without "like" or "as"'). A mention by the closed list of
+    function words alone, or by a naming frame ('the conjunction "But"'), is not one: it names a word of the text."""
+    lines = _LineIndex(text)
+    out: list[bool] = []
+    for k, ((a, _b, inner), role) in enumerate(zip(spans, roles)):
+        absent = False
+        if role == "mention":
+            before = lines.frame_before(a)
+            words = len(inner.strip(_QUOTE_STRIP).split())
+            absent = bool(_MENTION_ANY_BEFORE_RE.search(before) or _MENTION_NEGATED_REPORT_RE.search(before)
+                          or ((_MENTION_SHORT_BEFORE_RE.search(before) or _MENTION_EXAMPLE_BEFORE_RE.search(before)) and words <= _SHORT_MENTION_WORDS)
+                          or (_MENTION_NEGATED_VERB_BEFORE_RE.search(before) and words == 1))
+            if not absent and k and out[k - 1] and spans[k - 1][1] <= a:
+                absent = _LIST_JOIN_RE.match(text[spans[k - 1][1]:a]) is not None
+        out.append(absent)
+    return out
+
+
+def absent_word_mentions(text: str, *, min_single_words: int = 2, feedback: Optional[bool] = None) -> list[tuple[int, int, str]]:
+    """The quoted spans of ``text`` (:func:`find_quotation_spans`) that say the text lacks their words, by both readers: the
+    role reader reads the span as a mention under an absence frame (:func:`_absence_mentions`: 'without "like" or "as"',
+    'with no "like"', 'has no "like"'), and the frame reader by which the core pack, the channel and the Overseer leave a
+    mention unverified reads it as absent (:func:`absent_mentions`). The shared attribution rule credits such a span to no
+    text when no supplied text holds its words (``sources.attribute_excerpt``, every parser; end-to-end B6): it is a mention
+    of a word the sentence says the text lacks, so crediting it to a named text or to the text under analysis would refute
+    the writer for the very absence the sentence states. Only a span of at most three words is one (the length of a
+    mention under "without" or "no"): a longer span joined to a mention by "and" or a comma ('has no "apology", and "the
+    treaty was a crime of revenge" is its verdict') may be words the sentence gives as the text's, so it keeps the ordinary
+    credit and is checked. A span only one reader calls a mention keeps the ordinary credit too, so it is checked as
+    before: a negated reporting verb right before it ('never says "x"') is an attribution for the role reader (close round
+    3, INV-QR-1), and 'avoids "x"' is no frame of the other."""
+    spans = find_quotation_spans(text, min_single_words=min_single_words)
+    if not spans:
+        return []
+    roles = _span_roles(text, spans, feedback=feedback)
+    if "mention" not in roles:
+        return []
+    by_role = _absence_mentions(text, spans, roles)
+    by_frame = _absent_flags(text, spans)
+    return [sp for sp, r, f in zip(spans, by_role, by_frame)
+            if r and f and len(sp[2].strip(_QUOTE_STRIP).split()) <= _SHORT_MENTION_WORDS]
+
+
+def parser_quotation_spans(text: str, *, min_single_words: int = 2, feedback: Optional[bool] = None) -> list[tuple[int, int, str]]:
+    """The quoted spans of ``text`` (:func:`find_quotation_spans`) a parser reads as quotations: the spans it credits to a
+    supplied text, carries as quotation claims or records as credited to no text. A correction or a suggestion is the
+    writer's own words and is left out (end-to-end B5; integration gate 1): read only in a marking, feedback, correction or
+    editing task (:func:`_span_roles`, :func:`quotation_task`; the parsers read the task type they are given,
+    :func:`in_quotation_task`), it is the corrected form after an arrow ('"una mujer muy simpático" → "una mujer muy
+    simpática"'), after "should be", under a "Model:" label, and the like. The student's own words before the arrow stay
+    quotations and are checked.
+
+    Every other span is kept, every mention included: a mention stays a quotation claim, and the checks that verify words
+    against a source leave it unverified by their own mention readers (a mention of words the text lacks, 'without "like"
+    or "as"', is credited to no text when no text holds it: ``sources.attribute_excerpt``, :func:`absent_word_mentions`).
+    Outside a feedback task the result is :func:`find_quotation_spans` itself, read without the roles: an arrow, a "Model:"
+    label or a correction in words there leaves the span a quotation, so an altered quotation framed that way is still
+    checked (repair round 4, INV-Q1). Masking text and testing whether a position lies inside a quotation keep
+    :func:`find_quotation_spans`."""
+    spans = find_quotation_spans(text, min_single_words=min_single_words)
+    if not spans or not feedback_task(feedback):
+        return spans  # the roles read no correction or suggestion outside a feedback task: no role is read there at all
+    roles = _span_roles(text, spans, feedback=feedback)
+    if "correction" not in roles and "suggestion" not in roles:
+        return spans
+    return [sp for sp, role in zip(spans, roles) if role not in ("correction", "suggestion")]
 
 
 def cited_quotation_spans(text: str, *, min_single_words: int = 2, feedback: Optional[bool] = None) -> list[tuple[int, int, str]]:

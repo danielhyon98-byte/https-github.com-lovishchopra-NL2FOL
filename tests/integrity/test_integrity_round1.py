@@ -12,6 +12,7 @@ import math
 import uuid
 
 import pytest
+from pydantic import ValidationError
 
 import epinoic_logic.integrity as integrity
 from epinoic_logic.engine import SolverConfig, sign_result, verify
@@ -269,8 +270,18 @@ def test_required_formal_check_not_performed_is_visible():
 def test_placeholder_reasons_and_bases_are_not_meaningful(text):
     assert not meaningful(text)
     p, m = two_reports()
-    syn = synthesis([carried("s-1", "The speed is 15 m/s and the motion is uniform.", "ph-1")], ledger=[LedgerEntry(source_claim_ids=["ma-1", "ph-2", "ph-3"], transformation="dropped", reason=text)],
-                    conflicts=[ConflictRecord(conflict_id="cf", claim_ids=["ph-1", "ma-1"], description="speed disagreement", status="resolved_with_basis", basis=text)])
+    blank = text is not None and not text.strip()
+    if blank:
+        # Integration gate 1 (harness handoff 1), a stricter rule added to this test: a blank reason or basis is refused by
+        # the synthesis contract itself (the combinator port's text rule), so a synthesis carrying one is REJECTED before the
+        # ledger runs. The ledger still reads it as not meaningful on an object built around validation (below).
+        with pytest.raises(ValidationError):
+            LedgerEntry(source_claim_ids=["ma-1", "ph-2", "ph-3"], transformation="dropped", reason=text)
+        with pytest.raises(ValidationError):
+            ConflictRecord(conflict_id="cf", claim_ids=["ph-1", "ma-1"], description="speed disagreement", status="resolved_with_basis", basis=text)
+    entry, conflict = (LedgerEntry.model_construct, ConflictRecord.model_construct) if blank else (LedgerEntry, ConflictRecord)
+    syn = synthesis([carried("s-1", "The speed is 15 m/s and the motion is uniform.", "ph-1")], ledger=[entry(source_claim_ids=["ma-1", "ph-2", "ph-3"], transformation="dropped", reason=text)],
+                    conflicts=[conflict(conflict_id="cf", claim_ids=["ph-1", "ma-1"], description="speed disagreement", status="resolved_with_basis", basis=text)])
     f = check_synthesis_ledger([p, m], syn)
     assert "INT-CONFLICT-003" in codes(f) and "INT-LEDGER-006" in codes(f)
     assert meaningful("arithmetic re-checked against the task values")

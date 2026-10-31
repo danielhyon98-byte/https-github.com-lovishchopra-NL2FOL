@@ -163,6 +163,11 @@ def _units() -> dict[str, UnitDef]:
     add("L", "litre", _d(m=3), Fraction(1, 1000))
     add("l", "litre", _d(m=3), Fraction(1, 1000))
     add("t", "tonne", _MASS, Fraction(1000), profiles=frozenset({"ess", "design_technology"}))
+    # integration gate 1: the year (the Julian year of 365.25 days, the IAU's), the unit of ESS productivity and yield ('kJ m⁻² yr⁻¹'), and the
+    # hectare ('t ha⁻¹', '2.5 km² = 250 ha'); before, both were unknown (ST-UNIT-001), which made an arithmetic slip a warning. The symbol
+    # only: the word 'years' after a number stays a word ('t = 5 years' is read by rule given-kinds, as before)
+    add("yr", "year (365.25 days)", _TIME, Fraction(31557600), prefixable=False)
+    add("ha", "hectare", _d(m=2), Fraction(10000), prefixable=False)
     add("eV", "electronvolt", _d(m=2, kg=1, s=-2), Fraction(1602176634, 10 ** 28))  # exact since the 2019 SI
     add("u", "atomic mass unit", _MASS, Fraction(166053906660, 10 ** 38), prefixable=False)  # CODATA 2018 value
     add("Da", "dalton", _MASS, Fraction(166053906660, 10 ** 38))
@@ -179,13 +184,15 @@ def _units() -> dict[str, UnitDef]:
     add("%", "per cent", DIMENSIONLESS, Fraction(1, 100), prefixable=False)
     add("ppm", "part per million", DIMENSIONLESS, Fraction(1, 10 ** 6), prefixable=False)
     add("count", "count (a number of events or items)", DIMENSIONLESS, Fraction(1), prefixable=False)  # 'counts min⁻¹', 'counts per minute'
-    # stem-soundness-12 (round 7): amounts of data, a count of bits ('32 bits = 4 bytes'); the binary multiples only, whose factor is exact
-    # (a kilobyte is 1000 or 1024 bytes by convention, so it stays unread)
+    # stem-soundness-12 (round 7): amounts of data, a count of bits ('32 bits = 4 bytes'); the binary multiples here, whose factor is exact.
+    # A kilobyte is 1000 or 1024 bytes by convention: integration gate 1 reads kB, KB, MB, GB and TB with both readings (_DATA_DECIMAL in
+    # _resolve, ST-UNIT-002); before, 'MB' after a value was dropped and the bare numeral compared alone
     add("bit", "bit", DIMENSIONLESS, Fraction(1), prefixable=False)
     add("byte", "byte (8 bits)", DIMENSIONLESS, Fraction(8), prefixable=False)
     add("KiB", "kibibyte (1024 bytes)", DIMENSIONLESS, Fraction(8 * 1024), prefixable=False)
     add("MiB", "mebibyte (1024² bytes)", DIMENSIONLESS, Fraction(8 * 1024 ** 2), prefixable=False)
     add("GiB", "gibibyte (1024³ bytes)", DIMENSIONLESS, Fraction(8 * 1024 ** 3), prefixable=False)
+    add("TiB", "tebibyte (1024⁴ bytes)", DIMENSIONLESS, Fraction(8 * 1024 ** 4), prefixable=False)
 
     add("°C", "degree Celsius", _TEMP, Fraction(1), prefixable=False, offset=Fraction(27315, 100), affine=True)
     add("°F", "degree Fahrenheit", _TEMP, Fraction(5, 9), prefixable=False, offset=Fraction(45967, 100), affine=True)
@@ -204,6 +211,7 @@ for _sym, _names in (
     ("mol", ("mole",)), ("N", ("newton",)), ("J", ("joule",)), ("W", ("watt",)), ("Pa", ("pascal",)), ("Hz", ("hertz",)),
     ("C", ("coulomb",)), ("V", ("volt",)), ("Ω", ("ohm",)), ("F", ("farad",)), ("T", ("tesla",)), ("L", ("litre", "liter")),
     ("min", ("minute",)), ("h", ("hour",)), ("d", ("day",)), ("rad", ("radian",)), ("Bq", ("becquerel",)), ("eV", ("electronvolt",)),
+    ("ha", ("hectare",)),
 ):
     for _n in _names:
         _WORDS[_n] = _sym
@@ -309,12 +317,34 @@ def english_word_atom(word: str) -> bool:
     return word in ENGLISH_NOT_UNITS
 
 
+#: integration gate 1: the decimal multiples of the byte as written ('1.44 MB', '4 GB', '512 kB'); a kilobyte is 1000 or 1024 bytes by
+#: convention, so each has two readings (ST-UNIT-002, the decimal first): (decimal, binary) factors in bits
+_DATA_DECIMAL: dict[str, tuple[str, int]] = {"kB": ("kilobyte", 1), "KB": ("kilobyte", 1), "MB": ("megabyte", 2), "GB": ("gigabyte", 3),
+                                             "TB": ("terabyte", 4)}
+_SUPERSCRIPT_DIGITS = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+#: the symbols of the amounts of data (bits, bytes and their multiples)
+DATA_UNIT_SYMBOLS = frozenset({"bit", "byte", "KiB", "MiB", "GiB", "TiB", *_DATA_DECIMAL})
+
+
+def is_data_unit(unit: Optional["UnitExpr"]) -> bool:
+    """A unit that is an amount of data in every reading: every atom a bit, a byte or a multiple of the byte."""
+    if unit is None or unit.unknown or not unit.readings:
+        return False
+    return all(r.atoms and all(a.unit is not None and a.unit.symbol in DATA_UNIT_SYMBOLS and a.power == 1 for a in r.atoms) for r in unit.readings)
+
+
 def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[tuple[UnitDef, str]]:
     """Every (unit, prefix) reading of a letter run, best first: an exact symbol, then prefix +
     symbol (longest prefix first). The bare ``M`` and the tonne follow the profile."""
     out: list[tuple[UnitDef, str]] = []
     if word in _OHM_ALIASES:
         return [(UNITS["Ω"], "")]
+    if word in _DATA_DECIMAL:
+        name, n = _DATA_DECIMAL[word]
+        power = str(3 * n).translate(_SUPERSCRIPT_DIGITS)
+        return [(UnitDef(word, f"{name} (10{power} bytes)", DIMENSIONLESS, Fraction(8 * 10 ** (3 * n)), prefixable=False), ""),
+                (UnitDef(word, f"{name} (1024{str(n).translate(_SUPERSCRIPT_DIGITS) if n > 1 else ''} bytes, the binary convention)", DIMENSIONLESS,
+                         Fraction(8 * 1024 ** n), prefixable=False), "")]
     if word == "M":
         for r in bare_m:
             if r == "molar":

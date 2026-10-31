@@ -152,7 +152,8 @@ the reading described above, byte for byte; every non-STEM branch uses it.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from bisect import bisect_left, bisect_right, insort
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from functools import lru_cache
 from typing import NamedTuple, Optional
@@ -171,8 +172,21 @@ _SMALL_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", 
 _TENS_WORDS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
 _WORD_VALUES = {w: i for i, w in enumerate(_SMALL_WORDS, start=1)} | {w: 10 * (i + 2) for i, w in enumerate(_TENS_WORDS)}
 _WNUM_TOKEN = "|".join(sorted((*_SMALL_WORDS, *_TENS_WORDS), key=len, reverse=True))  # longest first: 'sixty' before 'six'
-#: A number in words below a thousand: 'forty-five', 'two hundred and sixty'. Scale words (thousand, million, ...) are units.
-_WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred))*(?![a-z])"
+#: The most number words a figure in words takes: a number below a hundred, 'hundred', and a number below a hundred ('nine hundred and
+#: ninety-nine', 'nineteen hundred and twenty-nine', 'ninety-nine hundred and ninety-nine'; a scale word after it is its unit).
+MAX_NUMBER_WORDS = 5
+#: A number in words below a thousand: 'forty-five', 'two hundred and sixty'. Scale words (thousand, million, ...) are units. At most
+#: :data:`MAX_NUMBER_WORDS` words: the unbounded repetition let every pattern that reads a figure try every length of a long run of
+#: number words from each of its words ('one hundred and ' * k, 'twenty-three ' * k), n² to n³ steps, while 'and' between words is
+#: also the 'and' of a total ('twenty and thirty, making fifty'); a sentence holding a longer run is reported undecided by the readers
+#: (:data:`_LONG_NUMBER_RUN_RE`), never read as a figure of its first words (integration gate 1, parser-safety-2 and -7).
+_WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred)){{0,{MAX_NUMBER_WORDS - 1}}}(?![a-z])"
+#: A run of more number words than a figure in words takes (:data:`MAX_NUMBER_WORDS`), joined as the words of one figure are: such a
+#: sentence states no number in those words, and the readers report it undecided instead of reading its first words.
+#: Each start reads at most that many words, so the search is linear.
+_LONG_NUMBER_RUN_RE = re.compile(rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred)){{{MAX_NUMBER_WORDS}}}(?![a-z])", re.IGNORECASE)
+LONG_NUMBER_RUN_REASON = (f"it holds a run of more than {MAX_NUMBER_WORDS} number words, which states no number in words, so its figures "
+                           f"were not read")
 #: A power of ten written after a mantissa ('2.5e3', '2.5 × 10³', '3.0 x 10^8', '1.2*10**6') or a superscript power ('10³'): a figure
 #: is never read as the mantissa alone (2.5 for 2,500), and never starts at the exponent.
 _SCI_TAIL = r"(?:[eE][-+−]?\d|\s?[×xX*·]\s?10(?:\^|\*\*|[⁻⁰¹²³⁴⁵⁶⁷⁸⁹])|[⁻⁰¹²³⁴⁵⁶⁷⁸⁹])"
@@ -349,8 +363,19 @@ def _tfig(i: int) -> str:
             rf"(?:\s+(?P<w{i}>(?!(?:and|plus|to|in|of|a|an|the|gave|giving|making|made|for|with|or|by|on|at)\b)[a-z]+))?")
 
 
+#: The first letters of a stated total's keywords: checked before the keyword alternation at each position of the gap after the second
+#: figure, so a position no keyword starts at costs one test, not one per keyword (the matches are unchanged).
+_TOTAL_KEYWORD_START = r"(?=[atimg])"
 _TOTAL_RE = re.compile(rf"{_tfig(1)}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?(?:(?:about|around|roughly|some|nearly)\s+)?{_tfig(2)}[^.;]{{0,60}}?"
-                       rf"(?:a total of|totalling|totaling|together|in total|making|giving|totals?)\s+(?:(?:about|around|roughly|some|nearly)\s+)?{_tfig(3)}", re.IGNORECASE)
+                       rf"{_TOTAL_KEYWORD_START}(?:a total of|totalling|totaling|together|in total|making|giving|totals?)\s+(?:(?:about|around|roughly|some|nearly)\s+)?{_tfig(3)}", re.IGNORECASE)
+#: Every keyword of a stated total holds one of these words: a sentence holding none of them states no total, and the total patterns
+#: are not searched in it (:func:`_search_total`; the result is the same).
+_TOTAL_HINT_RE = re.compile(r"total|together|making|giving", re.IGNORECASE)
+
+
+def _search_total(pattern: "re.Pattern[str]", text: str) -> "Optional[re.Match[str]]":
+    """``pattern.search(text)`` for a total pattern, skipped when ``text`` holds no keyword of a total (:data:`_TOTAL_HINT_RE`)."""
+    return pattern.search(text) if _TOTAL_HINT_RE.search(text) else None
 #: A full stop followed by a lower-case word inside one parser sentence: the arithmetic reading splits there too.
 _LOWER_CONTINUATION_RE = re.compile(r"[.?!][\"”’')\]»]*\s+[a-z]")
 #: Where one part of a clause ends and the next begins between two pairs.
@@ -405,12 +430,16 @@ def _build_patterns(numx: str, num: str, unit_words: str, unit: str) -> _Pattern
             rf"returning|climbed|rose|fell|dropped|increased|decreased|declined|grew|jumped|soared|sank|slumped|recovered|returned)\s+)?(?:further\s+|again\s+|back\s+)?to\s+{fig(3)}"
             rf"|(?:\bbefore|\bthen|\band then|\band later|\blater)\s+(?:reaching|reached|hitting|hit|peaking at|peaked at)\s+{fig(4)}", re.IGNORECASE),
         re.compile(rf"\b{num}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{num}{unit}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{num}{unit}", re.IGNORECASE),
-        re.compile(rf"{num}{unit}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{num}{unit}[^.;]{{0,60}}?(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{num}{unit}", re.IGNORECASE),
+        re.compile(rf"{num}{unit}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{num}{unit}[^.;]{{0,60}}?{_TOTAL_KEYWORD_START}(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{num}{unit}", re.IGNORECASE),
     )
 
 
 #: SI reading pieces: scientific notation and a sign on a figure; spelled-out scale words only; unit symbols of the STEM table.
-_SI_DIGITS = rf"{si_digits_pattern()}|{_DIGITS}"
+#: A figure in scientific notation starts only where no digit precedes (``(?<!\d)``): from a digit inside a run the mantissa ends
+#: where the run's own mantissa ends, so the matches are those of the unguarded alternation, read in linear time (from every digit
+#: of a long run, '0b111...1', the mantissa read the rest of the run before failing, n² steps; integration gate 1,
+#: parser-safety-8).
+_SI_DIGITS = rf"(?<!\d)(?:{si_digits_pattern()})|{_DIGITS}"
 _SI_UNIT_RX = f"(?-i:{si_unit_pattern()})"
 _SI_NUMX = rf"(?:(?:-(?=\.?\d))?(?:{_SI_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"
 _SI_NUM = rf"((?:-(?=\.?\d))?(?:{_SI_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"
@@ -443,6 +472,7 @@ class QuantCheck:
     rule: str = ""            # the tolerance rule applied, for the receipt
     basis: str = ""           # for a relation stated across sentences: where its year and figures were read
     phrase: str = ""          # the derived phrase or relation read ('added roughly 4,500 miles'), so a finding can name the claim that states it
+    failure_severity: str = "error"  # 'warning' for a check that rests on a reading the report did not state (INT-SUBJ-004 when it fails)
 
 
 @dataclass(frozen=True)
@@ -716,6 +746,8 @@ class _Pair:
     before: _Fig
     after: _Fig
     tail: list = field(default_factory=list)   # list figures after the second figure, in order
+    via: str = ""      # the written arithmetic the figure after 'to' opens, whose stated result is ``after`` ('$2.00 − $0.60')
+    arith: str = ""    # the written arithmetic the figure after 'to' opens when it states no result: the pair is not read
 
     @property
     def last(self) -> _Fig:
@@ -852,17 +884,55 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
     return out
 
 
+#: An operand of written arithmetic after a pair's later figure: a figure (a currency sign, a sign, brackets and up to two unit
+#: words around it allowed: '$0.60', '(0.60)', '0.60 litres').
+_ARITH_OPERAND = r"\(?[ \t]?(?:US)?[$£€¥]?[ \t]?[-−]?\d[\d,.]*(?:[ \t]?%)?\)?(?:[ \t][A-Za-zΩµμ°]{1,12}\.?){0,2}"
+#: Written arithmetic opened by the figure after 'to' ('from $1.60 to $2.00 − $0.60 = $1.40'): up to two unit words after the figure,
+#: then an operator (the operators of :data:`_OPERATOR_BETWEEN_RE`: a hyphen or a dash only with a blank on each side) and an operand,
+#: repeated. Anchored at the end of the pair, so each stretch of arithmetic is read once.
+_ARITH_CHAIN_RE = re.compile(rf"(?:[ \t][A-Za-zΩµμ°]{{1,12}}\.?){{0,2}}(?:[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?{_ARITH_OPERAND})+")
+_ARITH_EQ_RE = re.compile(r"[ \t]*[=≈][ \t]*")
+#: The reason a pair whose later figure opens written arithmetic with no stated result is not read (``CORE-QNT-001``).
+ARITH_ENDPOINT_REASON = ("the figure after 'to' opens written arithmetic that states no result, so the figure the change ends at is not stated "
+                         "and the pair was not read")
+
+
+@lru_cache(maxsize=1)
+def _si_lone_fig() -> "re.Pattern[str]":
+    """The SI reading's figure pattern for one figure (the general reading's is :data:`_LONE_FIG_RE`)."""
+    return re.compile(_fig(1, numx=_SI_NUMX, unit_words=_SI_UNIT_WORDS), re.IGNORECASE)
+
+
+def _arith_endpoint(clause: str, p: _Pair, pat: _Patterns) -> _Pair:
+    """``p`` read with written arithmetic after its later figure: 'falls from $1.60 to $2.00 − $0.60 = $1.40' ends at the arithmetic's
+    stated result, $1.40, not at $2.00, the arithmetic's first operand (integration gate 1: the price producers keep in ec-e1 was read as
+    a fall from $1.60 to $2.00 and refuted). The pair's later figure is then the stated result (``via`` records the arithmetic: a check
+    resting on it is read through the arithmetic, a reading the report did not state as a figure after 'to', so its failure is a warning);
+    arithmetic with no stated result leaves the pair unread (``arith``, reported undecided). ``p`` itself when no arithmetic follows."""
+    chain = _ARITH_CHAIN_RE.match(clause, p.end)
+    if chain is None:
+        return p
+    expr = " ".join((p.after.cur + clause[p.after.start:chain.end()]).split()).rstrip(" .,;:")
+    eq = _ARITH_EQ_RE.match(clause, chain.end())
+    lone = _LONE_FIG_RE if pat is _GENERAL_PATTERNS else _si_lone_fig()
+    res = lone.match(clause, eq.end()) if eq is not None and eq.group(0).strip() else None
+    if res is None or _ARITH_CHAIN_RE.match(clause, res.end()) is not None:
+        return replace(p, arith=expr)
+    return _Pair(p.start, res.end(), p.before, _fig_of(res, 1), [], via=expr)
+
+
 def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
     """Every pair of figures of ``clause`` (from/to with its list and continuations, then 'X in D1 and Y in D2'), in order.
-    ``pat`` holds the reading's figure patterns (the general reading's by default)."""
+    ``pat`` holds the reading's figure patterns (the general reading's by default). A later figure that opens written arithmetic
+    ends the pair at the arithmetic's stated result (:func:`_arith_endpoint`).
+
+    Linear in the pairs: a continuation's earlier pair (the first of the pairs ending latest before it) and whether a match
+    overlaps a pair already read are looked up by bisection, never by reading every pair again (integration gate 1: thousands of
+    continuations in one sentence read the list of pairs once for each, 4.3 s for 160,000 characters). The pairs are those the
+    scan of every pair gives."""
     pairs: list[_Pair] = []
-    covered: list[tuple[int, int]] = []
     if not _FIGURE_HINT_RE.search(clause):
         return pairs
-
-    def overlaps(s: int, e: int) -> bool:
-        return any(s < b and a < e for a, b in covered)
-
     for m in pat.from_to.finditer(clause):
         p = _Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2))
         pos = m.end()
@@ -873,15 +943,22 @@ def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
             p.tail.append(_fig_of(li, 3))
             pos = li.end()
         p.end = pos
+        if not p.tail:
+            p = _arith_endpoint(clause, p, pat)
         pairs.append(p)
-        covered.append((p.start, p.end))
+    # the from/to pairs in order of their starts (finditer), with the largest end so far: a match (s, e) overlaps one of them when
+    # one that starts before e ends after s
+    covered = _Covered(pairs)
+    ends = sorted((p.end, i) for i, p in enumerate(pairs))  # every pair's end with its index: the continuation's earlier pair
+    latest = -1  # the largest end of the continuations read so far (each starts after the one before it)
     for m in pat.cont.finditer(clause):
-        if overlaps(m.start(), m.end()):
+        if covered.overlaps(m.start(), m.end()) or latest > m.start():
             continue
-        prior = [p for p in pairs if p.end <= m.start()]
-        if not prior:
-            continue
-        p = _Pair(m.start(), m.end(), max(prior, key=lambda x: x.end).last, _fig_of(m, 3 if m.group("n3") else 4))
+        k = bisect_right(ends, (m.start(), len(pairs))) - 1
+        if k < 0:
+            continue  # no pair ends before the continuation
+        first = bisect_left(ends, (ends[k][0], -1))  # the first pair, in the list's order, of that largest end (``max`` keeps it)
+        p = _Pair(m.start(), m.end(), pairs[ends[first][1]].last, _fig_of(m, 3 if m.group("n3") else 4))
         pos = m.end()
         while True:
             li = pat.list_item.match(clause, pos)
@@ -890,16 +967,38 @@ def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
             p.tail.append(_fig_of(li, 3))
             pos = li.end()
         p.end = pos
+        if not p.tail:
+            p = _arith_endpoint(clause, p, pat)
         pairs.append(p)
-        covered.append((p.start, p.end))
+        insort(ends, (p.end, len(pairs) - 1))
+        latest = max(latest, p.end)
+    covered = _Covered(sorted(pairs, key=lambda x: x.start))  # from/to pairs and continuations: their starts interleave
+    latest = -1  # the largest end of the dated pairs read so far
     for m in pat.and_dated.finditer(clause):
-        if overlaps(m.start(), m.end()):
+        if covered.overlaps(m.start(), m.end()) or latest > m.start():
             continue
         p = _Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2))
         pairs.append(p)
-        covered.append((p.start, p.end))
+        latest = max(latest, p.end)
     pairs.sort(key=lambda p: p.start)
     return pairs
+
+
+class _Covered:
+    """The spans of pairs read, in order of their starts, with the largest end among each prefix: whether a span (s, e)
+    overlaps one of them (some pair with start < e and end > s) is one bisection."""
+
+    def __init__(self, ordered: list[_Pair]) -> None:
+        self.starts = [p.start for p in ordered]
+        self.reach: list[int] = []
+        best = -1
+        for p in ordered:
+            best = max(best, p.end)
+            self.reach.append(best)
+
+    def overlaps(self, s: int, e: int) -> bool:
+        k = bisect_left(self.starts, e) - 1  # the pairs that start before e
+        return k >= 0 and self.reach[k] > s
 
 
 def _pairs_outside(pairs: list[_Pair], derived: list[_Derived]) -> list[_Pair]:
@@ -1128,6 +1227,7 @@ class _Spec:
     basis: str = ""
     phrase: str = ""          # the derived phrase or relation the check reads ('added roughly 4,500 miles'), for naming its claim
     rule: str = ""            # the rule the check applies, when it is not the kind's default (a duration with a qualifier or day dates)
+    severity: str = "error"   # the severity of a failure: 'warning' when the check rests on a reading the report did not state
 
 
 def _amount_comparable(values: _Values, d: _Derived) -> str:
@@ -1431,6 +1531,16 @@ def _direction_spec(values: _Values, word: str, statement: str) -> _Spec:
     label = f"stated '{word}' from {values.shown_a} to {values.shown_b}: the later figure {'above' if rising else 'below'} the earlier"
     return _Spec("pair_direction", statement, (("before", "the earlier figure as stated"), ("after", "the later figure as stated")), premises,
                  ("STATED_DIRECTION", concl, label), Fraction(0), "both", phrase=word)
+
+
+def _through_arithmetic(spec: _Spec, p: _Pair, values: "_Values") -> _Spec:
+    """``spec`` for a pair whose later figure is the stated result of written arithmetic after 'to' (:func:`_arith_endpoint`): its
+    basis names the arithmetic, and a failure is a warning (INT-SUBJ-004), since the figure the change ends at is read through the
+    arithmetic, not stated as the figure after 'to'. ``spec`` itself for any other pair."""
+    if not p.via:
+        return spec
+    basis = f"the figure after 'to' is the stated result of the written arithmetic '{p.via} = {values.shown_b}'"
+    return replace(spec, severity="warning", basis=(spec.basis + "; " + basis) if spec.basis else basis)
 
 
 def _subject_words(text: str) -> set[str]:
@@ -1800,12 +1910,17 @@ def worked_equations(text: str) -> list[WorkedEquation]:
             links = [segment[x + 1: y] for x, y in zip(bounds, bounds[1:])]
             if len(links) < 2:
                 continue
+            # the first link with an operator between two figures, kept as the links are read: each link is searched once, so a chain
+            # of n '=' links costs n searches (the earliest such link before link k was searched for again at every k, n² searches;
+            # integration gate 1, parser-safety-12)
+            first: Optional[int] = None
             for k in range(1, len(links)):
+                if first is None and _OPERATOR_BETWEEN_RE.search(links[k - 1]):
+                    first = k - 1
                 # a result is a figure with no further arithmetic in its link ('3,000 loaves per month', '−4 A1'); '6 − 6t' or
                 # '4000(1 + 0.036)^5' is an expression, not a stated result
                 if not (_RESULT_START_RE.match(links[k]) and not _OPERATOR_BETWEEN_RE.search(links[k])):
                     continue
-                first = next((f for f in range(k) if _OPERATOR_BETWEEN_RE.search(links[f])), None)
                 if first is None:
                     continue
                 lead = _LINK_LEAD_END_RE.match(links[first])
@@ -2004,7 +2119,7 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
         # total of about $9 billion'): its parts are meant but not all stated as figures, so it is named, never passed silently; a plain
         # quantity ('The famine killed a total of about one million people') states no arithmetic and is not read
         tp = _TOTAL_PHRASE_RE.search(clause)
-        if tp is not None and not lead_parts and not _OF_WHICH_RE.search(clause) and not _TOTAL_RE.search(clause):
+        if tp is not None and not lead_parts and not _OF_WHICH_RE.search(clause) and not _search_total(_TOTAL_RE, clause):
             before = _amounts(clause, tp.start())
             anaphor = _PARTS_ANAPHOR_RE.search(clause[: tp.start()])
             phrase = " ".join(clause[tp.start():].split())[:120].strip(" ,.")
@@ -2459,6 +2574,27 @@ def _parts_spec(clause: str, whole: _Fig, parts: list[_Fig], tolerance: Fraction
                  ("STATED_PARTS", concl, label), Fraction(0), "both", "figure stated in the report itself", "", phrase)
 
 
+def _without_long_number_runs(pi: int, para: str, sentences: list[str], numbers: Optional[list[int]],
+                              undecided: list[QuantUndecided]) -> tuple[str, list[str]]:
+    """``(para, sentences)`` with every sentence that holds a run of more number words than a figure in words takes
+    (:data:`_LONG_NUMBER_RUN_RE`, 'one hundred and one hundred and ...') blanked, and each such sentence reported undecided
+    (``CORE-QNT-001``): no reader of the sentence or of its paragraph reads a figure in it, so no part of the run is read as a
+    figure of its first words. Unchanged (the same objects) when no sentence holds such a run."""
+    runs = [_LONG_NUMBER_RUN_RE.search(s) for s in sentences]
+    if not any(runs):
+        return para, sentences
+    out = list(sentences)
+    for si, (sent, run) in enumerate(zip(sentences, runs)):
+        if run is None:
+            continue
+        undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), " ".join(run.group(0).split())[:100] + " ...", LONG_NUMBER_RUN_REASON))
+        out[si] = ""
+        at = para.find(sent)
+        if at >= 0:
+            para = para[:at] + " " * len(sent) + para[at + len(sent):]
+    return para, out
+
+
 @lru_cache(maxsize=128)
 def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) -> tuple[tuple[_Spec, ...], tuple[QuantUndecided, ...], tuple[tuple[str, tuple], ...]]:
     """Read every paragraph of ``text``: the pair-bound checks, the cross-sentence checks, the
@@ -2478,7 +2614,10 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
         pending: list[tuple[int, str, list[_Derived], Optional[tuple]]] = []   # (sentence index, clause, unbound derived, extras)
         per_sentence_specs: list[tuple[int, _Spec]] = []
         sentence_pairs: dict[int, list[tuple[_Pair, str, str]]] = {}   # sentence index -> (pair, clause, the pair's subject words)
+        para, sentences = _without_long_number_runs(pi, para, list(sentences), numbers, undecided)
         for si, sent in enumerate(sentences):
+            if not sent:
+                continue  # a sentence holding a run of number words too long for a figure: reported undecided, not read
             clauses = split_clauses(sent) if (";" in sent or _LOWER_CONTINUATION_RE.search(sent)) else [sent]
             all_clauses.extend(clauses)
             if si_mode:
@@ -2502,6 +2641,10 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                 try:
                     derived = _derived_phrases(clause, si_mode)
                     pairs = _pairs_outside(_pairs(clause, pat), derived)
+                    for p in pairs:  # a later figure opening written arithmetic with no stated result: the change's end is not stated
+                        if p.arith:
+                            undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), p.arith[:120], ARITH_ENDPOINT_REASON))
+                    pairs = [p for p in pairs if not p.arith]
                     prev_end = 0
                     for p in pairs:
                         s = _si_series_of(p, si, clause, reading.profile) if si_mode else _series_of(p, si, clause)
@@ -2533,7 +2676,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                             if spec is None:
                                 undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), d.words, why))
                             else:
-                                per_sentence_specs.append((si, spec))
+                                per_sentence_specs.append((si, _through_arithmetic(spec, p, values)))
                     # a pair governed by a direction word and no stated change ('pig iron rising from X to Y'): the direction is checked
                     prev_dir: Optional[str] = None
                     prev_end = 0
@@ -2558,7 +2701,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                         if values is None:
                             continue  # a year span, or units that cannot be compared (a misread pair): no direction is stated between them
                         statement = clause.strip() if len(pairs) == 1 else clause[seg_start:seg_end].strip(" ,;")
-                        per_sentence_specs.append((si, _direction_spec(values, word, statement)))
+                        per_sentence_specs.append((si, _through_arithmetic(_direction_spec(values, word, statement), p, values)))
                     for cm in (_COMPARE_RE.finditer(clause) if not si_mode and _COMPARE_HINT_RE.search(clause) else ()):
                         spec, why = _comparison_spec(cm, clause, si, sentence_pairs, pairs, tolerance)
                         if spec is not None:
@@ -2693,7 +2836,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
     others: list[tuple[str, tuple]] = []
     if si_mode:
         for k, sent in enumerate(all_clauses):
-            for kind, m in (("share", pat.share.search(sent)), ("total", pat.total.search(sent))):
+            for kind, m in (("share", pat.share.search(sent)), ("total", _search_total(pat.total, sent))):
                 if not m:
                     continue
                 try:
@@ -2710,7 +2853,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
         sh = _SHARE_RE.search(sent)
         if sh and not any(sum(ch.isdigit() for ch in (g or "")) > MAX_FIGURE_DIGITS for g in sh.groups()):
             others.append(("share", (sent.strip(), sh.groups())))
-        tot = _TOTAL_RE.search(sent)
+        tot = _search_total(_TOTAL_RE, sent)
         if tot and not any(sum(ch.isdigit() for ch in (tot.group(f"n{i}") or "")) > MAX_FIGURE_DIGITS for i in (1, 2, 3)) \
                 and all(_cur_compatible(_cur_key(tot.group(f"c{i}") or ""), tot.group(f"w{i}") or "", _cur_key(tot.group("c3") or ""), tot.group("w3") or "") for i in (1, 2)):
             others.append(("total", (sent.strip(), tuple((tot.group(f"n{i}"), tot.group(f"u{i}"), tot.group(f"c{i}") or "", tot.group(f"w{i}") or "") for i in (1, 2, 3)))))
@@ -2762,7 +2905,7 @@ def _extract(text: str, *, request_id: str, claim_id: str, tolerance: Fraction, 
         else:
             rule = _rule_text(tolerance, spec.floor, spec.side)
         checks.append(QuantCheck(f"quant-{n}", spec.kind, spec.sentence, _problem(f"quant-{prefix[spec.kind]}-{n}", claim_id, request_id, list(spec.symbols), list(spec.premises), spec.conclusion, spec.note),
-                                 rule=rule, basis=spec.basis, phrase=spec.phrase))
+                                 rule=rule, basis=spec.basis, phrase=spec.phrase, failure_severity=spec.severity))
     if reading.si:  # shares and totals read in SI units, with the sign-aware band
         for kind, (sent, g, values) in others:
             n += 1

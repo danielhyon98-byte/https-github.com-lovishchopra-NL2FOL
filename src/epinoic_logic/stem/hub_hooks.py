@@ -169,23 +169,42 @@ class StemHooks:
 
     def word_count_view(self, text: str, profile_key: str) -> str:
         """``text`` with each maths span and code block replaced by one word (its newlines kept, so
-        paragraphs do not move) and LaTeX control words outside them removed."""
+        paragraphs do not move) and LaTeX control words outside them removed. Integration gate 1: a line of numerals and signs that no
+        span reads ('21 131.40 − 18 000.00 = 3 131.40', digits grouped with spaces or apostrophes) is maths too, and so is a one-line
+        'table' span with no separator row ('|−3| + |2| = 5', absolute values, not table markup): each is one word of the answer proper,
+        so such an answer is never counted as having no words (INT-REQ-012)."""
         try:
             doc = self._doc(text, None, profile_key)
-            spans = sorted((sp.start, sp.end, sp.kind) for sp in doc.spans.spans if sp.kind in _MATH_KINDS or sp.kind in _CODE_KINDS)
+            spans = sorted((sp.start, sp.end, sp.kind) for sp in doc.spans.spans
+                           if sp.kind in _MATH_KINDS or sp.kind in _CODE_KINDS or (sp.kind == "table" and _one_line_maths(text[sp.start:sp.end])))
             parts: list[str] = []
             pos = 0
             for a, b, kind in spans:
                 if a < pos:
                     continue
-                parts.append(_LATEX_WORD_RE.sub(" ", text[pos:a]))
+                parts.append(_numeral_lines(_LATEX_WORD_RE.sub(" ", text[pos:a])))
                 word = "Xcode" if kind in _CODE_KINDS else "Xmath"
                 parts.append(f" {word} " + "\n" * text.count("\n", a, b))
                 pos = b
-            parts.append(_LATEX_WORD_RE.sub(" ", text[pos:]))
+            parts.append(_numeral_lines(_LATEX_WORD_RE.sub(" ", text[pos:])))
             return "".join(parts)
         except Exception:
             return text
+
+
+#: integration gate 1: a line of numerals (digit groups by spaces, apostrophes, commas or points), operators, relation signs, brackets and
+#: bars with at least one digit and one relation sign or operator (bounded per line)
+_NUMERAL_LINE_RE = re.compile(r"(?m)^[ \t]*(?=[^\n]*\d)(?=[^\n]*[=≈<>≤≥×÷+−\-*/^])[0-9 \t.,'’()\[\]|%=≈<>≤≥×÷+−\-*/^·]{1,400}$")
+
+
+def _numeral_lines(segment: str) -> str:
+    """``segment`` with each whole line of numerals and signs replaced by one word of maths (its line kept)."""
+    return _NUMERAL_LINE_RE.sub(" Xmath ", segment)
+
+
+def _one_line_maths(span_text: str) -> bool:
+    """A 'table' span that is one line with no separator row and a relation sign in it ('|−3| + |2| = 5')."""
+    return "\n" not in span_text.strip() and "---" not in span_text and any(c in span_text for c in "=≈<>≤≥")
 
 
 STEM_HOOKS = StemHooks()

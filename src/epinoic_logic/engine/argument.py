@@ -90,7 +90,7 @@ from . import argument_cues as cues
 from .authority import has_authority
 from .compiler import Compiled, CompileError, compile_expr, compile_problem
 from .errors import ADVISORY_CODES, NO_VERDICT_CODES, DiagnosticCode
-from .procedures import ProcedureOutcome, extract_model
+from .procedures import ModelValueOutOfRange, ProcedureOutcome, extract_model
 from .statuses import VerificationStatus
 from .validator import validate_problem
 
@@ -1140,6 +1140,10 @@ class _Runs:
             return _Run()
         self.count += 1
         run = self._decide(kept_ids, conclusion, concl_key, tag, extra, model)
+        if (time.perf_counter() - self.started) * 1000.0 > self.total:
+            # the run (its model extraction included) went past the stage's total budget: what it decided is kept, and the
+            # diagnosis says it did not finish within its bound (integration gate, round 1)
+            self._missing("budget_exhausted")
         if run.status is not None:
             self._decided[key] = run
         return run
@@ -1219,7 +1223,11 @@ class _Runs:
             core = list(solver.unsat_core())
             return _Run(status=_S.ENTAILED, digest=digest, core=[pid for pid, lit in tracks if any(lit.eq(c) for c in core)])
         if second == z3.sat:
-            values = extract_model(compiled, solver.model(), True) if model else {}
+            try:
+                values = extract_model(compiled, solver.model(), True) if model else {}
+            except ModelValueOutOfRange:  # a value beyond the reporting bound is never converted: the run is not reported
+                self._missing("model_out_of_range")
+                return _Run(digest=digest)
             return _Run(status=_S.COUNTEREXAMPLE, digest=digest, model=values)
         self._missing("derived_undecided")
         return _Run(digest=digest)
@@ -1526,10 +1534,16 @@ class _Diagnosis:
         tried = 0
         for w in r.links + r.facts:
             node = self.dumps[w]
-            if _vars(node) != concl_vars or _canon(node) == target or tried >= MAX_EQUIVALENCES:
+            if _canon(node) == target or tried >= MAX_EQUIVALENCES:
                 continue
-            restates = not _has_op(node, _ARITH) and _literal_values(node) == concl_literals
-            if not restates and not (self.unsourced_writer(w) and not _computation(node)):
+            node_vars = _vars(node)
+            writer_own = self.unsourced_writer(w) and not _computation(node)
+            # the same symbols; or, for the writer's own unsourced premise, more symbols than the point's (integration gate,
+            # round 1: "c or (c and a)" is the point c in other words, with a symbol the point does not use)
+            if node_vars != concl_vars and not (writer_own and concl_vars and concl_vars < node_vars):
+                continue
+            restates = node_vars == concl_vars and not _has_op(node, _ARITH) and _literal_values(node) == concl_literals
+            if not restates and not writer_own:
                 continue
             tried += 1
             run = self.runs.entail([], _iff(node, self.conclusion), f"equiv{tried}")
@@ -1696,6 +1710,8 @@ class _Diagnosis:
                 args = node.get("args") or []
                 if any(_complementary(a, b) or self.complementary_meanings(a, b) for i, a in enumerate(args) for b in args[i + 1:]):
                     continue
+                if _option_entails_another(args):
+                    continue  # one option holds whenever another does ("c or (c and a)" is c): no choice between two, no dilemma
                 if _exhaustive_options([gloss(a, self.meanings)[:400] for a in args]):
                     continue  # the options exhaust what they speak of (a closed partition, or comparisons that cover every case)
                 tried += 1
@@ -1998,6 +2014,37 @@ class _Diagnosis:
                           assertion_ids=[c, fact, self.concl_id or ""], missing_link=self.link_of([], converse),
                           evidence=[*self.span_of(c), *self.span_of(fact)], derivation="engine_recheck", digests=[run.digest])
                 return True
+        return self._affirming_chain(concl, facts, tried)
+
+    def _affirming_chain(self, concl: dict, facts: list, tried: int) -> bool:
+        """ARG-AC-001 a over a chain of stated rules (integration gate, round 1: a -> b, b -> c, the fact c and the point a
+        were named only by the generic ARG-INV-001): the rules together entail point -> fact (a derived check, as
+        :meth:`converse_links` reads chains), the fact is stated, and only the converse of the chain, fact -> point, would
+        make the point follow."""
+        conds = list(self._conditionals())
+        if len(conds) < 2:
+            return False
+        for f in facts:
+            for x in _conjuncts(self.dumps[f]):
+                if tried >= MAX_CONVERSES:
+                    return False
+                if _same(x, concl) or x.get("op") not in ("var", "not"):
+                    continue
+                tried += 1
+                chain = self.runs.entail(conds, _implies(concl, x), f"chain{tried}")
+                if chain.status is not _S.ENTAILED:
+                    continue
+                converse = _implies(x, concl)
+                run = self.runs.entail(self.ids, concl, f"conv{tried}", extra=[converse])
+                if run.status is _S.ENTAILED:
+                    used = [c for c in conds if c in set(chain.core)] or conds
+                    self.emit("ARG-AC-001", f"affirming the consequent: the rules {', '.join(self.named(c) for c in used[:4])} together give "
+                                            f"{self.g(concl, 120)!r} -> {self.g(x, 120)!r}, and from the stated fact {self.named(f)} the point concludes "
+                                            f"{self.g(concl, 120)!r}; only the converse of the chain, which no premise states, would give it",
+                              assertion_ids=[*used[:4], f, self.concl_id or ""], missing_link=self.link_of([], converse),
+                              evidence=[*[s for c in used[:4] for s in self.span_of(c)], *self.span_of(f)], derivation="engine_recheck",
+                              digests=[chain.digest, run.digest])
+                    return True
         return False
 
     def denying(self, concl: dict) -> bool:
@@ -2164,6 +2211,25 @@ class _Diagnosis:
                   assertion_ids=[self.concl_id or ""], evidence=[s for n in names[:8] for s in self.meaning_span(n)], derivation="engine_recheck",
                   digests=[run.digest])
         return True
+
+
+def _conjunct_keys(node: Any) -> frozenset[str]:
+    """The canonical forms of the "and" conjuncts of an option (nested conjunctions flattened)."""
+    out, stack = set(), [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict) and n.get("op") == "and":
+            stack.extend(n.get("args") or [])
+        else:
+            out.add(_canon(n))
+    return frozenset(out)
+
+
+def _option_entails_another(args: Sequence[Any]) -> bool:
+    """Whether one option of a disjunction holds every conjunct of another (so it entails that option, read on the data:
+    nothing is evaluated): then the disjunction is the weaker option, and offers no dilemma."""
+    keys = [_conjunct_keys(a) for a in args]
+    return any(i != j and keys[i] >= keys[j] for i in range(len(keys)) for j in range(len(keys)))
 
 
 def diagnose(problem: Any, proc: Any, compiled: Any, config: Any, limits: Any, diagnostics: Optional[list] = None) -> tuple[list[NamedDiagnostic], str]:

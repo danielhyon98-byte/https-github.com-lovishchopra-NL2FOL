@@ -62,6 +62,9 @@ EXIT_UNAVAILABLE = 3
 
 #: Adapter ids accepted by ``check-report``; they are looked up in the adapter registry.
 ADAPTER_IDS = ("generic-structured", "english-specialist", "history-specialist")
+#: The module that registers each allowed adapter.
+_ADAPTER_MODULES = {"generic-structured": "epinoic_logic.adapters.generic_structured", "english-specialist": "epinoic_logic.adapters.english_specialist",
+                    "history-specialist": "epinoic_logic.adapters.history_specialist"}
 
 
 class CliError(Exception):
@@ -94,15 +97,43 @@ def _read_json(path: str) -> Any:
         raise CliError(f"{path} is not valid JSON") from None
 
 
+#: The shortest signing key the command line accepts: the service's minimum (``service.settings.MIN_SIGNING_KEY_BYTES``),
+#: written here because the parser runs before any service import.
+MIN_SIGNING_KEY_BYTES = 16
+#: The environment variable a signing key (hex) may come from instead of the command line, where the process list shows it.
+SIGNING_KEY_ENV = "EPINOIC_SIGNING_KEY"
+
+
 def _signing(args: argparse.Namespace) -> tuple[Optional[bytes], Optional[str]]:
-    if not args.signing_key_hex:
-        return None, None
+    """The signing key and its id. The key (hex) comes from ``--signing-key-file`` (a file holding the hex text), from
+    ``--signing-key-hex``, or else from the ``EPINOIC_SIGNING_KEY`` environment variable; one given in two ways is refused.
+    A key shorter than :data:`MIN_SIGNING_KEY_BYTES` is refused as the service refuses it (integration gate, round 1: a
+    one-byte key signed results under a production key id)."""
+    import os
+    path = getattr(args, "signing_key_file", None)
+    given = [x for x in (path, args.signing_key_hex) if x]
+    if len(given) > 1:
+        raise CliError("give the signing key once: --signing-key-file or --signing-key-hex, not both")
+    if path:
+        try:
+            text = Path(path).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            raise CliError("--signing-key-file cannot be read as text") from None
+        where = "--signing-key-file"
+    elif args.signing_key_hex:
+        text, where = args.signing_key_hex, "--signing-key-hex"
+    else:
+        text, where = os.environ.get(SIGNING_KEY_ENV, "").strip(), SIGNING_KEY_ENV
+        if not text:
+            return None, None
     try:
-        key = bytes.fromhex(args.signing_key_hex)
+        key = bytes.fromhex(text)
     except ValueError:
-        raise CliError("--signing-key-hex must be hex text") from None
+        raise CliError(f"{where} must be hex text") from None
     if not key:
-        raise CliError("--signing-key-hex must not be empty")
+        raise CliError(f"{where} must not be empty")
+    if len(key) < MIN_SIGNING_KEY_BYTES:
+        raise CliError(f"{where} is {len(key)} byte(s); a signing key needs at least {MIN_SIGNING_KEY_BYTES} bytes")
     return key, args.key_id or "default"
 
 
@@ -161,7 +192,11 @@ def _load_pipeline() -> tuple[Any, Any, Any]:
 
 
 def _load_adapter(adapter_id: str) -> Optional[Any]:
-    """Return the registered adapter, or None when the adapters package is not available."""
+    """Return the registered adapter, or None when the adapters package is not available. The id is checked against the
+    closed allowlist :data:`ADAPTER_IDS` before anything is imported, so no module name is ever built from command-line
+    text (integration gate, round 1: ``--adapter stem_specialist.parser`` imported that module before it was refused)."""
+    if adapter_id not in ADAPTER_IDS:
+        raise CliError(f"unknown adapter {adapter_id!r}; expected one of {', '.join(ADAPTER_IDS)}")
     try:
         importlib.import_module("epinoic_logic.adapters")
         base = importlib.import_module("epinoic_logic.adapters.base")
@@ -171,9 +206,10 @@ def _load_adapter(adapter_id: str) -> Optional[Any]:
         return base.get_adapter(adapter_id)
     except (KeyError, LookupError, ValueError):
         pass
-    # The registry may be populated only when the adapter's own module is imported.
+    # The registry may be populated only when the adapter's own module is imported: one of a closed map, never a name
+    # built from the id.
     with contextlib.suppress(ImportError):
-        importlib.import_module(f"epinoic_logic.adapters.{adapter_id.replace('-', '_')}")
+        importlib.import_module(_ADAPTER_MODULES[adapter_id])
     try:
         return base.get_adapter(adapter_id)
     except (KeyError, LookupError, ValueError):
@@ -283,7 +319,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--timeout-ms", type=int, default=None, help="solver timeout in milliseconds (default 2000)")
     parser.add_argument("--rlimit", type=int, default=None, help="Z3 resource limit for deterministic cutoffs")
-    parser.add_argument("--signing-key-hex", default=None, help="HMAC-SHA256 key (hex) to sign results")
+    parser.add_argument("--signing-key-hex", default=None, help="HMAC-SHA256 key (hex, at least 16 bytes) to sign results; the process list shows it, "
+                                                                 "so prefer --signing-key-file or the EPINOIC_SIGNING_KEY environment variable")
+    parser.add_argument("--signing-key-file", default=None, help="file holding the HMAC-SHA256 key as hex text (at least 16 bytes)")
     parser.add_argument("--key-id", default=None, help="key identifier bound into signed results")
 
 

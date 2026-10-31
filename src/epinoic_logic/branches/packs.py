@@ -20,15 +20,15 @@ from typing import Optional
 
 from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
-from ..adapters.markdown import (MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, dangling_quote_offset, find_quotation_spans, is_memory_label, unbalanced_double_quotes,
-                                 verification_label)
+from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, absent_mentions, dangling_quote_offset,
+                                 find_quotation_spans, is_memory_label, parser_quotation_spans, strip_emphasis, unbalanced_double_quotes, verification_label)
 from ..adapters.sources import check_excerpt, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from ..translate.subjects import resolve_profile
 from .base import FormalCheck
-from .quant import GENERAL, WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements
+from .quant import ARITH_ENDPOINT_REASON, GENERAL, LONG_NUMBER_RUN_REASON, WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
 #: The most formal checks the core pack sends to the engine for one transmission (arithmetic first, then chronology). An answer far
@@ -268,7 +268,7 @@ def _quant_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = 
     for qc in (checks if limit is None else checks[: max(0, limit)]):
         description = f"report's own arithmetic: {_excerpt_around(qc.sentence, qc.phrase)}" + (f" [{qc.basis[:400]}]" if qc.basis else "") + (f" [{qc.rule}]" if qc.rule else "")
         out.append(FormalCheck(check_id=f"{prefix}-{qc.check_id}", kind=qc.kind, description=description, problem=qc.problem,
-                               claim_ids=_quant_claims(report, qc, reading)))
+                               claim_ids=_quant_claims(report, qc, reading), failure_severity="warning" if qc.failure_severity == "warning" else "error"))
     return out
 
 
@@ -543,29 +543,13 @@ def _claims_for_excerpt(report: SpecialistReport, sentence: str, excerpt: str, s
     return ids or [c.claim_id for c in report.claims if excerpt in c.claim_text]
 
 
-#: Words before a quoted word that say the text lacks it: 'has no "like"', 'never says "ayudar"', 'does not use "toda"', 'without "as"'.
-_ABSENT_BEFORE_RE = re.compile(
-    r"(?:\b(?:has|have|had|contains?|uses?|includes?|gives?|offers?)\s+no\s+(?:(?:word|words|term|mention|instance|use)\s+(?:of\s+|like\s+)?)?"
-    r"|\b(?:never|nowhere)\s+(?:says?|uses?|writes?|mentions?|contains?|includes?|states?)\s+(?:the\s+word\s+)?"
-    r"|\b(?:does|did|do)\s*(?:not|n['’]t)\s+(?:say|use|write|mention|contain|include|state)\s+(?:the\s+word\s+)?"
-    r"|\blacks?\s+(?:the\s+word\s+)?|\bwithout\s+(?:the\s+word\s+|a\s+|an\s+)?|\bno\s+(?:word\s+)?|\bneither\s+)$", re.IGNORECASE)
-#: What may stand between two quoted words of one absent mention: 'has no "like" or "as"', 'neither "like" nor "as"'.
-_ABSENT_JOIN_RE = re.compile(r"^\s*(?:,\s*)?(?:or|nor|and)\s+$|^\s*,\s*$", re.IGNORECASE)
-
-
-def _absent_mentions(text: str, spans: list[tuple[int, int, str]]) -> list[str]:
-    """The quoted words of ``text`` that its sentence says the text lacks ('the bruise comparison has no "like" or "as"', 'the text never
-    says "ayudar"'): a mention of a word, not a quotation of a text."""
-    out: list[str] = []
-    prev_absent_end: Optional[int] = None
-    for s, e, inner in spans:
-        before = text[max(0, s - 60): s]
-        if _ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and _ABSENT_JOIN_RE.match(text[prev_absent_end: s])):
-            out.append(inner.strip())
-            prev_absent_end = e
-        else:
-            prev_absent_end = None
-    return out
+#: Words before a quoted word that say the text lacks it ('has no "like"', 'never says "ayudar"', 'does not use "toda"', 'without
+#: "as"'), what may join two such words ('has no "like" or "as"'), and the quoted words a sentence says the text lacks: the
+#: frame reader of ``adapters.markdown`` (moved there unchanged in integration gate 1, so the parsers credit such a mention to
+#: no text by the same frames; the channel and the Overseer import it from here under these names).
+_ABSENT_BEFORE_RE = ABSENT_BEFORE_RE
+_ABSENT_JOIN_RE = ABSENT_JOIN_RE
+_absent_mentions = absent_mentions
 
 
 def _claims_mentioning(report: SpecialistReport, fragment: str) -> list[str]:
@@ -582,9 +566,15 @@ def _claims_for_si_statement(report: SpecialistReport, sentence: str, reading: Q
         return _claims_mentioning(report, sentence)
     sid = f"{paragraph}.{number}" if number else ".tail"
     ids = {c.claim_id for c in report.claims}
+    # the STEM parsers qualify their ids with the agent ('s1.2@physics-specialist'): the id before the qualifier names it
+    base: dict[str, str] = {}
+    for c in report.claims:
+        base.setdefault(c.claim_id.split("@", 1)[0], c.claim_id)
     for prefix in ("s", "m", "c"):  # the STEM branches' claim ids (adapters.stem_specialist.parser.ID_PREFIXES)
         if prefix + sid in ids:
             return [prefix + sid]
+        if prefix + sid in base:
+            return [base[prefix + sid]]
     for p, n, a, b in si_statements(report.original_response, reading.profile):
         if p == paragraph and n == number:
             return _claims_mentioning(report, report.original_response[a:b])
@@ -714,7 +704,10 @@ class CorePack:
             if c.claim_role == "other":
                 continue
             text, _removed = strip_json_spans(c.claim_text)
-            quotes = [inner.strip() for _s, _e, inner in find_quotation_spans(text) if len(inner.strip()) >= 4]
+            # the quotations a parser reads (``parser_quotation_spans``): a correction or a suggestion in a marking task is the writer's
+            # own words, never an unaccounted quotation of the claim (integration gate 1, end-to-end B5, B13); outside a feedback task
+            # these are every quoted span, as before
+            quotes = [inner.strip() for _s, _e, inner in parser_quotation_spans(text) if len(inner.strip()) >= 4]
             if not quotes:
                 continue
             refs = [r for x in [c, *(by_id[i] for i in c.supporting_claim_ids if i in by_id)] for r in x.source_refs if r.excerpt and r.document_id in docs]
@@ -769,8 +762,10 @@ class CorePack:
         quotation view is read (code and number marks masked)."""
         source = si_quote_view(report.original_response, reading.profile) if reading.si else report.original_response
         text, _removed = strip_json_spans(source)
-        spans = find_quotation_spans(text)
-        mentions = {_quote_key(q) for q in _absent_mentions(text, spans)}
+        # read as the parsers read it: emphasis markers inside a quotation ('"*una mujer muy simpático*"') are markup, not the words quoted
+        text = strip_emphasis(text)
+        spans = parser_quotation_spans(text)  # the quotations a parser reads: a correction in a marking task is the writer's own words
+        mentions = {_quote_key(q) for q in _absent_mentions(text, find_quotation_spans(text))}  # read on every span, as before
         quoted = [inner.strip() for _s, _e, inner in spans if len(inner.strip()) >= _MIN_QUOTE_CHARS]
         texts = list(report.supplied_texts)
         recorded: list[tuple[str, str]] = []  # (claim id, excerpt) the parser credited to no text, whatever its length, texts or none
@@ -965,7 +960,9 @@ class CorePack:
                     continue
                 shown.append(name)
             phrases = "', '".join(shown) + (f"' and {more} more" if more else "'")
-            what = "states worked arithmetic" if reason == WORKED_EQUATION_REASON else "states a derived figure or a relation over dated figures"
+            what = ("states worked arithmetic" if reason == WORKED_EQUATION_REASON else "states figures in words" if reason == LONG_NUMBER_RUN_REASON
+                    else "states a change between two figures" if reason == ARITH_ENDPOINT_REASON
+                    else "states a derived figure or a relation over dated figures")
             if reading.si:  # the STEM claim of the statement (paragraph and statement numbers are the STEM claim ids)
                 ids = _claims_for_si_statement(report, items[0].sentence_text, reading, pi, si)
             else:

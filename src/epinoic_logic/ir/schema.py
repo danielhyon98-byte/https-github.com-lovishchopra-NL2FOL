@@ -35,11 +35,16 @@ GroundingKind = Literal[
 ]
 Certainty = Literal["established", "probable", "possible"]
 
-IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-ASSERTION_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
-INT_RE = re.compile(r"^-?(0|[1-9][0-9]*)$")
-RATIONAL_RE = re.compile(r"^-?(0|[1-9][0-9]*)/([1-9][0-9]*)$")
-DECIMAL_RE = re.compile(r"^-?(0|[1-9][0-9]*)\.[0-9]+$")
+#: Identifier and literal rules. Each is anchored at both ends with ``\Z``, never ``$``: ``$`` also matches before a
+#: trailing newline, so ``'x\n'`` was accepted as a symbol distinct from ``'x'`` (and ``'1\n'`` as a literal) until
+#: integration gate round 1; with ``\Z``, ``.match`` and ``.fullmatch`` give the same answer. ``IDENT_PATTERN`` is the
+#: rule as error messages and the prompts write it.
+IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z")
+IDENT_PATTERN = "^[a-z][a-z0-9_]{0,63}$"
+ASSERTION_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}\Z")
+INT_RE = re.compile(r"^-?(0|[1-9][0-9]*)\Z")
+RATIONAL_RE = re.compile(r"^-?(0|[1-9][0-9]*)/([1-9][0-9]*)\Z")
+DECIMAL_RE = re.compile(r"^-?(0|[1-9][0-9]*)\.[0-9]+\Z")
 
 
 class _Node(BaseModel):
@@ -54,7 +59,7 @@ class Var(_Node):
     @classmethod
     def _ident(cls, v: str) -> str:
         if not IDENT_RE.match(v):
-            raise ValueError(f"invalid identifier {v!r}: must match {IDENT_RE.pattern}")
+            raise ValueError(f"invalid identifier {v!r}: must match {IDENT_PATTERN} (no trailing line break)")
         return v
 
 

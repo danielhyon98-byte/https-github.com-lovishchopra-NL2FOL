@@ -89,6 +89,17 @@ it. The deadline stops new work from starting.
    success is no success.
 5. **No error-level finding on the receipt.**
 6. **Every branch formal check holds.** These are the report's own STEM, arithmetic and chronology checks.
+
+   6a. **Nothing recognised was left unchecked** (rule `unchecked-working`). The receipt carries no finding of
+   `NOT_CHECKED_CODES`, whichever claim it names: notation outside the STEM grammar or too many readings (ST-PARSE-001,
+   ST-PARSE-002), a relation outside the encodings, resting on a symbol with no stated value or a Given that could not be
+   set against the request (ST-UNDEC-001, -002, -003), an undefined expression (ST-UNDEF-001), a unit checked as written
+   only (ST-UNIT-001), an unreadable chemical equation (ST-CHEM-001), a code block (ST-CODE-001), a bound exceeded
+   (ST-LIM-001, -002), a pack that failed (ST-INTERNAL-001, BR-INTERNAL-001) or a check left undecided (INT-SUBJ-002).
+
+   6b. **No agent self-report** (rule `self-report-disclosed`). The receipt carries no CORE-SELF-001, ES-META-001 or
+   INT-REQ-014 at any severity, and the task audit names the answer in no OVS-FID-005 or OVS-FID-009. An agent's
+   statement that its answer was checked or verified is advisory and never travels under the FORMALLY CHECKED label.
 7. **No objection from the transfer audit.** The overseer's translation checks (`OVS-TRN-*`) name none of the material
    claims. The latest verified task audit names the answer in no error. The transfer's clearance lets the router act
    (`policy.act_decision`).

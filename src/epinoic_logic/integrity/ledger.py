@@ -17,6 +17,7 @@ are read as before.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from functools import lru_cache
 from typing import Iterable, Optional
 
@@ -28,8 +29,63 @@ PLACEHOLDERS = frozenset({"n/a", "na", "-", ".", "tbd", "see above", "none", "nu
                           "carried", "paraphrased", "merged", "narrowed", "generalized", "generalised", "dropped", "new", "drop", "omitted", "omit",
                           "removed", "excluded", "left out", "not included", "skipped", "not used", "unused", "deleted", "cut"})
 _NUMBER_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
+#: A list marker at a line start ("1. ", "(2) "), with the white space before it. The reference rule only: every reader
+#: replaces markers through :func:`_strip_list_markers`, which gives exactly ``_LIST_MARKER_RE.sub(" ", text)`` in linear
+#: time (integration gate, round 1: ``\s*`` from every line start of a run of blank lines rescanned the whole run, so
+#: 20,000 blank lines cost 4.7 s per call and 40,000 about 19 s).
 _LIST_MARKER_RE = re.compile(r"(?m)^\s*\(?\d{1,2}[.)]\s")
+_LIST_MARKER_AT_RE = re.compile(r"\(?\d{1,2}[.)]\s")
+_SPACE_RUN_RE = re.compile(r"\s*")
+
+
+def _strip_list_markers(text: str, repl: str = " ") -> str:
+    """``_LIST_MARKER_RE.sub(repl, text)``, exactly, in linear time. A match starts at a line start (the text's start or
+    just after a line feed), runs over the white space from there and ends with the marker, so every line start inside one
+    white-space run ends its run at the same place and meets the same marker test: the run is read once, and when the
+    test fails every line start up to the run's end is passed over at once. After a match the search resumes at its end,
+    as ``re.sub`` does."""
+    out: list[str] = []
+    last = 0
+    p = 0
+    n = len(text)
+    while p <= n:
+        q = _SPACE_RUN_RE.match(text, p).end()
+        m = _LIST_MARKER_AT_RE.match(text, q)
+        if m is not None:
+            out.append(text[last:p])
+            out.append(repl)
+            last = m.end()
+            if text[last - 1] == "\n":
+                p = last
+                continue
+            nl = text.find("\n", last)
+        else:
+            nl = text.find("\n", q)
+        if nl < 0:
+            break
+        p = nl + 1
+    out.append(text[last:])
+    return "".join(out)
 _THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+#: A number written in digit groups joined by a space, a no-break space (U+00A0), a thin space (U+2009), a narrow no-break
+#: space (U+202F) or LaTeX's thin space ``\,`` (the IB and SI thousands separator: "1 512 000", "21\,131.40"): a lead of
+#: one to three digits, then groups of exactly three, the last followed by no digit or letter (a decimal part may follow).
+#: It is one number, as the comma-grouped "1,512,000" is, so a synthesis that writes a source's "3,000" as "3 000" states
+#: the source's figure (integration gate, round 1: "3 000" was read as the figures 3 and 000). One pass: a match consumes
+#: its whole run, and a start that fails does so at its first group.
+_GROUP_SEP = r"(?:[ \u00a0\u2009\u202f]|\\,)"
+_SPACE_GROUPED_RE = re.compile(r"(?<![\w.,])\d{1,3}(?:" + _GROUP_SEP + r"\d{3})+(?![\d\w])")
+_GROUP_SEP_RE = re.compile(_GROUP_SEP)
+
+
+def _ungroup(text: str) -> str:
+    """``text`` with the digit-group separators of its numbers removed: commas (``_THOUSANDS_RE``), then the space-like
+    separators and LaTeX's thin space of :data:`_SPACE_GROUPED_RE`. Every figure reader of the ledger reads both sides of
+    a comparison through it."""
+    text = _THOUSANDS_RE.sub("", text)
+    return _SPACE_GROUPED_RE.sub(lambda m: _GROUP_SEP_RE.sub("", m.group(0)), text)
+
+
 #: A decade written in digits ("the 1840s", "the 1840's"): a date of its own, never the year it starts with, so a synthesis
 #: that moves an event or a verdict to "the 1850s" states a date its sources do not (INT-LEDGER-023).
 _DECADE_RE = re.compile(r"(?<![\w.])(1\d{2}0|20\d0)['’]?s(?!\w)")
@@ -339,9 +395,9 @@ def _plain_for_pairs(text: str) -> str:
     for _ in range(3):
         text = _ARITHMETIC_BRACKET_RE.sub(lambda m: f" {m.group(1)} ", text)
     text = _INTERVAL_RE.sub(lambda m: f"{m.group(1)}~{m.group(2)} {m.group(3)}", text)
-    text = _YEARLIKE_QUANTITY_RE.sub(lambda m: f"{m.group(1) or m.group(3)}{m.group(2) or m.group(4)}.0", _LIST_MARKER_RE.sub(" ", text))
+    text = _YEARLIKE_QUANTITY_RE.sub(lambda m: f"{m.group(1) or m.group(3)}{m.group(2) or m.group(4)}.0", _strip_list_markers(text))
     text = _DECADE_RE.sub(lambda m: m.group(1) + "s", text)
-    return _words_as_digits(_THOUSANDS_RE.sub("", text))
+    return _words_as_digits(_ungroup(text))
 
 
 def _shown_figures(description: str) -> str:
@@ -367,7 +423,9 @@ def _figure_kind(tokens: list[str], i: int) -> str:
         return "year"
     if re.fullmatch(r"1\d{2}0s|20\d0s", tok):
         return "decade"
-    if tok.isdecimal() and 1 <= int(tok) <= 31:  # a superscript '¹⁹' is a digit to isdigit() but neither decimal nor a day
+    # a superscript '¹⁹' is a digit to isdigit() but neither decimal nor a day; the length is read before int(), so a figure of
+    # thousands of digits (over Python's 4,300-digit conversion limit) is a quantity, never an error (integration gate, round 1)
+    if tok.isdecimal() and len(tok) <= 2 and 1 <= int(tok) <= 31:
         for j in (i - 1, i + 1):
             if 0 <= j < len(tokens) and tokens[j].casefold() in _MONTHS:
                 return "day"
@@ -401,14 +459,22 @@ def _clauses(text: str) -> list[list[str]]:
     carry: list[str] = []
     prev_sep = "end"
     for tokens, sep in segments:
-        tokens = carry + tokens
-        carry = []
+        if carry:
+            # The carry is a date (it holds a numeral, and every token is a numeral or a date word), so the joined clause
+            # is one exactly when the new tokens are: only they are read, and the carry is extended in place. Joining and
+            # re-reading the whole carry for every segment was quadratic in a run of comma-separated dates (integration
+            # gate, round 1).
+            date_only = all(_is_numeral(t) or t.casefold() in _DATE_WORDS for t in tokens)
+            carry.extend(tokens)
+            tokens, carry = carry, []
+        else:
+            date_only = _date_only(tokens)
         if not tokens:
             prev_sep = sep
             continue
-        if _date_only(tokens) and sep == ",":
-            carry = tokens  # a leading date: it belongs to the clause after the comma
-        elif _date_only(tokens) and prev_sep == "," and out and sep in (".", "!", "?", "end", ";"):
+        if date_only and sep == ",":
+            carry = tokens  # a leading date: it belongs to the clause after the comma (extended in place, never copied)
+        elif date_only and prev_sep == "," and out and sep in (".", "!", "?", "end", ";"):
             out[-1] = out[-1] + tokens  # a trailing date after a comma: it belongs to the clause before
         else:
             out.append(tokens)
@@ -477,14 +543,25 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
     pairs: set[tuple[str, str]] = set()
     kinds: dict[str, str] = {}
     surface: dict[str, str] = {}
+    # figure -> its event-word partners ("w:" keys) in ``pairs`` so far: the from-to rule below reads them per figure
+    # instead of scanning every pair (integration gate, round 1: quadratic in a text of many from-to changes)
+    words_of: dict[str, set[str]] = {}
+
+    def add_word(tok: str, key: str) -> None:
+        pairs.add((tok, key))
+        words_of.setdefault(tok, set()).add(key)
     clauses = _clauses(text)
     for ci, clause in enumerate(clauses):
         figs = [(i, tok, _figure_kind(clause, i)) for i, tok in enumerate(clause) if _is_numeral(tok)]
+        # the figures' positions, ascending: every window below is found by bisection, so a long clause of many figures
+        # costs its length times the window, never its square (integration gate, round 1)
+        positions = [i for i, _t, _k in figs]
         for i, tok, kind in figs:
             kinds.setdefault(tok, kind)
-            for j, other, _k in figs:
-                if j != i and abs(i - j) <= _FIGURE_WINDOW:
+            for j, other, _k in figs[bisect_left(positions, i - _FIGURE_WINDOW):bisect_right(positions, i + _FIGURE_WINDOW)]:
+                if j != i:
                     pairs.add((tok, "f:" + other))
+        clause_kinds = {k for _i, _t, k in figs}
         for j, word in enumerate(clause):
             if _is_numeral(word):
                 continue
@@ -494,15 +571,16 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
             key = "w:" + _partner_stem(low)
             # An event word is the partner of the NEAREST figure of each kind within the window (ties: each), so in
             # "announced on 22 October and in force from 24 October" 'force' belongs to 24, not to 22 as well.
-            for kind in {k for _i, _t, k in figs}:
-                near = [(abs(i - j), tok) for i, tok, k in figs if k == kind and abs(i - j) <= _WORD_WINDOW]
+            window = figs[bisect_left(positions, j - _WORD_WINDOW):bisect_right(positions, j + _WORD_WINDOW)]
+            for kind in clause_kinds:
+                near = [(abs(i - j), tok) for i, tok, k in window if k == kind]
                 if not near:
                     continue
                 best = min(d for d, _t in near)
                 for d, tok in near:
                     if d == best:
                         surface.setdefault(key, low)
-                        pairs.add((tok, key))
+                        add_word(tok, key)
         # "rises from 2.4 to 4.0": both ends of a from-to change stand with the words of the change, so "rises to 4.0"
         # states the end the source states and re-pairs nothing; and both stand with the series the change is of, the
         # words before "from" back to the previous figure ("the crude death rate in Country X fell from 11 to 7"), so
@@ -527,9 +605,12 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
                 key = "w:" + _partner_stem(w)
                 surface.setdefault(key, w)
                 series.add(key)
-            words_a = {q for x, q in pairs if x == a and q.startswith("w:")} | series
-            words_b = {q for x, q in pairs if x == b and q.startswith("w:")} | series
-            pairs |= {(b, q) for q in words_a} | {(a, q) for q in words_b}
+            words_a = set(words_of.get(a, ())) | series
+            words_b = set(words_of.get(b, ())) | series
+            for q in words_a:
+                add_word(b, q)
+            for q in words_b:
+                add_word(a, q)
     return pairs, kinds, surface
 
 
@@ -588,6 +669,25 @@ def _event_words(pairs: set[tuple[str, str]], fig: str) -> set[str]:
     return {q for b, q in pairs if b == fig and q.startswith("w:") and q[2:] not in _MONTH_STEMS}
 
 
+def _events_by_figure(pairs: set[tuple[str, str]]) -> dict[str, frozenset[str]]:
+    """:func:`_event_words` of every figure of ``pairs`` at once (one pass; read, never changed): the re-pairing rules
+    look the event words of many figures up, and scanning every pair for each was quadratic in a long text (integration
+    gate, round 1)."""
+    out: dict[str, set[str]] = {}
+    for b, q in pairs:
+        if q.startswith("w:") and q[2:] not in _MONTH_STEMS:
+            out.setdefault(b, set()).add(q)
+    return {b: frozenset(qs) for b, qs in out.items()}
+
+
+def _figures_by_partner(pairs: set[tuple[str, str]]) -> dict[str, frozenset[str]]:
+    """Every partner of ``pairs`` with the figures that stand with it (one pass)."""
+    out: dict[str, set[str]] = {}
+    for b, q in pairs:
+        out.setdefault(q, set()).add(b)
+    return {q: frozenset(bs) for q, bs in out.items()}
+
+
 _MONTH_STEMS = frozenset(light_stem(m) for m in _MONTHS) | frozenset(_partner_stem(m) for m in _MONTHS)
 
 
@@ -601,6 +701,7 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
     a competing figure ("Act", "Factory" of two Acts) is shared, not one of the figure's own events: keeping a shared noun
     while the verb moves is still a re-pairing (rule ``shared-partner``)."""
     moved: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    src_events, syn_events, holders_of = _events_by_figure(src_pairs), _events_by_figure(syn_pairs), _figures_by_partner(src_pairs)
     for a, p in sorted(syn_pairs):
         if not p.startswith("w:") or p[2:] in _MONTH_STEMS or a not in src_figures or a in exchanged or (a, p) in src_pairs:
             continue
@@ -608,18 +709,18 @@ def _one_sided_repairings(syn_pairs: set[tuple[str, str]], src_pairs: set[tuple[
             # A quantity of a worked answer is restated with other words ("cut volume by 16.75%" for "sales would fall by
             # 16.75%"): a one-sided move is read for dates and data intervals, an exchange of two quantities for both.
             continue
-        holders = tuple(sorted({b for b, q in src_pairs if q == p and b != a and src_kinds.get(b) == kinds.get(a)}))
+        holders = tuple(sorted({b for b in holders_of.get(p, ()) if b != a and src_kinds.get(b) == kinds.get(a)}))
         if not holders or any((b, p) in syn_pairs for b in holders):
             continue
-        own = _event_words(src_pairs, a)
-        distinct = own - set().union(*(_event_words(src_pairs, b) for b in holders))
-        if not own or distinct & _event_words(syn_pairs, a):
+        own = src_events.get(a, frozenset())
+        distinct = own - frozenset().union(*(src_events.get(b, frozenset()) for b in holders))
+        if not own or distinct & syn_events.get(a, frozenset()):
             continue
         moved.setdefault((a, holders), []).append(p)
     out: list[str] = []
     for (a, holders), words in sorted(moved.items()):
         shown = ", ".join(_partner_label(p, surface) for p in words)
-        own = ", ".join(_partner_label(p, surface) for p in sorted(_event_words(src_pairs, a)))
+        own = ", ".join(_partner_label(p, surface) for p in sorted(src_events.get(a, frozenset())))
         out.append(f"'{a}' is stated with {shown}, where the cited sources pair {shown} only with {', '.join(repr(b) for b in holders)} and state '{a}' with {own} (re-paired)")
     return out
 
@@ -642,15 +743,27 @@ def _substitutions(synthesized_text: str, syn_pairs: set[tuple[str, str]], src_p
     sentences = [{light_stem(w) for w in _words(x)} | {"#" + t for t in _PAIR_TOKEN_RE.findall(x) if _is_numeral(t)}
                  for x in _SENTENCE_SPLIT_RE.split(plain) if x.strip()]
     syn_figs = {a for a, _ in syn_pairs} | set(kinds)
+    src_events = _events_by_figure(src_pairs)
+    # the source years, the ones the synthesis leaves out, and for each event word how many source years stand with it:
+    # read once, so each year of the synthesis costs its own events, never a pass over every source figure (integration
+    # gate, round 1)
+    src_years = {b for b in src_figures if src_kinds.get(b) == "year"}
+    left_out = {b for b in src_years if b not in syn_figs}
+    year_count: dict[str, int] = {}
+    for b in src_years:
+        for q in src_events.get(b, ()):
+            year_count[q] = year_count.get(q, 0) + 1
     out: list[str] = []
     for a in sorted(syn_figs):
         if a not in src_figures or a in reported or kinds.get(a, src_kinds.get(a)) != "year":
             continue
-        others = {b for b in src_figures if b != a and src_kinds.get(b) == "year" and b not in syn_figs}
+        others = left_out - {a}
         if not others:
             continue
-        own = _event_words(src_pairs, a)
-        distinct_a = own - set().union(*(_event_words(src_pairs, b) for b in src_figures if b != a and src_kinds.get(b) == "year"))
+        own = src_events.get(a, frozenset())
+        # an event word of a's is distinct when no other source year stands with it (a itself counted once when a is one)
+        mine = 1 if a in src_years else 0
+        distinct_a = {q for q in own if year_count.get(q, 0) - mine == 0}
         if not distinct_a:
             continue
         found = None
@@ -658,7 +771,7 @@ def _substitutions(synthesized_text: str, syn_pairs: set[tuple[str, str]], src_p
             if "#" + a not in words or any(_stem_hit(p[2:], words) for p in distinct_a):
                 continue
             for b in sorted(others):
-                distinct_b = {p for p in _event_words(src_pairs, b) - own}
+                distinct_b = {p for p in src_events.get(b, frozenset()) - own}
                 taken = sorted(p for p in distinct_b if _stem_hit(p[2:], words))
                 if taken:
                     found = (b, taken)
@@ -873,7 +986,7 @@ def _quotations_masked(text: str) -> str:
 def _sentences_of(text: str, *, quotations: bool = False) -> list[list[str]]:
     """The sentences of ``text`` as tokens; quoted spans masked unless ``quotations``."""
     body = text if quotations else _quotations_masked(text)
-    toks = _PAIR_TOKEN_RE.findall(_LIST_MARKER_RE.sub(" ", _mask_math(body)))
+    toks = _PAIR_TOKEN_RE.findall(_strip_list_markers(_mask_math(body)))
     sentences: list[list[str]] = [[]]
     for t in toks:
         if t in _SENTENCE_MARKS or t == ":":
@@ -930,11 +1043,30 @@ def _actor_names(sent: list[str], mid_caps: set[str]) -> list[tuple[int, int, tu
     return out
 
 
+#: How many function words an act slot looks past to the content word that names the act ("signed by the Allies": past
+#: 'the' and 'by' to 'signed').
+_SLOT_SKIP = 3
+
+
 def _slot(sent: list[str], k: int, side: str) -> Optional[tuple[str, str]]:
-    """The word next to an actor (``side`` "prev" before it, "next" after it), or None at a mark or a numeral."""
-    if 0 <= k < len(sent) and sent[k] not in ",;:()" and not _is_numeral(sent[k]):
-        return (side, _name_word(sent[k]))
+    """The act next to an actor (``side`` "prev" before it, "next" after it): the nearest content word on that side, past
+    at most :data:`_SLOT_SKIP` function words (determiners, prepositions, auxiliaries: :data:`_ALIGN_STOP` and
+    :data:`_NAME_LEAD_STOP`), or None at a mark, a numeral or the sentence's end. A function word never names an act
+    (integration gate, round 1: 'the' before "the History specialist" and before "the Nazis" read as one act)."""
+    step = -1 if side == "prev" else 1
+    for _ in range(_SLOT_SKIP + 1):
+        if not (0 <= k < len(sent)) or sent[k] in ",;:()" or _is_numeral(sent[k]):
+            return None
+        if sent[k].casefold() not in _ALIGN_STOP and sent[k].casefold() not in _NAME_LEAD_STOP:
+            return (side, _name_word(sent[k]))
+        k += step
     return None
+
+
+#: The word after a name that makes it a credit to a specialist of this exchange ("the History specialist", "the English
+#: specialists'"): the combinator's rule 5 asks it to credit its sources so, and such a credit names no actor of the
+#: claim's events.
+_SPECIALIST_WORDS = frozenset({"specialist", "specialists", "specialist's", "specialists'", "specialist’s", "specialists’"})
 
 
 def _actors(text: str, mid_caps: set[str]) -> list[tuple[tuple[str, ...], str, frozenset]]:
@@ -945,6 +1077,8 @@ def _actors(text: str, mid_caps: set[str]) -> list[tuple[tuple[str, ...], str, f
     out: list[tuple[tuple[str, ...], str, frozenset]] = []
     for sent in _sentences_of(text):
         for s, e, ident, surface in _actor_names(sent, mid_caps):
+            if e < len(sent) and sent[e].casefold() in _SPECIALIST_WORDS:
+                continue  # "the History specialist": a credit to a specialist of this exchange, no actor of the events
             out.append((ident, surface, frozenset(x for x in (_slot(sent, s - 1, "prev"), _slot(sent, e, "next")) if x)))
         for k, x in enumerate(sent):
             if x.casefold() in _ACTOR_PRONOUNS:
@@ -1026,8 +1160,20 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *
 
     Only figures that occur in the sources are compared (a figure in no source is the plain INT-LEDGER-023 case), and
     a year that carries several quantities in the sources is not held to any one of them (a merge may date several
-    items at once). Returns one description per difference; empty when every pairing is the sources' own."""
-    syn_pairs, kinds, surface = _figure_partners(synthesized_text)
+    items at once). The synthesis's partners are read within the pieces its verbatim copies of cited sources leave
+    (:func:`_copied_pieces`): two cited sources copied one after the other are two statements, so the last figure of one
+    and the first of the next are never partners (integration gate, round 1: a verbatim merge of two table rows read
+    as an exchange). Returns one description per difference; empty when every pairing is the sources' own."""
+    syn_pairs: set[tuple[str, str]] = set()
+    kinds: dict[str, str] = {}
+    surface: dict[str, str] = {}
+    for piece in _copied_pieces(synthesized_text, source_texts):
+        p, k, sf = _figure_partners(piece)
+        syn_pairs |= p
+        for fig, kind in k.items():
+            kinds.setdefault(fig, kind)
+        for key, word in sf.items():
+            surface.setdefault(key, word)
     src_pairs: set[tuple[str, str]] = set()
     src_kinds: dict[str, str] = {}
     for t in source_texts:
@@ -1068,11 +1214,46 @@ def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *
     return [_shown_figures(d) for d in _with_word_labels(out, [synthesized_text, *source_texts])]
 
 
+#: The shortest cited source text whose verbatim copy in a synthesis cuts the synthesis's pairing reader at its ends.
+_COPY_MIN_CHARS = 12
+
+
+def _copied_pieces(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """``synthesized_text`` cut wherever a verbatim copy of one cited source is followed, across whitespace only, by a
+    verbatim copy of another (a merge that joins its sources as they are): each piece is read on its own, so figures
+    that only meet across the join are never partners. A text with no such join is one piece (its pairing reads as
+    before). Copies are found with ``str.find`` (no pattern), at most a few per source."""
+    text = synthesized_text or ""
+    spans: list[tuple[int, int, int]] = []
+    for k, t in enumerate(dict.fromkeys(x.strip() for x in source_texts if x and len(x.strip()) >= _COPY_MIN_CHARS)):
+        start = text.find(t)
+        found = 0
+        while start >= 0 and found < 8:
+            spans.append((start, start + len(t), k))
+            found += 1
+            start = text.find(t, start + len(t))
+    if len(spans) < 2:
+        return [text]
+    spans.sort()
+    cuts: list[int] = []
+    for (a0, a1, ka), (b0, _b1, kb) in zip(spans, spans[1:]):
+        if ka != kb and a1 <= b0 and not text[a1:b0].strip():
+            cuts.append(a1)
+    if not cuts:
+        return [text]
+    pieces, last = [], 0
+    for c in cuts:
+        pieces.append(text[last:c])
+        last = c
+    pieces.append(text[last:])
+    return pieces
+
+
 def _with_word_labels(descriptions: list[str], texts: list[str]) -> list[str]:
     """Show a figure written in words as the words, with the value the readers compared ("'a tenth' (0.1)")."""
     labels: dict[str, str] = {}
     for t in texts:
-        for _s, _e, mantissa, _scale, surface in _word_figures(_THOUSANDS_RE.sub("", t), pairing=True):
+        for _s, _e, mantissa, _scale, surface in _word_figures(_ungroup(t), pairing=True):
             labels.setdefault(mantissa, " ".join(surface.split()))
     if not labels:
         return descriptions
@@ -1255,7 +1436,7 @@ _ALIGN_STOP = _PARTNER_STOP | frozenset(("his her him he she they them we our yo
 def _align_tokens(text: str) -> list[tuple[str, str]]:
     """``(key, surface)`` per token of ``text``: words light-stemmed and case-folded, numerals as written (thousands
     separators removed), decades as "1840s", and the canonical phrases (:data:`_CANON_PHRASES`) as one token."""
-    plain = _DECADE_RE.sub(lambda m: m.group(1) + "s", _THOUSANDS_RE.sub("", _PARENTHETICAL_RE.sub(" ", fold_exponent_marks(text))))
+    plain = _DECADE_RE.sub(lambda m: m.group(1) + "s", _ungroup(_PARENTHETICAL_RE.sub(" ", fold_exponent_marks(text))))
     for rx, canon, _shown in _CANON_PHRASES:
         plain = rx.sub(canon, plain)
     out: list[tuple[str, str]] = []
@@ -1488,10 +1669,15 @@ def _fmt_value(v: float) -> str:
 
 def aligned_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str]]:
     """:func:`aligned_changes` against every cited source text, and :func:`day_month_differences` against all of them,
-    deduplicated."""
+    deduplicated. A claim of several cited sources is first aligned against them joined in their cited order: when that
+    alignment finds no change, every word the claim carries is a cited source's own, in order, so the per-source pass,
+    which reads the words one source carries as an edit of another (a merge of "σ = 12, not the variance" and "sigma = 12,
+    P = 0.04779" read as a negation added to the second), is not run (integration gate, round 1)."""
     figures: list[str] = []
     meaning: list[str] = []
-    for t in source_texts:
+    texts = [t for t in source_texts if t]
+    joined_clean = len(texts) >= 2 and aligned_changes(synthesized_text, " ".join(texts)) == ([], [])
+    for t in ([] if joined_clean else source_texts):
         f, m = aligned_changes(synthesized_text, t)
         figures += f
         meaning += m
@@ -1579,8 +1765,8 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     out += dropped_hedges(synthesized_text, source_texts)
     out += dropped_qualifiers(synthesized_text, source_texts)
     # Figures in words are read as digits first, so "roughly fifteen" is an approximate 15 and "exactly fifteen" an exact one.
-    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_THOUSANDS_RE.sub("", t)))}
-    syn_plain = _THOUSANDS_RE.sub("", synthesized_text)
+    approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_ungroup(t)))}
+    syn_plain = _ungroup(synthesized_text)
     exact: dict[str, str] = {}
     for m in _EXACT_RE.finditer(_words_as_digits(syn_plain)):
         if m.group(2) in approx:
@@ -1734,16 +1920,20 @@ def _restates_short(keys: set[str], sentence_keys: set[str]) -> bool:
 
 
 def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
-    """A hedge of a cited source dropped: the synthesis carries no hedge at all, while a cited source that hedges its
-    statement ("this reason is a suggested process rather than one the data show") has it restated in the synthesis, its
-    hedges aside: half or more of its content words, three at least, or, for a short statement of one or two content words
-    ("The policy may have worked."), all of them in one sentence that adds at most three (:func:`_restates_short`). Words
-    are compared with irregular forms read as their verbs ("may have fallen" -> "fell"; :func:`_restating_keys`). The
-    qualification is gone, or replaced by certainty ("certainly fell"), and the router reads the statement as established."""
-    if _HEDGE_RE.search(synthesized_text):
-        return []
+    """A hedge of a cited source dropped, decided per hedged source sentence: a cited source that hedges its statement
+    ("this reason is a suggested process rather than one the data show") has it restated in the synthesis, its hedges
+    aside, and the restatement carries no hedge. A synthesized sentence restates it when it holds half or more of its
+    content words, three at least, or, for a short statement of one or two content words ("The policy may have worked."),
+    all of them while adding at most three (:func:`_restates`); when one or more sentences restate it, the hedge is dropped
+    when none of them carries a hedge, so a hedge another sentence keeps never masks one dropped here (integration gate,
+    round 1: "is likely to be greater" carried as "will be greater" beside a sentence that kept its own "likely"). A
+    statement restated only across sentences (half its content words, three at least, over the whole synthesis) has its
+    hedge dropped when the synthesis carries no hedge at all, as before. Words are compared with irregular forms read as
+    their verbs ("may have fallen" -> "fell"; :func:`_restating_keys`). The qualification is gone, or replaced by certainty
+    ("certainly fell"), and the router reads the statement as established."""
+    hedged_anywhere = bool(_HEDGE_RE.search(synthesized_text or ""))
     syn_keys = _restating_keys(synthesized_text)
-    syn_sentences = [_restating_keys(y) for y in _ALIGN_SENTENCE_RE.split(synthesized_text or "") if y.strip()]
+    syn_sentences = [(y, _restating_keys(y)) for y in _ALIGN_SENTENCE_RE.split(synthesized_text or "") if y.strip()]
     out = []
     for t in source_texts:
         for sentence in _ALIGN_SENTENCE_RE.split(t):
@@ -1751,8 +1941,17 @@ def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
             if not hedges:
                 continue
             keys = _restating_keys(_HEDGE_RE.sub(" ", sentence))
-            restated = len(keys) >= 3 and len(keys & syn_keys) >= 3 and len(keys & syn_keys) * 2 >= len(keys)
-            if restated or any(_restates_short(keys, y) for y in syn_sentences):
+            restating = [y for y, own in syn_sentences
+                         if (len(keys) >= 3 and len(keys & own) >= 3 and len(keys & own) * 2 >= len(keys)) or _restates_short(keys, own)]
+            if restating:
+                # the sentences that carry part of the statement (two of its content words at least) may carry its hedge: a
+                # source sentence that runs two statements together ("Provisional marks ... — Biggest gap: ...") keeps its
+                # hedge where the synthesis restates the hedged part
+                related = restating + [y for y, own in syn_sentences if y not in restating and len(keys & own) >= 2]
+                dropped = not any(_HEDGE_RE.search(y) for y in related)
+            else:
+                dropped = not hedged_anywhere and len(keys) >= 3 and len(keys & syn_keys) >= 3 and len(keys & syn_keys) * 2 >= len(keys)
+            if dropped:
                 out.append(f"it drops the hedge its cited sources state ({', '.join(repr(h) for h in dict.fromkeys(hedges))} in '{' '.join(sentence.split())[:160]}'), so the statement reads as established")
     return list(dict.fromkeys(out))
 
@@ -1941,7 +2140,7 @@ def _bounded_figures(text: str) -> tuple[dict[tuple[str, Optional[str]], str], s
     """``(bounded, unbounded)`` figures of ``text`` (figures in words read as digits, thousands separators removed): the
     figures stated with a bound in front (:data:`_BOUND`), each with its phrase as the reader sees it, and the figures
     stated with neither a bound nor an approximation in front. A figure is ``(value, unit or scale word)``."""
-    plain = _words_as_digits(_THOUSANDS_RE.sub("", text or ""))
+    plain = _words_as_digits(_ungroup(text or ""))
     bounded: dict[tuple[str, Optional[str]], str] = {}
     unbounded: set[tuple[str, Optional[str]]] = set()
     for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
@@ -1970,7 +2169,7 @@ def _dropped_bounds(synthesized_text: str, source_texts: list[str]) -> list[str]
     if not bounded:
         return []
     _b, stated = _bounded_figures(synthesized_text)
-    plain = _words_as_digits(_THOUSANDS_RE.sub("", synthesized_text or ""))
+    plain = _words_as_digits(_ungroup(synthesized_text or ""))
     compared = {(m.group(0), _figure_unit(plain, m.end())) for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain)
                 if re.search(r"\b(?:more|less|fewer|over|under|above|below|exactly|precisely)\s+(?:than\s+)?(?:[$£€¥]\s?)?$", plain[max(0, m.start() - 20):m.start()], re.IGNORECASE)}
     out = []
@@ -1985,7 +2184,7 @@ def _approximated_figures(text: str) -> tuple[dict[tuple[str, Optional[str]], st
     """``(approximated, exact)`` figures of ``text`` (figures in words read as digits, thousands separators removed): the
     figures stated with an approximation in front, each with its phrase as the reader sees it, and the figures stated with
     none. A figure is ``(value, unit or scale word)``."""
-    plain = _words_as_digits(_THOUSANDS_RE.sub("", text or ""))
+    plain = _words_as_digits(_ungroup(text or ""))
     approximated: dict[tuple[str, Optional[str]], str] = {}
     exact: set[tuple[str, Optional[str]]] = set()
     for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
@@ -2012,7 +2211,7 @@ def _dropped_approximations(synthesized_text: str, source_texts: list[str]) -> l
         exact |= e
     if not approximated:
         return []
-    plain = _words_as_digits(_THOUSANDS_RE.sub("", synthesized_text or ""))
+    plain = _words_as_digits(_ungroup(synthesized_text or ""))
     stated: dict[tuple[str, Optional[str]], list[bool]] = {}
     for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
         key = (m.group(0), _figure_unit(plain, m.end()))
@@ -2032,7 +2231,7 @@ def _dropped_approximations(synthesized_text: str, source_texts: list[str]) -> l
 
 def _approx_phrases(text: str) -> list[tuple[str, str]]:
     """``(phrase as written, value)`` for every approximate figure of ``text`` ("roughly fifteen", 15)."""
-    plain = _THOUSANDS_RE.sub("", text)
+    plain = _ungroup(text)
     out: list[tuple[str, str]] = []
     for m in re.finditer(r"\b(?:about|around|roughly|approximately|nearly|almost|some|close to|c\.|circa|ca\.|more than|over|under|less than|just over|just under)\s+(\S+(?:[\s-](?:hundred|thousand|million|billion|five|four|three|two|one|six|seven|eight|nine))?)", plain, re.IGNORECASE):
         value = _APPROX_RE.match(_words_as_digits(m.group(0)))
@@ -2282,7 +2481,7 @@ def _figures(text: str) -> list[_Figure]:
         text = _MINUS_GLYPH_RE.sub("-", text)
     if "\\" in text:
         text = _LATEX_ELLIPSIS_RE.sub("…", text)
-    plain = _THOUSANDS_RE.sub("", _LIST_MARKER_RE.sub(" ", text))
+    plain = _ungroup(_strip_list_markers(text))
     out: list[_Figure] = []
     masked = plain
     if "10" in plain or "e" in plain or "E" in plain:
@@ -2404,7 +2603,7 @@ _INCIDENTAL_FIGURE_RE = re.compile(
 def incidental_figures(text: str) -> set[str]:
     """The labels of the figures of ``text`` that are formula constants, references to a part of a text or task, or mark
     annotations (:data:`_INCIDENTAL_FIGURE_RE`), unless the same numeral also stands in ``text`` as content elsewhere."""
-    plain = _THOUSANDS_RE.sub("", text)
+    plain = _ungroup(text)
     out: set[str] = set()
     spans: list[tuple[int, int]] = []
     for m in _INCIDENTAL_FIGURE_RE.finditer(plain):
@@ -2573,7 +2772,7 @@ def _unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, O
     follows."""
     from fractions import Fraction
     # superscript exponents are kept: they belong to the unit ("m s⁻¹"), and the figure pattern reads decimal digits only
-    plain = _words_as_digits(_THOUSANDS_RE.sub("", text or ""))
+    plain = _words_as_digits(_ungroup(text or ""))
     out: list[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]] = []
     for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
         num, end = m.group(0), m.end()
@@ -2829,6 +3028,10 @@ _LITERARY_MENTION_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrat
 #: self-report rules read those (:func:`_view_credit`, INT-LEDGER-029).
 _NOT_A_TEXT_RE = re.compile(r"\b(?:specialists?|report|answer|account|paragraph|response|analysis|reply|colleague|peer|question|request|task|router|hub"
                             r"|combinator|engine|solver|verifier|z3|translator|overseer|synthesis)\W*$", re.IGNORECASE)
+#: A supplied document named by its kind ("The table shows that ...", "the bread price table", "the leaflet", "the supplied
+#: source"): the one supplied text whose title holds the word, or the one supplied text when only one is in scope.
+_DOCUMENT_KIND_WORDS = frozenset(("table chart graph leaflet source extract excerpt document map diagram poster cartoon photograph image "
+                                  "article letter speech").split())
 
 
 def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistReport], agents: list[str]) -> list[str]:
@@ -2858,6 +3061,23 @@ def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistRe
         names = {w.casefold() for w in re.findall(r"[^\W\d_][\w'’-]*", source) if w[:1].isupper() and w.casefold() not in _NOT_A_NAME}
         head = (re.findall(r"[^\W\d_][\w'’-]*", source) or [""])[-1].casefold()
         doc = next((d for d in docs.values() if document_mentions(source, d)), None)
+        if doc is None and head in _DOCUMENT_KIND_WORDS and docs:
+            # a supplied document named by its kind (integration gate, round 1: "The table shows that ..." on a History
+            # specialist's own view read as no credit at all)
+            titled = [d for d in docs.values() if d.title and head in {w.casefold() for w in re.findall(r"[^\W\d_]+", d.title)}]
+            kind_doc = titled[0] if len(titled) == 1 else (next(iter(docs.values())) if len(docs) == 1 and not titled else None)
+            if kind_doc is not None:
+                kind_keys = _content_keys(cr.content)
+                if len(kind_keys) >= 3 and len(kind_keys & _content_keys(kind_doc.text)) * 2 >= len(kind_keys):
+                    continue  # the document holds what it is credited with
+                content_keys = _restating_keys(cr.content)
+                stating = [c for c in known if _restates(content_keys, c.claim_text)] or list(known)
+                if stating and not any(ref.document_id == kind_doc.document_id for c in stating for ref in (c.source_refs or [])):
+                    out.append(f"it credits the statement '{cr.content[:100]}' to '{source[:80]}' ({kind_doc.document_id}), which does not hold it, "
+                               f"while the cited source claims that state it {[c.claim_id for c in stating][:8]} cite no excerpt of that document: "
+                               "a specialist's claim presented as what the document shows")
+                    continue
+                doc = kind_doc
         if doc is None and _LITERARY_KIND_RE.match(source) and len(docs) == 1:
             doc = next(iter(docs.values()))
         if doc is None and len(head) >= 4 and head not in _NOT_A_NAME:
@@ -3395,8 +3615,8 @@ def text_outside_claims(text: str, claim_texts: list[str]) -> list[str]:
     something no synthesized claim states (rule ``text-composition``): every claim text is removed where it occurs as a
     whole (its final sentence mark optional), then every connective of :data:`_CONNECTIVE_PHRASES`; a stretch still
     holding a letter or digit is returned. Empty when the text is a composition of its claims and connectives."""
-    body = _norm(_LIST_MARKER_RE.sub(" ", text or ""))
-    forms = sorted({_norm(_LIST_MARKER_RE.sub(" ", c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}, key=len, reverse=True)
+    body = _norm(_strip_list_markers(text or ""))
+    forms = sorted({_norm(_strip_list_markers(c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}, key=len, reverse=True)
     for form in forms:
         if not form:
             continue
@@ -3444,7 +3664,7 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
         if repaired:
             f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message="the student-facing text re-pairs figures or dates between events relative to the synthesized claims it presents: "
                                       + "; ".join(repaired), claim_ids=[synthesis.synthesis_id] + absent, agent_ids=[synthesis.combinator_agent_id]))
-    text_wo_markers = _LIST_MARKER_RE.sub(" ", synthesis.text)
+    text_wo_markers = _strip_list_markers(synthesis.text)
     in_claims = {m.group(0) for c in synthesis.claims for m in _NUMBER_RE.finditer(c.text)}
     stray = sorted({m.group(0) for m in _NUMBER_RE.finditer(text_wo_markers)} - in_claims, key=lambda s: (len(s), s))
     if stray:

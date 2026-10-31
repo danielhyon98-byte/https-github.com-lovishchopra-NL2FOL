@@ -62,7 +62,13 @@ of `sources`, with its `report_id` and `branch`, the specialist's `agent_id` and
 claim only `claim_id`, `role`, `materiality`, `certainty` and `text`. The listing's other fields (`eligible`,
 `eligibility_class`, `supporting_claim_ids`, `source_refs`, `assumptions`, `advisory_verification_status`,
 `claim_text_sha256`) and `synthesis_format` (the exported `output-format.json` under the pack's identity) are the arena's,
-not part of what the runner shows its agent. The agent writes the output object to `<round>/syntheses/<task_id>.json`:
+not part of what the runner shows its agent. The agent writes the output object to `<round>/syntheses/<task_id>.json`,
+where `<task_id>` is the file name of a specialist file of the group (`specialists/<task_id>.json`), never the group id
+the agent view's `request` names. A task of a single report writes to its own task's file. A peer group's combined
+output (the one `--agent-view` answer for the whole group, citing claims of every report) is written once, to ONE
+member's file; by convention the group's last task's, the deliverable, though either member's file gives the same
+receipt. Write no file for the other member: one file per member is the format of the recorded rounds r1 to r7, which
+the harness merges in group order, and a second file would add the combined claims again.
 
 ```
 {"claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "established" | "probable" | "possible",
@@ -111,7 +117,48 @@ output out of contract with a named `KIT-CB` code before it leaves (`combinator/
 combinator's fields on as written; it never builds the contract models itself), so the hub's contract validation decides
 it. A malformed synthesis is a REJECTED receipt recorded with its findings, and, being genuine traffic that was not
 delivered, a failed synthesis record whose `failure_reasons` name the codes; it is never an exception that stops the
-round or leaves the record without a receipt.
+round or leaves the record without a receipt. As written means the citations too: every `source_claim_ids` reaches the
+hub unchanged, so a citation of a claim no delivered report holds is named by the hub (INT-LEDGER-001), and the relayed
+synthesis lists the report of every delivered member of the group in `source_report_ids`, whichever member's file holds
+the output. The harness adds only what the format leaves to it: the synthesized claim ids (`s0`, `s1`, ...; prefixed with
+the task id when the group has one file per member), the student-facing text (the claims' texts joined), a left-out
+`certainty` or `transformation` (relayed as `established` and `paraphrased`, the defaults since round 1; the hub still
+names a certainty stronger than a cited source, INT-LEDGER-003) and, for a claim that carries no `evidence_refs`, the
+references of its cited material sources whose excerpts its text reproduces word for word, read from every delivered
+report of the group (`evidence_refs_copied` on the record).
+
+Integration gate, round 1 (combinator faults): the harness kept only the cited ids the file's own member's report held
+whenever one of them did. An invented citation beside a real one vanished before the hub saw it (no INT-LEDGER-001 on an
+arena receipt, while the same claims relayed directly drew it), and a peer group's combined output lost its citations of
+the other member's claims and listed one report (the simulation's round run1, group e1a: saved as `hi-e1a.json`, a
+claim merging a mathematics and a History claim was charged INT-LEDGER-023 for figures "that occur in none of its cited
+sources"; saved as `maa-e1a.json`, its History citation vanished). Either placement now gives the receipt the same
+synthesis gets relayed directly (`scripts/arena/test_arena_rules.py`). On the recorded rounds the change moves one
+receipt and no count: r1's en-t1 synthesis cites `p3-s02`, an id of the parse it was written against, beside ids the
+current parse delivers, and now carries INT-LEDGER-001 for it (transport 30 of 30, as before; one more genuine record
+with an error-level finding); r2 to r7 replay record for record as before.
+
+**The combinator's published contract.** In the deployed path a synthesis reaches the hub only through the combinator's
+runner and the port's check (`integration.combinator_port.check_output`), which refuse an output out of contract with a
+named `KIT-CB` code before it leaves. The harness reads every syntheses file it relays by the same rules, in the port's
+order (`run_arena.combinator_contract_problem`): protocol JSON read from the file's bytes (UTF-8, no repeated key, no
+float) and an object (`KIT-CB-002`); a transformation outside the five words (`KIT-CB-003`); a key besides `claims`,
+`dropped` and `conflicts` (the legacy `report_id` aside) and the port's schema (`KIT-CB-002`: at least one synthesized
+claim; a text, a dropped entry's reason or a conflict's description with no visible character, or holding a control
+character other than a tab or a line break, or a bidirectional embedding, override or isolate; a source claim cited twice
+by one claim or named twice by one conflict; a claim id outside the port's alphabet; a field of the wrong kind or one the
+contract does not have); a synthesis text over 49152 UTF-8 bytes (`KIT-CB-006`). A file that breaks one is named on the
+synthesis record under `combinator_contract` (its file, code, reason and the position and rule, never the text) and in
+`failure_reasons`, and the record is a failure whatever the hub's receipt says: the deployed combinator would never have
+let it out. The synthesis is still relayed, so its receipt shows what the hub, the independent checker, does with it.
+Two of the port's rules are left to the hub: the request ids and the instruction pack (the file is the message's body,
+and the harness builds the rest), and whether a citation names a claim the delivered reports hold (`KIT-CB-004`). A
+recorded synthesis cites the claim ids of the parse it was written against, so in a replay an id the current parse no
+longer delivers is the replay's, not the combinator's; the hub names it (INT-LEDGER-001), and the record stays counted as
+the hub delivered it. The integration gate's combinator review found the arena relaying, and counting functional, a
+merged claim's text ending in a NUL and a right-to-left override, a paraphrase holding a bell and an escape, a dropped
+reason holding a terminal escape, a blank reason and a claim citing one source twice; none of the recorded rounds r1 to
+r7 holds one, so no recorded count moved.
 
 ```
 python scripts/arena/run_arena.py <round>                           # results.json, summary.md; exit 0
@@ -209,8 +256,13 @@ After the round's records are complete, `run_arena.py` runs the delivery policy 
 answer, on a hub of its own carrying a transfer auditor. The pass replays each group's genuine traffic in order and opens
 a delivery session per answer. It adds no record and moves no transport count. Its hub and claim verifier are bound at
 import, so a harness that replaces `RouterHub` or `verify_claim` never reaches it. The contained harness switches it off
-(`DELIVERY_PASS = False`) while it replaces them; `deliveries` then says it was not run. results.json carries
-`deliveries`:
+(`DELIVERY_PASS = False`) while it replaces them; `deliveries` then says it was not run. The auditor's key ring holds the
+arena's engine key under every key id the hub's own components sign under (`DELIVERY_ENGINE_KEY_IDS`: `hub`, `channel`,
+`default` and `integrity`, the cross-agent checks'), as the contained harness's does. Until the integration gate's first
+round it declared `hub` and `default` only, so every result the cross-agent checks sign was audited as untrusted
+(OVS-RES-003) and its answer excluded (AUDIT_FAILED). Replayed on the recorded rounds the fix moves no delivery mode
+(every answer is withheld, as no overseer agent is configured), but r4's hi-t8 and r7's lit-p7c are no longer excluded,
+and r7's hi-p7c is excluded only for its own INT-SUBJ-001. results.json carries `deliveries`:
 
 - the count per mode;
 - per task: the mode, the label, the time to decision, the translation and overseer times, the formal path's reasons
@@ -226,7 +278,7 @@ overseer agents (tests only: scripted providers).
 ## Tests
 
 ```
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, and what a peer relay file may hold
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract) and the delivery pass's key ring
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)

@@ -527,10 +527,14 @@ def recorded_delivery(item: dict, plan: Any, fixtures: Optional[dict[str, Any]] 
     plan = plan if isinstance(plan, WorkPlan) else WorkPlan.model_validate(plan)
     fixtures = dict(fixtures or {})
 
+    from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
+
     def serve(claim, report):
         rid = recorded_claim_ids(report).get(claim.claim_id)
         if rid not in fixtures:
-            return None
+            # the harness serves recorded fixtures only: a claim the recording holds no fixture for is outside what it
+            # checks (``None`` would be read NOT_ATTEMPTED, INT-REQ-006, on a claim no recorded pass ever translated)
+            return CLAIM_OUT_OF_SCOPE
         obj = rekeyed_fixture(fixtures[rid], claim.claim_id, claim.request_id)
         return verify_claim(claim, report, Translator(FixtureTranslationProvider({claim.claim_id: json.dumps(obj)})), config=A.CFG, signing_key=A.KEY)
     hub = RouterHub(signing_key=A.KEY, config=A.CFG, verify_claim_fn=serve)

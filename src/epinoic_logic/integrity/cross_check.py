@@ -664,9 +664,32 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
         findings += _without_rounding_only_conflicts(attributed, apart, request_id=request_id, cfg=cfg, signing_key=signing_key)
     elif result.status is not S.CONSISTENT:
         findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
+        findings += _without_unpoolable(problems, result, jmap, request_id=request_id, config=config, signing_key=signing_key, limits=limits,
+                                        assumed_readings=assumed_readings)
     elif splits:
         findings += _glossary_only_contradiction(problems, splits, result, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key)
     return result, findings
+
+
+def _without_unpoolable(problems: list[Problem], result: VerificationResult, jmap: JointMap, *, request_id: str, config: SolverConfig,
+                        signing_key: Optional[bytes], limits: Limits, assumed_readings) -> list[IntegrityFinding]:
+    """The joint check re-run without the claims a joint problem could not pool (integration gate, round 1,
+    formal-robustness-4): when the joint result is INVALID_FORMALIZATION or UNSUPPORTED and every diagnostic belongs to an
+    identified pooled claim (``jmap.owner_of_path``), those claims are reported as they are (:func:`_classify_failure`,
+    INT-GLOSSARY-007) and the rest are checked together, so one claim the joint policy refuses never hides a contradiction
+    between the others. The re-run's own findings are returned; the pool only shrinks, so this ends."""
+    if result.status not in (S.INVALID_FORMALIZATION, S.UNSUPPORTED) or not result.diagnostics:
+        return []
+    owners = [jmap.owner_of_path(d.path) for d in result.diagnostics]
+    if any(o is None for o in owners):
+        return []
+    dropped = set(owners)
+    rest = [p for p in problems if p.claim_id not in dropped]
+    if len(rest) < 2 or len(rest) == len(problems):
+        return []
+    _res, again = check_cross_report_consistency(rest, request_id=request_id, config=config, signing_key=signing_key, limits=limits,
+                                                 assumed_readings=frozenset(assumed_readings) - dropped)
+    return [f for f in again if f.code != "INT-GLOSSARY-005"]  # the glossary findings of the full pool were reported already
 
 
 def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list[tuple[str, list[str], str]]], apart_result: VerificationResult, *,

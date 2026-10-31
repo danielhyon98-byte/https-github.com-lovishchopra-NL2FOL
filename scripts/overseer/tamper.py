@@ -424,7 +424,10 @@ def run_synthetic(auditor: TransferAuditor, *, en_report: Optional[SpecialistRep
 
     def fn(claim: ClaimRecord, report: SpecialistReport):
         if (translator is None or claim.claim_id not in translator_responses) and claim.claim_id not in problems:
-            return None
+            # the synthetic task serves its fixture claims only: any other claim is outside this verifier's scope, so the
+            # channel names nothing for it (``None`` would be read NOT_ATTEMPTED, INT-REQ-006)
+            from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
+            return CLAIM_OUT_OF_SCOPE
         if hook is None:
             return genuine_of(claim, report)
         return hook(VerifyCall(claim=claim, report=report, genuine=lambda: genuine_of(claim, report), genuine_for=lambda c: genuine_of(c, report),
