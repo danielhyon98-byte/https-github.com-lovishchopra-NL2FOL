@@ -13,9 +13,12 @@ in a signed :class:`DeliveryReceipt` (contract ``delivery_receipt/1.0``, key id 
   auditor's verification key, every relied-on premise established so no premise authority is unresolved, no failed
   grounding check or partial reference, no retry that changed the claim, and a current ``faithful`` fidelity review made
   with the evidence); the receipt carries no error-level finding, every branch formal check of the report's own
-  statements holds, the overseer's translation checks (``OVS-TRN-*``) name none of the deliverable's material claims, the
-  task audit names it in no error, the consolidation allows its delivery and the transfer's clearance lets the router
-  act (``policy.may_act``). Results prove properties of the encoding only.
+  statements holds, the receipt names no working left unchecked (rule ``unchecked-working``: :data:`NOT_CHECKED_CODES`,
+  a STEM relation not checked, a pack that failed, a check undecided) and no agent self-report (rule
+  ``self-report-disclosed``: :data:`SELF_REPORT_CODES`, at any severity; the task audit's OVS-FID-005 and OVS-FID-009), the
+  overseer's translation checks (``OVS-TRN-*``) name none of the deliverable's material claims, the task audit names it in
+  no error, the consolidation allows its delivery and the transfer's clearance lets the router act (``policy.may_act``).
+  Results prove properties of the encoding only.
 * ``overseer_selected``: the formal path did not complete (the budget ran out, or a claim ended unresolved, refuted or
   not attempted). The overseer agents review the task through the package's runner, built from the exported knowledge
   pack, sized by the self-duplicating pool (``hub.review_pool``: one instance by default, two for a repeated fault, never
@@ -104,7 +107,7 @@ __all__ = [
     "DeliveryConfig", "ClaimTiming", "TranslationStage", "DeadlineVerifier", "ClaimFormal", "BranchCheck", "FormalPath", "ClaimAccuracy",
     "CandidateAssessment", "VerdictStanding", "OverseerStage", "Fallback", "DeliveryReceipt", "DeliveredAnswer", "DeliveryDecision",
     "DeliverySession", "DeliveryPolicy", "sign_delivery_receipt", "verify_delivery_receipt", "delivery_receipt_digest", "verify_delivered_answer",
-    "accuracy_above", "is_fallback_label_honest",
+    "accuracy_above", "is_fallback_label_honest", "NOT_CHECKED_CODES", "SELF_REPORT_CODES", "SELF_REPORT_AUDIT_CODES",
 ]
 
 DELIVERY_CONTRACT = "delivery_receipt/1.0"
@@ -262,7 +265,11 @@ class DeadlineVerifier:
             stage.record(rid, cid, "raised", started, float(stage.clock()))
             raise
         finished = float(stage.clock())
-        state = "late" if finished > stage.deadline else ("verified" if out is not None else "no_outcome")
+        # an inner verifier that declares a claim outside its scope (``channel.bus.CLAIM_OUT_OF_SCOPE``) produced no outcome
+        # for it either: recorded ``no_outcome`` (never ``verified``) and passed on unchanged, so the channel names nothing
+        # where the inner verifier asked it not to, while the policy still reads the claim as NOT_ATTEMPTED
+        from ..channel.bus import CLAIM_OUT_OF_SCOPE
+        state = "late" if finished > stage.deadline else ("verified" if out is not None and out is not CLAIM_OUT_OF_SCOPE else "no_outcome")
         stage.record(rid, cid, state, started, finished)
         return out
 
@@ -687,6 +694,40 @@ def _audit_findings_naming(audit: Any, message_id: str) -> list[Any]:
     return [f for f in audit.report.findings if not is_agent_code(f.code) and message_id in f.message_ids]
 
 
+#: Receipt codes that say part of the answer's own working was NOT checked (rule ``unchecked-working``, integration gate
+#: round 1): notation outside the STEM grammar or too many readings (ST-PARSE-001/002), a recognised relation outside the
+#: encodings, resting on a symbol with no stated value, or a Given that could not be set against the request
+#: (ST-UNDEC-001/002/003), an undefined expression (ST-UNDEF-001), an unrecognised unit, checked as written only
+#: (ST-UNIT-001), an unreadable chemical equation (ST-CHEM-001), a code block never run (ST-CODE-001), a bound exceeded
+#: (ST-LIM-001/002), a STEM or branch pack that failed so its checks are missing (ST-INTERNAL-001, BR-INTERNAL-001), and a
+#: check left undecided (INT-SUBJ-002). Each is what an undecided branch check is, before a check could even be built: the
+#: formal path never completes over one, whichever claim it names, so a relation nobody checked never travels under the
+#: FORMALLY CHECKED label (``docs/DELIVERY.md``, condition 6).
+NOT_CHECKED_CODES: frozenset = frozenset({"ST-PARSE-001", "ST-PARSE-002", "ST-UNDEC-001", "ST-UNDEC-002", "ST-UNDEC-003", "ST-UNDEF-001", "ST-UNIT-001",
+                                          "ST-CHEM-001", "ST-CODE-001", "ST-LIM-001", "ST-LIM-002", "ST-INTERNAL-001", "BR-INTERNAL-001", "INT-SUBJ-002"})
+#: Receipt codes of an agent's self-report carried in the answer (rule ``self-report-disclosed``, integration gate round 1):
+#: verification-status language or a self-certification (CORE-SELF-001, the English pack's ES-META-001), and a statement
+#: credited to the system, a check or a peer report that no check of this transfer established (INT-REQ-014). Agent
+#: self-reports are advisory: an answer that carries one, at any severity, never travels under the FORMALLY CHECKED label,
+#: and neither does one the transfer audit names for a self-report the channel let through (OVS-FID-005, OVS-FID-009).
+SELF_REPORT_CODES: frozenset = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
+SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+
+
+def _receipt_findings_of(receipt: Any, codes: frozenset) -> list[Any]:
+    """Every finding of ``receipt`` (findings and structural findings, any severity) whose code is in ``codes``."""
+    return [f for f in list(getattr(receipt, "findings", []) or []) + list(getattr(receipt, "structural_findings", []) or []) if f.code in codes]
+
+
+def _code_claims(findings: Sequence[Any]) -> str:
+    """``CODE (claims ...)`` per code, in code order: the policy's own text (codes and claim ids, never a message)."""
+    by_code: dict[str, list[str]] = {}
+    for f in findings:
+        claims = by_code.setdefault(f.code, [])
+        claims += [c for c in f.claim_ids if c not in claims]
+    return "; ".join(f"{code} ({'claims ' + _listed(claims) if claims else 'the answer as a whole'})" for code, claims in sorted(by_code.items()))
+
+
 def _formal_claims(t: Transfer, view: OverseerView, keyring: KeyRing, stage: TranslationStage) -> tuple[list[ClaimFormal], list[BranchCheck]]:
     report, receipt = t.report, t.receipt
     assert report is not None and receipt is not None
@@ -1101,7 +1142,16 @@ class DeliveryPolicy:
         for fc in checks:
             if fc.satisfied is not True:
                 reasons.append(f"branch formal check {fc.constraint_id} " + ("does not hold" if fc.satisfied is False else "is undecided"))
+        unchecked = _receipt_findings_of(rec, NOT_CHECKED_CODES)  # rule unchecked-working
+        if unchecked:
+            reasons.append(f"the receipt names working that was not checked: {_cut(_code_claims(unchecked), 400)}")
+        self_reports = _receipt_findings_of(rec, SELF_REPORT_CODES)  # rule self-report-disclosed
+        if self_reports:
+            reasons.append(f"the answer carries a self-report or a relayed check result no check established: {_cut(_code_claims(self_reports), 400)}")
         named = _audit_findings_naming(audit, t.message_id or "")
+        audit_self = [f for f in named if f.code in SELF_REPORT_AUDIT_CODES]
+        if audit_self:
+            reasons.append(f"the task audit names a self-report delivered as content: {_cut(_code_claims(audit_self), 400)}")
         mats = {c.claim_id for c in material_claims(t.report)}
         trn = sorted({f.code for f in named if f.code.startswith("OVS-TRN-") and set(f.claim_ids) & mats})
         if trn:

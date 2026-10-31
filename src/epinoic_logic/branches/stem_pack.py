@@ -163,6 +163,11 @@ class _ClaimMap:
         self.report = report
         self.doc = doc
         self.by_id = {c.claim_id for c in report.claims}
+        # the STEM parsers qualify their ids with the agent ('s1.2@physics-specialist'): a statement's id in the branch's
+        # letter names the claim whose id is that id before the qualifier (integration gate 1)
+        self.by_base: dict[str, str] = {}
+        for c in report.claims:
+            self.by_base.setdefault(c.claim_id.split("@", 1)[0], c.claim_id)
         self._memo: dict[str, list[str]] = {}
         text = report.original_response
         self._spans: list[tuple[str, int, int]] = []
@@ -179,7 +184,8 @@ class _ClaimMap:
         if sid in self._memo:
             return self._memo[sid]
         out: list[str] = []
-        same = [v for v in [sid] + [p + sid[1:] for p in ID_PREFIXES.values() if sid.startswith("s")] if v in self.by_id]
+        cands = [sid] + [p + sid[1:] for p in ID_PREFIXES.values() if sid.startswith("s")]
+        same = [v for v in cands if v in self.by_id] or [self.by_base[v] for v in cands if v in self.by_base]
         if same:
             out = [same[0]]
         else:

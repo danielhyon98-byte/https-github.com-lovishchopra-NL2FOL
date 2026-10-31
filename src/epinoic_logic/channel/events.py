@@ -271,7 +271,11 @@ _IN_ENVELOPE = {"request": ("user_input", "supplied_texts"), "respond": ("report
 
 def call_record(channel: Any, method: str, args: tuple, kwargs: dict) -> dict:
     """The call's arguments that the envelope does not carry (supplied-text overrides, items and constraints given,
-    relay parties, ``in_reply_to``), as JSON values. A relay records the payload's type."""
+    relay parties, ``in_reply_to``), as JSON values. A relay records the payload's type.
+
+    Total over whatever the caller passed: a request's ``user_input`` is hashed only when it is text; any other value
+    (``5``, a list, bytes) records no digest and its type name instead (``user_input_type``), so observing a call never
+    raises where the unobserved call returns a rejection (INT-REQ-009)."""
     out: dict[str, Any] = {"method": method}
     try:
         sig = inspect.signature(getattr(channel, method))
@@ -289,7 +293,12 @@ def call_record(channel: Any, method: str, args: tuple, kwargs: dict) -> dict:
         payload = arguments.get("payload_obj")
         out["payload_type"] = type(payload).__name__ if payload is not None else None
     if method == "request":
-        out["user_input_sha256_given"] = sha256_hex(arguments.get("user_input") or "")
+        user_input = arguments.get("user_input")
+        if user_input is None or isinstance(user_input, str):
+            out["user_input_sha256_given"] = sha256_hex(user_input or "")
+        else:  # not text: the channel rejects it (INT-REQ-009); the record names its type and hashes nothing
+            out["user_input_sha256_given"] = None
+            out["user_input_type"] = type(user_input).__name__
     return out
 
 
@@ -450,7 +459,10 @@ def observe_call(channel: Any, method: str, args: tuple, kwargs: dict, observers
     The method body runs unchanged inside a result capture; the event is built before anything is returned; each
     observer runs inside ``try/except`` (a failure is recorded, bounded, and never reaches the caller); a method
     that raised emits a ``raised`` event and its exception is re-raised unchanged. With no observers the method is
-    called straight through."""
+    called straight through. The observed call behaves exactly as the unobserved one: the pre-call snapshot (counts,
+    the call record, the event kind) is observer-side work too, so a failure there is recorded like an observer's
+    (``pre_call_snapshot``), the call still runs and returns or raises what it would, and no event is emitted for
+    it."""
     fn = getattr(channel, method)
     if not observers:
         return fn(*args, **kwargs)
@@ -459,15 +471,20 @@ def observe_call(channel: Any, method: str, args: tuple, kwargs: dict, observers
     try:
         if st.depth > 1:
             return fn(*args, **kwargs)
-        before = take_before(channel)
-        call = call_record(channel, method, args, kwargs)
-        kind = event_kind(method, args, kwargs, channel)
+        pre_error: Optional[Exception] = None
+        before = call = kind = None
         raw_text = None
-        if method == "respond_text":
-            try:
-                raw_text = inspect.signature(fn).bind_partial(*args, **kwargs).arguments.get("text")
-            except Exception:
-                raw_text = args[1] if len(args) > 1 else kwargs.get("text")
+        try:
+            before = take_before(channel)
+            call = call_record(channel, method, args, kwargs)
+            kind = event_kind(method, args, kwargs, channel)
+            if method == "respond_text":
+                try:
+                    raw_text = inspect.signature(fn).bind_partial(*args, **kwargs).arguments.get("text")
+                except Exception:
+                    raw_text = args[1] if len(args) > 1 else kwargs.get("text")
+        except Exception as exc:  # observer-side: recorded below, never the caller's
+            pre_error = exc
         raised: Optional[Exception] = None
         returned = None
         with capture_results() as cap:
@@ -476,14 +493,18 @@ def observe_call(channel: Any, method: str, args: tuple, kwargs: dict, observers
             except Exception as exc:  # recorded, then re-raised unchanged
                 raised = exc
         st.seq += 1
-        try:
-            event = snapshot_event(channel, kind, channel_uid=st.channel_uid, seq=st.seq, before=before, call=call, returned=returned,
-                                   raw_text=raw_text if isinstance(raw_text, str) else None, captured=cap.items, captured_overflow=cap.overflow,
-                                   raised=type(raised).__name__ if raised is not None else None, previous_plan_sha256=st.last_plan_sha256)
-            st.last_plan_sha256 = event.plan_sha256
-        except Exception as exc:  # an event that cannot be built is an observer-side failure; the call's outcome stands
-            event = None
-            _record_error(st, st.seq, "snapshot_event", exc)
+        event = None
+        if pre_error is not None:
+            _record_error(st, st.seq, "pre_call_snapshot", pre_error)
+        else:
+            try:
+                event = snapshot_event(channel, kind, channel_uid=st.channel_uid, seq=st.seq, before=before, call=call, returned=returned,
+                                       raw_text=raw_text if isinstance(raw_text, str) else None, captured=cap.items, captured_overflow=cap.overflow,
+                                       raised=type(raised).__name__ if raised is not None else None, previous_plan_sha256=st.last_plan_sha256)
+                st.last_plan_sha256 = event.plan_sha256
+            except Exception as exc:  # an event that cannot be built is an observer-side failure; the call's outcome stands
+                event = None
+                _record_error(st, st.seq, "snapshot_event", exc)
         if event is not None:
             for obs in observers:
                 try:

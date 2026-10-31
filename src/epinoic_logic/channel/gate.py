@@ -37,7 +37,9 @@ CHECK RULES (``GateCheck.rule`` names the one that decided):
 * ``finding``: an error the engine established (it carries a ``formal_result_id``) or a deterministic source-integrity
   error is failed, as is any other error a check decided; heuristic findings (INT-REQ-004, every ``*-STR-*`` code,
   CORE-QNT-001, INT-GLOSSARY-005, INT-XENC-001), argument diagnoses (INT-ARG-001), checks that did not run
-  (INT-INTERNAL-*) and every warning are unresolved, never failed; info findings are no checks. A finding that restates a
+  (INT-INTERNAL-*) and every warning are unresolved, never failed, except INT-REQ-014: a check result of this exchange, or
+  a peer's figure misreported, stated by the answer as content, is a false statement the student must not be shown, so
+  it is failed whatever its severity (integration gate, round 1); info findings are no checks. A finding that restates a
   check already classified (INT-REQ-004 and INT-REQ-005 of a coverage or constraint record, INT-SUBJ-001/002/004 of a
   branch check, INT-SUBJ-003 of a subject finding, INT-HIST-001 carried from a receipt the gate also reads) is not
   counted twice. A finding carried from an earlier receipt the gate does not read (INT-HIST-001) is classified as the
@@ -91,6 +93,8 @@ _CHECK_CODES = frozenset({"INT-SUBJ-001", "INT-SUBJ-002", "INT-SUBJ-004"})
 #: The code of a finding carried from an earlier receipt (relay history). This tree's channel carries no relay history
 #: (its receipts have no ``history``), so no receipt it makes holds one; a receipt that does is classified as below.
 _HISTORY = "INT-HIST-001"
+#: A relayed check result or a misreported peer figure stated as content (the channel's INT-REQ-014): failed, never unresolved.
+_RELAYED_CHECK_RESULT = "INT-REQ-014"
 _XENC = "INT-XENC-001"
 #: The unaddressed item an INT-REQ-004 message names ("request item i3 appears unaddressed: ...").
 _ITEM_RE = re.compile(r"^request item (?P<item>\S+) appears unaddressed")
@@ -171,6 +175,8 @@ def _finding_result(code: str, severity: str, formal_result_id: Optional[str]) -
     """``(result, why)`` of a finding by its code and severity, or None for an info finding (no check)."""
     if severity not in ("error", "warning"):
         return None
+    if code == _RELAYED_CHECK_RESULT:
+        return "failed", "a check result of this exchange (or a peer's figure misreported) stated as the answer's content: never shown to the student as checked"
     if code in _HEURISTIC_CODES or _HEURISTIC_RE.match(code):
         return "unresolved", "a heuristic reading: unresolved, never failed"
     if code == "INT-ARG-001":

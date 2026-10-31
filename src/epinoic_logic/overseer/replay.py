@@ -11,7 +11,13 @@
   ``policy-limits`` (the translator merge): a result that records the ``Limits`` of a named engine policy
   (``engine.policies.PACK_POLICIES``: a branch formal check run under the ``nonlinear`` policy records
   ``allow_nonlinear``) is replayed under exactly those policy limits; any other recorded limits are never trusted (the
-  replay runs under the default).
+  replay runs under the default). Rule ``precision-limits`` (integration gate round 1): a joint problem (``joint-*``)
+  whose result records exactly the integrity layer's stated-precision bounds (``integrity.cross_check.PRECISION_LIMITS``:
+  the joint bounds with the nonlinear-term gate open, under which the channel re-decides a named contradiction at the
+  precision its figures are written to) is replayed under those bounds. A definitive result that records limits no rule
+  names cannot be re-decided under the limits it was decided under: when the replay under the default limits refuses it
+  (UNSUPPORTED or INVALID_FORMALIZATION) that is ``OVS-AUDIT-005`` (never re-verified, cannot pass), not the accusation
+  ``OVS-RES-007`` of another definitive status.
 * **Bounds and sampling.** At most ``queue_bound`` jobs are outstanding. Beyond it, replay degrades to keyed
   deterministic sampling at ``sample_rate`` (at least 0.25): a job is kept when ``HMAC(sampling key, result_id)`` read
   as a fraction is below the rate; agents cannot predict it and the auditor can reproduce it. ``always`` jobs (results
@@ -53,7 +59,7 @@ from .faithful import faithful
 from .keys import RUN_KEY_ID, KeyRing
 
 __all__ = ["ReplayJob", "ReplayOutcome", "Replayer", "compare", "classify", "replay_problem", "build_replay_job", "QUEUE_BOUND", "MIN_SAMPLE_RATE",
-           "MAX_WORKER_RESTARTS", "WORKER_START_GRACE_S"]
+           "MAX_WORKER_RESTARTS", "WORKER_START_GRACE_S", "recorded_policy", "unreplayable_limits", "PRECISION_POLICY"]
 
 QUEUE_BOUND = 256
 MIN_SAMPLE_RATE = 0.25
@@ -65,6 +71,8 @@ WORKER_START_GRACE_S = 60.0
 #: How long a worker seen exited is left for the collector to read what it sent before it is replaced.
 _EXIT_GRACE_S = 0.25
 _UNDECIDED = (S.TIMEOUT.value, S.UNKNOWN.value, S.INTERNAL_ERROR.value)
+#: A replay's refusal before any solver call (a construct outside the limits it ran under).
+_REFUSED = (S.UNSUPPORTED.value, S.INVALID_FORMALIZATION.value)
 _LIMIT_CODES = ("E300", "E301", "E302", "E303", "E304", "E305", "E306")
 
 
@@ -80,8 +88,12 @@ class ReplayJob:
     always: bool = False
     seq: int = 0
     channel_uid: str = ""
-    #: The named engine policy whose Limits the result recorded ("" for none: default or joint limits by problem id).
+    #: The named engine policy whose Limits the result recorded ("" for none: default or joint limits by problem id;
+    #: :data:`PRECISION_POLICY` for a joint problem decided under the integrity layer's stated-precision bounds).
     policy: str = ""
+    #: The result records limits that no rule names (rule ``precision-limits``): its replay runs under the default limits,
+    #: so a refusal there (UNSUPPORTED, INVALID_FORMALIZATION) is a status the replay cannot reproduce, never another one.
+    unreplayable_limits: bool = False
 
 
 @dataclass
@@ -115,17 +127,37 @@ def build_replay_job(view: Any, store: Any, rid: str, *, always: bool, seq: int,
     cfg = replay_config(view, res, ev_seq or seq, origin)
     return ReplayJob(result_id=rid, problem_json=problem_json, config_json=canonical_json(cfg.model_dump(mode="json")), original_status=res.status.value,
                      problem_digest=res.binding.problem_digest, config_digest=res.binding.config_digest, versions_digest=res.binding.versions_digest,
-                     always=always, seq=seq, channel_uid=channel_uid, policy=recorded_policy(res))
+                     always=always, seq=seq, channel_uid=channel_uid, policy=recorded_policy(res), unreplayable_limits=unreplayable_limits(res))
+
+
+#: Rule ``precision-limits``: the replay policy of a joint problem decided under the integrity layer's stated-precision
+#: bounds (``integrity.cross_check.PRECISION_LIMITS``). An overseer replay name, never an engine policy a caller may request.
+PRECISION_POLICY = "joint-precision"
 
 
 def recorded_policy(res: VerificationResult) -> str:
     """Rule ``policy-limits``: the named engine policy whose ``Limits`` ``res`` records ("" when it records none, the
-    default policy's, or limits that are no named policy's: those are never trusted for a replay)."""
+    default policy's, or limits that are no named policy's: those are never trusted for a replay). Rule
+    ``precision-limits``: :data:`PRECISION_POLICY` for a joint problem (``joint-*``) that records exactly the integrity
+    layer's stated-precision bounds."""
     from ..engine.policies import PACK_POLICIES
+    from ..integrity.cross_check import PRECISION_LIMITS
     from ..ir.schema import DEFAULT_LIMITS
     if res.limits is None:
         return ""
+    if res.limits == PRECISION_LIMITS and str(res.problem_id).startswith("joint-"):
+        return PRECISION_POLICY
     return next((name for name, lim in sorted(PACK_POLICIES.items()) if lim != DEFAULT_LIMITS and lim == res.limits), "")
+
+
+def unreplayable_limits(res: VerificationResult) -> bool:
+    """Rule ``precision-limits``: ``res`` records limits that no rule names (neither the default limits, nor the joint
+    bounds of a joint problem, nor a named policy's), so its replay cannot run under the limits it was decided under."""
+    from ..integrity.cross_check import JOINT_LIMITS
+    from ..ir.schema import DEFAULT_LIMITS
+    if res.limits is None or res.limits == DEFAULT_LIMITS or recorded_policy(res):
+        return False
+    return not (res.limits == JOINT_LIMITS and str(res.problem_id).startswith("joint-"))
 
 
 def replay_problem(problem_json: str, config_json: str, policy: str = "") -> str:
@@ -138,6 +170,9 @@ def replay_problem(problem_json: str, config_json: str, policy: str = "") -> str
     from ..ir.schema import DEFAULT_LIMITS, Problem
     problem = faithful(Problem, json.loads(problem_json))
     cfg = faithful(SolverConfig, json.loads(config_json))
+    if policy == PRECISION_POLICY and problem.problem_id.startswith("joint-"):  # rule precision-limits
+        from ..integrity.cross_check import PRECISION_LIMITS
+        return canonical_json(verify(problem, cfg, PRECISION_LIMITS).model_dump(mode="json", exclude_none=True))
     if policy and policy in PACK_POLICIES and PACK_POLICIES[policy] != DEFAULT_LIMITS:
         return canonical_json(verify(problem, cfg, PACK_POLICIES[policy]).model_dump(mode="json", exclude_none=True))
     limits = JOINT_LIMITS if problem.problem_id.startswith("joint-") else DEFAULT_LIMITS
@@ -165,11 +200,13 @@ def _worker_main(jobs: Any, results: Any, gen: int = 0) -> None:  # pragma: no c
 def compare(job: ReplayJob, replayed: Optional[VerificationResult], *, budget_exceeded: bool = False, error: Optional[str] = None) -> Replay:
     if replayed is None:
         return Replay(result_id=job.result_id, replay_result_id=None, original_status=job.original_status, replay_status=None, problem_digest_ok=True,
-                      config_digest_ok=True, versions_changed=False, budget_exceeded=budget_exceeded or error is None, error=error)
+                      config_digest_ok=True, versions_changed=False, budget_exceeded=budget_exceeded or error is None, error=error,
+                      unreplayable_limits=job.unreplayable_limits)
     b = replayed.binding
     return Replay(result_id=job.result_id, replay_result_id=replayed.result_id, original_status=job.original_status, replay_status=replayed.status.value,
                   problem_digest_ok=b.problem_digest == job.problem_digest, config_digest_ok=b.config_digest == job.config_digest,
-                  versions_changed=b.versions_digest != job.versions_digest, budget_exceeded=budget_exceeded, error=error)
+                  versions_changed=b.versions_digest != job.versions_digest, budget_exceeded=budget_exceeded, error=error,
+                  unreplayable_limits=job.unreplayable_limits)
 
 
 def classify(r: Replay) -> Optional[str]:
@@ -193,6 +230,8 @@ def classify(r: Replay) -> Optional[str]:
     if r.original_status in _UNDECIDED:
         return "OVS-RES-008"
     if r.replay_status in _UNDECIDED:
+        return "OVS-AUDIT-005"
+    if r.unreplayable_limits and r.replay_status in _REFUSED:  # rule precision-limits: never re-decided under its own limits
         return "OVS-AUDIT-005"
     return "OVS-RES-007"
 

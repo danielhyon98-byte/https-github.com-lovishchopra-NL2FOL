@@ -119,8 +119,16 @@ class SubjectBranch:
         findings and formal checks still reach the receipt, so one failing check never discards the rest and the router never
         reads the missing findings as a pass. A pack's ``formal_checks_for(report, request_text)`` is preferred when the pack
         defines one (the request's bindings and show-that targets matter to STEM checks); ``formal_checks(report)`` otherwise."""
+        from ..adapters.markdown import parse_task_of, quotation_task
         findings: list[StructuralFinding] = []
         formal: list[FormalCheck] = []
+        # the packs read the report's quotations under the task its parse here read them in (a correction in a marking task is the
+        # writer's own words for the packs as for the parser); a report no parser here built is read in no task
+        with quotation_task(parse_task_of(report)):
+            self._run_each_pack(report, request_text, findings, formal)
+        return findings, formal
+
+    def _run_each_pack(self, report: SpecialistReport, request_text: Optional[str], findings: list[StructuralFinding], formal: list[FormalCheck]) -> None:
         for p in self.packs:
             for_request = getattr(p, "formal_checks_for", None)
             formal_call = (lambda p=p, f=for_request: f(report, request_text)) if callable(for_request) else (lambda p=p: p.formal_checks(report))
@@ -139,7 +147,6 @@ class SubjectBranch:
                     findings += out
                 else:
                     formal += out
-        return findings, formal
 
 
 def _pack_failure(pack: object, exc: BaseException, stage: str) -> StructuralFinding:

@@ -89,7 +89,9 @@ def test_nothing_on_a_bare_value_and_only_info_for_unchecked_code():
 @pytest.mark.parametrize("subject,mode,text,code", [
     # STEM repair 11 (rule derivative): a polynomial's derivative is checked now, so the derivative outside the encodings is of a sine
     ("Mathematics: Analysis and Approaches", "mathematics", "f(x) = sin x, so f'(x) = cos x.", "ST-UNDEC-001"),
-    ("Environmental Systems and Societies", "sciences", "Efficiency = 150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100 = 10%.", "ST-UNIT-001"),
+    # integration gate 1: the year ('yr') is a unit of the STEM table now, so the unknown atom of this case is 'mth'; the rule asserted
+    # is unchanged (an unknown unit is named ST-UNIT-001 with its code, severity and claims)
+    ("Environmental Systems and Societies", "sciences", "Efficiency = 150 kJ m⁻² mth⁻¹ / 1500 kJ m⁻² mth⁻¹ × 100 = 10%.", "ST-UNIT-001"),
     ("Physics", "sciences", "Given v = 20 m s⁻¹ and t = 4.0 s, a = v/t = 5.0 m s⁻¹.", "ST-DIM-001"),
     ("Physics", "sciences", "E = hf = 6.63 × 10⁻³⁴ × f = 3.3 × 10⁻¹⁹ J", "ST-UNDEC-002"),
 ])

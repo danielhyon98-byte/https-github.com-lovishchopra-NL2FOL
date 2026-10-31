@@ -55,6 +55,9 @@ class Replay:
     versions_changed: bool
     budget_exceeded: bool
     error: Optional[str] = None
+    #: The result records limits no replay rule names (``replay.unreplayable_limits``): a refusal of its replay under the
+    #: default limits is a status the replay cannot reproduce (OVS-AUDIT-005), never another definitive one.
+    unreplayable_limits: bool = False
 
 
 @dataclass

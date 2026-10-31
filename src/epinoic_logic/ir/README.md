@@ -15,4 +15,8 @@ including a changed gloss, changes the digest, which is how old results are
 prevented from being reused for a modified representation.
 
 Unknown operators, unapproved fields, bad literals and bad identifiers are rejected
-at parse time; the schema forbids extra fields everywhere.
+at parse time; the schema forbids extra fields everywhere. Every identifier and literal
+pattern is anchored at both ends with `\Z`, never `$` (which also matches before a
+trailing newline): `'x\n'` is no symbol distinct from `'x'` and `'1\n'` no literal
+(integration gate, round 1; `IDENT_PATTERN` is the one identifier rule the prompt
+validator shares).

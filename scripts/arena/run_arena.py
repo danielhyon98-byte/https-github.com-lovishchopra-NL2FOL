@@ -21,7 +21,15 @@ Inputs (one round directory):
                                receives, so the hub's contract validation decides it: a value outside the contract (free text in
                                transformation, say), a malformed claim or a file that is not JSON is a REJECTED receipt (INT-REQ-009,
                                with INT-SYNTH-014 naming each value outside a closed vocabulary), recorded and counted as a failed
-                               synthesis, never an exception that stops the round.
+                               synthesis, never an exception that stops the round. Every field is passed on as written, the
+                               citations included (an unknown claim id is the hub's to name, INT-LEDGER-001), and the relayed
+                               synthesis lists the report of every delivered member of the group. A group's combined output (the
+                               combinator's one answer for a peer group, list_claims.py --agent-view) is written to ONE member's
+                               file; one file per member (rounds 1 to 7) is merged. Each file is also read by the combinator port's
+                               published output rules (combinator_contract_problem): a file out of that contract (a control or
+                               bidirectional character, a blank text or reason, a repeated citation, any key or field the contract
+                               does not have) is named with its KIT-CB code and makes the synthesis record a failure, since the
+                               deployed combinator refuses it before it leaves.
                                A claim's optional evidence_refs ([{document_id, locator?, excerpt?}]) are passed on as written. A claim
                                without them keeps the references of its cited material source claims whose excerpts its text
                                reproduces word for word (``evidence_refs_copied`` on the synthesis record), so a synthesis that quotes
@@ -118,8 +126,10 @@ the members (a crash, a rejection, a peer report never relayed): the synthesis o
 relayed and its receipt kept, so the number of transmissions does not depend on what failed. It is functional when the
 hub produced a receipt without raising, the synthesis was delivered (a genuine synthesis of the delivered reports is not
 REJECTED, by the same conservative rule as a genuine response), no check on it failed internally (INT-SYNTH-013, or a
-joint check left undecided with INTERNAL_ERROR) and every member of the group was delivered (a member that was not is
-named under ``members_not_delivered``: the router received only part of the group's reports). A group with no delivered
+joint check left undecided with INTERNAL_ERROR), every member of the group was delivered (a member that was not is
+named under ``members_not_delivered``: the router received only part of the group's reports) and every syntheses file
+it was made from holds the combinator port's published output contract (a file that does not is named under
+``combinator_contract`` with its KIT-CB code: the deployed combinator would have refused it). A group with no delivered
 member, or a round that carries syntheses but none for a delivered group, records that group's synthesis as a failure.
 The record keeps every finding with its claim ids and its full message (``finding_dict``), as do the genuine and
 peer-relay records (mutation records cut messages to 300 characters).
@@ -189,6 +199,7 @@ from epinoic_logic.branches import RouterHub
 # run substitutes a hub carrying its own auditor) never reaches the delivery pass, which carries an auditor of its own
 from epinoic_logic.branches.hub import RouterHub as _DeliveryHub
 from epinoic_logic.channel import TransmissionStatus
+from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.engine.runner import ungrounded_dependencies, unverified_dependencies
 from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
@@ -653,23 +664,124 @@ def reproduced_evidence_refs(text: str, cited: list[str], source_claims: dict[st
 
 class UnreadableSynthesis(str):
     """The text of a round's syntheses file that is not JSON: the combinator's output as the router would receive it.
-    The hub refuses it (INT-REQ-009: a payload that is neither a report nor a synthesis); the harness never raises on it."""
+    The hub refuses it (INT-REQ-009: a payload that is neither a report nor a synthesis); the harness never raises on it.
+    ``raw`` holds the file's bytes as written (``load_syntheses``)."""
+
+
+class SynthesisFile(dict):
+    """A syntheses file's JSON object as the harness relays it, with the file's bytes as written (``raw``), so the
+    combinator contract check reads the file as the combinator port reads a message (``combinator_contract_problem``:
+    UTF-8, no repeated key, no float), not only as Python's JSON reader parsed it. It compares and serialises as the
+    plain mapping it is."""
+    raw: bytes | None = None
 
 
 def load_syntheses(syn_dir: Path) -> dict[str, object]:
-    """Every syntheses file of the round by file stem: its JSON value as written (a mapping, or whatever else the
-    combinator wrote), or an ``UnreadableSynthesis`` holding the text when it is not JSON, so one malformed file never
-    stops the round; the hub decides it when the group's synthesis is relayed (synthesis_record)."""
+    """Every syntheses file of the round by file stem: its JSON value as written (a mapping, as a ``SynthesisFile``
+    carrying the file's bytes, or whatever else the combinator wrote), or an ``UnreadableSynthesis`` holding the text
+    when it is not JSON, so one malformed file never stops the round; the hub decides it when the group's synthesis is
+    relayed, and the combinator contract check reads the bytes (synthesis_record)."""
     out: dict[str, object] = {}
     if not syn_dir.exists():
         return out
     for p in sorted(syn_dir.glob("*.json")):
         raw = p.read_text(encoding="utf-8", errors="replace")
         try:
-            out[p.stem] = json.loads(raw)
+            value = json.loads(raw)
         except ValueError:
-            out[p.stem] = UnreadableSynthesis(raw)
+            value = UnreadableSynthesis(raw)
+        if isinstance(value, dict):
+            value = SynthesisFile(value)
+        if isinstance(value, (SynthesisFile, UnreadableSynthesis)):
+            value.raw = p.read_bytes()
+        out[p.stem] = value
     return out
+
+
+#: The keys of a syntheses file the harness relays: the combinator's output, exactly the agent's format of the combinator
+#: sub-project (its runner refuses any other key, KIT-CB-002). ``report_id`` (LEGACY_SYNTHESIS_KEYS) was written by the
+#: tooling of rounds 1 to 7, before the sub-project existed; the harness ignores it.
+SYNTHESIS_FILE_KEYS = ("claims", "dropped", "conflicts")
+LEGACY_SYNTHESIS_KEYS = frozenset({"report_id"})
+#: What the harness relays for a field a synthesized claim of a syntheses file leaves out: the defaults it has had since
+#: round 1. Both lie in the port's closed vocabularies, so a default never puts a synthesis out of contract (the hub
+#: still names a default certainty stronger than a cited source, INT-LEDGER-003).
+SYNTHESIS_CLAIM_DEFAULTS = {"certainty": "established", "transformation": "paraphrased"}
+
+
+def _contract_problem(code: str, reason: str, detail: str) -> dict:
+    return {"code": code, "reason": reason, "detail": detail if len(detail) <= 300 else detail[:297] + "..."}
+
+
+def _validation_where(e: dict) -> str:
+    """One pydantic error as a position and a rule (``claims.0.text: string_pattern_mismatch``), never the input: a value
+    error carries the port validator's own fixed sentence ('a synthesized claim cites each source claim once')."""
+    where = ".".join(str(x) for x in e.get("loc", ())) or "output"
+    msg = str(e.get("msg", ""))
+    if e.get("type") == "value_error" and msg.startswith("Value error, "):
+        return f"{where}: {msg[len('Value error, '):]}"
+    return f"{where}: {e.get('type', 'invalid')}"
+
+
+def combinator_contract_problem(value) -> dict | None:
+    """The first rule of the combinator port's published output contract that a syntheses file breaks, as
+    ``{"code", "reason", "detail"}`` (a ``KIT-CB`` code, the port's closed reason, positions and rules but never the
+    combinator's text), or None when the file holds it. The file is read as the port reads a message and in the port's
+    order (``integration.combinator_port.check_output``; the combinator's runner applies the same rules to its agent's
+    output before anything leaves it): protocol JSON (UTF-8, no repeated key, no float, no lone surrogate) and an object
+    (``KIT-CB-002``); a synthesized claim's transformation outside the closed vocabulary (``KIT-CB-003``); a key besides
+    claims, dropped and conflicts (the legacy ``report_id`` aside: LEGACY_SYNTHESIS_KEYS) and the port's schema, read with
+    the port's own models (``CombinatorOutput``: at least one synthesized claim; a text, a dropped entry's reason or a
+    conflict's description with no visible character, or holding a control character other than a tab or a line break,
+    or a bidirectional embedding, override or isolate, ``combinator_port.TEXT_PATTERN``; a source claim cited twice by one
+    synthesized claim, or named twice by one conflict; a claim id outside the port's alphabet; a field of the wrong kind
+    or another field; ``KIT-CB-002``); a synthesis text over the port's limit (``KIT-CB-006``). A claim's left-out
+    certainty or transformation is read as the default the harness relays (SYNTHESIS_CLAIM_DEFAULTS).
+
+    Not checked here: the request ids and the instruction pack (the file is the message's body; the harness builds the
+    rest), and whether every citation names a claim the delivered reports hold (``KIT-CB-004``). In a replay a recorded
+    synthesis cites the claim ids of the parse it was written against, so a citation the current parse does not deliver
+    is the replay's, not the combinator's; the harness passes every citation on as written and the hub names an unknown
+    one itself (INT-LEDGER-001)."""
+    from pydantic import ValidationError
+
+    from epinoic_logic.integration import combinator_port as CB
+    from epinoic_logic.integration.canonical import CanonicalError, check_value, loads_strict
+    raw = getattr(value, "raw", None)
+    try:
+        if raw is not None:
+            value = loads_strict(raw)
+        elif isinstance(value, UnreadableSynthesis):
+            value = loads_strict(str(value))
+        else:
+            check_value(value)
+    except CanonicalError as exc:
+        return _contract_problem("KIT-CB-002", "output_not_json", f"the syntheses file is not protocol JSON ({exc})")
+    if not isinstance(value, dict):
+        return _contract_problem("KIT-CB-002", "output_not_object", f"the syntheses file holds a JSON {type(value).__name__}, not an object")
+    claims = value.get("claims")
+    if isinstance(claims, list):
+        for i, c in enumerate(claims):
+            if isinstance(c, dict) and "transformation" in c and c["transformation"] not in CB.VOCABULARY:
+                return _contract_problem("KIT-CB-003", "transformation_unknown", f"claims[{i}].transformation is not one of {', '.join(CB.VOCABULARY)} "
+                                                                                 "(a category, never a description of the edit)")
+    extra = [k for k in value if k not in SYNTHESIS_FILE_KEYS and k not in LEGACY_SYNTHESIS_KEYS]
+    if extra:
+        return _contract_problem("KIT-CB-002", "output_invalid", f"the output has {len(extra)} key(s) besides claims, dropped and conflicts")
+    body = {k: v for k, v in value.items() if k in SYNTHESIS_FILE_KEYS}
+    if isinstance(claims, list):
+        body["claims"] = [{**SYNTHESIS_CLAIM_DEFAULTS, **c} if isinstance(c, dict) else c for c in claims]
+    message = {"schema": "epinoic.integration.combinator-output.v1", "protocol": "epinoic.integration.v1", "port_version": CB.PORT_VERSION,
+               "ids": {"task_id": "arena", "request_id": "arena"}, "instruction_pack_sha256": "0" * 64, **body}
+    try:
+        out = CB.CombinatorOutput.model_validate(message)
+    except ValidationError as exc:
+        return _contract_problem("KIT-CB-002", "output_invalid", f"the output does not validate ({exc.error_count()} error(s)): "
+                                 + "; ".join(_validation_where(e) for e in exc.errors()[:3]))
+    size = sum(len(c.text.encode("utf-8")) for c in out.claims)
+    if size > CB.MAX_OUTPUT_TEXT_BYTES:
+        return _contract_problem("KIT-CB-006", "output_too_large", f"the synthesis text is {size} UTF-8 bytes, more than {CB.MAX_OUTPUT_TEXT_BYTES}")
+    return None
 
 
 def _as_list(value) -> list:
@@ -678,52 +790,68 @@ def _as_list(value) -> list:
 
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None):
     """The dummy combinator's synthesis for a hub task, as the JSON the router receives (a mapping of the synthesis/1.0
-    shape): the per-report syntheses of every delivered member of the group, merged, citing each delivered report (a
-    peer exchange is one task with two reports). The harness never builds the contract models from what the combinator
-    wrote: every field is passed on as written (the transformation, certainty and evidence references included) and
-    the hub's own contract validation decides it when the mapping is relayed, so a malformed synthesis (a transformation
-    written as free text, a claim that is not an object, a file that is not JSON) is a REJECTED receipt with its codes
-    (INT-REQ-009, and INT-SYNTH-014 for a value outside a closed vocabulary), never an exception. A member's syntheses
-    file that is not JSON (``UnreadableSynthesis``) is what the router would receive for the group: its text is
-    returned as the payload. Synthesized claim ids, the cited ids a delivered report holds and the merged student-facing
-    text are the harness's (the format leaves them to it); a missing certainty or transformation keeps the defaults it
-    always had ("established", "paraphrased"). A member's disclosed ``conflicts`` (the combinator sub-project's format)
-    become the synthesis's conflict records, ``unresolved`` with the id ``<prefix>k<n>`` unless the file says otherwise;
-    a round whose syntheses disclose none relays exactly the mapping it always did.
+    shape), citing every delivered report of the group (a peer exchange is one task with two reports). The group's
+    syntheses files are those of its delivered members: one combined output (the combinator's one answer for the whole
+    group, the port's combined mode, written to ONE member's file: scripts/arena/README.md), or one file per member
+    (the format of rounds 1 to 7), merged in group order. The harness never builds the contract models from what the
+    combinator wrote: every field is passed on as written (the citations, the transformation, certainty and evidence
+    references included) and the hub's own contract validation and ledger checks decide it when the mapping is relayed,
+    so a malformed synthesis (a transformation written as free text, a claim that is not an object, a file that is not
+    JSON) is a REJECTED receipt with its codes (INT-REQ-009, and INT-SYNTH-014 for a value outside a closed vocabulary),
+    never an exception, and a citation of a claim no delivered report holds reaches the hub, which names it
+    (INT-LEDGER-001). A member's syntheses file that is not JSON (``UnreadableSynthesis``) is what the router would
+    receive for the group: its text is returned as the payload. Synthesized claim ids and the merged student-facing text
+    are the harness's (the format leaves them to it); ``source_report_ids`` lists the report of every delivered member
+    of the group, whichever member's file holds the output; a missing certainty or transformation keeps the defaults it
+    always had (SYNTHESIS_CLAIM_DEFAULTS: "established", "paraphrased"). A member's disclosed ``conflicts`` (the
+    combinator sub-project's format) become the synthesis's conflict records, ``unresolved`` with the id
+    ``<prefix>k<n>`` unless the file says otherwise; a round whose syntheses disclose none relays exactly the mapping it
+    always did.
+
+    Integration gate, round 1 (combinator faults): the harness used to keep only the cited ids the member's own report
+    held, whenever one of them did. An invented citation written beside a real one vanished before the hub saw it (so
+    INT-LEDGER-001 never reached an arena receipt), and a combined output lost its citations of the other member's
+    claims (a false INT-LEDGER-023 on the figures they carried) and listed one report only.
 
     Evidence references: a synthesized claim of the syntheses format may carry ``evidence_refs`` ([{document_id,
     locator?, excerpt?}]), passed on as written. When it carries none, the claim keeps the references of its cited
-    material source claims whose excerpts its text reproduces word for word (``reproduced_evidence_refs``): the
-    combinator quoted the evidence, and the format had no field to cite it by. ``notes`` (when given) receives ``evidence_refs_copied``:
-    {synthesized claim id: the references copied, each with its source claim}."""
-    members = [it for it in items if group_of(it) == group and it["_path"].stem in delivered and it["_path"].stem in syntheses]
+    material source claims whose excerpts its text reproduces word for word (``reproduced_evidence_refs``, over the
+    claims of every delivered member, the file's own member's first): the combinator quoted the evidence, and the format
+    had no field to cite it by. ``notes`` (when given) receives ``evidence_refs_copied``: {synthesized claim id: the
+    references copied, each with its source claim}."""
+    reporting = [it for it in items if group_of(it) == group and it["_path"].stem in delivered]  # delivered members, in group order
+    members = [it for it in reporting if it["_path"].stem in syntheses]
     if not members:
         return None
     unreadable = next((syntheses[it["_path"].stem] for it in members if isinstance(syntheses[it["_path"].stem], UnreadableSynthesis)), None)
     if unreadable is not None:
         return str(unreadable)
+    # every delivered member's claims by id, the first holder of an id kept: used only to find the evidence references a
+    # synthesized text reproduces (a citation is never filtered against it)
+    group_claims: dict[str, dict] = {}
+    for it in reporting:
+        for c in delivered[it["_path"].stem].payload["claims"]:
+            group_claims.setdefault(c["claim_id"], c)
     s_claims: list = []
     ledger: list = []
     conflicts: list = []
-    source_ids: list[str] = []
+    source_ids = [delivered[it["_path"].stem].payload["report_id"] for it in reporting]
     copied: dict[str, list[dict]] = {}
     for it in members:
         tid, syn, reply = it["task_id"], syntheses[it["_path"].stem], delivered[it["_path"].stem]
-        by_id = {c["claim_id"]: c for c in reply.payload["claims"]}
+        by_id = {**group_claims, **{c["claim_id"]: c for c in reply.payload["claims"]}}  # the file's own member's claims first
         prefix = "" if len(members) == 1 else f"{tid}-"
         if not isinstance(syn, dict):  # a JSON value that is no synthesis object: carried as one malformed claim, so the hub names it
             s_claims.append(syn)
-            source_ids.append(reply.payload["report_id"])
             continue
         for i, c in enumerate(_as_list(syn.get("claims"))):
             if not isinstance(c, dict):
                 s_claims.append(c)
                 continue
             sid = f"{prefix}s{i}"
-            given = c.get("source_claim_ids", [])
-            cited = ([x for x in given if isinstance(x, str) and x in by_id] or given) if isinstance(given, list) else given
-            claim = {k: v for k, v in c.items() if k not in ("source_claim_ids",)}
-            claim.update(claim_id=sid, source_claim_ids=cited, certainty=c.get("certainty", "established"), transformation=c.get("transformation", "paraphrased"))
+            cited = c.get("source_claim_ids")  # as written: the hub decides every citation (INT-LEDGER-001 for an unknown one)
+            claim = dict(c)
+            claim.update(claim_id=sid, **{k: c.get(k, v) for k, v in SYNTHESIS_CLAIM_DEFAULTS.items()})
             if "evidence_refs" not in c and isinstance(c.get("text"), str) and isinstance(cited, list):
                 found = reproduced_evidence_refs(c["text"], [x for x in cited if isinstance(x, str)], by_id)
                 claim["evidence_refs"] = [{k: r[k] for k in ("document_id", "locator", "excerpt")} for r in found]
@@ -734,7 +862,6 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
             ledger.append({**d, "transformation": "dropped"} if isinstance(d, dict) else d)
         for k_i, k in enumerate(_as_list(syn.get("conflicts"))):  # a disclosed contradiction: an unresolved conflict record
             conflicts.append({"conflict_id": f"{prefix}k{k_i}", "status": "unresolved", **k} if isinstance(k, dict) else k)
-        source_ids.append(reply.payload["report_id"])
     if notes is not None:
         notes["evidence_refs_copied"] = copied
     s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
@@ -797,12 +924,15 @@ _INTERNAL_RE = re.compile(r"\(INTERNAL_ERROR\)")
 
 
 def synthesis_failure_reasons(status: str | None, delivered: bool, findings: list[dict], internal_checks: int = 0,
-                              undelivered: list[str] | tuple = ()) -> list[str]:
+                              undelivered: list[str] | tuple = (), *, contract: list[dict] | tuple = ()) -> list[str]:
     """Why a combinator synthesis transmission is not functional (empty when it is): it was not delivered (a synthesis of
     the delivered reports is genuine traffic, so REJECTED is a failure, never re-labelled), a check on it failed
     internally (INT-SYNTH-013; a joint check undecided with INTERNAL_ERROR; ``internal_checks`` formal checks or outcomes
-    of the receipt with INTERNAL_ERROR), or a member of its group was not delivered through the hub (``undelivered``:
-    their task ids), so the synthesis the router received covers only part of the group's reports."""
+    of the receipt with INTERNAL_ERROR), a member of its group was not delivered through the hub (``undelivered``:
+    their task ids), so the synthesis the router received covers only part of the group's reports, or a syntheses file
+    it was made from is out of the combinator's published contract (``contract``: one ``combinator_contract_problem``
+    per file, with its ``file``), which the combinator's runner refuses before anything leaves it, so the deployed path
+    never delivers that synthesis, whatever the hub's receipt says."""
     reasons = []
     if status == TransmissionStatus.REJECTED.value or not delivered:
         refused = sorted({f["code"] for f in findings if f.get("severity") == "error"})
@@ -814,6 +944,9 @@ def synthesis_failure_reasons(status: str | None, delivered: bool, findings: lis
         reasons.append(f"{len(internal) + internal_checks} check(s) on the synthesis failed internally (INTERNAL_ERROR){': ' + str(sorted(set(internal))) if internal else ''}")
     if undelivered:
         reasons.append(f"the report(s) of {list(undelivered)} were not delivered through the hub, so the group's synthesis covers only the delivered reports")
+    for p in contract:
+        reasons.append(f"{p['file']} is out of the combinator's published contract ({p['code']} {p['reason']}: {p['detail']}); the combinator's runner "
+                       "refuses such an output before it leaves, so the deployed path never delivers this synthesis")
     return reasons
 
 
@@ -828,7 +961,16 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
     ``evidence_refs_copied`` (group_synthesis). The synthesis is relayed as the JSON the router receives, so the hub's
     contract validation decides it: a malformed synthesis is a REJECTED receipt (INT-REQ-009; INT-SYNTH-014 for a value
     outside a closed vocabulary, such as a transformation written as free text) recorded with its findings, and, being
-    genuine traffic that was not delivered, a failure. Never raises: a crash is recorded as a non-functional record."""
+    genuine traffic that was not delivered, a failure. Never raises: a crash is recorded as a non-functional record.
+
+    The deployed path lets a synthesis reach the hub only through the combinator's runner and the port's check, which
+    refuse an output out of the published contract with a named ``KIT-CB`` code. Each syntheses file relayed here is read
+    by the same rules (``combinator_contract_problem``); a file that breaks one is named under ``combinator_contract``
+    (its file, code, reason and detail) and makes the record a failure, whatever the hub's receipt says, so the arena
+    never counts as delivered a synthesis the deployed combinator would refuse (integration gate, round 1: a text holding
+    a NUL, a bell and escape, or a bidirectional override, a blank reason and a repeated citation were relayed and
+    counted functional). The synthesis is still relayed, so the receipt shows what the hub, the independent checker,
+    does with it."""
     plan = ch.plan
     members = [it for it in items if group_of(it) == group]
     undelivered = [it["task_id"] for it in members if it["_path"].stem not in delivered]
@@ -850,11 +992,17 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
             return rec
         if notes.get("evidence_refs_copied"):
             rec["evidence_refs_copied"] = notes["evidence_refs_copied"]
+        # every syntheses file the relayed synthesis was made from (those of the delivered members), read by the port's rules
+        contract = [{"file": f"syntheses/{it['_path'].stem}.json", **problem} for it in members
+                    if it["_path"].stem in delivered and it["_path"].stem in syntheses
+                    for problem in (combinator_contract_problem(syntheses[it["_path"].stem]),) if problem is not None]
+        if contract:
+            rec["combinator_contract"] = contract
         relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, synthesis)
         findings = [finding_dict(f) for f in rr.findings]
         subject = [finding_dict(sf) for sf in rr.structural_findings]
         internal_checks = sum(1 for fc in rr.formal_checks if fc.formal_status == "INTERNAL_ERROR") + sum(1 for o in rr.outcomes if o.display_status.value == "INTERNAL_ERROR")
-        reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks, undelivered)
+        reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks, undelivered, contract=contract)
         shape = synthesis if isinstance(synthesis, dict) else {}
         if not isinstance(synthesis, dict):
             rec["synthesis_unreadable"] = "a syntheses file of the group is not JSON: its text was relayed as the payload"
@@ -1207,7 +1355,7 @@ def _claims_named(findings: list[dict], code: str) -> set[str]:
     return {cid for f in findings if f["code"] == code for cid in f["claim_ids"]}
 
 
-def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict]) -> dict:
+def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict], offered=None) -> dict:
     """A genuine record's claims by how far each went, every stage a list of claim ids of its own:
 
     - ``extracted``: every claim the current parse delivered;
@@ -1215,7 +1363,11 @@ def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: li
       otherwise ``translation_eligible``; where both exist and disagree the claim is listed under
       ``eligibility_disagreements``);
     - ``attempted``: eligible claims the pipeline ran on (a recorded translation was offered: an outcome other than
-      NOT_ELIGIBLE, or an outcome the channel dropped as stale, or a verification that raised);
+      NOT_ELIGIBLE, or an outcome the channel dropped as stale, or a verification that raised). ``offered`` (when given:
+      the claim ids the round's translations file records, the only claims the harness's verifier runs on) bounds the
+      last two: the channel also names under INT-REQ-006 a material eligible claim that got no outcome (NOT_ATTEMPTED:
+      the verifier returned none, as it does for a claim with no recorded translation), and that is no attempt
+      (integration gate, round 1);
     - ``completed``: attempted claims shown with a definitive engine verdict on their encoding (ENTAILED,
       COUNTEREXAMPLE, INCONSISTENT_PREMISES, CONSISTENT, SATISFIABLE, UNSATISFIABLE); an ambiguous, rejected, withheld,
       unsupported, undecided, refused or failed translation is not completed;
@@ -1243,7 +1395,8 @@ def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: li
         if harness if decided is None else decided:
             eligible.append(c.claim_id)
     attempted = [cid for cid in eligible
-                 if (cid in by_id and by_id[cid]["translation_status"] != TranslationStatus.NOT_ELIGIBLE.value) or cid in dropped or cid in failed]
+                 if (cid in by_id and by_id[cid]["translation_status"] != TranslationStatus.NOT_ELIGIBLE.value)
+                 or ((cid in dropped or cid in failed) and (offered is None or cid in offered))]
     completed = [cid for cid in attempted if cid in by_id and not by_id[cid].get("stale_fixture_refused") and by_id[cid]["display_status"] in DEFINITIVE_DISPLAY]
     errors = {cid for f in findings if f["severity"] == "error" for cid in f["claim_ids"]}
     approved = [cid for cid in completed if by_id[cid]["display_status"] == VerificationStatus.ENTAILED.value and cid not in errors]
@@ -1577,13 +1730,20 @@ def title_line(round_name: str, m: dict) -> str:
 DELIVERY_SECRET = b"arena-delivery-pass-overseer-secret-0123456789"
 #: The translator versions of hand-built translations the delivery pass's auditor is told about (as the contained run).
 DELIVERY_HAND_BUILT = ("test", "harness")
+#: Every engine key id the hub's own components sign under, each with the arena's one engine key (as the contained
+#: harness declares them, scripts/overseer/ovs_harness.py ENGINE_KEY_IDS): the hub's channels ("hub", RouterHub's key
+#: id), a channel opened on its own ("channel", TranslatorChannel's), the claim verifier ("default", the engine's key id
+#: when none is named) and the cross-agent consistency and synthesis checks ("integrity", integrity.cross_check).
+#: Integration gate, round 1: the keyring declared only "hub" and "default", so every result the cross-agent check
+#: signed (an INT-CONFLICT-004 warning's, say) was audited as untrusted (OVS-RES-003) and its answer excluded.
+DELIVERY_ENGINE_KEY_IDS = ("hub", "channel", "default", "integrity")
 
 
 def _delivery_auditor():
-    """The delivery pass's transfer auditor: its own key ring (the engine key under the hub's and the verifier's key ids)
-    and inline replay, so every decision reads a complete signed task audit."""
+    """The delivery pass's transfer auditor: its own key ring (the engine key under every key id the hub's components
+    sign under, DELIVERY_ENGINE_KEY_IDS) and inline replay, so every decision reads a complete signed task audit."""
     from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
-    keyring = KeyRing({"hub": EngineKey(KEY), "default": EngineKey(KEY)}, DELIVERY_SECRET)
+    keyring = KeyRing({key_id: EngineKey(KEY) for key_id in DELIVERY_ENGINE_KEY_IDS}, DELIVERY_SECRET)
     return TransferAuditor(keyring, replay_mode="inline", eager=True, hand_built_translators=DELIVERY_HAND_BUILT, inline_final_release=True)
 
 
@@ -1770,7 +1930,12 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
 
         def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None):
             if claim.claim_id not in _ids:
-                return None
+                # The replay serves recorded translations only: a claim with no recorded fixture is outside what the replay
+                # checks (CLAIM_OUT_OF_SCOPE: the channel names nothing; fixture coverage reports the gap), in the round's own
+                # passes and in the delivery pass alike, so the delivery pass's receipts stay the genuine records'. The
+                # delivery policy's deadline verifier still records the claim as having no outcome, so the formal path reads
+                # it NOT_ATTEMPTED (never checked), as in production.
+                return CLAIM_OUT_OF_SCOPE
             if _capture is not None and claim.claim_id not in _capture:
                 # the fixture was produced for the genuine text: bind it to that claim text (computed here, at verify
                 # time, from the parsed report) so a re-stated claim under the same id is refused later
@@ -1913,7 +2078,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
                 if kind == "genuine":
                     # how far each delivered claim went (extracted, eligible, attempted, completed, approved), each a list of its own
                     delivered_claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
-                    rec["claim_measures"] = claim_measures(delivered_claims, outcomes, found)
+                    rec["claim_measures"] = claim_measures(delivered_claims, outcomes, found, offered=frozenset((tr or {}).get("claims") or {}))
                 if kind == "genuine" and tr:
                     rec["fixture_claim_text_sha256"] = dict(fixture_digests.get(sp.stem, {}))
                     # fixtures recorded under claim ids this parse does not deliver are never served: say which

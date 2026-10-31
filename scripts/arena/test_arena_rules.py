@@ -35,6 +35,18 @@ exposed.
 Review of 12 October 2026: the functional count is the transport measure only. Fixture coverage, translation fidelity
 (where adjudicated) and the claim counts are separate measures, and a run that loses recorded translations is qualified;
 their tests are in tests/e2e/test_arena_measures.py, in the default suite (scripts/arena/README.md lists every test).
+
+Integration gate, round 1: group_synthesis kept only the cited ids the file's own member's report held whenever one of
+them did, so an invented citation beside a real one never reached the hub (no INT-LEDGER-001) and a peer group's combined
+output lost its citations of the other member's claims and listed one report (a false INT-LEDGER-023); a syntheses file
+the combinator's runner and port refuse (a control or bidirectional character, a blank reason, a repeated citation) was
+relayed and counted functional; and the delivery pass's auditor did not declare the key id the cross-agent checks sign
+under ('integrity'), so their results were audited as untrusted (OVS-RES-003). The citations now reach the hub as written,
+every delivered report is listed, a file out of the published contract is a named failure (``combinator_contract``), and
+the auditor declares every key id the hub's components sign under. One assertion of
+test_group_synthesis_passes_the_combinators_fields_on_as_written, which required the filtered citations, was rewritten to
+the stricter as-written rule. The same round's channel names a material eligible claim that got no outcome under
+INT-REQ-006 (NOT_ATTEMPTED); the claim counts count a claim attempted only when a recorded translation was offered.
 """
 from __future__ import annotations
 
@@ -854,7 +866,10 @@ def test_a_syntheses_file_that_is_not_json_is_named_on_the_record(tmp_path):
 
 def test_group_synthesis_passes_the_combinators_fields_on_as_written():
     """The harness builds the JSON the router receives and never the contract models: the transformation and certainty are
-    the combinator's (the defaults only when it wrote none), and the hub decides them."""
+    the combinator's (the defaults only when it wrote none), and the hub decides them. So are the citations: integration
+    gate, round 1 (combinator faults) found the harness keeping only the cited ids the member's report held, so an
+    invented id written beside a real one never reached the hub (the assertion below was rewritten to that stricter rule:
+    it used to require the filtered ['h1.4'])."""
     items = [{**HISTORY_ITEM, "_path": Path("specialists") / f"{TASK}.json"}]
     plan = ra.group_plan(items, TASK)
     reply = types.SimpleNamespace(payload={"report_id": f"rep-{TASK}-0", "claims": [{"claim_id": "h1.1", "source_refs": []}, {"claim_id": "h1.4", "source_refs": []}]})
@@ -865,7 +880,7 @@ def test_group_synthesis_passes_the_combinators_fields_on_as_written():
     assert isinstance(got, dict) and got["synthesis_id"] == f"syn-{TASK}" and got["combinator_agent_id"] == "dummy-combinator"
     assert got["claims"][0]["transformation"] == E2E_FREE_TEXT[0] and got["claims"][0]["certainty"] == "high"
     assert got["claims"][1]["transformation"] == "paraphrased" and got["claims"][1]["certainty"] == "established"
-    assert got["claims"][1]["source_claim_ids"] == ["h1.4"], "only the cited ids a delivered report holds, as before"
+    assert got["claims"][1]["source_claim_ids"] == ["h1.4", "zz.9"], "every cited id as written, an unknown one included: the hub names it (INT-LEDGER-001)"
     assert got["ledger"] == [{"source_claim_ids": ["h1.3"], "reason": "context", "transformation": "dropped"}]
     assert got["text_sha256"] == ra.sha256_text(got["text"]) and got["text"] == "London was large. Amiens ended the war."
 
@@ -904,6 +919,317 @@ def test_group_synthesis_relays_disclosed_conflicts_as_unresolved_conflict_recor
     disclosed = {**syn, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "the two figures disagree"}]}
     got = ra.group_synthesis(items, TASK, {TASK: disclosed}, {TASK: reply}, plan)
     assert got["conflicts"] == [{"conflict_id": "k0", "status": "unresolved", "claim_ids": ["h1.1", "h1.4"], "description": "the two figures disagree"}]
+
+
+# --- integration gate, round 1: the combinator's synthesis reaches the hub as written, and within its contract -------------
+
+H11 = "London in 1802 was the largest city in Europe, with close to a million inhabitants at the census of 1801."
+EN_POINT = "Read against that, the calm of the sonnet is an exception rather than the rule, so its praise records a moment of seeing the city differently."
+#: The y1 peer group's combined output (the combinator's one answer for the group, list_claims.py --agent-view): a merged
+#: claim citing the History census claim and the English point, every other source claim dropped with a reason.
+COMBINED_Y1 = {"claims": [{"text": f"{H11} {EN_POINT}", "source_claim_ids": ["h1.1", "p1-point"], "certainty": "probable", "transformation": "merged"}],
+               "dropped": [{"source_claim_ids": ["h1.2", "h1.3", "h1.4"], "reason": "the History context beyond the census is left to the History answer"},
+                           {"source_claim_ids": ["p1-q01", "p1-s01"], "reason": "the quotation of the report supports the point and is not repeated"}]}
+#: A synthesis of HISTORY_ITEM in contract: the census claim carried, the rest dropped with a reason.
+CLEAN_HI = {"claims": [{"text": H11, "source_claim_ids": ["h1.1"], "certainty": "probable", "transformation": "carried"}],
+            "dropped": [{"source_claim_ids": ["h1.2", "h1.3", "h1.4"], "reason": "the smoke, the sonnet and the peace are left to the History answer"}]}
+
+
+def _direct_relay(rd: Path, group: str, body: dict) -> tuple[str, list]:
+    """The receipt of ``body`` (a syntheses file's body) relayed straight to the router, as the combinator port's
+    synthesis_payload builds it (claims s0, s1, ... with every field as written, every delivered report listed), on a
+    channel that delivered the group's genuine reports as run_round does (a peer-dependent report after its peer's
+    relay): its status and the identities of its findings (``finding_key``)."""
+    from epinoic_logic.integrity import AgentRole
+    items = ra.load_items(rd / "specialists")
+    hub = ra.RouterHub(signing_key=ra.KEY, config=ra.CFG)
+    ch = hub.open_task(ra.group_plan(items, group))
+    delivered: dict = {}
+    for it in items:
+        texts = ra.supplied(it)
+        if it.get("peer_of"):
+            _rec, ptext, _m = ra.relay_from_peer(ch, items, it, delivered, it["_path"].name)
+            texts = [*texts, ptext]
+        m, _req, _rq = hub.dispatch(group, it["agent_id"], it["question"], texts)
+        reply, _rc = hub.receive(group, m.message_id, it["response_text"], agent_id=it["agent_id"], report_id=f"rep-{it['task_id']}-0")
+        delivered[it["_path"].stem] = reply
+    claims = [{"claim_id": f"s{i}", **c} for i, c in enumerate(body["claims"])]
+    text = " ".join(c["text"] for c in claims)
+    payload = {"synthesis_id": f"syn-{group}", "request_id": ch.plan.request_id, "task_id": ch.plan.task_id, "combinator_agent_id": "dummy-combinator",
+               "source_report_ids": [r.payload["report_id"] for r in delivered.values()], "claims": claims,
+               "ledger": [{**d, "transformation": "dropped"} for d in body.get("dropped", [])], "text": text, "text_sha256": ra.sha256_text(text),
+               "created_at": "2026-10-11T15:00:00Z"}
+    _relayed, rr = ch.relay("dummy-combinator", AgentRole.COMBINATOR, "router", AgentRole.ROUTER, payload)
+    return rr.status.value, sorted(ra.finding_key(ra.finding_dict(f), group) for f in [*rr.findings, *rr.structural_findings])
+
+
+def _arena_receipt(rec: dict, group: str) -> tuple[str, list]:
+    return rec["status"], sorted(ra.finding_key(f, group) for f in rec["findings"] + rec["subject_findings"])
+
+
+def _history_specialist(rd: Path) -> Path:
+    (rd / "specialists").mkdir(parents=True)
+    (rd / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    return rd
+
+
+def _history_round(rd: Path, synthesis_text: str) -> dict:
+    _history_specialist(rd)
+    (rd / "syntheses").mkdir()
+    (rd / "syntheses" / f"{TASK}.json").write_text(synthesis_text, encoding="utf-8")
+    out = ra.run_round(rd)
+    [syn] = [r for r in out["records"] if r["variant"] == "synthesis"]
+    assert "error" not in syn and "trace" not in syn, f"the harness raised: {syn.get('error')}"
+    return {"out": out, "rec": syn}
+
+
+def test_an_invented_citation_beside_a_real_one_reaches_the_hub_and_is_named(tmp_path):
+    """Integration gate, round 1 (combinator faults, critical): a synthesized claim citing its real source and an invented
+    id ('g99.9@business-management-specialist' beside bm-e1's real ids) reached the hub with the invented id removed, so
+    the arena receipt never carried INT-LEDGER-001, while the same claims relayed directly did. The citations now reach
+    the hub as written: the arena receipt names the invented id and is the direct relay's."""
+    body = {**CLEAN_HI, "claims": [{**CLEAN_HI["claims"][0], "source_claim_ids": ["h1.1", "h9.9"]}]}
+    got = _history_round(tmp_path / "arena", json.dumps(body))
+    s = got["rec"]
+    named = [f for f in s["findings"] if f["code"] == "INT-LEDGER-001"]
+    assert len(named) == 1 and named[0]["severity"] == "error" and named[0]["claim_ids"] == ["s0", "h9.9"] and "h9.9" in named[0]["message"]
+    assert _arena_receipt(s, TASK) == _direct_relay(_history_specialist(tmp_path / "direct"), TASK, body)
+    # the hub delivered and decided it: functional (the transport measure does not judge a finding), and stated as an error
+    assert s["functional"] and s["delivered"] and "combinator_contract" not in s
+    assert any(e["record"] == f"{TASK}.json [synthesis syn-{TASK}]" and {"code": "INT-LEDGER-001", "claim_ids": ["s0", "h9.9"]} in e["errors"]
+               for e in got["out"]["genuine_receipts_with_errors"]["records_with_errors"])
+    # control: the real citation alone is not charged
+    clean = _history_round(tmp_path / "clean", json.dumps(CLEAN_HI))["rec"]
+    assert not [f for f in clean["findings"] if f["code"] == "INT-LEDGER-001"] and clean["functional"]
+
+
+@pytest.mark.parametrize("member", ["hi-y1", "en-y1"])
+def test_a_combined_output_in_either_members_file_gets_the_direct_relays_receipt(tmp_path, member):
+    """Integration gate, round 1 (combinator faults, critical): a combined output of a peer group (one --agent-view answer,
+    citing claims of both reports) written to one member's syntheses file lost its citations of the other member's
+    claims and listed one report: in the English member's file the census figures were charged as invented (a false
+    INT-LEDGER-023) and the History claim as lost (INT-LEDGER-002). Either member's file now gives the receipt the same
+    synthesis gets relayed directly, listing both reports."""
+    rd = _peer_round(tmp_path / "arena")
+    (rd / "syntheses").mkdir()
+    (rd / "syntheses" / f"{member}.json").write_text(json.dumps(COMBINED_Y1))
+    out = ra.run_round(rd)
+    [s] = [r for r in out["records"] if r["variant"] == "synthesis"]
+    assert s["source_report_ids"] == ["rep-hi-y1-0", "rep-en-y1-0"], "every delivered report of the group, whichever member's file holds the output"
+    assert s["synthesis_files"] == [f"syntheses/{member}.json"] and s["functional"] and "combinator_contract" not in s
+    assert not s.get("evidence_refs_copied"), "the merged text reproduces no excerpt: the direct relay carries no reference either"
+    assert not [f for f in s["findings"] if f["severity"] == "error"], "no false INT-LEDGER-023 on the census figures, no INT-LEDGER-002 for a lost citation"
+    assert _arena_receipt(s, "y1") == _direct_relay(_peer_round(tmp_path / "direct"), "y1", COMBINED_Y1)
+
+
+def test_group_synthesis_cites_across_the_group_and_copies_evidence_from_either_report():
+    """The claims of every delivered member are read for the evidence references a synthesized text reproduces (the file's
+    own member's first, for an id two reports share); a citation is never filtered against them."""
+    items = [{**HISTORY_ITEM, "task_id": "hi-y1", "group": "y1", "_path": Path("specialists") / "hi-y1.json"},
+             {**ENGLISH_PEER_ITEM, "_path": Path("specialists") / "en-y1.json"}]
+    plan = ra.group_plan(items, "y1")
+    ref = {"document_id": "peer:hi-y1", "locator": None, "excerpt": "Coal smoke from homes and workshops hung over the city for much of the year."}
+    hi = types.SimpleNamespace(payload={"report_id": "rep-hi-y1-0", "claims": [{"claim_id": "h1.2", "materiality": "material", "source_refs": []}]})
+    en = types.SimpleNamespace(payload={"report_id": "rep-en-y1-0", "claims": [{"claim_id": "p1-q01", "materiality": "material", "source_refs": [ref]}]})
+    syn = {"claims": [{"text": "The report says that \"Coal smoke from homes and workshops hung over the city for much of the year.\"",
+                       "source_claim_ids": ["h1.2", "p1-q01", "x9"], "certainty": "probable", "transformation": "merged"}]}
+    notes: dict = {}
+    got = ra.group_synthesis(items, "y1", {"hi-y1": syn}, {"hi-y1": hi, "en-y1": en}, plan, notes)
+    assert got["source_report_ids"] == ["rep-hi-y1-0", "rep-en-y1-0"] and got["claims"][0]["source_claim_ids"] == ["h1.2", "p1-q01", "x9"]
+    assert got["claims"][0]["evidence_refs"] == [ref] and notes["evidence_refs_copied"] == {"s0": [{"source_claim_id": "p1-q01", **ref}]}
+
+
+#: Forms of a syntheses file the combinator's runner and the port refuse (KIT-CB-002) that the hub's synthesis contract
+#: let through (integration gate, round 1: the arena relayed them and counted them functional), each with the position and
+#: rule the check names.
+def _claim0(**kw) -> dict:
+    return {**CLEAN_HI, "claims": [{**CLEAN_HI["claims"][0], **kw}]}
+
+
+def _dropped0(**kw) -> dict:
+    return {**CLEAN_HI, "dropped": [{**CLEAN_HI["dropped"][0], **kw}]}
+
+
+OUT_OF_CONTRACT = {
+    "nul-and-bidi-override-in-a-merged-text": (_claim0(text=H11 + "\x00‮", transformation="merged"), "claims.0.text: string_pattern_mismatch"),
+    "bell-and-escape-in-a-paraphrase": (_claim0(text=H11 + "\x07\x1b[2J", transformation="paraphrased"), "claims.0.text: string_pattern_mismatch"),
+    "bidi-override-in-a-paraphrase": (_claim0(text="‮" + H11, transformation="paraphrased"), "claims.0.text: string_pattern_mismatch"),
+    "escape-bell-and-bidi-in-a-dropped-reason": (_dropped0(reason="context \x1b[2J\x07‮"), "dropped.0.reason: string_pattern_mismatch"),
+    "blank-dropped-reason": (_dropped0(reason="   "), "dropped.0.reason: string_pattern_mismatch"),
+    "a-merged-claim-citing-one-source-twice": (_claim0(source_claim_ids=["h1.1", "h1.1"], transformation="merged"),
+                                               "claims.0: a synthesized claim cites each source claim once"),
+}
+
+
+@pytest.mark.parametrize("name", list(OUT_OF_CONTRACT))
+def test_a_synthesis_out_of_the_combinators_contract_is_a_named_failure(tmp_path, name):
+    """Integration gate, round 1 (combinator faults, major): the arena relayed a syntheses file straight to the hub, whose
+    synthesis contract checks lengths only, so a text holding a NUL, a bell and escape or a bidirectional override, a
+    dropped reason holding a terminal escape or nothing visible, and a claim citing one source twice were delivered and
+    counted functional, though the combinator's runner and the port refuse each one (KIT-CB-002) before it leaves. The
+    record now names the file, the code and the rule under ``combinator_contract`` and fails; the synthesis is still
+    relayed, so its receipt shows what the hub does with it."""
+    body, where = OUT_OF_CONTRACT[name]
+    s = _history_round(tmp_path / name, json.dumps(body))["rec"]
+    assert s["functional"] is False and s.get("status"), "a named failure, with the hub's receipt kept"
+    [p] = s["combinator_contract"]
+    assert (p["file"], p["code"], p["reason"]) == (f"syntheses/{TASK}.json", "KIT-CB-002", "output_invalid") and where in p["detail"]
+    assert any(r.startswith(f"syntheses/{TASK}.json is out of the combinator's published contract (KIT-CB-002 output_invalid") and where in r
+               for r in s["failure_reasons"])
+    assert "\x00" not in json.dumps(p) and "‮" not in p["detail"], "the check names positions and rules, never the combinator's text"
+
+
+def test_the_same_synthesis_in_contract_is_functional_and_unnamed(tmp_path):
+    """Control for the test above, with what the arena's format allows beside the contract: the legacy report_id, a claim
+    that leaves out its certainty and transformation (relayed with the harness's defaults) and a text with a tab and a
+    line break."""
+    body = {"report_id": f"rep-{TASK}-0", **CLEAN_HI, "claims": [{"text": H11.replace(" with ", "\twith\n"), "source_claim_ids": ["h1.1"]}]}
+    assert ra.combinator_contract_problem(body) is None
+    s = _history_round(tmp_path / "clean", json.dumps(body))["rec"]
+    assert s["functional"] and "combinator_contract" not in s and "failure_reasons" not in s
+
+
+_C0_CONTROLS = "".join(chr(c) for c in range(0x20) if chr(c) not in "\t\n\r")
+
+
+@pytest.mark.parametrize("value, code, reason, where", [
+    (_claim0(text=H11 + "⁦"), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
+    (_claim0(text=" \n\t "), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
+    (_claim0(text=""), "KIT-CB-002", "output_invalid", "claims.0.text: string_too_short"),
+    (_claim0(text=H11 + _C0_CONTROLS[:5]), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
+    (_claim0(text=H11 + "\x7f\x85"), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
+    (_claim0(source_claim_ids=["h1 1"]), "KIT-CB-002", "output_invalid", "claims.0.source_claim_ids.0: string_pattern_mismatch"),
+    (_claim0(source_claim_ids=[]), "KIT-CB-002", "output_invalid", "claims.0.source_claim_ids: too_short"),
+    (_claim0(note="joined"), "KIT-CB-002", "output_invalid", "claims.0.note: extra_forbidden"),
+    (_claim0(certainty="high"), "KIT-CB-002", "output_invalid", "claims.0.certainty: literal_error"),
+    (_claim0(transformation="joined with the census"), "KIT-CB-003", "transformation_unknown", "claims[0].transformation is not one of"),
+    (_claim0(certainty=0.9), "KIT-CB-002", "output_not_json", "a float is not allowed"),
+    (_dropped0(reason=None), "KIT-CB-002", "output_invalid", "dropped.0.reason: string_type"),
+    ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "they ‮disagree"}]}, "KIT-CB-002", "output_invalid",
+     "conflicts.0.description: string_pattern_mismatch"),
+    ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "  "}]}, "KIT-CB-002", "output_invalid", "conflicts.0.description: string_pattern_mismatch"),
+    ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.1"], "description": "they disagree"}]}, "KIT-CB-002", "output_invalid",
+     "conflicts.0: a conflict names each source claim once"),
+    ({**CLEAN_HI, "notes": "joined by the combinator"}, "KIT-CB-002", "output_invalid", "1 key(s) besides claims, dropped and conflicts"),
+    ({**CLEAN_HI, "claims": []}, "KIT-CB-002", "output_invalid", "claims: too_short"),
+    ({"dropped": CLEAN_HI["dropped"]}, "KIT-CB-002", "output_invalid", "claims: missing"),
+    ({**CLEAN_HI, "claims": [{**CLEAN_HI["claims"][0], "text": "x" * 4000} for _ in range(13)]}, "KIT-CB-006", "output_too_large", "more than 49152"),
+    (["not", "a", "synthesis"], "KIT-CB-002", "output_not_object", "a JSON list, not an object"),
+    (ra.UnreadableSynthesis('{"claims": ['), "KIT-CB-002", "output_not_json", "not protocol JSON"),
+], ids=["isolate", "blank-text", "empty-text", "c0-controls", "del-and-c1", "id-outside-alphabet", "no-citation", "unknown-claim-field", "certainty-outside",
+        "free-text-transformation", "float", "dropped-without-reason", "bidi-in-conflict", "blank-conflict", "conflict-naming-a-claim-twice",
+        "unknown-top-level-key", "no-synthesized-claim", "claims-missing", "over-the-size-limit", "not-an-object", "not-json"])
+def test_the_combinator_contract_check_reads_a_syntheses_file_as_the_port_reads_a_message(value, code, reason, where):
+    p = ra.combinator_contract_problem(value)
+    assert p is not None and (p["code"], p["reason"]) == (code, reason) and where in p["detail"], p
+    assert len(p["detail"]) <= 300
+
+
+def test_the_contract_check_reads_the_files_bytes_as_the_port_does(tmp_path):
+    """A repeated key (Python's JSON reader keeps the last value, the port refuses the message), a byte that is not UTF-8
+    (read with replacement characters, refused by the port) and a float are out of contract even though the harness's own
+    reading of the file succeeds; the file the harness relays is read once, as written (``load_syntheses``)."""
+    syn_dir = tmp_path / "syntheses"
+    syn_dir.mkdir()
+    clean = json.dumps(CLEAN_HI)
+    (syn_dir / "repeated.json").write_text(clean[:-1] + ', "claims": ' + json.dumps(CLEAN_HI["claims"]) + "}", encoding="utf-8")
+    (syn_dir / "latin1.json").write_bytes(json.dumps({**CLEAN_HI, "claims": [{**CLEAN_HI["claims"][0], "text": "London's café"}]}, ensure_ascii=False).encode("latin-1"))
+    (syn_dir / "float.json").write_text(clean.replace('"certainty": "probable"', '"certainty": "probable", "weight": 1.5'), encoding="utf-8")
+    (syn_dir / "clean.json").write_text(clean, encoding="utf-8")
+    loaded = ra.load_syntheses(syn_dir)
+    assert loaded["repeated"] == CLEAN_HI and loaded["clean"] == CLEAN_HI and json.loads(json.dumps(loaded["clean"])) == CLEAN_HI
+    assert "�" in loaded["latin1"]["claims"][0]["text"], "the harness's own reading replaces the byte"
+    assert ra.combinator_contract_problem(loaded["clean"]) is None
+    for stem, why in (("repeated", "repeats a key"), ("latin1", "not UTF-8"), ("float", "integers only")):
+        p = ra.combinator_contract_problem(loaded[stem])
+        assert (p["code"], p["reason"]) == ("KIT-CB-002", "output_not_json") and why in p["detail"], (stem, p)
+
+
+# --- integration gate, round 1: a claim no translation was offered for is not attempted ---------------------------------
+
+def test_a_claim_offered_no_translation_is_not_attempted_whatever_int_req_006_names():
+    """The channel now also names under INT-REQ-006 a material eligible claim whose verifier returned no outcome
+    (NOT_ATTEMPTED), which in a replay is every eligible claim with no recorded translation; the claim counts read every
+    INT-REQ-006 as a verification that ran and raised, so such a claim was counted 'attempted' (tests/e2e/
+    test_arena_measures.py: attempted 2 where one translation was offered). A claim is attempted only when a recorded
+    translation was offered for it; a verification that raised on an offered translation still is."""
+    from epinoic_logic.branches import default_registry
+    branch, _ = default_registry().for_subject(HISTORY_ITEM["subject"])
+    claims = branch.parser().parse_response(HISTORY_ITEM["response_text"], request_id=f"req-{TASK}", task_id=TASK, report_id=f"rep-{TASK}-0",
+                                            subject=HISTORY_ITEM["subject"], task_type=HISTORY_ITEM["task_type"], supplied_texts=[],
+                                            agent_id=HISTORY_ITEM["agent_id"]).claims
+    not_attempted = _f("INT-REQ-006", ["h1.3"], "claim h1.3 is material and eligible for the formal check (deterministic eligibility under its subject "
+                                                "policy), but its verification produced no outcome: NOT_ATTEMPTED (no translation or engine result reached "
+                                                "this receipt), so the router must not read the claim as checked", "warning")
+    raised = _f("INT-REQ-006", ["h1.3"], "claim verification failed internally for h1.3: KeyError", "warning")
+    served = [_outcome("h1.1", "COUNTEREXAMPLE", "COUNTEREXAMPLE", eligible=True)]
+    m = ra.claim_measures(claims, served, [not_attempted], offered=frozenset({"h1.1"}))
+    assert m["eligible"] == ["h1.1", "h1.3"] and m["attempted"] == ["h1.1"] and m["eligible_not_attempted"] == ["h1.3"]
+    m = ra.claim_measures(claims, served, [raised], offered=frozenset({"h1.1", "h1.3"}))
+    assert m["attempted"] == ["h1.1", "h1.3"] and m["eligible_not_attempted"] == [], "a verification that raised on an offered translation was attempted"
+    assert ra.claim_measures(claims, served, [raised])["attempted"] == ["h1.1", "h1.3"], "without offered, as before"
+
+
+# --- integration gate, round 1: the delivery pass trusts every key id the hub's components sign under -------------------
+
+GK = {"kind": "general_knowledge", "certainty": "probable", "note": "stated from memory"}
+
+
+def _largest_city(task: str, claim_id: str, holds: bool, gloss: str) -> dict:
+    """A translation of ``claim_id`` asserting (or denying) one Boolean symbol glossed ``gloss``; its verdict does not matter."""
+    var = {"op": "var", "name": "largest_city"}
+    stated = var if holds else {"op": "not", "arg": var}
+    other = "near_million" if holds else "calm_seen"
+    return {"problem": {"ir_version": "1.0", "problem_id": f"{task}-{claim_id}", "request_id": "req-y1", "claim_id": claim_id, "query": "entailment",
+                        "symbols": [{"name": "largest_city", "sort": "Bool", "meaning": gloss, "grounding": GK},
+                                    {"name": other, "sort": "Bool", "meaning": f"the other part of {claim_id}", "grounding": GK}],
+                        "premises": [{"id": "pr_city", "expr": stated, "label": gloss if holds else f"not: {gloss}", "grounding": GK, "materiality": "material"}],
+                        "conclusion": {"id": "concl", "expr": {"op": "and", "args": [stated, {"op": "var", "name": other}]}, "label": f"the point of {claim_id}"}},
+            "interpretation": {"reading": "as written", "glossary": [{"symbol": "largest_city", "meaning": gloss, "grounding": None},
+                                                                      {"symbol": other, "meaning": f"the other part of {claim_id}", "grounding": None}]},
+            "ambiguous": False, "unsupported_reason": None}
+
+
+def _conflicting_peer_round(rd: Path) -> dict:
+    """The y1 peer group with one translated claim each, the two contradicting only when the symbol each glosses apart
+    ('largest city in Europe', 'largest city in the Americas') is read as one: the cross-agent check names it
+    INT-CONFLICT-004 (a warning) with results it signs under key id 'integrity'."""
+    _peer_round(rd)
+    (rd / "translations").mkdir()
+    (rd / "translations" / "hi-y1.json").write_text(json.dumps({"report_id": "rep-hi-y1-0", "claims": {
+        "h1.1": _largest_city("hi-y1", "h1.1", True, "London in 1802 was the largest city in Europe")}}))
+    (rd / "translations" / "en-y1.json").write_text(json.dumps({"report_id": "rep-en-y1-0", "claims": {
+        "p1-point": _largest_city("en-y1", "p1-point", False, "the largest city in the Americas")}}))
+    return ra.run_round(rd)
+
+
+def _audit_errors(auditor) -> list:
+    """Every error-level finding of the latest audit of each task the delivery pass's auditor audited."""
+    return [f for uid in auditor.channel_uids() for audit in auditor.audits(uid)[-1:] for f in audit.report.findings if f.severity == "error"]
+
+
+def test_the_delivery_pass_trusts_the_results_the_cross_agent_check_signs(tmp_path, monkeypatch):
+    """Integration gate, round 1 (end-to-end lens, minor): the delivery pass's auditor declared the arena's engine key under
+    'hub' and 'default' only, so every result the cross-agent check signs under 'integrity' was audited as untrusted
+    (OVS-RES-003) and its answer excluded (run1's ess-e1b, AUDIT_FAILED). The keyring now declares every key id the hub's
+    components sign under, as the contained harness does; the control restores the old keyring and shows the fault."""
+    auditors: list = []
+    make = ra._delivery_auditor
+    monkeypatch.setattr(ra, "_delivery_auditor", lambda: auditors.append(make()) or auditors[-1])
+    out = _conflicting_peer_round(tmp_path / "fixed")
+    en = next(r for r in out["records"] if r["file"] == "en-y1.json" and r["variant"] == "genuine")
+    assert [(f["code"], f["severity"], f["claim_ids"]) for f in en["findings"] if f["code"].startswith("INT-CONFLICT")] == [("INT-CONFLICT-004", "warning", ["h1.1", "p1-point"])]
+    assert len(auditors) == 1 and not [f for f in _audit_errors(auditors[-1]) if f.code == "OVS-RES-003"], [f.message for f in _audit_errors(auditors[-1])]
+    assert set(ra.DELIVERY_ENGINE_KEY_IDS) == {"hub", "channel", "default", "integrity"} <= set(auditors[-1].keyring.engine_key_ids)
+    task = next(t for t in out["deliveries"]["tasks"] if t["file"] == "en-y1.json")
+    assert task["receipt_verifies"] and not [c for c in task["candidates"] if c["integrity_reasons"]], "a warning excludes no answer"
+    assert "AUDIT_FAILED" not in json.dumps(task)
+    # control: the keyring of the defect (no 'integrity') audits the same round's integrity-signed results as untrusted
+    monkeypatch.setattr(ra, "DELIVERY_ENGINE_KEY_IDS", ("hub", "default"))
+    out = _conflicting_peer_round(tmp_path / "control")
+    assert len(auditors) == 2 and [f for f in _audit_errors(auditors[-1]) if f.code == "OVS-RES-003" and "undeclared key id 'integrity'" in f.message]
+    task = next(t for t in out["deliveries"]["tasks"] if t["file"] == "en-y1.json")
+    assert any("OVS-RES-003" in r for c in task["candidates"] for r in c["integrity_reasons"])
 
 
 def _export(tmp_path: Path) -> Path:

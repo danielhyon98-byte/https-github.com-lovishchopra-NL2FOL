@@ -50,7 +50,14 @@ ABBREVIATIONS = frozenset({
 #: ("Kennedy's.") is not an initial, so the sentence ends there.
 _LAST_WORD_RE = re.compile(r"(?:^|(?<=[\s(\[\"“‘«„]))([^\W\d_](?:[^\W\d_]|\.(?=[^\W\d_]))*)\.?$")
 _CLOSERS = "\"”’')\\]»"
-_END_RE = re.compile(rf"[.?!]+[{_CLOSERS}]*(?=\s+\S)")
+#: A sentence end: a run of stops, its closing marks, then whitespace and text. The run is read whole and only from its first stop
+#: (``(?<![.?!])``, possessive quantifiers): a shorter run or fewer closing marks is followed by a stop or a mark, never by the
+#: whitespace the lookahead needs, and a match starting inside the run ends where the run's own match ends, so these are the
+#: matches of ``[.?!]+[closers]*(?=\s+\S)``. Without the anchor a run of n stops not followed by text ('9!!!...!') was rescanned from
+#: each of its stops, n² steps (integration gate 1, parser-safety-4).
+_END_RE = re.compile(rf"(?<![.?!])[.?!]++[{_CLOSERS}]*+(?=\s++\S)")
+#: The clause reading's sentence end (:func:`split_clauses`): a semicolon ends a clause too; read the same way, in linear time.
+_CLAUSE_END_RE = re.compile(rf"(?<![.?!;])[.?!;]++[{_CLOSERS}]*+(?=\s++\S)")
 _JSON_END_RE = re.compile(r"[}\]](?=\s+[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
 _STARTS_SENTENCE_RE = re.compile(r"[A-ZÀ-ÖØ-Þ0-9\"'(“‘«„\[{]")
 _WS_RE = re.compile(r"\s+")
@@ -158,7 +165,7 @@ def sentence_boundaries(text: str, *, semicolons: bool = False, capital_next: bo
         after = nxt.end() if nxt else b
         if after < len(original):
             out.append(after)
-    pattern = re.compile(rf"[.?!;]+[{_CLOSERS}]*(?=\s+\S)") if semicolons else _END_RE
+    pattern = _CLAUSE_END_RE if semicolons else _END_RE
     for m in pattern.finditer(text):
         if spans and _inside_any(starts, furthest_end, m.start(), m.end()):
             continue

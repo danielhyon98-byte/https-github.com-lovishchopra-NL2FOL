@@ -62,10 +62,10 @@ doc.request             # RequestReading: request bindings, quantities, relation
 | `limits.py` | `StemLimits` (every bound of section 4.9) and `StemProfile` (per-profile reading switches: chemistry, bare `M`, tonne, Computer Science, principal root) |
 | `normalize.py` | reading view (1:1 character map) and masked views of the same length (prose view) |
 | `numbers.py` | `ExactNumber` (value, significant figures, last place, half-width, exactness, exponent), the one number scanner `scan_number`, based numerals `scan_based` |
-| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`); bits, bytes and the binary multiples; the parts of a compound quantity (`compound_part`: `4 min 30 s`) |
-| `lexer.py` | single-pass tokenizer (plain and LaTeX modes); unknown LaTeX commands and confusable letters become `ERROR` tokens; a combination or permutation count (`⁵C₂`, `5C2`, `nCr`, `C(5, 2)`, `₅P₂`) is one `UNSUP` token; the integer operators `mod`, `modulo`, `div` between operands, `//`, `\bmod` and, in Computer Science, `%`, the AND dot (`A.B`) and a numeral in groups of four digits with its base subscript (`1011 0110₂`); a superscript run beyond the numeral bound is never converted (ST-LIM-001) |
+| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`); bits, bytes, the binary multiples and the decimal ones with both readings (`kB`, `MB`, `GB`: ST-UNIT-002; `is_data_unit`); the year (`yr`) and the hectare (`ha`); the parts of a compound quantity (`compound_part`: `4 min 30 s`) |
+| `lexer.py` | single-pass tokenizer (plain and LaTeX modes); unknown LaTeX commands and confusable letters become `ERROR` tokens; a combination or permutation count (`⁵C₂`, `5C2`, `nCr`, `C(5, 2)`, `₅P₂`) is one `UNSUP` token; the integer operators `mod`, `modulo`, `div` between operands, `//`, `\bmod` and, in Computer Science, `%`, the AND dot (`A.B`) and a numeral in groups of four digits with its base subscript (`1011 0110₂`), or, in Computer Science, binary digits in groups of four with none (`1011 0110`); a superscript run beyond the numeral bound is never converted (ST-LIM-001); one superscript letter after a base is its exponent (`2ˣ` as `2^x`); ∪ and ∩ inside probability brackets `P( … )` are operators |
 | `nodes.py` | frozen AST nodes (`IntOp` for an integer remainder or quotient) and helpers (`walk`, `symbols`, `align`, `render`, `shape_key`, `value_of`, ...) |
-| `parser.py` | bounded Pratt parser: chains, connectives, units, implicit multiplication against scope (at most two readings), unsupported constructs as named nodes; a quotient stated with its remainder and a congruence `a ≡ b (mod n)` |
+| `parser.py` | bounded Pratt parser: chains, connectives, units, implicit multiplication against scope (at most two readings), unsupported constructs as named nodes; a quotient stated with its remainder and a congruence `a ≡ b (mod n)`; probability notation `P(A)`, `P(A′)`, `P(B \| A)`, `P(A ∪ B)`, `P(X = 2)` as one symbol |
 | `spans.py` | code, LaTeX display and inline, chemical equations, prose math runs, verbal arithmetic, quantities, tables, data lines, part labels and markup |
 | `layout.py` | the round-7 layout rules restated from the generic parser (part labels, label-only lines, mark annotations, joined lines, table rows; docs/STEM_DESIGN.md, section 20.1) |
 | `segment.py` | statements: the shared sentence splitter on the prose view plus the STEM boundary rules; derivation lines (an equation continued on lines opening with `=` is one), display rows, list items, code blocks, one statement per table row |
@@ -93,7 +93,7 @@ The later stages added these modules to the same package (still importing nothin
 | `to_ir.py` | `checks` | AST to IR 1.0 data, one allowlisted node at a time; symbol naming and premise groundings |
 | `checks.py` | `checks` | `build_checks`: a `PlannedCheck` (an IR problem) per planned check, or an ST finding naming it undecided |
 | `si_reading.py` | `branch` | the SI reading of `quant` and `CorePack` (`SI_READING`) and its views |
-| `hub_hooks.py` | `branch` | the STEM hub hooks (`STEM_HOOKS`): imperatives, coverage words, echo exemption, word-count view |
+| `hub_hooks.py` | `branch` | the STEM hub hooks (`STEM_HOOKS`): imperatives, coverage words, echo exemption, word-count view (a line of numerals and signs no span reads, and a one-line bar row with no separator, count as one word of maths) |
 
 `ENCODINGS.md` describes the checks stage; `branches/README.md` and the top-level `README.md`
 describe the STEM branches end to end, with a worked example.
@@ -324,6 +324,10 @@ base phrase opening the clause with no comma (two false failures on correct work
 `inline-restatement` after an approximation word, a rounding verb, "approximately equal to" or in
 brackets (τ 0 by R8, the detail naming the reading; a value after a prose quantity, not a chain,
 read by the other readings), and no recorded round-7 answer failing any check.
+`test_integration_gate1_stem` pins the fixes of integration gate 1's STEM findings (docs/STEM_DESIGN.md, section 35: the band of a
+substitution in the reading's units, rules mixed-units, request-substitution, or-roots, value-comparison, degree-reading,
+data-count, binary-reading and unit-system, probability notation, step participles, superscript letter exponents, the year and
+the hectare, compound quantities in prose and part ties, lines of numerals as the answer proper), each with clean controls.
 `test_round7_arena_fixes` pins the fixes of the round-7 arena's STEM findings (docs/STEM_DESIGN.md, section 34), each with a
 clean control: the reading as written only where the written units agree or a written factor converts them, exact integers
 of Mathematics and Computer Science matching only themselves, no symbol standing for a coefficient its formula writes, the

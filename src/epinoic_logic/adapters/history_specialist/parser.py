@@ -78,8 +78,9 @@ from ...ir.schema import SourceRef
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, is_memory_label, is_self_certification,  # noqa: F401
-                        split_list_items, split_note_clauses, strip_markup, truncate_claim_text, undelimited_quote_span)
+from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_memory_label,  # noqa: F401
+                        is_self_certification, parser_quotation_spans, split_list_items, split_note_clauses, strip_markup, truncate_claim_text,
+                        undelimited_quote_span)
 from ..sources import attribute_excerpt, check_excerpt  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
 from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
 from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
@@ -331,7 +332,7 @@ def is_note_paragraph(paragraph: str) -> bool:
     """The paragraph opens with a bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:',
     'Limit:'), whatever its length, dates or figures; or all sentences are labels (from-memory
     disclaimers, task notes, source caveats, self-reports, JSON fragments); or the paragraph is a
-    short undated aside with no argument cue. One
+    short undated aside with no argument cue, unless it is the answer's only prose (``classify_paragraphs``). One
     self-report inside a substantive paragraph does NOT make the paragraph a note: only
     that sentence is demoted (see ``parse_response``)."""
     sentences = split_sentences(paragraph)
@@ -343,6 +344,29 @@ def is_note_paragraph(paragraph: str) -> bool:
         return True
     low = paragraph.lower()
     return len(sentences) == 1 and _word_count(paragraph) < _MAX_ASIDE_WORDS and not has_dated_item(paragraph) and not any(c in low for c in _ARGUMENT_CUES)
+
+
+#: Closing remarks that are no answer even when they are an answer's only line ("Hope this helps.").
+SIGN_OFF_CUES: tuple[str, ...] = ("hope this helps", "hope that helps", "good luck", "best of luck", "let me know", "feel free", "thanks", "thank you",
+                                  "happy to help", "any questions", "any other questions", "cheers", "you're welcome", "you are welcome")
+_MIN_SOLE_WORDS = 4
+
+
+def _states_something(paragraph: str) -> bool:
+    """A sole line that can be an answer: at least four words and no closing remark (:data:`SIGN_OFF_CUES`)."""
+    low = paragraph.lower()
+    return _word_count(paragraph) >= _MIN_SOLE_WORDS and not any(c in low for c in SIGN_OFF_CUES)
+
+
+def _aside_only(paragraph: str) -> bool:
+    """A paragraph that :func:`is_note_paragraph` reads as a note only because it is a short undated line with no
+    argument cue (no note lead, and its sentences are no labels)."""
+    if _word_count(paragraph) >= _MAX_ASIDE_WORDS:
+        return False  # the aside rule reads only a line shorter than this: the cheap test first, so a long block is never split here
+    sentences = split_sentences(paragraph)
+    if not sentences or has_note_lead(sentences[0]) or all(is_note_sentence(s) for s in sentences):
+        return False
+    return is_note_paragraph(paragraph)
 
 
 def certainty_of(sentence: str, *, from_memory: bool = False, attributed: bool = False) -> str:
@@ -451,6 +475,13 @@ def classify_paragraphs(text: str) -> list[tuple[ParagraphKind, str]]:
     module docstring). The structural checks use the same classification."""
     blocks = [p.strip() for p in re.split(r"\n\s*\n", strip_markup(text).strip()) if p.strip()]
     kinds: list[ParagraphKind] = ["note" if is_note_paragraph(b) else "body" for b in blocks]
+    if "body" not in kinds:
+        # an answer whose only prose is one short line: that line is the answer, not an aside beside it ("Stalin's Five-Year Plans
+        # were a complete success." alone is a bare judgement the diagnosis names, never a note; integration gate 1, hold-out
+        # ho_d_bare_hist, as the feature line's re-run review A-INF-BARE read it)
+        sole = next((i for i, b in enumerate(blocks) if _states_something(b) and _aside_only(b)), None)
+        if sole is not None:
+            kinds[sole] = "body"
     prose = [i for i, k in enumerate(kinds) if k == "body"]
     substantive = [i for i in prose if _word_count(blocks[i]) >= _MIN_SUBSTANTIVE_WORDS or has_dated_item(blocks[i])]
     if len(substantive) >= 3:
@@ -473,7 +504,7 @@ def quotations_in(sentence: str) -> list[str]:
     """Quoted excerpts of ``sentence`` in order: straight, curly or mixed double marks,
     guillemets, and single marks around two or more words; at least four characters.
     Strings of a JSON fragment pasted into the sentence are not quotations."""
-    return [inner.strip() for _s, _e, inner in find_quotation_spans(_without_json(sentence)) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
+    return [inner.strip() for _s, _e, inner in parser_quotation_spans(_without_json(sentence)) if len(inner.strip()) >= _MIN_QUOTE_CHARS]
 
 
 def _mask_quotations(sentence: str) -> str:
@@ -503,6 +534,7 @@ class HistorySpecialistAdapter:
         from .structural import structural_checks
         return structural_checks(report)
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`

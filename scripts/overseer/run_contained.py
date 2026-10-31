@@ -5,6 +5,12 @@ exported by the package's exporter.
 
     PYTHONPATH=src python scripts/overseer/run_contained.py --out DIR [--rounds ROOT] [--round r2 ...] [--pack EXPORTED_PACK]
                                                           [--probe-scope sample|all] [--no-tamper] [--replies DIR --transfers EXPORT_DIR]
+                                                          [--allow-missing-rounds]
+
+A requested round (the default set, or each ``--round``) that is not found under ``--rounds`` fails the gate
+``requested_rounds_present`` (integration gate round 1: before it, a run missing a default round other than r7 passed
+every gate and named the round only under "Rounds not present"); ``--allow-missing-rounds`` lets such a run pass and still
+names the rounds it did not replay.
 
 Steps, every output under ``--out`` (never inside a recorded round):
 
@@ -14,7 +20,7 @@ Steps, every output under ``--out`` (never inside a recorded round):
    stops the run before any agent is built (exit status 2). Every overseer agent of the run is an
    ``OverseerAgentRunner`` built from that loaded copy; the harness has no option and no file that carries prompt text,
    and nothing else configures an agent.
-2. **Rounds.** Each recorded round (default r2 to r5 and r7, each only when present) is COPIED into ``DIR/rounds/<name>`` and
+2. **Rounds.** Each recorded round (default r2 to r5 and r7) is COPIED into ``DIR/rounds/<name>`` and
    ``run_arena.run_round`` runs on the copy with ``RouterHub`` replaced by a hub that carries the auditor; a second copy
    runs WITHOUT the auditor, and the two arena results are compared (the auditor must change nothing). Every channel
    (the genuine pass and each fault mutation) gets a signed task audit with the shadow channel. Reported: the genuine
@@ -1436,7 +1442,8 @@ def run_replies(out: Path, pack: Any, replies_dir: Path, transfers: Path) -> dic
 # ============================================================================================ the run
 def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iterable[str] = H.DEFAULT_ROUNDS, pack_path: Optional[Path] = None,
                   tamper: bool = True, probe_scope: str = "sample", replies_dir: Optional[Path] = None, transfers: Optional[Path] = None,
-                  after_export: Optional[Callable[[Path], None]] = None, replay_mode: str = "inline", adjudications_path: Optional[Path] = None) -> dict:
+                  after_export: Optional[Callable[[Path], None]] = None, replay_mode: str = "inline", adjudications_path: Optional[Path] = None,
+                  allow_missing_rounds: bool = False) -> dict:
     if replay_mode not in ("inline", "process"):
         raise H.HarnessError("--replay-mode is inline or process")
     adjudications = load_adjudications(adjudications_path)  # refused unless every entry's engine evidence reproduces
@@ -1456,6 +1463,7 @@ def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iter
     result["adjudications"] = adjudications
     found = dict(H.round_dirs(rounds_root, rounds)) if rounds_root else {}
     result["rounds_missing"] = [n for n in rounds if n not in found]
+    result["allow_missing_rounds"] = bool(allow_missing_rounds)  # the explicit opt-in that lets a run pass with requested rounds absent
     result["rounds"] = {}
     for name in rounds:
         if name in found:
@@ -1512,7 +1520,13 @@ def gates(r: dict) -> dict:
     rekeyed = [rd["rekeyed"] for rd in rounds if rd.get("rekeyed")]
     passes = rounds + rekeyed  # every replay with the auditor attached: each round's genuine and mutation channels, and its re-keyed pass
     reviews = [rv for rd in rounds for rv in rd.get("reviews", [])] + [rv for x in rekeyed for rv in x.get("reviews", [])]
+    missing = list(r.get("rounds_missing") or [])
     g = {
+        # integration gate round 1: every round the run was asked for (the default set, or each --round) must have been found and
+        # replayed, so "every gate passes" always means every requested round was replayed; a run may pass without some of them
+        # only behind the explicit --allow-missing-rounds, and still names them
+        "requested_rounds_present": ({"ok": not missing, "missing": missing} if not r.get("allow_missing_rounds")
+                                     else {"ok": True, "missing": missing, "state": "NOT REQUIRED (--allow-missing-rounds)" if missing else "all present"}),
         "agents_only_from_the_exported_pack": {"ok": bool(reviews) and all(rv.get("system_text_is_the_pack") for rv in reviews),
                                                "source": r.get("pack", {}).get("source")},
         # an error on a genuine transfer is a false alarm unless it matches an adjudicated genuine fault of its pass exactly
@@ -1615,7 +1629,8 @@ def summary_md(r: dict) -> str:
             L.append(f"- recorded overseer report {s['file']} (agent self-report): claimed functional rate {s.get('claimed_functional_rate')}, "
                      f"recomputed {s.get('recomputed_from_recorded_results')}, agrees {s.get('agrees')}")
     if r.get("rounds_missing"):
-        L += ["", "Rounds not present: " + ", ".join(r["rounds_missing"])]
+        L += ["", "Rounds not present: " + ", ".join(r["rounds_missing"])
+              + (" (allowed by --allow-missing-rounds)" if r.get("allow_missing_rounds") else " (the gate requested_rounds_present fails)")]
     if "stem_probes" in r:
         sp = r["stem_probes"]
         L += ["", "## STEM fault-class probes", "", json.dumps({k: v for k, v in (sp.get("gate") or {}).items() if k != "classes_with_a_named_probe"}) if sp.get("measured")
@@ -1640,13 +1655,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--transfers", type=Path, default=None, help="the export_dossier.py output the replies answer")
     ap.add_argument("--replay-mode", choices=("inline", "process"), default="inline",
                     help="replay the recorded rounds' results inline (default; reported as in-process only) or in a worker process (decision 20)")
+    ap.add_argument("--allow-missing-rounds", action="store_true",
+                    help="let the run pass when a requested round is not found under --rounds (it is still named); without it a missing round fails the gate requested_rounds_present")
     ap.add_argument("--adjudications", type=Path, default=None,
                     help="the adjudicated genuine faults record (default scripts/overseer/adjudicated_genuine_faults.json; its evidence is re-run first)")
     args = ap.parse_args(argv)
     try:
         r = run_contained(args.out, rounds_root=args.rounds, rounds=args.round or H.DEFAULT_ROUNDS, pack_path=args.pack, tamper=not args.no_tamper,
                           probe_scope=args.probe_scope, replies_dir=args.replies, transfers=args.transfers, replay_mode=args.replay_mode,
-                          adjudications_path=args.adjudications)
+                          adjudications_path=args.adjudications, allow_missing_rounds=args.allow_missing_rounds)
     except H.HarnessError as exc:
         print(json.dumps({"refused": str(exc)}))
         return 2

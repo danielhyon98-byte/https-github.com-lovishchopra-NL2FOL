@@ -117,19 +117,31 @@ def run_shadow(ctx: CheckContext) -> str:
         from ...branches import default_registry
         registry = default_registry()
     runs_key = ctx.keyring.subkey("runs")
+    from ...channel.bus import CLAIM_OUT_OF_SCOPE
     translations: dict[tuple[str, str], list] = {}
+    # The claims the live channel named NOT_ATTEMPTED (INT-REQ-006: its verifier produced no outcome for a material,
+    # deterministically eligible claim). The shadow leaves exactly these unserved, so it names them too; every other claim
+    # with no journaled outcome was outside the live verifier's scope (no verifier, or one that declared it out of scope)
+    # and is declared out of scope here, so the shadow never names a claim the live channel did not. A verification that
+    # RAISED stays unreproducible (its INT-REQ-006 is excluded from the comparison, SHADOW_EXCLUDED).
+    unserved: set[tuple[str, str]] = set()
     for t in view.transfers:
         if t.receipt is None:
             continue
         for o in t.receipt.outcomes:
             translations.setdefault((o.report_id, o.claim_id), []).append(o.translation)
+        for f in t.receipt.findings:
+            if f.code == "INT-REQ-006" and "produced no outcome: NOT_ATTEMPTED" in (f.message or ""):
+                for rid in f.report_ids:
+                    for cid in f.claim_ids:
+                        unserved.add((rid, cid))
 
     def serve(claim, report):
         cands = translations.get((report.report_id, claim.claim_id), [])
         digest = sha256_text(claim.claim_text)
         tr = next((x for x in cands if x.claim_text_sha256 == digest), None) or next((x for x in cands if x.claim_text_sha256 is None), None)
         if tr is None:
-            return None
+            return None if (report.report_id, claim.claim_id) in unserved else CLAIM_OUT_OF_SCOPE
         ver: Optional[VerificationResult] = None
         if tr.problem is not None and tr.status in (TranslationStatus.TRANSLATED, TranslationStatus.AMBIGUOUS_TRANSLATION):
             # as translate.outcome.verify_claim runs it: on an ambiguous translation the argument diagnosis is capped at

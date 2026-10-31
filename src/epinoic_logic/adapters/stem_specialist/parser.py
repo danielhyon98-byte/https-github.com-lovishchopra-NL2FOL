@@ -10,15 +10,22 @@ numbers and check ids cannot diverge:
   mark annotations are furniture). A claim's id is the statement's
   ``s<paragraph>.<n>`` in the ``sciences`` branch, and the same numbering with the branch's own
   letter in the other two (``m<paragraph>.<n>`` for mathematics, ``c<paragraph>.<n>`` for
-  Computer Science), so a Physics and a Mathematics report on one task never share a claim id
-  (the combinator's ledger refuses shared ids, INT-LEDGER-014; two agents of one branch share the
-  numbering, as two agents of any other branch do). Its text is the statement's stretch of the
+  Computer Science), so a Physics and a Mathematics report on one task never share a claim id. With
+  ``qualify_ids`` the ids also carry the agent, as the generic parser's do (``s1.2@physics-specialist``:
+  ``generic_parser.agent_claim_tag``): the hub asks for it when the report's ids would otherwise be the
+  ids a report of another agent already delivered on the task holds (two agents of one STEM branch;
+  integration gate 1, combinator-faults-9: the combinator's ledger refuses shared ids, INT-LEDGER-014,
+  and the combinator port refuses an input holding them, KIT-CB-001), so no two reports on one task
+  share a claim id, while every id a single agent's report had keeps its value (supersession,
+  recorded fixtures, adjudications and the overseer's worked examples stay keyed as they were).
+  The part before ``@`` is the statement's id in the branch's letter (``claim_id_for``).
+  Its text is the statement's stretch of the
   original answer with the markup inside it left out (emphasis markers, closing mark annotations),
   cut to the contract's 4,000 characters, never rewritten; a statement with no markup inside is an
   offset substring.
   ``original_response`` is verbatim. Code blocks, data lines, tables and display maths become
   claims; nothing vanishes. Statements beyond the report's 512-claim limit are merged into
-  ``s.tail`` (``m.tail``, ``c.tail``) with the unresolved-issue text the channel turns into
+  ``s.tail`` (``m.tail``, ``c.tail``; qualified with the ids) with the unresolved-issue text the channel turns into
   INT-REQ-013. A statement that carries maths is never taken for a note because it has no
   words (``√8 = 2√2``); only a note clause or a self-certification is a note.
 * **Roles** (no new role, design D11) are the generic branch's round-7 reading of the same
@@ -57,7 +64,8 @@ from ...translate.subjects import resolve_profile
 from ...ir.schema import SourceRef
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, find_quotation_spans, is_note_sentence, is_self_certification, split_note_clauses
+from ..markdown import (MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification,
+                        parser_quotation_spans, split_note_clauses)
 from ..sources import attribute_excerpt
 from ...stem.layout import ANNOTATION_ONLY_RE, LABEL_ONLY_REST_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, plain_line
 
@@ -256,7 +264,7 @@ def _quotations(text_st: str, view_st: str) -> list[tuple[int, int, str]]:
     """``(start, end, excerpt)`` of the quotations of one statement, found on the quotation view and
     read back from the original characters (the view only masks code and number marks)."""
     out: list[tuple[int, int, str]] = []
-    for start, end, inner in find_quotation_spans(view_st):
+    for start, end, inner in parser_quotation_spans(view_st):
         k = view_st.find(inner, start, end) if inner else -1
         excerpt = text_st[k:k + len(inner)] if k >= 0 else inner
         if len(excerpt.strip()) >= _MIN_QUOTE_CHARS:
@@ -270,14 +278,17 @@ class StemTextParser:
     document (bindings, show-that targets, planned check ids) as the STEM pack."""
 
     accepts_request_text = True
+    #: The hub may ask for agent-qualified claim ids (``qualify_ids``; module docstring, integration gate 1).
+    accepts_qualify_ids = True
 
     def __init__(self, agent_id: str = "science-specialist", mode: str = "sciences") -> None:
         self.agent_id = agent_id
         self.mode = mode if mode in MODE_PROFILES else "sciences"
 
+    @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str, task_type: str,
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None,
-                       agent_id: Optional[str] = None, request_text: Optional[str] = None) -> SpecialistReport:
+                       agent_id: Optional[str] = None, request_text: Optional[str] = None, qualify_ids: bool = False) -> SpecialistReport:
         if not text or not text.strip():
             raise AdapterError("the specialist answer is empty")
         agent = agent_id or self.agent_id
@@ -285,7 +296,7 @@ class StemTextParser:
                     course_level=course_level, task_type=task_type)
         data = tuple(t.text for t in supplied_texts if t.text and t.text.strip())  # tables (rule table-data) and values (rule supplied-values)
         doc = build_document(text, request_text, stem_profile_key(subject, self.mode), **({"data": data} if data else {}))
-        pending, report_assumptions, unresolved = self._claims(text, doc, list(supplied_texts))
+        pending, report_assumptions, unresolved = self._claims(text, doc, list(supplied_texts), _generic().agent_claim_tag(agent) if qualify_ids else None)
         if not pending:
             raise AdapterError("the specialist answer yields no statements")
         claims = [ClaimRecord(**base, **p) for p in pending]
@@ -319,7 +330,8 @@ class StemTextParser:
         unresolved.append(f"the STEM front end produced no statements ({why}); each paragraph was kept as one claim and its relations were not read")
         return out, unresolved
 
-    def _claims(self, text: str, doc: StemDocument, supplied: list[SuppliedText]) -> tuple[list[dict], list[str], list[str]]:
+    def _claims(self, text: str, doc: StemDocument, supplied: list[SuppliedText], tag: Optional[str] = None) -> tuple[list[dict], list[str], list[str]]:
+        """The claims of the statements, their ids qualified with the agent's ``tag`` when one is given (module docstring)."""
         statements, unresolved = self._statements(text, doc)
         docs = {t.document_id: t for t in supplied}
         view = si_quote_view(text, doc.profile.key) if len(doc.reading) == len(text) else text
@@ -364,10 +376,10 @@ class StemTextParser:
         for r in rows:
             if r["role"] == "analysis" and _ASSUMPTION_RE.search(split_note_clauses(r["text"])[0] or ""):
                 report_assumptions.append(r["text"][:500])
-        unresolved += self._self_report_notes(rows, self.mode)
+        cid = (lambda sid: f"{claim_id_for(sid, self.mode)}@{tag}") if tag else (lambda sid: claim_id_for(sid, self.mode))  # noqa: E731
+        unresolved += self._self_report_notes(rows, cid)
         if doc.overflow:
-            unresolved.append(f"{doc.overflow} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {claim_id_for(TAIL_CLAIM_ID, self.mode)} and were not individually roled or checked")
-        cid = lambda sid: claim_id_for(sid, self.mode)  # noqa: E731
+            unresolved.append(f"{doc.overflow} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {cid(TAIL_CLAIM_ID)} and were not individually roled or checked")
         pending = [dict(claim_id=cid(r["sid"]), claim_text=r["text"], claim_role=r["role"], proposed_claim_kind=r["claim_kind"], source_refs=r["refs"],
                         assumptions=r["assumptions"], materiality=r["materiality"], supporting_claim_ids=[cid(x) for x in r["supports"]],
                         advisory_verification_status=_SELF_REPORT if r["self_report"] else None) for r in rows[:_MAX_CLAIMS]]
@@ -514,10 +526,10 @@ class StemTextParser:
         return "analysis", "unknown", False
 
     @staticmethod
-    def _self_report_notes(rows: list[dict], mode: str) -> list[str]:
+    def _self_report_notes(rows: list[dict], cid) -> list[str]:
         out: list[str] = []
         demoted = [r for r in rows if r["self_report"]]
         if demoted:
-            shown = "; ".join(f"{claim_id_for(r['sid'], mode)} ('{r['text'][:80]}')" for r in demoted)
+            shown = "; ".join(f"{cid(r['sid'])} ('{r['text'][:80]}')" for r in demoted)
             out.append(f"{len(demoted)} statement(s) carrying verification-status language were roled other and count as no material claim: {shown[:600]}")
         return out

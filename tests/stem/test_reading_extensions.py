@@ -242,12 +242,17 @@ def test_injective_choices_are_bounded():
 
 # ------------------------------------------------------------------------------------- unknown units
 def test_a_restatement_in_an_unknown_unit_pairs_only_with_the_same_unit():
-    text = "Using NPP = GPP − R = 2500 − 1800 = 700 kJ m⁻² yr⁻¹. The net primary productivity is therefore {} kJ m⁻² yr⁻¹."
-    bad = receipt("Environmental Systems and Societies", "Find NPP.", text.format("−700"))
-    assert "stem-res" in failed(bad) and any(f.code == "INT-SUBJ-004" for f in bad.findings) and not bad.errors
-    assert clean(receipt("Environmental Systems and Societies", "Find NPP.", text.format("700")))
-    other = build_document("x = 2 + 3 = 5 kJ m⁻² yr⁻¹. So it is therefore 5 kg yr⁻¹.", "q", "ess")
-    assert not any(r.kind == "res" for r in other.relations)
+    # Rewritten to a stricter rule by integration gate 1: the year is a known unit now ('yr' had been the unknown atom here), and a failing
+    # restatement in a unit that stays unknown ('mth'), with no other unit or per cent that could change its reading, is decided as written
+    # alone, so its failure is the report's own error (INT-SUBJ-001); before, any unknown unit made it a warning (INT-SUBJ-004)
+    for unit in ("kJ m⁻² yr⁻¹", "kJ m⁻² mth⁻¹"):
+        text = "Using NPP = GPP − R = 2500 − 1800 = 700 " + unit + ". The net primary productivity is therefore {} " + unit + "."
+        bad = receipt("Environmental Systems and Societies", "Find NPP.", text.format("−700"))
+        assert "stem-res" in failed(bad) and any(f.code == "INT-SUBJ-001" for f in bad.errors), unit
+        assert clean(receipt("Environmental Systems and Societies", "Find NPP.", text.format("700"))), unit
+    for unit in ("yr⁻¹", "mth⁻¹"):
+        other = build_document(f"x = 2 + 3 = 5 kJ m⁻² {unit}. So it is therefore 5 kg {unit}.", "q", "ess")
+        assert not any(r.kind == "res" for r in other.relations), unit
 
 
 # -------------------------------------------------------------------------------------------- Boolean

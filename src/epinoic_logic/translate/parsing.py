@@ -17,13 +17,39 @@ from typing import Any
 
 from ..ir.canonical import strict_object_pairs
 
-_FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
-_INLINE_FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*(.*?)```", re.DOTALL)
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+#: A run of a fence's language tag characters (``json``, ``c++``, ``x-y``: ASCII letters, digits, ``_``, ``+``, ``-``)
+#: and a run of spaces or tabs. Each is matched at one given index only (a single class repeated, nothing after it), so
+#: reading a run costs its length and never backtracks.
+_TAG_RUN = re.compile(r"[A-Za-z0-9_+-]*")
+_BLANK_RUN = re.compile(r"[ \t]*")
+#: The opener of a line fence (three backticks, a language tag, spaces or tabs, a line break) and the end of its body
+#: (a line break, spaces or tabs, three backticks). Each starts with a literal, and the runs it reads after one start
+#: (the tag and blanks after three backticks, the blanks after a line break) belong to that start alone, so one search
+#: over the whole text is linear.
+_LINE_OPENER_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n")
+_LINE_CLOSER_RE = re.compile(r"\n[ \t]*```")
+_FENCE = "```"
 
 
 class ProviderOutputError(ValueError):
     """The provider's text is not a single JSON object."""
+
+
+def _after_tag_and_blanks(text: str, i: int) -> int:
+    """The index after the language tag and the spaces or tabs that start at ``i``."""
+    return _BLANK_RUN.match(text, _TAG_RUN.match(text, i).end()).end()
+
+
+def _line_closer(text: str, b: int) -> int:
+    """The end of a line fence's body that starts at ``b``: the first index ``e >= b`` where a line break (LF or CR LF),
+    spaces or tabs and three backticks follow. ``-1`` when the body is never closed. One linear search."""
+    m = _LINE_CLOSER_RE.search(text, b)
+    if m is None:
+        return -1
+    nl = m.start()
+    return nl - 1 if nl - 1 >= b and text[nl - 1] == "\r" else nl
 
 
 def strip_code_fences(text: str) -> str:
@@ -31,20 +57,57 @@ def strip_code_fences(text: str) -> str:
 
     Any prose outside the fence is discarded. Without a fence the text is returned
     unchanged (surrounding whitespace is left for the caller to strip).
+
+    A line fence (three opening backticks with an optional language tag and a line break, a body, then a line break and
+    three closing backticks) is taken first; failing that, an inline fence (the first three backticks with an optional
+    tag, up to the next three). The text is read in linear time: only the first line opener can have a closer (a closer
+    after a later opener closes the first one too), so one opener search and one closer search decide the result at any
+    size the parser accepts (a lazy pattern searched from every opener with no closer was quadratic: 12 s at 80 KB,
+    minutes at 320 KB).
     """
-    match = _FENCE_RE.search(text)
-    if match is None:
-        match = _INLINE_FENCE_RE.search(text)
-    if match is None:
+    opener = _LINE_OPENER_RE.search(text)
+    if opener is not None:
+        e = _line_closer(text, opener.end())
+        if e >= 0:
+            return text[opener.end() : e]
+    first = text.find(_FENCE)
+    if first < 0:
         return text
-    return match.group(1)
+    b = _after_tag_and_blanks(text, first + 3)
+    e = text.find(_FENCE, b)
+    if e < 0:
+        return text
+    return text[b:e]
 
 
 def _reject_constant(name: str) -> Any:
     raise ProviderOutputError(f"non-finite JSON constant {name!r} is not allowed")
 
 
-_STRICT_FENCE_RE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*(?:\r?\n)?(?P<body>.*?)(?:\r?\n)?[ \t]*```", re.DOTALL)
+def _strict_fence_body(stripped: str) -> str | None:
+    """The body of a reply that is exactly one fence (``stripped`` has no surrounding whitespace): three opening
+    backticks with an optional language tag, spaces or tabs and an optional line break; the body; an optional line
+    break, spaces or tabs and the three closing backticks that end the text. ``None`` when the reply is not one fence. Linear:
+    the opener and the closer are read once each from their ends (a backtracking pattern over the same shape was
+    cubic on a run of spaces, 22 s at 4 KB)."""
+    n = len(stripped)
+    if n < 6 or not stripped.startswith(_FENCE) or not stripped.endswith(_FENCE):
+        return None
+    k = _after_tag_and_blanks(stripped, 3)
+    if stripped.startswith("\r\n", k):
+        k += 2
+    elif stripped.startswith("\n", k):
+        k += 1
+    c = n - 3  # the closing fence
+    if k > c:
+        return None
+    s0 = k + len(stripped[k:c].rstrip(" \t"))  # the spaces or tabs before the closing fence start here
+    e = s0
+    if s0 - 2 >= k and stripped[s0 - 2 : s0] == "\r\n":
+        e = s0 - 2
+    elif s0 - 1 >= k and stripped[s0 - 1] == "\n":
+        e = s0 - 1
+    return stripped[k:e]
 
 
 def _strict_body(text: str) -> str:
@@ -53,10 +116,10 @@ def _strict_body(text: str) -> str:
     stripped = text.strip()
     if stripped.startswith("{"):
         return stripped
-    m = _STRICT_FENCE_RE.fullmatch(stripped)
-    if m is None:
+    body = _strict_fence_body(stripped)
+    if body is None:
         raise ProviderOutputError("the reply is neither one bare JSON object nor exactly one code fence around one (text outside the object is refused)")
-    return m.group("body")
+    return body
 
 
 def _loads(body: str) -> Any:

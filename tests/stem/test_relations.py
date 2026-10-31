@@ -161,7 +161,9 @@ def test_chemistry_boolean_and_truth_table_checks():
 
 def test_dimension_and_unit_findings():
     assert "ST-DIM-002" in codes(doc("F = 2.0 kg + 3.0 m"))
-    assert "ST-UNIT-001" in codes(doc("E = 5.0 kg yr⁻¹"))
+    # integration gate 1: the year is a known unit now ('yr' had been this test's unknown atom); 'mth' stays unknown
+    assert "ST-UNIT-001" in codes(doc("E = 5.0 kg mth⁻¹"))
+    assert "ST-UNIT-001" not in codes(doc("E = 5.0 kg yr⁻¹"))
     amb = [f for f in doc("v = 3.0 ms⁻¹").findings if f.code == "ST-UNIT-002"]
     assert amb and amb[0].severity == "info"
     d = doc("m = 2.0 kg, a = 3.0 m s⁻²\nF = ma = 2.0 × 3.0 = 6.0 kg")

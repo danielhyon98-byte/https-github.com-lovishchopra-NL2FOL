@@ -142,8 +142,16 @@ class PrecisionDecision:
 # ------------------------------------------------------------------ sites
 
 
+#: The bound a negated comparison states: not(t < a) is t >= a, and so on.
+_NEGATED_BOUND = {"lt": "ge", "le": "gt", "gt": "le", "ge": "lt"}
+
+
 def _bound(arg: Any) -> Optional[tuple[str, str, Fraction, bool, dict, str]]:
-    """``(term key, 'lower'|'upper', value, inclusive, term, literal)`` for a comparison of a term with a literal."""
+    """``(term key, 'lower'|'upper', value, inclusive, term, literal)`` for a comparison of a term with a literal, a negated
+    one read as the bound it states (``not(t < 0.5)`` is ``t >= 0.5``: integration gate, round 1)."""
+    if isinstance(arg, dict) and arg.get("op") == "not" and isinstance(arg.get("arg"), dict) and arg["arg"].get("op") in _BOUND_OPS:
+        inner = arg["arg"]
+        arg = {"op": _NEGATED_BOUND[inner["op"]], "left": inner.get("left"), "right": inner.get("right")}
     if not isinstance(arg, dict) or arg.get("op") not in _BOUND_OPS:
         return None
     left, right, op = arg.get("left"), arg.get("right"), arg["op"]
@@ -183,46 +191,68 @@ def _walk(node: Any, path: tuple, aid: str, in_concl: bool, out: list[Site]) -> 
                 out.append(Site(path, aid, in_concl, "eq", term, value, lit["value"], term.get("name") if term.get("op") == "var" else None))
                 break
     if op == "and" and isinstance(node.get("args"), list):
-        groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict, str]]]] = {}
+        groups: dict[str, list[tuple[int, str, Fraction, bool, dict]]] = {}
         for i, arg in enumerate(node["args"]):
             b = _bound(arg)
             if b is not None:
-                key, side, value, incl, term, lit = b
-                groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term, lit))
-        for key, g in groups.items():
-            if len(g["lower"]) == 1 and len(g["upper"]) == 1:
-                (li, lo, lo_incl, term, _l), (hi_i, hi, hi_incl, _t, _h) = g["lower"][0], g["upper"][0]
-                if _reading_interval(lo, hi):
-                    mid = (lo + hi) / 2
-                    out.append(Site(path, aid, in_concl, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
-                                    lo, hi, lo_incl, hi_incl, (li, hi_i)))
+                key, side, value, incl, term, _lit = b
+                groups.setdefault(key, []).append((i, side, value, incl, term))
+        for bounds in groups.values():
+            for (li, lo, lo_incl, term), (hi_i, hi, hi_incl) in _interval_pairs(bounds):
+                mid = (lo + hi) / 2
+                out.append(Site(path, aid, in_concl, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
+                                lo, hi, lo_incl, hi_incl, (li, hi_i)))
     for k, v in node.items():
         if isinstance(v, (dict, list)):
             _walk(v, path + (k,), aid, in_concl, out)
 
 
+def _interval_pairs(bounds: list[tuple[int, str, Fraction, bool, dict]]) -> list[tuple[tuple[int, Fraction, bool, dict], tuple[int, Fraction, bool]]]:
+    """The intervals the bounds on ONE term state, as ``((lower index, lo, inclusive, term), (upper index, hi, inclusive))``.
+    A domain bound (0, -1, 1, 10, 100, 1000: :data:`~.quantities.TRIVIAL_VALUES`) is never an interval end, and never a
+    reason to skip the term; every other lower bound is paired, in written order, with the nearest upper bound not yet
+    paired (``x >= 25.85 and x < 25.95 and x >= 25.5 and x < 26.5`` states two intervals). Before integration gate round 1
+    only a term with exactly one lower and one upper bound was read, so adding ``growth >= 0`` to a widened 'about 100%'
+    hid it from the stated-precision check."""
+    from .quantities import TRIVIAL_VALUES
+    pending: dict[str, list[tuple[int, Fraction, bool, dict]]] = {"lower": [], "upper": []}
+    out: list[tuple[tuple[int, Fraction, bool, dict], tuple[int, Fraction, bool]]] = []
+    for i, side, value, incl, term in bounds:
+        if abs(value) in TRIVIAL_VALUES:
+            continue
+        other = "upper" if side == "lower" else "lower"
+        if pending[other]:
+            j, v2, incl2, _t2 = pending[other].pop()
+            low, high = ((i, value, incl, term), (j, v2, incl2)) if side == "lower" else ((j, v2, incl2, term), (i, value, incl))
+            if _reading_interval(low[1], high[1]):
+                out.append((low, high))
+        else:
+            pending[side].append((i, value, incl, term))
+    return out
+
+
 def collect_sites(problem: Problem) -> list[Site]:
-    """Every equality with a real literal and every two-sided interval on one term, in the premises and the conclusion;
-    an interval may also be split over two premises, each one bound (the premises are a conjunction)."""
+    """Every equality with a real literal and every two-sided interval on one term (:func:`_interval_pairs`: a negated
+    comparison is the bound it states, domain bounds are no interval ends, several intervals on one term are each read),
+    in the premises and the conclusion; an interval may also be split over two premises, each one bound (the premises
+    are a conjunction)."""
     data = problem.model_dump(mode="json", exclude_none=True)
     out: list[Site] = []
     premises = data.get("premises", [])
     for i, pr in enumerate(premises):
         _walk(pr.get("expr"), ("premises", i, "expr"), pr.get("id", "?"), False, out)
-    groups: dict[str, dict[str, list[tuple[int, Fraction, bool, dict]]]] = {}
+    groups: dict[str, list[tuple[int, str, Fraction, bool, dict]]] = {}
     for i, pr in enumerate(premises):
         b = _bound(pr.get("expr"))
         if b is not None:
             key, side, value, incl, term, _lit = b
-            groups.setdefault(key, {"lower": [], "upper": []})[side].append((i, value, incl, term))
-    for key, g in groups.items():
-        if len(g["lower"]) == 1 and len(g["upper"]) == 1:
-            (li, lo, lo_incl, term), (hi_i, hi, hi_incl, _t) = g["lower"][0], g["upper"][0]
-            if _reading_interval(lo, hi):
-                mid = (lo + hi) / 2
-                aid = f"{premises[li].get('id', '?')}+{premises[hi_i].get('id', '?')}"
-                out.append(Site(("premises",), aid, False, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
-                                lo, hi, lo_incl, hi_incl, (li, hi_i), split=True))
+            groups.setdefault(key, []).append((i, side, value, incl, term))
+    for bounds in groups.values():
+        for (li, lo, lo_incl, term), (hi_i, hi, hi_incl) in _interval_pairs(bounds):
+            mid = (lo + hi) / 2
+            aid = f"{premises[li].get('id', '?')}+{premises[hi_i].get('id', '?')}"
+            out.append(Site(("premises",), aid, False, "interval", term, mid, decimal_text(mid), term.get("name") if term.get("op") == "var" else None,
+                            lo, hi, lo_incl, hi_incl, (li, hi_i), split=True))
     if data.get("conclusion") is not None:
         _walk(data["conclusion"].get("expr"), ("conclusion", "expr"), data["conclusion"].get("id", "?"), True, out)
     return out

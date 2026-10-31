@@ -48,3 +48,9 @@ record. The signature routes never fail on a hostile result: a signature that is
 a result holding a lone UTF-16 surrogate, answers `valid: false` / `eligible: false` (or 400 `E100`), never 500, and
 a genuine result re-posted after an `exclude_none` dump (no `memory_max_mb`) still verifies. The signing key and token
 come from environment variables; the browser never talks to this service directly.
+
+The command line (`cli.py`) holds a signing key to the service's rule: at least `MIN_SIGNING_KEY_BYTES` (16) bytes, given
+once, from `--signing-key-file` (a file holding the hex text), `--signing-key-hex` (shown in the process list) or the
+`EPINOIC_SIGNING_KEY` environment variable; a shorter key, an empty one or one given two ways is refused. `--adapter` is
+checked against the closed allowlist `ADAPTER_IDS` before anything is imported, and each allowed id imports one fixed
+module (`_ADAPTER_MODULES`), so no module name is built from command-line text (integration gate, round 1).

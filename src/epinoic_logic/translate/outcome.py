@@ -239,6 +239,36 @@ def _is_vacuous(verification: VerificationResult, translation: Optional[Translat
     return _no_verdict_diagnostic(verification, translation) is not None
 
 
+#: The grounding kind of a judgement: an inferential step the specialist asserts (``ir.schema.GroundingKind``).
+_JUDGEMENT_GROUNDING = "specialist_inference"
+
+
+def unlinked_judgement(verification: Optional[VerificationResult], problem: Optional[Problem]) -> bool:
+    """Whether a COUNTEREXAMPLE falsifies only a judgement the encoding left unlinked: the engine's advisory W111
+    "judgement not linked" (``engine.runner.JUDGEMENT_NOT_LINKED``: decided by the solver, the falsified atoms are mentioned
+    by no premise while the premises reach the rest of the conclusion), and every conclusion atom no premise mentions is
+    a Bool that ``problem`` grounds as the specialist's own inference (``specialist_inference``). Such a counterexample says
+    only that nothing encoded supports the judgement, so it is shown as not decided (AMBIGUOUS_TRANSLATION) and never
+    fails a claim (integration gate, round 1, E2E B8: six correct Psychology claims and one English point were displayed
+    COUNTEREXAMPLE).
+
+    A factual atom no premise establishes (a fact or figure stated from memory, a quotation, a statement about a supplied
+    text, or an atom with no grounding at all) is what a COUNTEREXAMPLE is for: the premises do not establish what the
+    conclusion adds, and the verdict stands (a History claim's census figure that no premise states). Without the
+    problem the rule never applies."""
+    from ..engine.runner import JUDGEMENT_NOT_LINKED, unlinked_conclusion_symbols
+    if verification is None or verification.status is not VerificationStatus.COUNTEREXAMPLE or problem is None:
+        return False
+    if not any(d.code == DiagnosticCode.UNENCODED_REASON_ADVISORY.value and d.message.startswith(JUDGEMENT_NOT_LINKED)
+               for d in verification.diagnostics):
+        return False
+    symbols = {s.name: s for s in problem.symbols}
+    free = unlinked_conclusion_symbols(problem)
+    return bool(free) and all(
+        v in symbols and symbols[v].sort == "Bool" and symbols[v].grounding is not None and symbols[v].grounding.kind == _JUDGEMENT_GROUNDING
+        for v in free)
+
+
 def display_status_for(
     translation: TranslationResult,
     verification: Optional[VerificationResult],
@@ -252,6 +282,8 @@ def display_status_for(
         assert verification is not None
         if _is_vacuous(verification, translation):
             return VerificationStatus.INVALID_FORMALIZATION
+        if unlinked_judgement(verification, translation.problem):
+            return VerificationStatus.AMBIGUOUS_TRANSLATION
         return verification.status
     return _TRANSLATION_DISPLAY[translation.status]
 
@@ -307,6 +339,9 @@ def _checked_lines(translation: TranslationResult) -> list[str]:
     lines = [text + "."]
     # the label is shown beside the verdict, so a figure it states that the expression does not check is named with it
     lines += [f"Note: the {truncate(d, _DIAG_CHARS)}." for d in translation.diagnostics if d.startswith("conclusion label states figure(s)")][:1]
+    # so is every part of the claim the encoding does not check (integration gate, round 1: these notes were recorded but
+    # never shown beside a TRANSLATED verdict, which then read as a verdict on the whole claim)
+    lines += [f"Note: {truncate(d, _DIAG_CHARS)}." for d in translation.diagnostics if d.startswith("part of the claim only")][:3]
     return lines
 
 
@@ -339,6 +374,10 @@ def _verification_lines(
         evidence = [e for n in _coverage_notes(translation, _COVERAGE_KIND.get(vacuous.code, "")) if n.source_asserted for e in n.evidence]
         if evidence:
             lines.append("The source asserts what the encoding left open: " + _listed([truncate(e, _DIAG_CHARS) for e in evidence]) + ".")
+    if unlinked_judgement(verification, problem) and translation.status is TranslationStatus.TRANSLATED:
+        lines.append("Judgement not encoded: the engine returned COUNTEREXAMPLE only by falsifying conclusion conjunct(s) no premise mentions "
+                     "(W111), each the specialist's own inference, while the premises reach the rest of the conclusion; the translation left the "
+                     "claim's judgement unlinked, so it is displayed as AMBIGUOUS_TRANSLATION (not decided), never as a failed check.")
     if verification.premises_relied_on:
         lines.append("Premises relied on: " + _listed([f"{pid} ({_label(problem, pid)})" for pid in verification.premises_relied_on]) + ".")
     elif verification.status in DEFINITIVE:

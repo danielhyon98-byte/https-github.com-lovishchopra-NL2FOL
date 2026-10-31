@@ -20,6 +20,12 @@
 > is one new, empty directory you create outside every repository before step 1; `<kit>` is
 > `<workdir>/translator-kit` once step 2 has created it.
 >
+> **The repositories a fresh session needs.** All four roles: the translator (this kit), the website, the retrained
+> agents repository (`agents`: runtime, routing and knowledge-base pins in `agents_pins`) and the agents harness
+> (`agents_harness`, the agent-training API connector). A session that has only the translator, the website and the
+> harness stops at step 2 ("no agents candidate has role agents"). The kit must also be published under its tag (step 2,
+> D20) before a fresh session can integrate; until then step 2 stops unless your user asks for a rehearsal.
+>
 > Steps marked **(connected in phase 2)** depend on parts that were still being built when the kit was pre-built: the
 > rebuilt overseer and its port adapter, the named policies of contract 0.3, the argument diagnostics, the closed
 > transformation values and the combinator. On a kit commit that lacks them, those steps stop with the named code they
@@ -146,8 +152,9 @@
 
 - **Translator, in `<kit>`:** `CLAUDE.md`, `docs/context-pack/00_PROJECT_CONTEXT_AND_ARCHITECTURE.md`, `README.md`,
   `docs/AUDIT.md`, `docs/integration-contract.md`, `docs/INTEGRATION_PROTOCOL.md`, then `integration/README.md`,
-  `PROTOCOL.md`, `DECISIONS.md` and this playbook. Files `CLAUDE.md` names that exist on no branch are recorded
-  "absent"; do not create them.
+  `PROTOCOL.md`, `DECISIONS.md` and this playbook. A file `CLAUDE.md` names that is absent at the kit commit is recorded
+  "absent at <kit commit>" and never read from another ref (a branch that holds it is not the kit), whether or not
+  another branch has it; do not create it.
 - **Website, from `origin/main`** (`git -C <website> show origin/main:<path>`): `AGENTS.md`, `CLAUDE.md`, `README.md`,
   `docs/current-state.md`, `docs/architecture.md`, `docs/hosting.md`, `docs/handoff/05-integration-planning-brief.md`.
 - **Agents, by role and ref** (`git -C <repository> show <ref>:<path>`; a document that is absent at its ref is
@@ -208,7 +215,9 @@
   the contract 0.3 merge these three rows are BLOCKERs whose detail says "(connected in phase 2: ...)"; on one after it
   (the pre-build branch since 17 October 2026) only the overseer package row is. A published kit stops here; a
   rehearsal of a pre-build commit records them as "blocked by G1" and continues.
-  A BLOCKER row without that mark stops both.)**
+  A BLOCKER row without that mark stops both. On a commit that carries the rebuilt overseer (merged in phase 2) every
+  G1 row is PASS: contract 0.5, the overseer package, the STEM branches, the named policies and the protocol, with the
+  flash router and the combinator sub-projects REPORTED.)**
 
 ## Step 6. Translator environment and suite
 
@@ -219,7 +228,12 @@
   cd <kit> && <workdir>/venv/bin/python -m pytest -q
   <workdir>/venv/bin/python integration/readiness/check.py --translator .
   ```
-  When the overseer is on the kit commit, also its own suite (`PYTHONPATH=src:scripts/overseer ... -p pytest_attach`).
+  When the overseer is on the kit commit, also the suite with a transfer auditor attached to every channel
+  (`scripts/overseer/README.md`):
+  ```
+  cd <kit> && PYTHONPATH=src:scripts/overseer <workdir>/venv/bin/python -m pytest -q -p pytest_attach
+  ```
+  Expect `failed` 0 there too (record the counts; it took about an hour on a four-core host).
 - **Expect:** `failed` is 0 (record the counts); the translator section of the readiness check passes, except, on a
   pre-build commit, its preflight row **(connected in phase 2)**. On the pre-build branch since the contract 0.3 merge
   (17 October 2026) that row is `service preflight (integration-sim) BLOCKER KIT-HS-007 overseer_unavailable: ...
@@ -471,7 +485,9 @@ values `check.py --start-service` generates in memory. The names, for the report
   G-HON, G-DEL, G-TAMPER) with the service's own refusal as their reason (`KIT-HS-007 overseer_unavailable`: the checks
   service needs the rebuilt overseer's port adapter), and G-EQ-CONTAINED and G-OVS with their own reasons, "the
   contained run (the overseer's run_contained.py) is not available on this tree" and "the overseer's asynchronous
-  review and its probe providers are not available on this tree" (the rebuilt overseer brings both). The drivers and
+  review and its probe providers are not available on this tree" (the rebuilt overseer brings both; on a commit that
+  carries its `scripts/overseer/run_contained.py`, G-EQ-CONTAINED's reason is "the contained comparison is connected
+  with the rebuilt overseer", and `sim/TESTED.json` keeps the reason of the run it recorded). The drivers and
   the gates' wiring are tested with a test double of the overseer port (`--test-overseer-port`,
   `integration/sim/README.md`): such a run reports every gate NOT RUN, never PASS, and is not this step's result.
 

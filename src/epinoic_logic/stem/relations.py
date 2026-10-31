@@ -53,8 +53,9 @@ from .calculus import antiderivative, derivative, polynomial, polynomial_node
 from .chem import ELEMENTS, ChemEquation
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .nodes import (
-    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root,
-    Sym, Unsupported, WithUnit, align, children, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of, walk,
+    Abs, Apply, BinOp, BoolOp, Chain, Degrees, Func, IntOp, Magnification, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower,
+    Root, Sym, Unsupported, WithUnit, align, children, is_closed, is_value, render, replace_symbol, shape_key, symbols, unsupported_reasons, value_of,
+    walk,
 )
 from .numbers import ExactNumber, exact_based, scan_number
 from .parser import ParseIssue
@@ -193,7 +194,12 @@ _STEP_WORDS = ("⇒", "∴", "so", "hence", "therefore", "thus", "gives", "givin
                "get", "obtain", "yields", "leads to",
                # STEM repair 5 (rule rearranged-formula): the phrases that state a rearrangement of the relation before ('Making R the
                # subject, R = V²/P.', 'Solving for R, R = V²/P.', 'Transposing, R = V²/P.'): the relation after them is a step from it
-               "the subject", "solving for", "solve for", "solved for", "transposing", "transposed")
+               "the subject", "solving for", "solve for", "solved for", "transposing", "transposed",
+               # integration gate 1: the participles that open a line of working as the step it is ('Expanding, 3x − 6 = 12', 'Simplifying,
+               # x = 4', 'Solving, x = 7', 'Factorising, (x + 2)(x + 3) = 0', 'Collecting terms, 5x = 10'); before, such a line was stated
+               # context, so a wrong step was never checked
+               "expanding", "expanded", "simplifying", "simplified", "solving", "factorising", "factorizing", "factorised", "factorized",
+               "collecting", "cancelling", "canceling", "cancelled", "canceled")
 _APPROX_WORDS = ("approximately", "approx.", "about", "roughly", "estimate", "around", "nearly")
 _COMPLETE_PHRASES = ("only solution", "only root", "the solution is", "the solutions are", "is the solution", "are the solutions", "the roots are",
                      "solutions are", "roots are", "the only value", "is the only")
@@ -209,6 +215,12 @@ _CLAUSE_STOP_WORDS = frozenset({
     "there", "these", "those", "they", "them", "than", "when", "where", "what", "each", "every", "all", "both", "some", "any", "such", "more",
     "less", "most", "least", "very", "much", "many", "you", "your", "our", "which", "whose",
 })
+#: integration gate 1: the words after a restated value that name no other quantity ('10 square units', '0.8 altogether', '5 exactly')
+_AFTER_STOP_WORDS = frozenset({"unit", "units", "square", "cubic", "altogether", "overall", "approx", "exactly", "precisely", "respectively",
+                               "correct", "answer", "rounded", "total", "in", "all"})
+#: integration gate 1: the two-letter English words that name no quantity (a two-letter abbreviation such as 'df' does)
+_TWO_LETTER_WORDS = frozenset({"is", "of", "at", "in", "to", "on", "by", "as", "an", "or", "it", "we", "be", "if", "so", "no", "up", "do", "me", "my",
+                               "us", "he", "go", "am", "ok", "vs"})
 #: words that name a factorisation, an expansion or a simplification (stem-soundness-12)
 _IDENTITY_WORDS = ("factoris", "factoriz", "expand", "expansion", "simplif")
 #: words that name a system of simultaneous equations (stem-soundness-5)
@@ -437,6 +449,9 @@ class Relation:
     #: ``base`` by rule prose-base (STEM repair 10): the other reading of the two numerals ('10 in binary is 1010': 10 written in
     #: binary is 1010, or 10 in binary is the number 1010), as (left, right) nodes; the check holds when either reading does
     alternative: tuple[Node, Node] = ()
+    #: integration gate 1 (rule or-roots): for an algebra step, the other relations its conclusion is joined to by 'or' in its statement
+    #: ('x² = 9 ⇒ x = −3 or x = 3', 'x + 2 = ±3 ⇒ x = 1 or x = −5', 'x = 3 or −3'): the step concludes their disjunction
+    or_alternatives: tuple[tuple[Operand, Operand], ...] = ()
     roots: tuple[Node, ...] = ()
     complete: bool = False
     restricted: bool = False
@@ -1673,6 +1688,114 @@ def _contains_based(node: Node) -> bool:
     return any(isinstance(n, Num) and (n.number.based or n.number.base != 10) for n in walk(node))
 
 
+#: integration gate 1 (rule binary-reading): the words that call a numeral binary, or a fixed-width or two's-complement one
+_BINARY_WORD_RE = re.compile(r"(?<![A-Za-z])(?:binary|base[ \t-]?2|bits?|[0-9]+[ \t-]?bits?)(?![A-Za-z])|two'?s[ \t-]+complement|2'?s[ \t-]+complement",
+                             re.IGNORECASE)
+_TWOS_COMPLEMENT_RE = re.compile(r"two'?s[ \t-]+complement|2'?s[ \t-]+complement", re.IGNORECASE)
+#: the most binary digits a numeral read in binary may have
+_MAX_BINARY_DIGITS = 64
+
+
+#: integration gate 1 (rule binary-reading): 'n in (8-bit) two's complement is v' in prose
+_TWOS_PROSE_RE = re.compile(r"(?<![0-9A-Za-z])(?P<num>[01]{2,64})[ \t]+(?:in|as|read[ \t]+in)[ \t]+(?:an?[ \t]+)?(?:[0-9]{1,2}[ \t-]?bit[ \t]+)?"
+                            r"(?:two'?s|2'?s)[ \t-]+complement[ \t,]+(?:is|=|equals|represents|gives)[ \t]+(?P<val>[−-]?[0-9]{1,20})(?![0-9]|\.[0-9])",
+                            re.IGNORECASE)
+def _power_of_ten_shift(value: Fraction, q: Binding) -> bool:
+    """Integration gate 1 (rule request-substitution): ``value`` is the request quantity ``q`` (as written or in SI) shifted by a power of
+    ten, 10ⁿ with 1 ≤ |n| ≤ 12 ('50' for 5.0 m, '100' for 10 K)."""
+    scale = unit_scale(q.unit)
+    for base in {q.value, q.value * scale} if scale is not None else {q.value}:
+        if not base or not value or (value < 0) != (base < 0):
+            continue
+        r = abs(Fraction(value) / base)
+        for n in range(1, 13):
+            if r == 10 ** n or r == Fraction(1, 10 ** n):
+                return True
+    return False
+
+
+#: integration gate 1: a part label at the start of a line of the request ('(a)', 'a)', 'Part (b)', '(ii)')
+_REQUEST_PART_RE = re.compile(r"(?m)^[ \t]*(?:part[ \t]+)?\(?(?P<p>[a-h]|i{1,3}|iv|v|vi{1,3})\)[ \t.]", re.IGNORECASE)
+#: integration gate 1: the words that say a division is the integer quotient
+_INTEGER_DIVISION_RE = re.compile(r"integer[ \t-]+(?:division|quotient)|integer[ \t-]+divid|floor[ \t-]+division", re.IGNORECASE)
+
+
+def _as_integer_division(node: Node, depth: int = 0) -> Optional[Node]:
+    """``node`` with each '/' between written whole numbers (the divisor positive, the dividend not negative) read as the integer quotient
+    (``IntOp`` 'div'); None when nothing changes. Bounded by depth."""
+    if depth > 24:
+        return None
+    if isinstance(node, BinOp):
+        if node.op == "/" and isinstance(node.left, Num) and isinstance(node.right, Num):
+            a, b = node.left.number, node.right.number
+            if a.value.denominator == 1 and b.value.denominator == 1 and not a.has_point and not b.has_point and a.value >= 0 and b.value > 0:
+                return IntOp("div", node.left, node.right, node.start, node.end, written="/")
+            return None
+        left, right = _as_integer_division(node.left, depth + 1), _as_integer_division(node.right, depth + 1)
+        if left is None and right is None:
+            return None
+        return BinOp(node.op, left or node.left, right or node.right, node.start, node.end, node.written, node.implicit)
+    return None
+
+
+def _binary_run(node: Node) -> bool:
+    """An unmarked numeral written with the binary digits only ('10110110', '00101010'): no base marker, no point, no exponent."""
+    if not isinstance(node, Num):
+        return False
+    n = node.number
+    text = n.text.strip()
+    return (not n.based and n.base == 10 and not n.has_point and not n.scientific and not n.vulgar and not n.power_of_ten and n.value >= 0
+            and 2 <= len(text) <= _MAX_BINARY_DIGITS and set(text) <= {"0", "1"})
+
+
+def _as_binary(node: Num) -> Optional[Num]:
+    """An unmarked binary digit run read in base 2 (rule binary-reading)."""
+    text = node.number.text.strip()
+    num = exact_based(node.number.text, text, 2, limits=DEFAULT_LIMITS)
+    return Num(num, node.start, node.end) if num is not None else None
+
+
+def _twos_complement(node: Num) -> Optional[Num]:
+    """A binary numeral read in two's complement: its leading digit weighs −2ⁿ⁻¹ (n its digit count). None unless it is a binary numeral
+    of two or more digits whose leading digit is 1 (a leading 0 gives the same value as unsigned)."""
+    n = node.number
+    width = n.digit_count
+    if n.base != 2 or n.value < 0 or n.value.denominator != 1 or width < 2 or n.value < 2 ** (width - 1):
+        return None
+    return Num(replace(n, value=n.value - 2 ** width), node.start, node.end)
+
+
+def _place_value_sum(node: Node) -> Optional[tuple[bool, int]]:
+    """``node`` is a sum of two or more distinct powers of two written as numerals ('128 + 32 + 16 + 4 + 2'), every term added except
+    possibly a negative leading one ('−128 + 64 + …', two's complement): None when it is not one, else whether its leading term is
+    negative and the sum's value. Bounded by the number of terms (at most 64)."""
+    terms: list[tuple[int, Node]] = []
+    stack: list[tuple[int, Node]] = [(1, node)]
+    while stack and len(terms) <= _MAX_BINARY_DIGITS:
+        sign, cur = stack.pop()
+        if isinstance(cur, BinOp) and cur.op in ("+", "-") and not cur.implicit:
+            stack.append((sign if cur.op == "+" else -sign, cur.right))
+            stack.append((sign, cur.left))
+            continue
+        if isinstance(cur, Neg):
+            stack.append((-sign, cur.arg))
+            continue
+        terms.append((sign, cur))
+    if len(terms) < 2 or len(terms) > _MAX_BINARY_DIGITS:
+        return None
+    seen: set[int] = set()
+    total = 0
+    for k, (sign, t) in enumerate(terms):
+        if not isinstance(t, Num) or t.number.has_point or t.number.scientific or t.number.value.denominator != 1 or t.number.value < 1:
+            return None
+        v = int(t.number.value)
+        if v & (v - 1) or v in seen or (sign < 0 and k != 0):
+            return None
+        seen.add(v)
+        total += sign * v
+    return terms[0][0] < 0, total
+
+
 def _approx_context(text: str) -> bool:
     """An approximation word, as a whole word, directly before the item (stem-soundness-6, round 7: never a substring, never a word
     qualifying another quantity earlier in the sentence)."""
@@ -1736,6 +1859,10 @@ class _Planner:
         self.unit_reported: set[tuple[str, str]] = set()
         self.request_relations: list[tuple[Operand, str, Operand]] = []
         self._root_groups: dict[tuple[str, str], int] = {}
+        #: integration gate 1 (rule or-roots): each item's position in ``items`` (built on first use)
+        self._item_pos: Optional[dict[int, int]] = None
+        #: integration gate 1 (rule unbound-substitution): the request's part labels, (offset, label), read on first use
+        self._request_parts: Optional[list[tuple[int, str]]] = None
         #: stem-soundness-5: the equations of the current system of simultaneous equations (infos), and the sol relation of its stated solution
         self._system: list[dict] = []
         self._system_sol: Optional[int] = None
@@ -1870,6 +1997,7 @@ class _Planner:
             self._results()
             self._prose_conversions()
             self._prose_bases()
+            self._prose_twos_complement()
             self._restated_bindings()
             self._rounded_bindings()
             self._rounded_prose_values()
@@ -2715,8 +2843,14 @@ class _Planner:
             return
         if op == "=" and lc == "value" and (rc == "value" or self._hex_written(item, right)) and self._worded_base(base, item, lnode, rnode, right):
             return  # STEM repair 12 (rule prose-base): '1000 = 3E8 in hexadecimal.', '1000 = 1111101000 in binary.', '255 = FF in hexadecimal.'
+        if op == "=" and self.profile.computer_science and self._binary_link(base, item, lnode, rnode):
+            return  # integration gate 1 (rule binary-reading): '42 = 00101010', '10110110 = 128 + 32 + 16 + 4 + 2', two's complement
         if _contains_based(lnode) or _contains_based(rnode):
-            self.add(kind="base", outcome="check", **base)
+            twos = self._twos_alternative(item, lnode, rnode)
+            if twos:
+                self.add(kind="base", outcome="check", alternative=twos, **base)
+            else:
+                self.add(kind="base", outcome="check", **base)
             return
         if lc in ("value", "closed") and rc in ("value", "closed"):
             self._dimension_check(base, item, lnode, rnode)
@@ -2726,6 +2860,12 @@ class _Planner:
                     self.add(kind="cnv", outcome="check", **base)
                     return
             rounding = self._result_rounding(item, right, rnode) if pos == len(full_ops) - 1 and rc == "value" else None
+            if self.profile.computer_science and _INTEGER_DIVISION_RE.search(item.statement_text[:2000]):
+                # integration gate 1: a statement that says the division is an integer division ('In integer division, 7 / 2 = 3 in Java.')
+                # writes '/' for the integer quotient of whole numbers: read as 'div' (before, as exact division, a false INT-SUBJ-001)
+                floor = _as_integer_division(lnode)
+                if floor is not None:
+                    base = {**base, "left": Operand((floor,), left.start, left.end)}
             if rounding is not None:
                 self.add(kind="eq", outcome="check", rounding=rounding[0], rounding_phrase=rounding[1], **base)
             else:
@@ -4003,6 +4143,8 @@ class _Planner:
                 "unknown": unknown, "syms": _syms(first) | _syms(last), "item": item, "lone": lone, "head": head, "order": self.order.get(item.statement_id, 0),
                 "connective": chain.connective, "is_formula": lone and isinstance(head, Sym) and bool(_syms(last) - {getattr(head, "name", "")}),
                 "positive": positive, "operands": operands, "stepped": False}
+        # integration gate 1 (rule or-roots): the relations joined to this one by 'or' right after it in its statement
+        info["or_alts"] = self._or_disjuncts(item, chain, operands) if rel_op == "=" and len(operands) == 2 else ()
         # roots: x = value (or a closed expression) after an equation in x
         rooted: Optional[dict] = None
         if lone and isinstance(head, Sym) and rel_op == "=" and len(operands) >= 2:
@@ -4010,6 +4152,8 @@ class _Planner:
             solved = head.name not in bound_before or not self._given_in(head.name, item.part)
             if rhs is not None and is_closed(rhs) and solved:
                 rooted = self._roots_candidate(item, chain, head, operands)
+                if rooted is not None:
+                    self._or_tail_roots(item, head.name, info["or_alts"])
         prev = self.prev_rel
         if prev is None and lone and isinstance(head, Sym) and rel_op == "=" and info["unknown"]:
             # argument diagnostics (ST-STEP-001): the answer's first line states the operation it applies to the request's own equation
@@ -4322,6 +4466,69 @@ class _Planner:
             return True
         return False
 
+    _MAX_OR_DISJUNCTS = 4
+
+    def _or_disjuncts(self, item: MathItem, chain: Chain, operands: list[tuple[Operand, str]]) -> tuple[tuple[Operand, Operand], ...]:
+        """Rule ``or-roots`` (integration gate 1): the relations the statement joins to this chain's relation by 'or' right after it, each
+        with the same left side ('x = −3 or x = 3', 'x + 2 = 3 or x + 2 = −3'), or a value alone after 'or' ('x = 3 or −3': the root list
+        does not repeat 'x ='), as (left, right) operands. Only for the last chain of its maths item; at most four; empty otherwise."""
+        if not item.chains or chain is not item.chains[-1]:
+            return ()
+        left_op = operands[0][0]
+        left = _first(left_op)
+        if left is None:
+            return ()
+        key = shape_key(left)
+        if self._item_pos is None:
+            self._item_pos = {id(it): k for k, it in enumerate(self.items)}
+        k = self._item_pos.get(id(item))
+        out: list[tuple[Operand, Operand]] = []
+        end = item.end
+        if k is not None:
+            for nxt in self.items[k + 1:k + 1 + self._MAX_OR_DISJUNCTS]:
+                if nxt.statement_id != item.statement_id or (nxt.gap_before or "").strip().lower() not in ("or", ", or") or not nxt.chains:
+                    break
+                ch0 = nxt.chains[0]
+                if ch0.links < 1 or len(ch0.operands) < 2 or ch0.ops[0] != "=":
+                    break
+                l0 = _first(ch0.operands[0])
+                if l0 is None or shape_key(l0) != key:
+                    break
+                out.append((ch0.operands[0], ch0.operands[1]))
+                end = nxt.end
+        if not out and self.text:
+            # a value alone after 'or' ('x = 3 or −3'): a prose value right after the item (a bounded look at the words between)
+            for pv in self.prose_values:
+                if pv.statement_id != item.statement_id or pv.start < end or pv.start - end > 12:
+                    continue
+                if self.text[end:pv.start].strip().lower() not in ("or", ", or"):
+                    break
+                v = value_of(pv.node)
+                rest = self.text[pv.end:pv.end + 2]
+                if v is None or v[2] is not None or v[3] or (rest and (rest[0] not in " \t\n.,;:!?)" or rest[1:2] in "×*/^√+−-=·")):
+                    break  # a value that is not the whole of what follows 'or' ('−2√2' read as −2) is no root of the list
+                out.append((left_op, Operand((pv.node,), pv.start, pv.end)))
+                end = pv.end
+                if len(out) >= self._MAX_OR_DISJUNCTS:
+                    break
+        return tuple(out)
+
+    def _or_tail_roots(self, item: MathItem, x: str, alts: tuple[tuple[Operand, Operand], ...]) -> None:
+        """Rule ``or-roots`` (integration gate 1): a root list that does not repeat the letter ('x = 3 or −3', 'x = 3 or −1') states each
+        value as a root: the values alone after 'or' join the stated roots of the line (the full set, as 'x = 3 or x = −3' claims it).
+        Before, the value after 'or' was dropped, so the full set was claimed with one root (INT-SUBJ-001 on correct working)."""
+        idx = self._root_groups.get((item.statement_id, x))
+        if idx is None or not alts:
+            return
+        prose = {(pv.start, pv.end) for pv in self.prose_values if pv.statement_id == item.statement_id}
+        extra = [r for l_op, r in alts if r.start >= item.end and (r.start, r.end) in prose and _first(r) is not None and is_value(_first(r))]
+        if not extra:
+            return
+        rel = self.relations[idx]
+        self.relations[idx] = replace(rel, roots=rel.roots + tuple(_first(r) for r in extra), end=max(rel.end, extra[-1].end),
+                                      complete=not rel.restricted,
+                                      reason=rel.reason + "; a value alone after 'or' is a further stated root (rule or-roots)")
+
     def _step_cues(self, item: MathItem, chain: Chain, prev: dict) -> tuple[bool, bool, bool, bool]:
         """What joins a chain to the relation before it for the step logic: ``explicit`` (a connective or step word: ⇒, ∴, so, hence,
         therefore, thus, gives, rearranging, …), ``adjacent`` (the next statement, each opening its own line of working), ``same_span``
@@ -4512,7 +4719,13 @@ class _Planner:
         principal = False
         has_root = any(isinstance(n, Root) for n in walk(cl)) or any(isinstance(n, Root) for n in walk(cr))
         square_form = self._square_root_step(pl, pr, cl, cr)
-        if has_root or square_form:
+        or_alts = tuple(info.get("or_alts", ()))
+        if square_form and or_alts and not has_root:
+            # integration gate 1 (rule or-roots): the step concludes the disjunction its statement writes ('x² = 9 ⇒ x = −3 or x = 3', 'x + 2 =
+            # 3 or x + 2 = −3'): both signs are taken, so no principal root is read and nothing is named; before, the first disjunct alone was
+            # the conclusion, under the principal root, and a correct root set failed (INT-SUBJ-001) or was named ST-ALG-001
+            pass
+        elif has_root or square_form:
             principal = True
             plus_minus = any(isinstance(n, PlusMinus) for n in walk(cr)) or any(isinstance(n, PlusMinus) for n in walk(cl))
             text = item.context() + " " + prev["item"].context() + " " + self._request_lower
@@ -4538,11 +4751,13 @@ class _Planner:
         if prev.get("kept_by"):
             note = (f"; the step is from the equation in {', '.join(prev['sids'])}, which the root stated in {prev['kept_by']} solves and leaves as "
                     f"the relation the next line steps from (rule root-statement)") + note
+        with_or = bool(or_alts) and kind == "alg" and rel_op == "="
         self.add(kind=kind, outcome="check", statement_ids=sids, start=left_op.start, end=right_op.end, op=rel_op, left=left_op, right=right_op,
                  premise_left=prev["left"], premise_op=prev["op"], premise_right=prev["right"], premise_ids=prev["sids"], explicit=explicit, part=item.part,
-                 principal_root=principal, positive=positive,
+                 principal_root=principal, positive=positive, or_alternatives=or_alts if with_or else (),
                  reason="the step follows from the preceding relation" + (" (stated with a connective)" if explicit else " (consecutive lines)")
                  + ("; the principal (non-negative) root is taken" if principal else "")
+                 + ("; the conclusion is the disjunction the statement writes with 'or' (rule or-roots)" if with_or else "")
                  + ("; read in " + ", ".join(f"{n} > 0" for n in positive) + " (each power of e of the unknown is a power of it)" if positive else "")
                  + note)
         if kind == "alg" and rel_op == "=" and prev["op"] == "=":
@@ -4921,12 +5136,18 @@ class _Planner:
                     continue
                 if _percent_against_quantity(v, fvv):
                     continue  # STEM repair 3: a percentage never restates a quantity of a dimension ('… = 6.0 m. So the uncertainty is 2%')
-                if v[2] is None and fvv[2] is None and not v[3] and not fvv[3] and not inline and v[0].denominator == 1 \
-                        and v[1] is not None and not v[1].has_point and fvv[0].denominator != 1 and self._restates_other_quantity(pv, fv):
+                whole_case = (v[2] is None and fvv[2] is None and not v[3] and not fvv[3] and v[0].denominator == 1 and v[1] is not None
+                              and not v[1].has_point and fvv[0].denominator != 1)
+                if v[2] is None and fvv[2] is None and not inline and v[1] is not None \
+                        and (self._restates_other_quantity(pv, fv, before=whole_case) or self._assigns_other_variable(pv, fv)):
                     # stem-precision-1 (round 7): a whole number with no unit after a chain whose value is no whole number is the chain's
                     # value only when the prose names nothing else: 'so the degrees of freedom are 3' after 'χ² = … = 384.864', 'so the
                     # loan lasts 60 months' after 'r = 0.035/12 = 0.0029167' count other quantities, and had been set against the chain
-                    # (INT-SUBJ-001 on correct working)
+                    # (INT-SUBJ-001 on correct working). Integration gate 1: any value with no unit (a per cent or a whole chain value
+                    # among them) whose own clause names another quantity after it ('so it wastes 13% of the energy' after '= 87%', 'so a
+                    # cost of 2 per item' after '= 5', 'so the loop runs 3 times', 'so there are 2 degrees of freedom'), or that a trace
+                    # step gives another variable ('so low becomes 5' after 'mid = … = 4'), restates nothing either; a two-letter
+                    # abbreviation names a quantity too ('so df is 3')
                     continue
                 if v[2] is not None and fvv[2] is not None:
                     d1, d2 = v[2].dim, fvv[2].dim
@@ -4948,7 +5169,13 @@ class _Planner:
             if h_round is not None:
                 self._finer_restatement(best, Operand((pv.node,), pv.start, pv.end), pv.statement_id, pv.part, h_round, phrase)
 
-    def _restates_other_quantity(self, pv: ProseValue, fv: dict) -> bool:
+    def _assigns_other_variable(self, pv: ProseValue, fv: dict) -> bool:
+        """Integration gate 1: the clause right before the prose value is a trace step giving another variable a value ('so low becomes 5',
+        'high moves to 4', 'i is set to 3'; :data:`_ASSIGN_STEP_RE`) than the symbol of the chain ``fv``."""
+        m = _ASSIGN_STEP_RE.search(pv.before[-80:] if pv.before else "")
+        return m is not None and m.group(1).lower() != (fv.get("symbol") or "").lower()
+
+    def _restates_other_quantity(self, pv: ProseValue, fv: dict, *, before: bool = True) -> bool:
         """The clause between the result cue and the prose value ``pv`` names a quantity in words that the chain ``fv`` names nowhere
         (its symbol and its statement's words): the value is no restatement of the chain (stem-precision-1). 'so there are 4 half-lives'
         and 'therefore the answer is 6' name none and keep the check."""
@@ -4956,13 +5183,32 @@ class _Planner:
         chain_words = set(_words(chain_text))
         if fv.get("symbol"):
             chain_words.add(fv["symbol"].lower())
-        clause: list[str] = []
+            # integration gate 1: the name the reference gives the chain's symbol is the chain's own ('the efficiency' for η)
+            for q in quantities_for(fv["symbol"], self.profile.key):
+                for name in (q.name, *q.names):
+                    chain_words |= set(_words(name.lower()))
+        head: list[str] = []
         for w in reversed(_words(pv.before[-120:])):
             if w in _CUE_WORDS:
                 break
-            clause.append(w)
-        content = [w for w in clause if len(w) >= 3 and w not in _CLAUSE_STOP_WORDS and w.isalpha()]
-        return any(w not in chain_words and w.rstrip("s") not in chain_words for w in content)
+            head.append(w)
+        # integration gate 1: the words right after the value, to the end of its clause, name what it counts ('3 times', '2 per item',
+        # '13% of the energy', '2 degrees of freedom')
+        tail_m = re.match(r"[^.,;:!?\n]{0,60}", pv.after or "")
+        tail = _words(tail_m.group(0) if tail_m is not None else "")[:6]
+
+        def other(words: list[str]) -> bool:
+            content = [w for w in words if w.isalpha() and w not in _CLAUSE_STOP_WORDS and w not in _AFTER_STOP_WORDS
+                       and (len(w) >= 3 or (len(w) == 2 and w not in _TWO_LETTER_WORDS))]
+            return any(w not in chain_words and w.rstrip("s") not in chain_words for w in content)
+
+        if before:
+            # stem-precision-1's case (a whole number after a chain whose value is no whole number): words on either side name another quantity
+            return other(head) or other(tail)
+        # integration gate 1: any other value with no unit: only a clause that names another quantity both before the value and after it
+        # ('so it wastes 13% of the energy', 'so the loop runs 3 times', 'so a cost of 2 per item'); 'the decrease is 61%' names the chain's
+        # quantity by a word and 'there are 4 half-lives' names the count, and both stay restatements
+        return other(head) and other(tail)
 
     def _own_value_before(self, pv: ProseValue, v: tuple, fv: dict) -> bool:
         """Rule ``adjacent-restatement`` (STEM repair 5): the statement of the prose value ``pv`` (value ``v``) states, before it, a prose
@@ -5199,6 +5445,111 @@ class _Planner:
                             + ("(a numeral with letter digits read in base 16, which the words beside it name) " if lettered else "") + "(rule prose-base)")
             planned.add((b.start, b.end))
 
+    def _binary_named(self, item: MathItem) -> bool:
+        """The statement or the request calls a numeral binary, fixed-width (bits) or two's complement (rule binary-reading)."""
+        return bool(_BINARY_WORD_RE.search(item.statement_text[:4000]) or _BINARY_WORD_RE.search((self.request.text or "")[:4000]))
+
+    def _twos_named(self, item: MathItem) -> bool:
+        return bool(_TWOS_COMPLEMENT_RE.search(item.statement_text[:4000]) or _TWOS_COMPLEMENT_RE.search((self.request.text or "")[:4000]))
+
+    def _twos_alternative(self, item: MathItem, lnode: Node, rnode: Node) -> tuple[Node, Node]:
+        """Rule binary-reading (integration gate 1): a binary numeral with its base marker set equal to a value, where the statement or the
+        request names two's complement ('1111 1011₂ = −5 in two's complement'): the numeral read in two's complement is the second reading
+        of the base check (either holds). Empty when it does not apply."""
+        if not self._twos_named(item):
+            return ()
+        for a, b, flip in ((lnode, rnode, False), (rnode, lnode, True)):
+            if isinstance(a, Num) and a.number.base == 2 and not _contains_based(b):
+                tw = _twos_complement(a)
+                if tw is not None:
+                    return (b, tw) if flip else (tw, b)
+        return ()
+
+    def _binary_link(self, base: dict, item: MathItem, lnode: Node, rnode: Node) -> bool:
+        """Rule ``binary-reading`` (integration gate 1): in Computer Science, an unmarked numeral of binary digits set equal to a value is a
+        binary numeral when something says so: the other side is a place-value sum of powers of two ('10110110 = 128 + 32 + 16 + 4 + 2'),
+        the numeral keeps a leading zero ('42 = 00101010'), or the statement or the request calls it binary, a number of bits or two's
+        complement. It is then a ``base`` check of the numeral in base 2 against the other side, as exact integers; a numeral the
+        statement or the request calls two's complement, or set against a sum whose leading power is negative ('11111011 = −128 + 64 +
+        …'), is also read with its leading digit weighing −2ⁿ⁻¹ (either reading holds). Before, the numeral was read as a decimal number,
+        so every correct conversion failed (INT-SUBJ-001). Two binary digit runs, or a run with no such evidence, keep the old reading.
+        True when the check is added."""
+        lrun, rrun = _binary_run(lnode), _binary_run(rnode)
+        if lrun == rrun:
+            return False
+        run, other = (lnode, rnode) if lrun else (rnode, lnode)
+        if _contains_based(other) or any(not isinstance(n, (Num, BinOp, Neg)) for n in walk(other)):
+            return False
+        pvs = _place_value_sum(other)
+        pv = None if pvs is None else pvs[0]
+        text = run.number.text.strip()  # type: ignore[union-attr]
+        named = self._binary_named(item)
+        if pvs is not None and not named and not text.startswith("0") and run.number.value == pvs[1]:  # type: ignore[union-attr]
+            return False  # '8 + 2 + 1 = 11': the decimal numeral is the sum's value as written, so it keeps its decimal reading
+        evidence = pv is not None or (text.startswith("0") and len(text) >= 4) or named
+        if not evidence:
+            return False
+        binary = _as_binary(run)  # type: ignore[arg-type]
+        if binary is None:
+            return False
+        twos = _twos_complement(binary) if (pv is True or self._twos_named(item)) else None
+        first, second = (twos, binary) if twos is not None else (binary, None)
+        left = base["left"]
+        right = base["right"]
+
+        def operands(numeral: Num) -> dict:
+            if lrun:
+                return {"left": Operand((numeral,), left.start, left.end), "right": Operand((rnode,), right.start, right.end)}
+            return {"left": Operand((lnode,), left.start, left.end), "right": Operand((numeral,), right.start, right.end)}
+
+        alternative: tuple[Node, Node] = ()
+        if second is not None:
+            alternative = (second, rnode) if lrun else (lnode, second)
+        why = ("a place-value sum of powers of two" if pv is not None else "a leading zero" if text.startswith("0") and len(text) >= 4
+               else "the words calling it binary")
+        self.add(kind="base", outcome="check", **{**base, **operands(first)}, alternative=alternative,
+                 title="the binary numeral the line converts",
+                 reason=f"an unmarked numeral of binary digits ({text[:24]}) set equal to a value, read in base 2 ({why})"
+                        + (", in two's complement or unsigned (either reading)" if second is not None else "") + " (rule binary-reading)")
+        return True
+
+    _MAX_TWOS_PROSE = 16
+
+    def _prose_twos_complement(self) -> None:
+        """Rule ``binary-reading`` in prose (integration gate 1): 'n in (8-bit) two's complement is v' ('11111110 in two's complement is
+        −1') states the value of a binary numeral read in two's complement: a ``base`` check of the numeral, its leading digit weighing
+        −2ⁿ⁻¹, against the value. Before, no relation was read, so a wrong value had neither a check nor an ST code. Computer Science
+        only; bounded."""
+        if self.request_mode or not self.profile.computer_science or not self.text or "complement" not in self.text:
+            return
+        planned = {(r.start, r.end) for r in self.relations if r.kind == "base"}
+        by_start = {pv.start: pv for pv in self.prose_values}
+        count = 0
+        for m in _TWOS_PROSE_RE.finditer(self.text[:self.lim.max_response_chars]):
+            if count >= self._MAX_TWOS_PROSE:
+                break
+            a, b = m.start("num"), m.end("num")
+            va, vb = m.start("val"), m.end("val")
+            pv = by_start.get(a)
+            if pv is None or (a, vb) in planned:
+                continue
+            digits = m.group("num")
+            num = exact_based(digits, digits, 2, limits=self.lim)
+            vpv = by_start.get(va)
+            vv = value_of(vpv.node) if vpv is not None else None
+            if num is None or vpv is None or vpv.end != vb or vv is None or vv[2] is not None or vv[3] or vv[0].denominator != 1:
+                continue
+            tw = _twos_complement(Num(num, a, b))
+            if tw is None:
+                continue
+            right = vpv.node
+            count += 1
+            planned.add((a, vb))
+            self.add(kind="base", outcome="check", statement_ids=(pv.statement_id,), start=a, end=vb, op="=", left=Operand((tw,), a, b),
+                     right=Operand((right,), va, vb), part=pv.part, title="the two's complement value the prose states",
+                     reason=f"the binary numeral {digits[:24]} the prose reads in two's complement, its leading digit weighing −2ⁿ⁻¹, against the "
+                            f"value it states (rule binary-reading)")
+
     def _worded_base(self, base: dict, item: MathItem, lnode: Node, rnode: Node, right: Operand) -> bool:
         """Rule ``prose-base`` (STEM repair 12): a whole number set equal, with '=', to a numeral whose base the words right after it name, its
         clause ending there ('1000 = 3E8 in hexadecimal.', '1000 = 1111101000 in binary.'), is a based-numeral conversion: a ``base`` check
@@ -5225,11 +5576,21 @@ class _Planner:
             return False
         lettered = hexed or (isinstance(rnode, Num) and rnode.number.scientific)
         left = base["left"]
+        alternative: tuple[Node, Node] = ()
+        if _binary_run(lnode) and nb.number.base != 2 and self._binary_named(item):
+            # integration gate 1 (rule binary-reading): '10110110 = B6 in hexadecimal' for 'the binary number 10110110': the first numeral
+            # is binary as much as decimal when the statement or the request calls it binary (either reading); before, it was decimal only
+            # and every correct conversion failed
+            binary = _as_binary(lnode)  # type: ignore[arg-type]
+            if binary is not None:
+                alternative = (binary, nb)
         self.add(kind="base", outcome="check", **{**base, "end": right.end + tail.end(), "left": Operand((na,), left.start, left.end),
                                                   "right": Operand((nb,), right.start, right.end)},
-                 title="the base conversion the line states",
+                 title="the base conversion the line states", alternative=alternative,
                  reason="a whole number set equal to a numeral whose base the words right after it name: a based-numeral conversion "
-                        + ("(a numeral with letter digits read in base 16, which the words beside it name) " if lettered else "") + "(rule prose-base)")
+                        + ("(a numeral with letter digits read in base 16, which the words beside it name) " if lettered else "")
+                        + ("(the first numeral read in decimal or, as the words call it, in binary: either reading) " if alternative else "")
+                        + "(rule prose-base)")
         return True
 
     def _hex_written(self, item: MathItem, op: Operand) -> bool:
@@ -7661,41 +8022,73 @@ class _Planner:
                 if _UNSTATED_RE.search(heads[bd.statement_id][-160:]):
                     continue
                 usable.append((bd, si))
-            # the symbol's tie: the request quantities, named with one value each, whose value the answer substitutes for it
-            ties: dict[tuple[str, ...], Binding] = {}
-            for bd, si in usable:
-                for b in request_match(bd, si):
-                    words = tuple(b.symbol.split())
-                    values = {x.si for x in by_name.get(words, [])}
-                    if len(values) == 1:
-                        ties[words] = b
-            if len(ties) != 1 or len({b.si for b in ties.values()}) != 1:
-                continue
-            tie = next(iter(ties.values()))
-            tie_sids = sorted({bd.statement_id for bd, si in usable if request_match(bd, si)})
-            for bd, si in usable:
-                if (bd.start, bd.end) in planned or request_match(bd, si):
-                    continue  # the request's value: the data as written
-                if bd.unit is None or tie.unit is None or not bd.unit.dim.same_physical(tie.unit.dim):
+            # the symbol's tie: the request quantities, named with one value each, whose value the answer substitutes for it. Integration
+            # gate 1: a request value the request states inside one of its parts ('(b) The kettle is left on for another 30 s.') ties the
+            # symbol in the answer's part of that label only, while one its stem states ties it in every part (the 30 s of part (b) had been
+            # set against the 270 s of part (a): a false stem_given warning on correct working)
+            self._unbound_symbol(name, usable, by_name, request_match, h_si, planned)
+
+    def _request_part_at(self, offset: int) -> str:
+        """Integration gate 1: the part label of the request at ``offset`` ('a' for an offset after a line '(a) …'), '' in its stem. The
+        labels are read once, at line starts: '(a)', 'a)', 'Part (a)', '(ii)'."""
+        if self._request_parts is None:
+            self._request_parts = [(m.start(), m.group("p").lower()) for m in _REQUEST_PART_RE.finditer((self.request.text or "")[:20000])][:64]
+        label = ""
+        for start, p in self._request_parts:
+            if start > offset:
+                break
+            label = p
+        return label
+
+    def _unbound_symbol(self, name: str, usable: list, by_name: dict, request_match, h_si, planned: set) -> None:
+        """Rule ``unbound-substitution`` for one symbol: see :meth:`_unbound_substitutions`."""
+
+        def part_label(sid: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", (self.part_of.get(sid, "") or "").lower())
+
+        def fits(b: Binding, bd: Binding) -> bool:
+            # a request value stated in a part of the request ties the symbol in the answer's part of that label only
+            rp = self._request_part_at(b.start) if b.source == "request" else ""
+            return not rp or rp == part_label(bd.statement_id)
+
+        ties: dict[tuple[str, ...], Binding] = {}
+        for bd, si in usable:
+            for b in request_match(bd, si):
+                if not fits(b, bd):
                     continue
-                stated = self._answer_values_before(bd.start)
-                if any(u is not None and not u.unknown and u.dim is not None and u.dim.same_physical(bd.unit.dim) and u.readings
-                       and u.readings[0].factor is not None and si_value(v, u, "") is not None
-                       and abs(si - si_value(v, u, "")) <= h_si(bd) + h * abs(u.readings[0].factor) for v, u, h in stated):
-                    continue  # a value the answer states before the line
-                node = Quantity(bd.number, bd.unit, bd.start, bd.end)
-                sid = bd.statement_id
-                shown = " ".join(self.request.text[tie.start:tie.end].split())[:40] if tie.source == "request" else tie.symbol
-                self.add(kind="giv", outcome="check", statement_ids=(sid,), start=bd.start, end=bd.end, op="=",
-                         right=Operand((node,), bd.start, bd.end), left=Operand((Sym(name, start=bd.start, end=bd.start),), bd.start, bd.start),
-                         candidates=(tie,), part=self.part_of.get(sid, ""),
-                         title="the value the working substitutes for a symbol with no value, against the request's value it substitutes for the "
-                               "symbol elsewhere",
-                         reason=f"the value {' '.join(self.text[bd.start:bd.end].split())} the working substitutes for {name}, a symbol the answer "
-                                f"gives no value, against the request's {tie.symbol} ({shown}), the value the answer substitutes for {name} in "
-                                f"{', '.join(tie_sids[:3])}: it is no request value and no value the answer states before the line "
-                                f"(rule unbound-substitution)")
-                planned.add((bd.start, bd.end))
+                words = tuple(b.symbol.split())
+                values = {x.si for x in by_name.get(words, [])}
+                if len(values) == 1:
+                    ties[words] = b
+        if len(ties) != 1 or len({b.si for b in ties.values()}) != 1:
+            return
+        tie = next(iter(ties.values()))
+        tie_sids = sorted({bd.statement_id for bd, si in usable if request_match(bd, si)})
+        for bd, si in usable:
+            if (bd.start, bd.end) in planned or request_match(bd, si):
+                continue  # the request's value: the data as written
+            if not fits(tie, bd):
+                continue  # the tie is a value of another part of the request
+            if bd.unit is None or tie.unit is None or not bd.unit.dim.same_physical(tie.unit.dim):
+                continue
+            stated = self._answer_values_before(bd.start)
+            if any(u is not None and not u.unknown and u.dim is not None and u.dim.same_physical(bd.unit.dim) and u.readings
+                   and u.readings[0].factor is not None and si_value(v, u, "") is not None
+                   and abs(si - si_value(v, u, "")) <= h_si(bd) + h * abs(u.readings[0].factor) for v, u, h in stated):
+                continue  # a value the answer states before the line
+            node = Quantity(bd.number, bd.unit, bd.start, bd.end)
+            sid = bd.statement_id
+            shown = " ".join(self.request.text[tie.start:tie.end].split())[:40] if tie.source == "request" else tie.symbol
+            self.add(kind="giv", outcome="check", statement_ids=(sid,), start=bd.start, end=bd.end, op="=",
+                     right=Operand((node,), bd.start, bd.end), left=Operand((Sym(name, start=bd.start, end=bd.start),), bd.start, bd.start),
+                     candidates=(tie,), part=self.part_of.get(sid, ""),
+                     title="the value the working substitutes for a symbol with no value, against the request's value it substitutes for the "
+                           "symbol elsewhere",
+                     reason=f"the value {' '.join(self.text[bd.start:bd.end].split())} the working substitutes for {name}, a symbol the answer "
+                            f"gives no value, against the request's {tie.symbol} ({shown}), the value the answer substitutes for {name} in "
+                            f"{', '.join(tie_sids[:3])}: it is no request value and no value the answer states before the line "
+                            f"(rule unbound-substitution)")
+            planned.add((bd.start, bd.end))
 
     def _statement_head(self, sid: str, pos: int) -> str:
         """The text of the answer's statement ``sid`` before offset ``pos`` (empty when unknown): the clause a value is stated under."""
@@ -8190,6 +8583,10 @@ class _Planner:
         absolute = applies_absolute_temperature_law(law_names)
         kelvin_used = False
         si_form: set[tuple[int, int]] = set()
+        #: numerals that repeat a bare binding of a quantity the reference fixes as a pure number ('M = 400', a magnification the
+        #: request names): read as written in every reading, a factor with no unit (integration gate 1: '12/400 = 0.030 µm' with
+        #: I = 12 mm and M = 400 planned no companion, because 400 was left unaccounted)
+        pure: set[tuple[int, int]] = set()
         for name, written in [*chain_sub.pairs, *introduced]:
             ends = self._written_change(written)
             if ends is not None:
@@ -8215,6 +8612,9 @@ class _Planner:
                     # a bare result the answer worked from the request's quantities alone ('A = 20 × 20 = 400' for a square
                     # of side 20 cm): read in the unit those quantities give it (accuracy round 1, ADV6-03)
                     rq = self._derived_binding(name, node, sign)
+                if rq is None and same and q is not None and q.dimension == DIMENSIONLESS:
+                    pure.add((node.start, node.end))
+                    continue
                 same = [replace(rq, symbol=name)] if rq is not None else []
             if not same and name.startswith("Δ"):
                 # a change the request states only by its two ends ('from 20 °C to 70 °C', then ΔT as 50): read in their unit,
@@ -8226,7 +8626,7 @@ class _Planner:
                 # the working substitutes a quantity already converted to SI ('180 000' for the request's '180 kJ', '2000' for
                 # '2.0 kW'): the numeral is accounted for, read as written (repair round 4, ADV4-02: the other numerals of such a
                 # working were left unread, so a time given only in minutes went unconverted unseen)
-                si = self._si_form_binding(name, written)
+                si = self._si_form_binding(name, written) or self._booklet_binding(name, node)
                 if si is not None:
                     accounted[(node.start, node.end)] = si
                     si_form.add((node.start, node.end))
@@ -8266,7 +8666,7 @@ class _Planner:
                 # the substitution of a law stated on a line of its own ('E = ½kx²', then 'E = ½ × 250 × 4.0² = 2000 J'): the
                 # coefficients are the law's (repair round 2, holdout2 unit class)
                 coeffs |= {n.number.value for n in walk(chain_sub.formula.expr) if isinstance(n, Num)}
-            if any((key not in spots) and leaf.number.value not in coeffs for key, leaf in leaves.items()):
+            if any((key not in spots) and (key not in pure) and leaf.number.value not in coeffs for key, leaf in leaves.items()):
                 return
             target = stated.unit.dim if isinstance(stated, Quantity) else (stated.arg.unit.dim if isinstance(stated, Neg) and isinstance(stated.arg, Quantity) else None)
             prose_unit = self._prose_unit_of(rel, stated) if bare else None
@@ -8297,6 +8697,18 @@ class _Planner:
                                           reason=f"ST-UNIT-003: bare numbers of the working repeat the numbers of bindings, or of the request's quantities, "
                                                  f"stated in non-SI units ({shown}); this companion reads them in those units"
                                                  + (f", and the stated value in the unit the answer's prose gives it ({prose_unit.text})" if prose_unit else "")))
+
+    def _booklet_binding(self, name: str, numeral: Num) -> Optional[Binding]:
+        """Integration gate 1: a numeral substituted for a symbol that is a booklet constant, written as the constant's booklet value
+        ('8.31' for R in pV = nRT): the constant in its SI unit, so a unit companion accounts for it (read as written, in SI). None
+        otherwise."""
+        h = numeral.number.half_width
+        for c in constants_for_symbol(name, self.profile.key):
+            if c.unit and any(numeral.number.value - h <= v <= numeral.number.value + h for v in c.values):
+                unit = parse_unit(c.unit)
+                if unit is not None and not unit.unknown and unit.dim is not None:
+                    return Binding(name, numeral.number.value, numeral.number, unit, "booklet", "", numeral.start, numeral.end)
+        return None
 
     def _derived_binding(self, name: str, numeral: Num, sign: int = 1) -> Optional[Binding]:
         """The one binding of ``name`` with the numeral's value, a bare number, read in the unit the request's quantities give
@@ -8512,6 +8924,7 @@ class _Planner:
         a warning (stem_rounding_changes_conclusion)."""
         self._worded_roundings()
         if not self.roundings:
+            self._value_prose_comparisons()  # integration gate 1 (rule value-comparison): a comparison with no rounding before it
             return
         planned: set[tuple[int, int]] = set()
         by_sid: dict[str, list[ProseValue]] = {}
@@ -8660,6 +9073,60 @@ class _Planner:
                             f"before the rounding")
         self._symbol_prose_comparisons(planned)
         self._target_roundings(planned)
+        self._value_prose_comparisons()
+
+    _MAX_VALUE_COMPARISONS = 32
+
+    def _value_prose_comparisons(self) -> None:
+        """Rule ``value-comparison`` (integration gate 1): a comparison in prose whose subject is a symbol a chain computed, with no rounding
+        between ('R = 12/1.99 = 6.03 Ω, so R is below 6.0 Ω.'): the clause before a stated value names the symbol and compares it
+        (:func:`_prose_comparison`), so the stated comparison is set against the chain's final value as computed (a ``cmp`` check; a
+        negated comparison, 'is not below', is its complement). Before, the prose comparison was read only after a rounding (rule
+        ST-ROUND-001's), so a false judgement stated in words passed. Read within the chain's part, at most 400 characters after it,
+        one check per prose value; a chain the rounding rules already compare is left to them."""
+        text = self.answer_text
+        if self.request_mode or not text or not self.final_values or not self.prose_values:
+            return
+        done = {(r.right.start, r.right.end) for r in self.relations if r.kind in ("rnd", "cmp") and r.right is not None}
+        count = 0
+        for fv in self.final_values:
+            name = fv.get("symbol") or ""
+            op_node = fv.get("operand")
+            if not name or not fv.get("computed") or op_node is None or count >= self._MAX_VALUE_COMPARISONS:
+                continue
+            end = op_node.end
+            fvv = value_of(fv["node"])
+            if fvv is None:
+                continue
+            for pv in self.prose_values:
+                if pv.start <= end or pv.start - end > 400 or (pv.part and fv["part"] and pv.part != fv["part"]) or not is_value(pv.node) \
+                        or (pv.start, pv.end) in done:
+                    continue
+                head = text[max(end, pv.start - 64):pv.start]
+                m = re.search(r"(?<![\w.])" + re.escape(name) + r"(?![\w'’])(?P<cmp>[^.;:!?\n=<>≤≥]{1,48})$", head)
+                if m is None:
+                    continue
+                cmp = _prose_comparison(m.group("cmp"))
+                if cmp is None:
+                    continue
+                pvv = value_of(pv.node)
+                if pvv is None or (pvv[2] is None) != (fvv[2] is None) or bool(pvv[3]) != bool(fvv[3]):
+                    continue  # a value of another kind (a unit on one side only, a per cent beside a number) is no threshold of the symbol
+                if pvv[2] is not None and (pvv[2].dim is None or fvv[2].dim is None or not pvv[2].dim.same_physical(fvv[2].dim)):
+                    continue
+                op, negated = cmp
+                if negated:
+                    op = _COMPLEMENT_ORDER.get(op)
+                    if op is None:
+                        continue
+                done.add((pv.start, pv.end))
+                count += 1
+                self.add(kind="cmp", outcome="check", statement_ids=tuple(dict.fromkeys((fv["sid"], pv.statement_id))), start=op_node.start, end=pv.end,
+                         op=_IR_ORDER_SIGN[op], left=op_node, right=Operand((pv.node,), pv.start, pv.end), part=fv["part"],
+                         title="the comparison the prose states of the symbol the working computed",
+                         reason=f"the prose compares {name} with {' '.join(text[pv.start:pv.end].split())[:40]}; set against the value the working "
+                                f"computed for {name} in {fv['sid']} (rule value-comparison)")
+                break
 
     def _symbol_prose_comparisons(self, planned: set[tuple[int, int]]) -> None:
         """A comparison in prose whose subject is the symbol a chain rounded (repair round 3, ADV3-09): 'R = 2.0 + 1.96 = 3.96 ≈
@@ -10080,6 +10547,111 @@ class _Planner:
                          reason=f"the value the working substitutes for {name} ({node.number.text} {node.unit.text}) against " + (
                              "the request's binding of the same symbol" if name in req_by_symbol else "the request's quantities of the same dimension"))
         self._bare_givens(req_by_symbol, seen, derived_values)
+        self._request_substitutions(req_by_symbol, seen)
+
+    _MAX_REQUEST_SUB_PAIRS = 8
+
+    def _request_substitutions(self, req_by_symbol: dict[str, list[Binding]], seen: set[tuple[str, int]]) -> None:
+        """Rule ``request-substitution`` (integration gate 1): a substitution of bare numerals for symbols the answer binds nowhere
+        (``ΔEp = mgΔh = 2.0 × 9.8 × 50``), where every symbol that is no booklet constant is a quantity the STEM reference fixes and the
+        request states exactly one quantity of its dimension, each a different one (the R7 reading: the symbol stands for that quantity),
+        sets each numeral that is not that quantity (as written, converted to SI, or a temperature in °C read in kelvin for a law of
+        absolute temperature) against it: a ``giv`` check, the numeral read in the quantity's unit, at warning severity (the identity of
+        a symbol across the request and the answer is a reading). Before, a numeral within a factor of ten of the quantity ('50' for 5.0
+        m), a swap of two request values ('λ = v/f = 170/340' for 340 m s⁻¹ and 170 Hz) or a Celsius value in a gas law ('27' for 27
+        °C) was never compared, and the wrong substitution passed with only its (right) arithmetic checked. A symbol with no fixed
+        quantity, two quantities of its dimension, or a value of another kind (a per cent, a unit) leaves the substitution as it was."""
+        if self.request_mode or self.profile.computer_science:
+            return
+        quants: list[Binding] = []
+        for qnode, a0, b0 in self.request.quantities[:64]:
+            q = value_of(qnode)
+            if q is None or q[1] is None or q[2] is None or q[2].unknown or q[2].dim is None or q[3] or not q[2].readings:
+                continue
+            quants.append(Binding("", q[0], q[1], q[2], "request", "request", a0, b0))
+        if not quants:
+            return
+        planned = {(r.start, r.end) for r in self.relations if r.kind == "giv"}
+        for rel in list(self.relations):
+            if rel.kind != "sub":
+                continue
+            leaves = {(n.start, n.end): n for side in (_first(rel.left), _first(rel.right)) if side is not None for n in walk(side) if isinstance(n, Num)}
+            introduced = [(b.symbol, leaves[(b.start, b.end)]) for name in rel.unbound for b in self.scope.substitutions.get(name, ())
+                          if b.statement_id in rel.statement_ids and (b.start, b.end) in leaves]
+            pairs = [(n, w) for n, w in [*rel.pairs, *introduced] if isinstance(w, Num)]
+            if not pairs or len(pairs) > self._MAX_REQUEST_SUB_PAIRS:
+                continue
+            names = {n for n, _w in pairs}
+            law = names | ({rel.formula.name} | _syms(rel.formula.expr) if rel.formula is not None else set())
+            absolute = applies_absolute_temperature_law(law)
+            ties: list[tuple[str, Num, Binding]] = []
+            used: set[tuple[int, int]] = set()
+            complete = True
+            for name, numeral in pairs:
+                if name in req_by_symbol or [b for b in self.scope.bindings.get(name, ()) if b.source not in ("substitution", "root")]:
+                    complete = False  # the answer or the request binds the symbol itself: that binding is what is read
+                    break
+                if constants_for_symbol(name, self.profile.key):
+                    continue  # a booklet constant (g, R, c ...): its value is the booklet's, not the request's
+                # the dimensions the reference gives the symbol (a change, 'Δh', has its quantity's); an ambiguous letter (T: a temperature or
+                # a period) is tied when exactly one of its dimensions has request quantities, exactly one
+                base = name[1:] if name.startswith("Δ") and len(name) > 1 else name
+                dims = {q.dimension for q in quantities_for(base, self.profile.key) if q.dimension is not None}
+                pools = [[b for b in quants if b.unit.dim.same_physical(d)] for d in dims]
+                pools = [pl for pl in pools if pl]
+                if len(pools) != 1 or len(pools[0]) != 1 or (pools[0][0].start, pools[0][0].end) in used:
+                    complete = False
+                    break
+                pool = pools[0]
+                used.add((pool[0].start, pool[0].end))
+                ties.append((name, numeral, pool[0]))
+            if not complete or not ties:
+                continue
+
+            def repeats(value: Fraction, q: Binding) -> bool:
+                scale = unit_scale(q.unit)
+                return value == q.value or (scale is not None and value == q.value * scale)
+
+            # the working substitutes the request's givens: some numeral is its symbol's quantity, or every numeral is one of the
+            # request's values ('E = 3.0 × 3.6 × 10⁶' after 'E = Pt = 3.0 kW h' carries a result on and converts it: no given is read)
+            if not (any(repeats(numeral.number.value, cand) for _n, numeral, cand in ties)
+                    or all(any(repeats(numeral.number.value, q) for q in quants) for _n, numeral, _c in ties)):
+                continue
+            for name, numeral, cand in ties:
+                if (name, numeral.start) in seen or (numeral.start, numeral.end) in planned:
+                    continue
+                value = numeral.number.value
+                target = cand
+                if is_affine_unit_expr(cand.unit):
+                    if not (absolute and base_symbol(name) == "T"):
+                        continue  # a temperature on an offset scale outside a law of absolute temperature may be a difference
+                    kb = _kelvin_binding(cand, Num(cand.number, cand.start, cand.end))
+                    if kb is None:
+                        continue
+                    if abs(value - kb.value) <= Fraction(1, 2) + numeral.number.half_width:
+                        continue  # the request's temperature in kelvin
+                    if value != cand.value:
+                        continue  # only the temperature as written in °C is the request's value left unconverted
+                    target = kb
+                else:
+                    if repeats(value, cand):
+                        continue  # the request's value, as written or converted to SI
+                    if not (_power_of_ten_shift(value, cand) or _miscopied(numeral.number.text, cand.number.text, value, cand.value)
+                            or any(repeats(value, q) for q in quants if q is not cand)):
+                        # a value of another size than the quantity written wrongly ('340' for a train's 30 m s⁻¹, the speed of sound) is
+                        # the answer's own, often from subject knowledge (accuracy round 2, V1-STEM-GIV-FA): only a power-of-ten shift, a
+                        # miscopy or another request value in its place (a swap) is read
+                        continue
+                seen.add((name, numeral.start))
+                planned.add((numeral.start, numeral.end))
+                node = Quantity(numeral.number, target.unit, numeral.start, numeral.end)
+                self.add(kind="giv", outcome="check", statement_ids=rel.statement_ids, start=numeral.start, end=numeral.end, op="=",
+                         right=Operand((node,), numeral.start, numeral.end), left=Operand((Sym(name, start=numeral.start, end=numeral.start),),
+                                                                                          numeral.start, numeral.start),
+                         candidates=(replace(target, symbol=name),), part=rel.part,
+                         reason=f"the bare value {numeral.number.text} the working substitutes for {name}, read in the unit of the request's "
+                                f"{cand.number.text} {cand.unit.text}, the one quantity of {name}'s dimension the request states (rule "
+                                f"request-substitution)")
 
     _MAX_BARE_GIVEN_POOL = 2
 
@@ -11108,6 +11680,10 @@ def _rounding_opens_clause(before: str) -> bool:
     return found is not None and re.search(r"\d", clause[:found.start()]) is None
 
 
+#: integration gate 1: the words that contrast what follows with a rounding stated before them
+_CONTRAST_RE = re.compile(r"(?<![A-Za-z])(?:but|whereas|while|although|though|yet|unrounded)(?![A-Za-z])", re.IGNORECASE)
+
+
 def _rounding_cue(before: str, after: str, value: Fraction, noun_ok=None) -> Optional[tuple[Fraction, str]]:
     """Rule ``rounding-cue`` (STEM repair 1): a rounding the prose states for a restated value, in its clause before it ("To the
     nearest whole number, the decrease is 61%") or right after it ("60%, to 2 s.f."): ``(half-width, phrase)``, else None. A
@@ -11118,8 +11694,13 @@ def _rounding_cue(before: str, after: str, value: Fraction, noun_ok=None) -> Opt
     cut = max(_last_sentence_end(before), before.rfind(";"), before.rfind("\n"), before.rfind(":"))
     clause = before[cut + 1:] if cut >= 0 else before
     found = None
-    for m in _ROUND_BEFORE_RE.finditer(clause[-200:]):
+    tail = clause[-200:]
+    for m in _ROUND_BEFORE_RE.finditer(tail):
         found = m
+    if found is not None and _CONTRAST_RE.search(tail[found.end():]):
+        # integration gate 1: a contrast between the stated rounding and the value ('To 2 s.f. this is 80%, but the unrounded value is
+        # 79.6%') ends what the rounding names: the value after it is not the rounded one (it had been set against the rounding's place)
+        found = None
     if found is None and after:
         found = _ROUND_AFTER_RE.match(after[:120])
         if found is not None and found.group("unitword") and not (noun_ok is not None and noun_ok(found.group("unitword"), True)):
@@ -11423,6 +12004,8 @@ _REASONED_RE = re.compile(r"\b(?:so|because|since|therefore|hence|thus|it\s+foll
 
 
 _IR_ORDER_SIGN = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥", "eq": "="}
+#: the complement of an order ('is not below' is 'is at least'), for a negated prose comparison (rule value-comparison)
+_COMPLEMENT_ORDER = {"lt": "ge", "le": "gt", "gt": "le", "ge": "lt"}
 
 
 _MATH_ORDER_OPS = frozenset({"<", "≤", ">", "≥", "⩽", "⩾"})

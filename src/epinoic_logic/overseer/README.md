@@ -447,6 +447,29 @@ agent's claim stating a check result credited to the system or to a report that 
 check result is a self-report (advisory), never evidence. The channel's widened codes (INT-REQ-000, -002, -003, -006, -007,
 -009, -014, INT-HANDOFF-013, INT-LEDGER-025, INT-CONFLICT-001) are listed in design section 46.2.
 
+**After integration gate round 1** (design section 48): the response-level readers of the fidelity check are linear in the
+response (rule `linear-readers`): `strip_mark_annotations` reads each run of mark annotations once (a run may start only where no
+space or tab precedes it, its whitespace possessive, the run atomic, the end-of-sentence test after the run; the same text as the
+reference pattern, which restarted at every space and cost 7.4 s on 20,000 spaces), and `figure_text` gives the figure reader at
+most two line starts per run of blank lines (the same figures; 40,000 blank lines cost about 19 s per receive and per audit). The
+delivery policy's formal path never completes over working the receipt names as not checked (rule `unchecked-working`:
+`NOT_CHECKED_CODES`, ST-UNDEC-002 or ST-PARSE-001 among them) nor over an agent's self-report (rule `self-report-disclosed`:
+CORE-SELF-001, ES-META-001, INT-REQ-014 at any severity; the task audit's FID-005 and FID-009). The live receipt check re-derives
+the channel's stated-precision rule before it names an absent INT-CONFLICT-001 (rule `stated-precision-conflict`: when the event
+captured a signed CONSISTENT re-check, the channel's own `check_cross_report_consistency` on the journaled pool, as an auditor
+run), and the replay decides a joint problem recorded under the integrity layer's stated-precision bounds under those bounds (rule
+`precision-limits`; a definitive status recorded under limits no rule names that its replay refuses is OVS-AUDIT-005, not
+OVS-RES-007). The task's own stated equation as the premise of its solved form is data, not the claim assumed (rule
+`task-equation`: a `task_setting` premise equivalent to a relation the request states as data, read by the STEM front end, never
+a target, a question or a negation, when the conclusion is a solution set; pack 1.4 does not teach it yet, so a
+`translation_circular` accusation there goes to human review, never refuted against the agent). The number reader skips a numeral of more than 100
+digits (rule `figure-digits`; 4,301 digits raised and failed the translation check, OVS-AUDIT-001); the STEM folded tail is read
+line by line (rule `folded-tail`); a structured report's `source_refs` excerpt located in the document it names, on a claim that
+occurs in the response, is no FID-002 (rule `located-citation`, one rule with the channel); a claim an adapter cut at the contract
+limit without the `...` mark (the STEM parser's cut) has its figures read without the partial token at the cut (rule
+`contract-cut`, unmarked). Tests:
+`tests/overseer/test_gate1_overseer_fixes.py`.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
@@ -627,7 +650,10 @@ instances never certify anything or change a status. Design section 19.
 `delivery_policy.py` decides what the router may hand on for one deliverable and records why in a signed
 `delivery_receipt/1.0`. The formal path: within `translation_budget_s` (240 s, the founder's limit, on an injectable
 monotonic clock) every material eligible claim clean (translated, definitive, the release rule re-derived from the journal
-and the signed result, no `OVS-TRN-*` finding naming it, the clearance actionable). Otherwise the fallback: the policy's
+and the signed result, no `OVS-TRN-*` finding naming it, the clearance actionable), every branch formal check holding, no
+working the receipt names as not checked (`NOT_CHECKED_CODES`: a STEM relation outside the grammar or the encodings, a value
+not stated, a unit checked as written only, a pack that failed, a check undecided) and no agent self-report on the answer
+(`SELF_REPORT_CODES`, at any severity, and the task audit's FID-005 and FID-009). Otherwise the fallback: the policy's
 `OverseerPool` reviews the task through `hub.review_pool`, every verdict validated as in production; a verdict that
 contradicts a signed result is rejected; each candidate's accuracy is the share of its material claims counted verdicts
 examined with no fault pinned down, no check naming them and no signed refutation; the best acceptable candidate is

@@ -100,7 +100,8 @@ leaves it NOT RUN: the pinned runtime was not simulated.
 
 ## What runs on this tree, and what is connected with the rebuilt overseer
 
-The overseer package is not on this tree, so the checks service refuses to start (`KIT-HS-007 overseer_unavailable`).
+The overseer package is on this tree since its merge, but its embedded port adapter (`epinoic_overseer.port`) is not
+built yet, so the checks service still refuses to start (`KIT-HS-007 overseer_unavailable`).
 `run_sim.py` reports that refusal as the reason of every website-path and agents-path gate, every gate is NOT RUN,
 never PASS, and the exit status is 1. What still runs: the fault cases (sub-check `fault_cases`), the reference harness
 on a copy (sub-check `arena:s1`: every genuine and mutation record functional, the round not qualified), and the

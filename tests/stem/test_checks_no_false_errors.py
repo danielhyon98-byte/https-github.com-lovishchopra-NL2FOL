@@ -142,8 +142,10 @@ def test_correct_work_never_fails(name, text, req, profile):
 
 
 def test_booklet_and_unknown_unit_readings_fail_only_as_warnings():
+    # integration gate 1: the year is a known unit now, so the unknown unit of this test is written with 'mth' (still unknown); the rule
+    # tested is unchanged (an unknown unit beside a reading that could differ, here the per cent, fails only as a warning)
     for text, profile in (("E = hf = 3.3 × 10⁻¹⁹ J with f = 5.0 × 10¹⁴ Hz.", "physics"),
-                          ("Efficiency = 150 kJ m⁻² yr⁻¹ / 1500 kJ m⁻² yr⁻¹ × 100 = 10%", "ess")):
+                          ("Efficiency = 150 kJ m⁻² mth⁻¹ / 1500 kJ m⁻² mth⁻¹ × 100 = 10%", "ess")):
         plan = build_checks(build_document(text, None, profile), report_id="r", request_id="q")
         assert plan.checks and all(pc.failure_severity == "warning" for pc in plan.checks if pc.relation_kind in ("sub", "eq"))
 

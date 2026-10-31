@@ -163,3 +163,17 @@ def test_7_a_message_passed_already_parsed_gets_the_ports_code_from_both_sides(k
         change(msg)
         msg["claims"][-1]["transformation"] = "joined"
         assert CONTRACT.check_output(msg, inp_c).code == _kit_code(lambda: kit.check_output(msg, inp_k)) == "KIT-CB-002"
+
+
+def test_7_an_input_passed_already_parsed_as_a_dict_subclass_gets_the_ports_verdict(kit):
+    """Integration gate 1: an input passed already parsed as a dict subclass (``collections.OrderedDict``, at the top or
+    nested) was refused by the combinator (input_invalid) while the port accepted it; both sides now accept it."""
+    import collections
+    from combinator_helpers import input_doc as fresh
+    nested = fresh()
+    nested["ids"] = collections.OrderedDict(nested["ids"])
+    nested["sources"][0] = collections.OrderedDict(nested["sources"][0])
+    for doc in (collections.OrderedDict(fresh()), nested):
+        assert CONTRACT.check_input(doc)[1] is None
+        kit.check_input(doc)  # the port accepts it too
+        assert json.loads(R.run(doc, FaithfulFakeProvider()).text)["claims"]  # and the runner lets an output out

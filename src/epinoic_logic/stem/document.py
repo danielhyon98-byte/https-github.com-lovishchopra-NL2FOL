@@ -31,7 +31,7 @@ from .chem import latex_to_chem, parse_equation
 from .datatables import parse_data_tables
 from .lexer import Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
-from .nodes import Neg, Num, Percent, Sym, is_value, value_of
+from .nodes import BinOp, Neg, Num, Percent, Quantity, Sym, is_value, render, value_of
 from .normalize import reading_view
 from .numbers import scan_number
 from .parser import ParseContext, parse_math
@@ -511,7 +511,41 @@ def _quantity_node(reading: str, text: str, sp: Span, profile: StemProfile, limi
     if len(pm.chains) != 1 or pm.chains[0].links or not pm.chains[0].operands or not pm.chains[0].operands[0].readings:
         return None
     node = pm.chains[0].operands[0].readings[0]
-    return node if is_value(node) else None
+    return node if is_value(node) else _compound_quantity(node)
+
+
+#: the most parts a compound quantity is read with ('1 h 2 min 3 s')
+_MAX_COMPOUND_PARTS = 4
+
+
+def _compound_quantity(node) -> "Optional[Quantity]":
+    """Integration gate 1: a compound quantity written in prose ('4 minutes 30 seconds', '1 h 2 min 3 s', '1 kg 250 g'; the parser reads it
+    as an implicit sum, stem-precision-5) as one quantity in the unit of its last part (270 s), so a request that states a time that way
+    states its value (it was no quantity at all, so the answer's '270 s' matched nothing). None for anything else: parts of one
+    dimension, each a value with one exact unit reading and no offset, at most four."""
+    parts = []
+    stack = [node]
+    while stack and len(parts) <= _MAX_COMPOUND_PARTS:
+        cur = stack.pop()
+        if isinstance(cur, BinOp) and cur.op == "+" and cur.implicit:
+            stack.append(cur.right)
+            stack.append(cur.left)
+            continue
+        parts.append(cur)
+    if stack or len(parts) < 2 or len(parts) > _MAX_COMPOUND_PARTS or not all(isinstance(p, Quantity) for p in parts):
+        return None
+    dims, total = set(), Fraction(0)
+    for p in parts:
+        u = p.unit
+        if u.unknown or len(u.readings) != 1 or u.readings[0].factor is None or u.readings[0].affine is not None or u.readings[0].dim is None:
+            return None
+        dims.add(u.readings[0].dim)
+        total += p.number.value * u.readings[0].factor
+    if len(dims) != 1:
+        return None
+    last = parts[-1]
+    value = total / last.unit.readings[0].factor
+    return Quantity(replace(last.number, value=value, text=" ".join(render(p) for p in parts)[:120]), last.unit, node.start, node.end)
 
 
 def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profile: StemProfile, limits: StemLimits) -> list:

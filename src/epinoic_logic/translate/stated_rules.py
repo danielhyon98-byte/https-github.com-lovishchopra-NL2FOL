@@ -444,8 +444,52 @@ def _clause_roots(toks: list[_Tok], idx: set[int]) -> set[str]:
     return {lexis.root(toks[i].word) for i in idx}
 
 
+#: Words that deny what they qualify beyond the shared negation words (integration gate, round 1: "consumption hardly falls",
+#: "consumption fails to fall" and "hardly any firm" read as the rule stated): each counts as one negation of its clause.
+_DENYING_WORDS: frozenset[str] = frozenset({"hardly", "scarcely", "barely"})
+#: Verbs that deny the verb after "to" ("fails to fall", "failed to rise").
+_FAILING_VERBS: frozenset[str] = frozenset({"fail", "fails", "failed", "failing"})
+
+
+def _extra_negations(words: Sequence[str]) -> int:
+    """The negations of :data:`_DENYING_WORDS`, of a failing verb before "to" and of "no longer" (not counted as "no" twice)."""
+    n = 0
+    for k, w in enumerate(words):
+        if w in _DENYING_WORDS:
+            n += 1
+        elif w in _FAILING_VERBS and k + 1 < len(words) and words[k + 1] == "to":
+            n += 1
+    return n
+
+
 def _clause_negated(toks: list[_Tok], idx: set[int]) -> bool:
-    return lexis.negation_markers([toks[i].word for i in sorted(idx)]) > 0
+    words = [toks[i].word for i in sorted(idx)]
+    return lexis.negation_markers(words) + _extra_negations(words) > 0
+
+
+#: Where one consequence clause ends and another statement of the sentence begins ("consumption rises, and savings fall":
+#: two statements with two subjects): a literal is stated by the words of ONE such clause (integration gate, round 1).
+_CLAUSE_JOIN_WORDS: frozenset[str] = frozenset({"and", "but", "while", "whereas", "yet"})
+
+
+def _clause_pieces(text: str, toks: list[_Tok], idx: set[int]) -> list[set[int]]:
+    """``idx`` cut where a new clause starts: after a semicolon, at a comma before "and", "but", "while", "whereas" or
+    "yet", and at "but", "while" or "whereas" themselves."""
+    pieces: list[set[int]] = []
+    cur: set[int] = set()
+    prev: Optional[int] = None
+    for i in sorted(idx):
+        gap = text[toks[prev].end:toks[i].start] if prev is not None else ""
+        word = toks[i].word
+        new = prev is not None and (";" in gap or ("," in gap and word in _CLAUSE_JOIN_WORDS) or word in ("but", "while", "whereas"))
+        if new and cur:
+            pieces.append(cur)
+            cur = set()
+        cur.add(i)
+        prev = i
+    if cur:
+        pieces.append(cur)
+    return pieces
 
 
 def _literals(node: Any) -> Optional[list[Any]]:
@@ -519,7 +563,12 @@ def _states_literal(lit: Any, symbols: dict[str, Any], src: SourceText, toks: li
         if not _enough(len(distinct & have), len(distinct)):
             return False
         negated = (op == "not") != lexis.negated(meaning)
-        return negated == _clause_negated(toks, idx)
+        # the literal's own words and its polarity are read in ONE clause of the side: roots scattered over two clauses with
+        # two subjects ("consumption rises, and savings fall") state no "consumption falls"
+        for piece in _clause_pieces(src.text, toks, idx):
+            if _enough(len(distinct & _clause_roots(toks, piece)), len(distinct)):
+                return negated == _clause_negated(toks, piece)
+        return False
     left, right = lit.left, lit.right
     if getattr(left, "op", None) == "var":
         name, node, required = left.name, right, op
@@ -614,7 +663,17 @@ RULE_FRAMES: frozenset[str] = frozenset({
 #: What restricts a rule beyond its condition ("..., but only when the water is warm", "unless ...", "provided that ...").
 RULE_RESTRICTIONS: tuple[tuple[str, ...], ...] = (
     ("unless",), ("except",), ("only", "when"), ("only", "if"), ("only", "where"), ("only", "while"), ("provided",), ("providing",),
-    ("as", "long", "as"), ("so", "long", "as"), ("but", "only"))
+    ("as", "long", "as"), ("so", "long", "as"), ("but", "only"), ("in", "theory"), ("in", "principle"))
+#: Phrases of the consequence that state an expectation, not the event (integration gate, round 1: "consumption is expected
+#: to fall" read as the rule stated).
+RULE_EXPECTATIONS: tuple[tuple[str, ...], ...] = (("expected", "to"), ("predicted", "to"), ("forecast", "to"), ("projected", "to"),
+                                                  ("supposed", "to"), ("thought", "to"), ("believed", "to"), ("said", "to"))
+#: Words after a rule, in its sentence or in the next one, that say the rule is refuted ("...; this was disproved in 2020",
+#: "(a claim later refuted)", "This is a myth."): the source reports the rule to deny it.
+_REFUTATION_WORDS: frozenset[str] = frozenset({"disproved", "disproven", "refuted", "debunked", "discredited", "myth", "myths", "misconception",
+                                               "fallacy", "falsified"})
+#: How many words of the next sentence are read for a refutation of the rule before it.
+_NEXT_SENTENCE_WORDS = 8
 #: Words of scope that make a short opening phrase limit the rule ("In some economies, ...", "Sometimes, ...").
 _SCOPE_WORDS: frozenset[str] = RULE_HEDGES | frozenset({"some", "few", "certain", "whether"})
 #: A sentence that opens with one of these before a subject word is a question ("Is it really true that ...").
@@ -884,7 +943,26 @@ def rule_qualifier(src: SourceText, span: tuple[int, int], cond: set[int], cons:
         for k in range(len(after_words) - n + 1):
             if tuple(after_words[k:k + n]) == seq:
                 return f"the rule is restricted ('{' '.join(seq)}'): the source states it only under a further condition"
+    # an expectation in the consequence ("consumption is expected to fall"): the source states a forecast, not the event
+    cons_words = [words[i] for i in sorted(cons_s)] + [words[i] for i in range(max(cons_s) + 1, min(len(sent), max(cons_s) + 3))] if cons_s else []
+    for seq in RULE_EXPECTATIONS:
+        if f" {' '.join(seq)} " in written:
+            continue
+        n = len(seq)
+        if any(tuple(cons_words[k:k + n]) == seq for k in range(len(cons_words) - n + 1)):
+            return f"the consequence is an expectation ('{' '.join(seq)}'): the source states what is expected to happen, not that it does"
     tail = [i for i in range(last + 1, len(sent))]
+    # a refutation after the condition, in the rule's sentence ("...; this was disproved in 2020", "(a claim later refuted)")
+    refuted = next((words[i] for i in after if words[i] in _REFUTATION_WORDS and words[i] not in premise_own), None)
+    if refuted is not None:
+        return f"the rule is refuted after it is stated ('{refuted}'): the source reports it to deny it"
+    # an attribution after the condition that names no document (", according to a rumour")
+    for k, i in enumerate(after):
+        if words[i] == "according" and k + 1 < len(after) and words[after[k + 1]] == "to" and words[i] not in premise_own:
+            credited = [words[j] for j in after[k + 2:k + 2 + 4]]
+            if not set(credited) & _DOCUMENT_NOUNS:
+                shown = text[sent[i].start:sent[after[min(len(after) - 1, k + 4)]].end]
+                return f"the rule is credited to someone ({shown[:80]!r}): the source reports it rather than stating it"
     by_seg: dict[int, list[int]] = {}
     for i in tail:
         by_seg.setdefault(seg[i], []).append(i)
@@ -894,6 +972,11 @@ def rule_qualifier(src: SourceText, span: tuple[int, int], cond: set[int], cons:
         if tag and tag[0] != "as" and len(tag) <= _MAX_TAG_TOKENS and views and not views <= premise_own and not set(tag) & _DOCUMENT_NOUNS:
             shown = text[sent[idxs[0]].start:sent[idxs[-1]].end]
             return f"the rule is credited to someone's view ({shown[:80]!r}): the source reports it rather than stating it"
+    # a refutation opening the next sentence ("This was disproved.", "That is a myth.")
+    nxt = _tokens(text, sb, min(len(text), sb + 200))[:_NEXT_SENTENCE_WORDS]
+    if nxt and nxt[0].word in ("this", "that", "it", "such", "the") and any(t.word in _REFUTATION_WORDS for t in nxt):
+        hit = next(t.word for t in nxt if t.word in _REFUTATION_WORDS)
+        return f"the rule is refuted in the next sentence ('{hit}'): the source reports it to deny it"
     return None
 
 

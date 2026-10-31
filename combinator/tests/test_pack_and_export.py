@@ -154,3 +154,30 @@ def test_the_exporter_refuses_a_target_it_cannot_write_in_one_line(tmp_path):
     out = _module("--out", str(blocker), cwd=tmp_path)
     assert out.returncode == 2 and out.stdout == ""
     assert len(out.stderr.strip().splitlines()) == 1 and "Traceback" not in out.stderr and "is not a directory" in out.stderr
+
+
+def test_an_export_replaces_a_link_in_the_directory_and_never_writes_through_it(tmp_path):
+    """Integration gate 1: a symbolic link already in the output directory was written through, overwriting a file outside
+    it; each file is now written through a new file renamed onto its name, so the link itself is replaced."""
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep me", encoding="utf-8")
+    out = tmp_path / "pack"
+    out.mkdir()
+    (out / "INSTRUCTIONS.md").symlink_to(outside)
+    export(out)
+    assert outside.read_text(encoding="utf-8") == "keep me"
+    assert not (out / "INSTRUCTIONS.md").is_symlink() and (out / "INSTRUCTIONS.md").read_bytes() == PACK.files["INSTRUCTIONS.md"]
+    assert sorted(p.name for p in out.iterdir()) == sorted([*PACK_FILES, "MANIFEST.json"])  # no temporary file left behind
+    read_export(out)
+
+
+@pytest.mark.parametrize("manifest", ["[1]", "1", "null", '"x"', '{"files": {}, "instruction_pack": [1]}'])
+def test_a_manifest_that_is_no_json_object_is_refused_by_name(tmp_path, manifest):
+    """Integration gate 1: a manifest that is valid JSON but no object raised AttributeError; it is an ExportError."""
+    export(tmp_path / "pack")
+    if manifest.startswith("{"):
+        good = json.loads((tmp_path / "pack" / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifest = json.dumps({**good, "instruction_pack": [1]})
+    (tmp_path / "pack" / "MANIFEST.json").write_text(manifest, encoding="utf-8")
+    with pytest.raises(ExportError):
+        read_export(tmp_path / "pack")

@@ -662,8 +662,70 @@ def _joint_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]
     named = any(f.code in ("INT-CONFLICT-001", "INT-CONFLICT-005") or (f.code == "INT-CONFLICT-004") for f in rc.findings)
     if named:
         return []
+    if _rounding_only(ctx, t):
+        return []
     return [("INT-CONFLICT-001", "absent", f"the channel's cross-report joint check ran in this event and the engine signed INCONSISTENT_PREMISES "
              f"(results {found[:4]}): the pooled claims contradict each other, and the receipt names no conflict")]
+
+
+#: Problem id of the channel's stated-precision re-check of a named contradiction (``cross_check.at_stated_precision``).
+JOINT_PRECISION_PROBLEM_ID = "joint-cross-report-precision"
+
+
+def _rounding_only(ctx: CheckContext, t: Transfer) -> bool:
+    """Rule ``stated-precision-conflict`` (integration gate round 1): the channel does not charge a contradiction that
+    exists only at a precision none of its claims states (``cross_check._without_rounding_only_conflicts``: every decimal
+    figure read over half a unit of its last written digit, re-decided by the engine under the stated-precision bounds;
+    "R = 230 V / 9.57 A = 24.0 ohm" beside "R = (230 V)^2 / 2200 W = 24.0 ohm"). When the event captured such a re-check
+    with a signed CONSISTENT, the auditor re-derives the channel's decision itself: it runs the channel's own
+    ``check_cross_report_consistency`` (which applies the rule) on the pool the journaled outcomes define up to this event,
+    as an auditor run signed under its own key, and the absence of a conflict is the rule's image only when that
+    re-derivation names none either (INT-CONFLICT-001, -004, -005). Without a captured CONSISTENT re-check nothing explains
+    the absence, and no engine run is made."""
+    precision = False
+    for c in t.event.captured:
+        if not c.result_json or f'"{JOINT_PRECISION_PROBLEM_ID}"' not in c.result_json:
+            continue
+        try:
+            data = json.loads(c.result_json)
+        except Exception:
+            continue
+        if str(data.get("problem_id") or "") == JOINT_PRECISION_PROBLEM_ID and data.get("status") == "CONSISTENT" and data.get("signature"):
+            precision = True
+            break
+    if not precision:
+        return False
+    from ...engine.statuses import VerificationStatus
+    from ...integrity.contracts import IntegrityFinding
+    from ...integrity.cross_check import check_cross_report_consistency
+    from ...ir.canonical import canonical_json, problem_digest, sha256_hex
+    from .joint import derived_pool
+    view = ctx.view
+    pool = derived_pool(view, upto_seq=t.seq)
+    probs = [p.problem for p in pool]
+    if len(probs) < 2:
+        return False
+    plan = view.plan_at(t.seq)
+    request_id = plan.request_id if plan is not None else view.request_id
+    cfg = view.config_at(t.seq)
+    assumed = frozenset(p.claim_id for p in pool if p.ambiguous)
+    memo_key = "B3|" + sha256_hex(canonical_json([[problem_digest(p) for p in probs], cfg.model_dump(mode="json"), sorted(assumed), request_id]))
+    memo = ctx.store.memo_get(memo_key)  # the same key as the batch tier's independent joint check (B3) over the same pool
+    if memo is None:
+        def run():
+            return check_cross_report_consistency(probs, request_id=request_id, config=cfg, signing_key=None, assumed_readings=assumed)
+        (res, findings), run_ids = ctx.auditor_run(run, seq=t.seq)
+        memo = (res.result_id if res is not None else None, res.status.value if res is not None else None, [f.model_dump(mode="json") for f in findings], run_ids)
+        ctx.store.memo_put(memo_key, memo)
+    else:
+        for rid in memo[3]:
+            if rid not in ctx.auditor_result_ids:
+                ctx.auditor_result_ids.append(rid)
+    status = memo[1]
+    findings = [IntegrityFinding.model_validate(d) for d in memo[2]]
+    if status != VerificationStatus.INCONSISTENT_PREMISES.value:
+        return False  # the re-derivation does not even find the pool contradictory: nothing the rule explains
+    return not any(f.code in ("INT-CONFLICT-001", "INT-CONFLICT-004", "INT-CONFLICT-005") for f in findings)
 
 
 #: Findings after which the channel returns before its report-id reuse rule runs (no request, a payload that does not

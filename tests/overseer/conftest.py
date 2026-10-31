@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 import pytest
 
 from epinoic_logic.channel import TranslatorChannel
+from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
 from epinoic_logic.channel.events import observation_state, observe_call
 from epinoic_logic.engine import SolverConfig, verify
 from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
@@ -183,7 +184,9 @@ def problems_fn(problems: dict[str, Problem], *, transform: Optional[Callable] =
     def fn(claim, report):
         p = problems.get(claim.claim_id)
         if p is None:
-            return None
+            # a claim the fixture serves no problem for is outside what this verifier checks (not a claim it failed to
+            # reach): the channel names nothing for it (``None`` would be NOT_ATTEMPTED, INT-REQ-006)
+            return CLAIM_OUT_OF_SCOPE
         out = outcome_for(claim, report, p)
         return transform(out, claim, report) if transform is not None else out
     return fn

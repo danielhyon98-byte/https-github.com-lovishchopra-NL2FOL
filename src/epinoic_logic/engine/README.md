@@ -4,7 +4,7 @@
 | --- | --- |
 | `validator.py` | Parses untrusted JSON into a `Problem` (size and depth guards; a payload that is not a JSON object, a lone UTF-16 surrogate in a text or dict payload, or an integer too large to convert is `E100`, INVALID_FORMALIZATION, never an internal error: the raw-payload digest is total) and checks identifiers, strict sorts (no Int/Real mixing without `to_real`), policy (constant non-zero divisors; nonlinear terms off by default) and limits. Collects every diagnostic; maps E1xx/E3xx to INVALID_FORMALIZATION and E2xx to UNSUPPORTED. |
 | `compiler.py` | Maps each validated node to exactly one Z3 call in a fresh `Context`; numerals from text so `0.1` is the rational 1/10; `idiv`/`mod` follow Z3 integer semantics; exports exact SMT-LIB text for audit. |
-| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. The core is always extracted, whatever `produce_unsat_core` says (see "Policy evidence" below). Models are extracted exactly (`a/b`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. |
+| `procedures.py` | `run_consistency`, `run_satisfiability`, `run_entailment`. Entailment checks consistency first (no vacuous proofs), then asserts premises and the negated conclusion under tracking literals so the unsat core names the premises relied on. The core is always extracted, whatever `produce_unsat_core` says (see "Policy evidence" below). Models are extracted exactly (`a/b`). Unknown answers are classified TIMEOUT or UNKNOWN; never success. A model is extracted only when it is reported (never for the entailment's consistency precheck), timed as its own stage (`model`), and every value is bounded before it is converted to text: an integer, numerator or denominator of more than `MAX_MODEL_VALUE_DIGITS` (1,000) decimal digits is never converted, and the answer is UNKNOWN (`reason_unknown` "model value out of range", `E401`), never a stall. A caller's `deadline` bounds every solver call by what remains of it (a call it leaves no time for is TIMEOUT). |
 | `authority.py` | Premise authority: `is_ungrounded`, `is_unverified`, `has_authority`, the dependency lists and `assumed_grounding`. Only a grounding a check in this process verified establishes a premise; every other grounding is a dependency, whatever kind it claims (see "Premise authority" below). |
 | `identity.py` | The immutable identity bound into every result: `build_id` (digest of the engine, IR and version source), `schema_id` (digest of the problem, limits, configuration and result JSON Schemas) and `policy_id` (digest of `policy_manifest()`, the decision policy as data). |
 | `provenance.py` | Version and identity capture, binding digests over (problem, config, versions with identity, non-default limits), HMAC-SHA256 signing and constant-time verification (`signature_matches`: total on untrusted input; a signature that is not 64 lowercase hex characters, a non-ASCII or surrogate one included, never matches and never raises, so `verify_signature` and `release_check` answer False / not eligible), `binding_inconsistencies`, and `stale_reasons` (why a result is not current-policy evidence). |
@@ -35,6 +35,26 @@ Until the external review of 2026-10-12 an unchecked `arithmetic_fact`, `task_se
 `rubric_rule` was listed nowhere, so a translation could hide an invented premise (160 km for a
 supplied 120 km) by choosing that label. The lists never change a status: formal entailment from
 an unverified premise is still ENTAILED, and `release.release_check` refuses it.
+
+## What one `verify` call may cost (integration gate, round 1)
+
+With the configuration's timeout T: the decision (consistency, then entailment: at most 2T), then the two coverage
+probes after a COUNTEREXAMPLE (the `W110`/`E110` re-run and the `W111`/`E111` check) sharing ONE budget of T in all,
+measured from the end of the decision, each solver call bounded by what remains of it and timed as its own stage
+(`probe_unasserted_figure`, `probe_unencoded_reason`), then the argument stage, `min(4T, 8 s)`, re-checked after
+its last run. Before round 1 each probe ran with a full T outside the timings (2T + 3T + the argument stage against
+the documented 2T). An undecided probe (unknown, out of its budget, failed) is never read as "decided, nothing to
+name": with source-linked evidence on what it would have decided it is `E110`/`E111` ("probe undecided": the
+counterexample may only reassign what a source states, so no verdict on the claim), otherwise the counterexample
+stands and the argument stage records `incomplete:coverage_probe_undecided`. The argument stage runs on definitive
+results only; an undecided result (TIMEOUT, UNKNOWN) records no argument rules (its summary reads "Argument diagnosis:
+not computed", never "none found") and names nothing. A vacuous
+ENTAILED serialises its (empty) `unsat_core` when `produce_unsat_core` is set, like every other ENTAILED.
+
+The W111 of a judgement left unlinked (`JUDGEMENT_NOT_LINKED`, "judgement not linked") stays advisory in the engine;
+the outcome layer (`translate.outcome.unlinked_judgement`) displays such a COUNTEREXAMPLE as AMBIGUOUS_TRANSLATION
+only when every conclusion atom no premise mentions (`unlinked_conclusion_symbols`) is a Bool the problem grounds as
+the specialist's own inference; a factual atom no premise establishes keeps the COUNTEREXAMPLE.
 
 ## Policy evidence is computed, not optional
 
@@ -169,9 +189,10 @@ engine classifies as TIMEOUT (`E400`), never a success. Calibration, measured wi
     entailment's consistency precheck, and `run_entailment` then discards it.
 
   Checked without assumptions, the same problem takes 11 ms (`check`) plus under 1 ms (model),
-  and depth 4 decides in 0.8 s instead of timing out. Two changes are recommended for
-  `procedures.py`, which is outside stage `engine`:
-  - skip model extraction in the entailment precheck;
+  and depth 4 decides in 0.8 s instead of timing out. Of the two changes recommended for
+  `procedures.py`, the first is made (integration gate, round 1): the entailment precheck extracts
+  no model, and a reported model is timed (`model`) and bounded in its digits before conversion.
+  The second is open (an optimisation, not a bound):
   - for nonlinear problems, decide first without assumptions and compute the core only on an
     unsat answer.
 

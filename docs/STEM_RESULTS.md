@@ -721,3 +721,11 @@ outcome. Each finding's probes now give the expected verdicts (`tests/stem/test_
 2026-10-25 on a machine other work kept loaded (load 7 to 10).
 
 These are replays of recorded answers: no specialist was called.
+
+### 10.11 Integration gate 1, measured on the recorded round
+
+After the fixes of design section 35 the harness on a fresh copy of the recorded round 7 gives 177 of 177 functional, as
+before, and compared record for record with the recorded run (its `results.json`), every record's formal-check summary,
+subject findings, codes and status are the same: on the recorded answers the new readings add no check and change no
+outcome. Each finding's probes give the expected verdicts with clean controls (`tests/stem/test_integration_gate1_stem.py`,
+146 tests). Measured 2026-10-31. These are replays of recorded answers: no specialist was called.

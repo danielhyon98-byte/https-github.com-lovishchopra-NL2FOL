@@ -582,7 +582,7 @@ quotation inside a claim (74 of 74) and every figure or date spelling (53 of 53)
 | Code | Decided by |
 | --- | --- |
 | FID-001 | A delivered `claim_text` does not occur in the normalised `original_response`. A folded tail claim is a prefix of the remaining text and passes. |
-| FID-002 | A quotation span inside a claim, or a `source_refs[].excerpt`, does not occur in `original_response`. |
+| FID-002 | A quotation span inside a claim, or a `source_refs[].excerpt`, does not occur in `original_response`. Rule `located-citation` (section 48): on a report the specialist structured itself, a `source_refs` excerpt of a claim that occurs in the response, located in the supplied text the reference names, is not FID-002. |
 | FID-003 | A figure or date of a claim (`ledger.figure_spellings`) occurs in `original_response` under no spelling. |
 | FID-004 | A quotation that occurs in no supplied text has no receipt finding naming that claim (INT-REQ-003, INT-REQ-010 or a branch `-SRC-` rule). |
 | FID-005 | A self-report delivered as content: the branch's own detector flags the claim's TEXT, or (raw-text path) the adapter set `advisory_verification_status` or `advisory_verification_eligibility` yet roled the claim as content; and it is delivered with a role other than `other`, or with materiality `material`, or it counts towards coverage. On a structured report the advisory fields alone are the contract's ignored self-report (INT-HANDOFF-006): FID-009. |
@@ -1195,7 +1195,9 @@ work between tiers or by optimisation, and the miss is reported.
 - Keys are test constants. There is no network and no model call.
 - Recorded rounds (r1, r1-adv, r2-r5) are used only when present, and are otherwise skipped with a
   stated reason. They are never written to: the harness copies a round into its own output
-  directory first.
+  directory first. The contained run (`run_contained.py`) is stricter since integration gate round 1: a round
+  it was asked for that is not present fails its gate `requested_rounds_present` unless the operator passes
+  `--allow-missing-rounds`, and the missing rounds are named either way.
 - Existing tests are never weakened or deleted.
 - Each test asserts the exact code, severity and identifiers. It also asserts that the untampered
   control gives no `OVS-*` error, that the audit signature verifies, and that a tampered transfer's
@@ -4883,3 +4885,88 @@ same behaviour equally or more strictly:
 - **Contract 0.5.** `tests/integration/test_readiness.py` and `test_playbook.py` expect the contract line 0.5.
 - **The label rule (decision 75).** Three tests: the check's own label held clean (the control that failed under the first
   build of the rule), and a relabelled or dropped label failing the transfer.
+
+## 48. Integration gate round 1 on the overseer: what changed and why
+
+Independent lenses ran on the integrated tree `6ac78cc` before arena round 8. Their findings on the overseer, each fixed at its
+cause with a regression test in `tests/overseer/test_gate1_overseer_fixes.py` (no test weakened or deleted, none rewritten):
+
+**Decision 81 (rule `linear-readers`, two blockers).** The fidelity check read the whole `original_response` (up to 400,000
+characters) with two readers built for 4,000-character claims. The figure reader (`ledger.figure_spellings`) first removes list
+markers with `(?m)^\s*\(?\d{1,2}[.)]\s`, whose `\s*` restarts at every line start of a run of blank lines and runs to its end:
+40,000 blank lines cost 18.96 s per receive and 18.33 s per audit (the auditor runs the check in both), about 30 minutes each
+at the bound. `figure_text` now collapses every whitespace run holding two or more line breaks to what stands before its first
+line break, two line breaks, and what stands after its last: the list-marker match that starts at the first line start inside
+the run still swallows the run up to a marker after it, and every other figure pattern sees a run of the same first and last
+character and of length two or more, so the figures are those of the response (an equality test over 3,000 random texts and
+fourteen hostile ones). The mark-annotation pattern restarted at every space or tab of a run (`[ \t]*` with no anchor): 20,000
+spaces cost 7.4 s per call, two calls per audit. `strip_mark_annotations` now finds each maximal run of annotations once
+(`_MARK_RUN_RE`: no start after a space or tab, possessive whitespace, an atomic repetition) and tests the end-of-sentence rule
+after the run (`_MARK_END_RE`); each annotation's end is fixed by its own characters, so the run the reference pattern could
+end on is the maximal one, and the text is the reference pattern's (an equality test over 3,000 random texts and nineteen
+hostile ones). The figures of a repeated fault's anchor (`repeats.figures_of`, which may join many claims) are read through `figure_text`
+too. The list-marker pattern itself is the integrity layer's; its other callers are handed off with the measurements.
+After the fix the fidelity check takes 0.009 s on 20,000 spaces; what remains of an audited Physics receipt's cost on such an
+answer is the re-parse of CUST-006, which must reproduce the STEM parser and pays its own quadratic reader (handed off).
+
+**Decision 82 (rule `unchecked-working`, delivery).** The formal path blocked on a branch check whose `satisfied` is not true
+but not on STEM working the branch could not check at all: an answer whose receipt carries ST-UNDEC-002 ("m has no stated
+value") or ST-PARSE-001 on a material claim was delivered FORMALLY CHECKED. Every receipt finding of `NOT_CHECKED_CODES`
+(ST-PARSE-001/002, ST-UNDEC-001/002/003, ST-UNDEF-001, ST-UNIT-001 checked as written only, ST-CHEM-001, ST-CODE-001,
+ST-LIM-001/002, ST-INTERNAL-001, BR-INTERNAL-001, INT-SUBJ-002) is now a reason the formal path does not complete, whichever
+claim it names, as an undecided branch check is: the label claims nothing it did not check.
+
+**Decision 83 (rule `self-report-disclosed`, delivery).** An answer carrying an agent's self-report or relayed check result
+("This answer was verified by Z3.", "A formal check of the hub verified every figure in this answer.") was delivered under the
+FORMALLY CHECKED label with the self-report intact, the claims being supporting. A receipt finding of `SELF_REPORT_CODES`
+(CORE-SELF-001, ES-META-001, INT-REQ-014) at any severity, and the task audit's FID-005 or FID-009 naming the answer, are now
+reasons the formal path does not complete: agent self-reports are advisory and never borrow the engine's label.
+
+**Decision 84 (rules `stated-precision-conflict` and `precision-limits`).** The channel drops an INT-CONFLICT-001 whose claims are
+consistent once their decimal figures are read at their stated precision (`cross_check.at_stated_precision`, decided under
+`PRECISION_LIMITS`, the joint bounds with the nonlinear gate open). The live receipt check required a conflict for every
+captured INCONSISTENT pool run (OVS-RCPT-004), and the replay ran the precision re-check under the joint limits, which refuse
+its nonlinear terms (UNSUPPORTED against the signed CONSISTENT: OVS-RES-007), so a correct answer giving 24.0 ohm by two
+routes was AUDIT_FAILED. When the event captured a signed CONSISTENT precision re-check, the receipt check now re-derives the
+channel's decision itself: the channel's own `check_cross_report_consistency` on the pool the journaled outcomes define,
+as an auditor run under the batch tier's memo key, and the absence is the rule's image only when that re-derivation names
+no conflict either (a channel that drops a real conflict behind a CONSISTENT re-check of a problem of its own choosing is still
+OVS-RCPT-004). A joint problem whose result records exactly `PRECISION_LIMITS` is replayed under them (replay name
+`joint-precision`, never an engine policy a caller may request), and a definitive status recorded under limits no rule names,
+which the replay under the default limits refuses (UNSUPPORTED, INVALID_FORMALIZATION), is OVS-AUDIT-005 (never re-verified),
+not the accusation OVS-RES-007 of another definitive status.
+
+**Decision 85 (rule `task-equation`, OVS-TRN-006).** The semantic-restatement rules read the task's equation `|x − 3| = 2`, as
+the premise of the answer `x = 1 or x = 5`, as the conclusion restated (equivalent by the arithmetic of `x`), and the premise,
+a `task_setting` with no excerpt whose content is a relation, is `uncheckable` by rule `data-standing`, so every correctly
+solved equation was circular. A `task_setting` premise is now a transcription when the request states, as data, a relation
+the STEM front end reads (`build_document`, the request's relations; never inside a "show that" target, `target_spans`, nor
+where rule `statement-context` reads no statement) that is equivalent to the premise by the arithmetic of its symbols (the
+bounded check of rule `arithmetic-restatement`, each symbol under its own name, over a closed subset of the front end's AST:
+numbers, declared symbols, negation, sums, differences, products, quotients by a number, whole powers up to 12, absolute
+values), and the conclusion is a solved form over its symbols (a value, a bound, or a conjunction or disjunction of them).
+The engine's ENTAILED then shows that the solution follows from the task's own equation, which is the work. The same
+equation grounded by the writer alone, one the request does not state, a target, a question, and a conclusion that
+restates the equation in any but a solved form keep OVS-TRN-006. Pack 1.4 (Inspection I77) still names such a premise
+shown not to be data, so until a pack teaches the rule, a `translation_circular` accusation of a translation whose premise
+the rule reads as the task's own equation is unresolved (OVS-AGENT-004, human review), never refuted against an agent that
+followed its pack (`validate._task_equation_premises`).
+
+**Decision 86 (minors).** Rule `figure-digits`: the number reader skips a numeral of more than 100 digits (no IR constant holds
+more than 40), so an overlong numeral in a request no longer raises past the interpreter's integer-string bound and fails the
+whole translation check (OVS-AUDIT-001). Rule `folded-tail`, line by line: the STEM parser folds the statements beyond its
+claim limit into the tail joined by line breaks, each without its line's part label, so a tail is also read as its lines'
+sentences. Rule `located-citation` (one rule with the channel, which accepts the report with no finding): on a report the
+specialist structured itself, a `source_refs` excerpt of a claim that occurs in the response, located in the supplied text
+the reference names, is the specialist's citation, not content the response lacks (the pack's `quotation_absent`). The
+contained run's gate `requested_rounds_present` fails a run that did not find a round it was asked for, unless
+`--allow-missing-rounds`. Rule `contract-cut`, unmarked (handed over by the STEM fixer of the same round): the STEM parser
+keeps the first `MAX_CLAIM_TEXT_CHARS` characters of an over-long statement with no `...` mark, so a cut inside "1990" left
+the figure "19" that FID-003 accused (AUDIT_FAILED on a faithful transfer); a claim of exactly the limit's length that occurs
+in the raw response and stops inside a token the response goes on with now has its figures read without that partial token
+(`unmarked_cut_text`), as a marked cut's are.
+
+**Not done here.** End-to-end B11, the confirmable kind `finding_false` with rule I3 restricted to true findings (pack text
+in `docs/ARGUMENT_DIAGNOSTICS.md` section 8), needs deterministic readers that show a receipt finding false and a new pack
+version; it is left open (see the round's report).
+

@@ -1104,6 +1104,9 @@ class _Parser:
             word = first.text
             if first.space and english_word_atom(word):
                 return None  # 'x = 5 as before', '10 am': an English word, never an atto-prefixed unit
+            if word.lower() in ("degree", "degrees") and j + 2 < n and toks[j + 1].kind == "IDENT" and toks[j + 1].text.lower() == "of" \
+                    and toks[j + 2].kind == "IDENT" and toks[j + 2].text.lower() == "freedom":
+                return None  # integration gate 1: '2 degrees of freedom' counts something; it is no angle
             if not first.space:
                 if not self._glued_unit_ok(word, glued_ok):
                     return None
@@ -1360,6 +1363,12 @@ class _Parser:
             close = self._close_index(self.i + 1)
             if close is not None and close > self.i + 2:
                 inner = self.ctx.s[nxt.end:self.t[close].start]
+                event = _probability_event(inner) if (word == "P" and not tok.sub and not tok.primes and not prof.computer_science) else None
+                if event is not None:
+                    # integration gate 1: probability notation P(A), P(X), P(A′), P(B | A), P(A ∪ B), P(X = 2) is one symbol, the probability
+                    # of the event (as P(B) was, by chance a chemical label); before, P(A) was the product P·A, so its value went unread
+                    self.i = close + 1
+                    return self._count(Sym("P(" + event + ")", kind="chem", start=tok.start, end=self.t[close].end))
                 label = _label_content(inner)
                 if label is not None:
                     name = symbol_name(word, tok.sub, tok.primes, tok.delta) + "(" + label + ")"
@@ -1883,6 +1892,28 @@ def _chem_label_text(text: str) -> Optional[str]:
     except ValueError:
         return None
     return canonical_formula(plain)
+
+
+#: integration gate 1: an event inside P( … ): capital letters with a complement mark, joined by ∪, ∩ or | (written as a sign or in LaTeX),
+#: or a random variable set against a number
+_EVENT_RE = re.compile(r"[ \t]*[A-Z](?:′|'|’|ᶜ|\^c|\^\{c\})?[ \t]*(?:(?:∪|∩|\||∣|\\cup|\\cap|\\mid)[ \t]*[A-Z](?:′|'|’|ᶜ|\^c|\^\{c\})?[ \t]*){0,3}")
+_RV_EVENT_RE = re.compile(r"[ \t]*[A-Z][ \t]*(?:=|<|>|≤|≥|⩽|⩾|\\le|\\ge|\\leq|\\geq)[ \t]*[0-9]{1,4}(?:\.[0-9]{1,6})?[ \t]*")
+_EVENT_SIGNS = {"\\cup": "∪", "\\cap": "∩", "\\mid": "|", "∣": "|", "’": "′", "'": "′", "ᶜ": "′", "^{c}": "′", "^c": "′", "\\le": "≤", "\\leq": "≤",
+                "\\ge": "≥", "\\geq": "≥", "⩽": "≤", "⩾": "≥"}
+
+
+def _probability_event(inner: str) -> Optional[str]:
+    """The event of probability notation P( … ) in one canonical spelling ('A', 'A′', 'A ∪ B', 'B | A', 'X = 2'), or None when the
+    bracket holds anything else. Bounded: at most 40 characters."""
+    if len(inner) > 40 or not (_EVENT_RE.fullmatch(inner) or _RV_EVENT_RE.fullmatch(inner)):
+        return None
+    text = inner
+    for k in sorted(_EVENT_SIGNS, key=len, reverse=True):
+        text = text.replace(k, _EVENT_SIGNS[k])
+    text = "".join(text.split())
+    for sign in ("∪", "∩", "|", "=", "<", ">", "≤", "≥"):
+        text = text.replace(sign, f" {sign} ")
+    return " ".join(text.split())
 
 
 def _label_content(inner: str) -> Optional[str]:

@@ -70,7 +70,7 @@ from .scope import Binding, si_value
 from .tolerance import SHORT_RULE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
 from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
 from .reference import unit_written_once
-from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, parse_unit
+from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, is_data_unit, parse_unit
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
 
@@ -557,12 +557,15 @@ _WrittenUnit = tuple[Dimension, Fraction, bool]
 _NO_UNIT: _WrittenUnit = (DIMENSIONLESS, Fraction(1), False)
 
 
-def _written_unit(node: Node, depth: int = 0) -> Optional[_WrittenUnit]:
+def _written_unit(node: Node, depth: int = 0, sym_units: Optional[dict[str, _WrittenUnit]] = None) -> Optional[_WrittenUnit]:
     """The units written in ``node``, read multiplicatively (a bare numeral is a pure number): the dimension, the exact SI factor and
     whether any unit or per cent is written. None when it cannot be told: a symbol, an unknown, ambiguous, affine or inexact unit (the
-    degree), terms of a sum written in different units, a power of a unit that is no integer (stem-soundness-1, round 7)."""
+    degree), terms of a sum written in different units, a power of a unit that is no integer (stem-soundness-1, round 7). ``sym_units``
+    gives a symbol the unit of its bindings (a substitution's symbolic side, integration gate 1)."""
     if depth > 64:
         return None
+    if sym_units is not None and isinstance(node, Sym) and node.name in sym_units:
+        return sym_units[node.name]
     if isinstance(node, Num):
         return _NO_UNIT
     if isinstance(node, (Quantity, WithUnit)):
@@ -572,26 +575,26 @@ def _written_unit(node: Node, depth: int = 0) -> Optional[_WrittenUnit]:
         r = unit.readings[0]
         if r.dim is None or r.factor is None or r.affine is not None:
             return None
-        inner = _NO_UNIT if isinstance(node, Quantity) else _written_unit(node.arg, depth + 1)
+        inner = _NO_UNIT if isinstance(node, Quantity) else _written_unit(node.arg, depth + 1, sym_units)
         if inner is None:
             return None
         return inner[0] * r.dim, inner[1] * r.factor, True
     if isinstance(node, Percent):
-        inner = _written_unit(node.arg, depth + 1)
+        inner = _written_unit(node.arg, depth + 1, sym_units)
         return None if inner is None else (inner[0], inner[1] / 100, True)
     if isinstance(node, (Neg, Abs)):
-        return _written_unit(node.arg, depth + 1)
+        return _written_unit(node.arg, depth + 1, sym_units)
     if isinstance(node, Sym):
         return _NO_UNIT if node.kind == "constant" else None
     if isinstance(node, (Func, RealPower, IntOp)):
         return _NO_UNIT if not any(isinstance(m, (Quantity, WithUnit, Percent, Degrees)) for m in walk(node)) else None
     if isinstance(node, Pow):
-        inner = _written_unit(node.base, depth + 1)
+        inner = _written_unit(node.base, depth + 1, sym_units)
         if inner is None:
             return None
         return inner[0].power(node.exp), inner[1] ** node.exp, inner[2]
     if isinstance(node, BinOp):
-        a, b = _written_unit(node.left, depth + 1), _written_unit(node.right, depth + 1)
+        a, b = _written_unit(node.left, depth + 1, sym_units), _written_unit(node.right, depth + 1, sym_units)
         if a is None or b is None:
             return None
         if node.op == "*":
@@ -604,6 +607,88 @@ def _written_unit(node: Node, depth: int = 0) -> Optional[_WrittenUnit]:
             return a
         return a if (a[0], a[1]) == (b[0], b[1]) else None
     return None
+
+
+def _statement_units(doc: StemDocument, sids: tuple[str, ...], dim: Dimension) -> list[UnitExpr]:
+    """The units of dimension ``dim`` written in the statements ``sids`` (one exact reading, no offset), at most two (rule unit-system)."""
+    out: list[UnitExpr] = []
+    seen: set[str] = set()
+    for it in doc.items:
+        if it.statement_id not in sids:
+            continue
+        for ch in it.chains:
+            for op in ch.operands:
+                for node in op.readings[:2]:
+                    for n in walk(node):
+                        if not isinstance(n, (Quantity, WithUnit)) or n.unit.unknown or len(n.unit.readings) != 1:
+                            continue
+                        r = n.unit.readings[0]
+                        key = " ".join(n.unit.text.split())
+                        if r.dim is None or r.factor is None or r.affine is not None or not r.dim.same_physical(dim) or key in seen:
+                            continue
+                        seen.add(key)
+                        out.append(n.unit)
+                        if len(out) >= 2:
+                            return out
+    return out
+
+
+def _warn_unknown(ctx: "_Ctx", nodes: list[Node], why: str) -> None:
+    """An unrecognised unit makes a check's failure a warning only when another reading than the as-written one was possible: a known unit
+    with an SI factor other than 1 (or an offset), or a per cent, is written beside it (integration gate 1). When nothing could read the
+    relation otherwise ('500 − 200 = 700 kJ m⁻² mth⁻¹', 'mth' unknown), it is decided as written alone, and a failure is the
+    report's own (before, it was always a warning, so such a slip was downgraded); the finding ST-UNIT-001 is named either way."""
+    for node in nodes:
+        for n in walk(node):
+            if isinstance(n, Percent):
+                ctx.warn(why)
+                return
+            if isinstance(n, (Quantity, WithUnit)) and not n.unit.unknown and any(r.factor is None or r.factor != 1 or r.affine is not None
+                                                                                   for r in n.unit.readings):
+                ctx.warn(why)
+                return
+    ctx.detail("an unrecognised unit is written, and no other unit or per cent could change the reading: the relation is decided as written")
+
+
+def _writes_data_unit(node: Node) -> bool:
+    """``node`` writes an amount of data ('2 KiB', '64 bits', '1.44 MB'), and every unit it writes is one."""
+    units = _units_in(node)
+    return bool(units) and all(is_data_unit(u) for u in units)
+
+
+#: the byte, the unit a bare count beside an amount of data is most often a count of ('64 bits = 64/8 = 8 bytes')
+_BYTE_UNIT = parse_unit("byte")
+
+
+def _in_unit(node: Node, unit: UnitExpr) -> Node:
+    """``node`` read in ``unit``: a bare numeral as a quantity in it (so its half-width scales with the unit), anything else wrapped."""
+    if isinstance(node, Num) or (isinstance(node, Neg) and isinstance(node.arg, Num)):
+        return _stated_in(node, unit)
+    return WithUnit(node, unit, getattr(node, "start", 0), getattr(node, "end", 0))
+
+
+def _symbol_written_units(doc: StemDocument, names: list[str]) -> Optional[dict[str, _WrittenUnit]]:
+    """The written unit of each symbol from its bindings (integration gate 1): every binding of the symbol carries one known unit of
+    one exact reading with no offset, the same for all of them. None when any symbol has no binding, a bare one, a wrapper or units
+    that differ: the as-written reading of a substitution is then left as it was."""
+    out: dict[str, _WrittenUnit] = {}
+    for name in names:
+        blist = [bd for bd in doc.bindings.get(name, ()) if bd.source != "root"]
+        if not blist:
+            return None
+        seen: set[tuple[Dimension, Fraction]] = set()
+        for bd in blist:
+            if bd.wrapper or bd.unit is None or bd.unit.unknown or len(bd.unit.readings) != 1:
+                return None
+            r = bd.unit.readings[0]
+            if r.dim is None or r.factor is None or r.affine is not None:
+                return None
+            seen.add((r.dim, r.factor))
+        if len(seen) != 1:
+            return None
+        dim, factor = next(iter(seen))
+        out[name] = (dim, factor, True)
+    return out
 
 
 def _bare_factors(node: Node) -> list[tuple[Fraction, int]]:
@@ -626,15 +711,20 @@ def _bare_factors(node: Node) -> list[tuple[Fraction, int]]:
     return out
 
 
-def _as_written_consistent(cnode: Node, snode: Node) -> bool:
+def _as_written_consistent(cnode: Node, snode: Node, sym_units: Optional[dict[str, _WrittenUnit]] = None) -> bool:
     """Whether the reading as written (every unit read as a factor of 1) is a consistent reading of ``cnode = snode``
     (stem-soundness-1, round 7). Read as written, a bare numeral stands in some unit of its own; the reading is admitted unless the
     units written on the two sides differ by a pure number other than 1 that no bare conversion factor written in the computation
     supplies: '3 × 2.0 kg = 6.0 g', '2.0 kW × 3.0 = 6.0 W', '300/400 = 0.75 %' and '80 × 25 % = 2000' are read in SI only, while
     '2.5 kg × 1000 = 2500 g', '4.5 min × 60 = 270 s', '0.75 × 100 = 75 %' and '120/4.0 = 30 km/h' (the bare numerals stand in km and h)
-    keep it. A ratio that has a dimension leaves the reading as before, and so does any unit that cannot be told."""
-    lu, ru = _written_unit(cnode), _written_unit(snode)
+    keep it. A ratio that has a dimension leaves the reading as before, and so does any unit that cannot be told. ``sym_units`` reads the
+    symbols of ``cnode`` in the units of their bindings (a substitution's symbolic side)."""
+    lu, ru = _written_unit(cnode, sym_units=sym_units), _written_unit(snode)
     if lu is None or ru is None:
+        return True
+    if (not lu[2] and _writes_data_unit(snode)) or (not ru[2] and _writes_data_unit(cnode)):
+        # integration gate 1: a side that writes no unit beside an amount of data ('2 × 1024 = 2048 bytes', '2^10 = 1024 bytes') is a count
+        # in the unit of the other side, as written; before, the byte's factor (8 bits) rejected the reading and correct working failed
         return True
     dim = ru[0] / lu[0]
     if any(dim.exps) or dim.angle:
@@ -1301,7 +1391,7 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
              intervals: dict[tuple[int, int], IntervalLeaf], env_for: Optional[callable] = None, signs: tuple[int, ...] = (1,),
              label: str = "computed value", stated_label: str = "stated value", force_form_s: bool = False,
              h_scale_nodes: Optional[list[tuple[Node, Node]]] = None, same_place: bool = False, combine: str = "or",
-             si_pairs: Optional[list[tuple[Node, Node]]] = None) -> None:
+             si_pairs: Optional[list[tuple[Node, Node]]] = None, h_of: str = "stated") -> None:
     """Build a Form E or Form S comparison ``|C − S| <= h + τ·|C|`` over every reading (OR) and every
     sign choice of a ``±`` (AND). ``pairs`` are (computed node, stated node) per operand combination;
     ``h_written`` their half-widths as written. ``env_for(reading, tag)`` installs symbol domains. With ``same_place`` (rule same-place,
@@ -1311,7 +1401,12 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
     A unit companion (ST-UNIT-003, argument diagnostics) passes ``combine="implies"``: the conclusion is that the as-written
     readings imply the SI readings (Form E), so the check fails exactly when the numbers hold as written and fail in SI; under
     interval readings (Form S) it is the SI readings alone. ``si_pairs`` replaces ``pairs`` in the SI readings (bare numerals
-    read in the units of the bindings they repeat). The tolerance band of each reading is the one the check beside it uses."""
+    read in the units of the bindings they repeat). The tolerance band of each reading is the one the check beside it uses.
+
+    ``h_of`` names the node of each pair whose written half-width ``h_written`` is: the stated node (the default) or, for a substitution,
+    the computed node (its written numeric side). The half-width is converted into each reading's units with that node's own unit
+    (gate-1 fix: a substitution took the half-width of its numeric side in the written unit into an SI band, so '= 99 µm' had a band of
+    ±0.5 m and every value of that order passed)."""
     b = ctx.builder
     bands: list[dict] = []
     band_si: list[bool] = []
@@ -1337,7 +1432,7 @@ def _compare(ctx: _Ctx, pairs: list[tuple[Node, Node]], *, kind: str, tau: Fract
                     enc = Encoder(b, rd, env=env, intervals=intervals, symbol_hulls=hulls, interval_symbols=needs_s, cache=ctx.cache)
                     c = enc.term(cnode)
                     s = enc.term(snode)
-                    scale = _scale_for(snode, rd, enc)
+                    scale = _scale_for(cnode if h_of == "computed" else snode, rd, enc)
                     h = h_written[ci] * scale
                     if h_scale_nodes is not None:
                         extra_node = h_scale_nodes[ci][0]
@@ -1565,12 +1660,22 @@ def _eq(ctx: _Ctx) -> None:
         combos = [(BinOp("*", c.left, sn.right, c.start, c.end), BinOp("*", c.right, sn.left, sn.start, sn.end)) for c, sn in combos]
         ctx.detail("a ratio equality a:b = c:d, compared as a·d = b·c")
     angle = bool(combos) and all(_top_degrees(c) != _top_degrees(sn) for c, sn in combos)
+    angle_both = False
     if angle:
         # stem-soundness-8 (round 7): an angle in degrees set equal to one in radians or to a number ('θ = 30° = 0.524 rad', '2 rad = 115°',
         # '180° = π rad') is a conversion: compared in SI, the degree read as π/180 rad (an enclosure of π); before, the two numbers were
         # compared as written (30 against 0.524) and every correct conversion failed
         combos = [(_degree_units_as_degrees(c), _degree_units_as_degrees(sn)) for c, sn in combos]
-        ctx.detail("an angle in degrees set against one in radians (or a number): compared in radians, a degree read as π/180 rad")
+        if any(_radian_written(n) for c, sn in combos for n in (c, sn)):
+            ctx.detail("an angle in degrees set against one in radians (or a number): compared in radians, a degree read as π/180 rad")
+        else:
+            # integration gate 1 (rule degree-reading): a side that writes no angle unit ('180 − 50 − 60 = 70°', 'tan⁻¹(4.0/3.0) = 53.1°',
+            # '1.2 × 180/π = 68.8°') is the angle in the unit of the other side as much as a number of radians: both are readings. Before,
+            # the conversion replaced the as-written reading, so the bare side was read in radians only and every correct angle in degrees
+            # (angle sums, polygon angles, bearings, sectors, inverse trigonometry) failed as an error
+            angle_both = True
+            ctx.detail("an angle in degrees set against a side that writes no angle unit: the bare side is read as written, in the degrees of "
+                       "the other side, or as a number of radians, a degree read as π/180 rad (rule degree-reading)")
     scaled = [_antilog_as_concentration(c, sn) for c, sn in combos]
     scale_unit = bool(combos) and all(x is not None for x in scaled)
     if scale_unit:
@@ -1673,10 +1778,54 @@ def _eq(ctx: _Ctx) -> None:
     # stem-precision-5: a compound quantity ('4 min 30 s') has a value in SI only (as written its parts would be added as plain numbers)
     compound = any(isinstance(m, BinOp) and m.op == "+" and m.implicit for n in nodes for m in walk(n))
     unit = _unit_role(ctx)
-    readings, unknown = _readings(nodes, force="si" if (scale_unit or angle or compound) else None, pairs=pairs, degrees_si=angle, doc=ctx.doc,
-                                  both=bool(unit))
+    if angle_both and not unit:
+        r_aw, unknown_aw = _readings(nodes, force="aw", pairs=pairs, doc=ctx.doc)
+        if any(_has_percent(n) for n in nodes):
+            r_aw = r_aw + _readings(nodes, force="awp", pairs=pairs, doc=ctx.doc)[0]  # '45% × 360 = 162°': the per cent as its fraction
+        r_si, unknown_si = _readings(nodes, force="si", pairs=pairs, degrees_si=True, doc=ctx.doc)
+        readings, unknown = r_aw + ([] if (unknown_aw or unknown_si) else r_si), unknown_aw or unknown_si
+        if len(readings) > 4:
+            raise EncodeError("ST-PARSE-002", f"the relation has {len(readings)} readings (units, angles, ambiguous unit symbols); the bound per check is 4")
+    else:
+        readings, unknown = _readings(nodes, force="si" if (scale_unit or angle or compound) else None, pairs=pairs, degrees_si=angle, doc=ctx.doc,
+                                      both=bool(unit))
+    if not unknown and not unit and not (scale_unit or angle or compound):
+        # integration gate 1 (rule data-count): a side that writes no unit beside an amount of data is a count of bytes as often as of the
+        # unit of the other side ('2 KiB = 2 × 1024 = 2048 bytes', '64 bits = 64/8 = 8 bytes'): the SI readings also read it in bytes
+        added = []
+        for (cnode, snode), h, ex in zip(list(pairs), list(hs), list(extra)):
+            wc, ws = _written_unit(cnode), _written_unit(snode)
+            if wc is None or ws is None:
+                continue
+            if not wc[2] and _writes_data_unit(snode):
+                added.append(((_in_unit(cnode, _BYTE_UNIT), snode), h, (None if ex[0] is None else _in_unit(cnode, _BYTE_UNIT), snode)))
+            elif not ws[2] and _writes_data_unit(cnode):
+                added.append(((cnode, _in_unit(snode, _BYTE_UNIT)), h, (ex[0], _in_unit(snode, _BYTE_UNIT))))
+        if not added:
+            # integration gate 1 (rule unit-system): a stated side that writes no unit and re-expresses a side written in units
+            # ('0.0250 mol / 250 cm³ = 0.0250 / 0.250 = 0.100 mol dm⁻³') is in the units its statement gives that dimension elsewhere (mol
+            # dm⁻³: 250 cm³ written as 0.250 dm³), as a substituted value is (stem-precision-2): the SI readings also read it in each
+            for (cnode, snode), h, ex in zip(list(pairs), list(hs), list(extra)):
+                if is_value(snode):
+                    continue
+                wc, ws = _written_unit(cnode), _written_unit(snode)
+                if wc is None or ws is None or not wc[2] or ws[2] or not any(wc[0].exps):
+                    continue
+                for u in _statement_units(ctx.doc, rel.statement_ids, wc[0]):
+                    added.append(((cnode, WithUnit(snode, u, getattr(snode, "start", 0), getattr(snode, "end", 0))), h, (ex[0], snode)))
+            if added:
+                ctx.detail("a stated side that writes no unit is also read in the units its statement gives that dimension (rule unit-system)")
+        if added:
+            pairs = pairs + [a[0] for a in added]
+            hs = hs + [a[1] for a in added]
+            extra = extra + [a[2] for a in added]
+            if not any(r.si for r in readings):
+                # every unit written is the bit ('64 bits = 64/8'): SI and as written coincide, so the bytes reading needs its own SI reading
+                readings = readings + _readings(nodes, force="si", pairs=pairs, doc=ctx.doc)[0]
+            ctx.detail("a side that writes no unit beside an amount of data is read as written (a count in the other side's unit) and, in SI, as "
+                       "a count of bytes (rule data-count)")
     if unknown:
-        ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
+        _warn_unknown(ctx, nodes, "a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
     elif scale_unit:
         readings = [replace(r, label=r.label + ", the power of ten read in mol dm⁻³") for r in readings]
         ctx.detail("an antilogarithm stated as a concentration (a lone power of ten whose exponent is no integer, 10^(−pH)) is the concentration "
@@ -1718,6 +1867,19 @@ def _top_degrees(node: Node) -> bool:
         if isinstance(n, (Func, Unsupported)):
             continue
         if isinstance(n, Degrees) or (isinstance(n, Quantity) and _degree_unit(n.unit)):
+            return True
+        stack.extend(children(n))
+    return False
+
+
+def _radian_written(node: Node) -> bool:
+    """``node`` writes a unit with the radian in it ('0.524 rad', 'π rad', '2.0 rad s⁻¹'), outside a function's argument."""
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, (Func, Unsupported)):
+            continue
+        if isinstance(n, (Quantity, WithUnit)) and any(a.unit is not None and a.unit.symbol == "rad" for r in n.unit.readings for a in r.atoms):
             return True
         stack.extend(children(n))
     return False
@@ -2005,7 +2167,7 @@ def _res_finer(ctx: _Ctx) -> None:
     pairs = [(l, r) for l, r in _operand_combos(rel.left, rel.right)]
     readings, unknown = _readings([n for p in pairs for n in p])
     if unknown:
-        ctx.warn("a unit is not recognised (ST-UNIT-001); the restatement is checked as written only")
+        _warn_unknown(ctx, [n for p in pairs for n in p], "a unit is not recognised (ST-UNIT-001); the restatement is checked as written only")
     hs = [max(rel.rounding or Fraction(0), _value_half_width(r, min_sf=_EVERY_DIGIT)) for _l, r in pairs]
     intervals: dict[tuple[int, int], IntervalLeaf] = {}
     for cnode, _s in pairs:
@@ -2027,7 +2189,7 @@ def _res(ctx: _Ctx) -> None:
     pairs = [(l, r) for l, r in combos]
     readings, unknown = _readings([n for p in pairs for n in p])
     if unknown:
-        ctx.warn("a unit is not recognised (ST-UNIT-001); the restatement is checked as written only")
+        _warn_unknown(ctx, [n for p in pairs for n in p], "a unit is not recognised (ST-UNIT-001); the restatement is checked as written only")
     if rel.named:
         ctx.warn(f"the prose names the quantity ('{rel.named}') whose value before the change it states; the earlier value is matched to it by "
                  "those words (rule named-change), a reading the answer did not state")
@@ -2323,7 +2485,7 @@ def _cmp(ctx: _Ctx) -> None:
     symbol_units = any(b.unit is not None for n in names for b in ctx.doc.bindings.get(n, ()))
     readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc)
     if unknown:
-        ctx.warn("a unit is not recognised (ST-UNIT-001); the comparison is checked as written only")
+        _warn_unknown(ctx, nodes, "a unit is not recognised (ST-UNIT-001); the comparison is checked as written only")
     op = _CMP_OPS.get(rel.op)
     if op is None:
         raise EncodeError("ST-UNDEC-001", f"the relation sign {rel.op!r}")
@@ -2748,7 +2910,9 @@ def _sub_evaluate(ctx: _Ctx) -> None:
                 d = SymbolDomain(name)
                 h = Fraction(0) if (not v[1].has_point and not v[1].scientific) else v[1].half_width
                 si = si_value(v[0], v[2], v[3])
-                d.add(v[0] - h, v[0] + h, None if si is None else (si - h, si + h), grounding("figure", f"value of '{name}' read from the written substitution"),
+                # gate-1 fix: the half-width is in the written unit; in SI it is scaled by the unit's factor, as a binding's is (_binding_range)
+                hf = h * abs(v[2].readings[0].factor) if (v[2] is not None and v[2].readings and v[2].readings[0].factor is not None) else h
+                d.add(v[0] - h, v[0] + h, None if si is None else (si - hf, si + hf), grounding("figure", f"value of '{name}' read from the written substitution"),
                       f"{name} = {render(anchors[name])} (read from the written substitution)")
                 domains[name] = d
                 continue
@@ -2784,7 +2948,17 @@ def _sub_evaluate(ctx: _Ctx) -> None:
     unit = _unit_role(ctx)
     readings, unknown = _readings(nodes, symbol_units=symbol_units, doc=ctx.doc, symbol_factors=symbol_factors, both=bool(unit))
     if unknown:
-        ctx.warn("a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
+        _warn_unknown(ctx, nodes, "a unit is not recognised (ST-UNIT-001); the relation is checked as written only")
+    elif not unit and any(r.si for r in readings) and any(not r.si for r in readings) and all(is_value(num) for num, _sym in pairs):
+        # integration gate 1: a single stated value of a substitution whose symbols are bound in units of one dimension with different factors
+        # ('I = 6.0 mm and A = 20 µm', then 'M = I/A = 0.3'): read as written, the numbers of two units are combined as if in one, which is no
+        # reading of the quantities (as for written arithmetic, _as_written_consistent), so only the SI reading is admitted; before, the
+        # as-written reading made the classic conversion fault pass beside the SI one
+        sym_units = _symbol_written_units(ctx.doc, names)
+        if sym_units is not None and not all(_as_written_consistent(sym, num, sym_units) for num, sym in pairs):
+            readings = [r for r in readings if r.si]
+            ctx.detail("the symbols are bound in units whose factors differ for one dimension, so the stated value is read in SI only: the "
+                       "numbers combined as written mix two units (rule mixed-units)")
     # STEM repair 11 (rule exact-rounding): a stated value of two or more significant figures against a rational symbolic side under exact
     # bindings is stated to its last written digit, as in written arithmetic (a whole value exactly, one that is not whole at the nearest whole
     # number); a one-figure value keeps h = 0
@@ -2823,7 +2997,8 @@ def _sub_evaluate(ctx: _Ctx) -> None:
         if len(written) == len(names):
             _label_unit_error(ctx, pairs, hs, tau, readings, written)
     _compare(ctx, pairs, kind="sub", tau=tau, h_written=hs, readings=readings, intervals={}, env_for=env_for, signs=signs, force_form_s=many,
-             label="written numeric side", stated_label="symbolic side under the bindings", combine="implies" if ctx.rel.kind == "unit" else "or")
+             label="written numeric side", stated_label="symbolic side under the bindings", combine="implies" if ctx.rel.kind == "unit" else "or",
+             h_of="computed")
 
 
 # --------------------------------------------------------------------------- alg and inequality steps
@@ -2929,6 +3104,17 @@ def _step(ctx: _Ctx) -> None:
             prem_alts.append({"op": pop, "left": le, "right": re_})
             cl_t, cr_t = e2.term(cl), e2.term(cr)
             conc_alts.append(_step_conclusion(ctx, cop, cl, cr, cl_t, cr_t, len(conc_alts)))
+    for alt_l, alt_r in rel.or_alternatives:
+        # integration gate 1 (rule or-roots): the conclusion is the disjunction the statement writes with 'or' ('x² = 9 ⇒ x = −3 or x = 3')
+        for al, ar in _operand_combos(alt_l, alt_r)[:ctx.doc.limits.max_readings_per_check]:
+            if any(n.endswith("()") for n in set(symbols(al)) | set(symbols(ar))) or not set(symbols(al)) | set(symbols(ar)) <= set(env):
+                raise EncodeError("ST-UNDEC-001", "a disjunct of the step's conclusion brings in a symbol the step does not have")
+            for sign in signs if _has_plus_minus(al, ar) else (1,):
+                rd = Reading(si=False, sign=sign, label="as written")
+                e2 = Encoder(b, rd, env=env, cache=ctx.cache)
+                conc_alts.append(_step_conclusion(ctx, cop, al, ar, e2.term(al), e2.term(ar), len(conc_alts)))
+    if rel.or_alternatives:
+        ctx.detail("the conclusion is the disjunction the statement writes with 'or' (rule or-roots)")
     b.premise("PREV", nary("or", prem_alts) if len(prem_alts) > 1 else prem_alts[0],
               f"the preceding relation {render(pl0)[:200]} {rel.premise_op} {render(pr0)[:200]} ({', '.join(rel.premise_ids)})", grounding("law"))
     # side conditions: the principal root

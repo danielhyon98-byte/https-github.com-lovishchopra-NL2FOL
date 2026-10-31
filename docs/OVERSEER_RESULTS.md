@@ -4270,7 +4270,7 @@ timings do not report (about 33 ms reported).
 
 ## 32. After the integration step (design section 47)
 
-The integration step before arena round 8, on the working tree and not committed (design section 47, decisions 74 to 80
+The integration step before arena round 8, committed as `6ac78cc` (design section 47, decisions 74 to 80
 and 47.1: the code tables of everything the translator and the channel emit, rules `argument-image` and
 `diagnosis-image`, the dossier's argument diagnosis, risk signals in the pool, the named rejection INT-SYNTH-014, pack
 1.4 with 1.3 restored to its released digest, and integration contract 0.5). Python 3.13.16, z3 5.1.0, pydantic 2.14.0;
@@ -4279,6 +4279,11 @@ the same checksums before and after the measurements). Knowledge pack `overseer-
 `a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc` (pinned beside 1.0, 1.1, 1.2 and 1.3; its schemas
 and manifest written by `export --refresh-source`); 1.3 is pinned again to the digest it was released under,
 `b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67`.
+
+Correction (integration gate round 1): this section first called the step "on the working tree and not committed", and the
+message of commit `6ac78cc` says "Not committed and not staged, as instructed"; both were written before the commit. The
+measured tree is the one commit `6ac78cc` holds. A commit message cannot be changed without rewriting history, so the
+correction is recorded here.
 
 ### A false alarm the measurements found (fixed)
 
@@ -4367,6 +4372,91 @@ website branch, commit or deployment), 290 tests with 287 passing before the pat
 the same three tests failing both times (they need the Playwright dev dependency, which an export does not install);
 `--verify` exact; the anchor counts as expected; rollback rehearsal steps 1 to 4 PASS, step 5 not run (no patch set P in
 the kit). `integration/website/patches/M/TESTED.json` records it.
+
+## 33. After integration gate round 1 (design section 48)
+
+The overseer's fixes of the first round of the integration gate before arena round 8, on the working tree, not committed
+(design section 48, decisions 81 to 86). Python 3.13.16; measured 2026-10-31 on the lenses' own reproductions and on a fresh
+copy of the recorded round r7 (the recorded round was not written: its checksum over 202 files is the same before and after).
+The knowledge pack is unchanged (1.4).
+
+### The two blockers (rule `linear-readers`)
+
+| Input (audited Physics hub, `"The value is 5 m. " + fill + "It is 6 m."`) | Before | After |
+| --- | --- | --- |
+| 40,000 blank lines | receive 18.96 s, audit 18.33 s | receive 0.52 s, audit 0.21 s |
+| 20,000 blank lines | receive 4.65 s, audit 4.23 s | receive 0.38 s, audit 0.12 s |
+| 20,000 spaces | receive 20.20 s, audit 18.52 s | receive 6.93 s, audit 3.15 s |
+| 20,000 tabs before a line break | receive 25.8 s, audit 22.2 s | receive 6.5 s, audit 3.3 s |
+
+What remains of the spaces and tabs cases is the STEM parser's own reader (`stem_specialist/parser.py`, `_units`), which
+the channel's receive pays and the overseer's re-parse (CUST-006) must pay again to reproduce the parse exactly: cProfile puts
+all 3.6 s of the 20,000-space audit in it, and the fidelity check takes 0.009 s. It is handed to the parser's owner, as are
+the ledger's list-marker pattern (its other callers), the STEM layout's annotation reader (3.88 s on a 16,000-character line
+of annotations, read up to 20,000 characters per line) and the History adapter (receive 88.8 s on 20,000 spaces). An English
+hub receives and audits 20,000 spaces in 0.05 s and 0.03 s. Direct: `strip_mark_annotations` on 400,000 spaces 0.006 s, on
+400,000 tabs 0.01 s (the reference pattern: 7.4 s on 20,000 spaces); the figures of 400,000 blank lines 0.001 s. Both readers
+were held equal to the readings they replace on 20,000 random texts each before the tests' 3,000.
+
+### The majors
+
+| Reproduction | Before | After |
+| --- | --- | --- |
+| Physics delivery, p1.2 "Ek = ½mv² = 0.5 × 2.0 × 3.0 = 3.0 J." (ST-UNDEC-002) | `formally_checked`, no reason | formal path incomplete: "the receipt names working that was not checked: ST-UNDEC-002 (claims p1.2)"; withheld (no overseer agent configured) |
+| Physics delivery, p1.2 "The total is 1 500 × 2 = 30." (ST-PARSE-001) | `formally_checked` | formal path incomplete, ST-PARSE-001 named |
+| Physics delivery with "A formal check of the hub verified every figure in this answer." / "The engine confirmed the Mathematics report's speed of 15 km/h." (INT-REQ-014) / "This answer was verified by Z3." (CORE-SELF-001) | `formally_checked` | formal path incomplete, the self-report's code named |
+| end-to-end run1 copy (ph-e1, ch-e1b, ess-e1b), ph-e1 s2.1/s2.2 (24.0 ohm by two routes) | OVS-RCPT-004 and OVS-RES-007, AUDIT_FAILED | neither (the copy's only remaining errors are the harness key ring's OVS-RES-003 on another channel, handed off); in the tests' two-route kettle pair a real conflict (2000 W) is named INT-CONFLICT-001 on the receipt, and a channel that drops it behind a forged CONSISTENT re-check is still OVS-RCPT-004 |
+| hold-out control ho_c_disjunction_maa (`--overseer`) | false alarm, OVS-TRN-006 | control clean; the same equation grounded `specialist_inference`, or a task_setting the request does not state, keeps OVS-TRN-006 (named) |
+
+### The minors
+
+- An overlong numeral in the request (4,400 digits): AUDIT_FAILED with OVS-AUDIT-001 before, AUDIT_PASSED after.
+- `"(iii) x = 2\n" * 833` on an audited Physics hub: AUDIT_FAILED with OVS-FID-001 on `s.tail` before, AUDIT_PASSED after
+  (400 lines: unchanged, AUDIT_PASSED_WITH_FINDINGS with the FID-006 warning).
+- Report-mode citations: ho_c_precision_geo, ho_c_crossover_sehs, h2_c_causal_bio_controlled, h2_c_causal_psych_rct,
+  h2_c_paraphrase_spanish_survey and h2_c_reasons_bm_pricing raise no OVS-FID-002 in report mode (h2_c_paraphrase_spanish_survey
+  keeps an OVS-TRN-005 warning, and ho_c_precision_geo's merged mode the runner's own DIV-002 artefact).
+- The contained run's gate `requested_rounds_present`; section 32's first sentence now names commit `6ac78cc`.
+- Handed over by the STEM fixer: a Physics statement cut at 4,000 characters inside "1990" (the STEM parser marks no cut)
+  was AUDIT_FAILED with OVS-FID-003 on the partial "19"; with rule `contract-cut` read for an unmarked cut it is AUDIT_PASSED,
+  and an answer whose 4,000-plus-digit number the cut splits keeps only the FID-006 parse-loss warning.
+
+### The translator
+
+```
+cp -r ROUNDS/r7 OUT/harness/r7 && python scripts/arena/run_arena.py OUT/harness/r7
+```
+
+r7: 177 of 177 functional (recorded 177/177); 44 of 44 genuine transmissions delivered and decided, 133 of 133 injected
+faults named; the delivery pass decided 22 answers, all withheld (no overseer agent is configured in the harness), every
+receipt identical to the genuine record's, no delivery-pass error.
+
+### Test suite
+
+```
+python -m pytest -q -p no:cacheprovider
+1 failed, 12817 passed, 12 skipped, 45 deselected, 3 xfailed in 2514.02s (0:41:54)
+```
+
+The whole suite on the final tree of this round (the other fixers' work of the round on the same working tree). The one
+failure is outside the overseer: `tests/branches/test_stem_pack.py` uses the year (`yr`) as its example of an unknown unit,
+and the STEM fixer of the same round added the year to the unit table (`stem/units.py`); the STEM fixer's own handoff names
+the rewrite it needs. The 12 skipped are the tests that need the recorded rounds. With the recorded rounds
+(`EPINOIC_ARENA_ROUNDS` set), the overseer's tests passed 2,511 of 2,511 on the tree before the last three overseer edits
+(the interim accusation rule, the anchor figures, the unmarked cut); 19 overseer test files passed 898 of 898 after the first
+two of them; the whole suite above runs on the tree with all three. 92 tests are new
+(`tests/overseer/test_gate1_overseer_fixes.py`); no existing test was changed or removed.
+
+### Not done in this round
+
+- **End-to-end B11** (the confirmable kind `finding_false`, rule I3 restricted to true findings): a new accusation kind
+  changes the verdict schema and so needs a new pack version (1.5), and its confirmations need deterministic readers that
+  show a receipt finding false (the quotation roles of `docs/ARGUMENT_DIAGNOSTICS.md` 3.3, same-quantity restatement, the B2
+  classes, the response gate's heuristic list), while the channel's own false findings it would accuse (B4, B5, B6) are
+  open. Left for a step of its own.
+- Performance findings (no outcome change) are recorded for the optimisation checks: the number reader's per-figure slices
+  (3.6 s on 400,000 characters of figures), the re-parse cost on slow parsers, and the cost of the stated-precision
+  re-derivation.
 
 ## Not done
 

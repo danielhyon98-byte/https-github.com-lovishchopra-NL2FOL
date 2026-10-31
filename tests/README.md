@@ -119,6 +119,15 @@ harness rates of the second layer have not dropped.
    repair that pinned a relation validated by its figures were rewritten to the stricter rule
    (the relation is stated in the task, or it is listed as unverified).
 
+   Integration gate 1 rewrote existing tests only to a stricter rule or to an input that keeps the rule asserted; none was
+   weakened or deleted: six STEM tests (listed in `docs/STEM_DESIGN.md`, section 35); `tests/branches/test_stem_pack.py`
+   (its unknown unit is 'mth', since the year is a unit now); `tests/contract/test_receipt_plumbing.py` (the report-level
+   hook is counted per caller: exactly once from the channel); `tests/integrity/test_integrity_round1.py`
+   (`test_placeholder_reasons_and_bases_are_not_meaningful`: a blank reason or basis is now refused by the synthesis
+   contract itself, asserted, and the ledger still reads it as not meaningful on an object built around validation); and
+   the overseer's fixture verifiers declare the claims outside their scope (`channel.bus.CLAIM_OUT_OF_SCOPE`) instead of
+   returning no outcome, which the channel now names NOT_ATTEMPTED (INT-REQ-006).
+
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`
    tests both at the cause. Finding 6: a figure that a supporting claim, a supplied text or the
@@ -231,7 +240,16 @@ harness rates of the second layer have not dropped.
    forwarded by the router to the other specialist, who quotes it. That specialist reads only
    the delivered report, its document id and the relay status (`relayed/<task>.json`), never
    the hub's receipt of it, which stays in the router's record (`router/<task>.json`); the
-   regression tests are in `scripts/arena/test_arena_rules.py`.
+   regression tests are in `scripts/arena/test_arena_rules.py`. The same file holds the
+   integration gate's first-round harness fixes: the combinator's synthesis reaches the hub as
+   written, its citations included (an invented id beside a real one is named INT-LEDGER-001,
+   and a peer group's combined output gets the receipt of a direct relay from either member's
+   file, listing every delivered report); a syntheses file out of the combinator port's
+   published output contract (a control or bidirectional character, a blank text or reason, a
+   repeated citation, a key or field the contract does not have) is a named failure with its
+   KIT-CB code (`combinator_contract`); and the delivery pass's auditor declares every key id
+   the hub's components sign under, so a result the cross-agent check signs is not audited as
+   untrusted (OVS-RES-003).
 
    Three independent overseer agents then judge the round:
    - **Results audit** checks every receipt against its input.

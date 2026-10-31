@@ -105,8 +105,9 @@ What the STEM branches do:
   formulas, symbol bindings with their source, and every relation stated. No agent text is
   evaluated: no `eval`, `exec`, `compile`, `sympify`, `parse_expr` or any library that evaluates
   strings, and three AST scans in the tests enforce it. Claims are offset substrings of the
-  answer (`s1.2`; `m1.2` in Mathematics, `c1.2` in Computer Science), and the router receives
-  the answer verbatim.
+  answer (`s1.2`; `m1.2` in Mathematics, `c1.2` in Computer Science; when another agent's report on the task
+  already holds those ids, as a second specialist of the same branch would, the ids are qualified with the agent,
+  `s1.2@ess-specialist`, so no two reports on one task share a claim id), and the router receives the answer verbatim.
 - **Decide what can be decided.** Every relation the front end recognises becomes an IR 1.0
   problem the Z3 engine decides, or is named undecided with the reason, or is recorded as a
   binding, a law or a premise-free context line. Nothing recognised is dropped silently. The
@@ -300,7 +301,9 @@ answered one input) is decided by `overseer.delivery_policy.DeliveryPolicy` and 
 - **Formally checked** only when, within the translation budget (240 s by default, on an injectable monotonic clock),
   every material eligible claim was translated, decided positively by the engine as encoded and passed the release rule
   (premises established, grounding checks passed, a current faithful fidelity review), and the transfer audit cleared
-  the answer. A claim the deadline reaches unstarted is never started; one that finishes after it is late.
+  the answer, and the receipt names no working left unchecked (a STEM relation outside the grammar or the encodings, a
+  value not stated, a pack that failed, a check undecided) and no agent self-report. A claim the deadline reaches
+  unstarted is never started; one that finishes after it is late.
 - **Otherwise the fallback.** Overseer agents built from the exported knowledge pack review every candidate (every
   answer to the input; a single answer is one candidate) through the package's runner and the self-duplicating pool,
   every verdict validated as in production. A candidate's accuracy is the share of its material claims the counted
@@ -450,7 +453,10 @@ attempted, completed, faithful, approved, and apart from them the claims whose r
 assessment permits releasing the answer) as separate measures, never combined into one rate,
 and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). Every group of a round
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
-so the number of transmissions never depends on what crashed. A peer-dependent agent reads of
+so the number of transmissions never depends on what crashed. The combinator's synthesis reaches the hub as
+written, its citations included, and a syntheses file outside the combinator's published contract (a control or
+bidirectional character, a blank text, a repeated citation) is a failure named with its `KIT-CB` code, as the
+deployed combinator would refuse it. A peer-dependent agent reads of
 its peer only the delivered report, its document id and the relay status (`relayed/<task>.json`);
 the hub's receipts of the peer's delivery and of the relay stay with the router
 (`router/<task>.json`), so no finding reaches an agent as content. Whether the receipts are

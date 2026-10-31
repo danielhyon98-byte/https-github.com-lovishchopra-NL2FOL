@@ -236,10 +236,11 @@ def test_unsupported_nodes_name_their_reason():
 
 
 def test_an_unknown_unit_has_no_si_reading():
+    # integration gate 1: the year is a known unit now ('yr' had been this test's unknown atom); 'mth' stays unknown
     with pytest.raises(EncodeError) as e:
-        encode("150 kJ m⁻² yr⁻¹", si=True)
+        encode("150 kJ m⁻² mth⁻¹", si=True)
     assert e.value.code == "ST-UNIT-001"
-    t, _b, _e = encode("150 kJ m⁻² yr⁻¹", si=False)
+    t, _b, _e = encode("150 kJ m⁻² mth⁻¹", si=False)
     assert closed_value(t) == 150
 
 

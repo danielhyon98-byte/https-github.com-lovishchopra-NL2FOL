@@ -122,6 +122,13 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
     coverage note (the receipt does not present that part as established). It is a ``task_setting``, ``rubric_rule`` or
     ``arithmetic_fact`` no check verified, which the receipt presents as given with the task: graded by rule
     ``engine-shown`` on that part (below). So conjoining a verified fact to the conclusion never hides an assumed premise.
+  - ``task-equation`` (integration gate round 1, design decision 85): a ``task_setting`` premise whose content is a relation
+    is a ``transcription`` when the request states, as data (never inside a "show that" target, a question, a negation or
+    another context rule ``statement-context`` reads as no statement), a relation the STEM front end reads that is
+    equivalent to it by the arithmetic of its symbols, and the conclusion is a solved form over them (a value, a bound, or
+    a conjunction or disjunction of them): "Solve |x − 3| = 2." with the premise |x − 3| = 2 and the answer x = 1 or x = 5
+    is the work the task asks for, not the claim assumed (:func:`task_equation`). The same relation grounded by the writer
+    alone, or one the request does not state, keeps OVS-TRN-006.
 
   The rule holds when every conjunct of the conclusion that needs a premise is restated by some premise and at least one
   restating premise is the writer's own (so whenever the translator's rule holds, and whenever the conclusion's
@@ -306,7 +313,7 @@ __all__ = [
     "GRADE_REDUNDANT", "GRADE_UNDECIDED", "GRADE_NOTE_REDUNDANT", "FREQUENCY_MARKER", "figure_reading", "FigureReading", "FIGURE_REFUTED", "FIGURE_READ",
     "FIGURE_UNREAD", "value_atoms", "TABLE_RULE", "CONTEXT_RULE", "CONTEXTS", "CONTEXT_STATEMENT", "CONTEXT_QUESTION", "CONTEXT_NEGATION",
     "CONTEXT_ALTERNATIVE", "CONTEXT_EXAMINED", "CONTEXT_REQUIREMENT", "CONTEXT_LIMIT", "CONTEXT_WORDS", "figure_context", "figure_negates",
-    "EXCERPT_UNITS_RULE", "overseer_grounding",
+    "EXCERPT_UNITS_RULE", "overseer_grounding", "task_equation", "TASK_EQUATION_RULE",
 ]
 
 #: The checks a translation record may list in ``checks_run``.
@@ -803,6 +810,16 @@ _SI_UNIT_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s?(" + "|".join(re.escape(p
 #: stated-precision: a decimal, or a whole number after an approximation sign.
 _DECIMAL_STATED_RE = re.compile(r"(?<![\w.])(\d+)\.(\d+)(?![\d])")
 _APPROX_WHOLE_RE = re.compile(r"[≈~]\s*(\d+)(?![\d.,])")
+#: Rule ``figure-digits`` (integration gate round 1): a numeral of more digits than this (thousands separators aside) is
+#: no figure the readers convert. No IR constant holds more than 40 digits (the engine's limits), so such a numeral is
+#: never a number a translation states, and converting it would raise past the interpreter's integer-string bound (4,300
+#: digits), which failed the whole translation check of the transfer (OVS-AUDIT-001) and lost every finding of it.
+_MAX_FIGURE_DIGITS = 100
+
+
+def _digits_ok(*parts: Optional[str]) -> bool:
+    """Rule ``figure-digits``: every part (a digit run, thousands separators allowed) within :data:`_MAX_FIGURE_DIGITS`."""
+    return all(len(p.replace(",", "")) <= _MAX_FIGURE_DIGITS for p in parts if p)
 
 
 def _exponent(*groups: Optional[str]) -> Optional[int]:
@@ -823,11 +840,11 @@ def _scientific_numbers(text: str) -> set[Fraction]:
     out: set[Fraction] = set()
     for m in _SCI_TIMES_RE.finditer(text):
         e = _exponent(m.group(2), m.group(3), m.group(4))
-        if e is not None:
+        if e is not None and _digits_ok(m.group(1)):
             out.add(Fraction(m.group(1)) * Fraction(10) ** e)
     for m in _SCI_E_RE.finditer(text):
         e = _exponent(m.group(2))
-        if e is not None:
+        if e is not None and _digits_ok(m.group(1)):
             out.add(Fraction(m.group(1)) * Fraction(10) ** e)
     for m in _POW10_RE.finditer(text):
         e = _exponent(m.group(1), m.group(2), m.group(3))
@@ -836,7 +853,7 @@ def _scientific_numbers(text: str) -> set[Fraction]:
     for m in _VULGAR_RE.finditer(text):
         frac = _VULGAR[m.group(2)]
         out.add(frac)
-        if m.group(1):
+        if m.group(1) and _digits_ok(m.group(1)):
             out.add(Fraction(int(m.group(1))) + frac)
     return out
 
@@ -846,6 +863,8 @@ def _unit_numbers(text: str) -> set[Fraction]:
     and a mass in grams or kilograms in the other."""
     out: set[Fraction] = set()
     for m in _SI_UNIT_RE.finditer(text):
+        if not _digits_ok(m.group(1)):
+            continue
         value, prefix, unit, power = Fraction(m.group(1)), m.group(2), m.group(3), m.group(4)
         exp = 2 if power in ("²", "2") else 3 if power in ("³", "3") else 1
         if prefix:
@@ -862,10 +881,14 @@ def _precision_numbers(text: str) -> set[Fraction]:
     and of a whole number after ``≈`` or ``~``."""
     out: set[Fraction] = set()
     for m in _DECIMAL_STATED_RE.finditer(text):
+        if not _digits_ok(m.group(1), m.group(2)):
+            continue
         value = Fraction(f"{m.group(1)}.{m.group(2)}")
         half = Fraction(1, 2 * 10 ** len(m.group(2)))
         out.update({value - half, value + half})
     for m in _APPROX_WHOLE_RE.finditer(text):
+        if not _digits_ok(m.group(1)):
+            continue
         value = Fraction(int(m.group(1)))
         out.update({value - Fraction(1, 2), value + Fraction(1, 2)})
     return out
@@ -878,6 +901,8 @@ def _fraction_words(text: str) -> set[Fraction]:
         if num_word in ("a", "an"):
             num = 1
         elif num_word.isdigit():
+            if not _digits_ok(num_word):
+                continue
             num = int(num_word)
         else:
             num = _TENS.get(num_word, _UNITS.get(num_word))
@@ -899,6 +924,8 @@ def text_numbers(text: str) -> set[Fraction]:
         out |= _precision_numbers(text)
     for m in _NUM_RE.finditer(text or ""):
         whole, dec, denom = m.group(1).replace(",", ""), m.group(2), m.group(3)
+        if not _digits_ok(whole, dec, denom):
+            continue  # rule figure-digits
         value = Fraction(int(whole)) + (Fraction(int(dec), 10 ** len(dec)) if dec else 0)
         out.add(value)
         if denom and int(denom) != 0 and not dec:
@@ -927,7 +954,7 @@ def text_numbers(text: str) -> set[Fraction]:
         out.add(Fraction(100))
     for m in _DECIMAL_RATIO_RE.finditer(text or ""):  # rule decimal-ratio
         a, b = m.group(1), m.group(2)
-        if "." in a or "." in b:
+        if ("." in a or "." in b) and _digits_ok(*a.split("."), *b.split(".")):
             num, den = Fraction(a), Fraction(b)
             out.update((num, den) if den == 0 else (num, den, num / den))
     return out
@@ -2536,6 +2563,9 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
                                      f"Boolean content against {where}: {label_only}")
     atoms = value_atoms(expr, sorts)
     if atoms is None:
+        # rule task-equation (integration gate round 1): the task's own stated equation, which the conclusion solves
+        if g.kind == "task_setting" and task_equation(premise, problem, request_texts, sorts) is not None:
+            return Standing(TRANSCRIPTION)
         return Standing(UNCHECKABLE, f"{unverified}: what it states is not the values of quantities (each a comparison of one Int or Real symbol with one "
                                      f"figure), so no deterministic check reads it against {where}: {label_only}")
     structural = sorted({abs(v) for _n, _op, v in atoms if abs(v) in (0, 1)})
@@ -2552,6 +2582,151 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
     return Standing(UNDECIDED, f"{unverified}: {read}. So read it is data presented as given there, but a number match is no evidence of a "
                                f"transcription: no deterministic check verifies it (no excerpt was located) and none refutes it (rule {STANDING_RULE}; the "
                                "kind label alone is IR data, not evidence)")
+
+
+#: Rule ``task-equation`` (integration gate round 1, hold-out control ho_c_disjunction_maa): a ``task_setting`` premise
+#: that is the task's own stated equation or condition, which the conclusion solves, is the task's data, not the claim
+#: assumed (:func:`task_equation`).
+TASK_EQUATION_RULE = "task-equation"
+#: The relation signs of a request relation the rule reads (exact signs only: an approximation is no equation).
+_TASK_RELATION_OPS = {"=": "eq", "<": "lt", ">": "gt", "≤": "le", "≥": "ge", "<=": "le", ">=": "ge"}
+_TASK_SOLVED_OPS = frozenset({"eq", "lt", "le", "gt", "ge"})
+#: Bounds of the rule: the request text it reads, the size of a relation it encodes and the power it expands.
+_TASK_TEXT_MAX = 4_000
+_TASK_NODES_MAX = 200
+_TASK_POWER_MAX = 12
+_IR_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _fraction_text(v: Fraction) -> str:
+    return str(v.numerator) if v.denominator == 1 else f"{v.numerator}/{v.denominator}"
+
+
+def _stem_relation_ir(node: Any, sorts: dict[str, str], budget: list[int]) -> Optional[dict]:
+    """A request relation's operand (a STEM front-end AST, data) as an IR term, over a closed subset only: an exact number,
+    a symbol the problem declares ``Int`` or ``Real`` under the same name, a negation, a sum, a difference, a product, a
+    quotient by a nonzero number, a whole power up to 12 written as a product, and an absolute value written as the IR's
+    conditional term. None for anything else (a unit, a function, a root, a percentage, a symbol the problem does not
+    declare): nothing is evaluated, and what the rule cannot encode exactly it never reads."""
+    from ...stem.nodes import Abs, BinOp, Neg, Num, Pow, Sym
+    budget[0] -= 1
+    if budget[0] < 0:
+        return None
+    if isinstance(node, Num):
+        return {"op": "real", "value": _fraction_text(Fraction(node.number.value))}
+    if isinstance(node, Sym):
+        name = str(node.name)
+        if node.kind != "symbol" or not _IR_NAME_RE.match(name) or sorts.get(name) not in ("Int", "Real"):
+            return None
+        return {"op": "var", "name": name}
+    if isinstance(node, Neg):
+        arg = _stem_relation_ir(node.arg, sorts, budget)
+        return {"op": "neg", "arg": arg} if arg is not None else None
+    if isinstance(node, BinOp) and node.op in ("+", "-", "*", "/"):
+        left, right = _stem_relation_ir(node.left, sorts, budget), _stem_relation_ir(node.right, sorts, budget)
+        if left is None or right is None:
+            return None
+        if node.op == "+":
+            return {"op": "add", "args": [left, right]}
+        if node.op == "-":
+            return {"op": "sub", "left": left, "right": right}
+        if node.op == "*":
+            return {"op": "mul", "args": [left, right]}
+        d = _literal(right)
+        return {"op": "div", "left": left, "right": right} if d is not None and d != 0 else None
+    if isinstance(node, Pow) and isinstance(node.exp, int) and 0 <= node.exp <= _TASK_POWER_MAX:
+        base = _stem_relation_ir(node.base, sorts, budget)
+        if base is None:
+            return None
+        if node.exp == 0:
+            return {"op": "real", "value": "1"}
+        return base if node.exp == 1 else {"op": "mul", "args": [base] * node.exp}
+    if isinstance(node, Abs):
+        arg = _stem_relation_ir(node.arg, sorts, budget)
+        if arg is None:
+            return None
+        return {"op": "ite", "cond": {"op": "ge", "left": arg, "right": {"op": "real", "value": "0"}}, "then": arg, "otherwise": {"op": "neg", "arg": arg}}
+    return None
+
+
+def _solved_form(expr: Any, symbols: frozenset[str], sorts: dict[str, str]) -> bool:
+    """Whether ``expr`` (IR JSON) states only values or bounds of ``symbols``: a comparison of one of them with a number, or
+    a conjunction or disjunction of such (``x = 1 or x = 5``, ``x > 2``, ``x >= -3 and x <= 3``): a solution set, the
+    form a solved equation or inequality takes."""
+    stack = [expr]
+    seen = False
+    while stack:
+        node = stack.pop()
+        op = node.get("op") if isinstance(node, dict) else None
+        if op in ("and", "or") and isinstance(node.get("args"), list) and node["args"]:
+            stack.extend(node["args"])
+            continue
+        if op not in _TASK_SOLVED_OPS:
+            return False
+        sides = (node.get("left"), node.get("right"))
+        names = [s.get("name") for s in sides if isinstance(s, dict) and s.get("op") == "var"]
+        values = [s for s in sides if _literal(s) is not None]
+        if len(names) != 1 or len(values) != 1 or names[0] not in symbols or sorts.get(str(names[0])) not in ("Int", "Real"):
+            return False
+        seen = True
+    return seen
+
+
+def task_equation(premise: Any, problem: Optional[Problem], request_texts: Iterable[str], sorts: Optional[dict[str, str]]) -> Optional[str]:
+    """Rule ``task-equation`` (integration gate round 1): the request relation (its text) that ``premise`` transcribes, or
+    None. The premise is the task's own stated equation or condition (a ``task_setting`` whose content is a relation, not
+    values) when the request states, as data and not as a "show that" target, a relation the STEM front end reads
+    (``stem.build_document``: "Solve |x − 3| = 2.", "Solve x² = 9."; never inside a target the answer must derive,
+    :func:`target_spans`, nor anywhere rule ``statement-context`` reads no statement, :func:`figure_context`: a question,
+    a negation, one of alternatives, a claim to examine, a requirement) that is EQUIVALENT to the premise by the arithmetic of
+    its symbols (the bounded solver check of rule ``arithmetic-restatement``, :meth:`_Readings.arithmetic`, each symbol of
+    the problem under its own name), and the problem's conclusion is a solved form over the premise's symbols
+    (:func:`_solved_form`: a solution set, a value or a bound). The engine's result then shows that the solution follows from
+    the task's equation, which is the work the answer was asked to do, not the claim assumed; a premise grounded only by
+    the writer, or one the request states only as a target, keeps OVS-TRN-006, and so does a conclusion that restates the
+    equation in any form but a solved one. Data only: the request is read by the deterministic front end, nothing is
+    evaluated, and an operand outside the closed subset of :func:`_stem_relation_ir` is never read."""
+    if problem is None or problem.conclusion is None:
+        return None
+    sorts = dict(sorts or {s.name: s.sort for s in problem.symbols})
+    try:
+        expr = premise.expr.model_dump(mode="json", exclude_none=True)
+        concl = problem.conclusion.expr.model_dump(mode="json", exclude_none=True)
+    except Exception:
+        return None
+    if _bool_symbols(expr, sorts):
+        return None
+    syms = frozenset(_numeric_symbols(expr, sorts))
+    if not syms or not _solved_form(concl, syms, sorts):
+        return None
+    from ...stem import build_document
+    readings = _Readings(problem)
+    for text in request_texts:
+        if not text or not text.strip() or len(text) > _TASK_TEXT_MAX:
+            continue
+        try:
+            doc = build_document("", text, "mathematics_aa")
+        except Exception:
+            continue
+        targets = [(tg.start, tg.end) for tg in doc.request.targets] + target_spans(text)
+        for left, op, right in doc.request.relations:
+            ir_op = _TASK_RELATION_OPS.get(op)
+            if ir_op is None or left.error or right.error or len(left.readings) != 1 or len(right.readings) != 1:
+                continue
+            if any(a < right.end and left.start < b for a, b in targets):
+                continue  # a "show that" target is never data (rule same-quantity)
+            if figure_context(text, left.start, right.end)[0] != CONTEXT_STATEMENT:
+                continue  # asked, denied, offered as one of alternatives, put up for examination: no statement (rule statement-context)
+            budget = [_TASK_NODES_MAX]
+            lhs, rhs = _stem_relation_ir(left.node, sorts, budget), _stem_relation_ir(right.node, sorts, budget)
+            if lhs is None or rhs is None:
+                continue
+            relation = {"op": ir_op, "left": lhs, "right": rhs}
+            if not _expr_symbols(relation) or not _expr_symbols(relation) <= syms:
+                continue
+            if readings.arithmetic(relation, expr) is True:
+                return text[left.start:right.end]
+    return None
 
 
 def _excerpt_targets(g: Any, report: SpecialistReport, figures: list[Fraction]) -> list[Fraction]:

@@ -1514,7 +1514,7 @@ to fail on the tree before the round. The hold-out was not read.
 | ADV5-16 | an extrapolation far beyond chemistry data passed | unit homographs never continue a unit (3.4) | `stem/test_repair_round5_stem.py` |
 | rerun-fidelity-1 (list and qualifier) | an excerpt verified one quantity with another's figure | list items, comma-cut qualifiers and table cells are read (3.2) | `translate/test_repair_round5_translate.py` |
 | rerun-parser-safety-11 (generic lists) | list answers were quadratic in the generic parser | lines and paragraphs read once, supports indexed and found by bisection, earlier sentences grown in one pass | `branches/test_repair_round5_generic_lists.py` |
-| rerun-stem-soundness-10 (nested ±) | a correct "±" chain was charged | a "±" equation is two equations (3.4) | `stem/test_repair_round5_stem.py` |
+| rerun-stem-soundness-10 (nested ±) | a correct "±" chain was charged | a "±" equation is two equations (3.4); on the integrated tree since integration gate 1 (rule or-roots) | `stem/test_repair_round5_stem.py`, `stem/test_integration_gate1_stem.py` |
 | rerun-robustness-and-contracts-7 (nested JSON) | a nested envelope was "no answer" | envelopes nested up to four levels and one envelope tag are unwrapped | `channel/test_repair_round5_channel.py` |
 | rerun-robustness-and-contracts-8 (truncated) | a cut structured reply was read as prose | an unclosed Python-notation envelope, an unclosed tag or a JSON report after prose is INT-REQ-009 | the same |
 | rerun-combinator-faults-3 (status forms) | short status forms passed | the forms of 3.3 | `integrity/test_repair_round5_ledger.py` |
@@ -2573,7 +2573,9 @@ Not ported, duplicates or readings the integrated front end makes its own way (2
   `test_control_the_correct_formula_over_values_the_request_gives_raises_nothing` (the integrated ST-UNDEC-002 on the same
   working), the case 'minutes in P = E/t' and the controls 'seconds' and 'seconds for hours' (space-grouped numerals).
 * `tests/stem/test_repair_round5_stem.py`: `test_a_count_the_request_states_in_a_sentence_is_the_value_of_n0`,
-  `test_a_plus_minus_step_inside_a_chain_is_two_equations` (roots), `test_grams_substituted_against_a_specific_heat_per_kilogram_is_a_missing_conversion`
+  `test_a_plus_minus_step_inside_a_chain_is_two_equations` (roots; since integration gate 1 the correct roots raise no error on
+  this tree either, rule or-roots: a step's conclusion is the disjunction its statement writes with 'or', tested in
+  `tests/stem/test_integration_gate1_stem.py`), `test_grams_substituted_against_a_specific_heat_per_kilogram_is_a_missing_conversion`
   (a space-grouped result), and the 'one-half glyph' and 'slash half' cases of `test_a_wrong_formula_written_as_adjacent_letters_is_a_wrong_formula`
   (adjacent letters read as a product).
 * `tests/stem/test_close1_stem.py::test_control_a_restatement_of_the_same_sign_is_still_checked` (the result readings).
@@ -2677,6 +2679,10 @@ integrated base's (5990526), and no case of the three corpora is worse on the po
   integrated check, reported here and not changed by the port (the integrated behaviour stays). The feature's `written`
   companion named it on the feature line; on this tree a companion inherits the same band, so porting it would not name
   this case and would only repeat the main check's verdict elsewhere.
+  **Fixed since integration gate 1** (`stem/checks.py` `_compare` takes the half-width of the node it belongs to, so a
+  substitution's numeric side is scaled into the SI band): 'A = I/M = 0.030 µm', '= 450 µm' and '= 9000 µm' with I = 12 mm
+  and M = 400 fail (stem-sub-1 UNSATISFIABLE, INT-SUBJ-001) and '= 30 µm' holds; regression tests in
+  `tests/stem/test_integration_gate1_stem.py`.
 
 **Measured after repair 1** (`EPINOIC_ARENA_ROUNDS` set to a fresh copy of the recorded rounds): the full suite 12544
 passed, 45 deselected (by the suite's own configuration), 3 xfailed, no failure. Corpora (the feature line's figures in

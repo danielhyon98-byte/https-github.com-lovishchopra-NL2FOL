@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from epinoic_logic import branches as _branches
+from epinoic_logic.channel import bus as _bus
 from epinoic_logic import engine as _engine
 from epinoic_logic import integrity as _integrity
 from epinoic_logic.ir import schema as _schema
@@ -136,7 +137,7 @@ T = SimpleNamespace(
     Synthesis=_integrity.Synthesis, SynthesizedClaim=_integrity.SynthesizedClaim, SourceRef=_schema.SourceRef, ClaimRecord=_contracts.ClaimRecord,
     SpecialistReport=_contracts.SpecialistReport, SuppliedText=_contracts.SuppliedText, sha256_text=_contracts.sha256_text,
     verify_claim=_outcome.verify_claim, Translator=_pipeline.Translator, FixtureTranslationProvider=_fixture.FixtureTranslationProvider,
-    FixtureReviewProvider=_fixture.FixtureReviewProvider, SemanticReviewer=_review.SemanticReviewer, overseer=None)
+    FixtureReviewProvider=_fixture.FixtureReviewProvider, SemanticReviewer=_review.SemanticReviewer, overseer=None, bus=_bus)
 Tree = SimpleNamespace
 
 
@@ -178,7 +179,9 @@ def make_verify_fn(T: Tree, matcher: Matcher, cfg, fidelity: str, log: list):
     def verify_fn(claim, report, task=None):
         hit = matcher.find(claim)
         if hit is None:
-            return None
+            # the case serves translations for its claims of interest only: the others are outside its scope, not skipped
+            # checks (a tree without the sentinel reads None as before)
+            return getattr(getattr(T, "bus", None), "CLAIM_OUT_OF_SCOPE", None)
         i, item = hit
         matcher.served.setdefault(i, []).append(claim.claim_id)
         obj = json.loads(json.dumps(item["proposal"]))

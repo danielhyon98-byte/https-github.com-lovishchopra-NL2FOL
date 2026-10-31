@@ -23,7 +23,19 @@ Resource bounds: ``SolverConfig.timeout_ms`` is applied to each solver call, so 
 entailment run may take up to twice the timeout. ``rlimit`` gives a deterministic
 cutoff independent of wall-clock. A solver answer of ``unknown`` is classified as
 TIMEOUT when Z3's reason mentions a timeout, cancellation or resource limit, and
-as UNKNOWN otherwise. Neither is ever a success.
+as UNKNOWN otherwise. Neither is ever a success. A caller with a deadline of its own (the
+runner's coverage probes) passes ``deadline``: each solver call is then bounded by what
+remains of it as well, and a call the deadline leaves no time for is not started (TIMEOUT).
+
+Models: a model is extracted only when it is reported (a witness or a counterexample; never
+for the consistency check that precedes an entailment run, whose model nobody reads), and the
+extraction is timed as its own stage (``model``). Converting a solver value to text costs time
+that grows faster than its length and runs outside the solver's timeout, and a linear problem
+within the validation limits can force values of tens of thousands of digits (a chain of
+constant products), so every value is bounded BEFORE it is converted: an integer, a numerator
+or a denominator of more than :data:`MAX_MODEL_VALUE_DIGITS` decimal digits is not reported, and
+the procedure answers UNKNOWN (``reason_unknown`` says why; never a success) instead of stalling
+the caller (integration gate, round 1: 5 to 8 s per call at 24,840 digits).
 """
 from __future__ import annotations
 
@@ -52,6 +64,17 @@ _applied_memory_mb: Optional[int] = None
 _active_verifications = 0
 _TIMEOUT_REASONS = ("timeout", "canceled", "cancelled", "resource", "interrupted", "max. resource")
 _MEMOUT_REASONS = ("memout", "memory")
+#: The most decimal digits a reported model value may have (an integer, or a rational's numerator or denominator; an
+#: algebraic value's magnitude): checked on the solver's own numbers before any value is converted to text.
+MAX_MODEL_VALUE_DIGITS = 1000
+#: ``reason_unknown`` of an UNKNOWN answer whose model held a value beyond that bound.
+MODEL_OUT_OF_RANGE = "model value out of range"
+#: ``reason_unknown`` of a call a caller's deadline left no time for (classified TIMEOUT).
+DEADLINE_REACHED = "deadline reached before the solver call (timeout)"
+
+
+class ModelValueOutOfRange(ValueError):
+    """A model value has more than :data:`MAX_MODEL_VALUE_DIGITS` digits; it is never converted to text."""
 
 
 @dataclass
@@ -64,11 +87,20 @@ class ProcedureOutcome:
     timings: list[StageTiming] = field(default_factory=list)
     smt2: Optional[str] = None
     memout: bool = False
+    #: the solver answered sat, but a value of its model is beyond :data:`MAX_MODEL_VALUE_DIGITS`: reported UNKNOWN
+    model_out_of_range: bool = False
 
 
-def _make_solver(compiled: Compiled, config: SolverConfig) -> z3.Solver:
+def _remaining_ms(deadline: Optional[float]) -> Optional[int]:
+    """Milliseconds left before ``deadline`` (a ``time.perf_counter()`` value), or None without a deadline."""
+    if deadline is None:
+        return None
+    return int((deadline - time.perf_counter()) * 1000.0)
+
+
+def _make_solver(compiled: Compiled, config: SolverConfig, timeout_ms: Optional[int] = None) -> z3.Solver:
     solver = z3.Solver(ctx=compiled.ctx)
-    solver.set("timeout", int(config.timeout_ms))
+    solver.set("timeout", int(config.timeout_ms if timeout_ms is None else max(1, min(int(config.timeout_ms), int(timeout_ms)))))
     if config.rlimit is not None:
         solver.set("rlimit", int(config.rlimit))
     solver.set("random_seed", int(config.random_seed))
@@ -154,12 +186,51 @@ def format_value(value: z3.ExprRef) -> str:
     return str(value)
 
 
+def _within_bound(value: z3.ExprRef, bound: z3.ArithRef) -> bool:
+    """Whether a model value lies within the reporting bound, decided on the solver's own numbers (a comparison of
+    numerals, no conversion to text): ``|v| < bound`` for an integer or an algebraic value, the same for a rational's
+    numerator and its denominator. Anything else (a Boolean) is within it."""
+    if z3.is_int_value(value):
+        parts = [value]
+    elif z3.is_rational_value(value):
+        parts = [value.numerator(), value.denominator()]
+    elif z3.is_algebraic_value(value):
+        parts = [value]
+    else:
+        return True
+    for part in parts:
+        b = bound if z3.is_int(part) else z3.ToReal(bound)
+        if not z3.is_true(z3.simplify(z3.And(part < b, part > -b))):
+            return False
+    return True
+
+
 def extract_model(compiled: Compiled, model: z3.ModelRef, completion: bool) -> dict[str, str]:
-    """Exact values for every declared symbol, in declaration order."""
-    out: dict[str, str] = {}
+    """Exact values for every declared symbol, in declaration order. Every value is checked against
+    :data:`MAX_MODEL_VALUE_DIGITS` before it is converted to text; a value beyond it raises
+    :class:`ModelValueOutOfRange` (naming the symbol, never the value), so no extraction runs unbounded."""
+    bound = z3.IntVal("1" + "0" * MAX_MODEL_VALUE_DIGITS, compiled.ctx)
+    values: list[tuple[str, z3.ExprRef]] = []
     for name, sym in compiled.symbols.items():
-        out[name] = format_value(model.eval(sym, model_completion=completion))
-    return out
+        value = model.eval(sym, model_completion=completion)
+        if not _within_bound(value, bound):
+            raise ModelValueOutOfRange(f"{MODEL_OUT_OF_RANGE}: the value of {name} has more than {MAX_MODEL_VALUE_DIGITS} digits "
+                                       "(the engine reports exact model values only within this bound)")
+        values.append((name, value))
+    return {name: format_value(value) for name, value in values}
+
+
+def _reported_model(compiled: Compiled, solver: z3.Solver, config: SolverConfig, timings: list[StageTiming]) -> dict[str, str]:
+    """The model of a sat answer, extracted and timed as its own stage (``model``)."""
+    start = time.perf_counter()
+    try:
+        return extract_model(compiled, solver.model(), config.model_completion)
+    finally:
+        timings.append(StageTiming(stage="model", ms=(time.perf_counter() - start) * 1000.0))
+
+
+def _out_of_range(exc: ModelValueOutOfRange, timings: list[StageTiming], smt2: Optional[str] = None) -> ProcedureOutcome:
+    return ProcedureOutcome(status=VerificationStatus.UNKNOWN, reason_unknown=str(exc), timings=timings, smt2=smt2, model_out_of_range=True)
 
 
 def _tracked_assertions(solver: z3.Solver, compiled: Compiled, negate_conclusion: bool) -> list[tuple[str, z3.BoolRef]]:
@@ -196,13 +267,27 @@ def _smt2_or_none(compiled: Compiled, config: SolverConfig, negate_conclusion: b
     return to_smt2(compiled, negate_conclusion=negate_conclusion) if config.produce_smt2 else None
 
 
+def _deadline_reached(timings: list[StageTiming], stage: str) -> ProcedureOutcome:
+    timings.append(StageTiming(stage=stage, ms=0.0))
+    return ProcedureOutcome(status=VerificationStatus.TIMEOUT, reason_unknown=DEADLINE_REACHED, timings=timings)
+
+
 def _check_premises(compiled: Compiled, config: SolverConfig, stage: str, sat_status: VerificationStatus,
-                    unsat_status: VerificationStatus, timings: list[StageTiming]) -> ProcedureOutcome:
-    solver = _make_solver(compiled, config)
+                    unsat_status: VerificationStatus, timings: list[StageTiming], *, extract: bool = True,
+                    deadline: Optional[float] = None) -> ProcedureOutcome:
+    remaining = _remaining_ms(deadline)
+    if remaining is not None and remaining < 1:
+        return _deadline_reached(timings, stage)
+    solver = _make_solver(compiled, config, remaining)
     tracks = _tracked_assertions(solver, compiled, negate_conclusion=False)
     result = _timed_check(solver, tracks, stage, timings)
     if result == z3.sat:
-        return ProcedureOutcome(status=sat_status, model=extract_model(compiled, solver.model(), config.model_completion), timings=timings)
+        if not extract:
+            return ProcedureOutcome(status=sat_status, timings=timings)
+        try:
+            return ProcedureOutcome(status=sat_status, model=_reported_model(compiled, solver, config, timings), timings=timings)
+        except ModelValueOutOfRange as exc:
+            return _out_of_range(exc, timings)
     if result == z3.unsat:
         return ProcedureOutcome(status=unsat_status, core=_core_ids(solver, tracks), timings=timings)
     status, reason, memout = _classify_unknown(solver)
@@ -225,20 +310,28 @@ def run_satisfiability(compiled: Compiled, config: SolverConfig) -> ProcedureOut
     return outcome
 
 
-def run_entailment(compiled: Compiled, config: SolverConfig) -> ProcedureOutcome:
-    """Do the premises entail the conclusion? Consistency is checked first."""
+def run_entailment(compiled: Compiled, config: SolverConfig, *, deadline: Optional[float] = None, extract: bool = True) -> ProcedureOutcome:
+    """Do the premises entail the conclusion? Consistency is checked first (its model is never extracted: no witness is
+    reported for the precheck). ``deadline`` bounds both solver calls by what remains of it; ``extract=False`` reports a
+    COUNTEREXAMPLE without its model (a probe that needs only the status)."""
     if compiled.conclusion is None:
         raise ValueError("entailment requires a conclusion")
     timings: list[StageTiming] = []
     smt2 = _smt2_or_none(compiled, config, negate_conclusion=True)
 
-    first = _check_premises(compiled, config, "consistency", VerificationStatus.CONSISTENT, VerificationStatus.INCONSISTENT_PREMISES, timings)
+    first = _check_premises(compiled, config, "consistency", VerificationStatus.CONSISTENT, VerificationStatus.INCONSISTENT_PREMISES, timings,
+                            extract=False, deadline=deadline)
     if first.status is not VerificationStatus.CONSISTENT:
         first.smt2 = smt2
         first.model = None  # no witness is reported for a failed or inconsistent precheck
         return first
 
-    solver = _make_solver(compiled, config)
+    remaining = _remaining_ms(deadline)
+    if remaining is not None and remaining < 1:
+        out = _deadline_reached(timings, "entailment")
+        out.smt2 = smt2
+        return out
+    solver = _make_solver(compiled, config, remaining)
     tracks = _tracked_assertions(solver, compiled, negate_conclusion=True)
     result = _timed_check(solver, tracks, "entailment", timings)
     if result == z3.unsat:
@@ -250,10 +343,12 @@ def run_entailment(compiled: Compiled, config: SolverConfig) -> ProcedureOutcome
             timings=timings, smt2=smt2,
         )
     if result == z3.sat:
-        return ProcedureOutcome(
-            status=VerificationStatus.COUNTEREXAMPLE,
-            model=extract_model(compiled, solver.model(), config.model_completion),
-            timings=timings, smt2=smt2,
-        )
+        if not extract:
+            return ProcedureOutcome(status=VerificationStatus.COUNTEREXAMPLE, timings=timings, smt2=smt2)
+        try:
+            model = _reported_model(compiled, solver, config, timings)
+        except ModelValueOutOfRange as exc:
+            return _out_of_range(exc, timings, smt2)
+        return ProcedureOutcome(status=VerificationStatus.COUNTEREXAMPLE, model=model, timings=timings, smt2=smt2)
     status, reason, memout = _classify_unknown(solver)
     return ProcedureOutcome(status=status, reason_unknown=reason, timings=timings, smt2=smt2, memout=memout)
