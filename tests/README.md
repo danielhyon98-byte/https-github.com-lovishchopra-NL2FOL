@@ -1104,3 +1104,15 @@ Work in progress after it is labelled as such.
   service, and a rebuild of the website patch set against the website's current main. The development corpus still flags
   25 of 57 clean answers (detection quality, not critical).
 - Integration gate, round 2: the 7 lenses that reported a critical finding in round 1 are re-checking the committed tree.
+
+### Progress, 19:00 UTC (31 October)
+
+- Integration gate, round 2, on the committed round-1 fixes (35f1be1): six of the seven re-run lenses have reported.
+  Solver robustness, STEM soundness and security found no critical issue (3, 14 and 3 lesser findings); their round-1
+  critical findings are confirmed fixed. Three lenses found critical issues: parser safety 8 (further regular-expression
+  blow-ups of the same kinds in other modules: request labels, chronology heads, English sentence ends, accuracy marks,
+  code fences, ledger name partners and figure lists), correctness 1 (a new round-1 regression test depends on a 50 ms
+  solver time limit and can fail on a loaded machine) and combinator faults 1 (a synthesis whose defaulted fields hold no
+  value is not rejected at the hub). The fresh-session integration lens is still running.
+- The round-2 fixes treat each blow-up as a class: every module in a fixer's paths is swept for the same kinds of pattern,
+  with one hostile-input regression test per module.
