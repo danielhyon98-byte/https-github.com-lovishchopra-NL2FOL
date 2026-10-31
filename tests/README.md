@@ -1116,3 +1116,9 @@ Work in progress after it is labelled as such.
   value is not rejected at the hub). The fresh-session integration lens is still running.
 - The round-2 fixes treat each blow-up as a class: every module in a fixer's paths is swept for the same kinds of pattern,
   with one hostile-input regression test per module.
+
+### Progress, 20:00 UTC (31 October)
+
+- Integration gate, round 2: six of seven lenses reported (11 critical findings in three lenses, listed at 19:00); the
+  fresh-session integration lens is in its last step, the overseer-attached suite of the integration playbook. The
+  round-2 fixes start when it reports.
