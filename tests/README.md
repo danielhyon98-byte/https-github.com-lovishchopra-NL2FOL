@@ -1049,3 +1049,15 @@ Work in progress after it is labelled as such.
   none failed). Its knowledge pack 1.3 is restored to its released content and the changes ship as pack 1.4; the
   integration contract moves to 0.5 and documents the two new signed result fields.
 - The integration gate (14 independent lenses) is running before arena round 8.
+
+### Progress, 06:00 UTC (31 October)
+
+- Integration gate, round 1: all 14 independent lenses on the integrated tree 6ac78cc have run or are finishing (12 of 14
+  reported). They report 102 findings, 19 of them critical to the infrastructure: 12 text patterns whose running time
+  grows with the square of the input (a 2,500-character answer can stall the hub; 10 were found in an earlier gate and
+  still reproduce), 2 solver time-limit gaps (model extraction outside the timeout; full-timeout coverage probes after a
+  counterexample), 2 combinator faults (duplicate STEM claim ids across two specialists; citations rewritten before the
+  hub sees them), 1 delivery label (formally checked despite a STEM line not checked), 1 receipt gap (a verifier with no
+  outcome leaves no trace) and 1 provenance gap (a relayed peer report relabelled as a primary source).
+- Every finding goes to a fix round with a regression test per fix, then the full suite and every recorded round; round 2
+  of the gate re-runs the lenses that found a critical issue. Arena round 8 starts only when no critical issue is left.
