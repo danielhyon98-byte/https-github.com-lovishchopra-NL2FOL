@@ -1415,16 +1415,21 @@ def test_a_translation_keyed_by_the_delivered_qualified_id_reaches_the_claim_on_
 
 
 def test_only_the_two_forms_the_hub_gives_one_agents_stem_id_name_one_claim():
-    """A fixture serves the other form of its id only for a parser the hub asks to qualify ids (the STEM parsers), and only
-    with that agent's own tag. The generic parser qualifies every id it writes, so a generic fixture keyed 'g1.1' is an
-    older parse's and stays unserved (round 7's 200 such fixtures replay as before); another agent's id is never this
-    agent's claim; with both forms recorded, each serves its own."""
+    """A fixture serves the other form of its id only for a parser the hub asks to qualify ids (the STEM parsers, and since
+    integration gate 3 the History and English parsers), and only with that agent's own tag. The generic parser qualifies
+    every id it writes, so a generic fixture keyed 'g1.1' is an older parse's and stays unserved (round 7's 200 such
+    fixtures replay as before); another agent's id is never this agent's claim; with both forms recorded, each serves its
+    own. (Integration gate 3, handoff fixer: History and English asserted None here while their parsers never qualified;
+    each now asserts its agent's exact tag, the tag the hub qualifies their colliding ids with.)"""
     assert ra.qualification_tag({"subject": "Physics", "agent_id": "physics-specialist"}) == "physics-specialist"
     assert ra.qualification_tag({"subject": "Mathematics: Analysis and Approaches", "agent_id": "mathematics-aa-specialist"}) == "mathematics-aa-specialist"
     assert ra.qualification_tag({"subject": "Computer Science", "agent_id": "computer-science-specialist"}) == "computer-science-specialist"
-    for subject, agent in (("Geography", "geography-specialist"), ("Economics", "economics-specialist"), ("History", "history-specialist"),
-                           ("English A: Literature", "english-specialist")):
+    assert ra.qualification_tag({"subject": "History", "agent_id": "history-specialist"}) == "history-specialist"
+    assert ra.qualification_tag({"subject": "English A: Literature", "agent_id": "english-specialist"}) == "english-specialist"
+    assert ra.qualification_tag({"subject": "History", "agent_id": "history-specialist@b"}) == ra.agent_claim_tag("history-specialist@b") != "history-specialist@b"
+    for subject, agent in (("Geography", "geography-specialist"), ("Economics", "economics-specialist")):
         assert ra.qualification_tag({"subject": subject, "agent_id": agent}) is None, subject
+    assert ra.other_id_form("h1.1", "history-specialist") == "h1.1@history-specialist" and ra.other_id_form("p1-point@english-specialist", "english-specialist") == "p1-point"
     long_agent = "a physics specialist with a long, spaced name"
     assert ra.qualification_tag({"subject": "Physics", "agent_id": long_agent}) == ra.agent_claim_tag(long_agent) != long_agent, "the parser's own tag"
     tag = "physics-specialist"

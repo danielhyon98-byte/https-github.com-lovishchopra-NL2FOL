@@ -67,7 +67,7 @@ from .numbers import ExactNumber
 from .relations import ST_SEVERITY, Relation
 from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, literal_text, nary, real, to_frame, var_term
 from .scope import Binding, si_value
-from .tolerance import SHORT_RULE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
+from .tolerance import SHORT_RULE, STEM_SCOPE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
 from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
 from .reference import unit_written_once
 from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, is_data_unit, parse_unit
@@ -177,12 +177,193 @@ def build_checks(doc: StemDocument, *, report_id: str = "report", request_id: Op
     for rel in doc.checks:
         if relay and rel.kind in ("giv", "tgt"):
             continue
-        out = build_check(doc, rel, report_id=report_id, request_id=request_id)
-        if isinstance(out, PlannedCheck):
-            checks.append(out)
-        else:
-            findings.append(out)
+        outs = _dot_checks(doc, rel, report_id, request_id) if _holds_middle_dot(doc, rel) else (build_check(doc, rel, report_id=report_id, request_id=request_id),)
+        for out in outs:
+            if isinstance(out, PlannedCheck):
+                checks.append(out)
+            else:
+                findings.append(out)
     return CheckPlan(tuple(checks), tuple(findings))
+
+
+# --------------------------------------------------------------------------- rule middle-dot (integration gate 3)
+
+#: the kinds whose check reads nothing of a relation but its operands: each reading of a middle dot is a relation of its own
+_DOT_BOTH_KINDS = frozenset({"eq", "cmp", "cnv", "res", "tgt", "giv", "base"})
+_DOT_READING_WORDS = {"decimal": "a decimal point", "product": "a product"}
+
+
+def _dot_operands(rel: Relation) -> dict[str, Optional[Operand]]:
+    """The operands of a relation that a middle dot's readings replace (rule middle-dot)."""
+    return {"left": rel.left, "right": rel.right, "premise_left": rel.premise_left, "premise_right": rel.premise_right}
+
+
+def _carries_dot(rel: Relation) -> bool:
+    return any(op is not None and op.dot for op in _dot_operands(rel).values())
+
+
+def _holds_middle_dot(doc: StemDocument, rel: Relation) -> bool:
+    """The relation reads a middle dot between digits (rule middle-dot): an operand carries its readings, or the text of the relation
+    holds one."""
+    if _carries_dot(rel):
+        return True
+    return bool(doc.dots) and any(rel.start <= k < rel.end for k in doc.dots)
+
+
+def _relation_reading(rel: Relation, label: str) -> Optional[Relation]:
+    """``rel`` with every operand that holds a middle dot read one way (``decimal`` or ``product``); None when an operand has no such
+    reading."""
+    fields: dict = {}
+    for name, op in _dot_operands(rel).items():
+        if op is None or not op.dot:
+            continue
+        if label not in op.dot:
+            return None
+        fields[name] = replace(op, readings=(op.readings[op.dot.index(label)],), dot=())
+    return replace(rel, **fields) if fields else rel
+
+
+def _dot_checks(doc: StemDocument, rel: Relation, report_id: str, request_id: Optional[str]) -> tuple:
+    """Rule ``middle-dot`` (integration gate 3): the checks of a relation that holds a middle dot between two digits with no blank ('5·0',
+    the raised decimal point of British writing, or a product). A relation that is nothing but its operands (written arithmetic, a
+    comparison, a conversion, a restatement, a target, a Given, a base) is built under each reading, and the two problems are joined:
+    the check under its own id holds when every reading holds (failure severity warning: a reading the answer did not state), and a
+    companion, its id with 'd', holds when some reading holds (failure severity error, the reading's own severity being error): an error
+    only when every reading fails, a warning when the readings disagree, nothing when both hold. A relation of any other kind (a
+    substitution, a step, roots: read through bindings and formulas of the first reading), and one that only one reading can encode, is
+    decided under that reading at warning severity. Before, the dot was always a product: '20/4.0 = 5·0' failed (5 = 0) and the wrong
+    '20/4·0 = 6·0' held (0 = 0)."""
+    # an operand that carries both readings; a relation whose text holds such a dot but whose operands carry no readings (a Given set
+    # against the request through its binding, which takes the first reading) is decided under that reading only
+    both = rel.kind in _DOT_BOTH_KINDS and _carries_dot(rel)
+    decimal = _relation_reading(rel, "decimal")
+    product = _relation_reading(rel, "product") if both else None
+    built: dict[str, object] = {}
+    for label, r in (("decimal", decimal), ("product", product)):
+        if r is not None:
+            built[label] = build_check(doc, r, report_id=report_id, request_id=request_id)
+    ok = {k: v for k, v in built.items() if isinstance(v, PlannedCheck)}
+    if len(ok) == 2:
+        return _join_dot_readings(ok["decimal"], ok["product"], rel, doc)
+    if len(ok) == 1:
+        label, pc = next(iter(ok.items()))
+        other = "product" if label == "decimal" else "decimal"
+        if not both:
+            why = " (the reading the relation was planned under: its substitutions, steps, roots and bindings are read through it)"
+        elif other in built:
+            other_out = built[other]
+            why = f" ({_DOT_READING_WORDS[other]} gives no check: {other_out.message[:120] if isinstance(other_out, CheckFinding) else ''})"
+        else:
+            why = " (the only reading of its operands)"
+        note = (f"rule middle-dot: the middle dot between digits in '{_dot_excerpt(doc, rel)}' is read as {_DOT_READING_WORDS[label]}{why}; "
+                "a reading the answer did not state, so a failure is a warning")
+        return (replace(pc, failure_severity="warning", description=_with_note(pc.description, note)),)
+    return (built.get("decimal") or built.get("product") or _finding("ST-PARSE-001", "the middle dot between digits could not be read either way", rel),)
+
+
+def _dot_excerpt(doc: StemDocument, rel: Relation) -> str:
+    text = doc.text[rel.start:rel.end] if 0 <= rel.start < rel.end <= len(doc.text) else ""
+    return " ".join(text.split())[:80]
+
+
+def _with_note(description: str, note: str) -> str:
+    """``description`` with ``note`` in brackets after its claims (within the description bound)."""
+    k = description.find("] [")
+    text = (description[:k + 1] + f" [{note}]" + description[k + 1:]) if k >= 0 else f"{description} [{note}]"
+    return text if len(text) <= _MAX_DESCRIPTION else text[:_MAX_DESCRIPTION - 1] + "…"
+
+
+def _renamed(expr, prefix: str):
+    """A copy of an IR expression (data) with every variable renamed ``prefix + name``."""
+    if isinstance(expr, dict):
+        if expr.get("op") == "var":
+            return dict(expr, name=prefix + expr["name"])
+        return {k: _renamed(v, prefix) for k, v in expr.items()}
+    if isinstance(expr, list):
+        return [_renamed(v, prefix) for v in expr]
+    return expr
+
+
+def _reading_problem(problem: dict, prefix: str, pid_prefix: str, words: str) -> Optional[tuple[list, list, Optional[dict]]]:
+    """The symbols, premises and conclusion of one reading's problem, renamed apart (``d_`` / ``p_``); None when a name would break the
+    IR's bounds."""
+    symbols, premises = [], []
+    for sym in problem.get("symbols", []):
+        name = prefix + sym["name"]
+        if len(name) > 64:
+            return None
+        entry = dict(sym, name=name)
+        if sym.get("meaning"):
+            entry["meaning"] = f"({words}) {sym['meaning']}"[:1000]
+        symbols.append(entry)
+    for prem in problem.get("premises", []):
+        pid = pid_prefix + prem["id"]
+        if len(pid) > 128:
+            return None
+        premises.append(dict(prem, id=pid, expr=_renamed(prem["expr"], prefix), label=f"({words}) {prem.get('label', '')}"[:1000]))
+    concl = problem.get("conclusion")
+    if concl is not None:
+        concl = dict(concl, expr=_renamed(concl["expr"], prefix))
+    return symbols, premises, concl
+
+
+def _join_dot_readings(dec: PlannedCheck, prod: PlannedCheck, rel: Relation, doc: StemDocument) -> tuple:
+    """The check that every reading holds (warning) and its companion that some reading holds (the readings' own severity): one IR problem
+    each, the two readings' symbols and premises renamed apart (``d_`` for the decimal point, ``p_`` for the product), so the engine decides
+    both readings in one problem: Form E as the conjunction or the disjunction of the two conclusions, Form S as both tolerance bands or
+    either. A pair of readings of different forms is ST-PARSE-002 (not checked)."""
+    if dec.form != prod.form or dec.form not in ("E", "S") or dec.expected_if_sound != prod.expected_if_sound:
+        return (_finding("ST-PARSE-002", "the two readings of the middle dot between digits (a decimal point, a product) need encodings of different "
+                                         "forms (rule middle-dot); not checked", rel),)
+    d = _reading_problem(dec.problem, "d_", "D.", "decimal-point reading")
+    p = _reading_problem(prod.problem, "p_", "P.", "product reading")
+    if d is None or p is None:
+        return (_finding("ST-LIM-001", "the two readings of the middle dot between digits do not fit one problem (rule middle-dot)", rel),)
+    rest_d = dec.problem.get("notes", "").replace(STEM_SCOPE, "", 1).strip()
+    rest_p = prod.problem.get("notes", "").replace(STEM_SCOPE, "", 1).strip()
+    notes = (f"{STEM_SCOPE} rule middle-dot: a middle dot between digits read as a decimal point (symbols d_…) and as a product (symbols p_…). "
+             f"Decimal-point reading: {rest_d} Product reading: {rest_p}")
+    if len(notes) > 4000:
+        notes = notes[:3997] + "…"
+    base = {"ir_version": "1.0", "problem_id": dec.problem["problem_id"], "request_id": dec.problem["request_id"], "claim_id": dec.problem["claim_id"],
+            "query": dec.problem["query"], "symbols": d[0] + p[0], "notes": notes}
+    excerpt = _dot_excerpt(doc, rel)
+    if dec.form == "E":
+        each = dict(base, premises=d[1] + p[1], conclusion={"id": "EACH", "expr": {"op": "and", "args": [d[2]["expr"], p[2]["expr"]]},
+                                                             "label": "the stated value lies in its band under each reading of the middle dot",
+                                                             "grounding": d[2].get("grounding") or grounding("figure")})
+        some = dict(base, premises=d[1] + p[1], conclusion={"id": "SOME", "expr": {"op": "or", "args": [d[2]["expr"], p[2]["expr"]]},
+                                                             "label": "the stated value lies in its band under some reading of the middle dot",
+                                                             "grounding": d[2].get("grounding") or grounding("figure")})
+    else:
+        bands = {pr["id"]: pr for pr in d[1] + p[1] if pr["id"] in ("D.BAND", "P.BAND")}
+        if len(bands) != 2:
+            return (_finding("ST-PARSE-002", "the two readings of the middle dot between digits could not be joined (rule middle-dot); not checked", rel),)
+        rest = [pr for pr in d[1] + p[1] if pr["id"] not in bands]
+        each = dict(base, premises=d[1] + p[1])
+        some = dict(base, premises=rest + [{"id": "BAND", "expr": {"op": "or", "args": [bands["D.BAND"]["expr"], bands["P.BAND"]["expr"]]},
+                                            "label": "the stated value lies in its band under some reading of the middle dot",
+                                            "grounding": bands["D.BAND"].get("grounding") or grounding("figure")}])
+    some["problem_id"] = _ident(dec.problem["problem_id"] + "-d")
+    for problem in (each, some):
+        rep = inspect_ir(problem)
+        if rep.symbols > IR_LIMITS["symbols"] or rep.premises > IR_LIMITS["premises"] or rep.nodes > IR_LIMITS["nodes"] or rep.depth > IR_LIMITS["depth"]:
+            return (_finding("ST-LIM-001", f"the two readings of the middle dot between digits need {rep.symbols} symbols, {rep.premises} premises and "
+                                           f"{rep.nodes} IR nodes, beyond the bound of one check (rule middle-dot)", rel),)
+    policy = "nonlinear" if "nonlinear" in (dec.policy, prod.policy) else "linear"
+    readings = tuple(f"decimal point: {r}" for r in dec.readings) + tuple(f"product: {r}" for r in prod.readings)
+    severity = "error" if dec.failure_severity == prod.failure_severity == "error" else "warning"
+    each_note = (f"rule middle-dot: the middle dot between digits in '{excerpt}' is read as a decimal point (symbols d_…) and as a product "
+                 f"(symbols p_…); this check holds when every reading holds, a reading the answer did not state, so a failure is a warning; "
+                 f"{rel.check_id}d fails only when every reading fails")
+    some_note = (f"rule middle-dot: the middle dot between digits in '{excerpt}' is read as a decimal point (symbols d_…) and as a product "
+                 f"(symbols p_…); this check holds when some reading holds, so it fails only when every reading fails")
+    related = tuple(dict.fromkeys(dec.related_ids + prod.related_ids))
+    main = replace(dec, problem=each, policy=policy, failure_severity="warning", readings=readings, related_ids=related,
+                   description=_with_note(dec.description, each_note))
+    companion = replace(dec, check_id=rel.check_id + "d", problem=some, policy=policy, failure_severity=severity, readings=readings,
+                        related_ids=related, description=_with_note(dec.description, some_note))
+    return main, companion
 
 
 def build_check(doc: StemDocument, rel: Relation, *, report_id: str = "report", request_id: Optional[str] = None) -> "PlannedCheck | CheckFinding":
@@ -246,7 +427,9 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
     ever withholds a check; it never decides one."""
     if rel.title:
         return ""  # a check a rule built from two places of the text (STEM repair 3): its operands are where they are written, never cut
-    text = doc.text
+    # integration gate 3 (rules emphasis-layout and sign-forms): read with the emphasis markers blanked and the forms of a sign mapped,
+    # so the closing '**' of '**a = 20/4.0 = 6.0 m s⁻²**' is no operator adjoining '6.0 m s⁻²' (it withheld the check) and '＋' is '+'
+    text = doc.operand_view if len(doc.operand_view) == len(doc.text) else doc.text
     n = len(text)
     if "request" not in rel.premise_ids and 0 <= rel.start < rel.end <= n:
         # stem-soundness-4 (round 7): a relation glued by a full stop to a letter or a bracket on either side ('A.B = B.C' read from

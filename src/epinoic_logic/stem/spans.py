@@ -52,7 +52,7 @@ from typing import Literal, Optional
 
 from .boolean import truth_table_shape
 from .chem import ELEMENTS, find_equations
-from .lexer import COMPLETE_UNSUP, Token, lex
+from .lexer import COMPLETE_UNSUP, Token, is_sign_error, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .layout import annotation_ranges, label_only_rest, plain_line
 from .normalize import blank_ranges, reading_view
@@ -137,6 +137,9 @@ class SpanSet:
     list_markers: tuple[tuple[int, int], ...] = ()
     heading_lines: tuple[int, ...] = ()
     math_view: str = ""
+    #: integration gate 3 (rule emphasis-layout): the emphasis markers outside code and LaTeX ('**', '__', '*', '_' pairs), which the
+    #: document blanks in its reading view so maths wrapped in emphasis is read as written without it
+    emphasis: tuple[tuple[int, int], ...] = ()
 
     def of_kind(self, *kinds: str) -> tuple[Span, ...]:
         return tuple(s for s in self.spans if s.kind in kinds)
@@ -424,11 +427,13 @@ def _display(view: str, start: int, end: int, a: int, b: int, lang: str, limits:
 # ----------------------------------------------------------------------------------------- markup
 
 
-def _markup(view: str, lines: tuple[Line, ...], covered: "_Cover") -> tuple[list[tuple[int, int]], list[PartLabel], list[tuple[int, int]], list[int]]:
+def _markup(view: str, lines: tuple[Line, ...], covered: "_Cover") -> tuple[list[tuple[int, int]], list[PartLabel], list[tuple[int, int]], list[int],
+                                                                       list[tuple[int, int]]]:
     markup: list[tuple[int, int]] = []
     parts: list[PartLabel] = []
     list_markers: list[tuple[int, int]] = []
     headings: list[int] = []
+    emphasis: list[tuple[int, int]] = []
     for ln in lines:
         if ln.end <= ln.start:
             continue
@@ -437,6 +442,7 @@ def _markup(view: str, lines: tuple[Line, ...], covered: "_Cover") -> tuple[list
             markup.extend(_furniture(view, ln, markup, covered, annotations_only=True))
             continue
         pos = ln.start
+        line_first = len(markup)  # the markup of this line starts here (a marker right before an emphasis marker is one of them)
         m = _HEADING_RE.match(view, pos, ln.end)
         if m is not None:
             text = view[m.end():ln.end].strip()
@@ -459,36 +465,96 @@ def _markup(view: str, lines: tuple[Line, ...], covered: "_Cover") -> tuple[list
             parts.append(PartLabel(text=label, start=pos + (len(view[pos:m.end()]) - len(view[pos:m.end()].lstrip())), end=m.end(), line=ln.index))
             markup.append((pos, m.end()))
             pos = m.end()
-        # emphasis markers: ** and __ pairs, and single * pairs around words
-        for marker in ("**", "__", "*"):
-            k = pos
-            while k < ln.end:
-                k = view.find(marker, k, ln.end)
-                if k < 0:
-                    break
-                if marker == "*" and (view.startswith("**", k) or (k > 0 and view[k - 1] == "*")):
-                    k += 1
-                    continue
-                before_ok = k == ln.start or view[k - 1] in " \t([\"'“‘" or (k - 1, k) in markup
-                after = k + len(marker)
-                if not before_ok or after >= ln.end or view[after] in " \t":
-                    k = after
-                    continue
-                close = view.find(marker, after, ln.end)
-                while close > 0 and marker == "*" and (view.startswith("**", close) or view[close - 1] == "*"):
-                    close = view.find(marker, close + 2, ln.end)
-                if close < 0 or view[close - 1] in " \t":
-                    k = after
-                    continue
-                tail = close + len(marker)
-                if tail < ln.end and (view[tail].isalnum()):
-                    k = after
-                    continue
-                markup.append((k, after))
-                markup.append((close, tail))
-                k = tail
+        # emphasis markers: ** and __ pairs, and single * pairs around words; integration gate 3 (rule emphasis-layout): every pair outside
+        # code and LaTeX is recorded apart (``emphasis``) so the document reads the maths it wraps as written without it ('**a = 20/4.0 =
+        # 6.0 m s⁻²**'), and so are single _ pairs around words outside code and LaTeX (where '_' opens a subscript: '= _6.0 m s⁻²_' had
+        # been an unread relation, dropped with nothing named), which are emphasis only: no markup a claim's text leaves out
+        marked = set(markup[line_first:])  # the test 'a marker right before' in one step (it had been a scan of every range so far)
+        line_markup, line_emphasis = _emphasis_pairs(view, ln.start, ln.end, pos, covered, marked)
+        markup.extend(line_markup)
+        emphasis.extend(line_emphasis)
         markup.extend(_furniture(view, ln, markup, covered))
-    return markup, parts, list_markers, headings
+    return markup, parts, list_markers, headings, emphasis
+
+
+#: the emphasis markers, longest first. Integration gate 3 (rule emphasis-layout): '***' and '___' (bold italic) are read first and
+#: blanked before the shorter markers are (their middle star had been left in the text: '= ***5.0 m s⁻²***.' dropped the relation with
+#: nothing named), and '~~' (strikethrough) takes the struck text with it ('= ~~6.0~~ 5.0' is '= 5.0'; it had been dropped)
+_EMPHASIS_MARKERS = ("***", "___", "**", "__", "~~", "*", "_")
+#: the markers whose pairs are emphasis only, never markup a claim's text leaves out (the overseer's figure reader reads a figure glued
+#: to an underscore as no figure, and struck text is still what the agent wrote)
+_EMPHASIS_ONLY = frozenset({"___", "_", "~~"})
+#: the markers never read inside code or LaTeX ('_' opens a subscript there, '~' is a space)
+_NOT_IN_MATH = frozenset({"___", "_", "~~"})
+_BEFORE_MARKER = " \t([\"'“‘"
+
+
+def _emphasis_pairs(view: str, start: int, end: int, pos: int, covered: "_Cover", marked: set[tuple[int, int]]) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """The emphasis pairs of the line ``view[start:end]`` from ``pos``: ``(markup ranges, emphasis ranges)``, as offsets of ``view``. A pair
+    opens after the line's start, a blank, an opening bracket or quotation mark, or a marker right before it (``marked``), before a
+    character that is no blank, and closes after one that is no blank and before no letter or digit, on the same line. ``**``, ``__`` and
+    ``*`` pairs (and ``***``) are markup and emphasis (as before), ``___``, ``_`` and ``~~`` pairs emphasis only (:data:`_EMPHASIS_ONLY`);
+    a pair inside code or LaTeX is no emphasis, and ``___``, ``_`` and ``~~`` are not read there at all. The line is searched as one
+    string, with the bold-italic pairs blanked once before the shorter markers are read: linear in the line."""
+    line = view[start:end]
+    n = len(line)
+    markup_out: list[tuple[int, int]] = []
+    emphasis_out: list[tuple[int, int]] = []
+    triples: list[tuple[int, int]] = []
+    for marker in _EMPHASIS_MARKERS:
+        if marker == "**" and triples:
+            chars = list(line)
+            for a, b in triples:
+                chars[a:b] = " " * (b - a)
+            line = "".join(chars)  # the bold-italic pairs taken: no shorter marker reads them again
+        if marker not in line:
+            continue
+        m = len(marker)
+        single = m == 1
+        ch = marker[0]
+        k = pos - start
+        while k < n:
+            k = line.find(marker, k)
+            if k < 0:
+                break
+            if single and (line.startswith(marker * 2, k) or (k > 0 and line[k - 1] == ch)):
+                k += 1
+                continue
+            if marker in _NOT_IN_MATH and _inside(start + k, covered):
+                k += 1
+                continue
+            before_ok = k == 0 or line[k - 1] in _BEFORE_MARKER or (start + k - 1, start + k) in marked
+            after = k + m
+            if not before_ok or after >= n or line[after] in " \t":
+                k = after
+                continue
+            close = line.find(marker, after)
+            while close > 0 and single and (line.startswith(marker * 2, close) or line[close - 1] == ch):
+                close = line.find(marker, close + 2)
+            if close < 0 or line[close - 1] in " \t" or (marker in _NOT_IN_MATH and _inside(start + close, covered)):
+                k = after
+                continue
+            tail = close + m
+            if tail < n and line[tail].isalnum():
+                k = after
+                continue
+            a0, a1, c0, c1 = start + k, start + after, start + close, start + tail
+            if marker not in _EMPHASIS_ONLY:
+                markup_out.append((a0, a1))
+                markup_out.append((c0, c1))
+            marked.add((a0, a1))
+            marked.add((c0, c1))
+            if not (_inside(a0, covered) or _inside(c0, covered)):
+                if marker == "~~":
+                    emphasis_out.append((a0, c1))  # struck text: blanked with its markers
+                else:
+                    emphasis_out.append((a0, a1))
+                    emphasis_out.append((c0, c1))
+            if m == 3:
+                triples.append((k, after))
+                triples.append((close, tail))
+            k = tail
+    return markup_out, emphasis_out
 
 
 def _furniture(view: str, ln: Line, markup: list[tuple[int, int]], covered: "_Cover", annotations_only: bool = False) -> list[tuple[int, int]]:
@@ -681,6 +747,8 @@ class _RunFinder:
         if k == 0:
             return True
         p = self.t[k - 1]
+        if is_sign_error(p):
+            return False  # integration gate 3 (rule sign-forms): an operator or relation sign outside the grammar adjoins: no boundary
         if p.kind in ("PUNCT", "COMMA", "SEMI", "COLON", "QUOTE", "OTHER", "ERROR", "BANG"):
             return True
         if p.kind == "IDENT":
@@ -715,8 +783,9 @@ class _RunFinder:
             return True
         if not self.clean_before(k, False):
             return False
-        if t.kind in ("NUM", "NUMERR", "FUNC", "UNSUP", "BAR"):
-            return True
+        if t.kind in ("NUM", "NUMERR", "FUNC", "UNSUP", "BAR") or is_sign_error(t):
+            return True  # a sign outside the grammar opens its run ('∜16 = 2'), so the relation is undecided, never read from '16'
+
         if t.kind == "LPAR" and t.text in "([":
             return True
         if t.kind == "OP" and t.text in ("-", "+", "±") and k + 1 < len(self.t) and self.t[k + 1].kind in ("NUM", "IDENT", "LPAR", "FUNC"):
@@ -754,7 +823,7 @@ class _RunFinder:
                 if not stack:
                     last_good = k
                 continue
-            if kind in ("QUOTE", "PUNCT") or (kind in ("OTHER",) and t.text not in ("½",)) or (kind == "ERROR" and t.space):
+            if kind in ("QUOTE", "PUNCT") or (kind in ("OTHER",) and t.text not in ("½",)) or (kind == "ERROR" and t.space and not is_sign_error(t)):
                 break
             if kind in ("COMMA", "SEMI") and not stack:
                 break
@@ -815,6 +884,8 @@ class _RunFinder:
                     operand, prev_value = False, False
                 elif kind == "BOOL" and t.text == "¬":
                     pass
+                elif kind == "ERROR" and is_sign_error(t):
+                    pass  # integration gate 3 (rule sign-forms): a sign outside the grammar before its operand ('∜16'): the run goes on
                 elif kind == "ERROR":
                     operand = False
                 else:
@@ -914,6 +985,11 @@ class _RunFinder:
                 elif kind in ("UNSUP", "INF"):
                     pass
                 elif kind == "BOOL":
+                    operand = True
+                elif kind == "ERROR" and is_sign_error(t):
+                    # integration gate 3 (rule sign-forms): an operator or relation sign outside the grammar between operands ('3 ⨯ 4',
+                    # '20/4.0 ≒ 6'): kept in the run, which the parser then names undecided (ST-PARSE-001); it had ended the run, so the
+                    # relation after it was read alone ('4 = 12' failed) or nothing was named
                     operand = True
                 else:
                     break
@@ -1143,9 +1219,11 @@ def _data_like(text: str) -> bool:
 
 
 def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile, limits: StemLimits = DEFAULT_LIMITS,
-               names: frozenset[str] = frozenset()) -> SpanSet:
+               names: frozenset[str] = frozenset(), decimal_dots: tuple[int, ...] = ()) -> SpanSet:
     """Extract every span of ``text`` (see the module docstring). ``reading`` is the reading view
-    (computed when omitted); ``names`` are the names in scope from the document's pre-pass."""
+    (computed when omitted); ``names`` are the names in scope from the document's pre-pass. ``decimal_dots`` (integration gate 3, rule
+    middle-dot: ``document.ambiguous_dots``) are the middle dots between digits that the runs are found with as decimal points, so a
+    value written with one is a quantity of the prose ('is 5·8 m s⁻²'), never a product the run reader stops in."""
     view = reading if reading is not None else reading_view(text)
     lines = split_lines(view)
     spans, code_cov = _code_spans(view, lines, profile)
@@ -1153,8 +1231,10 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
     latex, latex_cov = _latex_spans(view, masked, limits)
     spans.extend(latex)
     covered = code_cov.merged(latex_cov)
-    markup, parts, list_markers, headings = _markup(view, lines, covered)
-    math_view = blank_ranges(view, code_cov.ranges + markup)
+    markup, parts, list_markers, headings, emphasis = _markup(view, lines, covered)
+    # the emphasis-only pairs ('_', '___', '~~' with its struck text) are blanked for the maths too (integration gate 3)
+    marked_ranges = set(markup)
+    math_view = blank_ranges(view, code_cov.ranges + markup + [r for r in emphasis if r not in marked_ranges])
     scan = blank_ranges(math_view, latex_cov.ranges + [(lines[h].start, lines[h].end) for h in headings])
     # chemical equations
     chem_cov: list[tuple[int, int]] = []
@@ -1172,6 +1252,12 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
     spans.extend(tables)
     table_cov = [(s.start, s.end) for s in tables]
     scan = blank_ranges(scan, table_cov)
+    if decimal_dots:
+        chars = list(scan)
+        for k in decimal_dots:
+            if 0 <= k < len(chars) and chars[k] == "·":
+                chars[k] = "."
+        scan = "".join(chars)
     # math runs, quantities and verbal arithmetic, line by line (long lines in windows)
     for ln in lines:
         if ln.end <= ln.start:
@@ -1206,7 +1292,7 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
                 spans.append(Span("verbal", a, b, rows=((a, b),), line=ln.index, tokens=synth))
     spans.sort(key=lambda s: (s.start, -s.end))
     return SpanSet(spans=tuple(spans), lines=lines, part_labels=tuple(sorted(parts, key=lambda p: p.start)), markup=tuple(sorted(markup)),
-                   list_markers=tuple(list_markers), heading_lines=tuple(headings), math_view=math_view)
+                   list_markers=tuple(list_markers), heading_lines=tuple(headings), math_view=math_view, emphasis=tuple(sorted(emphasis)))
 
 
 def _windows(view: str, a: int, b: int, size: int) -> list[tuple[int, int]]:

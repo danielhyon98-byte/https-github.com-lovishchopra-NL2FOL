@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from epinoic_logic.engine.runner import verify
 from epinoic_logic.engine.statuses import VerificationStatus as S
 from epinoic_logic.engine.validator import parse_and_validate
 from epinoic_logic.ir.canonical import canonical_json, sha256_hex, strict_object_pairs
 
-from ..core_hostile import N, sweep
+from ..core_hostile import N, SHAPES, one, sweep
 
 _BASE = {"problem_id": "p", "request_id": "r", "claim_id": "c", "query": "consistency", "symbols": [{"name": "x", "sort": "Int"}],
          "premises": [{"id": "P1", "expr": {"op": "gt", "left": {"op": "var", "name": "x"}, "right": {"op": "int", "value": "0"}}}]}
@@ -30,26 +32,29 @@ HOSTILE_PAYLOADS = {
 }
 
 
-def test_sweep_engine_entry_points():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_engine_entry_points(shape):
     def entries(text: str):
         yield "verify(text)", lambda: verify(text)
         yield "verify(bytes)", lambda: verify(text.encode("utf-8", "surrogatepass"))
         yield "parse_and_validate", lambda: parse_and_validate(text)
         yield "verify(notes)", lambda: verify(json.dumps({**_BASE, "notes": text[:4_000]}))
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_hostile_payloads_are_refused_in_bounded_time_and_never_raise():
-    slow = sweep(lambda _text: [(name, (lambda raw=raw: verify(raw))) for name, raw in HOSTILE_PAYLOADS.items()], texts={"payloads": ""})
+@pytest.mark.parametrize("name", tuple(HOSTILE_PAYLOADS))
+def test_hostile_payloads_are_refused_in_bounded_time_and_never_raise(name):
+    raw = HOSTILE_PAYLOADS[name]
+    slow = sweep(lambda _text: [(name, (lambda: verify(raw)))], texts={"payloads": ""})
     assert not slow
-    for name, raw in HOSTILE_PAYLOADS.items():
-        result = verify(raw)
-        assert result.status in (S.INVALID_FORMALIZATION, S.UNSUPPORTED), (name, result.status)
+    result = verify(raw)
+    assert result.status in (S.INVALID_FORMALIZATION, S.UNSUPPORTED), (name, result.status)
 
 
-def test_sweep_ir_canonical():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_ir_canonical(shape):
     def entries(text: str):
         yield "canonical_json", lambda: canonical_json({"text": text, "list": [text, {"k": text}]})
         yield "sha256_hex", lambda: sha256_hex(text)
         yield "strict_object_pairs", lambda: strict_object_pairs([("a", text), ("b", text)])
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))

@@ -54,6 +54,16 @@ such as ``1923-24``, or a circa before the year: ``by about 1700``, ``in c. 1700
   of 450 miles a year``) the difference over the years between the pair's dates;
 * a from/to pair governed by a direction word and no stated change (``pig iron rising from
   about 3.3 million tonnes to about 6.2 million``) is checked for that direction;
+* an exchange rate (``from 25 to the pound in 1919 to 240 to the pound``) is the price of one pound in the
+  quoted currency, so a fall of the quoted currency is a RISE of the figure (integration gate 3): a sentence
+  that names the quoted currency (``The franc fell``, ``the value of the mark collapsed``, ``Against the
+  pound, the franc fell``) is checked with the direction inverted; one that names the base currency (``The
+  dollar rose``) as written; one that names neither (``The exchange rate fell``, ``It fell``) as written when
+  that holds, and otherwise is reported undecided (:data:`XRATE_OPEN_REASON`), never an error. A derived
+  change on such a pair holds when it holds of the figures as written or of the quoted currency's value
+  (one pound over the figure: ``a fall of about 90 per cent``, ``halved``), unless it is said of the base
+  currency (``a rise in the dollar's price of about 1,670-fold``); exchange rates of two currencies, or an
+  exchange rate against another rate, are not compared;
 * a comparison with a stated benchmark (``fell short of the First Plan's original target of
   about 10 million tonnes of pig iron``, ``exceeded ... by half``) compares the figure before
   it in its clause, or the figure of the previous sentence its anaphoric subject (``These
@@ -1066,6 +1076,8 @@ def _comparable(u1: Optional[str], u2: Optional[str], noun1: str = "", noun2: st
         return u1, u1, True  # 'from 37.3 per cent to 33.1': the first unit carries over
     if k1 and k2 and k1 != k2:
         return u1, u2, False
+    if k1 == "rate" and k2 == "rate" and _xrate_unit_conflict(u1, u2):
+        return u1, u2, False  # 'from 4.2 to the dollar to 20 to the pound': exchange rates of two currencies, or a rate per head
     return u1, u2, True
 
 
@@ -1191,6 +1203,8 @@ def _si_values(before: _Fig, after: _Fig, profile: str, kind: str = "") -> tuple
                           "cannot be compared, so the pair was not read")
     elif k1 and k2 and k1 != k2:
         return None, cannot
+    elif k1 == "rate" and k2 == "rate" and _xrate_unit_conflict(u1, u2):
+        return None, cannot  # exchange rates of two currencies, or an exchange rate against a rate per head
     if _year_like(before.num, u1) and _year_like(after.num, u2):
         return None, "year span"
     affine = "si-affine" in (k1, k2)
@@ -1579,14 +1593,138 @@ def _si_length_pair(pair: "_Pair", profile: str) -> bool:
     return False
 
 
-def _direction_spec(values: _Values, word: str, statement: str) -> _Spec:
+def _direction_spec(values: _Values, word: str, statement: str, *, quoted: str = "", base: str = "") -> _Spec:
+    """The check that the pair moves the way its direction word says. With ``quoted`` (the currency the sentence says moved, when
+    the figures are an exchange rate of ``base``: :func:`_xrate_reading`), the figures are the price of one ``base`` in that
+    currency, so a fall of the currency is a rise of the figure and a rise of it a fall (integration gate 3)."""
     rising = word.lower() in _RISE_DIR_WORDS
+    figure_rises = rising != bool(quoted)
     premises = (("BEFORE", {"op": "eq", "left": _v("before"), "right": _real(values.a)}, f"before = {values.shown_a}"),
                 ("AFTER", {"op": "eq", "left": _v("after"), "right": _real(values.b)}, f"after = {values.shown_b}"))
-    concl = {"op": "gt" if rising else "lt", "left": _v("after"), "right": _v("before")}
-    label = f"stated '{word}' from {values.shown_a} to {values.shown_b}: the later figure {'above' if rising else 'below'} the earlier"
+    concl = {"op": "gt" if figure_rises else "lt", "left": _v("after"), "right": _v("before")}
+    label = f"stated '{word}' from {values.shown_a} to {values.shown_b}: the later figure {'above' if figure_rises else 'below'} the earlier"
+    if quoted:
+        label += (f" (the figures are the price of one {base} in the {quoted}, so a {'rise' if rising else 'fall'} of the {quoted} is a "
+                  f"{'fall' if rising else 'rise'} of the figure)")
     return _Spec("pair_direction", statement, (("before", "the earlier figure as stated"), ("after", "the later figure as stated")), premises,
                  ("STATED_DIRECTION", concl, label), Fraction(0), "both", phrase=word)
+
+
+# ------------------------------------------------------------------ exchange rates (integration gate 3)
+
+#: An exchange rate written as a count of one currency to one unit of another ('25 to the pound', '4.2 to the US dollar'): the figure is
+#: the price of the BASE currency (the unit's: the pound, the dollar) in the QUOTED one (the franc, the mark), so the quoted currency falls
+#: when the figure rises. Read as a whole unit string (a pair figure's unit, :data:`_UNIT_WORDS`).
+_XRATE_UNIT_RE = re.compile(r"to\s+(?:the|one|a)\s+(?:US\s+|U\.S\.\s+|American\s+)?(?P<base>dollar|pound)s?", re.IGNORECASE)
+#: Currency nouns a subject may name, and the currency each names ('sterling' is the pound, 'Reichsmark' a mark). 'crown', 'real' and
+#: 'won' are left out: as subjects they are more often the monarchy, an adjective or a verb.
+_CURRENCY_NAMES = {"dollar": "dollar", "pound": "pound", "sterling": "pound", "franc": "franc", "mark": "mark", "reichsmark": "mark",
+                   "rentenmark": "mark", "deutschmark": "mark", "deutsche mark": "mark", "rouble": "rouble", "ruble": "rouble", "lira": "lira",
+                   "lire": "lira", "peso": "peso", "yen": "yen", "yuan": "yuan", "renminbi": "yuan", "rupee": "rupee", "krona": "krona",
+                   "krone": "krona", "kronor": "krona", "kroner": "krona", "zloty": "zloty", "drachma": "drachma", "escudo": "escudo",
+                   "peseta": "peseta", "guilder": "guilder", "florin": "guilder", "schilling": "schilling", "forint": "forint", "koruna": "koruna",
+                   "rand": "rand", "dinar": "dinar", "baht": "baht", "euro": "euro", "pengo": "pengo", "pengő": "pengo"}
+_CURRENCY_WORD = (r"(?:deutsche\s+marks?|dollars?|pounds?|sterling|francs?|marks?|reichsmarks?|rentenmarks?|deutschmarks?|roubles?|rubles?|lira|lire|pesos?|yen"
+                  r"|yuan|renminbi|rupees?|krona|krone|kronor|kroner|zlotys?|drachmas?|escudos?|pesetas?|guilders?|florins?|schillings?|forints?"
+                  r"|korunas?|rand|dinars?|baht|euros?|peng(?:o|ő)s?)")
+_CURRENCY_RE = re.compile(rf"\b{_CURRENCY_WORD}\b", re.IGNORECASE)
+#: A currency named as what another is measured against or in ('against the pound', 'in marks', 'per dollar', 'relative to the US dollar'):
+#: never the subject whose direction the sentence states. Every run is possessive and every repetition bounded, so a long blank run is
+#: read once.
+_XRATE_COUNTER_RE = re.compile(rf"\b(?:(?:against|versus|vs\.?|relative\s++to|compared\s++(?:with|to)|in\s++terms\s++of|per|to)\s++(?:(?:the|one|a)\s++)?"
+                               rf"|(?:in|into|for)\s++)(?:(?!(?:the|an?|one)\s)[A-Za-z][\w.'’-]{{0,20}}\s++)?{_CURRENCY_WORD}\b(?!['’]s\b)", re.IGNORECASE)
+#: What a pair's head holds besides its subject: punctuation, connectors, adverbs and the direction word (', and later', 'before falling').
+_XRATE_FILLER_RE = re.compile(rf"[\W\d_]++|\b(?:and|but|while|whereas|before|then|later|again|further|back|still|in\s++turn|also|so|as|[a-z]+ly)\b"
+                              rf"|{_PAIR_DIR_RE.pattern}", re.IGNORECASE)
+#: Why a direction stated of an exchange rate without the currency it is said of is not checked (``CORE-QNT-001``).
+XRATE_OPEN_REASON = ("its figures are an exchange rate (a count of one currency to one unit of another) and the sentence does not name the currency its "
+                     "direction is said of: a fall of the quoted currency is a rise of the figure, so the stated direction holds under one reading "
+                     "and fails under the other, and it was not checked")
+#: The basis of a derived figure stated of an exchange rate whose subject is not the base currency (``_xrate_either``).
+_XRATE_EITHER_BASIS = ("the figures are an exchange rate (a count of the quoted currency to one {base}): the stated change is read of the figures "
+                       "as written and of the quoted currency's value (one {base} over the figure), and it holds when either reading holds")
+
+
+def _xrate_base(before: _Fig, after: _Fig) -> str:
+    """The base currency ('dollar', 'pound') when both figures of a pair are an exchange rate of it (a unit on one figure only carries to the
+    other, as :func:`_comparable` reads it), else ''."""
+    u1, u2 = before.unit or after.unit, after.unit or before.unit
+    m1 = _XRATE_UNIT_RE.fullmatch(" ".join((u1 or "").split()))
+    m2 = _XRATE_UNIT_RE.fullmatch(" ".join((u2 or "").split()))
+    if m1 is None or m2 is None or m1.group("base").lower() != m2.group("base").lower():
+        return ""
+    return m1.group("base").lower()
+
+
+def _xrate_unit_conflict(u1: Optional[str], u2: Optional[str]) -> bool:
+    """Two rate units of which one is an exchange rate and the other is not the same one ('to the dollar' against 'to the pound' or 'per
+    head'): the figures count different things and are never compared."""
+    m1 = _XRATE_UNIT_RE.fullmatch(" ".join((u1 or "").split()))
+    m2 = _XRATE_UNIT_RE.fullmatch(" ".join((u2 or "").split()))
+    if m1 is None and m2 is None:
+        return False
+    return m1 is None or m2 is None or m1.group("base").lower() != m2.group("base").lower()
+
+
+def _xrate_reading(heads: list[str], k: int, base: str) -> tuple[str, str]:
+    """How the direction word of pair ``k`` reads its exchange-rate figures (``heads``: the text before each pair of the clause, from the
+    end of the pair before it): ``('written', base)`` when the sentence says the base currency moved ('The dollar rose'), ``('inverse',
+    currency)`` when it says another currency moved ('The franc fell', 'the value of the mark collapsed'), else ``('open', '')`` ('The
+    exchange rate fell', 'It fell', 'Prices rose'). The currency is the last one named before the pair that is not named as what it is
+    measured against ('Against the pound, the franc fell' is the franc); a head that holds nothing but connectors, adverbs and a direction
+    word continues the head before it ('..., and later fell from')."""
+    for head in reversed(heads[:k + 1]):
+        name = _named_currency(head)
+        if name:
+            return ("written", base) if name == base else ("inverse", name)
+        if _XRATE_FILLER_RE.sub("", head).strip():
+            return "open", ""
+    return "open", ""
+
+
+def _named_currency(text: str) -> str:
+    """The currency ``text`` last names that is not named as what another is measured against or in (:data:`_XRATE_COUNTER_RE`), by its
+    name in :data:`_CURRENCY_NAMES` ('Reichsmark' is 'mark', 'sterling' is 'pound'), or ''."""
+    found = None
+    for found in _CURRENCY_RE.finditer(_XRATE_COUNTER_RE.sub(" ", text)):
+        pass
+    if found is None:
+        return ""
+    word = " ".join(found.group(0).lower().split())
+    return _CURRENCY_NAMES.get(word) or _CURRENCY_NAMES.get(word[:-1] if word.endswith("s") else word, "")
+
+
+def _renamed(expr, names: dict[str, str]):
+    """A copy of the IR expression ``expr`` with its variables renamed by ``names`` (data only: dicts and lists are rebuilt)."""
+    if isinstance(expr, dict):
+        if expr.get("op") == "var" and expr.get("name") in names:
+            return {**expr, "name": names[expr["name"]]}
+        return {key: _renamed(value, names) for key, value in expr.items()}
+    if isinstance(expr, list):
+        return [_renamed(value, names) for value in expr]
+    return expr
+
+
+def _xrate_either(spec: _Spec, values: _Values, d: "_Derived", statement: str, tolerance: Fraction, base: str, *, si: bool = False) -> _Spec:
+    """The check of derived figure ``d`` on an exchange-rate pair whose subject is not the base currency: it holds when the stated change
+    holds of the figures as written ('a rise of 860 per cent' in the rate) or of the quoted currency's value, one ``base`` over the
+    figure ('The franc fell ..., a fall of 90 per cent', 'halved'), since such a sentence may state either. ``spec`` (the reading as
+    written) when the reciprocal reading cannot be built (a zero figure)."""
+    if values.a == 0 or values.b == 0:
+        return spec
+    inverse = replace(values, a=1 / values.a, b=1 / values.b, shown_a=f"1/({values.shown_a})", shown_b=f"1/({values.shown_b})", pct=False)
+    value_spec, _why = _pair_spec(inverse, d, statement, tolerance, si=si)
+    if value_spec is None:
+        return spec
+    names = {"before": "value_before", "after": "value_after"}
+    premises = spec.premises + tuple((f"VALUE_{pid}", _renamed(expr, names), f"value_{label} (the quoted currency's value, in {base}s)")
+                                     for pid, expr, label in value_spec.premises)
+    symbols = spec.symbols + (("value_before", f"the quoted currency's value at the earlier figure, in {base}s (one {base} over the figure)"),
+                              ("value_after", f"the quoted currency's value at the later figure, in {base}s (one {base} over the figure)"))
+    conclusion = (spec.conclusion[0], {"op": "or", "args": [spec.conclusion[1], _renamed(value_spec.conclusion[1], names)]},
+                  f"{spec.conclusion[2]}; or, of the quoted currency's value, {value_spec.conclusion[2]}")
+    basis = _XRATE_EITHER_BASIS.format(base=base)
+    return replace(spec, symbols=symbols, premises=premises, conclusion=conclusion, basis=(spec.basis + "; " + basis) if spec.basis else basis)
 
 
 def _through_arithmetic(spec: _Spec, p: _Pair, values: "_Values") -> _Spec:
@@ -2740,15 +2878,17 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                             undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), p.arith[:120], ARITH_ENDPOINT_REASON))
                     pairs = [p for p in pairs if not p.arith]
                     prev_end = 0
+                    heads: list[str] = []   # the text before each pair, from the end of the pair before it (its subject, for an exchange rate)
                     for p in pairs:
                         s = _si_series_of(p, si, clause, reading.profile) if si_mode else _series_of(p, si, clause)
                         if s is not None:
                             series.append(s)
-                        sentence_pairs.setdefault(si, []).append((p, clause, clause[prev_end: p.start]))
+                        heads.append(clause[prev_end: p.start])
+                        sentence_pairs.setdefault(si, []).append((p, clause, heads[-1]))
                         prev_end = p.end
                     bound: set[int] = set()
                     segments = _segments(clause, pairs)
-                    for p, (seg_start, seg_end) in zip(pairs, segments):
+                    for k, (p, (seg_start, seg_end)) in enumerate(zip(pairs, segments)):
                         mine = [d for d in derived if seg_start <= d.start < seg_end]
                         if not mine:
                             continue
@@ -2770,11 +2910,19 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                             if spec is None:
                                 undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), d.words, why))
                             else:
+                                base = _xrate_base(p.before, after)
+                                if base:
+                                    # an exchange rate: a change said of the base currency ('a rise in the dollar's price of 1,670-fold') is the
+                                    # figures' own; one said of another currency, or of no currency in a sentence whose subject is not the base
+                                    # ('The franc fell ..., a fall of 90 per cent'), is the change of the rate or of the currency's value
+                                    named = _named_currency(clause[p.end:d.end] if d.start >= p.end else clause[d.start:d.end])
+                                    if (named != base) if named else (_xrate_reading(heads, k, base)[0] != "written"):
+                                        spec = _xrate_either(spec, values, d, statement, tolerance, base, si=si_mode)
                                 per_sentence_specs.append((si, _through_arithmetic(spec, p, values)))
                     # a pair governed by a direction word and no stated change ('pig iron rising from X to Y'): the direction is checked
                     prev_dir: Optional[str] = None
                     prev_end = 0
-                    for p, (seg_start, seg_end) in zip(pairs, segments):  # the SI reading reads the figures in SI units ('from 4.0 Ω to 2.4 Ω')
+                    for k, (p, (seg_start, seg_end)) in enumerate(zip(pairs, segments)):  # the SI reading reads the figures in SI units ('from 4.0 Ω to 2.4 Ω')
                         head = clause[prev_end: p.start]
                         inner = clause[p.start: p.after.start]   # 'before climbing to' for a continuation; 'from X to' for a from/to pair
                         prev_end = p.end
@@ -2795,7 +2943,18 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                         if values is None:
                             continue  # a year span, or units that cannot be compared (a misread pair): no direction is stated between them
                         statement = clause.strip() if len(pairs) == 1 else clause[seg_start:seg_end].strip(" ,;")
-                        per_sentence_specs.append((si, _through_arithmetic(_direction_spec(values, word, statement), p, values)))
+                        # an exchange rate ('from 25 to the pound to 240 to the pound'): the figure is the base currency's price, so a fall of
+                        # the currency the sentence names is a rise of the figure; with no currency named, a direction that holds only of the
+                        # quoted currency is named undecided, never an error (integration gate 3)
+                        base, quoted = _xrate_base(p.before, p.last), ""
+                        if base:
+                            how, name = _xrate_reading(heads, k, base)
+                            if how == "inverse":
+                                quoted = name
+                            elif how == "open" and values.a != values.b and (values.b > values.a) != (word in _RISE_DIR_WORDS):
+                                undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), statement[:160], XRATE_OPEN_REASON))
+                                continue
+                        per_sentence_specs.append((si, _through_arithmetic(_direction_spec(values, word, statement, quoted=quoted, base=base), p, values)))
                     for cm in (_COMPARE_RE.finditer(clause) if not si_mode and _COMPARE_HINT_RE.search(clause) else ()):
                         spec, why = _comparison_spec(cm, clause, si, sentence_pairs, pairs, tolerance)
                         if spec is not None:

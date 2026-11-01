@@ -35,7 +35,7 @@ from epinoic_logic.translate import review as RV
 from epinoic_logic.translate import subjects as SJ
 from epinoic_logic.translate.contracts import ClaimRecord, SuppliedText
 
-from ..core_hostile import sweep
+from ..core_hostile import SHAPES, one, sweep
 
 
 def _random_texts(pieces: list[str], n: int, seed: int, longest: int = 14):
@@ -129,7 +129,8 @@ def _source(text: str) -> Q.SourceText:
     return Q.SourceText(kind="supplied_text", ident="src", text=text)
 
 
-def test_sweep_assertion():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_assertion(shape):
     def entries(text: str):
         k = max(0, len(text) // 2)
         A._index.cache_clear()
@@ -140,10 +141,11 @@ def test_sweep_assertion():
         yield "units_of", lambda: A.units_of(text)
         yield "content_words", lambda: A.content_words(text)
         yield "describing_units", lambda: A.describing_units([text], ["n"])
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_quantities():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_quantities(shape):
     def entries(text: str):
         yield "figures_in", lambda: Q.figures_in(_source(text))
         yield "is_definitional", lambda: Q.is_definitional(text)
@@ -151,10 +153,11 @@ def test_sweep_quantities():
         yield "in_precision_cue", lambda: Q.in_precision_cue(text, len(text) // 2)
         yield "sources_text", lambda: Q.sources_text([_source(text)])
         yield "figures and their exactness", lambda: [Q.stated_exactness(f, text) for f in Q.figures_in(_source(text))[:50]]
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_grounding():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_grounding(shape):
     doc = SuppliedText(document_id="d", text="In 1990 the total was 5 people.")
 
     def entries(text: str):
@@ -168,10 +171,12 @@ def test_sweep_grounding():
         yield "check_claim_sources", lambda: G.check_claim_sources(claim, [doc, hostile_doc])
         yield "change_clauses", lambda: G.change_clauses(text)
         yield "fold_diacritics", lambda: G.fold_diacritics(text)
-    assert not sweep(entries)
+        yield "unbracket_elisions", lambda: G.unbracket_elisions(text)  # integration gate 3: a leading blank run read once
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_eligibility():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_eligibility(shape):
     def entries(text: str):
         claim = ClaimRecord(request_id="r", task_id="t", report_id="rep", agent_id="history-specialist", subject="History", task_type="short_answer",
                             claim_id="c1", claim_text=(text[:3_900] if text[:3_900].strip() else "x"), claim_role="evidence")
@@ -180,33 +185,37 @@ def test_sweep_eligibility():
         yield "has_comparative", lambda: E.has_comparative(text)
         yield "has_relation_sign", lambda: E.has_relation_sign(text)
         yield "decide_eligibility", lambda: E.decide_eligibility(claim)
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_coverage():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_coverage(shape):
     def entries(text: str):
         A._index.cache_clear()
         yield "source_asserted", lambda: COV.source_asserted(Fraction(17), "the number of states", [_source(text)])
         yield "asserting_spans", lambda: COV.asserting_spans(Fraction(5), None, [_source("In 1990 the total was 5 people. " + text)])
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_parsing():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_parsing(shape):
     def entries(text: str):
         yield "parse_json_object", lambda: P.parse_json_object(text)
         yield "parse_json_object(strict)", lambda: P.parse_json_object(text, strict=True)
         yield "strip_code_fences", lambda: P.strip_code_fences(text)
-    assert not sweep(entries)  # a text that is no JSON object is refused with a ValueError (a refusal, allowed)
+    assert not sweep(entries, texts=one(shape))  # a text that is no JSON object is refused with a ValueError (a refusal, allowed)
 
 
-def test_sweep_review_and_subjects():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_review_and_subjects(shape):
     def entries(text: str):
         yield "parse_review_output", lambda: RV.parse_review_output(text)
         yield "resolve_profile", lambda: SJ.resolve_profile(text)
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_diagnosis_readers():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_diagnosis_readers(shape):
     def entries(text: str):
         yield "diag_argument.has_reason_connective", lambda: DA.has_reason_connective(text)
         yield "diag_argument.mask_quotations", lambda: DA.mask_quotations(text)
@@ -218,10 +227,11 @@ def test_sweep_diagnosis_readers():
         yield "diag_evidence.source_bound", lambda: DE.source_bound(text)
         yield "diag_figures.qualifier_years", lambda: DF.qualifier_years(text)
         yield "diag_figures.worked_results", lambda: DF.worked_results([text], [_source(text)])
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
 
 
-def test_sweep_readers_of_an_encoding_against_its_sources():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_readers_of_an_encoding_against_its_sources(shape):
     """The readers that set an IR problem against its sources (pipeline.introduced_figures, precision.read_sites,
     relations.stated_relation, stated_rules.stated_rule) on a source that carries each hostile run."""
     from epinoic_logic.ir.schema import Problem
@@ -244,4 +254,4 @@ def test_sweep_readers_of_an_encoding_against_its_sources():
         yield "precision.read_sites", lambda: PR.read_sites(problem, [src])
         yield "relations.stated_relation", lambda: REL.stated_relation(problem.premises[0].expr, [src])
         yield "stated_rules.stated_rule", lambda: SR.stated_rule(problem.premises[1].expr, symbols, src, (0, len(src.text)))
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))

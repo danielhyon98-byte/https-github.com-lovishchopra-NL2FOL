@@ -15,7 +15,8 @@ Every listing prints the claim ids the hub delivers. The reports of one group (o
 run_arena.py's order (``run_arena.load_items``: name order, a peer-dependent task after the task it depends on), and the
 hub parses a report whose claim ids a report of ANOTHER agent delivered before it already holds with its ids qualified by
 its agent (``channel.bus.needs_qualified_ids``: the STEM parsers, ``s1.2@physics-specialist`` for the second Physics or
-Chemistry report of a group). So a file is parsed after every member of its group delivered before it, given on the
+Chemistry report of a group, and since integration gate 3 the History and English parsers, ``p1-point@english-a-lang-lit-specialist``
+for an English A: Language and Literature report after an English A: Literature one). So a file is parsed after every member of its group delivered before it, given on the
 command line or not, each taken as delivered, with the subject, task type and request text the group's plan
 (``run_arena.group_plan``) gives its agent, as the hub parses it. Integration gate, round 2: the single-file listing
 parsed a file alone and printed 's1.2' for that report, so a translation fixture or a combinator citation written from it

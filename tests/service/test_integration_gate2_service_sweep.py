@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from epinoic_logic import cli
 
-from ..core_hostile import N, sweep
+from ..core_hostile import N, SHAPES, one, sweep
 from .conftest import AUTH, make_client, make_settings
 
 _ENDPOINTS = ("/v1/verify", "/v1/results/verify-signature", "/v1/results/release-check", "/v1/outcomes")
 
 
-def test_sweep_service_endpoints():
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_service_endpoints(shape):
     client = make_client(make_settings(rate_per_minute=100_000))  # every request reaches the parser, none is rate-limited
     statuses: list[int] = []
 
@@ -24,7 +27,7 @@ def test_sweep_service_endpoints():
         for path in _ENDPOINTS:
             yield f"POST {path} (raw)", lambda path=path: statuses.append(client.post(path, content=text.encode("utf-8", "surrogatepass"), headers={**AUTH, "Content-Type": "application/json"}).status_code)
             yield f"POST {path} (problem)", lambda path=path: statuses.append(client.post(path, json={"problem": text[:4_000]}, headers=AUTH).status_code)
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))
     assert statuses and all(code < 500 and code != 429 for code in statuses), sorted(set(statuses))
 
 
@@ -36,7 +39,8 @@ def test_hostile_json_bodies_are_refused_without_a_server_error():
             assert response.status_code < 500, (path, response.status_code)
 
 
-def test_sweep_cli_verify(tmp_path, capsys):
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_cli_verify(tmp_path, capsys, shape):
     problem = tmp_path / "problem.json"
 
     def entries(text: str):
@@ -46,4 +50,4 @@ def test_sweep_cli_verify(tmp_path, capsys):
             capsys.readouterr()
             assert code == 0  # the CLI exits 0 for every status and prints the result (a refusal is a result)
         yield "epinoic-logic verify FILE", run
-    assert not sweep(entries)
+    assert not sweep(entries, texts=one(shape))

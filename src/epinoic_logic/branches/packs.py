@@ -20,15 +20,16 @@ from typing import Optional
 
 from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
-from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, SELF_CERT_RE, absent_mentions, dangling_quote_offset,
-                                 find_quotation_spans, is_memory_label, parser_quotation_spans, strip_emphasis, unbalanced_double_quotes, verification_label)
+from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
+                                 find_quotation_spans, is_memory_label, parser_quotation_spans, self_cert_vocabulary, strip_emphasis, unbalanced_double_quotes,
+                                 verification_label)
 from ..adapters.sources import check_excerpt, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
 from ..translate.subjects import resolve_profile
 from .base import FormalCheck
-from .quant import ARITH_ENDPOINT_REASON, GENERAL, LONG_NUMBER_RUN_REASON, WORKED_EQUATION_REASON, extract_quant_checks, undecided_quant_statements
+from .quant import ARITH_ENDPOINT_REASON, GENERAL, LONG_NUMBER_RUN_REASON, WORKED_EQUATION_REASON, XRATE_OPEN_REASON, extract_quant_checks, undecided_quant_statements
 
 _PARA_RE = re.compile(r"\n\s*\n")
 #: The most formal checks the core pack sends to the engine for one transmission (arithmetic first, then chronology). An answer far
@@ -962,6 +963,7 @@ class CorePack:
             phrases = "', '".join(shown) + (f"' and {more} more" if more else "'")
             what = ("states worked arithmetic" if reason == WORKED_EQUATION_REASON else "states figures in words" if reason == LONG_NUMBER_RUN_REASON
                     else "states a change between two figures" if reason == ARITH_ENDPOINT_REASON
+                    else "states the direction of an exchange rate" if reason == XRATE_OPEN_REASON
                     else "states a derived figure or a relation over dated figures")
             if reading.si:  # the STEM claim of the statement (paragraph and statement numbers are the STEM claim ids)
                 ids = _claims_for_si_statement(report, items[0].sentence_text, reading, pi, si)
@@ -984,7 +986,7 @@ class CorePack:
         out: list[StructuralFinding] = []
         seen: set[str] = set()
         for pi, si, sent, _para in _sentences_for(report.original_response, reading):
-            vocabulary = SELF_CERT_RE.search(sent) is not None
+            vocabulary = self_cert_vocabulary(sent) is not None  # the receipt and engine vocabulary, its content-word forms only in a frame
             label = None if vocabulary else verification_label(sent)
             if not vocabulary and label is None:
                 continue

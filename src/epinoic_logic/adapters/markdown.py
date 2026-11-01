@@ -105,6 +105,7 @@ __all__ = [
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
     "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "BARE_NOTE_LEAD_RE", "opens_note_paragraph", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
+    "self_cert_vocabulary",
 ]
 
 BOM = "\ufeff"
@@ -249,24 +250,135 @@ _COPULA = r"(?:is|are|was|were|has been|have been|has now been|have now been)\s+
 #: The verification infrastructure itself (an agent claiming that the engine, the solver or the hub already passed its answer).
 _INFRASTRUCTURE = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation|integrity)\s+)?(?:engine|solver|verifier|checker)\b"
                    r"|\b(?:the\s+)?(?:verification|integrity|formal)\s+(?:checks?|layer|pipeline)\b|\bthe\s+(?:hub|channel|translator|overseer|router|combinator)\b)")
-#: Verification-status vocabulary in the body: an agent certifying its own output or
-#: imitating a channel receipt. Status words count only in capitals (a vote that "was
-#: accepted" is history, not a receipt); phrases are matched case-insensitively. The
-#: self-referential forms ("every figure in this paragraph is accurate", "all of the above
-#: has been cross-checked") require the subject to be the answer itself or its items,
-#: immediately followed by a copula and a checking or accuracy word, and no digit in the
-#: span, so that an argument about what a court "is correct" to do is not a self-report.
+#: A receipt or engine status word, in capitals (a vote that "was accepted" is history, not a receipt).
+_STATUS_WORD = r"(?:VERIFIED|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE)"
+#: A status word written as a label (integration gate 3): opening the sentence before a colon, a dash, a stop, a bracket, "by" or the end
+#: ("VERIFIED: all claims ...", "VERIFIED by the Z3 engine: ...", "ENTAILED."), bracketed alone or after a key ("(ENTAILED)", "[engine:
+#: VERIFIED]", "(hub verdict: ENTAILED)"), the value of a status key that opens the sentence or follows a separator ("Status: VERIFIED",
+#: "Z3: ENTAILED", "Expected: ENTAILED", "...; Hub verdict: ACCEPTED") or closing the sentence after a semicolon or a dash ("... —
+#: VERIFIED."). Elsewhere a capital status word is content until the sentence frames it as the answer's (:data:`_FRAMED_CERT_RE`: "All
+#: claims: VERIFIED." is framed by its items) and "it prints VERIFIED", "the program prints Status: VERIFIED", "otherwise result =
+#: REJECTED" and "the routine prints: ACCEPTED." are a program's output. Every run is possessive and every repetition bounded.
+_STATUS_LABEL = (rf"^[\W_]*+{_STATUS_WORD}\b(?=\s*+(?:[:.!—–(\[]|-\s|$|by\b))"
+                 rf"|[\[(]\s*+(?:[A-Za-z][\w'’ -]{{0,40}}?:\s*+)?{_STATUS_WORD}\s*+[.!]?\s*+[\])]"
+                 rf"|(?:^[\W_]*+|[;—–]\s*+)(?i:status|result|verdict|outcome|expected|receipt|engine|z3|smt|solver|verifier|checker|hub|overseer|router|channel"
+                 rf"|transmission|audit|qa)(?:['’]s)?(?:\s++(?i:status|result|verdict|outcome|decision|check))?\s*+:\s*+{_STATUS_WORD}\b"
+                 rf"|(?:[;—–]|\s-\s)\s*+{_STATUS_WORD}\s*+[.!]?[\s\"'”’)\]]*+$")
+#: Verification-status vocabulary in the body that is always a self-report: an agent imitating a channel receipt or an engine
+#: status (a receipt status, a status word written as a label, "Findings: none", "Transmission ACCEPTED", a receipt's JSON fields, a
+#: "Status: ok" that opens the sentence or follows a separator; "the program prints Status: VERIFIED" is a program's output) or
+#: certifying the answer itself or its items ("every figure in this paragraph is accurate", "all of the above has been
+#: cross-checked": the subject immediately followed by a copula and a checking or accuracy word, so that an argument about what a
+#: court "is correct" to do is not a self-report). Phrases are matched case-insensitively. The words that are also ordinary content of
+#: the subjects (a capital status word elsewhere, "no findings", "checked and confirmed", "cross-checked", "approved by the overseer",
+#: "via branch") are :data:`_FRAMED_CERT_RE`'s, read by :func:`self_cert_vocabulary` (integration gate 3).
 SELF_CERT_RE = re.compile(
-    r"\b(?:VERIFIED|ACCEPTED_WITH_FINDINGS|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE|INCONSISTENT_PREMISES)\b"
+    rf"\b(?:ACCEPTED_WITH_FINDINGS|INCONSISTENT_PREMISES)\b|{_STATUS_LABEL}"
     r"|(?i:\ball (?:claims|dates|figures|facts|quotations)(?: and (?:figures|dates|quotations))?(?: (?:have been|were|are|was|is))? ?(?:checked|verified|confirmed|validated)\b"
-    r"|\b(?:verified|checked|confirmed|validated|proved|proven|accepted|certified|approved) by (?:the )?(?:(?:verification|logic|formal|z3) )?(?:z3|engine|solver|verifier|translator|overseer|hub)\b"
-    r"|\bfact[- ]?checked\b|\bself[- ]?certif\w*|\bverification (?:complete|passed|status)\b|\bchecked and confirmed\b"
-    r"|\bdouble[- ]checked\b|\bcross[- ]checked\b|\bcompared (?:with|against) the supplied\b|\bmatch(?:es|ed)? (?:it|them) exactly\b"
-    r"|\bno findings\b|\bfindings:\s*none\b|\btransmission (?:accepted|rejected)\b|\bvia branch \w+\b|\bstatus:\s*(?:entailed|accepted|rejected|verified|ok)\b"
+    r"|\bverification (?:complete|passed|status)\b|\bcompared (?:with|against) the supplied\b"
+    r"|\bfindings:\s*none\b|\btransmission (?:accepted|rejected)\b|(?:^[\W_]*+|[;—–(\[]\s*+)status:\s*+(?:entailed|accepted|rejected|verified|ok)\b"
     r"|(?:\"|\b)(?:status|receipt_id|transmission_id|formal_checks|structural_findings|findings|codes)\"\s*:"
     rf"|\b{_ANSWER_ITSELF}(?: (?:is|are|was|were|has been|have been)|,? (?:which|and) (?:is|are|has been|have been))\s+(?:all\s+|fully\s+|carefully\s+|now\s+)?{_CHECK_WORDS}\b"
     rf"|\b{_EVERY_ITEM}\s+{_COPULA}{_CHECK_WORDS}\b)",
 )
+#: Verification-status words that are also ordinary content of the subjects (integration gate 3, the round-2 frame rule of the
+#: channel's INT-REQ-014 applied here): a capital status word that is no label ("If they match it prints VERIFIED", "returns
+#: REJECTED"), "no findings" ("the inquiry made no findings of a wider conspiracy"), "<verb> by the overseer/translator/hub/engine"
+#: ("Every punishment was approved by the overseer"), "checked and confirmed", "cross-checked", "double-checked", "fact-checked",
+#: "self-certified", "matches it exactly" and "via branch <word>" ("via branch lines"). Each is a self-certification only in a frame
+#: (:func:`self_cert_vocabulary`).
+_FRAMED_CERT_RE = re.compile(
+    rf"\b{_STATUS_WORD}\b"
+    r"|(?i:\b(?:verified|checked|confirmed|validated|proved|proven|accepted|certified|approved) by (?:the )?(?:(?:verification|logic|formal|z3) )?(?:z3|engine|solver|verifier|translator|overseer|hub)\b"
+    r"|\bfact[- ]?checked\b|\bself[- ]?certif\w*|\bchecked and confirmed\b|\bdouble[- ]checked\b|\bcross[- ]checked\b"
+    r"|\bmatch(?:es|ed)? (?:it|them) exactly\b|\bno findings\b|\bvia branch \w+\b)",
+)
+#: A finding code of the hub's families ("INT-SUBJ-001", "CORE-SELF-001") or a receipt's field ("formal_checks", "the transmission receipt"):
+#: router-side check output, which frames every status word of its sentence as a receipt's.
+_RECEIPT_FRAME_RE = re.compile(r"\b(?:INT|CORE|OVS|ST|KIT|ARG|EVD|PACK|BR|GEN|HI|ES|PS|EC|BM)-[A-Z]{2,10}-\d{3}\b"
+                               r"|(?i:\b(?:receipt_id|transmission_id|formal_checks|structural_findings|advisory_verification_status)\b"
+                               r"|\b(?:transmission|hub(?:'s|’s)?)\s++receipts?\b)")
+#: Where a clause ends for a framed word and the subject that frames it: a semicolon, a bracket, a dash, or a comma before a clause of its
+#: own ("..., which made no findings", "..., but ..."): "Every figure here comes from the census, which made no findings of fraud" is
+#: content.
+_CERT_CLAUSE_BREAK_RE = re.compile(r"[;()\[\]—–]|,(?=\s*+(?:which|who|whom|whose|where|when|while|whereas|because|since|although|though|but|yet|so|if|unless)\b)"
+                                   r"|\b(?:because|although|though|whereas|unless)\b", re.IGNORECASE)
+#: What a sentence that is nothing but a framed word may hold besides it: punctuation, "all", "everything" and auxiliaries and adverbs
+#: ("No findings.", "Cross-checked.", "All approved by the hub.", "Everything was checked and confirmed.").
+_CERT_FILLER_RE = re.compile(r"[\W\d_]++|\b(?:all|everything|now|fully|formally|independently|again|also|already|thoroughly|carefully|been|has|have|is|are"
+                             r"|was|were)\b", re.IGNORECASE)
+#: A framed word written as a label on content: opening the sentence before a colon or a dash ("Approved by the overseer: ..."), bracketed
+#: ("(no findings)"), or closing it after a separator or ", as" ("...; approved by the hub.", "..., as approved by the overseer.").
+_CERT_LEAD_RE = re.compile(r"[\W_]*+")
+_CERT_LEAD_TAIL_RE = re.compile(r"\s*+(?::|[—–]|-\s)")
+_CERT_TRAIL_BEFORE_RE = re.compile(r"(?:[;—–]|\s-|,\s*+as)\s*+$", re.IGNORECASE)
+_CERT_TRAIL_AFTER_RE = re.compile(r"\s*+[.!]?[\s\"'”’)\]]*+$")
+_CERT_OPEN_BRACKET_RE = re.compile(r"[\[(]\s*+$")
+_CERT_CLOSE_BRACKET_RE = re.compile(r"\s*+[.!]?\s*+[\])]")
+
+
+def _framed_label(sentence: str, m: "re.Match[str]", lead_end: int) -> bool:
+    """The framed word ``m`` stands where a label stands (:data:`_CERT_LEAD_RE` and its neighbours): before content with a colon or a
+    dash, bracketed, or at the end after a separator. ``lead_end``: where the sentence's words start. Each test reads a bounded window."""
+    if m.start() == lead_end and _CERT_LEAD_TAIL_RE.match(sentence, m.end()):
+        return True
+    window = sentence[max(0, m.start() - 12):m.start()]
+    if _CERT_OPEN_BRACKET_RE.search(window) and _CERT_CLOSE_BRACKET_RE.match(sentence, m.end()):
+        return True
+    return bool(_CERT_TRAIL_BEFORE_RE.search(window) and _CERT_TRAIL_AFTER_RE.match(sentence, m.end()))
+
+
+def _framed_self_cert(sentence: str) -> Optional[str]:
+    """The first word of :data:`_FRAMED_CERT_RE` in ``sentence`` that its frame makes a self-certification, or None (integration gate 3):
+    the answer itself or its items in the same clause (:data:`_SELF_SUBJECT_RE`: "This answer was approved by the overseer", "Every figure
+    here was cross-checked", "No findings were raised on the figures above"), the writer narrating its own check ("I double-checked the
+    figures"), a finding code or a receipt field in the sentence, or a sentence that is nothing but the word ("No findings.", "Approved by
+    the hub."). A word under negation or a deontic modal ("This answer has not been cross-checked") is a disclaimer. Each list is read
+    once and every clause is found by bisection, so the work is linear in the sentence."""
+    found = [m for m in _FRAMED_CERT_RE.finditer(sentence) if not _NEGATED_OR_DEONTIC_RE.search(sentence[max(0, m.start() - 60):m.start()])]
+    if not found:
+        return None
+    if _RECEIPT_FRAME_RE.search(sentence) is not None or _FIRST_PERSON_CHECK_RE.search(sentence) is not None:
+        return found[0].group(0)
+    if not _CERT_FILLER_RE.sub("", _FRAMED_CERT_RE.sub(" ", sentence)).strip():
+        return found[0].group(0)  # nothing but the framed words: a label of its own
+    lead_end = _CERT_LEAD_RE.match(sentence).end()
+    for m in found:
+        if _framed_label(sentence, m, lead_end):
+            return m.group(0)
+    subjects = [s.span() for s in _SELF_SUBJECT_RE.finditer(sentence)]
+    if not subjects:
+        return None
+    breaks = [b.start() for b in _CERT_CLAUSE_BREAK_RE.finditer(sentence)]
+    for m in found:
+        i = bisect.bisect_right(breaks, m.start()) - 1
+        lo = breaks[i] if i >= 0 else 0
+        j = bisect.bisect_left(breaks, m.end())
+        hi = breaks[j] if j < len(breaks) else len(sentence)
+        k = bisect.bisect_left(subjects, (lo, -1))
+        if k >= len(subjects) or subjects[k][1] > hi:
+            continue  # no item of the answer in the clause
+        if m.group(0).isupper() and subjects[k][1] > m.start() and _INFRASTRUCTURE_RE.search(sentence, lo, hi) is None:
+            # a capital status word is the answer's when its items stand before it ("All figures VERIFIED") or the clause names the
+            # system that would have returned it ("The engine returned ENTAILED for every claim here"); "The program prints ACCEPTED
+            # if all numbers are valid" is a program's output
+            continue
+        return m.group(0)
+    return None
+
+
+def self_cert_vocabulary(sentence: str) -> Optional[str]:
+    """The verification-status vocabulary of ``sentence`` that makes it an agent's self-certification or a receipt imitation, or None:
+    a word of :data:`SELF_CERT_RE` anywhere, or a word of :data:`_FRAMED_CERT_RE` in a frame (:func:`_framed_self_cert`; integration gate
+    3: ordinary subject content such as "If they match it prints VERIFIED", "the inquiry made no findings", "Every punishment was approved
+    by the overseer" or "The deal was checked and confirmed by the competition authority" is no self-certification). The CORE-SELF-001
+    pack check and :func:`is_self_certification` read this one rule."""
+    if not sentence:
+        return None
+    m = SELF_CERT_RE.search(sentence)
+    if m is not None:
+        return m.group(0)
+    return _framed_self_cert(sentence)
 #: The looser semantic rule of :func:`is_self_certification`: the sentence speaks of the answer
 #: itself (or of every figure, date or quotation in it, or of its items "here" or "above") and,
 #: anywhere in the sentence, of a checking act, of the reader relying on it, of its quotations
@@ -607,7 +719,7 @@ _LABEL_ENGINE_STATUS = (r"(?:z3|smt(?:\s+solver)?|(?:the\s+)?(?:solver|verifier|
                         r"(?:proved|proven|verified|valid|sat|unsat|satisfiable|unsatisfiable|entailed|passed|ok|okay|holds|confirmed|checked)\b")
 #: A bracketed status mark ("[OK]", "(OK)", "[PASS]", "[passed]"): a check mark written in letters. Only bracketed: a bare
 #: "OK." may open a sentence of an answer.
-_LABEL_MARK_BRACKETED = r"(?:\[\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\]|\(\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\))"
+_LABEL_MARK_BRACKETED = r"(?:\[\s*+(?:ok|okay|pass|passed)\s*+[.!]?\s*+\]|\(\s*+(?:ok|okay|pass|passed)\s*+[.!]?\s*+\))"
 #: A check mark written on the text ("✓", "✔", "☑", "✅"): never prose, so wherever it stands outside a quotation it is the
 #: writer's mark that something was checked. A cross ("✗") is not one. A run of marks is read as one possessive unit that
 #: starts only where a run starts (:data:`_CHECK_RUN`), and the marks are no part of the punctuation around a label
@@ -627,7 +739,10 @@ _LABEL_PLACE = r"(?:\s+(?:above|here|below|earlier|throughout|in\s+full))?"
 #: Punctuation, brackets, quotation marks and emphasis around a label (never a question mark: "Verified?" asks; never a
 #: check mark, which is a label of its own).
 _LABEL_NON_WORD = rf"(?:[^\w?{_CHECK_MARK_CHARS}]|_)"
-_LABEL_BRACKETED = rf"(?:\[\s*{_LABEL}\s*[.!]?\s*\]|\(\s*{_LABEL}\s*[.!]?\s*\)|{_LABEL_MARK_BRACKETED})"
+#: The blanks inside the brackets are possessive runs (integration gate 3, parsers): the adjacent ``\s*`` runs around the optional stop
+#: split a run of blanks after a bracketed label with no closing bracket in every way, k² steps for each opening bracket (2.5 s at 20,000
+#: blanks after "[ok", read for every sentence of every branch by CORE-SELF-001 and by the synthesis reading).
+_LABEL_BRACKETED = rf"(?:\[\s*+{_LABEL}\s*+[.!]?\s*+\]|\(\s*+{_LABEL}\s*+[.!]?\s*+\)|{_LABEL_MARK_BRACKETED})"
 _LABEL_WHOLE_RE = re.compile(rf"^{_LABEL_NON_WORD}*(?:{_LABEL}{_LABEL_PLACE}|{_LABEL_MARK_BRACKETED}){_LABEL_NON_WORD}*$", re.IGNORECASE)
 #: A label in front of the content: bracketed, a check mark ("✔ The constitution ..."), or a capitalised label ("Verified:",
 #: "CHECKED —"; a lower-case "checked:" is more likely a name in code) closed by a colon or a dash.
@@ -837,10 +952,14 @@ def is_memory_label(sentence: str) -> bool:
     return bool(MEMORY_LABEL_RE.search(sentence))
 
 
-def _positive(pattern: "re.Pattern[str]", sentence: str) -> bool:
+def _positive(pattern: "re.Pattern[str]", sentence: str, *, skip_status_words: bool = False) -> bool:
     """True when ``pattern`` matches ``sentence`` at least once outside negation and deontic
-    modals ("has not been checked", "should be checked", "must be verified" do not count)."""
+    modals ("has not been checked", "should be checked", "must be verified" do not count). With ``skip_status_words``, a match
+    written in capitals ("VERIFIED") is a status word, which :func:`self_cert_vocabulary` reads in its frame (integration gate 3:
+    "The routine prints VERIFIED when every number matches" is a program's output, not a check of the answer's items)."""
     for m in pattern.finditer(sentence):
+        if skip_status_words and m.group(0).isupper():
+            continue
         if not _NEGATED_OR_DEONTIC_RE.search(sentence[max(0, m.start() - 60):m.start()]):
             return True
     return False
@@ -928,7 +1047,7 @@ _ALL_HOLD_RE = re.compile(
 
 @functools.lru_cache(maxsize=8192)
 def _self_certification(sentence: str) -> bool:
-    if SELF_CERT_RE.search(sentence) or is_json_shaped(sentence) or _ALL_HOLD_RE.match(sentence):
+    if self_cert_vocabulary(sentence) is not None or is_json_shaped(sentence) or _ALL_HOLD_RE.match(sentence):
         return True
     if _FIRST_PERSON_CHECK_RE.search(sentence) or _SELF_LEAD_RE.match(sentence):
         return True
@@ -945,7 +1064,7 @@ def _self_certification(sentence: str) -> bool:
     if _DATED_ITEM_RE.search(sentence):
         return False
     if _SELF_SUBJECT_RE.search(sentence) or _SELF_ACCURACY_RE.search(sentence):
-        if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence):
+        if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence, skip_status_words=True):
             return True
         if _INFRASTRUCTURE_RE.search(sentence) and _positive(_INFRASTRUCTURE_VERB_RE, sentence):
             return True
@@ -962,7 +1081,10 @@ def _self_certification(sentence: str) -> bool:
 def is_self_certification(sentence: str) -> bool:
     """True when the sentence certifies the answer's own checking, on every branch the same way:
 
-    * verification-status vocabulary (:data:`SELF_CERT_RE`) or the shape of a JSON receipt or payload;
+    * verification-status vocabulary (:func:`self_cert_vocabulary`: :data:`SELF_CERT_RE` anywhere, and the words that are also
+      ordinary content of the subjects, "no findings", "checked and confirmed", "cross-checked", "approved by the overseer", a capital
+      status word that is no label, only in a frame: the answer or its items in the same clause, the writer's own check, a finding
+      code or a receipt field, or a sentence of nothing but the words; integration gate 3) or the shape of a JSON receipt or payload;
     * the writer narrating its own check ("I have checked each of these dates", "I verified each figure", "we have
       confirmed"), or a certifying lead ("As verified, ...", "As checked above, ...", "As the hub has confirmed, ...";
       "As confirmed by Engels, ..." cites a source and is not one);
@@ -1119,24 +1241,33 @@ _SYNTH_VERDICT_TERM = (
     r"|(?:the\s+)?(?:hub|engine|overseer|router|channel|ledger|z3|solver|verifier)\s+(?:has\s+)?(?:accepted|approved|passed|cleared|verified|confirmed)"
     r"(?:\s+(?:this|it|the\s+claim))?"
     r"|(?:logic|formal|engine|z3|integrity|hub|ledger|signature)\s+checks?\s*(?::\s*)?(?:passed|ok|okay|clean|complete|completed)"
-    r"|overseer(?:['’]s)?\s+(?:verdict|status|audit)?\s*:?\s*(?:pass|passed|approved|ok|okay|clean)|audit(?:ed)?\s*:?\s*(?:passed|clean|ok))"
+    r"|overseer(?:['’]s)?\s++(?:(?:verdict|status|audit)\s*+)?(?::\s*+)?(?:pass|passed|approved|ok|okay|clean)|audit(?:ed)?\s*+(?::\s*+)?(?:passed|clean|ok))"
 )
 #: The blanks around the optional stop are possessive runs (integration gate 2): adjacent ``\s*`` runs split a run of blanks after a label
-#: with no closing bracket in every way, k² steps for each opening bracket.
+#: with no closing bracket in every way, k² steps for each opening bracket. Integration gate 3 (parsers) read the runs inside the term the
+#: same way: "overseer", its optional key and its optional colon had three adjacent runs (k³ steps: 8.8 s at 1,000 blanks after
+#: "(overseer"), "audit" two.
 _SYNTH_VERDICT_LABEL_RE = re.compile(rf"[\[(]\s*{_SYNTH_VERDICT_TERM}\s*+[.!]?\s*+[\])]", re.IGNORECASE)
 #: A status key in the engine's, the hub's or the Overseer's name written as a sentence of its own or around content: "Overseer verdict:
 #: pass.", "Engine status: entailed", "Hub: accepted". A negated or failed value ("Overseer verdict: fail") is no label.
+#: Integration gate 3 adds the keys of a quality check ("QA: pass.", "Quality check: passed", "Review: approved", "Validation: OK", "Fact-check:
+#: confirmed", "Accuracy check: passed").
 _SYNTH_STATUS_KEY_RE = re.compile(
-    r"\b(?:overseer|engine|hub|router|channel|ledger|audit|logic\s+check|formal\s+check|signature)(?:['’]s)?(?:\s+(?:verdict|status|result|check|decision))?"
-    r"\s*:\s*(?:pass|passed|ok|okay|accepted|approved|entailed|sat|unsat|verified|valid|signed|clean|confirmed)\b(?![-'’])", re.IGNORECASE)
+    r"\b(?:overseer|engine|hub|router|channel|ledger|audit|logic\s+check|formal\s+check|signature|q\.?a\.?|quality\s+(?:check|control|assurance)|review"
+    r"|validation|fact[- ]?check|accuracy\s+check)(?:['’]s)?(?:\s+(?:verdict|status|result|check|decision))?"
+    r"\s*+:\s*+(?:pass|passed|ok|okay|accepted|approved|entailed|sat|unsat|verified|valid|signed|clean|confirmed)\b(?![-'’])", re.IGNORECASE)
 #: A leading verdict on the claim: "Correct: ...", "Fact: ...", "True: ...".
 _SYNTH_LEAD_VERDICT_RE = re.compile(r"^[\s*_`>-]*(?:correct|fact|true|accurate|verified\s+fact|confirmed\s+fact)[*_`]*\s*(?::|[—–]|\s-\s)\s*(?=\S)", re.IGNORECASE)
 #: A self-assessment that closes the claim: "...; this is fully reliable.", "..., which is beyond doubt.", "... — this is certain.".
+#: Integration gate 3 adds the intensifiers ("...; this is definitely correct.", "..., which is certainly true."); the blanks after the verdict
+#: are possessive runs, so a long blank run before a character that defeats the match is read once.
+_SYNTH_INTENSIFIER = r"(?:definitely|certainly|undoubtedly|unquestionably|surely|clearly|indeed|positively)"
 _SYNTH_SELF_ASSESS_RE = re.compile(
     r"(?:[;,:—–]|\s-)\s*(?:this|it|which|that|all\s+(?:of\s+)?this)\s+(?:is|was|has\s+been|remains|stands)\s+"
-    r"(?:(?:fully|entirely|completely|absolutely|wholly|totally|perfectly|100%)\s+)?"
+    rf"(?:{_SYNTH_INTENSIFIER}\s+true|(?:(?:fully|entirely|completely|absolutely|wholly|totally|perfectly|100%|{_SYNTH_INTENSIFIER})\s+)?"
     r"(?:reliable|certain|beyond\s+(?:any\s+|all\s+|reasonable\s+)?(?:doubt|question|dispute)|indisputable|undisputed|unquestionable|incontestable"
-    r"|(?:an?\s+)?(?:established|verified|confirmed|proven)\s+fact|correct|accurate|verified|confirmed|checked)\s*[.!]?\s*$", re.IGNORECASE)
+    r"|(?:an?\s+)?(?:established|verified|confirmed|proven)\s+fact|correct|accurate|verified|confirmed|checked))\s*+[.!]?\s*+$",
+    re.IGNORECASE)
 #: The answer, the combined answer or 'this'/'it' as the subject of a verdict that is the whole sentence: "The answer is correct.", "This
 #: answer is complete and correct.", "This has been verified.", "It is fully reliable." ("This answer is correct." the specialists'
 #: reading names too.) A verdict under negation, credited to another agent or followed by more of the sentence is no self-report.
@@ -1146,9 +1277,77 @@ _SYNTH_ANSWER_VERDICT_RE = re.compile(
     r"(?:(?:now|all|fully|completely|entirely|thoroughly|independently|formally|carefully|absolutely|100%)\s+)*"
     r"(?:(?:complete|comprehensive|full)\s+and\s+(?:correct|accurate)|(?:correct|accurate)\s+and\s+(?:complete|comprehensive)|correct|accurate|verified"
     r"|checked|confirmed|validated|reliable|error[- ]free|beyond\s+(?:any\s+|all\s+)?(?:doubt|question))[\W_]*$", re.IGNORECASE)
+#: A demonstrative or the claim itself with an intensified verdict, the whole sentence (integration gate 3): "This is definitely correct.",
+#: "This claim is certainly true.", "That is undoubtedly accurate." A verdict without an intensifier is :data:`_SYNTH_ANSWER_VERDICT_RE`'s.
+_SYNTH_INTENSE_VERDICT_RE = re.compile(
+    r"^[\W_]*(?:this|that|it|all\s+of\s+(?:this|it)|(?:this|the)\s+(?:claim|statement|point|fact|figure|date|answer|synthesis))\s+(?:is|was|remains)\s+"
+    rf"(?:(?:absolutely|completely|entirely|totally|wholly|perfectly|100%)\s+)?{_SYNTH_INTENSIFIER}\s+(?:(?:absolutely|completely|entirely|totally)\s+)?"
+    r"(?:correct|accurate|true|right|reliable|verified|confirmed|established)[\W_]*$", re.IGNORECASE)
+#: The verification infrastructure and the checks named as what confirmed or passed the claim (integration gate 3): a clause closing the
+#: claim after a separator ("..., which the engine confirms.", "..., as Z3 confirms.", "..., as the overseer approved.", "..., a fact the
+#: checker confirmed.", and, for the names that are only the system's, "...; the hub has verified it." with no connective), every check said to have passed ("All checks passed.", "Every check passed.",
+#: "...; this passed all checks."), or a signed result claimed for it ("This claim carries a signed engine result."). Read on a synthesis
+#: only. The names that are also ordinary words of the subjects (the overseer, the translator, the checker, the verifier, Z3) count after
+#: "which", "this", "that" or "and" only with a verb of verification ("The planters introduced new punishments, which the overseer
+#: approved." is History); a verb under negation, a source credited ("as the treaty's text confirms") or a clause that goes on ("..., which
+#: the overseer approved in 1820") is no self-report.
+_SYNTH_SYSTEM_NAME = (r"(?:the\s+)?(?:(?:verification|logic|formal|z3|smt)\s+)?(?:engine|solver)|the\s+(?:hub|ledger|channel|router)|(?:the\s+)?formal\s+checks?"
+                      r"|(?:the\s+)?(?:automated|automatic|integrity|verification)\s+checks?")
+_SYNTH_WORD_NAME = r"z3|the\s+(?:checker|verifier|overseer|translator)"
+_SYNTH_ANY_VERB = (r"(?:confirm(?:s|ed)?|verif(?:y|ies|ied)|prov(?:e|es|ed|en)|approv(?:e|es|ed)|certif(?:y|ies|ied)|validat(?:e|es|ed)|accept(?:s|ed)?"
+                   r"|entail(?:s|ed)?|pass(?:es|ed)?|clear(?:s|ed)|signed\s+off(?:\s+on)?)")
+_SYNTH_CHECK_VERB = r"(?:confirm(?:s|ed)?|verif(?:y|ies|ied)|prov(?:e|es|ed|en)|certif(?:y|ies|ied)|validat(?:e|es|ed)|entail(?:s|ed)?)"
+_SYNTH_VERB_TAIL = r"(?:\s++(?:it|this|that|the\s+claim|so))?\s*+[.!]?[\s\"'”’)\]]*+$"
+_SYNTH_AUX = r"(?:(?:has|have|had)\s++)?(?:(?:also|now|already|independently|formally|fully)\s++)?"
+_SYNTH_INFRA_CREDIT_RE = re.compile(
+    rf"(?:(?:[,;:—–]|\s-)\s*+(?:(?:as|a\s+fact(?:\s+that)?|something(?:\s+that)?)\s++(?:{_SYNTH_SYSTEM_NAME}|{_SYNTH_WORD_NAME})\s++{_SYNTH_AUX}{_SYNTH_ANY_VERB}"
+    rf"|(?:which|this|that|and|all\s+of\s+which)\s++(?:(?:{_SYNTH_SYSTEM_NAME})\s++{_SYNTH_AUX}{_SYNTH_ANY_VERB}|(?:{_SYNTH_WORD_NAME})\s++{_SYNTH_AUX}{_SYNTH_CHECK_VERB}))"
+    rf"|(?:[;:—–]|\s-)\s*+(?:{_SYNTH_SYSTEM_NAME})\s++{_SYNTH_AUX}{_SYNTH_ANY_VERB})"
+    rf"{_SYNTH_VERB_TAIL}",
+    re.IGNORECASE)
+#: Every check said to have passed, the whole sentence ("All checks passed.", "Every check passed.", "All formal checks have passed.", "Each
+#: check came back clean.", "The checks all passed.", "The formal checks passed."), or the claim said to have passed them after a separator
+#: ("...; this passed all checks.", "..., which passed every check."). "The safety checks passed." and "The checks cleared." (cheques) name
+#: no check of this system.
+_SYNTH_CHECK_KIND = r"(?:formal|automated|automatic|integrity|verification|engine|hub|z3|logic|ledger)"
+_SYNTH_ALL_CHECKS_RE = re.compile(
+    r"^[\W_]*(?:all|every|each)\s++(?:(?:of\s++)?(?:the|its|our|my)\s++)?(?:[\w-]+\s++)?checks?\s++(?:(?:have|has)\s++(?:all\s++)?)?"
+    r"(?:passed|pass(?:es)?|succeeded|cleared|(?:came|come|comes)\s++back\s++clean|(?:are|were|is|was)\s++(?:all\s++)?(?:passed|green|clean|ok|okay))[\W_]*$"
+    rf"|^[\W_]*the\s++(?:{_SYNTH_CHECK_KIND}\s++checks?\s++(?:(?:have|has)\s++)?(?:all\s++)?|checks\s++(?:(?:have|has)\s++)?all\s++)(?:passed|succeeded)[\W_]*$"
+    r"|(?:[;,:—–]|\s-)\s*+(?:this|it|which|the\s++claim|this\s++claim)\s++(?:has\s++)?(?:passed|passes|cleared|clears)\s++"
+    r"(?:all|every|each|the)\s++(?:of\s++the\s++)?(?:[\w-]+\s++)?checks?\s*+[.!]?[\s\"'”’)\]]*+$"
+    r"|^[\W_]*(?:this|it|the\s++claim|this\s++claim)\s++(?:has\s++)?(?:passed|passes|cleared|clears)\s++(?:all|every|each|the)\s++(?:of\s++the\s++)?"
+    r"(?:[\w-]+\s++)?checks?[\W_]*$", re.IGNORECASE)
+#: The system named as what confirmed the claim, the whole sentence (integration gate 3): "The engine confirms this claim.", "The hub has
+#: verified this.", "The solver proved the claim.", "Z3 verified it." The names that are also ordinary words of the subjects (the overseer,
+#: the translator, the checker, the verifier, Z3) count only with a verb of verification ("The overseer approved this claim." may be
+#: History), and every form needs the claim, 'it' or 'this' as what was confirmed ("The engine proved reliable." is content).
+_SYNTH_CLAIM_OBJECT = (r"(?:it|this|that|so|the\s++claims?|this\s++claim|the\s++(?:synthesis|combined\s++answer|answer)|everything(?:\s++(?:above|here))?"
+                       r"|all\s++(?:of\s++)?(?:this|it|the\s++claims))")
+_SYNTH_INFRA_MAIN_RE = re.compile(
+    rf"^[\W_]*(?:(?:{_SYNTH_SYSTEM_NAME})\s++{_SYNTH_AUX}{_SYNTH_ANY_VERB}|(?:{_SYNTH_WORD_NAME})\s++{_SYNTH_AUX}{_SYNTH_CHECK_VERB})\s++{_SYNTH_CLAIM_OBJECT}"
+    r"[\W_]*$", re.IGNORECASE)
+#: A signed result claimed for the claim ("This claim carries a signed engine result.", "It rests on a signed Z3 proof."): no agent can write
+#: one, so the words are a self-report. A signed receipt of trade ("Each delivery has a signed receipt") names no engine.
+_SYNTH_SIGNED_RE = re.compile(
+    r"\b(?:carries|carry|has|have|bears|holds|comes\s++with|is\s++backed\s++by|rests\s++on|is\s++supported\s++by)\s++(?:a|an|the|its)\s++(?:(?:valid|verified)\s++)?"
+    r"signed\s++(?:(?:(?:engine|hub|z3|solver|formal|overseer|verification)\s++)(?:result|receipt|verdict|check|proof|certificate)|result|verdict)\b", re.IGNORECASE)
+#: Content before a claimed signed result other than its subject ("This claim carries ...", "It rests on ..."): the words are then written
+#: after the claim's content.
+_CONTENT_BEFORE_SIGNED_RE = re.compile(r"[;,:—–]|\b(?!(?:this|that|it|the|claim|statement|point|fact|figure|date|answer|synthesis|each|every|all)\b)[^\W\d_]{2,}\b",
+                                       re.IGNORECASE)
+#: Verification words of other languages written as a label on a claim, bracketed ("(vérifié)", "(geprüft)", "[verificado]") or closing it
+#: after a separator ("...; überprüft."), read on a synthesis only (a specialist of a language may gloss a word: "checked (vérifié)").
+_SYNTH_FOREIGN_WORD = (r"(?:v[ée]rifi[ée]e?s?|contr[ôo]l[ée]e?s?|confirm[ée]e?s?|gepr[üu]ft|[üu]berpr[üu]ft|best[äa]tigt|verifiziert|verificad[oa]s?|comprobad[oa]s?"
+                       r"|confirmad[oa]s?|verificat[oaie]|controllat[oaie]|confermat[oaie]|gecontroleerd|geverifieerd|sprawdzon[aey])")
+_SYNTH_FOREIGN_LABEL_RE = re.compile(
+    rf"[\[(]\s*+{_SYNTH_FOREIGN_WORD}\s*+[.!]?\s*+[\])]|(?:[;:—–]|\s-)\s*+{_SYNTH_FOREIGN_WORD}\s*+[.!]?[\s\"'”’)\]]*+$|^[\W_]*{_SYNTH_FOREIGN_WORD}[\W_]*$",
+    re.IGNORECASE)
+
 #: Cheap pre-filter for the combinator's verdicts above.
 _SYNTH_VERDICT_CUE_RE = re.compile(r"sat|entail|sign|receipt|accept|approv|pass|clear|overseer|hub|audit|logic|correct|fact|true|reliab|doubt|question|dispute"
-                                   r"|certain|verif|confirm|check|accura|valid|prov|ok", re.IGNORECASE)
+                                   r"|certain|verif|confirm|check|accura|valid|prov|ok|\bq\.?a\b|review|right|establish|v[ée]rifi|contr[ôo]l|pr[üu]ft|best[äa]tigt"
+                                   r"|comprobad|confermat|controleerd|sprawdzon", re.IGNORECASE)
 
 
 def _synthesis_verdict_label(masked: str) -> Optional[VerificationLabel]:
@@ -1162,7 +1361,14 @@ def _synthesis_verdict_label(masked: str) -> Optional[VerificationLabel]:
     m = _SYNTH_SELF_ASSESS_RE.search(masked)
     if m is not None and _LABEL_CONTENT_RE.search(masked[:m.start()]):
         return VerificationLabel("after", masked[m.start():].strip()[:200])
-    m = _SYNTH_VERDICT_LABEL_RE.search(masked) or _SYNTH_STATUS_KEY_RE.search(masked)
+    # the infrastructure or the checks credited with the claim, and a signed result claimed for it (integration gate 3)
+    m = _SYNTH_INFRA_CREDIT_RE.search(masked) or _SYNTH_ALL_CHECKS_RE.search(masked)
+    if m is not None and not _NEGATED_OR_DEONTIC_RE.search(masked[max(0, m.start() - 60):m.start()]):
+        return VerificationLabel("after" if _LABEL_CONTENT_RE.search(masked[:m.start()]) else "whole", m.group(0).strip(" ,;:—–-")[:200])
+    m = _SYNTH_SIGNED_RE.search(masked)
+    if m is not None and not _NEGATED_OR_DEONTIC_RE.search(masked[max(0, m.start() - 60):m.start()]):
+        return VerificationLabel("whole" if not _CONTENT_BEFORE_SIGNED_RE.search(masked[:m.start()]) else "after", m.group(0).strip()[:200])
+    m = _SYNTH_VERDICT_LABEL_RE.search(masked) or _SYNTH_STATUS_KEY_RE.search(masked) or _SYNTH_FOREIGN_LABEL_RE.search(masked)
     if m is None:
         return None
     before, after = masked[:m.start()], masked[m.end():]
@@ -1235,8 +1441,11 @@ def is_synthesis_self_certification(sentence: str) -> bool:
     :func:`is_self_certification` (the specialists' reading) does not read them. Cached per sentence."""
     if is_self_certification(sentence):
         return True
-    if _SYNTH_VERDICT_CUE_RE.search(sentence) and _SYNTH_ANSWER_VERDICT_RE.match(mask_quotations(sentence)):
-        return True  # "The answer is correct.", "This answer is complete and correct.", "This has been verified." (finding 7)
+    if _SYNTH_VERDICT_CUE_RE.search(sentence):
+        masked = mask_quotations(sentence)
+        if _SYNTH_ANSWER_VERDICT_RE.match(masked) or _SYNTH_INTENSE_VERDICT_RE.match(masked) or _SYNTH_INFRA_MAIN_RE.match(masked):
+            # "The answer is correct.", "This has been verified." (finding 7); "This is definitely correct.", "The engine confirms this claim."
+            return True
     return _synthesis_self_report(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _synthesis_self_report.__wrapped__(sentence)
 
 

@@ -24,14 +24,18 @@ class _EnglishParserWrapper:
     """Adapts the agent-written English adapter (module-level parse_response) to the branch
     parser protocol. The hub-stated ``agent_id`` is passed through unchanged: the report
     names who actually answered, so the channel's identity checks (INT-REQ-001,
-    INT-HANDOFF-002) can compare it with the request and the plan."""
+    INT-HANDOFF-002) can compare it with the request and the plan. The hub may ask for agent-qualified claim ids
+    (``qualify_ids``, passed through; ``channel.bus.needs_qualified_ids``, integration gate 3: English A: Literature and
+    English A: Language and Literature on one task number their paragraphs alike)."""
     agent_id = "english-specialist"
+    accepts_qualify_ids = True
 
-    def parse_response(self, text, *, request_id, task_id, report_id, subject, task_type, supplied_texts=(), course_level="unknown", agent_version=None, agent_id=None):
+    def parse_response(self, text, *, request_id, task_id, report_id, subject, task_type, supplied_texts=(), course_level="unknown", agent_version=None, agent_id=None,
+                       qualify_ids=False):
         from ..adapters.english_specialist.parser import parse_response
         return parse_response(text, request_id=request_id, task_id=task_id, report_id=report_id, subject=subject, task_type=task_type,
                               supplied_texts=list(supplied_texts), course_level=course_level, agent_version=agent_version,
-                              agent_id=agent_id or self.agent_id)
+                              agent_id=agent_id or self.agent_id, qualify_ids=qualify_ids is True)
 
 
 def _english_parser():

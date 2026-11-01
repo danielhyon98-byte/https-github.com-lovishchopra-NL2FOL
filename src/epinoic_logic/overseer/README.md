@@ -467,7 +467,9 @@ digits (rule `figure-digits`; 4,301 digits raised and failed the translation che
 line by line (rule `folded-tail`); a structured report's `source_refs` excerpt located in the document it names, on a claim that
 occurs in the response, is no FID-002 (rule `located-citation`, one rule with the channel); a claim an adapter cut at the contract
 limit without the `...` mark (the STEM parser's cut) has its figures read without the partial token at the cut (rule
-`contract-cut`, unmarked). Tests:
+`contract-cut`, unmarked); a figure the response glues to an emphasis marker ('= __5.0 m s⁻²__.', which the STEM parser
+delivers as '= 5.0 m s⁻².') is a figure the response states (rule `emphasis-figures`, integration gate 3: a correct STEM answer
+was AUDIT_FAILED with OVS-FID-003; `tests/overseer/test_integration_gate3_handoff.py`). Tests:
 `tests/overseer/test_gate1_overseer_fixes.py`.
 
 ## Translator oversight

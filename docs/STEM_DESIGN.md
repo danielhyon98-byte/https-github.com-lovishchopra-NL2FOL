@@ -234,6 +234,12 @@ offsets are preserved:
   but never silently join two.
 - U+22C5 and U+2219 become U+00B7, which is a multiplication marker in math and unit context and
   a hydrate dot in a chemical formula. U+2217 becomes `*`, and U+2126 (ohm sign) becomes `Ω`.
+  A MIDDLE DOT U+00B7 written as such between two digits with no blank (`5·0`, `3·5`) is also the
+  raised decimal point of British writing: rule middle-dot (section 37) reads it both ways.
+- The fullwidth and small forms of the relation signs, operators and brackets the grammar reads
+  (`＝ ﹦ ＜ ＞ ﹤ ﹥ ＋ ﹢ － ﹣ ＊ ﹡ ／ （ ） ［ ］ ﹙ ﹚`), `⩵`, `≦ ≧`, the fraction slash `⁄`, the ratio
+  sign `∶`, the tilde operator `∼`, the dingbat signs `✕ ✖ ➕ ➖ ➗` and the increment sign `∆`
+  become the sign they stand for (`normalize.SIGN_FORMS`; rule sign-forms, section 37).
 - U+00D7 `×` stays its own token.
 - An en dash U+2013 or figure dash U+2012 is read as minus only after the start, a space, an
   operator, `(` or a relation sign, and before a digit or letter. `3–5 s` between two numbers
@@ -4040,3 +4046,83 @@ worst-case input with a wide margin and a growth ratio. The recorded round 7 giv
 Linear but slow, for the optimisation checks that run last (no receipt, finding or status changes): a Physics answer of 400,000
 characters of a mark, blanks and text on 20 lines takes about 5 s to receive and 2.6 s to audit after the fix (the base cost of a
 response at the size limit).
+
+## 37. Integration gate 3: the STEM findings before arena round 8
+
+The independent lenses of integration gate 3 (parser-safety, correctness) found four STEM readings that named nothing, failed correct
+working or passed wrong working; none was an input stall. Each is fixed where it went wrong, and
+`tests/stem/test_integration_gate3_stem.py` pins every one through the hub with clean controls (correct working that holds, wrong
+working that fails) and bounds the new readings on hostile input of about 20,000 characters. The sweep for each class found more
+shapes than the instance reported; they are listed with their rule.
+
+- **Emphasis markers are layout** (rule emphasis-layout; `spans._markup`, `SpanSet.emphasis`, `document._read`,
+  `StemDocument.operand_view`, `StemDocument.locate`, `hub_hooks.coverage_terms`; `spans._emphasis_pairs`). The span finder records
+  every emphasis pair outside code and LaTeX apart ('**', '__', '*' and, new, '_' around words: a single underscore elsewhere is a
+  subscript; the bold italic '***' and '___', read first and blanked before the shorter markers are; and the strikethrough '~~', whose
+  struck text goes with it), and the document blanks them in the reading view every later step reads, one character for one, as the
+  math view and the prose view already did (the struck text and the '_', '___' and '~~' markers in the math view too).
+  Before, the checks stage read the original text around an operand, so the closing '**' of '**a = (20 − 0)/4.0 = 6.0 m s⁻²**' was an
+  operator adjoining '6.0 m s⁻²' and the wrong step was withheld (ST-PARSE-001); a marker inside a run ('= **6.0 m s⁻²**.',
+  '= *6.0 m s⁻²*.') was lexed as a power or a product sign (ST-PARSE-001, nothing checked); and '= _6.0 m s⁻²_.' was dropped with
+  nothing named; so was '= ***6.0 m s⁻²***.' (the middle star of each marker was left in the text) and '= ~~5.0~~ 6.0 m s⁻²' (now read as
+  '= 6.0 m s⁻²', the value the line states). The checks stage now reads `operand_view` (the text with the sign forms mapped and the
+  emphasis blanked). The STEM parser writes a claim with the markup inside its statement left out, so such a claim was no substring of
+  the answer and offered the coverage heuristic no word (INT-REQ-004 on an answer that names its quantity); `StemDocument.locate`
+  finds it in the answer with the markup left out (built once per document) and maps it back. The '_', '___' and '~~' pairs are
+  emphasis only: a claim keeps them (the overseer's figure reader reads a figure glued to an underscore as no figure, see below, and
+  struck text is still what the agent wrote). '**' between two operands ('2**3', '2 ** 3') is still a power: the opening marker of a
+  pair is never preceded, and its closing marker never followed, by a letter or a digit.
+- **The raised decimal point** (rule middle-dot; `document.ambiguous_dots`, `document._dot_readings`, `nodes.Operand.dot`,
+  `checks._dot_checks`, `checks._join_dot_readings`). A MIDDLE DOT U+00B7, as written, between two ASCII digits with no blank, whose
+  digits before it open their numeral and whose digits after it close it, and that does not multiply by a power of ten ('4·10³',
+  '6·10^23', '1.2·10^{-3}', 'CuSO4·5H2O' and '1·2·3' keep the product), is read both ways: the span is lexed and parsed again from a
+  view in which each such dot is a full stop, and when the two readings give the same relations each operand that holds one carries
+  the decimal reading first and the product second (`Operand.dot`; one of them when the other cannot be read; ST-PARSE-002 when the
+  readings give different relations, or the operand holds another ambiguity). A relation that is nothing but its operands (`eq`, `cmp`,
+  `cnv`, `res`, `tgt`, `giv`, `base`) is built under each reading, and the two problems are joined into one IR problem each, the
+  readings' symbols and premises renamed apart (`d_` for the decimal point, `p_` for the product): the check under the relation's own
+  id holds when every reading holds (failure severity warning: a reading the answer did not state) and its companion, the id with 'd',
+  holds when some reading holds (the readings' own severity, an error for written arithmetic). So an error comes only when every reading
+  fails ('20/4.0 = 6·0'), a warning when the readings disagree (the correct '20/4.0 = 5·0' and '3·5 + 4 = 7·5', and the wrong
+  '20/4·0 = 6·0', whose product reading holds), and nothing when both hold. A relation of another kind (a substitution, a step, roots:
+  read through the first reading's bindings and formulas) is decided under the decimal reading at warning severity, and so is a relation
+  only one reading encodes. Before, the dot was always a product: the correct '20/4.0 = 5·0 m s⁻²' was INT-SUBJ-001 (5 = 0) and the
+  wrong '20/4·0 = 6·0' was ENTAILED (0 = 0). The prose reads such a value as a decimal too: the runs are found with the dot as a decimal
+  point (`find_spans(decimal_dots=…)`), so 'is 5·8 m s⁻²' is a quantity, and a bare number in prose is read from the decimal view; a
+  check of it rests on that reading (a warning at most). Before, the prose read the integer part alone ('5'), and the correct
+  restatement 'The acceleration is therefore 5·8 m s⁻²' after '= 5.8 m s⁻²' was INT-SUBJ-001. Bindings take the first reading (the
+  decimal point): a value stated with such a dot
+  and then substituted as a product of digits remains a reading this rule does not cover. The channel's counterexample note gives a
+  joined problem's values per reading ('(engine counterexample: decimal-point reading: c = 5, r = 6; product reading: c = 5, r = 0;
+  ...)', integration gate 3, handoff fixer: it had named the symbols 'c' and 'r' only, so the receipt quoted the description, which
+  names both readings, without the values); the overseer's receipt check binds the same note. Overseer knowledge pack 1.4 names the
+  unit companion 'stem-<kind>-<n>u' but not this 'd' companion: the pack is pinned, so the next pack version should list it (the
+  transfer audit needs no change, since it re-derives both checks from the journaled report).
+- **Sign forms** (rule sign-forms; `normalize.SIGN_FORMS`, `lexer.sign_outside_grammar`, the run reader of `spans`,
+  `document._unread_relation_signs`). The fullwidth and small forms of the relation signs, operators and brackets the grammar reads
+  ('＝ ﹦ ＜ ＞ ﹤ ﹥ ＋ ﹢ － ﹣ ＊ ﹡ ／ （ ） ［ ］ ﹙ ﹚'), TWO CONSECUTIVE EQUALS SIGNS '⩵', '≦ ≧', the fraction slash '⁄', the ratio sign '∶',
+  the tilde operator '∼', the dingbat signs '✕ ✖ ➕ ➖ ➗' and the increment sign '∆' (read as 'Δ') are mapped in the reading view one
+  character for one. Every other mathematical symbol whose Unicode name makes it a relation sign or an operator ('⨯', '∘', '⊗', '∜',
+  '≪', '≔', '≟', '≒', '⩶') is an ERROR token that its run keeps (the run goes on through it, and no run starts right after it), so the
+  relation holding it is undecided (ST-PARSE-001), and the unread-relation rule names a relation sign of this kind that no run holds.
+  Before, each was an unknown character that ended the run: a step written with '＝', '﹦' or '⩵' had no relation, no check and no
+  finding (a wrong step crossed the hub ACCEPTED), and one written with '＋', '／', '⁄', '✕' or '⨯' was cut at it ('x = 3 ＋ 4 = 7' read
+  as '4 = 7', '3⁄4 = 0.75' as '4 = 0.75': errors on correct work), with the symbol before it bound to the wrong value ('x = 3'). The
+  signs of sets ('∈', '⊂', '⊆'), arrows and connectives ('∵') relate no values and are read as before.
+- **Tested values** (rule tested-value; `relations._TESTED_VALUE_RE`, `_Planner._tested_value`). A value stated for a symbol after
+  'so' that the answer tests, rejects or accepts restates no result of the chain before it: when the words right after it reject or test
+  it ('is rejected', 'is not a solution', 'does not satisfy', 'fails', 'is extraneous', 'is invalid', 'must be rejected', 'doesn't work',
+  'is valid', 'satisfies', 'gives'), when the same symbol is given the same value earlier in its statement ('Checking: x = 1 gives
+  √4 = 2 but 1 − 3 = −2, so x = 1 is rejected'), or when the value is written in the chain's own arithmetic and the symbol is the
+  unknown of an equation the working solves ('6 − 3 = 3, so x = 6': a root under test). A quantity the chain computes from a measured
+  value is no root under test: '820 − 20 = 800 counts min⁻¹ (so C(8) = 820)' restates the chain's input and is still named.
+  Before, rule restated-binding set 'so x = 1' against the chain's −2 (stem-res, COUNTEREXAMPLE c = −2, r = 1): INT-SUBJ-004 on correct
+  work, and the gate fell from VERIFIED to DELIVERED_UNVERIFIED; the accepting 'so x = 6' after a correct check drew the same warning
+  (c = 3, r = 6). A restatement ('… = 0.087 h⁻¹, so λ = 0.087 h⁻¹') is read and checked as before, and a wrong one is still named.
+
+Found while fixing, outside this package and handed to its owner: the overseer's FID-003 reads the figures of the original response
+with its emphasis markers in place, so a figure glued to '__' ('= __5.0 m s⁻²__.') is read as no figure while the STEM claim, written
+without the markers, states 5.0: a correct answer is AUDIT_FAILED (OVS-FID-003). This was so before the gate as well. A single
+underscore pair is kept out of the markup a claim leaves out, so the new reading of '_5.0 m s⁻²_' adds no such failure.
+
+No existing test was rewritten, weakened or deleted.

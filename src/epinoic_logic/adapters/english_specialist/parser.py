@@ -154,7 +154,14 @@ unresolved issue rather than rejected: interpretation and note claims are folded
 before evidence claims and evidence before material claims, and the source references
 of any evidence claim folded all the same are carried on the tail claim so the hub
 still checks those quotations; the issue states how many claims and quotations were
-merged.
+merged. With ``qualify_ids`` (integration gate 3) every id, and every reference to one inside
+the report (supporting and parent claim ids, the tail claim and its issue), also carries the
+agent, as the STEM and generic parsers' ids do (``p1-point@english-a-lang-lit-specialist``:
+``generic_parser.agent_claim_tag``). The hub asks for it, by the one rule of
+``channel.bus.needs_qualified_ids``, when the report's ids are ids a report of another agent
+already delivered on the task holds (English A: Literature and English A: Language and
+Literature on one task number their paragraphs alike), so no two reports on one task share a
+claim id; a single agent's report keeps every id it always had.
 """
 from __future__ import annotations
 
@@ -952,9 +959,9 @@ def _fold_rank(claim: ClaimRecord) -> int:
     return _FOLD_PRIORITY["supporting"]
 
 
-def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[ClaimRecord], list[str]]:
-    """Fold the claims beyond the report's limit into one ``other`` tail claim and prune
-    links to the folded claims, so an oversized answer is delivered, not rejected.
+def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object], tail_id: str = TAIL_CLAIM_ID) -> tuple[list[ClaimRecord], list[str]]:
+    """Fold the claims beyond the report's limit into one ``other`` tail claim (``tail_id``: ``p-tail``, qualified with the
+    agent when the report's ids are) and prune links to the folded claims, so an oversized answer is delivered, not rejected.
 
     Interpretation, device and note claims are folded before evidence claims, and evidence
     before material claims, each group from the end of the answer, so a quotation placed
@@ -971,7 +978,7 @@ def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[
     folded_idx = set(order[:excess])
     head = [c for i, c in enumerate(claims) if i not in folded_idx]
     tail = [c for i, c in enumerate(claims) if i in folded_idx]
-    kept = {c.claim_id for c in head} | {TAIL_CLAIM_ID}
+    kept = {c.claim_id for c in head} | {tail_id}
     pruned = [
         c.model_copy(update={
             "supporting_claim_ids": [s for s in c.supporting_claim_ids if s in kept],
@@ -994,10 +1001,10 @@ def _fold_tail(claims: list[ClaimRecord], ids: dict[str, object]) -> tuple[list[
     if dropped:
         assumptions.append(f"{len(dropped)} further quotation(s) of the merged claims could not be carried and were not checked")
     pruned.append(ClaimRecord(
-        **ids, claim_id=TAIL_CLAIM_ID, claim_text=_claim_text(" ".join(c.claim_text for c in tail)), claim_role="other",  # type: ignore[arg-type]
+        **ids, claim_id=tail_id, claim_text=_claim_text(" ".join(c.claim_text for c in tail)), claim_role="other",  # type: ignore[arg-type]
         proposed_claim_kind="unknown", materiality="supporting", certainty="possible", source_refs=carried, assumptions=assumptions,
     ))
-    issue = (f"{len(tail)} claims beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {TAIL_CLAIM_ID} "
+    issue = (f"{len(tail)} claims beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {tail_id} "
              f"and were not individually roled or checked: {folded_evidence} of them were evidence claims with {len(refs)} quotation(s); "
              + (f"{len(carried)} quotation(s) are carried on the tail claim's source references for checking" if carried else "no quotation was merged")
              + (f" and {len(dropped)} quotation(s) were merged unchecked" if dropped else ""))
@@ -1017,6 +1024,7 @@ def parse_response(
     course_level: str = "unknown",
     agent_version: Optional[str] = None,
     agent_id: Optional[str] = None,
+    qualify_ids: bool = False,
 ) -> SpecialistReport:
     """Parse an English specialist answer into an immutable :class:`SpecialistReport`.
 
@@ -1026,7 +1034,8 @@ def parse_response(
     answered. Claims are proposed by the rules in the module docstring; meta blocks
     propose none and list blocks propose evidence only. Raises :class:`AdapterError`
     when the text is empty or yields no sentences; claims beyond the report's limit are
-    folded into a tail claim.
+    folded into a tail claim. With ``qualify_ids`` every claim id and every reference to
+    one carries the agent (module docstring, integration gate 3).
     """
     if not text or not text.strip():
         raise AdapterError("the specialist answer is empty")
@@ -1034,6 +1043,11 @@ def parse_response(
     if not any(p.sentences for p in paragraphs):
         raise AdapterError("the specialist answer yields no sentences")
     agent = agent_id or AGENT_ID
+    if qualify_ids:
+        from ...branches.generic_parser import agent_claim_tag  # imported on first use: the branches package imports this module
+        suffix = "@" + agent_claim_tag(agent)
+    else:
+        suffix = ""
     docs = {t.document_id: t for t in supplied_texts}
     ids: dict[str, object] = dict(
         request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version,
@@ -1061,14 +1075,14 @@ def parse_response(
         if not para.sentences or para.kind == "meta":
             continue  # meta-text is never part of the argument
         point_sentence = next((s for s in para.sentences if s.role == "point"), None) if para.kind == "body" else None
-        point_id = f"p{para.index}-point" if point_sentence is not None else None
+        point_id = f"p{para.index}-point{suffix}" if point_sentence is not None else None
         paragraph_start = len(claims)
         evidence_ids: dict[str, str] = {}
         support_ids: list[str] = []
         pending_links: list[tuple[str, str, list[str]]] = []
         quotation_count = 0
         for sentence in para.sentences:
-            sid = f"p{para.index}-s{sentence.index:02d}"
+            sid = f"p{para.index}-s{sentence.index:02d}{suffix}"
             if para.is_prose and sentence.role == "other":
                 # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference;
                 # a note that relays a quoted label ("That account marks its figures as "from memory"") keeps its quotation as
@@ -1080,7 +1094,7 @@ def parse_response(
                         if q.excerpt in evidence_ids:
                             continue
                         quotation_count += 1
-                        qid = f"p{para.index}-q{quotation_count:02d}"
+                        qid = f"p{para.index}-q{quotation_count:02d}{suffix}"
                         doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text) if q.delimited else (None, [_UNDELIMITED_NOTE])
                         if not q.delimited and para.index not in undelimited_paragraphs:
                             undelimited_paragraphs.append(para.index)
@@ -1098,7 +1112,7 @@ def parse_response(
                 qid = evidence_ids.get(q.excerpt)
                 if qid is None:
                     quotation_count += 1
-                    qid = f"p{para.index}-q{quotation_count:02d}"
+                    qid = f"p{para.index}-q{quotation_count:02d}{suffix}"
                     if q.delimited:
                         doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text)
                         refs = [SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else []
@@ -1187,7 +1201,7 @@ def parse_response(
     if undelimited_paragraphs:
         shown = ", ".join(str(i) for i in undelimited_paragraphs[:8])
         unresolved.append(f"paragraph(s) {shown} carry an unbalanced quotation mark; the span it opens or closes was recorded as an undelimited quotation and not checked against any text")
-    claims, folded = _fold_tail(claims, ids)
+    claims, folded = _fold_tail(claims, ids, TAIL_CLAIM_ID + suffix)
     unresolved += folded
     return SpecialistReport(
         report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version,

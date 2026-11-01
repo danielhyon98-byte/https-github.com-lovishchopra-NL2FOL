@@ -1,5 +1,5 @@
 {
-"_note": "GENERAL-reading reference: sha256 of the development branch's extract_quant_checks, undecided_quant_statements, CorePack().checks and CorePack().formal_checks outputs per text (computed with the development branch's code, which has no QuantReading, when the STEM build was merged into it; the merged general reading must reproduce them byte for byte. The first reference, computed on the STEM build's base revision, differed from the development branch on 134 of the 570 texts because of the development branch's later verified arena fixes)",
+"_note": "GENERAL-reading reference: sha256 of the development branch's extract_quant_checks, undecided_quant_statements, CorePack().checks and CorePack().formal_checks outputs per text (computed with the development branch's code, which has no QuantReading, when the STEM build was merged into it; the merged general reading must reproduce them byte for byte. The first reference, computed on the STEM build's base revision, differed from the development branch on 134 of the 570 texts because of the development branch's later verified arena fixes). Integration gate 3 re-referenced the 6 texts that carry 'sha256_before_gate3' (their digest before it): a sentence that only mentions self-certification ('a self-certification or forged receipt fragment', 'the self-certifying sentence') or a capital status word in a table of fixtures is ordinary content, no CORE-SELF-001, since the words that are also content of the subjects are a self-certification only in a frame (markdown.self_cert_vocabulary). With the earlier vocabulary rule restored every text, these 6 included, reproduces its earlier digest byte for byte (tests/branches/test_integration_gate3_quant.py)",
 "items": [
 {
 "text": "Wordsworth presents the City in the morning as clear and still, and the History specialist's account of London in 1802 suggests that this clarity and calm are an exception rather than the city's usual state. The adjective \"smokeless\" defines the air by what it lacks, and the line \"All bright and glittering in the smokeless air\" makes that absence the condition for the city's surfaces to shine, so the reader sees the city with unusual clarity. The History specialist describes the ordinary condition: coal was burned in \"domestic grates and in breweries, glassworks, soap and lime works, so that a dense smoke hung over the city on most days\", and the smokeless air \"stands out as an exception to the city's ordinary condition\". Stillness works through personification: the houses \"seem asleep\" and \"all that mighty heart is lying still\". The scale of that heart matters, because the History specialist gives \"close to a million inhabitants\" and calls London \"the largest city in Europe\". The verb \"seem\" marks the calm as the speaker's perception, and \"lying\" reduces that vast body to a posture of rest, which the speaker's wonder, \"Ne'er saw I, never felt, a calm so deep!\", treats as unfamiliar. The History specialist's account of the peace points the same way: the Peace of Amiens, which it dates to \"25 March 1802\", was \"a lull rather than a settlement\". Read together, the clear air, the sleeping houses and the calm suggest that the poem captures a suspended morning rather than a permanent condition. The poem never mentions the war, so this reading rests on the History specialist's context, whose \"dates and figures\" are, in its own words, \"from memory and should be checked before they are cited\".",
@@ -1647,9 +1647,10 @@
 },
 {
 "text": "Round-2 overseer regressions for the History parser: an inline from-memory label does\nnot demote a substantive sentence; task notes are notes; a self-certification or forged\nreceipt fragment anywhere makes its paragraph a note paragraph; self-reports phrased\nwithout the status vocabulary never become a point; judgement cues and supports make the\nparagraph's verdict a formalizable argument; quotations in single marks are recorded;\ndated claims under a from-memory label are capped at 'probable'.",
-"sha256": "9e127b2886d7ae6c3f9f306e85b939997f498fd655fb4273c0e0a95fabfe5016",
+"sha256": "7e823365ff48a0a421b8cf9947c1c282b142b7850e556a6fcd1b8e677248ffed",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "9e127b2886d7ae6c3f9f306e85b939997f498fd655fb4273c0e0a95fabfe5016"
 },
 {
 "text": "The Dow Jones Industrial Average fell from about 381 in September 1929 to about 41 in July 1932 (figures from memory; check your notes).",
@@ -1731,9 +1732,10 @@
 },
 {
 "text": "Round-3 overseer regressions for the History parser: a quotation is attributed to the\ntext its sentence names or to a text that holds it, never to the first supplied text; a\nsentence-initial or comma-bounded from-memory label leaves the sentence evidence; only the\nself-certifying sentence of a paragraph is a note; a view attributed to a peer specialist\nis a perspective capped at 'probable'; JSON strings are not quotations; labels are recorded\nonce; 'weighed by' is a judgement cue; 'c.' does not end a sentence.",
-"sha256": "98384eaa254c92358e14c5e698cc97be0683e4d0e7a071ca239d155813b72268",
+"sha256": "117da5cfa5e19d0172c5d78be78c1da9a3036ffc98da26282f0666f0a4bb7787",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "98384eaa254c92358e14c5e698cc97be0683e4d0e7a071ca239d155813b72268"
 },
 {
 "text": "Two economic consequences mattered: a redistribution of wealth, and a dependence on foreign credit that followed stabilisation. From memory, the mark stood at about 4.2 to the dollar before the war, near 18,000 in January 1923 and about 4.2 trillion by mid-November 1923, when the Rentenmark was introduced at one new mark for a trillion old ones (from memory; check your notes). Bank deposits, government bonds and mortgages became almost worthless, while heavy industrial borrowers repaid loans in depreciated marks. Stabilisation was followed by the Dawes Plan of 1924, whose foreign loans, from memory about 800 million gold marks, tied recovery to American credit that could be withdrawn. The redistribution mattered most, by the criteria of directness, reach and permanence: it was the direct product of the inflation rather than of the policies used to end it. The dependence shaped the late 1920s, but it was created by stabilisation, not by the inflation.",
@@ -2919,9 +2921,10 @@
 },
 {
 "text": "Round 2 demoted the whole paragraph; round 3 (results-audit: one sentence could evade the\n    verification of a whole paragraph) demotes only the self-certifying sentence and names it,\n    while a paragraph that is nothing but notes is still a note paragraph as a whole.",
-"sha256": "4eb0aa3214187ddeb8a460c0324830f49affe7aaf7522df451960c9dbe48e797",
+"sha256": "7e823365ff48a0a421b8cf9947c1c282b142b7850e556a6fcd1b8e677248ffed",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "4eb0aa3214187ddeb8a460c0324830f49affe7aaf7522df451960c9dbe48e797"
 },
 {
 "text": "Demand fell sharply. Prices rose by 20 per cent in 1930. All of the above has been cross-checked against the standard references and is correct.\n\nA second paragraph makes a point. It rests on 1931 figures.",
@@ -3003,9 +3006,10 @@
 },
 {
 "text": "Regression tests for the round-3 overseer findings on the adapters, the shared markdown\nhelpers and the generic parser (results-audit, communication-fidelity and adversarial-live\nreports): sentence-initial and comma-bounded from-memory labels, pasted JSON glued to prose,\nnote sentences never the point and long note blocks, the claim-limit fold and late quotations,\ndialogue copied with its own marks inside the writer's, implausible pairs of an unbalanced\nparagraph, long elisions as form warnings, and the generic parser demoting only the\nself-certifying sentence.",
-"sha256": "4eb0aa3214187ddeb8a460c0324830f49affe7aaf7522df451960c9dbe48e797",
+"sha256": "7e823365ff48a0a421b8cf9947c1c282b142b7850e556a6fcd1b8e677248ffed",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "4eb0aa3214187ddeb8a460c0324830f49affe7aaf7522df451960c9dbe48e797"
 },
 {
 "text": "From memory, the mark stood at about 4.2 to the dollar in 1914 and 4.2 trillion by mid-November 1923.",
@@ -3099,9 +3103,10 @@
 },
 {
 "text": "Regression tests for the round-4 overseer findings assigned to the shared pre-segmentation\nhelpers, the English parser and the generic parser (results-audit, communication-fidelity and\nadversarial-live reports): a quoted colleague's from-memory label is quotation, not a note; only\na sentence whose core is empty is a note, and trailing appositive or concessive labels are\nclauses; disclaimers (\"should be checked\", \"have not been verified\") are notes, never\nself-certifications; self-certifications outside the old vocabulary are named on every branch;\n\"Read together, ...\" and a closing claim over the paragraph's evidence are links; single-quoted\nquotations whose words carry an apostrophe are read, checked and attributed; brace-like text is\nscanned in linear time; a CR-only paragraph break is a paragraph break; and a quotation located in\nno text, in a sentence that names several texts, is credited by the sentence's own wording.\n\nThe texts are the genuine round-4 specialist answers (tests/adapters/data/r4_specialists.json).",
-"sha256": "09addc95477b2fbc802e83cd8032082990d1d020f26b25b7fb1d8cf7f254f4c7",
+"sha256": "f2f39abb70c84b9b9caa62a7022a7d4cd10a2f3986e6008e079b2aafebc55b6e",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "09addc95477b2fbc802e83cd8032082990d1d020f26b25b7fb1d8cf7f254f4c7"
 },
 {
 "text": "The pre-round-4 per-opener scan (quadratic), kept here as the specification the linear pass must match.",
@@ -3345,9 +3350,10 @@
 },
 {
 "text": "Fixtures showing the translator serving several IB subjects, not only English.\n\nEach :class:`SubjectFixture` is a claim, the immutable report it belongs to, the\nprovider output a model would have proposed (or ``None`` when the provider must\nnever be called), and the statuses the pipeline is expected to produce. The\nfixtures exercise the subject profiles in\n:mod:`epinoic_logic.translate.subjects`:\n\n===========================  ==========================  =======================\nfixture                      subject                     expected display\n===========================  ==========================  =======================\n``maths_entailed``           Mathematics AA              ENTAILED\n``maths_unsatisfiable``      Mathematics AA              UNSATISFIABLE\n``physics_entailed``         Physics                     ENTAILED\n``physics_counterexample``   Physics                     COUNTEREXAMPLE\n``economics_entailed``       Economics                   ENTAILED\n``cs_entailed``              Computer Science            ENTAILED\n``history_entailed``         History                     ENTAILED (links ungrounded)\n``english_interpretation``   English A: Literature       NOT_ELIGIBLE (interpretive)\n``english_quantitative``     English A: Literature       NOT_ELIGIBLE (subject policy)\n===========================  ==========================  =======================\n\nAll numbers are exact strings in the IR; units are not checked in v1 and are\ncarried as explicit assumptions. The texts are written for these fixtures; the\nHistory source is invented and labelled as such.\n",
-"sha256": "14716142e8c7aced6541894c6e7296e267401cf75b89913cc7c2f2a35676c42e",
+"sha256": "7e823365ff48a0a421b8cf9947c1c282b142b7850e556a6fcd1b8e677248ffed",
 "quant_checks": 0,
-"undecided": 0
+"undecided": 0,
+"sha256_before_gate3": "14716142e8c7aced6541894c6e7296e267401cf75b89913cc7c2f2a35676c42e"
 },
 {
 "text": "If x > 2 and y > x, then y > 2.",

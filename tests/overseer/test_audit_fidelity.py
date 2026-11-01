@@ -41,8 +41,10 @@ def test_named_rules_are_listed():
     # review round 2 added three named rules (context-free, carried-list-number, invisible); the earlier five stay, in order
     # the translator merge added three (mark-annotation, same-form-figures, no-quotation-to-verify; their own tests:
     # tests/overseer/test_rebuild_merged_translator.py); the earlier eight stay, in order
+    # integration gate 3 (handoff fixer) added emphasis-figures (its own tests: tests/overseer/test_integration_gate3_handoff.py);
+    # the earlier eleven stay, in order
     assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free",
-                              "carried-list-number", "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify")
+                              "carried-list-number", "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "emphasis-figures")
 
 
 def test_rule_contract_cut():

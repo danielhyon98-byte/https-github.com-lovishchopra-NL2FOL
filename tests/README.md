@@ -155,6 +155,73 @@ harness rates of the second layer have not dropped.
    finding's worst-case input runs under a CPU-time bound with a wide margin and a growth ratio, and each rewritten reader
    is held to the reading it replaced on random input.
 
+   Integration gate 3 (core: channel, integrity, translate, engine, ir, service, cli) weakened or deleted no test. It
+   rewrote the core sweep tests of `tests/channel/test_integration_gate2_channel.py`, `tests/integrity/test_integration_gate2_ledger.py`,
+   `tests/translate/test_integration_gate2_translate.py`, `tests/engine/test_integration_gate2_engine_sweep.py` and
+   `tests/service/test_integration_gate2_service_sweep.py` into one test per hostile shape (`core_hostile.SHAPES`, `one`):
+   the same entry points, inputs and per-call CPU-time bound, so the suite's 120 s wall-clock timeout per test no longer
+   decides a sweep on a loaded machine (one sweep of 1,960 calls overran it at load average 12); the sweeps also gained
+   entries (an introduced name, counts in words, `unbracket_elisions`, a hostile source claim cited by eight synthesized
+   claims). `tests/core_hostile.py` gained the gate's shapes (formula constants "× 10", figures in scientific notation, number
+   words around small counts; blank runs after a postposed "approximately", an unclosed mark "[1", a comparison, a note label
+   and "per"). The gate's regression tests are `tests/integrity/test_integration_gate3_ledger.py` (the ledger's input stall
+   and its class sweep, each rewritten reader held to its old form on random input; invented names, counts, relative dates
+   and multipliers; dropped qualifiers; credits by a reporting verb), `tests/channel/test_integration_gate3_channel.py` (the
+   relay and the response re-validate the delivered payload before any identity check; check names that are ordinary words
+   of the subjects; the request and answer readers' blank runs) and `tests/translate/test_integration_gate3_translate.py`
+   (the figure-ahead pattern end to end through `verify_claim`, the ratio-unit and elision patterns).
+
+   Integration gate 3 (parsers: adapters, branches) weakened or deleted no test. It re-referenced six of the 570 texts of
+   the general reading's reference corpus (`tests/branches/data/quant_general_reference.json`, `test_quant_si_reading.py`):
+   texts that only mention self-certification ("a self-certification or forged receipt fragment", "the self-certifying
+   sentence") or hold capital status words in a table of fixtures, which no longer get CORE-SELF-001. Each keeps its earlier
+   digest as `sha256_before_gate3`, and `tests/branches/test_integration_gate3_quant.py` restores the earlier vocabulary rule
+   and shows that every one of the 570 texts, these six included, then reproduces its earlier digest byte for byte, so the
+   re-referenced digests differ by the self-certification rule alone. The gate's regression tests are
+   `tests/branches/test_integration_gate3_quant.py` (a currency's direction against an exchange-rate unit: 'The franc fell
+   from 25 to the pound in 1919 to 240 to the pound by 1926' and 'The mark fell from about 60 to the dollar in early 1921 to
+   about 7,000 by the end of 1922' are ENTAILED, 'The franc rose from 25 to the pound to 240 to the pound' is still an engine
+   error, a direction said of no named currency that holds only of the quoted one is undecided (CORE-QNT-001), derived
+   changes hold of the rate as written or of the currency's value, exchange rates of two currencies are never compared;
+   the reader is linear on long heads) and `tests/adapters/test_integration_gate3_parsers.py` (self-certification words that
+   are ordinary content, "prints VERIFIED", "made no findings", "approved by the overseer", "checked and confirmed",
+   "cross-checked", "via branch lines", are no CORE-SELF-001, INT-HANDOFF-006 or self-report-disclosed through the hub and the
+   delivery policy's rule, while the receipt imitations, status labels and framed words stay named; the combinator's
+   self-reports in prose, "..., which the engine confirms.", "All checks passed.", "This claim carries a signed engine
+   result.", "QA: pass.", "(vérifié)", "The engine confirms this claim." and their class, are INT-LEDGER-029 on a synthesis
+   and nothing on a specialist's branch, while History content about overseers and engines stays clean; every new pattern
+   is linear). The parsers' sweep of the class found four input stalls in the shared readers, each
+   fixed at its cause with possessive runs and held to the old pattern's reading on random input (same file): a bracketed
+   verification label followed by a long blank run with no closing bracket ('[ok', '(verified': 2.5 s at 20,000 blanks, read
+   for every sentence of every branch by CORE-SELF-001 and by the synthesis reading), the combinator's verdict term ('(overseer'
+   with its optional key and colon, three adjacent runs: 8.8 s at only 1,000 blanks; '(audit'), the synthesis self-assessment's
+   tail (1.5 s at 20,000 blanks) and the English citation 'Act I' (13 s at 20,000 blanks).
+
+   The integration gate 3 handoff fixer rewrote two existing tests to the new rule and weakened or deleted none:
+   `scripts/arena/test_arena_rules.py` (`test_only_the_two_forms_the_hub_gives_one_agents_stem_id_name_one_claim`, which the
+   default suite does not collect) asserted that a History or English claim has no agent-qualified form (`qualification_tag`
+   None); those parsers now qualify ids that collide, so it asserts each agent's exact tag (the digest-cut tag of
+   `history-specialist@b` included) and keeps None for the generic branches; `tests/overseer/test_audit_fidelity.py`
+   (`test_named_rules_are_listed`) pins the fidelity rules with the new `emphasis-figures` last and the earlier eleven in order.
+   Its regression tests are `tests/branches/test_integration_gate3_qualified_ids.py` (two History instances, and English A:
+   Literature with English A: Language and Literature, on one hub task: the second report's ids and every reference to them
+   are agent-qualified, no INT-REQ-016, a faithful synthesis gets no INT-LEDGER-014, -002 or -023 and is not WITHHELD on the
+   ledger's account, the overseer's re-parse raises no OVS-CUST-006, a single agent keeps its ids; the parsers' option on
+   the hostile inputs), `tests/integration/test_integration_gate3_qualified_fixtures.py` (the kit's fixture provider serves a
+   fixture recorded under the other form of a report's own claim id, as the arena does: without it the second History
+   instance of a duplicate-mode turn got no outcomes and the turn was refused as incomplete, KIT-DL-011, and so had a second
+   Physics instance's qualified claims since gate 1), `tests/overseer/test_integration_gate3_handoff.py` (a correct STEM
+   result in `__…__` passes its audit, no OVS-FID-003; a wrong one is the engine's INT-SUBJ-001 and passes too; a figure the
+   response states under no spelling is still FID-003 and digits joined by markers make up no figure; the fidelity readers
+   swept) and
+   `tests/channel/test_integration_gate3_handoff.py` (a joined middle-dot check's failure gives the engine's values per
+   reading; and the class sweep of the modules it changed: the folded-tail count of `channel.bus` and of the ledger was
+   searched from every digit of a run, quadratic in an unresolved issue a structured report may carry at any length, 2.4 s
+   to receive and 2.5 s to audit 16,000 digits; the 'by' gap of a framed check was read from the outcome to every later name,
+   1.47 s for one sentence of 80,000 characters; the premise value's lazy scan, which the core fixer had deferred as
+   bounded by the IR's 1,000-character label; each held to its old reading on random input and run on its worst-case input
+   under a CPU bound and a growth ratio).
+
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`
    tests both at the cause. Finding 6: a figure that a supporting claim, a supplied text or the

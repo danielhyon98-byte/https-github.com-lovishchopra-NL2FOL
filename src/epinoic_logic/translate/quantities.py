@@ -196,9 +196,12 @@ _SCALE_RE = re.compile(r"\s*(?P<w>hundred|thousand|million|billion|trillion|bn|m
 #: Ratio units: written after a numeral, they make it a part of a hundred (thousand, ten thousand).
 _RATIO_UNITS = {"%": Fraction(1, 100), "percent": Fraction(1, 100), "percentage point": Fraction(1, 100), "per mille": Fraction(1, 1000),
                 "basis point": Fraction(1, 10_000)}
+#: Every blank run is possessive (integration gate 3): "per" and an optional hyphen between two runs backtracked through
+#: every split of a long blank run after a figure (quadratic in a supplied text); no item after a run starts with a blank,
+#: so every match, and every group, is the one the backtracking form found.
 _RATIO_RE = re.compile(
-    r"\s*(?:(?P<pct>%|per\s*-?\s*cent\b|percent\b|pc\b(?=\s|$|[.,;)]))(?:\s*(?P<pp>points?\b))?|(?P<ppt>percentage\s+points?\b|pp\b|p\.p\.)"
-    r"|(?P<pm>‰|per\s+mill?e?\b)|(?P<bp>basis\s+points?\b|bps?\b))",
+    r"\s*+(?:(?P<pct>%|per\s*+-?\s*+cent\b|percent\b|pc\b(?=\s|$|[.,;)]))(?:\s*+(?P<pp>points?\b))?|(?P<ppt>percentage\s++points?\b|pp\b|p\.p\.)"
+    r"|(?P<pm>‰|per\s++mill?e?\b)|(?P<bp>basis\s++points?\b|bps?\b))",
     re.IGNORECASE,
 )
 _CURRENCY_BEFORE_RE = re.compile(r"(?:US\$|A\$|C\$|NZ\$|HK\$|\$|£|€|¥|₹|₩)\s?$")
@@ -261,8 +264,11 @@ _APPROX_GAP_BEFORE_RE = re.compile(r"\s*(?:(?:the\s+)?(?:value|figure|total|amou
                                    r"(?:(?:equal|equals|close)\s+to\s+|to\s+|at\s+|as\s+)?\(?\s*", re.IGNORECASE)
 _APPROX_GAP_AFTER_RE = re.compile(r"\s*[,(]?\s*")
 _APPROX_SIGN_GAP_RE = re.compile(r"[ \t]*\(?[ \t]*")
-#: A figure written right after a cue ('about 30', '≈ −0.5'): the cue governs that one, not one before it.
-_FIGURE_AHEAD_RE = re.compile(r"\s*(?:(?:equal|equals|close)\s+to\s+|to\s+)?\(?\s*(?:US\$|A\$|C\$|NZ\$|HK\$|[$£€¥₹₩])?\s?[-−–+]?(?:\d|\.\d)")
+#: A figure written right after a cue ('about 30', '≈ −0.5'): the cue governs that one, not one before it. Every blank run
+#: is possessive (integration gate 3): the runs before and after the optional 'to' and bracket met only through optional
+#: items, so a postposed 'approximately' before a long blank run backtracked through every split of the run (quadratic in
+#: a supplied text); no item after a run can start with a blank, so every match is the one the backtracking form found.
+_FIGURE_AHEAD_RE = re.compile(r"\s*+(?:(?:equal|equals|close)\s++to\s++|to\s++)?\(?\s*+(?:US\$|A\$|C\$|NZ\$|HK\$|[$£€¥₹₩])?\s?[-−–+]?(?:\d|\.\d)")
 #: The approximation words that may follow the figure they govern ('0.33 approximately', '30 (approx.)').
 _POSTPOSED_APPROX = frozenset({"approx", "approx.", "approximately"})
 #: How far from a figure an approximation cue that governs it may stand (its gap words included), in characters.

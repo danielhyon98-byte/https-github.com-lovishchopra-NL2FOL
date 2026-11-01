@@ -215,7 +215,11 @@ validated before it is used; an out-of-contract message is never acted on.
   serves for the same item, called as `fn(claim, report)` without a task, as the arena calls its verifier. A fixture
   recorded under the arena's request id of its item (`req-<item>`, or `req-<group>`) is served under the request id
   of the claim it translates (`RekeyingFixtureProvider`; a no-op in the arena); a fixture recorded for another request
-  is served as it is, and the pipeline refuses it as the arena does (INVALID_FORMALIZATION).
+  is served as it is, and the pipeline refuses it as the arena does (INVALID_FORMALIZATION). A fixture recorded under
+  the other form of the report's own claim id serves that claim, as the arena serves it (`other_id_form`,
+  `fixture_for_claim`): the hub qualifies a report's ids with its agent when a report of another agent on the task holds
+  them, as the second instance of one specialist in `duplicate` mode does (`h1.1@history-specialist-b-cc7267dc` for
+  `history@b`), and its problem then names the delivered id.
 - **Fidelity review** (decision D6) is off: `release_permitted` is false, so a positive formal result is labelled a
   formal check of the encoding, never "checked", and an answer's badge says at most "Partly checked (encoding only)",
   never "passed" (section 8).

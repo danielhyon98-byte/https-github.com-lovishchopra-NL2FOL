@@ -134,6 +134,16 @@ Rules added for the round-7 arena hand-off:
   calculation (`quantities._brace_closers`, one pass instead of a count from every '{'; its callers pass at most 600
   characters, so it was not reachable). One sweep test per module feeds its public text entry points the standard
   hostile inputs under a CPU-time bound.
+- Three more patterns that backtracked through every split of a blank run are linear, each matching exactly what it
+  matched before (the earlier patterns are kept in `tests/translate/test_integration_gate3_translate.py` as the
+  specification; integration gate 3): the figure written after an approximation cue (`quantities._FIGURE_AHEAD_RE`,
+  matched after a postposed "approximately" with the whole rest of a supplied text after it: `verify_claim` took 137.9 s
+  at 32,000 blanks and about six hours at the 400,000-character limit, through `precision.read_sites` on every source of a
+  claim; under a second now, with the same TRANSLATED / ENTAILED outcome), the ratio unit after a figure
+  (`quantities._RATIO_RE`, "per" and an optional hyphen between two runs), and a bracketed elision in a quotation
+  (`grounding._BRACKETED_ELISION_RE`, whose leading blank run was read again from every position of a long run). The
+  sweeps now also read a blank run after a postposed "approximately", an unclosed mark "[1", a comparison, a note label
+  and "per" (`tests/core_hostile.py`).
 
 Assertion (`assertion.py`). Mentioning a figure is not asserting it. A figure supports a coverage finding only
 when (1) its clause asserts it: no question, instruction or supposition opening the sentence, and no
