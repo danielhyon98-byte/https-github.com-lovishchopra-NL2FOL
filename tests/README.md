@@ -1173,3 +1173,12 @@ Work in progress after it is labelled as such.
 - Integration gate, round 3: the 4 lenses that reported a critical finding in round 2 (parser safety, correctness,
   combinator faults, fresh-session integration) are re-checking the committed tree. Arena rounds 8, 9 and 10 follow
   when no critical finding is left.
+
+### Progress, 07:00 UTC (1 November)
+
+- Integration gate, round 3, on the committed round-2 fixes (7f9ec18): two of four lenses have reported. Parser safety
+  found 6 issues, 2 of them critical (a ledger check that recomputes the figures of a source claim for every cited
+  figure, and a figure pattern in the quantity reader with adjacent blank runs); the critical regular-expression findings
+  have fallen from 12 in round 1 to 8 in round 2 and 2 now. Combinator faults found 10 issues, 1 critical (the hub runs
+  its relay checks on the caller's synthesis object before re-validating it). Correctness and the fresh-session
+  integration lens are still running. A round-3 fix round and a short round 4 follow.
