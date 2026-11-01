@@ -1159,3 +1159,17 @@ Work in progress after it is labelled as such.
 - Integration gate, round 2: six of seven lenses reported (11 critical findings in three lenses, listed at 19:00); the
   fresh-session integration lens is in its last step, the overseer-attached suite of the integration playbook. The
   round-2 fixes start when it reports.
+
+### Progress, 06:00 UTC (1 November)
+
+- Integration gate, round 2, fixed and committed (7f9ec18): 54 findings fixed, each with regression tests, including all
+  10 critical findings. The regular-expression blow-ups were fixed as a class: every module in each fixer's paths was
+  swept for the same kinds of pattern (adjacent unbounded runs around optional groups, scans to the end of the text from
+  every unclosed opener, rescans per token or line), which fixed about 20 further instances and two parser crashes, and
+  each swept module has a hostile-input regression test. The solver version is now pinned for fresh installs (a
+  constraints file, the playbook step and the readiness check). Independent check of the committed tree: 13,697 tests
+  passed, 12 skipped (round-dependent), none failed; every recorded arena round at its recorded count (r1 30/30, r1-adv
+  150/151, r2-r6 46/46 each, r7 177/177).
+- Integration gate, round 3: the 4 lenses that reported a critical finding in round 2 (parser safety, correctness,
+  combinator faults, fresh-session integration) are re-checking the committed tree. Arena rounds 8, 9 and 10 follow
+  when no critical finding is left.
