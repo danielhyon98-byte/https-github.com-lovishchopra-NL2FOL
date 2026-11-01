@@ -1249,3 +1249,13 @@ Work in progress after it is labelled as such.
   have fallen from 12 in round 1 to 8 in round 2 and 2 now. Combinator faults found 10 issues, 1 critical (the hub runs
   its relay checks on the caller's synthesis object before re-validating it). Correctness and the fresh-session
   integration lens are still running. A round-3 fix round and a short round 4 follow.
+
+### Progress, 18:00 UTC (1 November)
+
+- Integration gate, round 3, is complete. Its 4 lenses reported 32 findings, 4 of them critical; the fixers' sweep for the
+  same kinds of input stall found 2 more critical instances. 28 findings were fixed, including all 6 critical ones, and
+  committed as 5c8577e after an independent verification: suite 16,141 passed, 12 skipped, 45 deselected, 0 failed;
+  arena rounds r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177.
+- Integration gate, round 4, started at 17:02 on 5c8577e with the 3 lenses that had a critical finding in round 3. Parser
+  safety reported 4 findings, none critical; correctness and combinator faults are still running. When no critical
+  finding is left, the remaining findings are recorded as known defects and the pre-round-8 upload follows.
