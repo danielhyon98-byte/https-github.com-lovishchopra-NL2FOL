@@ -826,6 +826,19 @@ def _name_runs(sent: list[str]) -> list[tuple[int, int, tuple[str, ...], str]]:
     return out
 
 
+def _next_token_index(tokens: list[str], wanted: str) -> list[Optional[int]]:
+    """``out[i]``: the index of the first token equal to ``wanted`` at or after ``i`` (None when there is none), for every
+    ``i`` from 0 to ``len(tokens)`` inclusive; one backward pass, so a reader that jumps to a closing token does so in
+    constant time instead of scanning the rest of the sentence from every opener."""
+    out: list[Optional[int]] = [None] * (len(tokens) + 2)
+    nxt: Optional[int] = None
+    for i in range(len(tokens) - 1, -1, -1):
+        if tokens[i] == wanted:
+            nxt = i
+        out[i] = nxt
+    return out
+
+
 @lru_cache(maxsize=8192)
 def _name_partners(text: str) -> tuple[frozenset, frozenset, tuple, tuple]:
     """``(bound, governed, kinds, surface)`` of ``text`` (rule ``name-partner``). ``bound``: ``(figure, name)`` for a name
@@ -855,17 +868,20 @@ def _name_partners(text: str) -> tuple[frozenset, frozenset, tuple, tuple]:
                 bound.add((sent[e + 1], key))
             if s >= 2 and _is_numeral(sent[s - 1]) and sent[s - 2].casefold() in ("the", "a", "an", "its", "their"):
                 bound.add((sent[s - 1], key))
+        # The first ')' and the first ',' at or after each token, from one backward pass (integration gate 2: a forward scan
+        # from every '(' to the end of the sentence was quadratic on a run of unclosed brackets).
+        next_close, next_comma = _next_token_index(sent, ")"), _next_token_index(sent, ",")
         current: Optional[tuple[str, ...]] = None
         k = 0
         while k < len(sent):
             tok = sent[k]
             if tok == "(":
-                close = next((x for x in range(k + 1, len(sent)) if sent[x] == ")"), None)
+                close = next_close[k + 1]
                 if close is not None:
                     k = close + 1
                     continue
             if tok == "," and k + 1 < len(sent) and sent[k + 1].casefold() in _RELATIVE_WORDS:
-                close = next((x for x in range(k + 2, len(sent)) if sent[x] == ","), None)
+                close = next_comma[k + 2]
                 if close is not None:  # a relative clause closed by a comma is parenthetical: the name before it governs after it
                     k = close + 1
                     continue
@@ -1933,26 +1949,63 @@ def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
     ("certainly fell"), and the router reads the statement as established."""
     hedged_anywhere = bool(_HEDGE_RE.search(synthesized_text or ""))
     syn_keys = _restating_keys(synthesized_text)
-    syn_sentences = [(y, _restating_keys(y)) for y in _ALIGN_SENTENCE_RE.split(synthesized_text or "") if y.strip()]
-    out = []
+    # Synthesized sentences grouped by what the rule reads of them (their content keys and whether they hedge): the
+    # decisions depend on nothing else, so a text that repeats a sentence is compared once per distinct sentence, and the
+    # overlap of each distinct source statement with each group is computed once (integration gate 2).
+    groups: dict[tuple[frozenset[str], bool], None] = {}
+    for y in _ALIGN_SENTENCE_RE.split(synthesized_text or ""):
+        if y.strip():
+            groups.setdefault((frozenset(_restating_keys(y)), bool(_HEDGE_RE.search(y))), None)
+    syn_groups = list(groups)
+    group_keys = [own for own, _h in syn_groups]
+    group_sizes = [len(own) for own in group_keys]
+    hedged: list[tuple[str, list[str], frozenset[str]]] = []
     for t in source_texts:
         for sentence in _ALIGN_SENTENCE_RE.split(t):
             hedges = [m.group(0) for m in _HEDGE_RE.finditer(sentence)]
-            if not hedges:
-                continue
-            keys = _restating_keys(_HEDGE_RE.sub(" ", sentence))
-            restating = [y for y, own in syn_sentences
-                         if (len(keys) >= 3 and len(keys & own) >= 3 and len(keys & own) * 2 >= len(keys)) or _restates_short(keys, own)]
-            if restating:
-                # the sentences that carry part of the statement (two of its content words at least) may carry its hedge: a
-                # source sentence that runs two statements together ("Provisional marks ... — Biggest gap: ...") keeps its
-                # hedge where the synthesis restates the hedged part
-                related = restating + [y for y, own in syn_sentences if y not in restating and len(keys & own) >= 2]
-                dropped = not any(_HEDGE_RE.search(y) for y in related)
-            else:
-                dropped = not hedged_anywhere and len(keys) >= 3 and len(keys & syn_keys) >= 3 and len(keys & syn_keys) * 2 >= len(keys)
-            if dropped:
-                out.append(f"it drops the hedge its cited sources state ({', '.join(repr(h) for h in dict.fromkeys(hedges))} in '{' '.join(sentence.split())[:160]}'), so the statement reads as established")
+            if hedges:
+                hedged.append((sentence, hedges, frozenset(_restating_keys(_HEDGE_RE.sub(" ", sentence)))))
+    # For each distinct hedged statement: its overlap with each group, and whether the group restates it (half or more of
+    # its content words, three at least; or a short statement of one or two content words whole, with at most three words
+    # added: :func:`_restates_short`). One set intersection per pair.
+    info: list[tuple[frozenset[str], list[int], list[bool]]] = []
+    for keys in dict.fromkeys(keys for _s, _h, keys in hedged):
+        k = len(keys)
+        overlaps = [len(keys & own) for own in group_keys]
+        if k >= 3:
+            restating_flags = [n >= 3 and n * 2 >= k for n in overlaps]
+        elif k >= 1:
+            restating_flags = [n == k and size - n <= 3 for n, size in zip(overlaps, group_sizes)]
+        else:
+            restating_flags = [False] * len(group_keys)
+        info.append((keys, overlaps, restating_flags))
+    # A synthesized sentence's hedge belongs to the hedged source sentence it restates best (integration gate 2): two hedged
+    # sources merged ("Inflation probably hurt German savers in 1923." and "German savers probably blamed the republic for
+    # the inflation.") share ordinary words, and the hedge one restatement keeps must not mask the hedge the other drops.
+    best: list[Optional[float]] = [None] * len(syn_groups)
+    for keys, overlaps, restating_flags in info:
+        for i in [i for i, r in enumerate(restating_flags) if r]:
+            v = overlaps[i] / len(keys)
+            if best[i] is None or v > best[i]:
+                best[i] = v
+    dropped_for: dict[frozenset[str], bool] = {}
+    for keys, overlaps, restating_flags in info:
+        restating = [i for i, r in enumerate(restating_flags) if r]
+        # the restatements of this statement: a sentence restating another hedged source sentence better holds that one's hedge
+        own_restating = [i for i in restating if best[i] is None or overlaps[i] / len(keys) >= best[i]]
+        if own_restating:
+            # the sentences that carry part of the statement (two of its content words at least) may carry its hedge: a
+            # source sentence that runs two statements together ("Provisional marks ... — Biggest gap: ...") keeps its
+            # hedge where the synthesis restates the hedged part; a sentence restating another hedged source sentence holds
+            # that sentence's hedge, not this one's
+            related = own_restating + [i for i, n in enumerate(overlaps) if n >= 2 and not restating_flags[i] and best[i] is None]
+            dropped_for[keys] = not any(syn_groups[i][1] for i in related)
+        else:
+            dropped_for[keys] = not hedged_anywhere and len(keys) >= 3 and len(keys & syn_keys) >= 3 and len(keys & syn_keys) * 2 >= len(keys)
+    out = []
+    for sentence, hedges, keys in hedged:
+        if dropped_for[keys]:
+            out.append(f"it drops the hedge its cited sources state ({', '.join(repr(h) for h in dict.fromkeys(hedges))} in '{' '.join(sentence.split())[:160]}'), so the statement reads as established")
     return list(dict.fromkeys(out))
 
 
@@ -2707,8 +2760,15 @@ _UNIT_WORDS: tuple[tuple[str, str], ...] = tuple(sorted({
     "shillings": "shilling", "shilling": "shilling", "pence": "penny", "guilders": "guilder", "reichsmarks": "reichsmark", "rentenmarks": "rentenmark",
 }.items(), key=lambda kv: -len(kv[0])))
 _CURRENCY_SYMBOLS = {"$": "dollar", "£": "pound", "€": "euro", "¥": "yen"}
-#: The words after a figure that may be its unit: a run of up to four tokens up to the clause's punctuation.
-_UNIT_RUN_RE = re.compile(r"[ \t]?(?P<run>[^\s\d,;:!?()\[\]{}\"'“”‘’][^\s,;:!?()\[\]{}\"'“”‘’]*(?:[ \t]+[^\s\d,;:!?()\[\]{}\"'“”‘’][^\s,;:!?()\[\]{}\"'“”‘’]*){0,3})")
+#: The words after a figure that may be its unit: a run of up to four tokens up to the clause's punctuation. A token is at
+#: most :data:`_UNIT_TOKEN_MAX` characters (the longest unit written in a token, "kg·m²·s⁻³·A⁻¹", is 14): a longer token is
+#: no unit and ends the run (a figure inside it, as in "1–2–3–…", reads no unit), so the run is read in time bounded by the
+#: token limit and never rescans a long token from each figure inside it (integration gate 2: quadratic on such a run).
+_UNIT_TOKEN_MAX = 48
+_UNIT_TOKEN_FIRST = r"[^\s\d,;:!?()\[\]{}\"'“”‘’]"
+_UNIT_TOKEN_REST = r"[^\s,;:!?()\[\]{}\"'“”‘’]"
+_UNIT_TOKEN = rf"{_UNIT_TOKEN_FIRST}{_UNIT_TOKEN_REST}{{0,{_UNIT_TOKEN_MAX - 1}}}(?!{_UNIT_TOKEN_REST})"
+_UNIT_RUN_RE = re.compile(rf"[ \t]?(?P<run>{_UNIT_TOKEN}(?:[ \t]++{_UNIT_TOKEN}){{0,3}})")
 #: A sentence stop inside a unit run: a full stop (or an ellipsis) before white space or the end of the text.
 _SENTENCE_STOP_RE = re.compile(r"(?:\.|…)(?=\s|$)")
 _ERA_AFTER_RE = re.compile(r"\s*(?P<era>B\.?C\.?E\.?|B\.?C\.?|C\.?E\.?|A\.?D\.?)(?![\w])")
@@ -2764,6 +2824,53 @@ def _unit_after(plain: str, end: int) -> Optional[tuple[frozenset[str], str]]:
     return None
 
 
+#: LaTeX math markup a STEM answer writes around a figure and its unit (integration gate 2): the delimiters of a math span
+#: ("$9.0$ g", "\\(6.0\\) kN"), text and roman wrappers ("\\text{kg}", "\\mathrm{J}"), spacing commands ("\\,") and the operators of
+#: scientific notation ("\\times", "\\cdot", "^{6}"). A pair of dollar signs is a math span only when it closes on the same
+#: line within 300 characters, its content neither starts nor ends with a blank and no digit follows the closing sign, so a
+#: price ("$5 and $6") keeps its currency sign. Every pattern is bounded; nothing is evaluated.
+_LATEX_SPAN_RE = re.compile(r"\$(?=\S)([^$\n]{1,300}?)(?<=\S)\$(?!\d)")
+_LATEX_DELIMITER_RE = re.compile(r"\\[()\[\]]")
+_LATEX_WRAPPER_RE = re.compile(r"\\(?:text|mathrm|textrm|mathit|mbox|rm|operatorname)[ \t]{0,3}\{([^{}]{0,60})\}")
+_LATEX_SPACE_RE = re.compile(r"[ \t]{0,8}\\[,;:! ][ \t]{0,8}")
+_LATEX_TIMES_RE = re.compile(r"\\times(?![A-Za-z])")
+_LATEX_CDOT_RE = re.compile(r"\\c?dot(?![A-Za-z])")
+_LATEX_BRACED_POWER_RE = re.compile(r"\^\{([-+−]?\d{1,3})\}")
+
+
+def _latex_plain(text: str) -> str:
+    """``text`` with the LaTeX math markup around figures and units read away (:data:`_LATEX_SPAN_RE` and the patterns after
+    it): "$m = 9.0$ g" -> "m = 9.0 g", "\\(6.0\\,\\text{kN}\\)" -> "6.0 kN", "2.3 \\times 10^{6}" -> "2.3 × 10^6". A text without a
+    backslash or a dollar sign is returned unchanged."""
+    if "\\" not in text and "$" not in text:
+        return text
+    t = _LATEX_SPAN_RE.sub(lambda m: m.group(1), text)
+    if "\\" not in t:
+        return t
+    t = _LATEX_WRAPPER_RE.sub(lambda m: m.group(1), t)
+    t = _LATEX_SPACE_RE.sub(" ", t)
+    t = _LATEX_TIMES_RE.sub("×", t)
+    t = _LATEX_CDOT_RE.sub("·", t)
+    t = _LATEX_BRACED_POWER_RE.sub(lambda m: "^" + m.group(1), t)
+    return _LATEX_DELIMITER_RE.sub("", t)
+
+
+def _mask_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """``text`` with every span blanked (same length), so the figures inside them are not read again."""
+    if not spans:
+        return text
+    parts: list[str] = []
+    at = 0
+    for start, end in sorted(spans):
+        if start < at:
+            continue
+        parts.append(text[at:start])
+        parts.append(" " * (end - start))
+        at = end
+    parts.append(text[at:])
+    return "".join(parts)
+
+
 def _unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]]:
     """``(value, unit kinds, as written, era, next word)`` for every figure in digits of ``text`` (figures in words with a
     scale read as digits, thousands separators removed): its exact value (a scale word applied: "6 million" and "6000000"
@@ -2771,10 +2878,23 @@ def _unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, O
     may be a year the era written with it ("BC", "AD"), else None; ``next word`` is the word after the figure when no unit
     follows."""
     from fractions import Fraction
-    # superscript exponents are kept: they belong to the unit ("m s⁻¹"), and the figure pattern reads decimal digits only
-    plain = _words_as_digits(_ungroup(text or ""))
-    out: list[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]] = []
-    for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
+    # superscript exponents are kept: they belong to the unit ("m s⁻¹"), and the figure pattern reads decimal digits only;
+    # LaTeX math markup around a figure and its unit is read away first ("$9.0$ g" is "9.0 g": integration gate 2)
+    plain = _words_as_digits(_latex_plain(_ungroup(text or "")))
+    found: list[tuple[int, tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]]] = []
+    # a figure in scientific notation ("2.3 × 10⁶ J kg⁻¹") is one figure, its unit read after the power (integration gate 2);
+    # its mantissa and its power are not read as figures of their own
+    scientific = _scientific_figures(plain)
+    for start, end, exact, _spellings, _surface in scientific:
+        if exact is None:
+            continue  # beyond the scanner's bounds: masked below, not a figure
+        shown = " ".join(plain[start:end].split())
+        unit = _unit_after(plain, end)
+        # keyed by its exact decimal (the short form of :func:`_fmt` for a value exact within four places, which ``exact``
+        # equals), so two small figures ("6.63 × 10⁻³⁴", "4.0 × 10⁻¹⁹") never share the four-place key "0.0000"
+        found.append((start, (exact, unit[0] if unit else None, f"{shown} {unit[1]}" if unit else shown, None, None)))
+    masked = _mask_spans(plain, [(start, end) for start, end, *_rest in scientific])
+    for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", masked):
         num, end = m.group(0), m.end()
         sc = _SCALE_AFTER_RE.match(plain, end)
         try:
@@ -2808,8 +2928,8 @@ def _unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, O
         if unit is None and era is None:
             w = re.match(r"\s+([^\W\d_][\w'’-]*)", plain[after:after + 40])
             nxt = w.group(1).casefold() if w else None
-        out.append((key, unit[0] if unit else None, shown, era, nxt))
-    return out
+        found.append((m.start(), (key, unit[0] if unit else None, shown, era, nxt)))
+    return [item for _at, item in sorted(found, key=lambda pair: pair[0])]
 
 
 def unit_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
@@ -2973,8 +3093,12 @@ def _combinator_credits(text: str, agents: list[str]) -> list[str]:
         name = _agent_name_pattern(agent)
         if name is None:
             continue
+        tag = _subject_tag_pattern(agent)
         forms = (
             rf"[(\[]\s*(?:(?:sources?|from|per|via|cf\.?|see|credit|after|according\s+to|as\s+(?:noted|stated|reported|given)\s+by)\s*[:,]?\s*)?{name}\s*[)\]]",
+            # a bracketed subject tag opening the statement ("[History] Hyperinflation peaked in November 1923."): a credit
+            # to that subject's specialist (integration gate 2)
+            *((rf"(?:^|(?<=[.;!?]\s)|(?<=\n))[^\w\[(]{{0,8}}[\[(][ \t]{{0,3}}{tag}[ \t]{{0,3}}[\])]",) if tag else ()),
             rf"(?:^|(?<=[.;!?]\s)|(?<=\n))\W{{0,8}}{name}\s*(?::|[—–]|\s-\s)\s*(?=\S)",
             rf"(?:^|(?<=[.;!?]\s)|(?<=\n)|(?<=,\s))\W{{0,8}}(?:in|from)\s+{name}\s*,",
             rf"\b{name}\s*,?\s+(?:{_CREDIT_ADVERBS}\s+)*(?:{_CREDIT_VERBS}|{_VIEW_VERBS})\b",
@@ -2983,6 +3107,94 @@ def _combinator_credits(text: str, agents: list[str]) -> list[str]:
         if any(re.search(f, masked, re.IGNORECASE) for f in forms):
             out.append(agent)
     return out
+
+
+def _subject_tag_pattern(agent: str) -> Optional[str]:
+    """The subject words of the specialist ``agent`` as a bracketed tag reads them ("History", "Economics", "Maths"): its
+    subject's first word and that word's other spellings, three letters at least. None for another author."""
+    from ..adapters.sources import _SUBJECT_WORD_SPELLINGS, specialist_names
+    if not specialist_names(agent):
+        return None
+    base = agent[:-2] if agent.endswith(("@a", "@b")) else agent
+    subject = base[: -len("-specialist")].split("-")[0]
+    words = [re.escape(w) for w in (subject, *_SUBJECT_WORD_SPELLINGS.get(subject, ())) if len(w) >= 3]
+    return f"(?:{'|'.join(words)})" if words else None
+
+
+#: A credit to a party other than the cited claims' specialists (integration gate 2; the combinator's rule 5): a collective
+#: or a discipline as the subject of a reporting or agreement verb ("Historians agree that", "Scholars argue that", "Most
+#: economists believe", "Experts say"), an impersonal consensus frame ("It is widely accepted that", "It is generally
+#: agreed that"), the evidence, an analysis, the question or the router as what shows or states the claim ("The evidence
+#: shows that", "The economic analysis shows that", "The question states that", "The router notes that"), and an unnamed
+#: discipline member's view ("The economist's view is that"). Read outside quotations; every pattern is anchored at a word
+#: boundary and bounded.
+_PARTY_GROUPS = ("historians", "economists", "scholars", "experts", "critics", "commentators", "analysts", "researchers", "scientists",
+                 "psychologists", "sociologists", "observers", "academics", "authorities", "specialists in the field")
+_PARTY_GROUP_CREDIT_RE = re.compile(
+    r"\b(?P<q>(?:most|many|some|all|other|modern|leading|several|numerous|later|recent)[ \t]{1,3})?(?P<party>" + "|".join(_PARTY_GROUPS).replace(" ", r"[ \t]{1,3}") + r")"
+    r"[ \t]{1,3}(?:(?:now|also|generally|largely|broadly|widely|often|usually|still|today|tend[ \t]{1,3}to|have|had|would|do|did)[ \t]{1,3}){0,2}"
+    r"(?:agree[sd]?|concur(?:red)?|argue[sd]?|say|said|believe[sd]?|claim(?:s|ed)?|note[sd]?|suggest(?:s|ed)?|think|thought|hold|held|contend(?:s|ed)?"
+    r"|maintain(?:s|ed)?|accept(?:s|ed)?|conclude[sd]?|state[sd]?|insist(?:s|ed)?|consider(?:s|ed)?|view(?:s|ed)?|find|found|show(?:s|ed|n)?"
+    r"|recogni[sz]e[sd]?|acknowledge[sd]?|emphasi[sz]e[sd]?|point(?:s|ed)?[ \t]{1,3}out|stress(?:es|ed)?|warn(?:s|ed)?|estimate[sd]?|report(?:s|ed)?)\b",
+    re.IGNORECASE)
+_PARTY_CONSENSUS_RE = re.compile(
+    r"\bit[ \t]{1,3}is[ \t]{1,3}(?:(?:widely|generally|commonly|universally|broadly|now|well|often|usually)[ \t]{1,3})?"
+    r"(?:accepted|agreed|known|believed|acknowledged|recogni[sz]ed|established|thought|held|understood|assumed|argued|undisputed|beyond[ \t]{1,3}dispute)"
+    r"[ \t]{1,3}that\b|\b(?:there[ \t]{1,3}is|the)[ \t]{1,3}(?:(?:a|broad|general|wide|scholarly|historical)[ \t]{1,3}){0,2}consensus[ \t]{1,3}(?:is[ \t]{1,3})?that\b", re.IGNORECASE)
+_PARTY_THING_CREDIT_RE = re.compile(
+    r"\bthe[ \t]{1,3}(?P<party>(?:(?:economic|historical|statistical|available|scientific|wider|overall)[ \t]{1,3})?(?:evidence|analysis|question|router|request|task|prompt|research|literature))"
+    r"[ \t]{1,3}(?:clearly[ \t]{1,3})?(?:shows?|showed|states?|stated|notes?|noted|says?|said|suggests?|suggested|proves?|proved|confirms?|confirmed"
+    r"|indicates?|indicated|demonstrates?|demonstrated|establishes?|established|makes?[ \t]{1,3}clear)\b", re.IGNORECASE)
+_PARTY_MEMBER_VIEW_RE = re.compile(
+    r"\bthe[ \t]{1,3}(?P<party>economist|historian|expert|scholar|critic|analyst|researcher|psychologist|scientist)(?:'s|’s)[ \t]{1,3}"
+    r"(?:view|claim|argument|position|conclusion|reading|account|belief|judgement|judgment)\b", re.IGNORECASE)
+
+
+def _party_credits(text: str) -> list[tuple[str, str]]:
+    """``(party, as written)`` for every credit of :data:`_PARTY_GROUP_CREDIT_RE` and the patterns after it in ``text``,
+    read outside quotations: ``party`` is the group, discipline or thing credited ("historians", "a consensus", "the
+    evidence", "the economist"), the same for every way of writing it."""
+    from ..adapters.markdown import mask_quotations
+    masked = mask_quotations(text or "")
+    out: list[tuple[str, str]] = []
+    for m in _PARTY_GROUP_CREDIT_RE.finditer(masked):
+        out.append((" ".join(m.group("party").casefold().split()), " ".join(m.group(0).split())))
+    for m in _PARTY_CONSENSUS_RE.finditer(masked):
+        out.append(("a consensus", " ".join(m.group(0).split())))
+    for m in _PARTY_THING_CREDIT_RE.finditer(masked):
+        out.append(("the " + m.group("party").split()[-1].casefold(), " ".join(m.group(0).split())))
+    for m in _PARTY_MEMBER_VIEW_RE.finditer(masked):
+        out.append(("the " + m.group("party").casefold(), " ".join(m.group(0).split())))
+    return out
+
+
+#: The parties of the exchange itself that never state a specialist's claim: a credit to them is always a wrong credit.
+_EXCHANGE_PARTIES = frozenset({"the question", "the router", "the request", "the task", "the prompt"})
+
+
+def _party_credit(text: str, known: list[ClaimRecord]) -> list[str]:
+    """A synthesized claim that credits its statement to a consensus, a discipline or a party that is not a source
+    (:func:`_party_credits`: "Historians agree that ...", "It is widely accepted that ...", "The evidence shows that ...",
+    "The question states that ...", "The economist's view is that ...") while none of its cited source claims gives that
+    credit (integration gate 2; the combinator's rule 5): a credit to the question, the router or the request always (they
+    never state a specialist's claim); a credit to a group, a consensus, the evidence or an analysis when a cited source
+    claim hedges the statement, so that one specialist's tentative view ("may have weakened") is presented as what others
+    hold. Over a statement its sources state flatly such a credit presents nothing as more established than they do, and
+    is not named (an earlier control: "Historians agree that Article 48 allowed the president to rule by decree").
+    A credit the cited source claims give themselves is carried, not named."""
+    credits = _party_credits(text)
+    if not credits:
+        return []
+    given = {party for c in known for party, _shown in _party_credits(c.claim_text)}
+    hedged = any(_HEDGE_RE.search(c.claim_text or "") for c in known)
+    out: list[str] = []
+    for party, shown in credits:
+        if party in given or not (party in _EXCHANGE_PARTIES or hedged):
+            continue
+        what = "a consensus" if party == "a consensus" else f"what {party} hold" if party in _PARTY_GROUPS else f"what {party} states"
+        out.append(f"it credits the statement to '{shown[:80]}' but none of its cited source claims {[c.claim_id for c in known][:8]} gives that credit "
+                   f"(a specialist's view presented as {what})")
+    return list(dict.fromkeys(out))
 
 
 def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list[str]:
@@ -3518,6 +3730,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
                            if not (neg_error and d.startswith("it adds a negation"))]
         changed_meaning += _view_credit(sc.text, known, agents)
         changed_meaning += _text_credit(sc.text, known, reports, agents)
+        changed_meaning += _party_credit(sc.text, known)
         if changed_meaning:
             f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):

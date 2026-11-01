@@ -10,7 +10,16 @@ Inputs (one round directory):
                                fixture for a claim whose text changed (a mutation that alters the sentence, ids that shift when a
                                sentence is prepended), and the channel independently rejects an outcome bound to another text
                                (INT-STALE-011). Such a refusal is recorded per claim as STALE_FIXTURE_REFUSED: no verdict, and not an
-                               infrastructure error.
+                               infrastructure error. A fixture is keyed by the claim id list_claims.py prints, the id the hub
+                               delivers. A STEM report's claim has two forms of its id: 's1.2', and 's1.2@<agent>' when a report of
+                               another agent delivered before it on the hub task holds 's1.2' (channel.bus.needs_qualified_ids; the
+                               second STEM report of a group; a mutation, on a hub task of its own with only its peer's report before
+                               it, keeps the unqualified form unless that peer holds the id). A fixture recorded
+                               under either form serves that agent's claim under the other, its problem naming the delivered id
+                               (fixture_for_claim) and its claim-text digest checked as any fixture's; every record names such
+                               fixtures (``fixtures_served_under_other_id_form``) and fixture coverage counts them
+                               (``served_under_other_id_form``). Ids a parser writes in one form only (the generic parser always
+                               qualifies) are matched as written.
   <round>/syntheses/*.json     optional: {report_id?, claims:[{text, source_claim_ids, certainty, transformation, evidence_refs?}], dropped:[{source_claim_ids, reason}],
                                conflicts?:[{claim_ids, description}]}: the combinator sub-project's output format (its exported
                                instructions; list_claims.py prints it as synthesis_format). A disclosed conflict is relayed as an
@@ -173,9 +182,10 @@ reason, E112 circular encoding; E110 and E111 only with source-linked evidence) 
 rejected before the engine ran (E112 circular, 'stated precision': a rounded figure at another precision than the source
 states, 'exactness': an exact or given figure widened). The genuine verdicts that stand with an advisory coverage
 warning (W110, W111: the encoding leaves open a figure no source asserts) are counted apart
-(``advisory_coverage_warnings``). A translation fixture recorded under a claim id the current parse does not deliver is never served; each
-genuine record names such fixtures (``fixtures_matching_no_delivered_claim``) and results.json and summary.md total them
-(``translation_fixtures_matching_no_delivered_claim``), so a smaller outcome count is not read as fewer eligible claims.
+(``advisory_coverage_warnings``). A translation fixture recorded under a claim id the current parse does not deliver (in either form,
+for a STEM id) is never served; each genuine record names such fixtures (``fixtures_matching_no_delivered_claim``) and results.json and
+summary.md total them (``translation_fixtures_matching_no_delivered_claim``), so a smaller outcome count is not read as fewer eligible
+claims.
 """
 from __future__ import annotations
 
@@ -194,7 +204,8 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
 
-from epinoic_logic.branches import RouterHub
+from epinoic_logic.branches import RouterHub, default_registry
+from epinoic_logic.branches.generic_parser import agent_claim_tag
 # the delivery pass's hub, bound at import: a harness that replaces RouterHub in this module (scripts/overseer's contained
 # run substitutes a hub carrying its own auditor) never reaches the delivery pass, which carries an auditor of its own
 from epinoic_logic.branches.hub import RouterHub as _DeliveryHub
@@ -207,6 +218,7 @@ from epinoic_logic.integrity import AgentRole, WorkPlan
 from epinoic_logic.translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.outcome import verify_claim
+from epinoic_logic.translate.parsing import ProviderOutputError, parse_json_object
 from epinoic_logic.translate.pipeline import Translator, apply_subject_policy
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 from epinoic_logic.translate.subjects import resolve_profile
@@ -469,6 +481,26 @@ def diff_against_baseline(findings: list[dict], baseline: list[dict], inj: Injec
         unexplained.append(entry)
     absent = [b for i, b in enumerate(gone) if i not in paired and b["severity"] in ("error", "warning")]
     return unexplained, absent
+
+
+def baseline_in_form(baseline: list[dict], genuine_ids, delivered_ids, tag: str | None) -> list[dict]:
+    """The genuine record's findings (``baseline``) in the id form of a mutation's delivery. The genuine pass delivers a
+    group's reports on one hub task, where the hub qualifies a STEM report's claim ids with its agent's ``tag``
+    (``qualification_tag``) after another agent's report holding them; a mutation has a hub task of its own and is
+    delivered with the unqualified ids. Integration gate, round 2: the same genuine warning then read as unexplained on
+    every mutation record of the group's second STEM report ('s1.4') and as absent from it ('s1.4@physics-specialist').
+    When the genuine reply carries the qualified ids (``genuine_ids``) and the mutation's (``delivered_ids``) do not, each
+    genuine finding's claim ids and message drop the tag, so ``findings_naming_injection`` and ``diff_against_baseline``
+    read one claim as one claim (a changed genuine finding's ``baseline_message`` is then quoted without the tag);
+    otherwise, and for every parser that writes its ids in one form, the findings are returned unchanged."""
+    if not tag:
+        return baseline
+    suffix = "@" + tag
+    if not any(cid.endswith(suffix) for cid in genuine_ids) or any(cid.endswith(suffix) for cid in delivered_ids):
+        return baseline
+    mark = re.compile(re.escape(suffix) + r"(?![A-Za-z0-9._-])")  # the tag itself, never the start of a longer agent's tag
+    return [{**f, "claim_ids": [c[:-len(suffix)] if c.endswith(suffix) else c for c in f["claim_ids"]], "message": mark.sub("", f["message"])}
+            for f in baseline]
 
 
 def supplied(item: dict) -> list[SuppliedText]:
@@ -1336,6 +1368,100 @@ LOST_LABELS = {
 INJECTED_VARIANTS = frozenset(MUTATIONS) | frozenset(STEM_MUTATIONS)
 
 
+# --- one claim, two id forms: the hub's agent-qualified STEM ids ----------------------------------------------------------
+#
+# Integration gate, round 2 (correctness lens): a STEM report whose claim ids a report of ANOTHER agent delivered before
+# it on the same hub task already holds is parsed with agent-qualified ids (channel.bus.needs_qualified_ids, integration
+# gate 1): the same statement of the same answer is 's1.2' when no other agent's report on the task holds that id, and
+# 's1.2@physics-specialist' after one that does (the second STEM report of a group; a mutation, delivered on a hub task
+# of its own with only its peer's report before it, keeps the unqualified form unless that peer holds the id).
+# list_claims.py printed the unqualified ids for every file, so a translation recorded from it was never served to the
+# second report's qualified claim: verify_fn returned CLAIM_OUT_OF_SCOPE, the genuine receipt was a clean ACCEPTED with
+# no outcome, and the fixture's claim-text digest was never captured, so a mutation's changed claim was served the
+# genuine claim's translation. A recorded translation keyed by either form of one agent's STEM claim id now serves that
+# claim, explicitly: its problem names the delivered id (``fixture_for_claim``), the claim-text digest binds it as any
+# fixture, and every record and the fixture coverage name each translation served under the other form of its id. Ids
+# the parser always qualifies (the generic parser's 'g1.2@economics-specialist') or never qualifies have one form: a
+# fixture keyed by another form is an older parse's and stays unserved ("never re-key them by bare claim id",
+# scripts/arena/README.md).
+
+
+def qualification_tag(item: dict) -> str | None:
+    """The tag the hub qualifies ``item``'s claim ids with when a report of another agent delivered before it on the task
+    holds one of them (``generic_parser.agent_claim_tag`` of its agent), or None when its branch's parser never qualifies
+    its ids on that account (only a parser that offers ``accepts_qualify_ids``, the STEM parsers', is asked to: the
+    rule ``channel.bus.needs_qualified_ids``)."""
+    branch, _profile = default_registry().for_subject(item["subject"])
+    if getattr(branch.parser(), "accepts_qualify_ids", False) is not True:
+        return None
+    return agent_claim_tag(item["agent_id"])
+
+
+def other_id_form(claim_id: str, tag: str | None) -> str | None:
+    """The other form the hub's rule gives one claim id of a report whose ids it may qualify with ``tag``
+    (``qualification_tag``): 's1.2' for 's1.2@physics-specialist' and the reverse. None without a tag, or for an id
+    qualified with another tag (another agent's claim)."""
+    if not tag or not isinstance(claim_id, str):
+        return None
+    suffix = "@" + tag
+    if claim_id.endswith(suffix):
+        base = claim_id[:-len(suffix)]
+        return base if base and "@" not in base else None
+    return None if "@" in claim_id else claim_id + suffix
+
+
+def fixture_key(claim_id: str, recorded, tag: str | None) -> str | None:
+    """The recorded translation that serves the delivered claim ``claim_id``: its own id when a fixture is recorded under
+    it, else the other form of the id (``other_id_form``) when one is recorded under that; None when neither is."""
+    if claim_id in recorded:
+        return claim_id
+    other = other_id_form(claim_id, tag)
+    return other if other is not None and other in recorded else None
+
+
+def fixture_ids_delivered(recorded, delivered, tag: str | None) -> dict[str, str]:
+    """Recorded fixture id -> the delivered claim id it serves in this run: itself when the parse delivers it, else the
+    other form of the id when the parse delivers that and no fixture is recorded under it (``fixture_key`` read from the
+    fixture's side). A recorded id that serves no delivered claim is absent."""
+    delivered = set(delivered)
+    out: dict[str, str] = {}
+    for rid in recorded:
+        if rid in delivered:
+            out[rid] = rid
+            continue
+        other = other_id_form(rid, tag)
+        if other is not None and other in delivered and other not in recorded:
+            out[rid] = other
+    return out
+
+
+def served_under_other_id_form(recorded, delivered, tag: str | None) -> dict[str, str]:
+    """The recorded fixtures that serve a delivered claim under the other form of their id: recorded id -> delivered id."""
+    return {rid: did for rid, did in fixture_ids_delivered(recorded, delivered, tag).items() if rid != did}
+
+
+def fixture_for_claim(value, recorded_id: str, claim_id: str) -> str:
+    """The recorded translation ``value`` (the provider's JSON as the translations file holds it: an object, or text) as it
+    is served to the delivered claim ``claim_id``, the other form of its recorded id ``recorded_id``: a copy whose problem
+    names ``claim_id`` where it named ``recorded_id`` (data only: read by the pipeline's own reader, nothing evaluated,
+    nothing else changed). The translation is the same one the recorded id would have been served, so a problem naming
+    any other claim, or a text that is no JSON object, is served unchanged and the pipeline decides it as it would
+    under the recorded id (a problem naming another claim is INVALID_FORMALIZATION)."""
+    if isinstance(value, str):
+        try:
+            obj = parse_json_object(value)
+        except ProviderOutputError:
+            return value
+    elif isinstance(value, dict):
+        obj = json.loads(json.dumps(value))
+    else:
+        return json.dumps(value)
+    problem = obj.get("problem")
+    if isinstance(problem, dict) and problem.get("claim_id") == recorded_id:
+        problem["claim_id"] = claim_id
+    return json.dumps(obj)
+
+
 def fixture_sha256(value) -> str:
     """Digest of a recorded translation fixture as the translations file holds it: the text itself, or the canonical JSON
     of an object (sorted keys, no spacing). An adjudication names the translation it judged by this digest."""
@@ -1408,21 +1534,27 @@ def claim_measures(claims: list[ClaimRecord], outcomes: list[dict], findings: li
             "eligible_not_attempted": [cid for cid in eligible if cid not in set(attempted)], "eligibility_disagreements": disagreements}
 
 
-def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict]) -> dict:
+def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimRecord], outcomes: list[dict], findings: list[dict],
+                     tag: str | None = None) -> dict:
     """What became of each translation recorded for a task (``recorded``: the translations file's claims) in this run:
     ``served`` (the pipeline translated its claim with it and an outcome came back) or lost under one of LOST_REASONS.
     A served fixture is bound to its claim's text by the digest the translations file recorded
     (``served_with_recorded_digest``) or, when none was recorded, by claim id only (``served_by_claim_id_only``: the
     harness binds it to whatever text that id carries in this run, which may not be the sentence it was produced for).
-    ``translation_sha256`` gives each recorded fixture's digest, by which an adjudication names what it judged."""
+    ``translation_sha256`` gives each recorded fixture's digest, by which an adjudication names what it judged. Each list
+    names fixtures by their recorded id; with ``tag`` (``qualification_tag`` of the task's specialist) a fixture recorded
+    under one form of a STEM claim id serves the claim the parse delivers under the other (``fixture_ids_delivered``), and
+    ``served_under_other_id_form`` maps each such fixture's recorded id to the delivered id it served."""
     delivered = {c.claim_id for c in claims}
+    serves = fixture_ids_delivered(recorded, delivered, tag)
     by_id = {o["claim_id"]: o for o in outcomes}
     dropped, failed = _claims_named(findings, "INT-STALE-011"), _claims_named(findings, "INT-REQ-006")
     served: list[str] = []
     lost: dict[str, list[str]] = {k: [] for k in LOST_REASONS}
     for cid in sorted(recorded):
-        o = by_id.get(cid)
-        if cid not in delivered:
+        did = serves.get(cid)  # the delivered claim the fixture serves (its own id, or the other form of a STEM id)
+        o = by_id.get(did) if did is not None else None
+        if did is None:
             lost["matching_no_delivered_claim"].append(cid)
         elif o is not None and o.get("stale_fixture_refused"):
             lost["refused_stale"].append(cid)
@@ -1430,15 +1562,16 @@ def fixture_coverage(recorded: dict, recorded_digests: dict, claims: list[ClaimR
             lost["not_eligible"].append(cid)
         elif o is not None:
             served.append(cid)
-        elif cid in dropped:
+        elif did in dropped:
             lost["dropped_by_channel"].append(cid)
-        elif cid in failed:
+        elif did in failed:
             lost["failed_internally"].append(cid)
         else:
             lost["no_outcome"].append(cid)
     return {"recorded": len(recorded), "served": served, "lost": {k: v for k, v in lost.items() if v}, "lost_count": sum(len(v) for v in lost.values()),
             "served_with_recorded_digest": [cid for cid in served if cid in recorded_digests],
             "served_by_claim_id_only": [cid for cid in served if cid not in recorded_digests],
+            "served_under_other_id_form": {cid: serves[cid] for cid in served if serves[cid] != cid},
             "translation_sha256": {cid: fixture_sha256(v) for cid, v in sorted(recorded.items())}}
 
 
@@ -1448,7 +1581,7 @@ def round_fixture_coverage(records: list[dict], translations: dict[str, dict]) -
     ``report_not_delivered``."""
     covered = {r["file"]: r["fixture_coverage"] for r in records if r["variant"] == "genuine" and r.get("fixture_coverage")}
     out = {"recorded": 0, "served": 0, "lost": 0, "lost_by_reason": {k: 0 for k in LOST_REASONS}, "served_with_recorded_digest": 0, "served_by_claim_id_only": 0,
-           "by_file": {}}
+           "served_under_other_id_form": 0, "by_file": {}}
     for stem, tr in sorted(translations.items()):
         n = len(tr.get("claims") or {})
         cov = covered.get(f"{stem}.json")
@@ -1462,10 +1595,15 @@ def round_fixture_coverage(records: list[dict], translations: dict[str, dict]) -
             out["lost_by_reason"][k] += len(ids)
         out["served_with_recorded_digest"] += len(cov["served_with_recorded_digest"])
         out["served_by_claim_id_only"] += len(cov["served_by_claim_id_only"])
-        out["by_file"][f"{stem}.json"] = {"recorded": cov["recorded"], "served": len(cov["served"]), "lost": {k: v for k, v in cov["lost"].items() if v}}
+        other_form = cov.get("served_under_other_id_form") or {}
+        out["served_under_other_id_form"] += len(other_form)
+        out["by_file"][f"{stem}.json"] = {"recorded": cov["recorded"], "served": len(cov["served"]), "lost": {k: v for k, v in cov["lost"].items() if v},
+                                          **({"served_under_other_id_form": dict(other_form)} if other_form else {})}
     out["lost_by_reason"] = {k: v for k, v in out["lost_by_reason"].items() if v}
     out["definition"] = ("recorded translations (translations/*.json) this run served, i.e. the pipeline translated their claims with them, against "
-                         "those it could not use, by reason; a served translation without a recorded claim-text digest is bound by claim id only")
+                         "those it could not use, by reason; a served translation without a recorded claim-text digest is bound by claim id only; one "
+                         "recorded under one form of a STEM claim id (s1.2, or s1.2@<agent> when the hub qualified the report's ids) and served to the "
+                         "claim the parse delivers under the other is counted under served_under_other_id_form")
     return out
 
 
@@ -1521,6 +1659,12 @@ def adjudicate(adjudications: dict | None, records: list[dict], translations: di
         if len(files) != 1:
             not_applied.append({"judgment": j, "reason": "no genuine record of this run carries that file or task" if not files else f"the task id names {len(files)} records: {files}"})
             continue
+        # a judgment names a translation by its recorded id (bind_adjudications.py); one that names the delivered id of a
+        # translation served under the other form of its recorded id (a STEM id the hub qualified) names that translation
+        other_form = (by_file[files[0]].get("fixture_coverage") or {}).get("served_under_other_id_form") or {}
+        recorded_ids = (translations.get(files[0][:-5] if files[0].endswith(".json") else files[0]) or {}).get("claims") or {}
+        if claim_id not in recorded_ids:
+            claim_id = next((rid for rid, did in other_form.items() if did == claim_id), claim_id)
         candidates.setdefault((files[0], claim_id), []).append((j, verdict))
     verdicts: dict[str, str] = {}
     bindings = {"translation_and_claim_text": 0, "translation_only": 0, "claim_text_only": 0, "claim_id_only": 0}
@@ -1549,8 +1693,11 @@ def adjudicate(adjudications: dict | None, records: list[dict], translations: di
         binding = {(True, True): "translation_and_claim_text", (True, False): "translation_only", (False, True): "claim_text_only",
                    (False, False): "claim_id_only"}[(j.get("translation_sha256") is not None, j.get("claim_text_sha256") is not None)]
         bindings[binding] += 1
-        verdicts[f"{file} {claim_id}"] = verdict
-        applied.append({"file": file, "claim_id": claim_id, "verdict": verdict, "binding": binding, **({"cause": j["cause"]} if j.get("cause") else {})})
+        # the claim counts name the claim by the id the parse delivered it under (the other form of a STEM id included)
+        delivered_id = (cov.get("served_under_other_id_form") or {}).get(claim_id, claim_id)
+        verdicts[f"{file} {delivered_id}"] = verdict
+        applied.append({"file": file, "claim_id": claim_id, "verdict": verdict, "binding": binding, **({"cause": j["cause"]} if j.get("cause") else {}),
+                        **({"delivered_claim_id": delivered_id} if delivered_id != claim_id else {})})
     faithful = sum(1 for a in applied if a["verdict"] == FAITHFUL)
     return {**base, "status": "adjudicated" if applied else "no adjudication applies to this run", "source": adjudications.get("source"),
             "adjudicator": adjudications.get("adjudicator"), "recorded": len(adjudications["judgments"]), "adjudicated": len(applied), "faithful": faithful,
@@ -1675,9 +1822,14 @@ def measure_lines(m: dict) -> list[str]:
                  "every transmission; it does not judge whether a finding is true, whether a translation is faithful or whether an answer is better.")
     if cov["recorded"]:
         lost = "; ".join(f"{n} {LOST_LABELS[k]}" for k, n in cov["lost_by_reason"].items())
+        other = cov.get("served_under_other_id_form") or 0
+        named = "; ".join(f"{f}: " + ", ".join(f"{rid} as {did}" for rid, did in v["served_under_other_id_form"].items())
+                          for f, v in (cov.get("by_file") or {}).items() if v.get("served_under_other_id_form"))
         lines.append(f"- Fixture coverage (recorded translations served in this run): {cov['served']} of {cov['recorded']} served; "
                      f"NOT SERVED: {cov['lost']}{' (' + lost + ')' if lost else ''}. Of the {cov['served']} served, {cov['served_with_recorded_digest']} "
-                     f"were bound to a recorded claim-text digest and {cov['served_by_claim_id_only']} by claim id only.")
+                     f"were bound to a recorded claim-text digest and {cov['served_by_claim_id_only']} by claim id only."
+                     + (f" Served to their claim under the other form of its STEM claim id (the hub qualifies a report's ids with its agent when "
+                        f"another agent's report delivered before it on the task holds them): {other} ({named})." if other else ""))
     else:
         lines.append("- Fixture coverage (recorded translations served in this run): no translation is recorded for this round (no translations/*.json); "
                      "no translation outcome is expected.")
@@ -1910,6 +2062,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
     delivered: dict[str, object] = {}  # file stem -> AgentMessage delivered to the router for the genuine reply
     baseline: dict[str, list[dict]] = {}  # file stem -> every finding of the genuine receipt (full messages)
     baseline_constraints: dict[str, dict[str, str]] = {}  # file stem -> {constraint_id: detail} of the genuine receipt
+    baseline_ids: dict[str, list[str]] = {}  # file stem -> the claim ids the genuine reply was delivered under
     peer_docs: dict[str, SuppliedText] = {}
     last_in_group: dict[str, str] = {}
     # file stem -> {claim_id: sha256 of the claim text each fixture was produced for}: carried by the translations file
@@ -1917,6 +2070,10 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
     fixture_digests: dict[str, dict[str, str]] = {stem: dict(tr.get("claim_text_sha256") or {}) for stem, tr in translations.items()}
     for it in items:
         last_in_group[group_of(it)] = it["task_id"]
+    # file stem -> the tag the hub qualifies that specialist's STEM claim ids with (None for a parser that never does so on
+    # another agent's account): a recorded translation keyed by either form of such an id serves the claim
+    qualification_tags: dict[str, str | None] = {it["_path"].stem: qualification_tag(it) for it in items}
+    agents_by_stem = {it["_path"].stem: it["agent_id"] for it in items}
 
     def make_verify_fn(stem: str, capture: bool, verify=None):
         """Translator agent output -> fixture provider; verify eligible claims of the task ``stem`` through the real
@@ -1928,19 +2085,31 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
         digests = fixture_digests.setdefault(stem, {})
         provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in tr["claims"].items()}, claim_text_sha256=digests)
 
-        def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None):
-            if claim.claim_id not in _ids:
+        def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None,
+                      _tag=qualification_tags.get(stem), _agent=agents_by_stem.get(stem)):
+            # the recorded translation of this claim: under its own id, or, for this specialist's own report, under the other
+            # form of its STEM id (the hub qualifies a report's ids after another agent's report holding them, which a
+            # mutation's own hub task holds only when it is the peer's), so the listing's id and the delivered id never part
+            # a claim from its translation
+            key = fixture_key(claim.claim_id, _ids, _tag if report.agent_id == _agent else None)
+            if key is None:
                 # The replay serves recorded translations only: a claim with no recorded fixture is outside what the replay
                 # checks (CLAIM_OUT_OF_SCOPE: the channel names nothing; fixture coverage reports the gap), in the round's own
                 # passes and in the delivery pass alike, so the delivery pass's receipts stay the genuine records'. The
                 # delivery policy's deadline verifier still records the claim as having no outcome, so the formal path reads
                 # it NOT_ATTEMPTED (never checked), as in production.
                 return CLAIM_OUT_OF_SCOPE
-            if _capture is not None and claim.claim_id not in _capture:
+            if _capture is not None and key not in _capture:
                 # the fixture was produced for the genuine text: bind it to that claim text (computed here, at verify
-                # time, from the parsed report) so a re-stated claim under the same id is refused later
-                _capture[claim.claim_id] = sha256_text(claim.claim_text)
-            return (verify or verify_claim)(claim, report, _t, config=CFG, signing_key=KEY)
+                # time, from the parsed report) so a re-stated claim under the same id, in either form, is refused later
+                _capture[key] = sha256_text(claim.claim_text)
+            translator = _t
+            if key != claim.claim_id:
+                # served explicitly under the delivered id: the same recorded translation, its problem naming the claim
+                # (fixture_for_claim), bound to the claim text by the recorded or captured digest of its recorded id
+                translator = Translator(FixtureTranslationProvider({claim.claim_id: fixture_for_claim(tr["claims"][key], key, claim.claim_id)},
+                                                                   claim_text_sha256={claim.claim_id: digests[key]} if key in digests else None))
+            return (verify or verify_claim)(claim, report, translator, config=CFG, signing_key=KEY)
         return verify_fn
 
     # Two passes: every genuine reply (with peer relays and the combinator's synthesis) first, then the fault
@@ -2040,14 +2209,18 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
                 if kind == "genuine":
                     baseline[sp.stem] = found
                     baseline_constraints[sp.stem] = {c.constraint_id: c.detail for c in rc.constraint_results}
+                    baseline_ids[sp.stem] = [c["claim_id"] for c in (reply.payload["claims"] if reply else [])]
                 else:
                     # A fault counts as named only by a finding of the expected code that names an injected claim or
-                    # quotes the injected words, and that the genuine record does not already carry.
+                    # quotes the injected words, and that the genuine record does not already carry, read in the id form
+                    # of this delivery (a mutation's own hub task delivers a STEM report unqualified: baseline_in_form).
                     inj = injection(item["response_text"], kind, quote_texts, item.get("question", ""))
                     injected = injected_claim_ids(reply.payload["claims"] if reply else [], inj.markers)
                     expected_codes = SELF_REPORT_CODES if kind == "self_certification" else tuple(c for c in expected.split("|") if c != "NONE")
-                    named = findings_naming_injection(found, expected_codes, inj, injected, baseline.get(sp.stem, []), task_id)
-                    unexplained, absent = diff_against_baseline(found, baseline.get(sp.stem, []), inj, injected, task_id, baseline_constraints.get(sp.stem))
+                    genuine_found = baseline_in_form(baseline.get(sp.stem, []), baseline_ids.get(sp.stem, []),
+                                                     [c["claim_id"] for c in (reply.payload["claims"] if reply else [])], qualification_tags.get(sp.stem))
+                    named = findings_naming_injection(found, expected_codes, inj, injected, genuine_found, task_id)
+                    unexplained, absent = diff_against_baseline(found, genuine_found, inj, injected, task_id, baseline_constraints.get(sp.stem))
                     rec.update(injected_claim_ids=injected, named_by=[brief(f) for f in named], unexplained_findings=[brief(f) for f in unexplained],
                                baseline_findings_absent=[brief(f) for f in absent])
                     if expected_codes and not named:
@@ -2075,16 +2248,25 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
                            formal_checks=[(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in rc.formal_checks],
                            constraints=[(c.constraint_id, c.satisfied) for c in rc.constraint_results], constraint_details={c.constraint_id: c.detail[:300] for c in rc.constraint_results}, coverage=[(c.item_id, c.addressed) for c in rc.coverage], claims=len(reply.payload["claims"]) if reply else None,
                            latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rc.summary[:400])
+                # the recorded translations this delivery's claims carry under the other form of their STEM id, named on
+                # every record that served one (the genuine report qualified after another agent's, a mutation not)
+                qtag = qualification_tags.get(sp.stem)
+                delivered_ids = [c["claim_id"] for c in (reply.payload["claims"] if reply else [])]
+                fixture_ids = fixture_ids_delivered((tr or {}).get("claims") or {}, delivered_ids, qtag)
+                other_form = {rid: did for rid, did in fixture_ids.items() if rid != did and any(o["claim_id"] == did for o in outcomes)}
+                if other_form:
+                    rec["fixtures_served_under_other_id_form"] = other_form
                 if kind == "genuine":
                     # how far each delivered claim went (extracted, eligible, attempted, completed, approved), each a list of its own
                     delivered_claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
-                    rec["claim_measures"] = claim_measures(delivered_claims, outcomes, found, offered=frozenset((tr or {}).get("claims") or {}))
+                    rec["claim_measures"] = claim_measures(delivered_claims, outcomes, found, offered=frozenset((tr or {}).get("claims") or {}) | frozenset(fixture_ids.values()))
                 if kind == "genuine" and tr:
                     rec["fixture_claim_text_sha256"] = dict(fixture_digests.get(sp.stem, {}))
-                    # fixtures recorded under claim ids this parse does not deliver are never served: say which
-                    rec["fixtures_matching_no_delivered_claim"] = sorted(set(tr["claims"]) - {c["claim_id"] for c in (reply.payload["claims"] if reply else [])})
+                    # fixtures recorded under claim ids this parse does not deliver (in either form of a STEM id) are never
+                    # served: say which
+                    rec["fixtures_matching_no_delivered_claim"] = sorted(set(tr["claims"]) - set(fixture_ids))
                     # what became of every recorded translation: served, or lost and why
-                    rec["fixture_coverage"] = fixture_coverage(tr["claims"], tr.get("claim_text_sha256") or {}, delivered_claims, outcomes, found)
+                    rec["fixture_coverage"] = fixture_coverage(tr["claims"], tr.get("claim_text_sha256") or {}, delivered_claims, outcomes, found, tag=qtag)
             except Exception as exc:  # a crash is a translator bug
                 rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
             records.append(rec)

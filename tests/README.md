@@ -128,6 +128,33 @@ harness rates of the second layer have not dropped.
    the overseer's fixture verifiers declare the claims outside their scope (`channel.bus.CLAIM_OUT_OF_SCOPE`) instead of
    returning no outcome, which the channel now names NOT_ATTEMPTED (INT-REQ-006).
 
+   Integration gate 2 (core: channel, integrity, translate, engine, ir, service, cli) rewrote one existing test to a
+   stricter, reproducible rule and weakened or deleted none: `tests/engine/test_integration_gate1_engine.py`
+   (`test_the_finding_case_gives_one_diagnostic_whatever_the_budget`) decided its case under wall-clock budgets of 50 and
+   200 ms, so a slower machine or z3-solver 5.3.3 (which the dependency range allows) timed it out; the two budgets are now
+   deterministic (the nonlinear policy's resource limit for the decision under a 60 s timeout, and the coverage probes'
+   shared budget spent or whole), and each budget asserts its own state of the argument rules instead of accepting either
+   at either budget. It passes with z3-solver 5.1.0 and 5.3.3. The gate's regression tests are
+   `tests/integrity/test_integration_gate2_ledger.py`, `tests/channel/test_integration_gate2_channel.py`,
+   `tests/translate/test_integration_gate2_translate.py`, `tests/engine/test_integration_gate2_engine_sweep.py` and
+   `tests/service/test_integration_gate2_service_sweep.py`; their sweep tests feed every module's public text entry points
+   the standard hostile inputs of `tests/core_hostile.py` (runs of about 20,000 characters) under a CPU-time bound per
+   call, far above a linear reader's time and far below a quadratic one's.
+
+   The gate-2 handoff fixer rewrote two existing tests to a stricter rule and weakened or deleted none:
+   `tests/integration/test_stem_budget.py` (`test_a_spent_budget_leaves_the_stem_checks_undecided_never_success`) asserted
+   one STEM check on the corpus answer ph-s1, which the rule named-restatement (`docs/STEM_DESIGN.md`, section 36) now
+   reads as two (stem-eq-1 and the restatement stem-res-1); it now names each check and asserts every one ENTAILED when
+   decided and undecided, never a success, when the budget is spent; and `tests/stem/test_layout.py` holds one more
+   pattern of the STEM layout identical to the generic parser's (the linear line-of-marks pattern). Its regression tests
+   are `tests/stem/test_integration_gate2_handoff.py` (the STEM layout's line of marks handed over by the parsers fixer,
+   and the class sweep's quoted spans, joined lines and continued chains, with the run of accuracy marks the stem fixer
+   asked for through the audited Physics hub), `tests/branches/test_integration_gate2_handoff.py` (the generic parser's
+   joined lines and role assignment) and `tests/integration/test_integration_gate2_pins.py` (the solver pinned for a kit
+   install: `integration/constraints.txt`, playbook step 6, the readiness row and `COMPATIBILITY.json`); each critical
+   finding's worst-case input runs under a CPU-time bound with a wide margin and a growth ratio, and each rewritten reader
+   is held to the reading it replaced on random input.
+
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`
    tests both at the cause. Finding 6: a figure that a supporting claim, a supplied text or the
@@ -249,7 +276,17 @@ harness rates of the second layer have not dropped.
    repeated citation, a key or field the contract does not have) is a named failure with its
    KIT-CB code (`combinator_contract`); and the delivery pass's auditor declares every key id
    the hub's components sign under, so a result the cross-agent check signs is not audited as
-   untrusted (OVS-RES-003).
+   untrusted (OVS-RES-003). The integration gate's second round added the case of two STEM
+   agents in one group, whose second report the hub delivers with agent-qualified claim ids
+   (`s1.2@physics-specialist`): `list_claims.py` lists every file under the ids the hub delivers
+   (each member parsed after the members delivered before it, with the request text the STEM
+   parsers read), a translation recorded under either form of one agent's STEM claim id serves
+   that claim and is named on the record (it was lost before, and the genuine receipt carried no
+   outcome), and a mutation, delivered with the unqualified ids on a hub task of its own, is
+   compared with its genuine record in its own id form. Round 7 replays as before (177 of 177,
+   every record unchanged apart from the fixture coverage's new, empty
+   `served_under_other_id_form`); rounds 1 to 6 hold no STEM report, so none of this applies
+   to them.
 
    Three independent overseer agents then judge the round:
    - **Results audit** checks every receipt against its input.

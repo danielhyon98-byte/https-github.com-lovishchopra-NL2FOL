@@ -1126,9 +1126,12 @@ _PCT_SIGNED_RE = re.compile(r"(?<![\d.])([-+−]?\d{1,3}(?:\.\d+)?)\s*(?:per cen
 _ELASTICITY_NUMERATOR_RE = re.compile(r"\b(?:quantity|quantities|demanded|demand|sales|sold|bought|purchases|supplied|output)\b", re.IGNORECASE)
 _ELASTICITY_DENOMINATOR_RE = re.compile(r"\b(?:price|prices|income|incomes)\b", re.IGNORECASE)
 #: One link of written working that divides two figures ('−12.50 ÷ 18.75', '(−12.50%) / (18.75%)') and the link after it that states the result.
-_DIVISION_LINK_RE = re.compile(rf"^\s*\(?\s*(?P<a>{_WORKED_NUM})\s*%?\s*\)?\s*[÷/]\s*\(?\s*(?P<b>{_WORKED_NUM})\s*%?\s*\)?\s*$")
+#: The blank runs of the links are possessive (integration gate 2): the runs around each optional bracket and per cent sign were adjacent,
+#: split in every way before a link of blanks failed (3.7 s at 4,000 blanks, k² to k³ steps); every run is followed by a bracket, a sign,
+#: a figure or the end, so the links read are the same.
+_DIVISION_LINK_RE = re.compile(rf"^\s*+\(?\s*+(?P<a>{_WORKED_NUM})\s*+%?\s*+\)?\s*+[÷/]\s*+\(?\s*+(?P<b>{_WORKED_NUM})\s*+%?\s*+\)?\s*+$")
 #: A margin's working: '(A ÷ B) × 100', 'A ÷ B × 100', with currency signs.
-_MARGIN_LINK_RE = re.compile(rf"^\s*\(?\s*(?P<a>{_WORKED_NUM})\s*[÷/]\s*(?P<b>{_WORKED_NUM})\s*\)?\s*[×x*]\s*100\s*$")
+_MARGIN_LINK_RE = re.compile(rf"^\s*+\(?\s*+(?P<a>{_WORKED_NUM})\s*+[÷/]\s*+(?P<b>{_WORKED_NUM})\s*+\)?\s*+[×x*]\s*+100\s*+$")
 _RESULT_LINK_RE = re.compile(rf"^\s*(?P<c>{_WORKED_NUM})(?P<pct>\s*(?:%|per\s*cent|percent(?!age)))?(?![\d,.]*\d)")
 _MARGIN_LABEL_RE = re.compile(r"\b(?:(?:gross|net|operating)\s+)?(?:profit\s+)?margin\b(?!\s+of\s+safety)", re.IGNORECASE)
 

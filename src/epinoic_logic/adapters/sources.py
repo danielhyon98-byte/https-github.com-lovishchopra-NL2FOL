@@ -46,6 +46,7 @@ the text, so caching never changes it.
 from __future__ import annotations
 
 import functools
+from bisect import bisect_left, bisect_right
 import re
 from dataclasses import dataclass
 from typing import Literal, Mapping, Optional, Sequence
@@ -238,7 +239,8 @@ _REPORTING_VERB_RE = re.compile(r"^\W*(?:\w+\W+){0,3}?(?:argues?|argued|writes?|
                                 r"observes?|observed|states?|stated|contends?|contended|reports?|reported|gives?|gave|records?|recorded|explains?|explained|remarks?|remarked|"
                                 r"quotes?|quoted|cites?|cited|insists?|insisted|maintains?|maintained|puts? it|points? out|dates?|dated|reads?|"
                                 r"suppl(?:y|ies|ied)|provides?|provided|offers?|offered)\b", re.IGNORECASE)
-_POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*[\"'“”‘’«»„]?\s*$")
+#: Possessive runs (integration gate 2): the two blank runs around the optional mark were k² steps on a gap of blanks.
+_POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*+[\"'“”‘’«»„]?\s*+$")
 
 
 #: the other spellings of a subject's first word ("the Maths specialist" for a mathematics specialist)
@@ -314,6 +316,16 @@ def document_mentions(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]
 #: A full stop after an abbreviation or an initial ("c. 1963", "Chester A. Arthur") does not end it either.
 _CLAUSE_END_RE = re.compile(r"[;!?]|[.:](?=\s|$)|,\s+(?:but|while|whereas|although|though|yet|so)\b|\s[-–—]\s|\n")
 _ABBREVIATION_RE = re.compile(r"(?:^|[\s(\[])(?:c|ca|cf|approx|circa|e\.g|i\.e|vs|viz|vol|pp?|nos?|fig|St|Mr|Mrs|Ms|Dr|Jr|Sr|Gen|Col|Capt|Lt|Rev|Prof|Mt|[A-Z])$", re.IGNORECASE)
+#: How far before a full stop :func:`_abbreviation_before` reads: the longest abbreviation ('approx', 'circa') and the blank or bracket before it.
+_ABBREVIATION_WINDOW = 8
+
+
+def _abbreviation_before(text: str, end: int) -> bool:
+    """``_ABBREVIATION_RE.search(text[:end])``, read from the last :data:`_ABBREVIATION_WINDOW` characters before ``end`` (integration gate
+    2): the readers ask it at every full stop, and a search of the whole prefix (a copy of it, then a scan from its start) at every stop
+    was n² steps on a text of many stops ('. ' * k: 3.4 s at 10,000 characters). A match ends at ``end`` and holds at most seven
+    characters; its ``^`` form matches only at the text's own start, which a search from inside the text never reads as ``^``."""
+    return _ABBREVIATION_RE.search(text, max(0, end - _ABBREVIATION_WINDOW), end) is not None
 #: A credit that names the colleague after the words it credits: "according to the History specialist", "in the words
 #: of the History specialist" (the mention follows it).
 _ACCORDING_TO_RE = re.compile(r"\b(?:according\s+to|in\s+the\s+words\s+of|as\s+(?:reported|stated|given|recorded|noted)\s+by)\s+(?:the\s+)?$", re.IGNORECASE)
@@ -331,7 +343,7 @@ def clause_boundaries(text: str) -> list[int]:
     specialist's sentence is quoted back, so a quotation never starts or stops inside a figure."""
     out: list[int] = []
     for m in _BOUNDARY_RE.finditer(text):
-        if m.group(0) == "." and _ABBREVIATION_RE.search(text[:m.start()]):
+        if m.group(0) == "." and _abbreviation_before(text, m.start()):
             continue
         out.append(m.start())
     return out
@@ -340,7 +352,7 @@ def clause_boundaries(text: str) -> list[int]:
 def _clause_end(rest: str) -> int:
     """Offset in ``rest`` where its clause ends (:data:`_CLAUSE_END_RE`, skipping the full stop of an abbreviation)."""
     for m in _CLAUSE_END_RE.finditer(rest):
-        if m.group(0) == "." and _ABBREVIATION_RE.search(rest[:m.start()]):
+        if m.group(0) == "." and _abbreviation_before(rest, m.start()):
             continue
         return m.start()
     return len(rest)
@@ -350,10 +362,41 @@ def _clause_start(head: str) -> int:
     """Offset in ``head`` where the clause it ends with begins."""
     start = 0
     for m in _CLAUSE_START_RE.finditer(head):
-        if m.group(0).startswith(".") and _ABBREVIATION_RE.search(head[:m.start()]):
+        if m.group(0).startswith(".") and _abbreviation_before(head, m.start()):
             continue
         start = m.end()
     return start
+
+
+@functools.lru_cache(maxsize=256)
+def _clause_marks(sentence: str) -> tuple[list[int], list[int]]:
+    """``(clause ends, clause starts)`` of ``sentence``: the offsets where :func:`_clause_end` ends a clause and where :func:`_clause_start`
+    starts one (a match's end), read once per sentence (integration gate 2: :func:`credited_spans` read the text after every mention, and
+    the text before every closing 'according to', again for each, n² steps on a sentence of many mentions). A mention ends at a word
+    character, which no clause end or start straddles, so the marks read from a mention are those of the whole sentence."""
+    ends = [m.start() for m in _CLAUSE_END_RE.finditer(sentence) if not (m.group(0) == "." and _abbreviation_before(sentence, m.start()))]
+    starts = [m.end() for m in _CLAUSE_START_RE.finditer(sentence) if not (m.group(0).startswith(".") and _abbreviation_before(sentence, m.start()))]
+    return ends, starts
+
+
+#: :data:`_REPORTING_VERB_RE` read at a position (``.match(text, pos)`` is anchored there), and the window :func:`_according_to_before` reads.
+_REPORTING_VERB_AT_RE = re.compile(_REPORTING_VERB_RE.pattern.removeprefix("^"), re.IGNORECASE)
+
+
+def _according_to_before(sentence: str, end: int) -> "Optional[re.Match[str]]":
+    """``_ACCORDING_TO_RE.search(sentence[:end])`` read from a window ending at ``end`` (the match, in the sentence's offsets): the blanks
+    and the optional 'the' before ``end``, then at most four words ('in the words of') with their blanks."""
+    j = end
+    for _ in range(6):
+        while j > 0 and sentence[j - 1].isspace():
+            j -= 1
+        k = j
+        while k > 0 and j - k <= 9 and sentence[k - 1].isalpha():
+            k -= 1
+        if k == j or j - k > 9:
+            break
+        j = k
+    return _ACCORDING_TO_RE.search(sentence, max(0, j - 2), end)
 
 
 def credited_spans(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
@@ -365,15 +408,16 @@ def credited_spans(sentence: str, doc: SuppliedText) -> list[tuple[int, int]]:
     at the point of a decimal ("5.2 million") or of an abbreviation ("c. 1963"). A figure inside such a span is stated
     as the colleague's."""
     out: list[tuple[int, int]] = []
+    ends, starts = _clause_marks(sentence)
     for a, b in _mentions(sentence, doc):
-        rest = sentence[b:]
-        leading = _ACCORDING_TO_RE.search(sentence[:a])
-        if not (rest.startswith(("'s", "’s", "'", "’")) or _REPORTING_VERB_RE.match(rest) or leading):
+        leading = _according_to_before(sentence, a)
+        if not (sentence.startswith(("'s", "’s", "'", "’"), b) or _REPORTING_VERB_AT_RE.match(sentence, b) or leading):
             continue
-        end = _clause_end(rest)
-        if leading and not re.search(r"[^\W_]", rest[:end]):  # "..., according to the History specialist." credits the clause before
-            head = sentence[:leading.start()]
-            out.append((_clause_start(head), leading.start()))
+        k = bisect_left(ends, b)
+        end = (ends[k] if k < len(ends) else len(sentence)) - b  # _clause_end(sentence[b:]), from the sentence's clause ends
+        if leading and not _WORD_CHAR_RE.search(sentence, b, b + end):  # "..., according to the History specialist." credits the clause before
+            k = bisect_right(starts, leading.start())
+            out.append((starts[k - 1] if k else 0, leading.start()))  # _clause_start(sentence[:leading.start()])
             continue
         out.append((b, b + end))
     return out
@@ -431,10 +475,12 @@ _CREDIT_ADVERBS = r"(?:himself|herself|itself|themselves|also|then|even|openly|p
 #: Nouns of a view whose complement clause a possessive credits: "Tomas Reyes's view that ...", "the History specialist's claim that ...".
 _VIEW_NOUNS = r"(?:view|claim|argument|reading|point|position|account|conclusion|suggestion|belief|assumption|insistence|contention)"
 #: The words between a credited name and its quotation: a bare possessive ("Hardy's '...'"), or an optional possessive
-#: noun, adverbs and a crediting verb, then the rest of the clause.
+#: noun, adverbs and a crediting verb, then the rest of the clause. The blank runs are possessive and the optional comma is read
+#: with the blanks before it (integration gate 2): ``\s*,?\s+`` split a long gap of blanks in k² ways, each tried against every
+#: crediting verb (a second per thousand blanks between a name and its quotation).
 _CREDIT_GAP_RE = re.compile(
-    r"^(?:['’]s?\s*[,:]?\s*$"
-    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*" + _CREDIT_VERBS + r"\b"
+    r"^(?:['’]s?\s*+[,:]?\s*+$"
+    r"|(?:['’]s?(?:\s+own)?(?:\s+" + _CREDIT_NOUNS + r")?)?(?:\s*+,)?\s++(?:" + _CREDIT_ADVERBS + r"\s++)*" + _CREDIT_VERBS + r"\b"
     # a possessive noun with a complement clause: "the Economics specialist's view that the company could '...'" (the clause that
     # follows is the credited source's, as after "argues that")
     r"|(?P<view>['’]s\s+(?:own\s+)?" + _VIEW_NOUNS + r"\s+(?:is\s+)?(?=that\b)))",
@@ -454,6 +500,94 @@ _LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IG
 #: and colon that introduce it: the colon does not end the credit.
 _PRESENTING_RE = re.compile(r"\b(?:suppl(?:y|ies|ied)|provides?|provided|offers?|offered|gives?|gave|frames?|framed)$", re.IGNORECASE)
 _PRESENTED_NOUN_RE = re.compile(r"^\s+(?:the|a|an|its|their|this|that)\s+[^\W\d_]+(?:\s+[^\W\d_]+)?\s*:\s", re.IGNORECASE)
+# ---- the credit of a quotation read without copying the sentence (integration gate 2): :func:`quotation_credit` copied and searched the
+# text from every mention to the quotation, and from the sentence's start to every mention, for every quotation of the sentence, and found
+# the mentions and quotations again for each: n² to n³ steps on a sentence of many mentions and quotations (1.1 s at 10,000 characters
+# through the History parser, hours at the size limit). The patterns below are the same patterns read at a position (``.match(text, pos,
+# endpos)``: anchored there, the end of the text at ``endpos``), and what does not depend on the quotation is read once per sentence.
+_CREDIT_GAP_AT_RE = re.compile(_CREDIT_GAP_RE.pattern.removeprefix("^"), re.IGNORECASE)
+_PRESENTED_NOUN_AT_RE = re.compile(_PRESENTED_NOUN_RE.pattern.removeprefix("^"), re.IGNORECASE)
+_BLANK_COMMA_RE = re.compile(r"\s*+,?\s*+")
+_THAT_AT_RE = re.compile(r"\s*that\b", re.IGNORECASE)
+_WORD_CHAR_RE = re.compile(r"[^\W_]")
+_CAPITAL_WORD_RE = re.compile(r"(?<![\w'’])(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]")
+_CAPITAL_WORD_AT_RE = re.compile(r"(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]")
+#: The most mentions before a quotation its credit is read from, nearest first (integration gate 2): a real sentence names its sources a few
+#: times; a sentence of thousands of mentions read every one again for every quotation. A credit by a mention farther back than this is
+#: not read.
+_MAX_CREDIT_MENTIONS = 32
+
+
+@functools.lru_cache(maxsize=256)
+def _sentence_layout(sentence: str) -> tuple[list[int], list[int], list[tuple[int, int]], list[int]]:
+    """``(quotation starts, furthest quotation end so far, clause-end spans, capital-word starts)`` of a sentence, read once."""
+    from .markdown import find_quotation_spans
+    starts: list[int] = []
+    furthest: list[int] = []
+    best = -1
+    for a, b, _inner in sorted(find_quotation_spans(sentence)):
+        starts.append(a)
+        best = max(best, b)
+        furthest.append(best)
+    ends = [m.span() for m in _CREDIT_CLAUSE_END_RE.finditer(sentence)]
+    capitals = [m.start() for m in _CAPITAL_WORD_RE.finditer(sentence)]
+    return starts, furthest, ends, capitals
+
+
+@functools.lru_cache(maxsize=256)
+def _sentence_mentions(sentence: str, docs_key: tuple, others: tuple[str, ...]) -> tuple[tuple[tuple[int, int, Optional[str], bool], ...], list[int]]:
+    """Every mention of a source in ``sentence`` outside its quotations (the rule of :func:`quotation_credit`), ordered nearest first
+    from the end: by end descending, and of two ending together the longer first; and their ends negated (ascending, for bisection).
+    ``docs_key``: ``(document id, names, peer)`` of each supplied text, in order."""
+    starts, furthest, _ends, _capitals = _sentence_layout(sentence)
+
+    def quoted(pos: int) -> bool:
+        i = bisect_right(starts, pos)
+        return i > 0 and furthest[i - 1] > pos
+    mentions: list[tuple[int, int, Optional[str], bool]] = []
+    for doc_id, names, _peer in docs_key:
+        found: set[tuple[int, int]] = set()
+        for name in names:
+            found.update((m.start(), m.end()) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence, re.IGNORECASE))
+        mentions += [(a, b, doc_id, False) for a, b in sorted(found) if not quoted(a)]
+    for name in others:
+        if len(name) >= 3:
+            mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
+    literary = sorted({d for d, _n, peer in docs_key if not peer and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
+    for rx in (_GENERIC_LITERARY_RE, _GENERIC_SOURCE_RE):
+        for m in rx.finditer(sentence):
+            if not quoted(m.start()):
+                mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
+    ordered = tuple(sorted(mentions, key=lambda m: (m[1], -m[0]), reverse=True))
+    return ordered, [-m[1] for m in ordered]
+
+
+def _clause_end_between(sentence: str, ends: list[tuple[int, int]], start: int, stop: int) -> bool:
+    """``_CREDIT_CLAUSE_END_RE.search(sentence[start:stop])`` from the sentence's clause ends read once: a clause end of the whole
+    sentence that lies in the span is one of the span's; a span cut through one is read again exactly (rarely)."""
+    i = bisect_left(ends, (start, -1))
+    if i < len(ends) and ends[i][1] <= stop:
+        return True
+    if (i > 0 and ends[i - 1][1] > start) or (i < len(ends) and ends[i][0] < stop):
+        return _CREDIT_CLAUSE_END_RE.search(sentence, start, stop) is not None
+    return False
+
+
+def _capital_word_between(sentence: str, capitals: list[int], start: int, stop: int) -> bool:
+    r"""``re.search(r"(?<![\w'’])(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]", sentence[start:stop])`` from the capitals read once."""
+    if _CAPITAL_WORD_AT_RE.match(sentence, start, stop):
+        return True  # a capitalised word at the very start of the span (nothing precedes it there)
+    i = bisect_right(capitals, start)
+    return i < len(capitals) and capitals[i] + 2 <= stop
+
+
+def _leading_credit_before(sentence: str, end: int) -> bool:
+    """``_LEADING_CREDIT_RE.search(sentence[:end])`` read from a window ending at ``end``: the blanks before ``end``, then at most
+    sixteen characters ('in the words of')."""
+    j = end
+    while j > 0 and sentence[j - 1].isspace():
+        j -= 1
+    return _LEADING_CREDIT_RE.search(sentence, max(0, j - 16), end) is not None
 
 
 @dataclass(frozen=True)
@@ -480,41 +614,28 @@ def quotation_credit(sentence: str, quote_start: int, docs: Mapping[str, Supplie
     credits the quotation to no text. Names inside quotations are not read. A text named by kind is the one non-peer
     text of ``docs`` when there is exactly one, else a credit with no document. ``other_sources`` are further names
     (an author a colleague's report discusses, "Hardy") that credit a text not among ``docs``: a credit with no document."""
-    from .markdown import find_quotation_spans
-    spans = [(a, b) for a, b, _inner in find_quotation_spans(sentence)]
-
-    def quoted(pos: int) -> bool:
-        return any(a <= pos < b for a, b in spans)
-
-    mentions: list[tuple[int, int, Optional[str], bool]] = []
-    for doc_id, doc in docs.items():
-        mentions += [(a, b, doc_id, False) for a, b in _mentions(sentence, doc) if not quoted(a)]
-    for name in other_sources:
-        if len(name) >= 3:
-            mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
-    literary = sorted({d for d, t in docs.items() if not is_peer_text(t) and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
-    for rx in (_GENERIC_LITERARY_RE, _GENERIC_SOURCE_RE):
-        for m in rx.finditer(sentence):
-            if not quoted(m.start()):
-                mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
-    before = sorted((m for m in mentions if m[1] <= quote_start), key=lambda m: (m[1], -m[0]), reverse=True)  # nearest first; of two ending together, the longer
+    _starts, _furthest, ends, capitals = _sentence_layout(sentence)
+    docs_key = tuple((doc_id, tuple(_names_of(doc)), is_peer_text(doc)) for doc_id, doc in docs.items())
+    mentions, negated_ends = _sentence_mentions(sentence, docs_key, tuple(other_sources))
+    first = bisect_left(negated_ends, -quote_start)  # nearest first: the mentions that end at or before the quotation
     credits: list[tuple[Credit, bool]] = []  # nearest first; True when the verb opens a reported clause ("argues that")
-    for a, b, doc_id, generic in before:
-        gap = sentence[b:quote_start]
-        if _LEADING_CREDIT_RE.search(sentence[:a]) and re.fullmatch(r"\s*,?\s*", gap):
+    for a, b, doc_id, generic in mentions[first:first + _MAX_CREDIT_MENTIONS]:
+        if _leading_credit_before(sentence, a) and _BLANK_COMMA_RE.fullmatch(sentence, b, quote_start):
             credits.append((Credit(doc_id, sentence[a:b], generic), False))
             continue
-        m = _CREDIT_GAP_RE.match(gap)
+        m = _CREDIT_GAP_AT_RE.match(sentence, b, quote_start)
         if m is None:
             continue
-        rest = gap[m.end():]
-        if _PRESENTING_RE.search(gap[:m.end()]):  # "supplies the frame: the closure '...'": the colon introduces what is supplied
-            rest = _PRESENTED_NOUN_RE.sub(" ", rest, count=1)
-        if _CREDIT_CLAUSE_END_RE.search(rest):
+        rest_start = m.end()
+        if _PRESENTING_RE.search(sentence[b:m.end()]):  # "supplies the frame: the closure '...'": the colon introduces what is supplied
+            presented = _PRESENTED_NOUN_AT_RE.match(sentence, rest_start, quote_start)
+            if presented is not None:
+                rest_start = presented.end() - 1  # the noun and its colon read as one blank
+        if _clause_end_between(sentence, ends, rest_start, quote_start):
             continue
-        if m.group("view") and re.search(r"(?<![\w'’])(?!I\b)[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]", rest):
+        if m.group("view") and _capital_word_between(sentence, capitals, m.end(), quote_start):
             continue  # "the Economics specialist's point is that Tomas Reyes wants to '...'": the clause names its own speaker
-        credits.append((Credit(doc_id, sentence[a:b + m.end()].strip(), generic), bool(re.match(r"\s*that\b", gap[m.end():], re.IGNORECASE))))
+        credits.append((Credit(doc_id, sentence[a:m.end()].strip(), generic), _THAT_AT_RE.match(sentence, m.end(), quote_start) is not None))
     if not credits:
         return None
     # A reporting clause credits its OUTER speaker: in "The English specialist argues that Blake presents ... '...'" the
@@ -554,6 +675,12 @@ _VIEW_VERBS = (r"(?:believes?|believed|considers?|considered|regards?|regarded|e
                r"|deemed|characteri[sz]es|characteri[sz]ed|warns?|warned|predicts?|predicted|assumes?|assumed|infers?|inferred|proposes?|proposed)")
 
 
+#: A crediting or view verb after a specialist's name: "The History specialist, rightly, notes ...". Possessive blank runs, the optional
+#: comma read with the blanks before it (integration gate 2): ``\s*,?\s+`` split a run of blanks after every mention in k² ways, each
+#: tried against every verb (45 ms per mention followed by 200 blanks; 83 s for a text of such mentions).
+_AGENT_VIEW_VERB_RE = re.compile(r"(?:\s*+,)?\s++(?:" + _CREDIT_ADVERBS + r"\s++)*(?:" + _CREDIT_VERBS + "|" + _VIEW_VERBS + r")\b", re.IGNORECASE)
+
+
 def credited_agents(text: str, agent_ids: Sequence[str]) -> list[str]:
     """The agents ``text`` credits with a view: a specialist named (as "the English specialist" for the agent id
     "english-specialist") with a possessive ("In the History specialist's view, ..."), as the subject of a crediting verb
@@ -561,11 +688,12 @@ def credited_agents(text: str, agent_ids: Sequence[str]) -> list[str]:
     credit ("According to the History specialist, ...", "In the view of the History specialist, ...", "..., as noted by the
     History specialist", a clause-initial "For the History specialist, ..."), outside quotations."""
     from .markdown import find_quotation_spans
-    masked = text
-    for a, b, _inner in reversed(find_quotation_spans(text)):
-        masked = masked[:a] + " " * (b - a) + masked[b:]
+    chars = list(text)  # the quotations blanked in one pass (integration gate 2: the text was copied again for each quotation)
+    for a, b, _inner in find_quotation_spans(text):
+        chars[a:b] = " " * (b - a)
+    masked = "".join(chars)
     out: list[str] = []
-    verb = re.compile(r"\s*,?\s+(?:" + _CREDIT_ADVERBS + r"\s+)*(?:" + _CREDIT_VERBS + "|" + _VIEW_VERBS + r")\b", re.IGNORECASE)
+    verb = _AGENT_VIEW_VERB_RE
     for agent in agent_ids:
         doc = SuppliedText(document_id=f"agent:{agent}", title=None, author=agent, text=" ")
         for a, b in _mentions(masked, doc):

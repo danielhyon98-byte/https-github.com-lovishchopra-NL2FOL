@@ -125,6 +125,15 @@ Rules added for the round-7 arena hand-off:
   ("is expected to fall"), a rule its sentence or the next one refutes ("this was disproved", "a myth"), or one
   attributed to something that is no document ("according to a rumour") verifies no premise rule (integration gate,
   round 1).
+- Three readers that rescanned a run of text from every opener inside it are linear, each giving exactly what it gave
+  before (the earlier reading is kept in `tests/translate/test_integration_gate2_translate.py` as the specification and
+  compared on random texts; integration gate 2): the line-start labels a claim's figures are read without
+  (`eligibility._strip_labels`, a whitespace run read once instead of from every line start inside it: over 3 s at
+  20,000 line breaks), a "No" opening a clause in a source the assertion reader indexes (`assertion._no_openings`, the
+  blank run before each "No" read once: 2 s at 20,000 line breaks), and the closing brace of a LaTeX group in a written
+  calculation (`quantities._brace_closers`, one pass instead of a count from every '{'; its callers pass at most 600
+  characters, so it was not reachable). One sweep test per module feeds its public text entry points the standard
+  hostile inputs under a CPU-time bound.
 
 Assertion (`assertion.py`). Mentioning a figure is not asserting it. A figure supports a coverage finding only
 when (1) its clause asserts it: no question, instruction or supposition opening the sentence, and no

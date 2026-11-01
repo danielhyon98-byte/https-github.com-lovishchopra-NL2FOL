@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..adapters.history_specialist.sentences import sentence_boundaries
-from .layout import CONNECTIVE_END_RE, CONTINUATION_RE, SOFT_WRAP_NEXT_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, TERMINAL_PUNCT_RE, is_working
+from .layout import CONTINUATION_RE, SOFT_WRAP_NEXT_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, JoinedLine, is_working
 from .limits import DEFAULT_LIMITS, StemLimits
 from .normalize import blank_ranges, prose_view
 from .spans import Span, SpanSet
@@ -212,6 +212,8 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
     group: Optional[tuple[int, int, int, bool]] = None  # (start, end, line, list_item)
     #: the logical line being read: its physical lines (content start, end, line index, kind, list item, part lead)
     logical: list[tuple[int, int, int, str, bool, bool]] = []
+    #: what the join rules ask of the logical line, kept as its lines are added (``_joins``; integration gate 2)
+    joined = _JoinedLogical()
 
     def flush_logical() -> None:
         """Emit the statements of the logical line read so far: one derivation (with the lines that continue its
@@ -342,7 +344,7 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
         # rule, layout.py): an equation continued on a line that opens with '=' or '≈', a line after one that ends on a
         # comma or a connective, or a soft-wrapped line of prose. A part lead, a list item or a table row never continues.
         lead = p is not None and p.line == ln.index
-        if logical and not lead and not is_list and _joins(view, logical, content_start, ln.end):
+        if logical and not lead and not is_list and _joins(view, logical, content_start, ln.end, joined):
             logical.append((content_start, ln.end, ln.index, kind, is_list, lead))
         else:
             flush()
@@ -365,19 +367,45 @@ def segment_statements(text: str, spans: SpanSet, *, names: frozenset[str] = fro
     return Segmentation(statements=tuple(statements), paragraphs=tuple(paragraphs), prose=prose, overflow=overflow)
 
 
-def _joins(view: str, logical: list, a: int, b: int) -> bool:
+class _JoinedLogical:
+    """The :class:`~.layout.JoinedLine` of the logical line ``segment_statements`` is reading, brought up to date with its list of
+    physical lines on each call (a list only grows, or is emptied and started again with a line of its own)."""
+
+    __slots__ = ("key", "count", "line")
+
+    def __init__(self) -> None:
+        self.key: Optional[tuple] = None
+        self.count = 0
+        self.line: Optional[JoinedLine] = None
+
+    def of(self, view: str, logical: list) -> JoinedLine:
+        if self.line is None or self.key != logical[0] or self.count > len(logical):
+            x, y = logical[0][0], logical[0][1]
+            self.key, self.count, self.line = logical[0], 1, JoinedLine(view[x:y].rstrip())
+        while self.count < len(logical):
+            x, y = logical[self.count][0], logical[self.count][1]
+            self.line.add(view[x:y].rstrip())
+            self.count += 1
+        return self.line
+
+
+def _joins(view: str, logical: list, a: int, b: int, joined: Optional[_JoinedLogical] = None) -> bool:
     """True when the physical line ``view[a:b]`` (markup blanked) continues the logical line read so far
-    (``layout.joins_previous``, with the part leads and list items of the line already set apart by the caller)."""
+    (``layout.joins_previous``, with the part leads and list items of the line already set apart by the caller).
+
+    The logical line is read through its :class:`~.layout.JoinedLine`, kept from call to call in ``joined``: each rule gives
+    the answer its pattern gives on the lines joined with line breaks, without reading the whole logical line again for every
+    line it absorbs (integration gate 2: an answer of 8,000 soft-wrapped lines, 'ab cd' on each, took 39 s, n² steps)."""
     line = view[a:b]
-    prev = "\n".join(view[x:y].rstrip() for x, y, *_rest in logical)
     if TABLE_ROW_RE.match(line):
         return False
     if CONTINUATION_RE.match(line):
         return True
-    if CONNECTIVE_END_RE.search(prev.rstrip()) and not TABLE_ROW_RE.match(prev):
+    prev = (joined or _JoinedLogical()).of(view, logical)
+    if prev.connective_end() and not prev.table_row():
         return True
-    return bool(SOFT_WRAP_NEXT_RE.match(line) and not TERMINAL_PUNCT_RE.search(prev.rstrip().rstrip(":;")) and not prev.rstrip().endswith((":", ";"))
-                and not is_working(prev) and not is_working(line))
+    return bool(SOFT_WRAP_NEXT_RE.match(line) and not prev.terminal() and not prev.colon_end()
+                and not prev.working() and not is_working(line))
 
 
 def _ends_in_math(view: str, end: int, math_ends: frozenset[int]) -> bool:

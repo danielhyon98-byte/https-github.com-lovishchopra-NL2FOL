@@ -138,6 +138,18 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   trailing "from memory" label and the parentheticals of the note-clause splitter start only where
   no blank precedes, and emphasis markers are removed in one pass (`strip_emphasis`, which gives
   `EMPHASIS_RE.sub(r"\2", text)` character for character; `EMPHASIS_RE` itself is unchanged).
+  Integration gate 2 made the rest of the shared readers linear the same way, each held to its old
+  reading by an equality test (`tests/adapters/test_integration_gate2_parsers.py`): fences are paired
+  in one pass (`fence_blocks`: a lazy pattern read to the end of the text from every opener with no
+  closer), and the pasted JSON blocks likewise (`_json_block_spans`); a sentence's quotation spans are
+  read once per text however long (`_long_quotation_spans`); the closing of an accuracy adjective
+  (`_SELF_CLOSING_RE`) and the synthesis's proof and verdict labels (`_SYNTH_PROOF_LABEL_RE`,
+  `_SYNTH_VERDICT_LABEL_RE`) read their blank runs once (adjacent runs around an optional comma or stop:
+  0.2 s for a label followed by 4,000 blanks). The combinator's own verdict on what it
+  wrote ("The answer is correct.", "(signed engine result)", "Overseer verdict: pass.", "Correct: <claim>",
+  "<claim>; this is fully reliable.") is a self-report on a synthesis (`is_synthesis_self_certification`,
+  `synthesis_label`; the hub's INT-LEDGER-029), while the negated, failed and credited forms, and every
+  form on a specialist's branch, read as before.
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
   joined-span tolerance; a form difference such as an initial capital, a verse line-break
   mark, diacritics or a long elision is a located status, never "not found") used by every
@@ -178,11 +190,22 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   misquotation of it is refuted there (INT-REQ-003) rather than only reported unverifiable.
   A text is never credited for being supplied first. Answers are cached per excerpt and document
   text (a bounded LRU), so a parse and its checks never locate one excerpt in one document twice.
+  The readers are linear on hostile input (integration gate 2, each held to its old reading by an
+  equality test): a full stop is tested for an abbreviation in a window before it, not in the whole text
+  before it; the credit of a quotation reads its sentence once (`_sentence_layout`, `_sentence_mentions`,
+  `_clause_marks`) and at most `_MAX_CREDIT_MENTIONS` mentions back from the quotation; the gaps between a
+  name and what it credits (`_CREDIT_GAP_RE`, `_POSSESSIVE_GAP_RE`, `_BLANK_COMMA_RE`,
+  `_AGENT_VIEW_VERB_RE`) are possessive blank runs, the optional comma read with the blanks before it
+  (a gap of blanks was split in every way, a second per thousand blanks); `credited_agents` blanks the
+  quotations in one pass.
 - `generic_structured.py` — the integration contract for every specialist being
   built: accepts a report that is already structured JSON and checks source refs and
   claim links. New specialists should emit this format directly. Every located form
   difference of the shared check (long elision included) is the inexact warning code
-  (`GEN-SRC-003`, `ES-SRC-006` for the English pack), never the not-found error.
+  (`GEN-SRC-003`, `ES-SRC-006` for the English pack), never the not-found error. A finding that names
+  many claims (`GEN-DUP-001`, `GEN-STR-001`, `GEN-STR-002`) lists the ids that fit in its message and
+  counts the rest; its `claim_ids` carry every one (integration gate 2: 512 claims with long ids made
+  the message longer than a finding may be, and the checks raised instead of reporting).
 - `english_specialist/` — the worked example: a heuristic parser for PETAL-style
   analytical paragraphs (point, evidence quotations, device, interpretation, link),
   structural checks derived from the agent's own knowledge documents (quotation not
@@ -254,6 +277,13 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   interpretation before evidence and evidence before material claims, carrying the source
   references of folded evidence on the tail claim so the hub still checks those quotations and
   naming in an unresolved issue how many claims and quotations were merged.
+  Integration gate 2 made the parser and its checks linear on hostile input, each held to its old
+  reading: a sentence boundary is read from the first stop of a run (`_BOUNDARY_RE`: a run of stops
+  that no blank and capital follow was read again from each of its stops, 58 s per receive), an inline
+  list number from the end of its segment, a label chunk's quotation marks counted as the chunk grows,
+  and `ES-SRC-008` reads each sentence's quotations, clause breaks and names once (`_SentenceMarks`):
+  the nearest name before a quotation decides for every name before it, and the names after it are read
+  from the nearest (every name was tried against every quotation, n³ steps on a sentence of many).
 - `stem_specialist/` — `StemTextParser`, the parser of the three STEM branches (`sciences`,
   `mathematics`, `computer_science`; docs/STEM_DESIGN.md, section 9). It reads the same memoised
   `stem.document.StemDocument` as `branches/stem_pack.StemPack` (the channel passes it the request

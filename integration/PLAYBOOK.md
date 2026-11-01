@@ -224,7 +224,8 @@
 - **Do:**
   ```
   python3 -m venv <workdir>/venv
-  <workdir>/venv/bin/pip install -e "<kit>[dev,service,providers]"
+  <workdir>/venv/bin/pip install -c "<kit>/integration/constraints.txt" -e "<kit>[dev,service,providers]"
+  <workdir>/venv/bin/python -c "import z3; print(z3.get_version_string())"
   cd <kit> && <workdir>/venv/bin/python -m pytest -q
   <workdir>/venv/bin/python integration/readiness/check.py --translator .
   ```
@@ -234,14 +235,20 @@
   cd <kit> && PYTHONPATH=src:scripts/overseer <workdir>/venv/bin/python -m pytest -q -p pytest_attach
   ```
   Expect `failed` 0 there too (record the counts; it took about an hour on a four-core host).
-- **Expect:** `failed` is 0 (record the counts); the translator section of the readiness check passes, except, on a
+  The constraints file (`integration/constraints.txt`) pins every distribution to the version the suite was measured with,
+  the solver included (`z3-solver==5.1.0.0`): `pyproject.toml` allows any `z3-solver>=4.13`, and a later solver decides some
+  nonlinear problems differently within the same budget (integration gate 2), so an install without it is not the
+  measured environment. Record the solver version the second command prints with the counts.
+- **Expect:** `failed` is 0 (record the counts); the solver version is inside `COMPATIBILITY.json`
+  `components.z3_solver` (the readiness check's `Z3 (bootstrap)` row prints it: `z3 found 5.1.0`); the translator section of the readiness check passes, except, on a
   pre-build commit, its preflight row **(connected in phase 2)**. On the pre-build branch since the contract 0.3 merge
   (17 October 2026) that row is `service preflight (integration-sim) BLOCKER KIT-HS-007 overseer_unavailable: ...
   (connected in phase 2: the overseer port adapter)`; on a pre-build commit from before that merge it is `KIT-HS-006
   named_policies_unavailable: ... (connected in phase 2: the named policies of contract 0.3; then KIT-HS-007 until the
   overseer port adapter)`. Any other BLOCKER row of that section is a defect.
-  Without a network, install from a wheelhouse your user provides (`pip install --no-index --find-links <wheelhouse> -e
-  "<kit>[dev,service,providers]"`) or use an existing environment that already has the dependencies, recording which.
+  Without a network, install from a wheelhouse your user provides (`pip install --no-index --find-links <wheelhouse> -c
+  "<kit>/integration/constraints.txt" -e "<kit>[dev,service,providers]"`) or use an existing environment that already has
+  the dependencies, recording which and its solver version.
   **A test that fails only on a time bound** (its failure names the bound and the measured time: a `Timing(...)` report
   of `tests/timing.py` with `bound=`, `wall=` and `cpu=`, or a time in milliseconds against its limit) can fail when
   other work loads the host. Run that test again alone (`<workdir>/venv/bin/python -m pytest -q <test id>`) and record

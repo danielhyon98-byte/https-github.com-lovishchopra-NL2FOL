@@ -220,6 +220,36 @@ once (`contracts.SYNTHESIS_CITATION_RULE`). A missing reason (`None`) is still a
 channel refuses a synthesis that breaks these rules with INT-REQ-009 stating the rule broken, never the text, whether it
 arrives as JSON or as an object built around validation (`channel/README.md`).
 
+**Ledger readers, integration gate 2.** What changed in `ledger.py`, each tested in
+`tests/integrity/test_integration_gate2_ledger.py`:
+
+- *Linear on hostile text (critical).* Rule `name-partner` found the closing ')' of every '(' and the closing ',' of every
+  relative clause by scanning to the end of the sentence from each one, so a run of unclosed '(' in the student-facing
+  text was quadratic (20.5 s at 32,000 characters, about 55 minutes at the 400,000-character limit). The first ')' and the
+  first ',' after every token now come from one backward pass (`_next_token_index`), with the same results on every
+  recorded text: 0.7 s at 32,000 and 2.8 s at 399,000. The unit reader (`unit_differences`) read a unit run over a whole
+  token from every figure inside it ("1–2–1–2–…", 11.4 s at 32,000); a token of the run is now at most `_UNIT_TOKEN_MAX`
+  (48) characters, and a longer token is no unit and ends the run.
+- *Units in LaTeX and scientific notation (INT-LEDGER-023).* Before figures are paired with units, LaTeX math markup is
+  read away (`_latex_plain`: a `$...$` span, `\(`/`\)`, `\text{}`/`\mathrm{}`, `\,`, `\times`, `^{6}`), so "$6.0$ kN" for
+  "$6.0$ N" and "$9.0$ kg" for "$9.0$ g" are named as in plain text; a pair of dollar signs is a math span only when it
+  closes on the same line within 300 characters, its content neither starts nor ends with a blank and no digit follows the
+  closing sign, so a price keeps its currency. A figure in scientific notation ("2.3 × 10⁶ J kg⁻¹") is one figure, keyed by
+  its exact decimal, its unit read after the power.
+- *Dropped hedges in a merged claim (INT-LEDGER-026).* A synthesized sentence's hedge belongs to the hedged source
+  sentence it restates best: two hedged sources merged share ordinary words ("German savers"), and the hedge one
+  restatement keeps no longer masks the hedge the other drops (`dropped_hedges`). Identical sentences are grouped and
+  each distinct pair is compared once, so the rule is no slower than before on any shape (0.4 s for a 4,000-character
+  claim against 64 cited claims of 4,000 characters, every sentence distinct).
+- *Credits to a party that is no source (INT-LEDGER-026, rule 5).* `_party_credits` reads a credit to a group or a
+  discipline ("Historians agree that", "Scholars argue that", "Experts say"), a consensus ("It is widely accepted that"),
+  the evidence or an analysis ("The evidence shows that"), the question or the router ("The question states that", "The
+  router notes that") and a discipline member's view ("The economist's view is that"). A credit to the question, the
+  router or the request is always named; the others are named when a cited source claim hedges the statement, so one
+  specialist's tentative view is not presented as what others hold (over a statement its sources state flatly they are
+  not named, an earlier round's control). A credit the cited source claims give themselves is carried. A bracketed
+  subject tag opening the statement ("[History] Hyperinflation peaked ...") credits that subject's specialist.
+
 **Contract senders (`ROLE_CONTRACTS`, `envelope.py`).** A `MessageLog` with `enforce_roles` (the default) accepts a
 contract only from the roles listed; any other sender is INT-ENV-007. A contract not listed is unrestricted, so every
 contract the infrastructure issues is listed.

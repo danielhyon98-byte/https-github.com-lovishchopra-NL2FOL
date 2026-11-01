@@ -731,9 +731,24 @@ _LATEX_TEXT = frozenset({"text", "mathrm", "textrm", "rm", "mbox", "operatorname
 _LATEX_FRACTIONS = frozenset({"frac", "dfrac", "tfrac"})
 
 
-def _latex_group(text: str, i: int) -> Optional[tuple[str, int]]:
+def _brace_closers(text: str) -> dict[int, int]:
+    """The index of the '}' that closes each '{' of ``text`` (an unclosed '{' has none), from one pass with a stack: the
+    close a depth count from the '{' would find (integration gate 2: :func:`_latex_group` counted from every opener to
+    the end of the text, quadratic on a run of unclosed groups)."""
+    closers: dict[int, int] = {}
+    stack: list[int] = []
+    for j, ch in enumerate(text):
+        if ch == "{":
+            stack.append(j)
+        elif ch == "}" and stack:
+            closers[stack.pop()] = j
+    return closers
+
+
+def _latex_group(text: str, i: int, closers: Optional[dict[int, int]] = None) -> Optional[tuple[str, int]]:
     """The argument of a LaTeX command at ``text[i]`` (after spaces): a braced group (its content) or one character;
-    ``(content, index after it)``, or None (no argument, or an unbalanced group)."""
+    ``(content, index after it)``, or None (no argument, or an unbalanced group). ``closers`` is :func:`_brace_closers` of
+    ``text`` (computed here when not given)."""
     n = len(text)
     while i < n and text[i] == " ":
         i += 1
@@ -741,15 +756,10 @@ def _latex_group(text: str, i: int) -> Optional[tuple[str, int]]:
         return None
     if text[i] != "{":
         return (text[i], i + 1) if text[i] not in "}\\" else None
-    depth = 0
-    for j in range(i, n):
-        if text[j] == "{":
-            depth += 1
-        elif text[j] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[i + 1:j], j + 1
-    return None
+    j = (closers if closers is not None else _brace_closers(text)).get(i)
+    if j is None:
+        return None
+    return text[i + 1:j], j + 1
 
 
 def _latex_plain(text: str, depth: int = 0) -> str:
@@ -761,6 +771,7 @@ def _latex_plain(text: str, depth: int = 0) -> str:
         return text
     if depth > _CALC_MAX_DEPTH:
         return text
+    closers = _brace_closers(text)
     out: list[str] = []
     i, n = 0, len(text)
     while i < n:
@@ -778,15 +789,15 @@ def _latex_plain(text: str, depth: int = 0) -> str:
             elif name in ("%", "$", "{", "}"):
                 out.append(name)
             elif name in _LATEX_TEXT:
-                g = _latex_group(text, j)
+                g = _latex_group(text, j, closers)
                 if g is None:
                     out.append(text[i:j])
                 else:
                     out.append(" " + _latex_plain(g[0], depth + 1) + " ")
                     j = g[1]
             elif name in _LATEX_FRACTIONS:
-                a = _latex_group(text, j)
-                b = _latex_group(text, a[1]) if a is not None else None
+                a = _latex_group(text, j, closers)
+                b = _latex_group(text, a[1], closers) if a is not None else None
                 if a is None or b is None:
                     out.append(text[i:j])
                 else:
@@ -797,7 +808,7 @@ def _latex_plain(text: str, depth: int = 0) -> str:
                 if k < n and text[k] == "[":
                     close = text.find("]", k)
                     k = close + 1 if close != -1 else k
-                g = _latex_group(text, k)
+                g = _latex_group(text, k, closers)
                 if g is None:
                     out.append(text[i:j])
                 else:
@@ -808,7 +819,7 @@ def _latex_plain(text: str, depth: int = 0) -> str:
             i = j
             continue
         if ch == "^" and i + 1 < n and text[i + 1] == "{":
-            g = _latex_group(text, i + 1)
+            g = _latex_group(text, i + 1, closers)
             if g is not None:
                 out.append(f"^({_latex_plain(g[0], depth + 1)})")
                 i = g[1]

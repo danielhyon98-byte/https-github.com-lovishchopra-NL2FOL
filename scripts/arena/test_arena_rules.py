@@ -47,6 +47,15 @@ the auditor declares every key id the hub's components sign under. One assertion
 test_group_synthesis_passes_the_combinators_fields_on_as_written, which required the filtered citations, was rewritten to
 the stricter as-written rule. The same round's channel names a material eligible claim that got no outcome under
 INT-REQ-006 (NOT_ATTEMPTED); the claim counts count a claim attempted only when a recorded translation was offered.
+
+Integration gate, round 2 (correctness lens): two STEM agents in one group. The hub delivers the group's second STEM report
+with agent-qualified claim ids (s1.2@physics-specialist), but list_claims.py parsed each file alone and printed s1.2, so
+the translation recorded from it was never served (CLAIM_OUT_OF_SCOPE: no outcome, the run qualified TRANSLATIONS_LOST)
+and, its claim-text digest never captured, a mutation that changed the claim was served the genuine claim's translation.
+The listing now parses a file after the members of its group delivered before it, with the plan and request text the hub
+parses it with; a fixture recorded under either form of one agent's STEM claim id serves that claim, named on the
+record; and a mutation, delivered on a hub task of its own with the unqualified ids, is compared with its genuine record
+in its own id form. None of these tests was rewritten.
 """
 from __future__ import annotations
 
@@ -1314,3 +1323,249 @@ def test_list_claims_refuses_a_rewritten_pack_that_is_not_this_repositorys_relea
     same = subprocess.run([sys.executable, str(script), str(spec), "--json", "--instructions", str(_export(tmp_path / "again"))],
                           capture_output=True, text=True, env=env, timeout=120, check=True)
     assert json.loads(same.stdout)["synthesis_format"]["instruction_pack"] == release and same.stderr == ""
+
+
+# --- integration gate, round 2: two STEM agents in one group (agent-qualified claim ids) ---------------------------------
+
+#: The correctness lens's round (integration gate, round 2): two STEM specialists of the sciences branch in group g1 give
+#: the same answer, so the hub delivers the second report of the group (ph-g1, after ch-g1 in run_arena's order) with its
+#: claim ids qualified by its agent (channel.bus.needs_qualified_ids, integration gate 1).
+FORCE_QUESTION = "A 2.0 kg mass accelerates at 3.0 m/s^2. Find the net force on it."
+FORCE_ANSWER = "Given: m = 2.0 kg, a = 3.0 m s⁻².\nF = ma = 2.0 × 3.0 = 6.0 N.\nSo the net force is 6.0 N."
+STEM_GROUP = {"ch-g1": ("Chemistry", "chemistry-specialist"), "ph-g1": ("Physics", "physics-specialist")}
+PH_QUALIFIED = ["s1.1@physics-specialist", "s1.2@physics-specialist", "s1.3@physics-specialist"]
+
+
+def _force_fixture(task: str, claim_id: str) -> dict:
+    """A translation of 'F = ma = 2.0 × 3.0 = 6.0 N.' whose problem names ``claim_id``, the id its translation agent was given."""
+    f = {"op": "var", "name": "f"}
+    product = {"op": "mul", "args": [{"op": "real", "value": "2.0"}, {"op": "real", "value": "3.0"}]}
+    return {"problem": {"ir_version": "1.0", "problem_id": f"{task}-s1.2", "request_id": "req-g1", "claim_id": claim_id, "query": "entailment",
+                        "symbols": [{"name": "f", "sort": "Real", "meaning": "net force in N"}],
+                        "premises": [{"id": "P1", "expr": {"op": "eq", "left": f, "right": product}, "label": "F = ma = 2.0 x 3.0",
+                                      "grounding": {"kind": "specialist_inference"}}],
+                        "conclusion": {"id": "C", "expr": {"op": "eq", "left": f, "right": {"op": "real", "value": "6.0"}}, "label": "F = 6.0 N"}},
+            "interpretation": {"reading": "F computed", "glossary": [{"symbol": "f", "meaning": "net force"}], "ambiguity_flags": []},
+            "ambiguous": False, "unsupported_reason": None}
+
+
+def _stem_group(rd: Path, keys: dict | None = None, members: dict = STEM_GROUP) -> Path:
+    """The group's answers (group g1), and with ``keys`` (task -> claim id) one translation of s1.2 per task, recorded
+    under that id."""
+    (rd / "specialists").mkdir(parents=True)
+    for task, (subject, agent) in members.items():
+        (rd / "specialists" / f"{task}.json").write_text(json.dumps({"task_id": task, "group": "g1", "subject": subject, "agent_id": agent, "task_type": "calculation",
+                                                                      "question": FORCE_QUESTION, "supplied_texts": [], "response_text": FORCE_ANSWER},
+                                                                     ensure_ascii=False), encoding="utf-8")
+    if keys:
+        (rd / "translations").mkdir()
+        for task, cid in keys.items():
+            (rd / "translations" / f"{task}.json").write_text(json.dumps({"report_id": f"rep-{task}-0", "claims": {cid: _force_fixture(task, cid)}}), encoding="utf-8")
+    return rd
+
+
+def _outcomes(rec: dict) -> list[tuple[str, str]]:
+    return [(o["claim_id"], o["display_status"]) for o in rec["outcomes"]]
+
+
+def test_a_translation_keyed_by_the_unqualified_id_reaches_the_second_stem_reports_qualified_claim(tmp_path):
+    """Integration gate, round 2 (correctness lens, major): the hub delivers the second STEM report of a group with
+    agent-qualified ids (s1.2@physics-specialist), but list_claims.py listed s1.2, and the translation recorded from it was
+    never served: verify_fn returned CLAIM_OUT_OF_SCOPE, the genuine record had no outcome, the run was QUALIFIED
+    (TRANSLATIONS_LOST: 1 of 2 served) and, the claim-text digest never captured, a mutation that changed s1.2 was served
+    the genuine claim's translation (ENTAILED) where ch-g1's was refused as stale. A translation recorded under either
+    form of one agent's STEM claim id now serves that claim, explicitly: its problem names the delivered id, it is bound to
+    the claim's text as any fixture, and the record, the fixture coverage and summary.md name it."""
+    rd = _stem_group(tmp_path / "old-listing", {"ch-g1": "s1.2", "ph-g1": "s1.2"})
+    out = ra.run_round(rd)
+    gen = {r["file"]: r for r in out["records"] if r["variant"] == "genuine"}
+    ch, ph = gen["ch-g1.json"], gen["ph-g1.json"]
+    assert ch["claim_measures"]["extracted"] == ["s1.1", "s1.2", "s1.3"] and ph["claim_measures"]["extracted"] == PH_QUALIFIED
+    assert _outcomes(ch) == [("s1.2", "ENTAILED")] and _outcomes(ph) == [("s1.2@physics-specialist", "ENTAILED")], "served to both reports alike"
+    assert ph["fixtures_served_under_other_id_form"] == {"s1.2": "s1.2@physics-specialist"} and "fixtures_served_under_other_id_form" not in ch
+    assert ph["fixtures_matching_no_delivered_claim"] == [] and ph["fixture_coverage"]["served"] == ["s1.2"] and ph["fixture_coverage"]["lost"] == {}
+    assert ph["fixture_coverage"]["served_under_other_id_form"] == {"s1.2": "s1.2@physics-specialist"}
+    assert (ph["claim_measures"]["attempted"], ph["claim_measures"]["approved"]) == (["s1.2@physics-specialist"], ["s1.2@physics-specialist"])
+    cov = out["metrics"]["fixture_coverage"]
+    assert (cov["recorded"], cov["served"], cov["lost"], cov["served_under_other_id_form"]) == (2, 2, 0, 1)
+    assert cov["by_file"]["ph-g1.json"]["served_under_other_id_form"] == {"s1.2": "s1.2@physics-specialist"}
+    assert "TRANSLATIONS_LOST" not in [q["code"] for q in out["qualifications"]]
+    assert "(ph-g1.json: s1.2 as s1.2@physics-specialist)" in next(x for x in (rd / "summary.md").read_text().split("\n") if x.startswith("- Fixture coverage"))
+    # the genuine pass bound each translation to its claim's text: a mutation that changes s1.2 (delivered on a hub task of
+    # its own, where its ids are unqualified) is refused the translation as stale, for both agents alike
+    for name in ("ch-g1.json", "ph-g1.json"):
+        slip = next(r for r in out["records"] if r["file"] == name and r["variant"] == "stem_arithmetic_slip")
+        assert slip["injected_claim_ids"] == ["s1.2"] and slip["stale_fixtures_refused"] == ["s1.2"], (name, slip["outcomes"])
+    assert out["functional"] == out["transmissions"]
+    assert out["deliveries"]["receipts_matching_genuine_records"] == out["deliveries"]["decided"] == 2, "the delivery pass serves it as the genuine pass did"
+
+
+def test_a_translation_keyed_by_the_delivered_qualified_id_reaches_the_claim_on_every_hub_task(tmp_path):
+    """Control: the translation recorded under the id the listing now prints (s1.2@physics-specialist) is served on the
+    genuine pass as recorded, under no other form; a mutation, delivered on a hub task of its own where no other agent's
+    report holds s1.2, carries the unqualified id, and the same translation reaches it there, named on its record."""
+    out = ra.run_round(_stem_group(tmp_path / "listing", {"ch-g1": "s1.2", "ph-g1": "s1.2@physics-specialist"}))
+    ph = next(r for r in out["records"] if r["file"] == "ph-g1.json" and r["variant"] == "genuine")
+    assert _outcomes(ph) == [("s1.2@physics-specialist", "ENTAILED")] and "fixtures_served_under_other_id_form" not in ph
+    assert ph["fixture_coverage"]["served"] == ["s1.2@physics-specialist"] and ph["fixture_coverage"]["served_under_other_id_form"] == {}
+    cov = out["metrics"]["fixture_coverage"]
+    assert (cov["recorded"], cov["served"], cov["lost"], cov["served_under_other_id_form"]) == (2, 2, 0, 0)
+    quoted = next(r for r in out["records"] if r["file"] == "ph-g1.json" and r["variant"] == "invented_quotation")
+    assert _outcomes(quoted) == [("s1.2", "ENTAILED")] and quoted["fixtures_served_under_other_id_form"] == {"s1.2@physics-specialist": "s1.2"}
+
+
+def test_only_the_two_forms_the_hub_gives_one_agents_stem_id_name_one_claim():
+    """A fixture serves the other form of its id only for a parser the hub asks to qualify ids (the STEM parsers), and only
+    with that agent's own tag. The generic parser qualifies every id it writes, so a generic fixture keyed 'g1.1' is an
+    older parse's and stays unserved (round 7's 200 such fixtures replay as before); another agent's id is never this
+    agent's claim; with both forms recorded, each serves its own."""
+    assert ra.qualification_tag({"subject": "Physics", "agent_id": "physics-specialist"}) == "physics-specialist"
+    assert ra.qualification_tag({"subject": "Mathematics: Analysis and Approaches", "agent_id": "mathematics-aa-specialist"}) == "mathematics-aa-specialist"
+    assert ra.qualification_tag({"subject": "Computer Science", "agent_id": "computer-science-specialist"}) == "computer-science-specialist"
+    for subject, agent in (("Geography", "geography-specialist"), ("Economics", "economics-specialist"), ("History", "history-specialist"),
+                           ("English A: Literature", "english-specialist")):
+        assert ra.qualification_tag({"subject": subject, "agent_id": agent}) is None, subject
+    long_agent = "a physics specialist with a long, spaced name"
+    assert ra.qualification_tag({"subject": "Physics", "agent_id": long_agent}) == ra.agent_claim_tag(long_agent) != long_agent, "the parser's own tag"
+    tag = "physics-specialist"
+    assert ra.other_id_form("s1.2", tag) == "s1.2@physics-specialist" and ra.other_id_form("s1.2@physics-specialist", tag) == "s1.2"
+    assert ra.other_id_form("s1.2@chemistry-specialist", tag) is None and ra.other_id_form("s1.2", None) is None
+    assert ra.fixture_ids_delivered({"s1.2": {}, "s1.3@physics-specialist": {}, "g1.1": {}}, ["s1.2@physics-specialist", "s1.3"], tag) \
+        == {"s1.2": "s1.2@physics-specialist", "s1.3@physics-specialist": "s1.3"}
+    assert ra.fixture_ids_delivered({"s1.2": {}, "s1.2@physics-specialist": {}}, ["s1.2@physics-specialist"], tag) == {"s1.2@physics-specialist": "s1.2@physics-specialist"}
+    assert ra.fixture_ids_delivered({"s1.2@chemistry-specialist": {}}, ["s1.2@physics-specialist", "s1.2"], tag) == {}
+    assert ra.fixture_key("s1.2@physics-specialist", {"s1.2"}, tag) == "s1.2" and ra.fixture_key("s1.2@physics-specialist", {"s1.2"}, None) is None
+    assert ra.fixture_ids_delivered({"g1.1": {}}, ["g1.1@geography-specialist"], ra.qualification_tag({"subject": "Geography", "agent_id": "geography-specialist"})) == {}
+
+
+def test_a_translation_served_under_the_other_form_of_its_id_changes_only_the_claim_its_problem_names():
+    """The recorded translation is served as data: a copy whose problem names the delivered id, nothing else changed, read
+    by the pipeline's own reader (a fence around the object included); a problem naming another claim, or a text that is
+    no JSON object, is served unchanged, so the pipeline decides it as it would under its recorded id."""
+    recorded = _force_fixture("ph-g1", "s1.2")
+    served = json.loads(ra.fixture_for_claim(recorded, "s1.2", "s1.2@physics-specialist"))
+    assert served["problem"]["claim_id"] == "s1.2@physics-specialist" and recorded["problem"]["claim_id"] == "s1.2", "a copy"
+    served["problem"]["claim_id"] = "s1.2"
+    assert served == recorded, "nothing else changes"
+    fenced = "```json\n" + json.dumps(recorded) + "\n```"
+    assert json.loads(ra.fixture_for_claim(fenced, "s1.2", "s1.2@physics-specialist"))["problem"]["claim_id"] == "s1.2@physics-specialist"
+    assert ra.fixture_for_claim("not a translation", "s1.2", "s1.2@physics-specialist") == "not a translation"
+    assert json.loads(ra.fixture_for_claim(_force_fixture("ph-g1", "s1.3"), "s1.2", "s1.2@physics-specialist"))["problem"]["claim_id"] == "s1.3"
+
+
+def _hub_delivered(rd: Path) -> dict[str, dict]:
+    """Every specialist file's report as run_round's genuine pass has the hub deliver it (run_arena's order, one hub task
+    per group): file name -> the delivered payload."""
+    items = ra.load_items(rd / "specialists")
+    hub = ra.RouterHub(signing_key=ra.KEY, config=ra.CFG)
+    out: dict[str, dict] = {}
+    for it in items:
+        group = ra.group_of(it)
+        if group not in hub.channels:
+            hub.open_task(ra.group_plan(items, group))
+        m, _req, _rq = hub.dispatch(group, it["agent_id"], it["question"], ra.supplied(it))
+        reply, rc = hub.receive(group, m.message_id, it["response_text"], agent_id=it["agent_id"], report_id=f"rep-{it['task_id']}-0")
+        assert reply is not None, rc.summary
+        out[it["_path"].name] = reply.payload
+    return out
+
+
+def test_the_listing_prints_the_claim_ids_the_hub_delivers_for_every_member_of_a_stem_group(tmp_path):
+    """Integration gate, round 2 (correctness lens, major): list_claims.py <file> parsed the file alone, so for the second
+    STEM report of a group it printed s1.2 where the hub delivers s1.2@physics-specialist, and a translation fixture or a
+    combinator citation written from it named an id the hub never delivered. A file is now parsed after the members of its
+    group run_arena.py delivers before it, given or not (here bi-g1, delivered first, and ch-g1), with the plan and the
+    request text the hub parses it with: every listing is the delivered report, claim for claim; a task of no group is
+    its own hub task; and --agent-view, given the files in any order, shows each in that order with the hub's ids."""
+    import subprocess
+    import epinoic_logic
+    rd = _stem_group(tmp_path / "r", members={"bi-g1": ("Biology", "biology-specialist"), **STEM_GROUP})
+    (rd / "specialists" / "ph-x1.json").write_text(json.dumps({"task_id": "ph-x1", "subject": "Physics", "agent_id": "physics-specialist", "task_type": "calculation",
+                                                               "question": FORCE_QUESTION, "supplied_texts": [], "response_text": FORCE_ANSWER},
+                                                              ensure_ascii=False), encoding="utf-8")
+    env = {"PYTHONPATH": str(Path(epinoic_logic.__file__).resolve().parents[1]), "PATH": "/usr/bin:/bin"}
+    script = Path(__file__).resolve().parent / "list_claims.py"
+
+    def listing(*args: str) -> str:
+        return subprocess.run([sys.executable, str(script), *args], capture_output=True, text=True, env=env, timeout=110, check=True).stdout
+
+    delivered = _hub_delivered(rd)
+    assert [c["claim_id"] for c in delivered["ph-g1.json"]["claims"]] == PH_QUALIFIED
+    after = {"bi-g1.json": [], "ch-g1.json": ["bi-g1.json"], "ph-g1.json": ["bi-g1.json", "ch-g1.json"], "ph-x1.json": []}
+    for name, payload in delivered.items():
+        got = json.loads(listing(str(rd / "specialists" / name), "--json"))
+        assert [(c["claim_id"], c["role"], c["materiality"], c["certainty"], c["text"], c["supporting_claim_ids"], c["assumptions"]) for c in got["claims"]] \
+            == [(c["claim_id"], c["claim_role"], c["materiality"], c["certainty"], c["claim_text"], c["supporting_claim_ids"], c["assumptions"]) for c in payload["claims"]], name
+        assert got["delivered_after"] == after[name] and got["ids_qualified"] is (name in ("ch-g1.json", "ph-g1.json")), name
+        assert got["group"] == ("ph-x1" if name == "ph-x1.json" else "g1") and all(c["claim_text_sha256"] == ra.sha256_text(c["text"]) for c in got["claims"])
+    assert [c["claim_id"] for c in delivered["ph-x1.json"]["claims"]] == ["s1.1", "s1.2", "s1.3"], "a task of no group: its ids are unqualified"
+    text = listing(str(rd / "specialists" / "ph-g1.json")).splitlines()
+    assert text[0] == "report_id=rep-ph-g1-0 request_id=req-g1 branch=sciences claims=3"
+    assert text[1].startswith("group g1: delivered after bi-g1.json, ch-g1.json (run_arena.py's delivery order); its claim ids are qualified with its agent")
+    assert text[2].startswith("s1.1@physics-specialist ")
+    view = json.loads(listing("--agent-view", *(str(rd / "specialists" / n) for n in ("ph-g1.json", "bi-g1.json", "ch-g1.json"))))
+    assert [[c["claim_id"] for c in s["claims"]] for s in view["sources"]] == [PH_QUALIFIED, ["s1.1", "s1.2", "s1.3"], [f"s1.{i}@chemistry-specialist" for i in (1, 2, 3)]]
+
+
+#: The group's answer with a line the encodings leave undecided (a symbol with no stated value): its genuine receipt
+#: carries an ST-UNDEC-001 warning on that line, which no mutation touches.
+FORCE_WITH_WORK = FORCE_ANSWER + "\nThe work done over the distance is W = F × d = 6.0 × d."
+
+
+def _shape(rec: dict) -> tuple:
+    return tuple([(f["code"], f["claim_ids"]) for f in rec[k]] for k in ("named_by", "unexplained_findings", "baseline_findings_absent"))
+
+
+def test_a_mutation_of_the_second_stem_report_is_compared_with_its_genuine_record_claim_for_claim(tmp_path):
+    """Integration gate, round 2: a mutation is delivered on a hub task of its own, so the group's second STEM report is
+    delivered there with its unqualified ids while its genuine record carries the qualified ones. The genuine ST-UNDEC-001
+    warning on the work line then read as unexplained on every mutation record of ph-g1 ('s1.4') and as absent from it
+    ('s1.4@physics-specialist'), where ch-g1's identical answer showed neither. The genuine findings are now read in the
+    mutation's id form (baseline_in_form): both reports' mutation records name, explain and miss the same findings."""
+    rd = tmp_path / "work"
+    (rd / "specialists").mkdir(parents=True)
+    for task, (subject, agent) in STEM_GROUP.items():
+        (rd / "specialists" / f"{task}.json").write_text(json.dumps({"task_id": task, "group": "g1", "subject": subject, "agent_id": agent, "task_type": "calculation",
+                                                                      "question": FORCE_QUESTION, "supplied_texts": [], "response_text": FORCE_WITH_WORK},
+                                                                     ensure_ascii=False), encoding="utf-8")
+    out = ra.run_round(rd)
+    gen = {r["file"]: r for r in out["records"] if r["variant"] == "genuine"}
+    assert [(f["code"], f["claim_ids"]) for f in gen["ph-g1.json"]["findings"] + gen["ph-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.4@physics-specialist"])]
+    assert [(f["code"], f["claim_ids"]) for f in gen["ch-g1.json"]["findings"] + gen["ch-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.4"])]
+    variants = sorted({r["variant"] for r in out["records"]} - {"genuine"})
+    assert {"stem_arithmetic_slip", "invented_quotation", "self_certification"} <= set(variants)
+    for variant in variants:
+        rows = {r["file"]: r for r in out["records"] if r["variant"] == variant}
+        assert _shape(rows["ph-g1.json"]) == _shape(rows["ch-g1.json"]), variant
+        assert not [f for f in rows["ph-g1.json"]["unexplained_findings"] + rows["ph-g1.json"]["baseline_findings_absent"] if f["code"] == "ST-UNDEC-001"], variant
+    assert out["functional"] == out["transmissions"]
+
+
+def test_genuine_findings_drop_only_this_agents_tag_and_only_for_a_mutation_delivered_unqualified():
+    f = _f("ST-UNDEC-001", ["s1.4@physics-specialist", "s2.1@physics-specialist-2"],
+           "claims s1.4@physics-specialist and s2.1@physics-specialist-2 are undecided", "warning")
+    [got] = ra.baseline_in_form([f], ["s1.4@physics-specialist"], ["s1.4"], "physics-specialist")
+    assert got["claim_ids"] == ["s1.4", "s2.1@physics-specialist-2"] and got["message"] == "claims s1.4 and s2.1@physics-specialist-2 are undecided"
+    assert f["claim_ids"][0] == "s1.4@physics-specialist", "the genuine record itself is unchanged"
+    assert ra.baseline_in_form([f], ["s1.4@physics-specialist"], ["s1.4@physics-specialist"], "physics-specialist") == [f], "both qualified"
+    assert ra.baseline_in_form([f], ["s1.4"], ["s1.4"], "physics-specialist") == [f], "the genuine reply unqualified"
+    assert ra.baseline_in_form([f], ["g1.1@economics-specialist"], ["g1.1@economics-specialist"], None) == [f], "a parser that writes one form"
+
+
+def test_the_listing_refuses_a_group_run_arena_cannot_plan(tmp_path):
+    """A group of sixteen specialists exceeds the plan's sixteen selected agents (the combinator is one of them), so
+    run_arena.py cannot deliver it; the listing, which parses a file as run_arena.py delivers it, refuses it with exit
+    status 2 and a reason instead of a traceback."""
+    import subprocess
+    import epinoic_logic
+    spec = tmp_path / "specialists"
+    spec.mkdir()
+    for i in range(16):
+        (spec / f"ph{i:02d}-g.json").write_text(json.dumps({"task_id": f"ph{i:02d}-g", "group": "g", "subject": "Physics", "agent_id": f"physics-specialist-{i:02d}",
+                                                             "task_type": "calculation", "question": FORCE_QUESTION, "supplied_texts": [],
+                                                             "response_text": FORCE_ANSWER}, ensure_ascii=False), encoding="utf-8")
+    env = {"PYTHONPATH": str(Path(epinoic_logic.__file__).resolve().parents[1]), "PATH": "/usr/bin:/bin"}
+    run = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "list_claims.py"), str(spec / "ph00-g.json"), "--json"],
+                         capture_output=True, text=True, env=env, timeout=110)
+    assert run.returncode == 2 and run.stdout == "" and "the plan of group g cannot be built as run_arena.py builds it" in run.stderr
+    assert "Traceback" not in run.stderr

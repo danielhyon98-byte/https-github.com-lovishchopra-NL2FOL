@@ -152,7 +152,8 @@ def translator(kit: Path, rows: list) -> None:
         p = subprocess.run([sys.executable, str(kit / "integration" / "tools" / tool), "--check"], env=_py(kit), capture_output=True, text=True, timeout=600)
         detail = "fresh" if p.returncode == 0 and not (p.stdout.strip() or p.stderr.strip()) else _last_line(p)
         row(rows, f"generated files fresh ({tool})", PASS if p.returncode == 0 else BLOCKER, detail[:120])
-    p = subprocess.run([sys.executable, "-c", "from epinoic_logic.integration.bootstrap import require_z3; require_z3(); print('z3 found')"],
+    p = subprocess.run([sys.executable, "-c", "from epinoic_logic.integration.bootstrap import require_z3; require_z3(); import z3; "
+                        "print('z3 found', z3.get_version_string())"],
                        env=_py(kit), capture_output=True, text=True, timeout=120)
     row(rows, "Z3 (bootstrap)", PASS if p.returncode == 0 else BLOCKER, (p.stdout + p.stderr).strip().splitlines()[-1][:120])
     env = service_env(kit)

@@ -74,6 +74,9 @@ _REPORT_FILL_FIELDS = ("agent_id", "subject", "task_type", "course_level", "agen
 _CLAIM_INHERITED_FIELDS = ("request_id", "task_id", "report_id", "agent_id", "agent_version", "subject", "course_level", "task_type")
 _MAX_JSON_BYTES = 2_000_000
 _EXCERPT_CHARS = 80
+#: The most characters of claim ids one finding's message lists: a message holds at most 2,000 characters, while a report may hold
+#: 512 claims with ids of up to 128 characters each; the finding's ``claim_ids`` carry every id it names.
+_MESSAGE_IDS_CHARS = 1200
 _WS_RE = re.compile(r"\s+")
 #: RFC 3339 date-time with ``Z`` or an explicit offset (what ``created_at`` must look like).
 RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
@@ -82,6 +85,17 @@ _AGENT_TEXTS_NOTE = "supplied_texts were provided by the agent, not by the platf
 
 def _normalized_text(text: str) -> str:
     return _WS_RE.sub(" ", text).strip().casefold()
+
+
+def _listed_ids(ids: list[str]) -> str:
+    """``ids`` joined for a finding's message: every id while they fit in :data:`_MESSAGE_IDS_CHARS` characters, otherwise the first
+    ones that fit and how many more there are (a long list would make the finding itself invalid)."""
+    used = 0
+    for i, cid in enumerate(ids):
+        used += len(cid) + (2 if i else 0)
+        if used > _MESSAGE_IDS_CHARS and i:
+            return f"{', '.join(ids[:i])} and {len(ids) - i} more"
+    return ", ".join(ids)
 
 
 def _load_document(text: str) -> dict[str, Any]:
@@ -278,7 +292,7 @@ def generic_link_findings(report: SpecialistReport, *, code: str = "GEN-STR-001"
         if unknown:
             findings.append(StructuralFinding(
                 code=code, severity="error",
-                message=f"claim {claim.claim_id} references claim id(s) not in the report: {', '.join(unknown)}",
+                message=f"claim {claim.claim_id} references claim id(s) not in the report: {_listed_ids(unknown)}",
                 claim_ids=[claim.claim_id],
             ))
     return findings
@@ -326,7 +340,7 @@ def generic_cycle_findings(report: SpecialistReport, *, code: str = "GEN-STR-002
                         ids = sorted(members)
                         findings.append(StructuralFinding(
                             code=code, severity="error",
-                            message=f"claims {', '.join(ids)} form a support cycle; none of them can be evidence for the others",
+                            message=f"claims {_listed_ids(ids)} form a support cycle; none of them can be evidence for the others",
                             claim_ids=ids,
                         ))
             else:
@@ -348,7 +362,7 @@ def generic_duplicate_findings(report: SpecialistReport, *, code: str = "GEN-DUP
         ids = [c.claim_id for c in members]
         findings.append(StructuralFinding(
             code=code, severity="info",
-            message=f"{len(ids)} claims share the same text after normalization: {', '.join(ids)}",
+            message=f"{len(ids)} claims share the same text after normalization: {_listed_ids(ids)}",
             claim_ids=ids,
         ))
     return findings

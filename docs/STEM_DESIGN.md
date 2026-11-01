@@ -3886,3 +3886,157 @@ Handed to their owners (outside `stem/`): the STEM parser's claim cut without th
 transfer) and its claim ids unqualified by the agent (combinator-faults-9), both `adapters/stem_specialist/parser.py`.
 Not read in this gate: the relative formula mass of a formula (`Mr(CaCO₃) = 68.09`, no table of atomic masses), a mole ratio
 from a balanced equation, and the roles of the counts of the Lincoln index.
+
+## 36. Integration gate 2: the STEM findings before arena round 8
+
+The independent lenses of integration gate 2 (stem-soundness, parser-safety) found readings that passed wrong working, failed
+correct working or named nothing, and one critical input stall. Each reading is fixed where it went wrong, and
+`tests/stem/test_integration_gate2_stem.py` pins every one through the hub with clean controls (correct working that holds, wrong
+working that fails). The critical stall lives outside this package (the accuracy-mark pattern of `branches/generic_parser.py`
+that `adapters/stem_specialist/parser.py` applies to every plain line) and is handed to its owner; the sweep for its class over
+this package is below.
+
+- **Inline identity chains** (rule identity-chain, `relations._identity_link`, `_identity_pair`, `_isolated_equation`): in
+  mathematics, an inline chain of two or more '=' links whose operands are all symbolic (no value, no closed expression, no lone
+  head symbol) and whose link's two sides are polynomials (or rational expressions) in the same one to three letters states each link
+  as an identity: each is an `alg` check from the trivially true premise with `identity` set, decided for every value of its letters,
+  as the line-per-link form is. Before, link 1 was never checked and each later link was decided under the premise of the link before
+  it; a false first link ('(x + 2)(x + 3) = x² + 6') holds at isolated values only (x = 0), so the next link was vacuously ENTAILED,
+  or, where it holds nowhere ('3a + 14 = 3a + 2'), INCONSISTENT_PREMISES (undecided). A link whose premise from its own chain is a
+  polynomial equation in one letter that is no identity (isolated values, or none) is decided alone in any chain.
+- **Root sets of the request's equation** (rule root-set, `relations._joined_root`): 'x = a or x = b', 'x = a, x = b', 'x = a and
+  x = b', 'So x = a or x = b' after a request to solve an equation of degree two or more: a value stated for the root letter joined
+  to the set its statement opened by 'or', 'and' or a comma is a further root (its binding's source 'root', no ST-SCOPE-001). Before,
+  only the first root was checked; the second was read as a rebinding.
+- **Restated results** (rules inline-restatement, restated-result and named-restatement, `relations._restated_results`): a value after
+  ', so' (or 'hence', 'therefore', 'thus', 'i.e.') and words naming the chain's own quantity on the chain's line ('…, so the
+  acceleration is 6.0 m s⁻²'); a value stated again for the chain's own symbol right after it, after 'So', 'Therefore', 'Hence',
+  'Thus', 'Answer:' or 'Final answer:', or on a line of its own; and a value after 'Answer:' or 'Final answer:' are restatements of
+  the chain (`res`, error). A sentence that opens with the chain's quantity and states its value right after the chain ('The
+  acceleration is 6.0 m s⁻².', 'The mean is 5.') is one at warning severity (the identity of the quantity is a reading). The words
+  must name the chain's quantity (at least one of its symbol, the reference's names for it or the words of its statement before it;
+  beside them only a qualifier such as 'average' or 'total' and a chemical formula, 'the amount of NaOH'), so the reading rests on the
+  answer alone (a parse with or without the request reads the same checks); the value must be of the chain's kind (dimension, per cent
+  or bare), and a magnitude in words of a signed result ('so the deceleration is 4.0 m s⁻²') stays unpaired (accuracy round 1,
+  ADV6-02): stem-precision-1's exclusions hold ('…, so the energy wasted is 90%', 'The tension is 4.0 N.' after a force). A value
+  stated again for a letter that is a root of an equation ('x = (5 + 1)/2 = 3', then 'x = 2') restates nothing.
+- **Request substitution with bound symbols** (rule request-substitution, `relations._request_substitutions`): a symbol the request or
+  the answer binds ('(c = 4200 J kg⁻¹ K⁻¹)', '(g = 9.8 m s⁻²)') is checked by its binding (stem-sub) and skipped, as a booklet
+  constant is, instead of abandoning the substitution of the others; a numeral substituted for such a symbol that is a request value
+  shows the working substitutes the request's givens. So '2.0 × 4200 × 100' for a heating by 10 K is named (INT-SUBJ-004).
+- **Volumes and masses in chemistry** (rule request-substitution, `_chem_volume_unit`, `_chem_volume`): a bare volume in chemistry is
+  the request's volume in dm³ (the unit of the concentrations it is used with) as much as as written or in SI, and a bare mass the
+  request's mass in g (the unit of the molar masses it is divided by), so '0.500' for 500 cm³ and '0.250' for 250 mg are no miscopy,
+  while '0.500' for 50.0 cm³, '0.250' for 25.0 cm³ and '2.50' for 250 mg are named, read in dm³ or g; 'c' is the concentration the
+  request states, never the speed of light, so 'n = cV' substitutions are read.
+- **Inequality steps that claim the solution set** (rule solution-set, `Relation.equivalence`, `checks._step`): in an answer to a request
+  to solve (or to find the set or range of values), an inequality step from an inequality, each one link, both linear in the one unknown
+  and free of absolute values, roots and functions, is decided both ways: the conclusion is (PREV ⇒ next) ∧ (next ⇒ PREV) with no
+  premise from the preceding relation, the forward direction widened by a rounded value's half-width and the converse narrowed by it,
+  so together they hold exactly when the boundary lies within the stated value's band. '2x − 4 > 6 ⇒ 2x > 10 ⇒ x > 4' fails with
+  x = 4.5; a chain that only bounds a quantity keeps the implication.
+- **Roots of a squared equation** (rule radical-roots, `relations._radical_source`, `_radical_roots`, `_rejected_root`): a root set
+  stated for an equation the working reached by squaring an equation with a square root of the unknown (followed back through the steps
+  that reached it, or stated by the request) is also checked against that first equation (stem-sol, the principal root), and the full
+  set the line claims is claimed of it; a root the answer itself rejects ('x = −1 is rejected', 'reject x = −1', '…, but x = −1 is
+  extraneous', in a clause after the set) is left out of that check.
+- **'and' after a step cue** (rule and-step, `relations._and_step`): in mathematics, an equation joined by 'and' to an equation a step cue
+  reached, both in the same one unknown, is the next step ('3x − 7 = 8, so 3x = 15 and x = 3' fails).
+- **Data conversions** (rule data-count, `checks._statement_data_units`, `_data_count_exact`): the bare side of 'quantity = arithmetic =
+  quantity' is read in each unit of data its statement writes beside the bytes reading ('8192 bytes = 8192/1024 = 8 KiB'); the data side
+  may write an ambiguous unit ('4 KB = 4 × 1000'); and in Computer Science a relation between whole numbers of units of data is exact
+  work (exact mode), so '3 MiB = 3 × 1024 = 3000 KiB' fails while '3072 KiB' holds.
+- **Magnifications written with their sign** (rule magnification-prefix, `parser._magnification_prefix`, the run reader in `spans`): a
+  side after a relation sign written '×N', '× N' or, in the sciences, 'xN' glued to its number is the value N (a `Magnification`, as
+  'N×' is); before, the run ended at the sign and the side was dropped unnamed.
+- **Plain truth tables** (rules plain-table and request-output, `boolean._grid`, `spans._plain_grid_end`, `relations._request_output`):
+  in Computer Science a grid of 0/1 (or T/F) under a header whose first cell is one capital letter is a truth table whether its cells are
+  separated by bars (with or without a border, a bar between inputs and outputs: 'A B | A NAND B'), commas, tabs or blanks; a table
+  whose columns are all single letters, under a request for the truth table of an expression, reads its last letter column as that
+  expression's output (warning severity: a reading).
+- **Rational identities and index laws** (rule rational-identity, `relations._stated_identity`, `_request_states_identity`): under a
+  simplify, expand or factorise request, or a show, prove or verify request that itself states an identity's shape, a relation of
+  rational expressions in the same letters (a division by an expression in them, decided with every divisor non-zero, the encoding's
+  guard) or with integer powers up to 12 is an identity; a side holding a function stays ST-UNDEC-001 and a Boolean chain
+  ST-PARSE-001, so nothing is silent.
+- **Lengths** (rule length-root, `relations._length_value`): in mathematics, a principal square root is no ST-ALG-001 where the root
+  is a lone letter and the words name a length (hypotenuse, radius, diameter, distance, height, width, perimeter, a triangle, a
+  circle, a rectangle, the sine or cosine rule, Pythagoras), or where the value carries a unit of length; an unknown's principal root
+  is still named, and so is the root of a function ('cos²θ = 0.25, so cos θ = 0.5' in a triangle).
+
+Tests rewritten to a stricter rule (none weakened, none deleted): `tests/stem/test_relations.py::test_result_restatement_needs_a_cue`
+(a sentence that names the chain's quantity with no cue is now checked, at warning severity only, and the cued restatement is asserted
+an error-severity check) and `tests/stem/test_stem_repair2.py::test_a_symbol_the_chain_solves_for_or_computes_is_no_restated_binding`
+(the chain's own symbol stated again after 'so' is now a `res` check of rule restated-result at error severity that must hold, still
+never rule restated-binding; a wrong restatement of it fails).
+
+### 36.1 The sweep for the class of the critical input stall
+
+Every module-level pattern of this package was timed on the standard hostile runs (search and match, n and 2n), and every flagged
+pattern then at its call site, with the window the call site applies (`.match` at one position, a slice, a linear-time wrapper).
+Fixed at the cause, behaviour unchanged on ordinary input (`test_the_fixed_instances_hold_their_old_readings`):
+
+- `relations._MASKED_RUN` in `_INLINE_RESTATE_RE`, `_INLINE_CONNECTIVE_RE` and `_INLINE_NAMED_RE`: under IGNORECASE 'X+x*' was two
+  adjacent quantifiers over the same letters, retried from every letter of every masked run: about 9 ms per 150-character window on
+  '4 minutes 30 seconds' repeated (9.3 s for `build_document` at 20,000 characters, 0.45 ms per character), 234 ms per window on 'xX'
+  runs. Now a run read from its first letter, possessively: 0.03 s at 20,000 characters.
+- `hub_hooks._numeral_lines` (word_count_view): '^[ \t]*' and two lookaheads to the line's end rescanned a blank or tab run from each
+  blank, quadratic (0.13 / 0.49 / 1.94 s at 5,000 / 10,000 / 20,000 blanks); now one pass per line.
+- `datatables._SEPARATOR_RE`: 4.2 s on a blank line of 20,000 characters; now possessive runs.
+- `_ROUND_AFTER_RE`, `_ROUNDED_TAIL_RE`, `_CLAUSE_END_RE` (up to 0.94 s on their 120-character window), `_DESCRIBED_TAIL_RE` (applied
+  to the rest of the statement: over 10 s on blanks), `_STATED_FALSE_RE` (from a chain's end to the end of the text: over 10 s; now
+  possessive and read in a 160-character window, as `_QUESTION_RE` now is), `_TIME_IS_RE` (over 10 s, and the text between each prose
+  value and the phrase sliced per value: now possessive and at most 64 characters apart), `_ROW_LEAD_ADVERBS_RE` (over 10 s; now from
+  the first blank of a run, possessively), `_BINARY_WORD_RE` (168 ms on a 4,000-digit run; now from the first digit), `_LEAD_SCOPE_RE`
+  (8 ms on its 160-character window) and `_DESCRIPTION_STOP_RE` (from the first blank of a run).
+
+The patterns the scan still flags when applied to a whole hostile input are applied only within an explicit window or at one position
+(`checks._REMAINDER_GAP_RE`, `document._CLAUSE_TAIL_RE` and `_LABEL_HEAD_RE`, `layout`'s annotation patterns behind their linear
+readers, `parser._EVENT_RE` and `_RV_EVENT_RE` at most 40 characters, `relations._BASE_BETWEEN_RE` at most 48, `_GLUED_TARGET_RE` 40,
+`_NAMED_GIVEN_RE` 80, `_TRAILING_WORD_RE` 40, `_TRAILING_CONDITION_RE` 60, `_ROUNDING_WORDS_AFTER_RE` 48, `_PROSE_RESTATE_RE` and
+`_PROSE_TO_UNIT_RE` 40, `_VARIABLE_UNIT_RE` 60, `_SUBSCRIPT_TAIL_RE` on a symbol's name, `_ASK_SENTENCE_RE`, `_PROSE_RANGE_RE` and
+`_DIGIT_COMMA_RUN_RE` behind their linear readers of security round 1, `spans._PART_RE` once at a line's start): each call site was
+timed at its window on every hostile shape, at most a few milliseconds. `tests/stem/test_integration_gate2_sweep.py` holds one test per
+module that feeds each public entry point the standard hostile inputs of about 20,000 characters (blanks, tabs, line breaks, stops,
+closing marks, mark labels, parentheses, brackets, fence openers, number words joined by 'and', '=' links, list markers, a compound
+quantity repeated, masked-maths letters, each followed by a character that defeats the match) and bounds each call's CPU time (1 s a
+direct entry point, 8 s a whole document, against measured tens of milliseconds and well under a second); on the code before the sweep
+it fails for `datatables` (3.8 s), the numeral lines (1.9 s) and every document of compound quantities (9.3 s).
+
+Linear but slow, for the optimisation checks that run last (no receipt, finding or status changes; measured on the front end with its
+checks): `hub_hooks.echo_exempt` on '=' chains (0.33 / 0.57 / 0.93 s at 5,000 / 10,000 / 20,000 characters) and the front end on
+storms of data units, per cents, 'per' and '=' chains (0.6 to 1.3 s at 20,000 characters, linear: about 25 s at the 400,000-character
+response bound).
+
+### 36.2 The handoff fixer's input stalls (integration gate 2)
+
+Input that stalls the service is a security finding, fixed at its cause and never deferred as optimisation work. The parsers fixer
+handed over one instance of the class in this package; the class sweep of the modules it touches found three more. Each is held to the
+reading it replaces (kept in `tests/stem/test_integration_gate2_handoff.py` as the specification) on random input, and timed on the
+worst-case input with a wide margin and a growth ratio. The recorded round 7 gives the same 177 records, receipts and findings.
+
+- `layout.annotation_ranges` matched every sentence of a line whole with `ANNOTATION_ONLY_RE`, whose blank run after the last mark and
+  blank run after the optional stop are adjacent: a line of a mark, blanks and text ('(A1)' + k blanks + 'x') tried every split of the
+  run, k² steps (1.46 s for one 20,000-character line; 29 s for 20 such lines in the front end; 30 s to receive and 14 s to audit five
+  of them on a Physics hub). The line is read with the same pattern with possessive runs (`layout.ANNOTATION_ONLY_LINEAR_RE`, which the
+  generic parser holds too: `tests/stem/test_layout.py`); the written pattern, shared with the generic parser, is unchanged.
+- `layout._mask_quoted` (the quotation mask of `is_working`) read up to 2,000 characters from every opening mark with no closing mark
+  (`_QUOTED_RE`): 1.25 s for `joins_previous` on one 20,000-character line of '„', 9 s for five soft-wrapped such lines. A body reads no
+  closing mark of its kind and no line break, so it ends at the first of them: the spans are found in one pass (`layout.quoted_spans`).
+- `segment._joins` joined the logical line read so far and asked every join rule of all of it for each physical line it absorbed, n²
+  steps on soft-wrapped lines ('ab cd' on each of 8,000 lines: 39 s; 22 s to receive 4,000 of them on a Physics hub). The logical line
+  is kept as lines are added (`layout.JoinedLine`): the connective and the closing colon read the text's end, the closing punctuation
+  the last line (or the line before it when the last holds nothing but colons, semicolons and blanks), the table row the first line
+  only (a second line is never blank), and the working test (`layout.WorkingReader`) each line once, with the matches that hold a line
+  break read on the last characters before it, blank runs as one blank. The quotation mask reads no span across a line break, so the
+  answers are the whole text's.
+- `relations._Planner._chain` read a chain continued line after line ('x = 1' then '= 1' on each line) whole again for every line, n²
+  steps up to the statement limit (6.7 s at 800 lines in the front end; 25 s to receive and audit on a Physics hub). The link limit of
+  one chain (`max_chain_links`, 12) holds for a continued chain too, as it holds for a chain on one line: the line that would take the
+  chain past it is named once (ST-LIM-001, "a chain continued over its lines of more than 12 links") and it and the continuing lines
+  after it are undecided spans (ST-LIM-001), never read in part and never dropped silently. A derivation of at most 12 links is read as
+  before.
+
+Linear but slow, for the optimisation checks that run last (no receipt, finding or status changes): a Physics answer of 400,000
+characters of a mark, blanks and text on 20 lines takes about 5 s to receive and 2.6 s to audit after the fix (the base cost of a
+response at the size limit).

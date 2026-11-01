@@ -222,7 +222,12 @@ _ALPHA_RE = re.compile(r"[^\W\d_]")
 #: A sentence ends at ``.``, ``!`` or ``?`` (closing marks may follow), or at the ``}`` / ``]`` that closes a
 #: pasted JSON fragment, when the next word starts with a capital or a digit ("... dissent. 258 words.") or opens a JSON
 #: object (``{"``). An abbreviation before a figure ("l. 4", "p. 12", "c. 1900", "No. 5") is still not a boundary.
-_BOUNDARY_RE = re.compile(r"(?:[.!?]+[\"”’')\]»]*|[}\]])(?=\s+(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\"))")
+#: A run of stops is read whole and only from its first stop (``(?<![.!?])``, possessive runs), as the shared splitter reads
+#: it (``history_specialist.sentences``): a shorter run or fewer closing marks is followed by a stop or a mark, never by the
+#: whitespace the lookahead needs, and a match starting inside a run ends where the run's own match ends, so these are the
+#: matches of ``(?:[.!?]+[closers]*|[}\]])(?=\s+...)``. Without the anchor a run of n stops that no whitespace and capital
+#: follow ('x = 9!!!...!') was read again from each of its stops, n² steps (integration gate 2: 6.9 s at 20,000 characters).
+_BOUNDARY_RE = re.compile(r"(?:(?<![.!?])[.!?]++[\"”’')\]»]*+|[}\]])(?=\s++(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\"))")
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
@@ -421,19 +426,55 @@ _LINE_BULLET_RE = re.compile(r"^[ \t]*[-*•][ \t]+")
 #: A list number written inline ("Fix it: 1. Choose ...", "... explanation. 2. Add ..."): the number opens an item, it does
 #: not close a sentence.
 _INLINE_LIST_NUMBER_RE = re.compile(r"(?:^|[:;—–]\s*)\(?\d{1,2}\)?$")
+#: The mark-led form of :data:`_INLINE_LIST_NUMBER_RE`, read from a window that ends at the boundary (:func:`_inline_list_number`).
+_INLINE_LIST_TAIL_RE = re.compile(r"[:;—–]\s*+\(?\d{1,2}\)?$")
+_NON_BLANK_RE = re.compile(r"\S")
+
+
+def _inline_list_number(masked: str, prev: int, end: int, lead: int) -> bool:
+    """``_INLINE_LIST_NUMBER_RE.search(masked[prev:end].strip())``, read from the end of the segment without copying it
+    (integration gate 2): ``lead`` is the first non-blank of ``masked`` at or after ``prev``. A segment that does not cut (the
+    number opens an item) is read again with the next boundary, so a paragraph of n inline numbers ('Fix it: 1. A; 1. A; ...')
+    searched its whole growing segment once per number, n² steps (80 s at 160,000 characters). Only the number at the end
+    (at most four characters, ``(12)``), the blanks before it and the mark before them can match, and a segment that is
+    nothing but the number (the ``^`` form) has at most four characters, so the answer is the same."""
+    e = end
+    while e > lead and masked[e - 1].isspace():
+        e -= 1
+    if e - lead <= 4:
+        return _INLINE_LIST_NUMBER_RE.search(masked[lead:e]) is not None
+    j = e
+    while j > lead and e - j < 4 and (masked[j - 1] in "()" or masked[j - 1].isdecimal()):
+        j -= 1
+    while j > lead and masked[j - 1].isspace():
+        j -= 1
+    return _INLINE_LIST_TAIL_RE.search(masked, max(lead, j - 1), e) is not None
+
+
+#: The double marks whose balance before a line break says whether the break lies inside a quotation (:func:`_label_chunks`).
+_LABEL_CHUNK_MARKS = ('"', "\u201c", "\u201d", "\u00ab", "\u00bb")
 
 
 def _label_chunks(paragraph: str) -> list[str]:
     """``paragraph`` cut at each line break before a label-led line or a bullet that lies outside any quotation (the
-    double marks before it are balanced), bullet markers removed."""
+    double marks before it are balanced), bullet markers removed. The marks of the open chunk are counted as the breaks are
+    read (integration gate 2): a break inside a quotation does not cut, and the chunk it would have closed was counted again
+    from its start at every later break, n² steps for a paragraph that opens an unclosed quotation and has n labelled lines.
+    The counts are those of the chunk, so the cuts are the same."""
     chunks: list[str] = []
     start = 0
+    counted = 0  # the open chunk's marks are counted up to here
+    counts = dict.fromkeys(_LABEL_CHUNK_MARKS, 0)
     for m in _LINE_LABEL_BREAK_RE.finditer(paragraph):
-        head = paragraph[start:m.start()]
-        if head.count('"') % 2 or head.count("\u201c") != head.count("\u201d") or head.count("\u00ab") != head.count("\u00bb"):
+        piece = paragraph[counted:m.start()]
+        for mark in _LABEL_CHUNK_MARKS:
+            counts[mark] += piece.count(mark)
+        counted = m.start()
+        if counts['"'] % 2 or counts["\u201c"] != counts["\u201d"] or counts["\u00ab"] != counts["\u00bb"]:
             continue  # the break lies inside a quotation (a verse line quoted across lines)
-        chunks.append(head)
-        start = m.end()
+        chunks.append(paragraph[start:m.start()])
+        start = counted = m.end()
+        counts = dict.fromkeys(_LABEL_CHUNK_MARKS, 0)
     chunks.append(paragraph[start:])
     return [_LINE_BULLET_RE.sub("", c, count=1) for c in chunks if c.strip()]
 
@@ -461,6 +502,7 @@ def split_sentences(paragraph: str) -> list[str]:
     json_cuts = sorted({c for a, b in json_spans for c in (a, b)})
     cuts: set[int] = set(json_cuts)
     last_cut = 0  # the latest boundary cut so far; boundaries are visited in order, so it is the nearest one
+    lead_of, lead = -1, 0  # the segment start ``prev`` whose first non-blank ``lead`` was read last (``prev`` never decreases)
     for m in _BOUNDARY_RE.finditer(masked):
         if spans and bisect_left(starts, m.start()) > 0 and furthest_end[bisect_left(starts, m.start()) - 1] > m.end():
             continue  # inside an open quotation
@@ -468,10 +510,17 @@ def split_sentences(paragraph: str) -> list[str]:
             continue  # inside a pasted JSON span
         k = bisect_right(json_cuts, m.start())
         prev = max(last_cut, json_cuts[k - 1] if k else 0)
-        if _is_abbreviation(masked[prev:m.start()], m.group(0), masked[m.end():m.end() + 8]):
+        # the abbreviation test reads the last _ABBREVIATION_WINDOW characters and whether the segment is longer: one more
+        # character than the window answers that, so the segment is never copied whole (a run of abbreviations that never cut,
+        # 'p. 1 p. 1 ...', copied its growing segment once per boundary)
+        if _is_abbreviation(masked[max(prev, m.start() - _ABBREVIATION_WINDOW - 1):m.start()], m.group(0), masked[m.end():m.end() + 8]):
             continue
-        if m.group(0).startswith(".") and _INLINE_LIST_NUMBER_RE.search(masked[prev:m.start()].strip()):
-            continue  # "Fix it: 1. Choose ...": the list number opens the item
+        if m.group(0).startswith("."):
+            if prev != lead_of:
+                found = _NON_BLANK_RE.search(masked, prev, m.start())
+                lead_of, lead = prev, (found.start() if found else m.start())
+            if _inline_list_number(masked, prev, m.start(), max(lead, prev)):
+                continue  # "Fix it: 1. Choose ...": the list number opens the item
         cuts.add(m.end())
         last_cut = m.end()
     pieces: list[str] = []

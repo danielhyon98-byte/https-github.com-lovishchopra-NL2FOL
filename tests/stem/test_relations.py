@@ -124,11 +124,19 @@ def test_identity_inside_one_chain():
 # ---------------------------------------------------------------- results, givens, targets
 
 def test_result_restatement_needs_a_cue():
+    # integration gate 2 (rule named-restatement), rewritten to the stricter rule: a sentence with no cue that names the chain's quantity
+    # right after it ('The speed is 10.4 m s⁻¹.') is now checked too, but only as a reading, so it can never be an error; the cue still
+    # makes the pairing the answer's own (an error-severity check)
+    from epinoic_logic.stem.checks import build_checks
     plain = doc("v = 100/9.58 = 10.4 m s⁻¹\nThe speed is 10.4 m s⁻¹.")
-    assert not [c for c in plain.checks if c.kind == "res"]
+    uncued = [c for c in plain.checks if c.kind == "res"]
+    assert len(uncued) == 1 and "(rule named-restatement)" in uncued[0].reason
+    assert [pc.failure_severity for pc in build_checks(plain).checks if pc.check_id.startswith("stem-res")] == ["warning"]
     cued = doc("v = 100/9.58 = 10.4 m s⁻¹\nSo the speed is 10.4 m s⁻¹.")
     res = cued.check("stem-res-1")
     assert res.statement_ids == ("s1.1", "s1.2") and side(res.left) == "10.4 [m s⁻¹]"
+    assert "(rule named-restatement)" not in res.reason
+    assert [pc.failure_severity for pc in build_checks(cued).checks if pc.check_id.startswith("stem-res")] == ["error"]
 
 
 def test_givens_against_the_request():

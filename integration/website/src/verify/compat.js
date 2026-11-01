@@ -66,8 +66,8 @@ export const COMPATIBILITY = deepFreeze({
       "0.4.0"
     ],
     "z3_solver": {
-      "below": "6",
-      "min": "4.13"
+      "below": "5.2",
+      "min": "5.1.0"
     }
   },
   "header": "integration.v1",
@@ -191,4 +191,4 @@ export const COMPATIBILITY = deepFreeze({
   }
 });
 
-export const COMPATIBILITY_SHA256 = "f6f1345cd09d3f288f7be4f08e107cdd296d440e10d157c4a77a90ddea87e297";
+export const COMPATIBILITY_SHA256 = "0749d8e9e45dfaf98d79b5469aed3c423bdc39c29fe7a128d895c9707962a8bf";

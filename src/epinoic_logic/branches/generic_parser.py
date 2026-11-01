@@ -88,10 +88,13 @@ report's claim limit are merged into one ``other`` claim with an unresolved issu
 ``original_response`` is always verbatim."""
 from __future__ import annotations
 
+import bisect
+import heapq
 import itertools
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections.abc import Sequence
 from typing import Optional
 
 from ..adapters.base import AdapterError
@@ -105,7 +108,7 @@ from ..adapters.markdown import (
 )
 from ..adapters.sources import attribute_excerpt
 from ..ir.schema import SourceRef
-from ..stem.layout import strip_trailing_annotations
+from ..stem.layout import ANNOTATION_RUN_CONTINUATION_RE, JoinedLine, strip_trailing_annotations, trailing_annotation_span
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 #: A sentence ends at ``.``, ``?`` or ``!`` (a closing quotation mark may follow: '."', '.”', '.»', ".’") or at the ``}`` /
@@ -136,6 +139,11 @@ _LABEL_ONLY_REST_RE = re.compile(rf"\s*+(?:[—–:-]\s*+)?(?:[A-Za-z][A-Za-z ]{
 _MARK_CODE = r"(?:[MARN]\d{1,2}|AG)"
 _TRAILING_ANNOTATION_RE = re.compile(rf"(?:\s*{_MARK_ALLOC}|(?:\s{{2,}}|\t)\(?{_MARK_CODE}\)?|\s*\({_MARK_CODE}\))+(?=[.;,]?\s*$)")
 _ANNOTATION_ONLY_RE = re.compile(rf"\s*(?:(?:{_MARK_ALLOC}|\(?{_MARK_CODE}\)?)\s*)+[.;,]?\s*")
+#: :data:`_ANNOTATION_ONLY_RE` (the pattern the STEM layout shares) with possessive blank runs, which this parser reads whole lines with
+#: (integration gate 2): the blanks after the last mark and the blanks after the optional stop were adjacent runs, split in every way
+#: before a line with text after its marks failed, k² steps ('(A1)' + blanks + 'x': 0.2 s at 8,000 blanks). Every run is followed by a
+#: mark, a stop or the line's end, so the lines matched are the same.
+_ANNOTATION_ONLY_LINEAR_RE = re.compile(rf"\s*+(?:(?:{_MARK_ALLOC}|\(?{_MARK_CODE}\)?)\s*+)+[.;,]?\s*+")
 _BULLET_RE = re.compile(r"^\s*[-*•–—]\s+")
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*+\|?\s*+:?-{2,}+:?\s*+(?:\|\s*+:?-{2,}+:?\s*+)*+\|?\s*+$")  # linear (stem.layout)
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
@@ -164,6 +172,26 @@ _CONSEQUENCE_RE = re.compile(
     r"|^\W*(?:[\w’'-]+\s+){1,4}(?:therefore|thus|hence|consequently)\b",
     re.IGNORECASE,
 )
+#: :data:`_CONSEQUENCE_RE` with the run of non-word characters before the words read possessively (integration gate 2): the run overlaps
+#: the word class (a hyphen or an apostrophe is both), so a line of hyphens ('-' * k) was split between the run and the first word in
+#: every way, n² steps (0.9 s at 10,000 characters). The possessive run gives every match of the pattern but one kind: a word of hyphens
+#: or apostrophes alone that the pattern counts as the one word before the keyword ("’  Thus much"), which the run now takes; that kind is
+#: read apart (:data:`_CONSEQUENCE_MARK_WORD_RE`), so :func:`_is_consequence` is the pattern's truth.
+_CONSEQUENCE_LINEAR_RE = re.compile(
+    r"^\W*+(?:therefore|thus|hence|so|consequently|accordingly|as\s+a\s+result|this\s+means|it\s+follows)\b(?!\s+(?:far|much|many|long|too)\b)"
+    r"|^\W*+(?:[\w’'-]+\s+){1,4}(?:therefore|thus|hence|consequently)\b",
+    re.IGNORECASE,
+)
+_CONSEQUENCE_LEAD_RE = re.compile(r"^(\W*+)(?:therefore|thus|hence|consequently)\b", re.IGNORECASE)
+_CONSEQUENCE_MARK_WORD_RE = re.compile(r"[’'-]\s+\Z")
+
+
+def _is_consequence(text: str) -> bool:
+    """``bool(_CONSEQUENCE_RE.match(text))`` in linear time (:data:`_CONSEQUENCE_LINEAR_RE`)."""
+    if _CONSEQUENCE_LINEAR_RE.match(text):
+        return True
+    lead = _CONSEQUENCE_LEAD_RE.match(text)
+    return lead is not None and _CONSEQUENCE_MARK_WORD_RE.search(lead.group(1)) is not None
 _CAVEAT_RE = re.compile(
     r"^\W*(?:however|but|yet|although|though|nevertheless|nonetheless|admittedly|that\s+said|even\s+so|on\s+the\s+other\s+hand"
     r"|in\s+contrast|by\s+contrast|the\s+limit(?:ation)?s?\s+of)\b",
@@ -207,37 +235,200 @@ def _strip_annotations(text: str) -> str:
 #: linear time; unanchored, the search read the rest of a long run of blanks from each of them, n² steps (integration gate 1:
 #: 3.2 s of a 4.0 s Physics crossing of 20,000 blanks, through the STEM parser's units).
 _ACCURACY_MARK_RE = re.compile(r"(?<!\s)(?:(?:\s{2,}|\t)\(?A\d{1,2}\)?|\s*\(A\d{1,2}\))(?:\s*(?:\(?[MARN]\d{1,2}\)?|AG))*[.;,]?\s*$")
+#: :data:`_ACCURACY_MARK_RE` read from the end of the line (the line reversed, the pattern reversed, matched once at the start): the
+#: pattern ends at the end of the line, so it matches somewhere exactly when its reversal matches the reversed line from its start
+#: (``(?<!\s)`` before the mark is ``(?!\s)`` after it). Searched forwards, every mark of a long run of marks ('(A1) (A1) ...')
+#: started a match that read the rest of the run before failing at the line's last character, n² steps (integration gate 2: 0.6 s at
+#: 10,000 characters through the generic and STEM parsers, hours at the size limit); reversed, the run is read once.
+_ACCURACY_MARK_REVERSED_RE = re.compile(r"\s*[.;,]?(?:(?:\)?\d{1,2}[MARN]\(?|GA)\s*+)*(?:\)?\d{1,2}A\(?(?:\s{2,}|\t)|\)\d{1,2}A\(\s*)(?!\s)")
 
 
-def _logical_lines(paragraph: str) -> list[tuple[str, bool, bool]]:
+def _accuracy_marked(line: str) -> bool:
+    """``bool(_ACCURACY_MARK_RE.search(line))`` in linear time (:data:`_ACCURACY_MARK_REVERSED_RE`)."""
+    return "A" in line and _ACCURACY_MARK_REVERSED_RE.match(line[::-1]) is not None
+
+
+#: A character that no mark annotation and no run of them holds (``stem.layout._ANNOTATION_RUN_RE``: blanks, brackets, digits, the
+#: letters of "mark(s)", "spare" and of the markscheme codes): a trailing run of annotations starts after the last such character.
+_ANNOTATION_BARRIER_RE = re.compile(r"[^\s\d\[\]()aekmprsAGMNR]")
+#: What ends an annotation: a closing bracket, or a markscheme code ("M1", "AG").
+_ANNOTATION_CLOSER_RE = re.compile(r"[\])]|[MARN]\d|AG")
+#: Characters a working test can turn on (:data:`_RELATION_RE`'s signs; masking a quotation can only hide a match, or turn one on
+#: at a sign by hiding the sign before it).
+_RELATION_SIGN_RE = re.compile(r"[=≈≠≤≥⇒→<>]")
+#: How many characters the join rules may read a whole logical line for, per character of the answer, and beyond that
+#: (integration gate 2): see :class:`_LogicalLine`.
+_JOIN_READ_PER_CHAR = 8
+_JOIN_READ_FLOOR = 20_000
+
+
+def _unmasked(line: str) -> str:
+    return line
+
+
+class _JoinBudget:
+    """The characters the join rules of one answer (or of one paragraph read on its own) may still read a whole logical line for:
+    :data:`_JOIN_READ_PER_CHAR` per character of the text, and :data:`_JOIN_READ_FLOOR` more."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, chars: int) -> None:
+        self.left = _JOIN_READ_PER_CHAR * chars + _JOIN_READ_FLOOR
+
+    def pay(self, chars: int) -> bool:
+        if chars > self.left:
+            return False
+        self.left -= chars
+        return True
+
+
+class _LogicalLine:
+    """A logical line of :func:`_logical_lines`: its physical lines (each with its trailing blanks removed; none blank), and what
+    the join rules ask of the joined text, kept as lines are added (integration gate 2). The rules asked their patterns of the
+    whole joined text for every line it absorbed and copied it to add each line, n² steps on an answer of joined lines ('ab cd'
+    on each of 8,000 lines: 35 s; the same 48 KB as one paragraph through an Economics hub, 30 s). Each answer is the
+    pattern's on the joined text (tests/branches/test_integration_gate2_handoff.py holds them equal on random paragraphs):
+
+    * the closing punctuation, the closing colon and the table row are read by :class:`~epinoic_logic.stem.layout.JoinedLine`;
+    * the connective ending what is left once the trailing mark annotations are removed: when the last line holds a character no
+      annotation holds (a closing stop aside), the trailing run of annotations lies in that line, so the line and the characters
+      before it are read; otherwise the whole text is read;
+    * the working test with quotations masked (``mask_quotations``, which pairs the marks of the whole text): it can turn on
+      only at a relation sign or at arithmetic of the text unmasked (:class:`~epinoic_logic.stem.layout.WorkingReader`), so a text
+      with neither is not working; otherwise the whole text is read.
+
+    A reading of the whole text is paid from the answer's :class:`_JoinBudget`; when it cannot be paid, the line is not joined and
+    the refusal is counted (the parser names it in the report's unresolved issues). No answer of the recorded rounds comes near
+    the budget; an answer that spends it is one built to make every join read all that came before."""
+
+    __slots__ = ("lines", "header", "accuracy", "_tail", "_before_last", "_signs", "_end", "_run_answer")
+
+    _END_KEEP = 24
+
+    def __init__(self, first: str, accuracy: bool) -> None:
+        self.lines = [first]
+        self.header = False
+        self.accuracy = accuracy
+        self._tail = JoinedLine(first, mask=_unmasked)  # its working test reads the text unmasked
+        self._signs = bool(_RELATION_SIGN_RE.search(first))
+        self._before_last = ""  # the last characters of the text before the last line
+        self._end = first[-self._END_KEEP:]
+        self._run_answer: Optional[bool] = None
+
+    @property
+    def text(self) -> str:
+        return "\n".join(self.lines)
+
+    def add(self, line: str, accuracy: bool) -> None:
+        self._before_last = self._end
+        self.lines.append(line)
+        self.accuracy = self.accuracy or accuracy
+        self._tail.add(line)
+        self._signs = self._signs or bool(_RELATION_SIGN_RE.search(line))
+        self._end = (self._end + "\n" + line)[-self._END_KEEP:]
+        if self._run_answer is not None and not ANNOTATION_RUN_CONTINUATION_RE.fullmatch("\n" + line):
+            self._run_answer = None  # the run of annotations no longer ends the text
+
+    def table_row(self) -> bool:
+        """``_TABLE_ROW_RE.match(text)``."""
+        return self._tail.table_row()
+
+    def terminal(self) -> bool:
+        """``_TERMINAL_PUNCT_RE.search(text.rstrip(":;"))``."""
+        return self._tail.terminal()
+
+    def colon_end(self) -> bool:
+        """``text.rstrip().endswith((":", ";"))``."""
+        return self._tail.colon_end()
+
+    def connective_end(self, budget: _JoinBudget) -> Optional[bool]:
+        """``_CONNECTIVE_END_RE.search(_strip_annotations(text))``; None when the reading it needs cannot be paid."""
+        if self._run_answer is not None:
+            return self._run_answer  # the text still ends with the trailing run of annotations its answer was read for
+        last = self.lines[-1]
+        if len(self.lines) == 1:
+            answer = bool(_CONNECTIVE_END_RE.search(_strip_annotations(last)))
+            self._keep_run(trailing_annotation_span(last), len(last), answer)
+            return answer
+        body = last[:-1] if last.endswith((".", ";", ",")) else last
+        if _ANNOTATION_BARRIER_RE.search(body):
+            # the trailing run, if any, lies after the last character no annotation holds: in the last line
+            span = trailing_annotation_span(last)
+            if span is None:
+                return bool(_CONNECTIVE_END_RE.search(self._end))
+            a, b = span
+            rest = last[b:]
+            answer = rest == "," if rest else bool(_CONNECTIVE_END_RE.search((self._before_last + "\n" + last[:a])[-self._END_KEEP:]))
+            self._keep_run(span, len(last), answer)
+            return answer
+        if not _ANNOTATION_CLOSER_RE.search(body):
+            # no annotation ends in the last line, so no run of them ends the text
+            return bool(_CONNECTIVE_END_RE.search(self._end))
+        text = self.text
+        if not budget.pay(len(text)):
+            return None
+        answer = bool(_CONNECTIVE_END_RE.search(_strip_annotations(text)))
+        self._keep_run(trailing_annotation_span(text), len(text), answer)
+        return answer
+
+    def _keep_run(self, span: Optional[tuple[int, int]], length: int, answer: bool) -> None:
+        """Keep ``answer`` while the text ends with the trailing run ``span`` (of a text ``length`` long) and what is added goes on
+        with it: the run's start, so the answer, stays the same."""
+        self._run_answer = answer if span is not None and span[1] == length else None
+
+    def working(self, budget: _JoinBudget) -> Optional[bool]:
+        """``_is_working(mask_quotations(text))``; None when the reading it needs cannot be paid."""
+        if len(self.lines) == 1:
+            return _is_working(mask_quotations(self.lines[0]))
+        if not self._signs and not self._tail.working():
+            return False
+        text = self.text
+        if not budget.pay(len(text)):
+            return None
+        return _is_working(mask_quotations(text))
+
+
+def _logical_lines(paragraph: str, state: Optional[_State] = None) -> list[tuple[str, bool, bool]]:
     """``(line, is_table_header, accuracy_marked)`` for each logical line of ``paragraph``: continuation lines joined to the
-    line before them (each physical line's mark annotations removed first), table separator rows dropped."""
+    line before them (each physical line's mark annotations removed first), table separator rows dropped. The logical line
+    being read is a :class:`_LogicalLine`, so each rule reads what it needs of it once (integration gate 2); a join whose
+    reading the answer's budget (``state.join_budget``; the paragraph's own when no state is given) cannot pay is refused and
+    counted on ``state``."""
     raw = paragraph.split("\n")
-    out: list[list] = []
+    out: list[_LogicalLine] = []
+    budget = state.join_budget if state is not None and state.join_budget is not None else _JoinBudget(len(paragraph))
+    refused = 0
     for line in raw:
         if not line.strip():
             continue
-        accuracy = bool(_ACCURACY_MARK_RE.search(line))
-        line = _strip_annotations(line) if not _ANNOTATION_ONLY_RE.fullmatch(line) else line
+        accuracy = _accuracy_marked(line)
+        line = _strip_annotations(line) if not _ANNOTATION_ONLY_LINEAR_RE.fullmatch(line) else line
         if _TABLE_SEPARATOR_RE.match(line) and "-" in line:
-            if out and _TABLE_ROW_RE.match(out[-1][0]):
-                out[-1][1] = True  # the row above a separator is the table's header
+            if out and out[-1].table_row():
+                out[-1].header = True  # the row above a separator is the table's header
             continue
         if out and not _PART_LEAD_RE.match(line) and not _BULLET_RE.match(line) and not _TABLE_ROW_RE.match(line):
-            prev = out[-1][0]
-            prev_masked, line_masked = mask_quotations(prev), mask_quotations(line)
-            joins = bool(_CONTINUATION_RE.match(line))
-            if not joins and _CONNECTIVE_END_RE.search(_strip_annotations(prev)) and not _TABLE_ROW_RE.match(prev):
-                joins = True
-            if (not joins and _SOFT_WRAP_NEXT_RE.match(line) and not _TERMINAL_PUNCT_RE.search(prev.rstrip(":;"))
-                    and not prev.rstrip().endswith((":", ";")) and not _is_working(prev_masked) and not _is_working(line_masked)):
-                joins = True
-            if joins:
-                out[-1][0] = prev.rstrip() + "\n" + line.rstrip()
-                out[-1][2] = out[-1][2] or accuracy
+            prev = out[-1]
+            joins: Optional[bool] = bool(_CONTINUATION_RE.match(line))
+            if not joins:
+                connective = prev.connective_end(budget)
+                if connective is None:
+                    joins = None
+                elif connective and not prev.table_row():
+                    joins = True
+            if (joins is False and _SOFT_WRAP_NEXT_RE.match(line) and not prev.terminal() and not prev.colon_end()
+                    and not _is_working(mask_quotations(line))):
+                working = prev.working(budget)
+                joins = None if working is None else not working
+            if joins is None:
+                refused += 1
+            elif joins:
+                prev.add(line.rstrip(), accuracy)
                 continue
-        out.append([line.rstrip(), False, accuracy])
-    return [(line, header, accuracy) for line, header, accuracy in out]
+        out.append(_LogicalLine(line.rstrip(), accuracy))
+    if state is not None:
+        state.joins_refused += refused
+    return [(ll.text, ll.header, ll.accuracy) for ll in out]
 
 
 def split_sentences(paragraph: str) -> list[str]:
@@ -269,6 +460,8 @@ class _State:
     line: int = 0
     part: int = 0
     awaiting_opening: bool = False   # a label-only line opened the current part; its opening line is still to come
+    joins_refused: int = 0           # joins of physical lines refused because their reading exceeded the answer's budget (_JoinBudget)
+    join_budget: Optional[_JoinBudget] = None  # the answer's budget for the join rules' readings (set by parse_response)
 
 
 def _line_heading(body: str, has_following: bool) -> bool:
@@ -285,7 +478,7 @@ def _line_heading(body: str, has_following: bool) -> bool:
 
 def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
     units: list[_Unit] = []
-    lines = _logical_lines(paragraph)
+    lines = _logical_lines(paragraph, state)
     for li, (line, header, accuracy) in enumerate(lines):
         state.line += 1
         m = _PART_LEAD_RE.match(line)
@@ -300,7 +493,7 @@ def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
         else:
             body, opening = _BULLET_RE.sub("", line, count=1), False
         body = _strip_annotations(body)
-        if not body.strip() or _ANNOTATION_ONLY_RE.fullmatch(body):
+        if not body.strip() or _ANNOTATION_ONLY_LINEAR_RE.fullmatch(body):
             continue
         heading = header or (m is None and _line_heading(body, li < len(lines) - 1))
         line_units: list[_Unit] = []
@@ -308,7 +501,7 @@ def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
             sents = [piece] if is_json else [s.strip() for s in _SENT_RE.split(piece) if s.strip()]
             for s in sents:
                 s = s if is_json else _strip_annotations(s)
-                if not s or (not is_json and _ANNOTATION_ONLY_RE.fullmatch(s)):
+                if not s or (not is_json and _ANNOTATION_ONLY_LINEAR_RE.fullmatch(s)):
                     continue
                 line_units.append(_classify(_Unit(text=s, para=para_index, line=state.line, part=state.part, is_json=is_json), heading))
         if not line_units:
@@ -401,6 +594,133 @@ class RoleAssignment:
     unresolved: list[str]
 
 
+class _View(Sequence):
+    """A read-only, ascending, duplicate-free list of claim indices that shares sorted lists instead of copying them
+    (integration gate 2): ``_View((items, start, stop), ...)`` is the union of the slices ``items[start:stop]``, each of an
+    ascending list. Every conclusion of a paragraph rests on all the claims before it, every closing answer of a part on the
+    eligible claims before it, every labelled answer of a line on the claims after it: a list of its own for each was n² entries
+    ('Therefore x. ' * 8,000: 1.5 GB). A view is only read (iterated, sized, compared), never changed; the lists it shares only
+    grow past the slices it reads."""
+
+    __slots__ = ("_slices", "_items")
+
+    def __init__(self, *slices: tuple[list[int], int, int]) -> None:
+        self._slices = tuple(sl for sl in slices if sl[2] > sl[1])
+        self._items: Optional[list[int]] = None
+
+    def __iter__(self):
+        if self._items is not None:
+            return iter(self._items)
+        if len(self._slices) == 1:
+            items, a, b = self._slices[0]
+            return itertools.islice(items, a, b)
+        return self._merged()
+
+    def _merged(self):
+        last = None
+        for j in heapq.merge(*(itertools.islice(items, a, b) for items, a, b in self._slices)):
+            if j != last:
+                yield j
+                last = j
+
+    def _list(self) -> list[int]:
+        if self._items is None:
+            # from the iterator itself: list(self) would ask len(self), which asks for this list
+            self._items = [j for j in (self._merged() if len(self._slices) > 1 else iter(self))]
+        return self._items
+
+    def __bool__(self) -> bool:
+        return bool(self._slices)
+
+    def __len__(self) -> int:
+        if len(self._slices) == 1:
+            _items, a, b = self._slices[0]
+            return b - a
+        return len(self._list())
+
+    def __getitem__(self, k):
+        if len(self._slices) == 1 and not isinstance(k, slice):
+            items, a, b = self._slices[0]
+            if k < 0:
+                k += b - a
+            if not 0 <= k < b - a:
+                raise IndexError(k)
+            return items[a + k]
+        return self._list()[k]
+
+    def __eq__(self, other) -> bool:
+        return list(self) == list(other) if isinstance(other, (list, tuple, _View)) else NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return repr(list(self))
+
+
+class _Earlier(_View):
+    """The first ``n`` claims of a paragraph's list of claims (``_View((items, 0, n))``)."""
+
+    __slots__ = ()
+
+    def __init__(self, items: list[int], n: int) -> None:
+        super().__init__((items, 0, n))
+
+
+class _SupportIndex:
+    """The supports of the units with an index of the claims each unit supports, so that a unit is withdrawn from every list
+    that holds it without reading all the lists (integration gate 2: :meth:`GenericTextParser._part_answers` read every list
+    for each part's answer, n² steps on an answer of thousands of parts). A withdrawal is recorded and applied to a list when the
+    work is done (:meth:`settle`), in the list's own order, so the supports are those the reading of every list gave."""
+
+    __slots__ = ("supports", "holders", "withdrawn")
+
+    def __init__(self, supports: dict[int, list[int]]) -> None:
+        self.supports = supports
+        self.holders: dict[int, set[int]] = {}
+        self.withdrawn: dict[int, set[int]] = {}
+        for p, ss in supports.items():
+            if isinstance(ss, list):
+                for s in ss:
+                    self.holders.setdefault(s, set()).add(p)
+
+    def withdraw(self, i: int) -> None:
+        """``i`` supports nothing: ``supports[p] = [s for s in supports[p] if s != i]`` for every list."""
+        for p in self.holders.pop(i, ()):
+            self.withdrawn.setdefault(p, set()).add(i)
+
+    def _forget(self, p: int) -> None:
+        """Settle the list ``p`` holds before it is replaced or removed, and take it out of the index."""
+        old = self.supports.get(p)
+        if old is None:
+            return
+        self.withdrawn.pop(p, None)
+        if not isinstance(old, list):
+            return  # a view (_View) is never indexed: it holds no answer, and only answers are withdrawn
+        for s in old:
+            held = self.holders.get(s)
+            if held is not None:
+                held.discard(p)
+
+    def set(self, p: int, ss: list[int]) -> None:
+        """``supports[p] = ss``."""
+        self._forget(p)
+        self.supports[p] = ss
+        if isinstance(ss, list):
+            for s in ss:
+                self.holders.setdefault(s, set()).add(p)
+
+    def pop(self, p: int) -> None:
+        """``supports.pop(p, None)``."""
+        self._forget(p)
+        self.supports.pop(p, None)
+
+    def settle(self) -> None:
+        for p, gone in self.withdrawn.items():
+            if p in self.supports:
+                self.supports[p] = [s for s in self.supports[p] if s not in gone]
+        self.withdrawn.clear()
+
+
 def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssignment:
     """The roles, materiality and supports of segmented units (see the module docstring), by paragraph: notes, then the
     cue roles (a consequence or a judgement cue: judgement; a quotation, ``quoted[i]``: evidence; a figure:
@@ -444,7 +764,7 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
                 continue
             low = (core or sent).lower()
             opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
-            consequence[i] = not opening_command and bool(_CONSEQUENCE_RE.match(mask_quotations(core or sent)))
+            consequence[i] = not opening_command and _is_consequence(mask_quotations(core or sent))
             caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
             if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command):
                 roles[i] = "judgement"
@@ -475,11 +795,15 @@ class GenericTextParser:
         unresolved: list[str] = []
         docs = {t.document_id: t for t in supplied_texts}
         paragraphs = [p.strip("\n") for p in re.split(r"\n\s*\n", strip_markup(text).strip()) if p.strip()]
-        state = _State()
+        state = _State(join_budget=_JoinBudget(len(text)))
         para_units: list[list[_Unit]] = [_units_of(para, pi, state) for pi, para in enumerate(paragraphs)]
         flat: list[_Unit] = [u for units in para_units for u in units]
         if not flat:
             raise AdapterError("the specialist answer yields no sentences")
+        if state.joins_refused:
+            unresolved.append(f"{state.joins_refused} line(s) of the answer were not joined to the line before them: deciding the join would have "
+                              f"read the logical line before them again beyond the parser's reading bound ({_JOIN_READ_PER_CHAR} characters per "
+                              f"character of the answer and {_JOIN_READ_FLOOR:,} more), so each opens a claim of its own")
 
         n = len(flat)
         refs_of: list[list[SourceRef]] = [[] for _ in range(n)]
@@ -518,7 +842,6 @@ class GenericTextParser:
                                 certainty=hedged_certainty(u.text) or "established",
                                 advisory_verification_status=_SELF_REPORT if is_self_certification(u.text) else None))
         ids = [p["claim_id"] for p in pending]
-        support_ids = {ids[i]: [ids[s] for s in sorted(set(ss)) if s != i] for i, ss in supports.items() if roles[i] != "other"}
         tail_id = _TAIL_CLAIM_ID  # the fold claim of an oversized answer keeps its fixed id (pinned by the History regressions)
         if len(pending) > _MAX_CLAIMS:
             head, tail = pending[: _MAX_CLAIMS - 1], pending[_MAX_CLAIMS - 1:]
@@ -526,7 +849,28 @@ class GenericTextParser:
             unresolved.append(f"{len(tail)} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {tail_id} and were not individually roled or checked")
             pending = head
         kept = {p["claim_id"] for p in pending}
-        claims = [ClaimRecord(**base, **{**p, "supporting_claim_ids": [s for s in support_ids.get(p["claim_id"], []) if s in kept][:_MAX_CLAIMS]}) for p in pending]
+        unit_of = {cid: i for i, cid in enumerate(ids)}
+        kept_units = sum(1 for cid in ids if cid in kept)  # the first units: the folded ones come last
+
+        def supporting(cid: str) -> list[str]:
+            """The ids of the kept claims that support claim ``cid``, in claim order, at most the claim limit: read for the claims the
+            report keeps only (integration gate 2: the ids of every unit's supports were listed first, n² of them for an answer of
+            thousands of conclusions, 'Therefore x. ' * 8,000: 1.5 GB)."""
+            i = unit_of.get(cid)
+            if i is None or roles[i] == "other" or i not in supports:
+                return []
+            ss = supports[i]
+            out: list[str] = []
+            for s in (ss if isinstance(ss, _View) else sorted(set(ss))):  # a view is ascending and holds each claim once
+                if s >= kept_units:
+                    break  # the claims the report keeps are the first ones (the rest are folded into its last claim)
+                if s != i and ids[s] in kept:
+                    out.append(ids[s])
+                    if len(out) == _MAX_CLAIMS:
+                        break
+            return out
+
+        claims = [ClaimRecord(**base, **{**p, "supporting_claim_ids": supporting(p["claim_id"])}) for p in pending]
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         return SpecialistReport(report_id=report_id, request_id=request_id, task_id=task_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level,
                                 task_type=task_type, original_response=text, response_sha256=sha256_text(text), supplied_texts=list(supplied_texts), claims=claims,
@@ -593,6 +937,8 @@ class GenericTextParser:
             if u.part:
                 parts.setdefault(u.part, []).append(i)
         leads = [u.lead for u in flat]
+        layout = GenericTextParser._line_layout(flat)
+        links = _SupportIndex(supports)
         for _part, members in parts.items():
             live = [i for i in members if roles[i] != "other"]
             if not live:
@@ -603,7 +949,7 @@ class GenericTextParser:
                 # the sentence that carries the lead is the answer; the sentences after it on its line keep their roles
                 closing = results
             else:
-                run = GenericTextParser._first_working_run(flat, live)
+                run = GenericTextParser._first_working_run(flat, live, layout)
                 if run:
                     last = run[-1]
                     closing = [*reversed(_parallel_rows(flat, last, run)), last]
@@ -625,57 +971,89 @@ class GenericTextParser:
             for i in closing + opening_answers:
                 answer[i] = True
                 material[i] = True
+            if closing:
+                # the claims a closing answer may rest on, listed once for the part (integration gate 2: each closing answer read
+                # the whole part again, n² steps on a part of thousands of results). No closing answer's processing changes the
+                # role of a claim that is no answer, so the lists hold for every closing answer of the part.
+                eligible = [j for j in live if not answer[j] and leads[j] != "diagram" and roles[j] != "other"]
+                anywhere = [j for j in eligible if flat[j].working or roles[j] == "evidence"]
+                in_para: dict[int, list[int]] = {}
+                for j in eligible:
+                    in_para.setdefault(flat[j].para, []).append(j)
             for i in closing:
                 # a closing answer rests on the claims before it in its paragraph and on the part's earlier lines of working and
                 # the quotations they use, not on every remark the part made before it
-                earlier = [j for j in live if j < i and not answer[j] and leads[j] != "diagram" and roles[j] != "other"
-                           and (flat[j].para == flat[i].para or flat[j].working or roles[j] == "evidence")]
+                same = in_para.get(flat[i].para, [])
+                earlier = _View((anywhere, 0, bisect.bisect_left(anywhere, i)), (same, 0, bisect.bisect_left(same, i)))
                 # a closing answer rests on what came before it; it is no other claim's support
-                for p, ss in supports.items():
-                    if i in ss:
-                        supports[p] = [s for s in ss if s != i]
+                links.withdraw(i)
                 if roles[i] == "point" and i in supports:
-                    supports.pop(i)
+                    links.pop(i)
                 if earlier:
                     roles[i] = "point"
-                    supports[i] = earlier
+                    links.set(i, earlier)
+            last_in_para: dict[int, int] = {}
+            for j in live:
+                last_in_para[flat[j].para] = j  # live is in claim order: the last claim of each paragraph
+            after_in_para: dict[int, list[int]] = {}
             for i in opening_answers:
                 if i in closing:
                     continue
                 para = flat[i].para
                 # a bare answer alone in its paragraph ("(-1, 3)"): what follows in the part justifies it, and the first
                 # sentence of that justification is not a point of its own
-                alone = not any(j > i and flat[j].para == para for j in live)
-                pool = [j for j in live if j > i and (alone or flat[j].para == para)]
-                later = [j for j in pool if not answer[j] and roles[j] != "judgement" and (alone or roles[j] != "point") and not consequence[j]
-                         and not caveat[j] and leads[j] not in ("assumption", "diagram")]
-                for p, ss in supports.items():
-                    if i in ss:
-                        supports[p] = [s for s in ss if s != i]
+                alone = not last_in_para.get(para, -1) > i
+                if alone:
+                    pool = [j for j in live if j > i]
+                    later = [j for j in pool if not answer[j] and roles[j] != "judgement" and not consequence[j] and not caveat[j]
+                             and leads[j] not in ("assumption", "diagram")]
+                else:
+                    # the answers of one line that a claim of their paragraph follows (integration gate 2: each read its paragraph
+                    # again, n² steps on a line of thousands of labelled answers). Only the last answer of the line can be alone, and
+                    # only an alone answer demotes a point, so the list holds for every answer of the line before it.
+                    if para not in after_in_para:
+                        after_in_para[para] = [j for j in live if flat[j].para == para and not answer[j] and roles[j] not in ("judgement", "point")
+                                               and not consequence[j] and not caveat[j] and leads[j] not in ("assumption", "diagram")]
+                    rest = after_in_para[para]
+                    later = _View((rest, bisect.bisect_right(rest, i), len(rest)))
+                links.withdraw(i)
                 roles[i] = "point" if later or roles[i] in ("point", "analysis") else roles[i]
-                supports[i] = later
-                for j in later:
-                    if roles[j] == "point":
-                        roles[j], material[j] = ("quantitative" if _NUM_RE.search(flat[j].text) else "analysis"), False
-                        supports.pop(j, None)
+                links.set(i, later)
+                if alone:  # a list without points (an answer that is not alone) demotes none
+                    for j in later:
+                        if roles[j] == "point":
+                            roles[j], material[j] = ("quantitative" if _NUM_RE.search(flat[j].text) else "analysis"), False
+                            links.pop(j)
+        links.settle()
 
     @staticmethod
-    def _first_working_run(flat: list[_Unit], live: list[int]) -> list[int]:
+    def _line_layout(flat: list[_Unit]) -> tuple[dict[int, int], dict[int, set[int]]]:
+        """``(units per line, lines per paragraph)`` of the units, read once for every part (integration gate 2)."""
+        per_line: dict[int, int] = {}
+        para_lines: dict[int, set[int]] = {}
+        for u in flat:
+            per_line[u.line] = per_line.get(u.line, 0) + 1
+            para_lines.setdefault(u.para, set()).add(u.line)
+        return per_line, para_lines
+
+    @staticmethod
+    def _first_working_run(flat: list[_Unit], live: list[int], layout: Optional[tuple[dict[int, int], dict[int, set[int]]]] = None) -> list[int]:
         """The part's first run of working: the working claims of the consecutive paragraphs, from the first that holds a line
         of working, that each hold one. A line of working stands on a line of its own or in a line-structured block; an
-        equation inside a sentence of a prose paragraph is the prose's, and a diagram line is description, not working."""
+        equation inside a sentence of a prose paragraph is the prose's, and a diagram line is description, not working.
+        ``layout`` is :meth:`_line_layout` of ``flat``, given by a caller that asks for every part (integration gate 2: each part
+        read the lines of every unit of the answer again, n² steps on an answer of thousands of parts, '1. x' on each of
+        3,200 lines: 8 s of a 9.6 s Economics receive)."""
         by_para: dict[int, list[int]] = {}
         for i in live:
             by_para.setdefault(flat[i].para, []).append(i)
-        lines_of: dict[int, list[int]] = {}
-        for i, u in enumerate(flat):
-            lines_of.setdefault(u.line, []).append(i)
-        structured = {p for p in by_para if len({flat[i].line for i in range(len(flat)) if flat[i].para == p}) > 1}
+        per_line, para_lines = layout if layout is not None else GenericTextParser._line_layout(flat)
+        structured = {p for p in by_para if len(para_lines.get(p, ())) > 1}
         run: list[int] = []
         started = False
         for para in sorted(by_para):
             working = [i for i in by_para[para] if flat[i].working and flat[i].lead not in ("diagram", "heading")
-                       and (para in structured or len(lines_of[flat[i].line]) == 1)]
+                       and (para in structured or per_line[flat[i].line] == 1)]
             if working:
                 started = True
                 run.extend(working)
@@ -688,10 +1066,11 @@ class GenericTextParser:
                               answer: list[bool], consequence: list[bool]) -> None:
         """A judgement or consequence rests on its paragraph's point and the claims before it, never on a later one."""
         for start, end in para_ranges:
+            live: list[int] = []  # the paragraph's claims that are not 'other', up to the unit read (roles do not change here)
             for i in range(start, end):
-                if (roles[i] != "judgement" and not consequence[i]) or answer[i]:
-                    continue
-                # a point never rests on a judgement or a consequence, so the edge from an earlier claim cannot close a cycle
-                earlier = [j for j in range(start, i) if roles[j] != "other"]
-                if earlier:
-                    supports[i] = earlier
+                if not ((roles[i] != "judgement" and not consequence[i]) or answer[i]):
+                    # a point never rests on a judgement or a consequence, so the edge from an earlier claim cannot close a cycle
+                    if live:
+                        supports[i] = _Earlier(live, len(live))
+                if roles[i] != "other":
+                    live.append(i)

@@ -51,6 +51,23 @@ results only; an undecided result (TIMEOUT, UNKNOWN) records no argument rules (
 not computed", never "none found") and names nothing. A vacuous
 ENTAILED serialises its (empty) `unsat_core` when `produce_unsat_core` is set, like every other ENTAILED.
 
+**Known limitation under the nonlinear policy (integration gate 2, deferred to the optimisation checks).** Z3 cannot be
+interrupted inside some of its polynomial routines, and `NONLINEAR_MAX_DEGREE` bounds each assertion, not a system: two
+chained assertions `x0^d = 3` and `x1^d = x0 + 1` (each of degree d ≤ 24) make the solver work on a resultant of degree
+about d², and it overruns both its timeout and its `rlimit` (measured at T = 2000 ms: 4.0 s at d = 8, 7.2 s at d = 10,
+5.8 s at d = 17, 12.7 s at d = 19, 22 s at d = 20). The status is an honest TIMEOUT (never a success) and the timings show
+the overrun, but the bound above does not hold for such a system. A combined-degree refusal cannot separate it from the
+STEM checks: recorded STEM problems reach a component product of degrees of 1512 and a component sum of 24 and decide in
+milliseconds, while the chains overrun from a sum of 16. Enforcing the bound needs the deadline from outside Z3 (a worker
+process stopped at its deadline), an architectural change left to the optimisation checks with these measurements.
+
+**Reproducible budgets in the tests (integration gate 2).** `tests/engine/test_integration_gate1_engine.py` decided the
+undecided-probe finding case under wall-clock budgets of 50 and 200 ms, so its verdict depended on the machine and on the
+Z3 version (z3-solver 5.3.3 timed out at both). It now runs the main decision under the nonlinear policy's own resource
+limit with a timeout far above either version's need, and the probes' shared budget either spent or whole; each budget
+asserts its own state of the argument rules, which is stricter than the wall-clock form. It passes with z3-solver 5.1.0
+and 5.3.3.
+
 The W111 of a judgement left unlinked (`JUDGEMENT_NOT_LINKED`, "judgement not linked") stays advisory in the engine;
 the outcome layer (`translate.outcome.unlinked_judgement`) displays such a COUNTEREXAMPLE as AMBIGUOUS_TRANSLATION
 only when every conclusion atom no premise mentions (`unlinked_conclusion_symbols`) is a Bool the problem grounds as

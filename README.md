@@ -86,6 +86,7 @@ Integrity properties the channel holds on every transmission and relay:
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
 - A synthesis carrying a value outside the synthesis contract's closed vocabularies, such as a transformation written as a description of the edit instead of one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming the claims, whether it arrives as JSON or as an object built around validation; it is never delivered with the ledger rules those values select skipped, and never an exception (`integrity.contracts.TRANSFORMATION_MEANINGS`).
+- A report or synthesis object carrying None in a field that has a default but is not Optional (a transformation, a certainty, a ledger) is REJECTED with INT-REQ-009 (and INT-SYNTH-014 for a closed vocabulary), never delivered with the default the recipient would read; every check runs on the payload as delivered (integration gate 2).
 
 ## STEM subjects: equations and prose (`src/epinoic_logic/stem/`)
 
@@ -453,7 +454,10 @@ attempted, completed, faithful, approved, and apart from them the claims whose r
 assessment permits releasing the answer) as separate measures, never combined into one rate,
 and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). Every group of a round
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
-so the number of transmissions never depends on what crashed. The combinator's synthesis reaches the hub as
+so the number of transmissions never depends on what crashed. The listing that briefs the agents and the translation
+agent (`scripts/arena/list_claims.py`) prints the claim ids the hub delivers, the agent-qualified ids of a group's second
+STEM report included, and a recorded translation keyed by either form of one agent's STEM claim id is served to that
+claim and named on the record. The combinator's synthesis reaches the hub as
 written, its citations included, and a syntheses file outside the combinator's published contract (a control or
 bidirectional character, a blank text, a repeated citation) is a failure named with its `KIT-CB` code, as the
 deployed combinator would refuse it. A peer-dependent agent reads of

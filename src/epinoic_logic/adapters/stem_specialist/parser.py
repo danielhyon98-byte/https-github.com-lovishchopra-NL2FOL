@@ -157,8 +157,8 @@ def _units(text: str, rows: list[dict]) -> list:
     line closes on an accuracy mark, and the line's heading status (a short line closing on a colon, a short title, a
     table's header row). The lead (note, heading, question, result, ...) is the generic classification."""
     g = _generic()
-    _PART_LEAD_RE, _Unit, _classify, _line_heading, _ACCURACY_MARK_RE, _NOT_OPENING = (
-        g._PART_LEAD_RE, g._Unit, g._classify, g._line_heading, g._ACCURACY_MARK_RE, g._NOT_OPENING)
+    _PART_LEAD_RE, _Unit, _classify, _line_heading, _accuracy_marked, _NOT_OPENING = (
+        g._PART_LEAD_RE, g._Unit, g._classify, g._line_heading, g._accuracy_marked, g._NOT_OPENING)
     starts = [0]
     for m in _PARAGRAPH_CUT_RE.finditer(text):
         starts.append(m.end())
@@ -208,7 +208,7 @@ def _units(text: str, rows: list[dict]) -> list:
     # lines that continue one, and every sentence of a line shares it)
     last_lines = [line_of(max(r["a"], r["b"] - 1)) for r in rows]
     logical: list[int] = [min(r["line"], line_of(r["a"])) for r in rows]
-    accuracy_lines = {li for li, pl in enumerate(plains) if _ACCURACY_MARK_RE.search(pl)}
+    accuracy_lines = {li for li, pl in enumerate(plains) if _accuracy_marked(pl)}  # linear (generic_parser._accuracy_marked)
     units: list[_Unit] = []
     paras = [paragraph(r["a"]) for r in rows]
     # heading status per logical line: the line's own text (its statements), and whether a line follows it in its paragraph

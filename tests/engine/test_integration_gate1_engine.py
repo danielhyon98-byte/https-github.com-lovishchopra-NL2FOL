@@ -197,20 +197,42 @@ def test_an_undecided_probe_without_source_evidence_leaves_the_counterexample_an
     assert rules_state(r.argument_rules) == ("incomplete", "coverage_probe_undecided") and not r.named_diagnostics
 
 
-def test_the_finding_case_gives_one_diagnostic_whatever_the_budget():
-    """b, x, y, z verified; b <-> (x^3 + y^3 + z^3 = 3 and x*y*z = 1/2); conclusion b. Before the fix: at 50 ms a
-    COUNTEREXAMPLE with an ARG-INV-001 warning, at 120 ms E110 (no verdict)."""
+#: The finding case's two budgets as deterministic limits (integration gate 2, fresh-session finding): the main decision is
+#: bounded by the nonlinear policy's own resource limit (``NONLINEAR_RLIMIT``, 2,000,000: decided on z3-solver 5.1.0 from
+#: about 150,000 and on 5.3.3 from about 600,000) under a wall-clock timeout far above what either version takes (60 s), and
+#: the coverage probes' shared budget is either already spent (the finding's small budget: the probe undecided) or the
+#: whole timeout (its larger budget: the probe decided). The wall-clock budgets of 50 and 200 ms this test used before made
+#: the verdict depend on the machine and on the Z3 version (z3-solver 5.3.3 timed out at both).
+_FINDING_TIMEOUT_MS = 60_000
+
+
+def _finding_case():
     vg = {"kind": "task_setting", "verified": True}
     x, y, z = V("x"), V("y"), V("z")
     cmp = op("and", op("eq", op("add", op("mul", x, x, x), op("mul", y, y, y), op("mul", z, z, z)), R(3)), op("eq", op("mul", x, y, z), R("1/2")))
-    p = problem([{"name": "b", "sort": "Bool", "grounding": vg}] + [{"name": n, "sort": "Real", "grounding": vg} for n in "xyz"],
-                [{"id": "def_b", "expr": op("iff", V("b"), cmp)}], V("b"))
-    for timeout_ms in (50, 200):
-        r = run(p, "nonlinear", timeout_ms=timeout_ms)
-        assert r.status is S.COUNTEREXAMPLE and [d.code for d in r.diagnostics] == ["E110"], timeout_ms
-        assert not any(d.code == "ARG-INV-001" for d in r.named_diagnostics or []), timeout_ms
-        state = rules_state(r.argument_rules)
-        assert state[0] == "complete" or state == ("incomplete", "coverage_probe_undecided"), timeout_ms
+    return problem([{"name": "b", "sort": "Bool", "grounding": vg}] + [{"name": n, "sort": "Real", "grounding": vg} for n in "xyz"],
+                   [{"id": "def_b", "expr": op("iff", V("b"), cmp)}], V("b"))
+
+
+@pytest.mark.parametrize("probe_budget", ["spent", "whole timeout"])
+def test_the_finding_case_gives_one_diagnostic_whatever_the_budget(monkeypatch, probe_budget):
+    """b, x, y, z verified; b <-> (x^3 + y^3 + z^3 = 3 and x*y*z = 1/2); conclusion b. Before the fix: at 50 ms a
+    COUNTEREXAMPLE with an ARG-INV-001 warning (the probe undecided, read as decided), at 120 ms E110 (no verdict). Both
+    budgets now give exactly E110 and never ARG-INV-001; each budget gives its own state of the argument rules (stricter
+    than the wall-clock form, which accepted either state at either budget)."""
+    from epinoic_logic.engine.policies import NONLINEAR_RLIMIT
+    if probe_budget == "spent":
+        monkeypatch.setattr(runner_module, "_probe_deadline", lambda config: time.perf_counter() - 1.0)
+    cfg = policy_config("nonlinear", SolverConfig(timeout_ms=_FINDING_TIMEOUT_MS))
+    assert cfg.rlimit == NONLINEAR_RLIMIT  # the main decision is bounded by the policy's resource limit, not by the clock
+    r = verify(_finding_case(), cfg, limits=policy_limits("nonlinear"), signing_key=KEY, key_id="t")
+    assert r.status is S.COUNTEREXAMPLE and [d.code for d in r.diagnostics] == ["E110"], (probe_budget, r.status, [d.code for d in r.diagnostics])
+    assert not any(d.code == "ARG-INV-001" for d in r.named_diagnostics or []), probe_budget
+    state = rules_state(r.argument_rules)
+    if probe_budget == "spent":
+        assert state == ("incomplete", "coverage_probe_undecided") and "probe undecided" in r.diagnostics[0].message, state
+    else:
+        assert state[0] == "complete" and "probe undecided" not in r.diagnostics[0].message, state
 
 
 # ============================================================================================ argument stage on undecided results
