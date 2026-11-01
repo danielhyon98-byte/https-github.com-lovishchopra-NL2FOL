@@ -1259,3 +1259,10 @@ Work in progress after it is labelled as such.
 - Integration gate, round 4, started at 17:02 on 5c8577e with the 3 lenses that had a critical finding in round 3. Parser
   safety reported 4 findings, none critical; correctness and combinator faults are still running. When no critical
   finding is left, the remaining findings are recorded as known defects and the pre-round-8 upload follows.
+
+### Progress, 19:00 UTC (1 November)
+
+- Integration gate, round 4, on 5c8577e: combinator faults reported 8 findings, none critical (missed detections in the
+  synthesis ledger, such as a widened quantifier or a dropped attribution, and one laxer contract check in the arena
+  harness). With parser safety's 4 findings, also none critical, two of the three lenses are clean of critical findings;
+  the correctness lens is finishing its full suite run.
