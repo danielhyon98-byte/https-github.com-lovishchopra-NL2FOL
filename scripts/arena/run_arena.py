@@ -11,7 +11,8 @@ Inputs (one round directory):
                                sentence is prepended), and the channel independently rejects an outcome bound to another text
                                (INT-STALE-011). Such a refusal is recorded per claim as STALE_FIXTURE_REFUSED: no verdict, and not an
                                infrastructure error. A fixture is keyed by the claim id list_claims.py prints, the id the hub
-                               delivers. A STEM report's claim has two forms of its id: 's1.2', and 's1.2@<agent>' when a report of
+                               delivers. A STEM report's claim (and since integration gate 3 a History or English report's: 'h1.1',
+                               'p1-point') has two forms of its id: 's1.2', and 's1.2@<agent>' when a report of
                                another agent delivered before it on the hub task holds 's1.2' (channel.bus.needs_qualified_ids; the
                                second STEM report of a group; a mutation, on a hub task of its own with only its peer's report before
                                it, keeps the unqualified form unless that peer holds the id). A fixture recorded
@@ -1389,8 +1390,8 @@ INJECTED_VARIANTS = frozenset(MUTATIONS) | frozenset(STEM_MUTATIONS)
 def qualification_tag(item: dict) -> str | None:
     """The tag the hub qualifies ``item``'s claim ids with when a report of another agent delivered before it on the task
     holds one of them (``generic_parser.agent_claim_tag`` of its agent), or None when its branch's parser never qualifies
-    its ids on that account (only a parser that offers ``accepts_qualify_ids``, the STEM parsers', is asked to: the
-    rule ``channel.bus.needs_qualified_ids``)."""
+    its ids on that account (only a parser that offers ``accepts_qualify_ids``, the STEM parsers' and since integration
+    gate 3 the History and English parsers', is asked to: the rule ``channel.bus.needs_qualified_ids``)."""
     branch, _profile = default_registry().for_subject(item["subject"])
     if getattr(branch.parser(), "accepts_qualify_ids", False) is not True:
         return None

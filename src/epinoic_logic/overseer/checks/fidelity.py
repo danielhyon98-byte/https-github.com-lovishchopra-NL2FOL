@@ -45,7 +45,13 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   that are no quotation to verify, applied as the pack applies it: words the request itself holds (located in the
   journaled request by the channel's locator: a guiding question's "returning home", a true/false statement's "toda"), and
   a word the sentence says the text lacks ('has no "like" or "as"', 'never says "ayudar"': a mention, read by the pack's
-  ``_absent_mentions``).
+  ``_absent_mentions``);
+* ``emphasis-figures`` (integration gate 3, FID-003): the STEM parser leaves the emphasis markers inside a statement out of
+  its claim (``= __5.0 m s⁻²__.`` is delivered as ``= 5.0 m s⁻².``), while the figure reader reads no figure glued to an
+  underscore (a word character), so a correct answer was AUDIT_FAILED for a figure "the response states under no
+  spelling". The response's figures are also read with every run of emphasis markers (``*``, ``_``) that opens or closes a
+  word left out (:func:`strip_edge_emphasis`); a run between two letters or digits (``2**10``, ``x_1``, ``1_000``) is no
+  emphasis and stays, so no figure is made up by joining digits.
 
 Linear readers (integration gate round 1): the response is read once by readers whose running time is linear in its
 length, whatever whitespace it holds (``strip_mark_annotations`` reads each run of mark annotations once; ``figure_text``
@@ -107,10 +113,11 @@ from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
-           "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify"]
+           "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify",
+           "strip_edge_emphasis"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
-                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify")
+                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "emphasis-figures")
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -181,6 +188,11 @@ _MARK_RUN_RE = re.compile(rf"(?<![ \t])(?>(?:[ \t]*+{_MARK_ALLOC}|(?:[ \t]{{2,}}
 _MARK_END_RE = re.compile(r"[.;,]?[ \t]*$|\.[ \t]", re.MULTILINE)
 #: Rule ``linear-readers``: a whitespace run holding two or more line breaks, from its first line break to its last.
 _BLANK_LINES_RE = re.compile(r"\n\s*\n")
+#: Rule ``emphasis-figures``: a maximal run of emphasis markers (``*``, ``_``) with no letter or digit on one side of it (it
+#: opens or closes a word: ``__5.0``, ``s⁻²__.``, ``**12**``). The run is matched from its first marker only and taken whole
+#: (possessive), so a run between two letters or digits (``2**10``, ``x__5``) is never split into an edge part, and every
+#: marker is read once: linear in the text.
+_EDGE_EMPHASIS_RE = re.compile(r"(?<![*_])(?:(?<![^\W_])[*_]++|[*_]++(?![^\W_]))")
 
 
 def _parser_unmarked(text: str) -> str:
@@ -217,6 +229,13 @@ def strip_mark_annotations(text: str) -> str:
         return t
     pieces.append(t[pos:])
     return "".join(pieces)
+
+
+def strip_edge_emphasis(text: str) -> str:
+    """Rule ``emphasis-figures``: ``text`` with every run of emphasis markers that opens or closes a word left out
+    (:data:`_EDGE_EMPHASIS_RE`), as the parsers leave emphasis out of a claim: ``= __5.0 m s⁻²__.`` reads ``= 5.0 m s⁻².``,
+    while ``2**10`` and ``x_1`` stay as written."""
+    return _EDGE_EMPHASIS_RE.sub("", text or "")
 
 
 def figure_text(text: str) -> str:
@@ -447,6 +466,10 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     known_figs: set[str] = set()
     for _label, keys in figure_spellings(figure_text(rep.original_response)):  # rule linear-readers: the same figures
         known_figs |= keys
+    unemphasised = strip_edge_emphasis(rep.original_response)
+    if unemphasised != rep.original_response:  # rule emphasis-figures: a figure glued to an emphasis marker is stated too
+        for _label, keys in figure_spellings(figure_text(unemphasised)):
+            known_figs |= keys
     list_numbers = response_list_numbers(rep.original_response)
     claim_figures = {c.claim_id: _claim_figures(unmarked_cut_text(c.claim_text, rep.original_response), list_numbers) for c in rep.claims}
     covering = {cid for cov in (t.receipt.coverage if t.receipt else []) for cid in cov.addressed_by_claim_ids}

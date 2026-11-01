@@ -22,19 +22,19 @@ import hashlib
 import re
 from fractions import Fraction
 from dataclasses import dataclass, field, replace
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from types import MappingProxyType
 from typing import Mapping, Optional
 
 from .boolean import is_boolean_context, parse_boolean, parse_truth_table
 from .chem import latex_to_chem, parse_equation
 from .datatables import parse_data_tables
-from .lexer import Token, lex
+from .lexer import Token, lex, sign_outside_grammar
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
-from .nodes import BinOp, Neg, Num, Percent, Quantity, Sym, is_value, render, value_of
-from .normalize import reading_view
+from .nodes import BinOp, Neg, Num, Operand, Percent, Quantity, Sym, is_value, render, shape_key, value_of
+from .normalize import SIGN_FORMS, blank_ranges, reading_view
 from .numbers import scan_number
-from .parser import ParseContext, parse_math
+from .parser import ParseContext, ParsedMath, ParseIssue, parse_math
 from .word_formulas import word_formula_view
 from .relations import (
     FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, _inline_restatement, _name_words, _word_after,
@@ -45,7 +45,7 @@ from .tolerance import approx_word_in
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
 
-__all__ = ["StemDocument", "build_document", "clear_document_cache", "document_cache_info"]
+__all__ = ["StemDocument", "ambiguous_dots", "build_document", "clear_document_cache", "document_cache_info"]
 
 _GIVEN_HEADS = ("given", "data", "known", "we know")
 #: rule prose-given (STEM repair 6): a Given statement whose head ends with a colon, a data list ('Given:', 'Data:', 'Known values:',
@@ -100,6 +100,12 @@ class StemDocument:
     #: rule changed-value (STEM repair 4): the values the prose gives a symbol at the end of a change it states, which a substitution
     #: stated after them, in their statement or in their part may take (never premises of their own check)
     changes: Mapping[str, tuple[Binding, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    #: integration gate 3 (rules emphasis-layout and sign-forms): the text the checks stage reads around an operand (whether an operator
+    #: adjoins it, ``checks._truncated_operand``): ``text`` with the forms of a sign the grammar reads mapped one for one and the
+    #: emphasis markers blanked (the same length; empty on an emptied document, which reads ``text``)
+    operand_view: str = field(default="", repr=False, compare=False)
+    #: integration gate 3 (rule middle-dot): the offsets of the middle dots between digits read both as a decimal point and as a product
+    dots: tuple[int, ...] = field(default=(), repr=False, compare=False)
 
     @property
     def checks(self) -> tuple[Relation, ...]:
@@ -136,9 +142,69 @@ class StemDocument:
     def items_for(self, sid: str) -> tuple[MathItem, ...]:
         return tuple(it for it in self.items if it.statement_id == sid)
 
+    def locate(self, claim_text: str) -> Optional[tuple[int, int]]:
+        """Integration gate 3 (rule emphasis-layout): the offsets in ``text`` of a claim's text: where it is written, else where the
+        text with its markup left out holds it (the STEM parser writes a claim with the markup inside its statement left out:
+        'a = 20/4.0 = **6.0 m s⁻²**.' is the claim "a = 20/4.0 = 6.0 m s⁻².", no substring of the answer), mapped back to the
+        answer; None when neither holds it. Linear: the text without its markup is built once per document."""
+        if not claim_text:
+            return None
+        at = self.text.find(claim_text)
+        if at >= 0:
+            return at, at + len(claim_text)
+        plain, marks = self._markup_free
+        if not marks:
+            return None
+        k = plain.find(claim_text)
+        if k < 0:
+            return None
+        return self._original_offset(k, marks), self._original_offset(k + len(claim_text) - 1, marks) + 1
+
+    @cached_property
+    def _markup_free(self) -> tuple[str, tuple[tuple[int, int], ...]]:
+        """``text`` with every markup range of the spans left out, and the start of each kept stretch as (offset in the result,
+        offset in ``text``); no stretches when the text has no markup."""
+        ranges = sorted((max(0, a), min(len(self.text), b)) for a, b in self.spans.markup if b > a)
+        if not ranges:
+            return self.text, ()
+        parts: list[str] = []
+        marks: list[tuple[int, int]] = []
+        pos = out = 0
+        for a, b in ranges:
+            if a > pos:
+                parts.append(self.text[pos:a])
+                marks.append((out, pos))
+                out += a - pos
+            pos = max(pos, b)
+        parts.append(self.text[pos:])
+        marks.append((out, pos))
+        return "".join(parts), tuple(marks)
+
+    @staticmethod
+    def _original_offset(k: int, marks: tuple[tuple[int, int], ...]) -> int:
+        lo, hi = 0, len(marks) - 1  # the last kept stretch that starts at or before k (a binary search)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if marks[mid][0] <= k:
+                lo = mid
+            else:
+                hi = mid - 1
+        out, orig = marks[lo]
+        return orig + (k - out)
+
 
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+#: integration gate 3 (rule sign-forms): ``normalize.SIGN_FORMS`` as a translation table
+_SIGN_TABLE = {ord(k): v for k, v in SIGN_FORMS.items()}
+
+
+def _operand_view(text: str, emphasis: tuple[tuple[int, int], ...]) -> str:
+    """``StemDocument.operand_view``: ``text`` with the forms of a sign mapped one for one and the emphasis markers blanked."""
+    view = text.translate(_SIGN_TABLE)
+    return blank_ranges(view, emphasis) if emphasis else view
 
 
 def build_document(text: str, request_text: Optional[str] = None, profile: "str | StemProfile" = "physics", *,
@@ -206,13 +272,26 @@ class _Read:
     order: dict[str, int]
     skipped: int = 0
     skipped_ids: tuple[str, ...] = ()
+    #: rule middle-dot (integration gate 3): the offsets of the ambiguous middle dots (:func:`ambiguous_dots`)
+    dots: tuple[int, ...] = ()
 
 
 def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str], *, request: bool = False,
           reading: Optional[str] = None) -> _Read:
     reading = reading_view(text) if reading is None else reading
-    spans = find_spans(text, reading, profile=profile, limits=limits, names=names)
-    seg = segment_statements(text, spans, names=names, limits=limits, reading=reading)
+    # integration gate 3 (rule middle-dot): a middle dot between two digits with no blank ('5·0') is read as a decimal point too: the runs
+    # are found with it as one, and the spans that hold one are lexed and parsed again from a view where each such dot is a full stop
+    dots = ambiguous_dots(text) if "·" in text else ()
+    spans = find_spans(text, reading, profile=profile, limits=limits, names=names, decimal_dots=dots)
+    seg_reading = reading  # the statements are cut as before: the prose view blanks the markup itself, and struck text stays a statement
+    if spans.emphasis:
+        # integration gate 3 (rule emphasis-layout): emphasis markers are layout, never operators: the reading every later step reads
+        # (statements, lexer, parser, relations) holds blanks in their place, one for one, as the math view and the prose view do, so
+        # '**a = (20 - 0)/4.0 = 6.0 m s⁻²**' and 'a = (20 - 0)/4.0 = **6.0 m s⁻²**.' are read as the line without them (the closing '**'
+        # had been read as an operator adjoining the stated value, and a marker inside a run as a power sign: nothing was checked)
+        reading = blank_ranges(reading, spans.emphasis)
+    decimal_view = _decimal_view(reading, dots) if dots else None
+    seg = segment_statements(text, spans, names=names, limits=limits, reading=seg_reading)
     order = {st.id: k for k, st in enumerate(seg.statements)}
     items: list[MathItem] = []
     prose_values: list[ProseValue] = []
@@ -253,7 +332,10 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
             base = dict(index=len(items), statement_id=st.id, statement_index=k, part=st.part, stmt_kind=st.kind, span_kind=sp.kind, start=a, end=b,
                         label=sp.label, gap_before=gap, source=item_source, statement_text=st_text, statement_start=st.start, statement_end=st.end)
             if sp.kind == "quantity":
-                node = _quantity_node(reading, text, sp, profile, limits, names)
+                # rule middle-dot (integration gate 3): a quantity written with a middle dot between digits is read as a decimal ('5·8 m s⁻²'),
+                # and a check of it, which rests on that reading, is a warning at most (``checks._dot_checks``)
+                q_view = decimal_view if decimal_view is not None and _holds_dot(dots, sp.start, sp.end) else reading
+                node = _quantity_node(q_view, text, sp, profile, limits, names)
                 if node is not None:
                     prose_values.append(ProseValue(st.id, k, st.part, node, sp.start, sp.end, _prose_before(seg.prose, st.start, sp.start),
                                                    _prose_after(seg.prose, sp.end, st.end), given=_in_part(given_part, sp.start)))
@@ -309,6 +391,16 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 cursor = max(cursor, sp.end)
                 continue
             pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits, mode=mode, lead_label=sp.label or None))
+            if decimal_view is not None and sp.kind != "verbal" and _holds_dot(dots, a, b):
+                # rule middle-dot (integration gate 3): the span read again with each such dot a decimal point; every operand that holds
+                # one carries both readings (the decimal point first), and the checks stage decides the relation under each
+                lx_d = lex(decimal_view, a, b, mode=mode, orig=text, cs=profile.computer_science, limits=limits, max_tokens=limits.max_tokens_per_span + 1)
+                if lx_d.overflow or len(lx_d.tokens) > limits.max_tokens_per_span:
+                    pm_d = ParsedMath((), (ParseIssue("ST-LIM-001", f"the span has more than {limits.max_tokens_per_span} tokens", a, b),), unparsed=True)
+                else:
+                    pm_d = parse_math(lx_d.tokens, ParseContext(s=decimal_view, names=names, profile=profile, limits=limits, mode=mode,
+                                                                lead_label=sp.label or None))
+                pm = _dot_readings(pm, pm_d, dots, text, a, b)
             items.append(MathItem(chains=pm.chains, issues=pm.issues, unparsed=pm.unparsed, **base))
             # a lone value written as inline maths ('is therefore $2.6\,\text{m s}^{-2}$') is a prose value like '2.6 m s⁻²'
             lone = _lone_value(pm) if sp.kind == "latex_inline" and not pm.issues and not pm.unparsed else None
@@ -318,21 +410,31 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
             cursor = max(cursor, sp.end)
         # bare numbers written in prose (outside every span) are prose values too; on a line of working only a number restated after
         # the chain it closes ('= 4773.74, so 4775.'; STEM repair 4, rule inline-restatement)
-        for node, a0, b0 in _prose_numbers(reading, text, st, spans, profile, limits):
+        # rule middle-dot (integration gate 3): a number written in prose with a middle dot between digits is read as a decimal ('is 5·8'):
+        # its integer part alone had been read ('5'), and a correct restatement failed against the chain (INT-SUBJ-001)
+        p_view = decimal_view if decimal_view is not None and _holds_dot(dots, st.start, st.end) else reading
+        for node, a0, b0 in _prose_numbers(p_view, text, st, spans, profile, limits):
             before, after = _prose_before(seg.prose, st.start, a0), _prose_after(seg.prose, b0, st.end)
             if st.kind == "derivation" and not (_inline_restatement(before) and _CLAUSE_TAIL_RE.match(after[:60])):
                 continue
             prose_values.append(ProseValue(st.id, k, st.part, node, a0, b0, before, after, given=_in_part(given_part, a0)))
     prose_values.sort(key=lambda pv: pv.start)
-    return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids))
+    return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids), dots)
 
 
 #: STEM repair 4: what may follow a number restated on a line of working: the line's end or a full stop, a stated rounding, a bracket
 _CLAUSE_TAIL_RE = re.compile(r"^\s*(?:[.;)]\s*$|$|[,(]?\s*\(?\s*(?:to|correct\s+to|rounded\s+to)\s)", re.IGNORECASE)
-#: rule unread-relation (STEM repair 2): the relation signs a statement may hold that no span read
+#: rule unread-relation (STEM repair 2): the relation signs a statement may hold that no span read (integration gate 3, rule sign-forms:
+#: and every relation sign outside the grammar, ``lexer.sign_outside_grammar``: '≪', '≔', '≟', '⩶', '≒')
 _RELATION_SIGNS = frozenset("=≈≠≤≥≡<>")
+
+
 #: at most this many unread signs are looked at per statement (the first is named)
 _MAX_UNREAD_SCAN = 4000
+
+
+def _relation_sign(ch: str) -> bool:
+    return ch in _RELATION_SIGNS or (not ch.isascii() and sign_outside_grammar(ch) == "relation")
 
 
 def _unread_relation_signs(rd: _Read) -> list[FrontEndFinding]:
@@ -351,7 +453,7 @@ def _unread_relation_signs(rd: _Read) -> list[FrontEndFinding]:
         hit = None
         for k in range(st.start, min(st.end, st.start + _MAX_UNREAD_SCAN, len(view))):
             ch = view[k]
-            if ch not in _RELATION_SIGNS or covered[k]:
+            if covered[k] or not _relation_sign(ch):
                 continue
             prev = view[k - 1] if k > 0 else " "
             nxt = view[k + 1] if k + 1 < len(view) else " "
@@ -484,6 +586,102 @@ def _wrapped_arrow(reading: str, a: int, b: int) -> bool:
     """A reaction arrow inside a text wrapper (``$\\mathrm{2H_2 + O_2 \\rightarrow 2H_2O}$``), which the lexer reads as text."""
     seg = reading[a:b]
     return ("\\mathrm{" in seg or "\\text{" in seg or "\\ce{" in seg or "\\textrm{" in seg) and any(x in seg for x in _CHEM_ARROWS)
+
+
+#: rule middle-dot (integration gate 3): the most digits read on either side of a middle dot (a numeral has at most 30)
+_DOT_DIGITS = 40
+_SUPERSCRIPT_POWER = frozenset("^⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺")
+
+
+def ambiguous_dots(text: str) -> tuple[int, ...]:
+    """Rule ``middle-dot`` (integration gate 3): the offsets of each MIDDLE DOT (U+00B7, as written: the dot operator and the bullet
+    operator are explicit products) between two ASCII digits with no blank, whose digits before it open their numeral (no letter,
+    digit, decimal point, comma, underscore or other dot right before them: 'CuSO4·5H2O' is a hydrate, '1.2·10³' a product) and whose
+    digits after it close it (no decimal point or other dot and digit after them: '1·2·3', '1·2.5'), and that does not multiply by a
+    power of ten ('4·10³', '6·10^23', '2·10**5'). Such a dot is the raised decimal point of British writing ('5·0 m s⁻²', '3·5') as much
+    as a product; before, it was always a product, so correct work failed ('20/4.0 = 5·0' read as 5 = 0) and wrong work held. One pass,
+    each digit run read at most twice and at most :data:`_DOT_DIGITS` long."""
+    out: list[int] = []
+    n = len(text)
+    k = text.find("·")
+    while k >= 0:
+        if 0 < k < n - 1 and "0" <= text[k - 1] <= "9" and "0" <= text[k + 1] <= "9":
+            a = k - 1
+            while a > 0 and "0" <= text[a - 1] <= "9" and k - a < _DOT_DIGITS:
+                a -= 1
+            b = k + 2
+            while b < n and "0" <= text[b] <= "9" and b - k < _DOT_DIGITS:
+                b += 1
+            before = text[a - 1] if a > 0 else " "
+            after = text[b] if b < n else " "
+            power = text[k + 1:b] == "10" and (after in _SUPERSCRIPT_POWER or text.startswith("**", b))
+            if not (before.isalnum() or before in ".,·_" or after == "·" or (after in ".," and b + 1 < n and "0" <= text[b + 1] <= "9") or power):
+                out.append(k)
+        k = text.find("·", k + 1)
+    return tuple(out)
+
+
+def _decimal_view(reading: str, dots: tuple[int, ...]) -> str:
+    """``reading`` with each ambiguous middle dot a full stop (the same length)."""
+    chars = list(reading)
+    for k in dots:
+        chars[k] = "."
+    return "".join(chars)
+
+
+def _holds_dot(dots: tuple[int, ...], a: int, b: int) -> bool:
+    """Some offset of ``dots`` (sorted) lies in ``[a, b)`` (a binary search)."""
+    lo, hi = 0, len(dots)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if dots[mid] < a:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo < len(dots) and dots[lo] < b
+
+
+def _dot_readings(product: ParsedMath, decimal: ParsedMath, dots: tuple[int, ...], text: str, a: int, b: int) -> ParsedMath:
+    """Rule ``middle-dot`` (integration gate 3): the chains of a span read with each ambiguous middle dot as a product (``product``, the
+    reading of the grammar) and as a decimal point (``decimal``), merged: when the two readings give the same relations (the same links,
+    each operand at the same offsets), every operand that holds such a dot carries the decimal reading first and the product second,
+    with :attr:`~.nodes.Operand.dot` naming them (one of them only when the other cannot be read), and every other operand is read as
+    before; otherwise the span is named ST-PARSE-002 and nothing in it is checked. The issues are the decimal reading's."""
+    aligned = (not product.unparsed and not decimal.unparsed and len(product.chains) == len(decimal.chains)
+               and all(p.ops == d.ops and len(p.operands) == len(d.operands)
+                       and all((po.start, po.end) == (do.start, do.end) for po, do in zip(p.operands, d.operands))
+                       for p, d in zip(product.chains, decimal.chains)))
+    if not aligned:
+        if product.unparsed and decimal.unparsed:
+            return decimal
+        shown = " ".join(text[a:b].split())[:80]
+        return ParsedMath((), (ParseIssue("ST-PARSE-002", f"the middle dot between digits in '{shown}' reads as a decimal point and as a product, "
+                                                          "and the two readings give different relations (rule middle-dot); not checked", a, b),), unparsed=True)
+    issues = list(decimal.issues)
+    chains = []
+    for p, d in zip(product.chains, decimal.chains):
+        operands: list[Operand] = []
+        for po, do in zip(p.operands, d.operands):
+            if not _holds_dot(dots, po.start, po.end):
+                operands.append(do)
+                continue
+            pr = po.readings if not po.error else ()
+            dr = do.readings if not do.error else ()
+            if len(pr) > 1 or len(dr) > 1:
+                msg = ("the operand holds a middle dot between digits (a decimal point or a product) and another ambiguity: more readings than the "
+                       "bound allows (rule middle-dot)")
+                issues.append(ParseIssue("ST-PARSE-002", msg, po.start, po.end))
+                operands.append(Operand((), po.start, po.end, error=msg, code="ST-PARSE-002"))
+            elif pr and dr and shape_key(pr[0]) != shape_key(dr[0]):
+                operands.append(Operand((dr[0], pr[0]), do.start, do.end, dot=("decimal", "product")))
+            elif dr:
+                operands.append(Operand(dr, do.start, do.end, dot=("decimal",)))
+            elif pr:
+                operands.append(Operand(pr, po.start, po.end, dot=("product",)))
+            else:
+                operands.append(do)
+        chains.append(replace(d, operands=tuple(operands)))
+    return ParsedMath(tuple(chains), tuple(issues), unparsed=False)
 
 
 def _inside_brackets(text: str, a: int, b: int) -> bool:
@@ -937,6 +1135,7 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
         # rule given-uncertainty (STEM repair 3): the uncertainties the request itself states, read as a supplied text's are
         request = replace(request, request_uncertainties=_supplied_reading((request_text,), profile, limits, all_names)[3])
     rd = _read(text, profile, limits, all_names, reading=reading)
+    reading = rd.reading  # integration gate 3 (rule emphasis-layout): the reading with the emphasis markers blanked
     scope = Scope(limits=limits)
     for b in request.bindings:
         scope.add(b)
@@ -968,4 +1167,5 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     return StemDocument(text=text, request_text=request_text, profile=profile, key=key, reading=reading, prose=rd.seg.prose, spans=rd.spans,
                         statements=rd.seg.statements, paragraphs=rd.seg.paragraphs, items=tuple(rd.items), relations=tuple(relations),
                         findings=tuple(findings), bindings=bindings, formulas=formulas, substitutions=substitutions, names=frozenset(all_names | set(scope.names)), request=request,
-                        prose_values=tuple(rd.prose_values), overflow=rd.seg.overflow, limits=limits, _by_id=by_id, changes=changes)
+                        prose_values=tuple(rd.prose_values), overflow=rd.seg.overflow, limits=limits, _by_id=by_id, changes=changes,
+                        operand_view=_operand_view(text, rd.spans.emphasis), dots=rd.dots)

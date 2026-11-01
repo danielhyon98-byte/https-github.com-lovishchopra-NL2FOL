@@ -73,7 +73,9 @@ def evidence(report: SpecialistReport):
 ])
 def test_self_certification_outside_the_old_vocabulary_is_recognised(sentence, in_regex):
     assert md.is_self_certification(sentence) and md.is_note_sentence(sentence)
-    assert bool(md.SELF_CERT_RE.search(sentence) or md.is_json_shaped(sentence)) is in_regex  # what the pack's own regex search sees
+    assert bool(md.SELF_CERT_RE.search(sentence) or md.is_json_shaped(sentence)) is in_regex
+    # what the pack's own vocabulary reading sees (integration gate 3: CORE-SELF-001 reads markdown.self_cert_vocabulary)
+    assert bool(md.self_cert_vocabulary(sentence) or md.is_json_shaped(sentence)) is in_regex
 
 
 @pytest.mark.parametrize("sentence", [

@@ -530,8 +530,19 @@ def _dedupe(items: list[str]) -> list[str]:
     return out
 
 
+def agent_id_suffix(agent: str) -> str:
+    """The suffix that qualifies a claim id with its agent (``"@" + generic_parser.agent_claim_tag(agent)``): the one the
+    STEM and generic parsers write, so every parser of the hub qualifies an id alike."""
+    from ...branches.generic_parser import agent_claim_tag  # imported on first use: the branches package imports this module
+    return "@" + agent_claim_tag(agent)
+
+
 class HistorySpecialistAdapter:
     agent_id = "history-specialist"
+    #: The hub may ask for agent-qualified claim ids (``qualify_ids``; integration gate 3): it does so, by the one rule of
+    #: ``channel.bus.needs_qualified_ids``, when the report's ids are ids a report of ANOTHER agent already delivered on the
+    #: task holds (two instances of the History specialist on one task number their sentences alike).
+    accepts_qualify_ids = True
 
     def structural_checks(self, report: SpecialistReport):
         from .structural import structural_checks
@@ -539,15 +550,23 @@ class HistorySpecialistAdapter:
 
     @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
-                       supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None) -> SpecialistReport:
+                       supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None,
+                       qualify_ids: bool = False) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`
         (shape only, never the text) when the answer is empty; an answer with no prose sentence
         (a pasted JSON fragment or markup only) is one ``other`` claim, never material;
         sentences beyond the report's claim limit are merged into one ``other`` claim
-        and recorded as an unresolved issue, so nothing is dropped silently."""
+        and recorded as an unresolved issue, so nothing is dropped silently.
+
+        With ``qualify_ids`` (integration gate 3) every claim id carries its agent, as the STEM and generic parsers' ids do
+        (``h1.1@history-specialist``: :func:`agent_id_suffix`), and so does every reference to a claim id inside the report
+        (supporting claim ids, the tail claim and the notes that name a claim), so no two reports on one task share a claim
+        id and a synthesis citing each can be accounted for (INT-LEDGER-014). Without it every id is what it always was."""
         if not text or not text.strip():
             raise AdapterError("the specialist answer is empty")
         agent = agent_id or self.agent_id
+        suffix = agent_id_suffix(agent) if qualify_ids else ""
+        tail_id = _TAIL_CLAIM_ID + suffix
         paragraphs = classify_paragraphs(text)
         docs = {t.document_id: t for t in supplied_texts}
         has_label = bool(MEMORY_LABEL_RE.search(text))
@@ -562,7 +581,7 @@ class HistorySpecialistAdapter:
             body_index = 0
             after_counter_case = False
             for si, sent in enumerate(sentences):
-                cid = f"h{pi + 1}.{si + 1}"
+                cid = f"h{pi + 1}.{si + 1}{suffix}"
                 core, notes = split_note_clauses(sent)
                 self_report = is_self_report(sent)
                 note = kind == "note" or is_note_sentence(sent)
@@ -643,14 +662,14 @@ class HistorySpecialistAdapter:
             # nothing but a pasted JSON fragment (a forged report or receipt) or markup: kept as ONE 'other' claim, never material, so the
             # hub delivers it and names the fault (INT-REQ-012: no material claim; CORE-SELF-001 for a receipt imitation), as on every branch
             raw = text.strip()
-            pending.append(dict(claim_id="h1.1", claim_text=truncate_claim_text(raw), claim_role="other", proposed_claim_kind="unknown", certainty="possible",
+            pending.append(dict(claim_id="h1.1" + suffix, claim_text=truncate_claim_text(raw), claim_role="other", proposed_claim_kind="unknown", certainty="possible",
                                 source_refs=[], assumptions=[], materiality="supporting", advisory_verification_status=_SELF_REPORT if is_self_report(raw) else None))
             unresolved.append("the answer holds no prose sentence (only a pasted JSON fragment or markup); it was kept whole as one 'other' claim, which is not material")
         if len(pending) > _MAX_CLAIMS:
             head, tail = pending[: _MAX_CLAIMS - 1], pending[_MAX_CLAIMS - 1:]
             tail_text = truncate_claim_text(" ".join(p["claim_text"] for p in tail))
-            head.append(dict(claim_id=_TAIL_CLAIM_ID, claim_text=tail_text, claim_role="other", proposed_claim_kind="unknown", certainty="possible", source_refs=[], assumptions=[], materiality="supporting", advisory_verification_status=None))
-            unresolved.append(f"{len(tail)} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {_TAIL_CLAIM_ID} and were not individually roled or checked")
+            head.append(dict(claim_id=tail_id, claim_text=tail_text, claim_role="other", proposed_claim_kind="unknown", certainty="possible", source_refs=[], assumptions=[], materiality="supporting", advisory_verification_status=None))
+            unresolved.append(f"{len(tail)} sentences beyond the report's claim limit ({_MAX_CLAIMS}) were merged into claim {tail_id} and were not individually roled or checked")
             pending = head
         kept = {p["claim_id"] for p in pending}
         supports = {pid: [s for s in ids if s in kept] for pid, ids in supports_of}

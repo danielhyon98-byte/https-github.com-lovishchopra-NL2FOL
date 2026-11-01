@@ -94,9 +94,10 @@ import inspect
 import re
 import time
 import uuid
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, Mapping, Optional, Sequence, Union, get_args
+from typing import Any, Callable, Mapping, Optional, Sequence, Union, get_args
 
 from pydantic import BaseModel, ValidationError
 
@@ -134,7 +135,7 @@ from ..version import ARG_RULES_VERSION
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
 from .events import ChannelEvent, ObservationState, observe_call
-from .request_parser import LEVEL3_VERDICT_TERMS, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
+from .request_parser import LEVEL3_VERDICT_TERMS, blank_quotations, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
 
 
 @dataclass(frozen=True)
@@ -172,8 +173,14 @@ ParseFn = Callable[..., SpecialistReport]
 # in ``cues.py`` (:data:`VERDICT_CUES`), which the History parser imports, so the hub and the parser agree on what a verdict is.
 _VERDICT_CUE = re.compile(r"\b(" + verdict_cue_regex() + r")\b", re.IGNORECASE)
 #: What a branch adapter writes into ``unresolved_issues`` when it folded the claims beyond the contract limit into one
-#: tail claim; the channel turns it into a finding naming how much went unchecked (INT-REQ-013).
-_FOLDED_TAIL_RE = re.compile(r"(?P<n>\d+) (?:claims|sentences) beyond the report's claim limit \((?P<limit>\d+)\) were merged into claim (?P<tail>\S+)")
+#: tail claim; the channel turns it into a finding naming how much went unchecked (INT-REQ-013). The count is read from the
+#: first digit of its run and taken whole (integration gate 3, class sweep of the handoff fixer): searched from every digit
+#: of a long run of digits, it read the rest of the run again each time, quadratic in an unresolved issue, which a
+#: structured report may carry at any length (2.4 s to receive and 2.5 s to audit one of 16,000 digits); a count can only
+#: start where no digit precedes it, so every match is the one the search found before.
+_FOLDED_TAIL_RE = re.compile(r"(?<!\d)(?P<n>\d++) (?:claims|sentences) beyond the report's claim limit \((?P<limit>\d++)\) were merged into claim (?P<tail>\S+)")
+#: The pattern as it was written before integration gate 3: the reference its linear form is held to (a test reads both).
+_FOLDED_TAIL_REFERENCE_RE = re.compile(r"(?P<n>\d+) (?:claims|sentences) beyond the report's claim limit \((?P<limit>\d+)\) were merged into claim (?P<tail>\S+)")
 #: A claim roled 'other' is a note (a from-memory label, a self-report, a task note), never an answer to a request item.
 _NOTE_ROLE = "other"
 #: Roles whose claims may carry the paragraph's verdict when they state a position (a claim roled 'other' never counts).
@@ -269,7 +276,9 @@ def _terms(text: str) -> set[str]:
 
 #: The label a request gives an item before its text ("Guiding question:", "Essay question:", "Question 2:"): not a term
 #: the answer must repeat.
-_ITEM_LABEL_RE = re.compile(r"^\s*(?:guiding|essay|research|prescribed|key|focus)?\s*(?:question|title|prompt|task)(?:\s+\d+)?\s*:\s*", re.IGNORECASE)
+#: Every blank run is possessive (integration gate 3): the runs before and after the optional qualifier met only through it
+#: (quadratic in a long item); no item after a run starts with a blank, so every match is the one the backtracking form found.
+_ITEM_LABEL_RE = re.compile(r"^\s*+(?:guiding|essay|research|prescribed|key|focus)?\s*+(?:question|title|prompt|task)(?:\s++\d+)?\s*+:\s*+", re.IGNORECASE)
 #: Markup an answer may wrap its part labels in ("**Part (a) — find**", "$x$").
 _MARKUP_CHARS_RE = re.compile(r"[*_`$#]")
 
@@ -369,6 +378,17 @@ def _full_dump(model: BaseModel) -> Optional[dict]:
         return model.model_dump(mode="json")
     except Exception:  # noqa: BLE001 - an object that cannot be dumped is refused by the caller, never raised
         return None
+
+
+def _text_attr(model: Any, name: str) -> Optional[str]:
+    """``model``'s attribute ``name`` when it is a string, scrubbed of surrogates and cut to an identifier's 128 characters;
+    None when it is missing or of another type (an object built around its contract's validation). For the identifiers a
+    refusal names before the payload is re-validated (integration gate 3); never raises."""
+    try:
+        value = getattr(model, name, None)
+    except Exception:  # noqa: BLE001 - a property that raises names nothing
+        return None
+    return _scrub(value)[:128] if isinstance(value, str) else None
 
 
 def _fit_summary(summary: str, limit: int = SUMMARY_MAX_CHARS) -> str:
@@ -624,9 +644,14 @@ _STRONG_CHECK_RE = re.compile(
 #: Names of this system's checks that are also ordinary words of the subjects (integration gate 2): "the overseer" (plantation
 #: overseers), "the translator" (literature in translation), "the checker", "the verifier", "Z3" (Konrad Zuse's 1941
 #: computer), "formally confirmed", "formally proved" (treaties, theorems), "formally verified" (a verified microkernel).
-#: Such a subject states a check result of the exchange only in the exchange's own frame: in a sentence that also names a
-#: report or answer of the exchange (:data:`_REPORT_OBJECT_RE`, or a peer document's title or author word) or the agent's
-#: own text (:data:`_SELF_FRAME_RE`); otherwise it is content.
+#: Such a subject states a check result of the exchange only when a report or answer of THIS exchange is what it checked
+#: (integration gate 3, :func:`_framed_check_result`): the name checks it ("Z3 proved the Mathematics report's speed",
+#: "The translator confirmed this answer"), it was checked by the name or the name is the check ("Every figure here was
+#: formally verified", "The Mathematics report was confirmed by the overseer"), or the name is credited with the outcome
+#: ("According to the checker, the Mathematics report's speed holds"). A report or essay that is no artefact of the
+#: exchange ("The Colonial Office report confirmed that the overseer flogged workers") and the writer's own frame of
+#: exposition ("In this answer I explain that Zuse's Z3 was proved Turing complete", "As my answer explains, ... Rojas
+#: proved that the Z3 was ...") are content.
 _FRAMED_CHECK_RE = re.compile(
     r"\bformal(?:ly)?\s+(?:check(?:ed|ing)|verification|verif(?:y|ies|ied)|prov(?:ed|en)|confirmed)\b"
     r"|\bz3\b|\bthe\s+(?:checker|translator|verifier|overseer)(?:'s|’s)?\b", re.IGNORECASE)
@@ -665,6 +690,148 @@ _CHECK_OUTCOME_RE = re.compile(r"\b(?:fail(?:s|ed|ing)?|flag(?:s|ged)?|(?:does|d
 #: :data:`_CHECK_OUTCOME_RE`; :func:`check_result_statement` is the channel's rule).
 _CHECK_SUBJECT_RE = re.compile(f"(?:{_STRONG_CHECK_RE.pattern})|(?:{_FRAMED_CHECK_RE.pattern})|(?:{_GENERIC_CHECK_RE.pattern})", re.IGNORECASE)
 _STATEMENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+#: A report or answer of THIS exchange a framed name may check (integration gate 3): the peer's, a colleague's, the relayed
+#: or the specialist's report or answer, a specialist named by its subject ("the Mathematics specialist"), or "the <Subject>
+#: report" whose capitalised words name an IB subject (``translate.subjects.resolve_profile``), so "The Colonial Office
+#: report" or "The Sadler report" is a report in the world, never the exchange's. The agent's own text is
+#: :data:`_SELF_FRAME_RE`. Every run is possessive and every repetition bounded, so a long blank run is read once.
+_EXCHANGE_REPORT_RE = re.compile(
+    r"\b(?:[Tt]he|[Tt]his|[Tt]hat|[Ii]ts|[Tt]heir)\s++(?P<subj>[A-Z][\w-]*+(?:\s++[A-Z][\w-]*+){0,2}?)\s++(?:specialist(?:'s|’s)?\s++)?(?:report|answer|response|reply|working)s?\b"
+    r"|\b(?P<spec>[A-Z][\w-]*+)\s++specialist(?:'s|’s)?\b"
+    r"|\b(?i:the\s++(?:peer|colleague(?:'s|’s)?|relayed|specialist(?:'s|’s)?)\s++(?:report|answer|response|working))\b")
+#: What ends the stretch between a framed name, its outcome and the report it checked: a clause mark, a word that opens a
+#: clause, a subject pronoun or a verb of exposition or report ("In this answer I explain that ...", "This report shows the
+#: treaty was ...", "As my answer explains, ..."), so the name and the report stand in one statement of a check.
+_FRAME_BREAK_RE = re.compile(
+    r"[,;:()\[\]—–]|(?-i:\bI\b)|\b(?:that|whether|which|who|whom|whose|where|when|because|since|although|though|while|but|if|unless|so|then|"
+    r"we|you|he|she|they|show(?:s|ed|n)?|explain(?:s|ed)?|argue(?:s|d)?|note(?:s|d)?|describe(?:s|d)?|discuss(?:es|ed)?|outline(?:s|d)?|"
+    r"examine(?:s|d)?|consider(?:s|ed)?|state(?:s|d)?|says|said|claim(?:s|ed)?|suggest(?:s|ed)?|demonstrate(?:s|d)?|write(?:s)?|wrote|tell(?:s)?|told)\b",
+    re.IGNORECASE)
+#: An outcome that needs no agent ("the report's speed holds", "the step fails"): the checked object is its subject.
+_INTRANSITIVE_OUTCOME_RE = re.compile(r"^(?:holds?|held|(?:does|do|did)\s+not\s+hold|not\s+holding|fail(?:s|ed|ing)?|pass(?:es|ed)?)$", re.IGNORECASE)
+#: The end of the stretch between a checked object and a passive outcome ("this answer was formally verified").
+_PASSIVE_TAIL_RE = re.compile(r"\b(?:was|were|is|are|been|be|being)(?:\s++(?:not|also|then|now|already|\w+ly))*+\s*+$", re.IGNORECASE)
+_BY_GAP_RE = re.compile(r"\s++by\s++")
+#: The stretch between a name's outcome and the report it checked when the outcome takes a clause ("Z3 proved that the
+#: Mathematics report's speed is correct", "The overseer confirmed that this answer holds").
+_THAT_GAP_RE = re.compile(r"\s++(?:that\s++)?")
+_ACCORDING_TO_TAIL_RE = re.compile(r"\baccording\s++to\s*+$", re.IGNORECASE)
+
+
+@functools.lru_cache(maxsize=4096)
+def _names_subject(name: str) -> bool:
+    """Whether the capitalised words ``name`` name an IB subject (``translate.subjects.resolve_profile``)."""
+    from ..translate.subjects import UNKNOWN, resolve_profile
+    return resolve_profile(name) is not UNKNOWN
+
+
+def _exchange_frames(sentence: str, object_re: "Optional[re.Pattern[str]]") -> list[tuple[int, int]]:
+    """The spans of ``sentence`` that name a report or answer of this exchange (:data:`_EXCHANGE_REPORT_RE`, subject-named
+    reports only), the agent's own text (:data:`_SELF_FRAME_RE`) or a supplied peer document by a word of its title or author
+    before a document noun (``object_re``), in order."""
+    spans = [m.span() for m in _SELF_FRAME_RE.finditer(sentence)]
+    for m in _EXCHANGE_REPORT_RE.finditer(sentence):
+        named = m.group("subj") or m.group("spec")
+        if named is None or _names_subject(" ".join(named.split())):
+            spans.append(m.span())
+    if object_re is not None:
+        spans += [m.span() for m in object_re.finditer(sentence)]
+    return sorted(set(spans))
+
+
+#: How far apart (in characters) a framed name, its outcome and the report it checked may stand: one statement of a check.
+_FRAME_REACH = 200
+#: How many outcomes after a name, and reports around an outcome, are tried: the nearest ones, so the work per name is
+#: bounded whatever the sentence holds.
+_FRAME_TRIES = 8
+
+
+def _framed_check_result(sentence: str, object_re: "Optional[re.Pattern[str]]") -> Optional[str]:
+    """The framed name (:data:`_FRAMED_CHECK_RE`) of ``sentence`` that states a check of a report or answer of this exchange
+    (:func:`_exchange_frames`), or None (integration gate 3). The name, its outcome (:data:`_CHECK_OUTCOME_RE`) and the
+    report stand in one statement, within :data:`_FRAME_REACH` characters and with no clause break between them
+    (:data:`_FRAME_BREAK_RE`), in one of three shapes: the name checks the report ("Z3 proved the Mathematics report's
+    speed", "The translator confirmed this answer"); the report was checked, by the name or by the name as the check
+    itself ("Every figure here was formally verified", "this answer was confirmed by the overseer"); or the report holds or
+    fails on the name's credit ("According to the checker, the Mathematics report's speed holds"). A name in the writer's
+    frame of exposition or in a report in the world is content. Every candidate is found by bisection among the nearest
+    ones, so the work is linear in the sentence."""
+    frames = _exchange_frames(sentence, object_re)
+    if not frames:
+        return None
+    outcomes = [m.span() for m in _CHECK_OUTCOME_RE.finditer(sentence)]
+    if not outcomes:
+        return None
+    breaks = [m.start() for m in _FRAME_BREAK_RE.finditer(sentence)]
+    o_starts, o_ends = [a for a, _b in outcomes], [b for _a, b in outcomes]  # successive matches: both in order
+    start_of = {b: a for a, b in outcomes}
+    fr_starts = [a for a, _b in frames]
+    fr_by_end = sorted(frames, key=lambda sp: sp[1])
+    fr_ends = [b for _a, b in fr_by_end]
+    # where "blanks, 'by', blanks" read from an outcome's end stops, read once per outcome (integration gate 3, class sweep
+    # of the handoff fixer): the gap test was a fullmatch from the outcome's end to each later name's start, so a long blank
+    # run after an outcome was read again for every name after it ('The History report holds' + 20,000 tabs + 'Z3 ' * 6,666:
+    # 0.34 s at 40,000 characters, 1.47 s at 80,000). A name starts with a letter (``_FRAMED_CHECK_RE``), never a blank, so
+    # the gap fullmatches exactly when the one match from the outcome's end ends at the name's start.
+    by_gap_end: dict[int, Optional[int]] = {}
+
+    def joined(a: int, b: int) -> bool:
+        i = bisect_left(breaks, a)
+        return a <= b and (i == len(breaks) or breaks[i] >= b)
+
+    def checked_before(o_start: int, o_end: int) -> bool:
+        """A report of the exchange stands before the outcome as its checked object (a passive or intransitive outcome)."""
+        intransitive = _INTRANSITIVE_OUTCOME_RE.match(sentence[o_start:o_end]) is not None
+        k = bisect_right(fr_ends, o_start)
+        for fr_start, fr_end in reversed(fr_by_end[max(0, k - _FRAME_TRIES):k]):
+            if o_start - fr_end > _FRAME_REACH or not joined(fr_end, o_start):
+                break
+            if intransitive or _PASSIVE_TAIL_RE.search(sentence, fr_end, o_start) is not None:
+                return True
+        return False
+
+    for f in _FRAMED_CHECK_RE.finditer(sentence):
+        f_start, f_end = f.span()
+        # the name checks the report: name ... outcome ... report
+        i = bisect_left(o_starts, f_end)
+        for o_start, o_end in outcomes[i:i + _FRAME_TRIES]:
+            if o_start - f_end > _FRAME_REACH or not joined(f_end, o_start):
+                break
+            j = bisect_left(fr_starts, o_end)
+            for fr_start, _fr_end in frames[j:j + _FRAME_TRIES]:
+                if fr_start - o_end > _FRAME_REACH or not (joined(o_end, fr_start) or _THAT_GAP_RE.fullmatch(sentence, o_end, fr_start)):
+                    break
+                return f.group(0)
+        # the name is the check itself ("formally verified"), of a report before it
+        i = bisect_left(o_starts, f_start)
+        for o_start, o_end in outcomes[i:i + _FRAME_TRIES]:
+            if o_end > f_end:
+                break
+            if checked_before(o_start, o_end):
+                return f.group(0)
+        # the report was checked by the name: report ... outcome by name
+        k = bisect_right(o_ends, f_start) - 1
+        if k >= 0:
+            o_end = o_ends[k]
+            if o_end not in by_gap_end:
+                gap = _BY_GAP_RE.match(sentence, o_end)
+                by_gap_end[o_end] = gap.end() if gap is not None else None
+            if by_gap_end[o_end] == f_start:  # _BY_GAP_RE.fullmatch(sentence, o_end, f_start), read once per outcome
+                if checked_before(start_of[o_end], o_end):
+                    return f.group(0)
+        # the report holds or fails on the name's credit: according to name, report ... outcome
+        if _ACCORDING_TO_TAIL_RE.search(sentence, max(0, f_start - 40), f_start) is not None:
+            j = bisect_left(fr_starts, f_end)
+            for fr_start, fr_end in frames[j:j + _FRAME_TRIES]:
+                if fr_start - f_end > _FRAME_REACH:
+                    break
+                m = bisect_left(o_starts, fr_end)
+                for o_start, o_end in outcomes[m:m + _FRAME_TRIES]:
+                    if o_start - fr_end > _FRAME_REACH or not joined(fr_end, o_start):
+                        break
+                    if _INTRANSITIVE_OUTCOME_RE.match(sentence[o_start:o_end]) is not None or _PASSIVE_TAIL_RE.search(sentence, fr_end, o_start) is not None:
+                        return f.group(0)
+    return None
 
 
 def check_result_statement(text: str, *, object_words: Sequence[str] = (), strong_only: bool = False, codes_only: bool = False) -> Optional[str]:
@@ -672,40 +839,61 @@ def check_result_statement(text: str, *, object_words: Sequence[str] = (), stron
     scan). Read per sentence: a finding code of the hub's families or a receipt status (:data:`_STATUS_TOKEN_RE`); a
     receipt named as such (:data:`_RECEIPT_STATUS_RE`) with an outcome (:data:`_CHECK_OUTCOME_RE`); unless ``codes_only``, this system's own
     check named in its own vocabulary (:data:`_STRONG_CHECK_RE`) with an outcome, or one of its names that is also an
-    ordinary word of the subjects (:data:`_FRAMED_CHECK_RE`: "the overseer", "Z3", "formally proved") with an outcome in
-    the exchange's own frame: a report or answer of the exchange (:data:`_REPORT_OBJECT_RE`, or a word of
-    ``object_words``: the titles and authors of the peer documents supplied) or the agent's own text
-    (:data:`_SELF_FRAME_RE`) named in the same sentence (integration gate 2); or, unless ``strong_only``, a generic check
-    word (:data:`_GENERIC_CHECK_RE`) with an outcome and a report or answer of the exchange as its object. Nothing is
-    evaluated; every pattern is anchored at a word boundary and bounded by the sentence."""
+    ordinary word of the subjects (:data:`_FRAMED_CHECK_RE`: "the overseer", "Z3", "formally proved") in a statement that it
+    checked a report or answer of this exchange (:func:`_framed_check_result`: a subject-named report of the exchange, a
+    supplied peer document named by a word of ``object_words``, the titles and authors of the peer documents, before a
+    document noun, or the agent's own text, :data:`_SELF_FRAME_RE`, as what was checked; integration gates 2 and 3); or,
+    unless ``strong_only``, a generic check word (:data:`_GENERIC_CHECK_RE`) with an outcome and a report or answer of the
+    exchange as its object. Nothing is evaluated; every pattern is anchored at a word boundary and bounded by the
+    sentence."""
+    found = _check_result(text, object_words=object_words, strong_only=strong_only, codes_only=codes_only)
+    return found[1] if found is not None else None
+
+
+def _check_result(text: str, *, object_words: Sequence[str] = (), strong_only: bool = False, codes_only: bool = False,
+                  framed_last: bool = False) -> Optional[tuple[str, str]]:
+    """``(kind, words)`` of the first check result of this exchange ``text`` states (:func:`check_result_statement`), or
+    None. ``kind`` is 'code' (a finding code or a receipt status), 'receipt' (a receipt named as such with an outcome),
+    'strong' (this system's own check in its own vocabulary), 'framed' (a name that is also an ordinary word of the
+    subjects, in a statement that it checked a report or answer of this exchange) or 'generic'. The request scan refuses
+    every kind but 'framed', which it names as a warning (integration gate 3); with ``framed_last`` a 'framed' result is
+    returned only when no other kind follows it in the text, so a warning never hides a refusal."""
     if not text:
         return None
+    held: Optional[tuple[str, str]] = None
     words = [w.casefold() for w in object_words if w and len(w) >= 3]
+    # A supplied peer document named by a word of its title or author before a document noun ("the English specialist's
+    # report", "the Mathematics answer"): a frame a framed name may check.
+    object_re = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in sorted(set(words), key=len, reverse=True)) + r")\b(?:[\s'’-]++[^\W\d_]++){0,2}?[\s'’-]++"
+                           r"(?:specialist(?:'s|’s)?|report|answer|response|reply|working|essay|account)s?\b", re.IGNORECASE) if words else None
     for sentence in _STATEMENT_SPLIT_RE.split(text):
         code = _CHECK_CODE_RE.search(sentence) or _STATUS_TOKEN_RE.search(sentence)
         if code is not None:
-            return code.group(0)
+            return "code", code.group(0)
         if _CHECK_OUTCOME_RE.search(sentence) is None:
             continue
         status = _RECEIPT_STATUS_RE.search(sentence)
         if status is not None:
-            return status.group(0)
+            return "receipt", status.group(0)
         if codes_only:
             continue
         strong = _STRONG_CHECK_RE.search(sentence)
         if strong is not None:
-            return strong.group(0)
-        low = sentence.casefold()
-        reported = _REPORT_OBJECT_RE.search(sentence) is not None or any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words)
-        named = _FRAMED_CHECK_RE.search(sentence)
-        if named is not None and (reported or _SELF_FRAME_RE.search(sentence) is not None):
-            return named.group(0)
+            return "strong", strong.group(0)
+        if held is None and _FRAMED_CHECK_RE.search(sentence) is not None:
+            named = _framed_check_result(sentence, object_re)
+            if named is not None:
+                if not framed_last:
+                    return "framed", named
+                held = ("framed", named)
         if strong_only:
             continue
         generic = _GENERIC_CHECK_RE.search(sentence)
-        if generic is not None and reported:
-            return generic.group(0)
-    return None
+        if generic is not None:
+            low = sentence.casefold()
+            if _REPORT_OBJECT_RE.search(sentence) is not None or any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words):
+                return "generic", generic.group(0)
+    return held
 
 
 def ids_held_by_other_agents(reports, agent_id: str) -> set[str]:
@@ -715,7 +903,8 @@ def ids_held_by_other_agents(reports, agent_id: str) -> set[str]:
 
 def needs_qualified_ids(parser, report: SpecialistReport, held: set[str]) -> bool:
     """Whether a text report must be parsed again with agent-qualified claim ids (integration gate 1,
-    combinator-faults-9): its parser offers it (``accepts_qualify_ids``: the STEM parsers) and one of its claim ids is
+    combinator-faults-9): its parser offers it (``accepts_qualify_ids``: the STEM parsers, and since integration gate 3 the
+    History and English parsers) and one of its claim ids is
     already held by a report another agent delivered on the task. A report whose ids collide with none keeps its ids, so
     every key written for them stays valid. The channel and the overseer's re-parse (CUST-006) apply this one rule."""
     return bool(held) and getattr(parser, "accepts_qualify_ids", False) is True and any(c.claim_id in held for c in report.claims)
@@ -758,8 +947,44 @@ def _check_observer(observer) -> ChannelObserver:
 
 
 #: A premise label of a report's own check: "before = 1,500 in 1840" (the figure as stated), "January 1923" (a dated event).
+#: The reference statement of the reading (its group ``v``); it is applied in linear time by :func:`premise_value`, which
+#: gives the same value (a test holds them equal on random and hostile labels). Matched as written, the lazy value tried the
+#: optional suffix's leading blank run again at every character it grew by, so a blank run inside a label cost its length
+#: squared (integration gate 3, class sweep of the handoff fixer: 1.5 ms for a 1,000-character label, the IR's bound).
 _PREMISE_VALUE_RE = re.compile(r"^(?:[\w ]{1,40}?=\s*)?(?P<v>.+?)(?:\s*\(stated in sentence \d+ of the paragraph\))?$")
+#: The suffix a pack's premise label may end with, found once, anchored at the end of the label.
+_PREMISE_SUFFIX_RE = re.compile(r"\(stated in sentence \d+ of the paragraph\)\Z")
+#: The name before the "=" of a premise label (at most 40 word characters or spaces, the reference's lazy prefix).
+_PREMISE_NAME_RE = re.compile(r"[\w ]{1,40}")
 _FIRST_FIGURE_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def premise_value(label: str) -> Optional[str]:
+    """The value a premise label states: group ``v`` of ``_PREMISE_VALUE_RE.match(label)``, or None when it does not match,
+    read in linear time (a blank run inside the label is read once). ``label`` is stripped, as the caller strips it.
+
+    The reference reads, in its order of preference: the name before the first "=" (1 to 40 word characters or spaces) and
+    the blank run after it, or nothing; then the shortest non-empty value, of characters other than a line break, after
+    which the label ends, or ends with a blank run and "(stated in sentence N of the paragraph)". A blank run the name's
+    "=" is followed by is taken whole: a value that fails after it fails after any shorter run too (it must still cross
+    the same line break), so the only other reading is the label without a name."""
+    text = label or ""
+    n = len(text)
+    suffix = _PREMISE_SUFFIX_RE.search(text)
+    # where the value may end before the suffix: from the start of the blank run in front of it to the suffix itself
+    lo, hi = (len(text[:suffix.start()].rstrip()), suffix.start()) if suffix is not None else (n, n)
+    starts: list[int] = []
+    eq = text.find("=", 1, 42)
+    if eq > 0 and _PREMISE_NAME_RE.fullmatch(text, 0, eq) is not None:
+        after = text[eq + 1:]
+        starts.append(eq + 1 + len(after) - len(after.lstrip()))
+    starts.append(0)
+    for v0 in starts:
+        end = max(lo, v0 + 1) if suffix is not None and v0 + 1 <= hi else n
+        value = text[v0:end]
+        if value and "\n" not in value:
+            return value
+    return None
 
 
 def _norm_ws(text: str) -> str:
@@ -881,9 +1106,9 @@ def _formal_check_claims(fc, report: SpecialistReport) -> tuple[list[str], Optio
     texts = {c.claim_id: c.claim_text for c in report.claims}
     anchors: list[str] = []
     for pr in fc.problem.premises:
-        m = _PREMISE_VALUE_RE.match((pr.label or "").strip())
-        if m and m.group("v").strip():
-            anchors.append(m.group("v").strip())
+        value = premise_value((pr.label or "").strip())  # integration gate 3: linear, the reference's reading
+        if value and value.strip():
+            anchors.append(value.strip())
     concl = fc.problem.conclusion.label if fc.problem.conclusion is not None and fc.problem.conclusion.label else ""
     stated_m = _FIRST_FIGURE_RE.search(concl) if fc.kind != "chronology" else None
     stated = stated_m.group(0) if stated_m else None
@@ -1184,14 +1409,21 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-009", severity="error", message="request REJECTED as malformed: " + "; ".join(problems[:_MAX_NAMED]), agent_ids=[to_agent_id]))
         supplied_texts = req.supplied_texts
         try:
-            relayed_results = self._router_check_results(req)
+            relayed_results, framed_results = self._router_check_results(req)
         except Exception as exc:  # fail closed: a scan that cannot run never lets a check result through
-            relayed_results = [f"the scan for router-side check results failed internally ({type(exc).__name__})"]
+            relayed_results, framed_results = [f"the scan for router-side check results failed internally ({type(exc).__name__})"], []
         if relayed_results:
             findings.append(IntegrityFinding(code="INT-REQ-009", severity="error",
                                              message="request REJECTED as malformed: " + "; ".join(relayed_results[:_MAX_NAMED]) + ": a router-side check result "
                                                      "(a receipt, a finding code, a formal check's outcome) is never content an agent is given",
                                              document_ids=sorted({t.document_id for t in supplied_texts if any(f"'{t.document_id}'" in r for r in relayed_results)}),
+                                             agent_ids=[to_agent_id]))
+        if framed_results:  # a name that is also an ordinary word of the subjects never refuses a request (integration gate 3)
+            findings.append(IntegrityFinding(code="INT-REQ-014", severity="warning",
+                                             message="; ".join(framed_results[:_MAX_NAMED]) + ": a name of this system's checks that is also an ordinary word of the "
+                                                     "subjects, stated as checking a report or answer of this exchange; the request is dispatched, and the agent "
+                                                     "must not relay it as a check result",
+                                             document_ids=sorted({t.document_id for t in supplied_texts if any(f"'{t.document_id}'" in r for r in framed_results)}),
                                              agent_ids=[to_agent_id]))
         if to_agent_id not in self.plan.selected_agent_ids:
             findings.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"router addressed {to_agent_id}, which the plan did not select", agent_ids=[to_agent_id]))
@@ -1211,29 +1443,36 @@ class TranslatorChannel:
         receipt = self._receipt(msg.message_id, "router_to_specialist", status, findings, summary=self._summary_request(req, findings, status))
         return (msg if status is not TransmissionStatus.REJECTED else None), req, receipt
 
-    def _router_check_results(self, req: TaskRequest) -> list[str]:
+    def _router_check_results(self, req: TaskRequest) -> tuple[list[str], list[str]]:
         """What a request hands an agent as content that is a router-side check result (integration gate, round 1: a
         'router-note' or 'hub-receipt' document saying "INT-SUBJ-001 error: a formal check failed its point" was delivered
-        to the dependent agent, which repeated it): a supplied text holding a finding code of the hub's families, a receipt
-        status, or this system's own check named with an outcome (:func:`check_result_statement`, strong subjects only, so
-        a document about checks in the world is no check result, and a name that is also an ordinary word, such as "the
-        overseer" or "Z3", only in the exchange's frame); the request text (the student's question) is read for finding
-        codes and receipt statuses only (integration gate 2: "Explain how the overseer's authority passed to the
-        planters" is a History question, not a check result). A supplied text byte-identical to a report delivered on this
-        channel is the report itself, relayed as delivered: its content was checked at its delivery, and it is not read
-        again here."""
+        to the dependent agent, which repeated it), as ``(refused, warned)``. Refused: a supplied text holding a finding
+        code of the hub's families, a receipt status, a receipt named with an outcome, or this system's own check named in
+        its own vocabulary with an outcome (:func:`check_result_statement`, strong subjects only, so a document about checks
+        in the world is no check result). Warned, never refused (integration gate 3): a supplied text in which a name that
+        is also an ordinary word of the subjects ("the overseer", "the translator", "Z3", "formally confirmed") is stated as
+        checking a report or answer of this exchange (:func:`_framed_check_result`; "The Colonial Office report confirmed
+        that the overseer flogged workers" and "This report shows the treaty was formally confirmed" are content and give
+        nothing). The request text (the student's question) is read for finding codes and receipt statuses only
+        (integration gate 2: "Explain how the overseer's authority passed to the planters" is a History question, not a
+        check result). A supplied text byte-identical to a report delivered on this channel is the report itself, relayed
+        as delivered: its content was checked at its delivery, and it is not read again here."""
         delivered = {r.original_response for r in self.transmitted_reports.values()}
         out: list[str] = []
+        warned: list[str] = []
         what = check_result_statement(req.user_input or "", codes_only=True)
         if what is not None:
             out.append(f"the request text states a check result ({what!r})")
         for t in req.supplied_texts:
             if t.text in delivered:
                 continue
-            what = check_result_statement(t.text, strong_only=True)
-            if what is not None:
-                out.append(f"supplied text '{t.document_id}' states a check result ({what!r})")
-        return out
+            found = _check_result(t.text, strong_only=True, framed_last=True)
+            if found is None:
+                continue
+            kind, what = found
+            (warned if kind == "framed" else out).append(f"supplied text '{t.document_id}' states a check result ({what!r})" if kind != "framed"
+                                                         else f"supplied text '{t.document_id}' names {what!r}")
+        return out, warned
 
     # ----------------------------------------------------------------- responses
     @_observed
@@ -1356,32 +1595,36 @@ class TranslatorChannel:
         is named as one (INT-HANDOFF-012, with the claim and the fields) on the raw payload,
         not reported as a bare contract value error."""
         out: list[IntegrityFinding] = []
+        # The report's own identifiers as the refusal names them: only when they are strings (an object built around
+        # validation may hold None, a list or nothing at all there; integration gate 3), never read raw.
+        rid, aid = _text_attr(report, "report_id"), _text_attr(report, "agent_id")
+        ids = dict(report_ids=[rid] if rid else [], agent_ids=[aid] if aid else [])
         for raw in payload.get("claims", []) or []:
             if not isinstance(raw, dict):
                 continue
             mismatch = [n for n, key in (("report_id", "report_id"), ("request_id", "request_id")) if raw.get(key) != payload.get(key)]
             if mismatch:
-                cid = str(raw.get("claim_id", "?"))
+                cid = _scrub(str(raw.get("claim_id", "?")))[:128]
                 out.append(IntegrityFinding(code="INT-HANDOFF-012", severity="error", message=f"claim {cid} carries provenance that differs from its report in {mismatch} (claim {[raw.get(k) for k in mismatch]} vs report {[payload.get(k) for k in mismatch]}): a claim of another report or request hidden inside this one; not delivered",
-                                            claim_ids=[cid], report_ids=[report.report_id], agent_ids=[report.agent_id]))
+                                            claim_ids=[cid], **ids))
         # Both forms are validated (integration gate 2): the full dump, None kept, so a None in a field that has a default but
         # is not Optional is refused instead of being dropped from the delivered payload and read back as the default; then
         # the delivered payload itself.
         full = _full_dump(report)
         if full is None:
             out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message="report payload cannot be dumped in full for re-validation and is not delivered: a report built around its contract's validation",
-                                        report_ids=[report.report_id], agent_ids=[report.agent_id]))
+                                        **ids))
             return out
         for data in (full, payload):
             try:
                 SpecialistReport.model_validate(data)
-            except ValidationError as exc:
-                errors = exc.errors()
+            except (ValidationError, TypeError, ValueError) as exc:
+                errors = exc.errors() if isinstance(exc, ValidationError) else [{"msg": str(exc)}]
                 if out:  # the provenance fault is already named; only report what else failed
                     errors = [e for e in errors if "does not belong to this report" not in str(e.get("msg", "")) and "does not belong to this report" not in str(e.get("ctx", {}).get("error", ""))]
                 if errors:
                     out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
-                                                report_ids=[report.report_id], agent_ids=[report.agent_id]))
+                                                **ids))
                 return out
         return out
 
@@ -1593,11 +1836,19 @@ class TranslatorChannel:
 
     @staticmethod
     def _model_note(fc, res: VerificationResult) -> str:
-        """For a STEM check, the counterexample's computed and stated values (symbols ``c`` and ``r``) beside the statement."""
+        """For a STEM check, the counterexample's computed and stated values (symbols ``c`` and ``r``) beside the statement.
+        A check that joins the two readings of a middle dot between digits in one problem (rule middle-dot, integration gate
+        3) names them ``d_c``, ``d_r`` (decimal point) and ``p_c``, ``p_r`` (product): their values are shown per reading."""
         if not str(getattr(fc, "kind", "")).startswith("stem_") or res.counterexample is None:
             return ""
-        shown = [f"{m.symbol} = {m.value}" for m in res.counterexample.assignments if m.symbol in ("c", "r")]
-        return f" (engine counterexample: {', '.join(shown)}; c is the value computed from the written expression, r the stated value)" if shown else ""
+        values = {m.symbol: m.value for m in res.counterexample.assignments}
+        shown = [f"{s} = {values[s]}" for s in ("c", "r") if s in values]
+        if shown:
+            return f" (engine counterexample: {', '.join(shown)}; c is the value computed from the written expression, r the stated value)"
+        readings = [f"{name}: " + ", ".join(f"{s} = {values[prefix + s]}" for s in ("c", "r") if prefix + s in values)
+                    for prefix, name in (("d_", "decimal-point reading"), ("p_", "product reading")) if any(prefix + s in values for s in ("c", "r"))]
+        return (f" (engine counterexample: {'; '.join(readings)}; under each reading of the middle dot, c is the value computed from the written "
+                "expression, r the stated value)") if readings else ""
 
     @staticmethod
     def _name_branch_rules(findings: list[IntegrityFinding], structural: list[StructuralFinding]) -> list[IntegrityFinding]:
@@ -1625,24 +1876,36 @@ class TranslatorChannel:
         # INT-REQ-000 like a reply to an unknown id, never an exception.
         request_message_id, id_problem = _message_id_given(request_message_id)
         req = self.requests.get(request_message_id) if request_message_id is not None else None
-        sender = sender_agent_id or report.agent_id
         findings: list[IntegrityFinding] = []
-        payload = report.model_dump(mode="json", exclude_none=True)
-        msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=report.request_id, task_id=report.task_id, sender_agent_id=sender,
-                           sender_role=AgentRole.SPECIALIST, recipient_role=AgentRole.ROUTER, contract="specialist_report/1.0",
-                           payload=payload, payload_sha256=payload_hash(payload), in_reply_to=request_message_id, created_at=_now())
+        try:
+            sender = sender_agent_id or report.agent_id
+            payload = report.model_dump(mode="json", exclude_none=True)
+            msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=report.request_id, task_id=report.task_id, sender_agent_id=sender,
+                               sender_role=AgentRole.SPECIALIST, recipient_role=AgentRole.ROUTER, contract="specialist_report/1.0",
+                               payload=payload, payload_sha256=payload_hash(payload), in_reply_to=request_message_id, created_at=_now())
+        except Exception as exc:  # a report built around validation whose identity cannot head an envelope: refused, never raised (integration gate 3)
+            agent = (sender_agent_id if isinstance(sender_agent_id, str) else None) or _text_attr(report, "agent_id") or ""
+            return self._withheld_payload(request_message_id, report, agent_id=_scrub(agent)[:128], report_id=_text_attr(report, "report_id") or "", branch_key=self.branch.key,
+                                          message=f"response from {_scrub(agent)[:128]!r} carrying a {type(report).__name__} cannot be put in an envelope ({type(exc).__name__}): "
+                                                  "the report, built around its contract's validation, has no valid sender, request or task; it was not delivered")
+        # The payload as delivered is re-validated before the envelope binding reads it, and every check reads the report
+        # read back from it (integration gates 2 and 3), never the caller's object.
+        image_findings = self._revalidate(report, payload)
+        blocked = any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in image_findings)  # does not re-validate, or carries another report's claims
+        if not blocked:
+            report = self._as_delivered(report, payload)
         findings += self.log.accept(msg)
-        findings += bind_payload(msg, report)
+        if not blocked:
+            findings += bind_payload(msg, report)
         findings += self._dedupe(msg)
-        findings += self._revalidate(report, payload)
+        findings += image_findings
         bk = self._branch_for(sender)[0].key
         if req is None:
             findings.append(IntegrityFinding(code="INT-REQ-000", severity="error", message="response does not reply to any accepted request on this channel" + (f" ({id_problem})" if id_problem else ""),
                                              message_ids=[msg.message_id] + ([request_message_id] if request_message_id is not None else [])))
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
-        if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):  # the payload does not re-validate or carries another report's claims
+        if blocked:
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
-        report = self._as_delivered(report, payload)  # every check reads the report as delivered (integration gate 2)
         if sender != req.to_agent_id:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {sender} but the request was addressed to {req.to_agent_id}", agent_ids=sorted({sender, req.to_agent_id}), message_ids=[msg.message_id]))
         findings += check_report_against_plan(self.plan, report)
@@ -1756,11 +2019,29 @@ class TranslatorChannel:
                                                   "relay's own fields (sender, recipient, roles) do not validate; it was not delivered",
                                           sender_role=from_role if isinstance(from_role, AgentRole) else AgentRole.SPECIALIST,
                                           recipient_role=to_role if isinstance(to_role, AgentRole) else AgentRole.ROUTER, recipient_agent_id=(_scrub(str(to_agent_id))[:128] or None))
+        # The payload as delivered is re-validated FIRST, and every identity, party and content check below reads the
+        # object read back from it (integration gate 3): the envelope binding, the party checks and the id-reuse checks ran
+        # on the caller's object before, so an object built around validation (``model_construct``, ``model_copy(update=...)``,
+        # a subclass whose dump differs from its attributes) raised out of the relay (a field missing, None or unhashable)
+        # or was delivered under an identity no check saw (a combinator the plan did not select). A payload that does not
+        # re-validate is REJECTED with INT-REQ-009 after the envelope-level checks only (they read the envelope, never the
+        # object), as a mapping that does not validate is.
+        bk = self._branch_for(_text_attr(payload_obj, "agent_id"))[0].key if isinstance(payload_obj, SpecialistReport) else self.branch.key
+        if isinstance(payload_obj, Synthesis):
+            image_findings, image = self._revalidate_synthesis(payload_obj, payload)
+        else:
+            image_findings = self._revalidate(payload_obj, payload)
+            image = None if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in image_findings) else self._as_delivered(payload_obj, payload)
+        if image is None:
+            refused = self.log.accept(msg) + self._dedupe(msg) + self._relay_parties(msg, from_role, to_agent_id, to_role, None) + image_findings
+            return self._finish(msg, "agent_to_agent", refused, [], [], [], branch_key=bk)
+        payload_obj = image  # every check reads the payload as delivered (integration gates 2 and 3), never the caller's object
         findings += self.log.accept(msg)
         if not forward:  # a forward carries another agent's report by design; every other relay must come from the payload's owner
             findings += bind_payload(msg, payload_obj)
         findings += self._dedupe(msg)
         findings += self._relay_parties(msg, from_role, to_agent_id, to_role, payload_obj)
+        findings += image_findings
         if payload_obj.request_id != self.plan.request_id or payload_obj.task_id != self.plan.task_id:
             findings.append(IntegrityFinding(code="INT-HANDOFF-001", severity="error", message="relayed payload belongs to another request/task", message_ids=[msg.message_id]))
         outcomes: list[ClaimVerificationOutcome] = []
@@ -1769,12 +2050,8 @@ class TranslatorChannel:
         branch_ids: list[str] = []
         relayed_report: Optional[SpecialistReport] = None  # a relayed report checked for content: its report-level argument diagnosis
         relayed_named = None
-        bk = self._branch_for(payload_obj.agent_id)[0].key if isinstance(payload_obj, SpecialistReport) else self.branch.key
         if isinstance(payload_obj, SpecialistReport):
-            findings += self._revalidate(payload_obj, payload)
-            if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):
-                return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
-            payload_obj = self._as_delivered(payload_obj, payload)  # every check reads the report as delivered (integration gate 2)
+            bk = self._branch_for(payload_obj.agent_id)[0].key
             if forward:
                 # The router may only pass on a report exactly as it was delivered on this channel: same report id,
                 # same payload digest. Anything else is a report altered in transit or never received.
@@ -1824,10 +2101,6 @@ class TranslatorChannel:
             relayed_report, relayed_named = payload_obj, self._guarded("argument diagnosis (report level)", findings,
                                                                        lambda: self._report_diagnosis(payload_obj, None, outcomes), None, **rid)
         else:
-            synthesis_findings, delivered = self._revalidate_synthesis(payload_obj, payload)
-            findings += synthesis_findings
-            if delivered is not None and delivered != payload_obj:
-                payload_obj = delivered  # the checks read the synthesis as delivered (integration gate 2), never the caller's object
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # an invalid synthesis, an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
@@ -1915,7 +2188,7 @@ class TranslatorChannel:
             out.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"relay sent by {from_role.value} {msg.sender_agent_id!r}, which the plan did not select (selected: {sorted(selected)})", agent_ids=[msg.sender_agent_id], **ids))
         if to_role not in _INFRASTRUCTURE_ROLES and to_agent_id not in selected:
             out.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"relay addressed to {to_role.value} {to_agent_id!r}, which the plan did not select (selected: {sorted(selected)})", agent_ids=[to_agent_id], **ids))
-        if isinstance(payload_obj, Synthesis) and payload_obj.combinator_agent_id not in selected:
+        if isinstance(payload_obj, Synthesis) and payload_obj.combinator_agent_id not in selected:  # None: a payload refused before its identity is read
             out.append(IntegrityFinding(code="INT-HANDOFF-002", severity="error", message=f"synthesis {payload_obj.synthesis_id!r} names combinator {payload_obj.combinator_agent_id!r}, which the plan did not select (selected: {sorted(selected)})", agent_ids=[payload_obj.combinator_agent_id], claim_ids=[payload_obj.synthesis_id], **ids))
         return out
 
@@ -2233,7 +2506,6 @@ class TranslatorChannel:
         1886" where the peer dates the sonnet 1883 and the statue's dedication 1886). Quotations of the peer are checked
         as quotations (INT-REQ-003); this names a figure misreported in an unquoted paraphrase of the colleague, shown with
         its scale word ("2.5 million"). Figures in words count (the ledger's reader)."""
-        from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import credited_spans
         from ..integrity.ledger import credited_date_repairings, figure_spellings, magnitude_keys
         peers = [t for t in supplied if t.document_id.startswith("peer:") or (t.author or "").endswith("-specialist")]
@@ -2245,9 +2517,7 @@ class TranslatorChannel:
                 known |= magnitude_keys(keys)  # a peer's signed figure restated as its magnitude is the peer's figure
         out: list[IntegrityFinding] = []
         for c in _material_claims(report):
-            text = c.claim_text
-            for start, end, _inner in reversed(find_quotation_spans(text)):  # quotations are checked as quotations
-                text = text[:start] + " " * (end - start) + text[end:]
+            text = blank_quotations(c.claim_text)  # quotations are checked as quotations
             spans = {p.document_id: credited_spans(text, p) for p in peers}
             credited = sorted(d for d, sp in spans.items() if sp)
             if not credited:
@@ -2282,7 +2552,6 @@ class TranslatorChannel:
         Ordinary content about checks ("Automated checks fail when the sensor data are missing", "The receipt shows the
         payment failed") names no report or answer of the exchange and is not read as one. Every claim is read, notes
         roled 'other' included, with its quotations masked."""
-        from ..adapters.markdown import find_quotation_spans
         peers = self._peer_documents(supplied)
         if not peers:
             return []
@@ -2290,9 +2559,7 @@ class TranslatorChannel:
                         if w.casefold() not in ("the", "report", "relayed", "through", "hub", "specialist", "answer")]
         out: list[IntegrityFinding] = []
         for c in report.claims:
-            text = c.claim_text
-            for start, end, _inner in reversed(find_quotation_spans(text)):
-                text = text[:start] + " " * (end - start) + text[end:]
+            text = blank_quotations(c.claim_text)
             noun = check_result_statement(text, object_words=object_words)
             if noun is None:
                 continue

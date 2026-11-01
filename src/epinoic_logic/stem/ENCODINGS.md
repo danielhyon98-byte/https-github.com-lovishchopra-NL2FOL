@@ -182,6 +182,7 @@ Numbers in a reading:
 | `unit` (`stem-<kind>-<n>u`, ST-UNIT-003; argument diagnostics) | The *traced* companion of an `eq` check, or of a `sub` check that evaluates: bare numerals that repeat the numbers of bindings (or of the request's quantities) stated in non-SI units are read in those units in the SI readings, and the conclusion is that the as-written readings imply the SI readings, so the companion fails exactly when the numbers hold as written and fail in SI. The check beside it keeps its own readings. No *written* companion is planned on this tree: the check itself admits no as-written reading its units contradict (`_as_written_consistent`). A failure carries `PlannedCheck.defect` `stem_unit_error`, at warning. | E, ENTAILED (S under interval readings) |
 | `op` (ST-STEP-001; argument diagnostics) | The operation the prose states before a step (add or subtract k on both sides, multiply or divide both sides by k, square both sides) applied to each side of the preceding equation gives the next line's sides, in either order, for every value of the unknowns: "the sides differ" over free unknowns, expected UNSATISFIABLE. Warning; `defect` `stem_invalid_step`. | satisfiability, UNSATISFIABLE |
 | `rnd` (ST-ROUND-001; argument diagnostics) | A comparison against a threshold made with a value the working rounded (`… = 0.246 s ≈ 0.25 s`) keeps its truth with the value before the rounding: the stated comparison with the rounded value implies it with the value before the rounding. Warning; `defect` `stem_rounding_changes_conclusion`. | E, ENTAILED |
+| any of `eq cmp cnv res tgt giv base` read both ways (rule middle-dot, integration gate 3) | A relation that holds a middle dot between digits with no blank (`5·0`, read as a decimal point and as a product, `Operand.dot`) is built under each reading and the two problems are joined, the readings' symbols and premises renamed apart (`d_…`, `D.…` for the decimal point; `p_…`, `P.…` for the product): under the relation's own id the conjunction of the two conclusions (Form E) or both tolerance bands (Form S), at warning; under the companion id `stem-<kind>-<n>d` their disjunction, or either band, at the readings' own severity. An error only when every reading fails; a warning when they disagree. A relation of another kind, or one that only one reading encodes, is decided under that reading at warning. | the form of the readings (two of different forms: ST-PARSE-002) |
 
 Every check has these fields:
 - `inconsistent_is_failure=False` (D13).
@@ -200,7 +201,8 @@ The checks stage decides only relations whose two sides are whole, so a misreadi
 front end can never become an error. A relation is withheld (ST-PARSE-001, warning, the check
 id named) when any of these holds:
 - An arithmetic operator adjoins one of its operands in the text (`xy + y = …` read as
-  `+ y = …`).
+  `+ y = …`). The text is read with its emphasis markers blanked and the forms of a sign mapped
+  (`StemDocument.operand_view`, integration gate 3): the closing `**` of bold working is no operator.
 - An operand opens with a sign right after a symbol-like token or a stray character, rather
   than after a line start, a relation sign, a bracket, a separator or a prose word.
 - The relation is glued by a full stop to a letter or a bracket on either side (`A.B = B.C` read as

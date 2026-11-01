@@ -267,6 +267,10 @@ class Operand:
     end: int
     error: str = ""
     code: str = ""
+    #: integration gate 3 (rule middle-dot): when the operand holds a middle dot written between two digits with no blank ('5·0',
+    #: '3·5'), the reading each entry of ``readings`` gives it: ``("decimal", "product")`` (the raised decimal point of British
+    #: writing, then the product), or the one of them that can be read; empty for every other operand
+    dot: tuple[str, ...] = ()
 
     @property
     def node(self) -> Optional[Node]:

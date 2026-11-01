@@ -151,8 +151,9 @@ _NOT_AUTHORS = frozenset({
 _CITATION_PATTERNS: tuple[re.Pattern[str], ...] = (
     # a locator token anywhere inside parentheses: (p. 48) (García Márquez, p. 48) (ch. 3, p. 49) (see pp. 12-13)
     re.compile(r"\(\s*(?:[^()]{0,80}?[\s,;:]\s*)?" + _LOCATOR_TOKEN + r"\.?\s*" + _RANGE + r"[^()]*\)", re.IGNORECASE),
-    # Act 1, Scene 2 / Act 1 Scene 2 / Act 1.2.3 / Act I, scene ii, 45
-    re.compile(r"\bAct\s+(?:[IVXL]+|\d+)\s*[.,]?\s*(?:[Ss]cene\s+)?(?:[IVXLivxl]+|\d+)(?:\s*[.,]\s*" + _RANGE + r")?"),
+    # Act 1, Scene 2 / Act 1 Scene 2 / Act 1.2.3 / Act I, scene ii, 45 (the blanks around the optional stop are possessive runs, integration
+    # gate 3, parsers: adjacent runs split a run of blanks after "Act I" in every way, k² steps, 13 s at 20,000 blanks)
+    re.compile(r"\bAct\s+(?:[IVXL]+|\d+)\s*+[.,]?\s*+(?:[Ss]cene\s+)?(?:[IVXLivxl]+|\d+)(?:\s*[.,]\s*" + _RANGE + r")?"),
     # act.scene.line inside parentheses, optionally after an author: (1.2.34) (Shakespeare, 3.3.165)
     re.compile(r"\((?:[^()]*?[\s,;:])?(?:\d+|[IVXivx]+)\.(?:\d+|[IVXivx]+)\.\d+(?:\s*[-–—]\s*\d+)?[^()]*\)"),
     # author-page: (García Márquez 48) (Shelley, 102-3); every word capitalised, first word not a generic label

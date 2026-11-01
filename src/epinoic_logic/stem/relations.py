@@ -177,6 +177,18 @@ _PROSE_HEAD_VERB_RE = re.compile(r"(?:^|[\s(])(?:(?:is|are|was|were)(?:[ \t]+(?:
 _EQUATION_WORDS = frozenset({"equation", "expression", "formula", "identity", "inequality", "condition", "relation", "relationship", "law", "rule",
                              "statement", "step", "constraint", "model"})
 _RESTATE_SO_RE = re.compile(r"(?:^|[\s,;(“”\"’)])(?:so|i\.e\.|ie|hence|thus|giving)[ \t]*$", re.IGNORECASE)
+#: integration gate 3 (rule tested-value): the words right after a value stated for a symbol that make it a value the answer tests,
+#: rejects or accepts ('so x = 1 is rejected', 'so x = 1 does not satisfy the equation', 'so x = 6 is valid', 'x = 1 gives …'), never
+#: the result of the chain before it. Anchored at the value's end, possessive blank runs, read in a window of 80 characters
+_TESTED_VALUE_RE = re.compile(
+    r"[ \t]*+,?[ \t]*+(?:(?:which|this|that|it)[ \t]++)?(?:"
+    r"(?:is|was|are|must[ \t]++be|should[ \t]++be|has[ \t]++to[ \t]++be|can[ \t]++be|cannot[ \t]++be|can['’]t[ \t]++be|is[ \t]++therefore|is[ \t]++thus"
+    r"|is[ \t]++hence|is[ \t]++then|is[ \t]++also|is[ \t]++clearly)[ \t]++(?:not[ \t]++)?(?:an?[ \t]++)?(?:(?:valid|invalid|rejected|discarded|excluded"
+    r"|extraneous|inadmissible|admissible|impossible|allowed|accepted|acceptable|ruled[ \t]++out|disregarded|ignored|spurious|correct|incorrect)"
+    r"|(?:(?:valid|invalid|extraneous|true|false|genuine|spurious|possible|actual)[ \t]++)?(?:solution|root))"
+    r"|is[ \t]++not[ \t]++(?:the|a)[ \t]++(?:(?:valid|true|genuine|actual)[ \t]++)?(?:solution|root|answer)"
+    r"|(?:does|did|do)[ \t]++not[ \t]++(?:satisfy|work|hold|check)|(?:doesn|didn|don)['’]t[ \t]++(?:satisfy|work|hold|check)"
+    r"|fails|satisfies|works|checks(?:[ \t]++out)?|holds|gives|yields|leads[ \t]++to|results[ \t]++in)(?![A-Za-z])", re.IGNORECASE)
 #: STEM repair 5 (rule rearranged-formula's companion): the words that introduce a relation as the inverse's equation, the variables
 #: swapped ('Swap x and y: x = 2y + 1', 'For the inverse, x = 2y + 1'), never a step from the relation before it
 _SWAP_RE = re.compile(r"\b(?:swap(?:s|ped|ping)?|interchang(?:e|es|ed|ing)|inverse)\b", re.IGNORECASE)
@@ -5778,6 +5790,8 @@ class _Planner:
             name = head.name if isinstance(head, Sym) else head.name + "()" if isinstance(head, Apply) else head.left.name
             if name in prev["syms"] or (isinstance(head, Sym) and head.name == prev.get("symbol")):
                 continue
+            if self._tested_value(item, head, value_op, prev):
+                continue
             node = value_op.readings[0] if value_op.readings else None
             v, fv = value_of(node) if node is not None else None, value_of(prev["node"])
             if v is None or fv is None:
@@ -5789,6 +5803,40 @@ class _Planner:
                      end=value_op.end, op="=", left=prev["operand"], right=value_op, part=item.part, restates=shown,
                      reason=f"the value stated for {shown} after 'so' against the final value of the chain before it on the same line, in "
                             f"{prev['sid']} (rule restated-binding)")
+
+    def _tested_value(self, item: MathItem, head: Node, value_op: Operand, prev: dict) -> bool:
+        """Rule ``tested-value`` (integration gate 3): a value stated for a symbol after "so" that the answer tests, rejects or accepts
+        restates no result of the chain before it. It is so when the words right after it reject or test it ('so x = 1 is rejected',
+        '… is not a solution', '… does not satisfy …', '… fails', '… is extraneous', '… is valid', '… gives …'), when the same
+        symbol is given the same value earlier in its statement ('Checking: x = 1 gives √4 = 2 but 1 − 3 = −2, so x = 1 is rejected':
+        the chain evaluates at the value), or when the value is written in the chain's own arithmetic ('6 − 3 = 3, so x = 6': the chain
+        substitutes it) and the symbol is the unknown of an equation the working solves (a root under test; a quantity the chain computes
+        from a measured value, '820 − 20 = 800 (so C(8) = 820)', is a wrong restatement and stays checked). Before, 'so x = 1' was set
+        against the chain's −2 and correct work drew INT-SUBJ-004 (a stem-res counterexample); a restatement ('… = 0.087 h⁻¹, so k = 0.087
+        h⁻¹') is read as before."""
+        if _TESTED_VALUE_RE.match(self.text, value_op.end, min(len(self.text), value_op.end + 80)):
+            return True
+        node = _first(value_op)
+        v = value_of(node) if node is not None else None
+        if v is None:
+            return False
+        name = getattr(head, "name", None)
+        for it2, head2, op2, _start2 in self.stated_values:
+            if op2 is value_op or op2.end > value_op.start or it2.statement_id != item.statement_id or getattr(head2, "name", None) != name \
+                    or not isinstance(head2, type(head)):
+                continue
+            v2 = value_of(_first(op2)) if _first(op2) is not None else None
+            if v2 is not None and v2[0] == v[0] and v2[3] == v[3]:
+                return True  # the value the statement tests ('x = 1 gives …'), stated again after the test
+        expr = prev.get("expr")  # the operand the chain's last '=' evaluates (rule finer-restatement)
+        expr = expr.readings[0] if isinstance(expr, Operand) and expr.readings else None
+        if expr is not None and isinstance(head, Sym) and self._is_root_symbol(head.name):
+            for n in walk(expr):
+                if isinstance(n, (Num, Quantity)):
+                    vn = value_of(n)
+                    if vn is not None and vn[0] == v[0]:
+                        return True  # the chain computes at the value ('6 − 3 = 3, so x = 6')
+        return False
 
     def _prose_conversions(self) -> None:
         """Rule ``prose-conversion`` (STEM repair 5): a value the prose states and restates right after it in another unit of the same

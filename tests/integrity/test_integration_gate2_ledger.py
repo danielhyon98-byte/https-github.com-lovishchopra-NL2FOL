@@ -29,7 +29,7 @@ from epinoic_logic.integrity.ledger import check_synthesis_ledger, dropped_hedge
 from epinoic_logic.ir.canonical import sha256_hex
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
 
-from ..core_hostile import inputs, sweep
+from ..core_hostile import SHAPES, one, sweep
 
 
 def codes(findings) -> list[str]:
@@ -325,10 +325,17 @@ def _ledger_entries(text: str):
     yield "aligned_changes", lambda: L.aligned_changes(text, _SOURCE)
     yield "unlocated_quotations", lambda: L.unlocated_quotations(text, [_SOURCE])
     yield "quotation_form_differences", lambda: L.quotation_form_differences(text, [_SOURCE])
+    # integration gate 3: the readers the gate's majors added (an introduced name, a count or relative date in words)
+    yield "introduced_names(synthesis)", lambda: L.introduced_names(text[:4_000], [_SOURCE], "paraphrased", stated_elsewhere=set())
+    yield "introduced_names(source)", lambda: L.introduced_names(_SOURCE, [text], "merged", stated_elsewhere=set())
+    yield "figure differences with counts in words", lambda: L._figure_differences(text, [_SOURCE])
 
 
-def test_sweep_ledger_readers():
-    assert not sweep(_ledger_entries)
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_ledger_readers(shape):
+    """One test per hostile shape (integration gate 3: the whole sweep in one test overran the suite's 120 s wall-clock
+    timeout on a loaded machine; the per-call CPU-time bound decides, unchanged)."""
+    assert not sweep(_ledger_entries, texts=one(shape))
 
 
 def _ledger_check_entries(text: str):
@@ -338,11 +345,19 @@ def _ledger_check_entries(text: str):
     yield "check_synthesis_ledger(text)", lambda: check_synthesis_ledger([rep], _synthesis([rep], [("s0", _SOURCE, ["h1.1"], "carried")], text=_SOURCE + " " + text))
     yield "check_synthesis_ledger(claim)", lambda: check_synthesis_ledger([rep], _synthesis([rep], [("s0", claim, ["h1.1"], "paraphrased")]))
     yield "check_synthesis_ledger(source)", lambda: check_synthesis_ledger([rep_hostile], _synthesis([rep_hostile], [("s0", _SOURCE, ["h1.1"], "paraphrased")]))
+    # integration gate 3: one hostile source claim cited by eight synthesized claims (its figures were read again for every
+    # figure and for every citing claim)
+    yield "check_synthesis_ledger(source cited 8 times)", lambda: check_synthesis_ledger(
+        [rep_hostile], _synthesis([rep_hostile], [(f"s{i}", _SOURCE, ["h1.1"], "paraphrased") for i in range(8)]))
 
 
-def test_sweep_check_synthesis_ledger():
+_CHECK_SHAPES = tuple(k for k in SHAPES if not k.startswith(("braces", "fence")))
+
+
+@pytest.mark.parametrize("shape", _CHECK_SHAPES)
+def test_sweep_check_synthesis_ledger(shape):
     """The ledger check on a synthesis whose text, synthesized claim or cited source claim is a hostile input (a claim is at
-    most 4,000 characters, so the first 3,900 are used there). The contract refuses some of these texts (a blank claim
-    text): a refusal is a ValueError, which is allowed."""
-    texts = {k: v for k, v in inputs().items() if not k.startswith(("braces", "fence"))}
-    assert not sweep(_ledger_check_entries, bound=12.0, texts=texts)
+    most 4,000 characters, so the first 3,900 are used there: the formula constants of integration gate 3 at the claim
+    cap). The contract refuses some of these texts (a blank claim text): a refusal is a ValueError, which is allowed. One
+    test per shape (integration gate 3)."""
+    assert not sweep(_ledger_check_entries, bound=12.0, texts=one(shape))

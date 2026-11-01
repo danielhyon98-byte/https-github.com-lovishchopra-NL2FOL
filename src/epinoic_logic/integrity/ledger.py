@@ -193,16 +193,32 @@ def _word_figures(text: str, *, pairing: bool = False) -> list[tuple[int, int, s
     words (two to ten) count after a word of comparison or measure ("under nine"); with ``pairing`` also before a plural
     noun ("ten hours"), the reading the pairing comparison uses."""
     out: list[tuple[int, int, str, Optional[str], str]] = []
-    taken: list[tuple[int, int]] = []
+    # The spans already taken, one layer per reader: each layer's spans come from successive matches of one pattern, so
+    # they are sorted and disjoint and a span (a, b) meets one of them exactly when the last span starting before b ends
+    # after a: one bisection per layer, never a scan of every taken span for every small number word (integration gate
+    # 3: quadratic in a long text of number words).
+    layers: list[tuple[list[int], list[int]]] = [([], [])]
     for m in _WORD_FIGURE_RE.finditer(text):
-        taken.append((m.start(), m.end()))
+        layers[0][0].append(m.start())
+        layers[0][1].append(m.end())
+
+    def meets(a: int, b: int) -> bool:
+        for starts, ends in layers:
+            i = bisect_left(starts, b) - 1
+            if i >= 0 and ends[i] > a:
+                return True
+        return False
+
     extra: list[tuple[int, int, str, Optional[str], str]] = []
     for rx, group in ((_SMALL_AFTER_RE, "anum"),) + (((_SMALL_BEFORE_NOUN_RE, "bnum"),) if pairing else ()):
+        layer: tuple[list[int], list[int]] = ([], [])
+        layers.append(layer)
         for m in rx.finditer(text):
             a, b = m.start(group), m.end(group)
-            if any(x < b and a < y for x, y in taken):
+            if meets(a, b):
                 continue
-            taken.append((a, b))
+            layer[0].append(a)
+            layer[1].append(b)
             extra.append((a, b, str(_SMALL_VALUES[m.group(group)]), None, m.group(group)))
     for m in _WORD_FIGURE_RE.finditer(text):
         g = m.groupdict()
@@ -1155,6 +1171,65 @@ def substituted_names(synthesized_text: str, source_texts: list[str], transforma
     return out
 
 
+#: Words a text of the exchange states, read once per ledger check for the introduced-name rule: every word of the reports
+#: in scope (their responses, claims and supplied texts), the request's texts, the subjects and the agent ids, folded as
+#: name words (:func:`_name_word`).
+_WORD_RUN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+
+
+def _exchange_words(texts: Iterable[str]) -> set[str]:
+    """The name words (:func:`_name_word`) of ``texts``: one pass per text, each distinct word folded once."""
+    raw: set[str] = set()
+    for t in texts:
+        if t:
+            raw.update(_WORD_RUN_RE.findall(t))
+    return {_name_word(w) for w in raw}
+
+
+#: A capitalised word with the ending of an adjective of nationality or place ("German", "Italian", "Japanese", "British",
+#: "Celtic", "Iraqi"): before a lower-case noun it describes, it names no actor (rule name-introduction).
+_DEMONYM_RE = re.compile(r"[A-Z][a-z]+(?:an|ian|ean|ese|ish|ic|i)")
+#: Words that refer to a part of the task or of a text ("Source A", "Paper 2", "Table 1", "Question 3"), never an actor of the
+#: claim's events (rule name-introduction), and a short acronym ("IB", "HL", "UK", "GDP"), which a paraphrase may write for a
+#: name its sources spell out: neither is read as an introduced name.
+_TASK_REFERENCE_WORDS = frozenset(light_stem(w) for w in ("source sources paper papers table tables figure figures fig question questions section sections part "
+                                                         "parts chapter chapters extract extracts passage passages document documents text texts item items "
+                                                         "criterion criteria appendix page pages line lines stanza stanzas paragraph paragraphs unit units "
+                                                         "topic topics option options case study studies").split())
+_SHORT_ACRONYM_RE = re.compile(r"[A-Z]{2,3}s?")
+
+
+def introduced_names(synthesized_text: str, source_texts: list[str], transformation: str, *, stated_elsewhere: set[str],
+                     context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """Rule ``name-introduction`` (INT-LEDGER-032, integration gate 3): a 'carried', 'paraphrased' or 'merged' claim that names
+    a person, a place or a body (a run of capitalised words, read as :func:`substituted_names` reads names: titles, months,
+    weekdays, a credit to a specialist of the exchange and a single sentence-initial word no text writes capitalised
+    elsewhere are no names) none of whose identifying words its cited sources state, nor any text of the exchange
+    (``stated_elsewhere``: the reports in scope, their supplied texts, the request, the subjects and agents). The
+    combinator's rule 1 allows no new name: "The Dawes Plan of 1924, negotiated by Hjalmar Schacht, ...", "the Kapp Putsch
+    in Munich", "backed by the League of Nations". A name the exchange states anywhere (a place the request names, a body a
+    supplied text names) is not introduced. Names inside the claim's quotations are the quotation rule's. Returns the names
+    as written."""
+    if transformation not in _NAME_HELD_LABELS or not source_texts or not synthesized_text:
+        return []
+    mid_caps = _mid_capitalised([synthesized_text, *source_texts, *context_texts])
+    stated = _stated_words(source_texts)
+    out: list[str] = []
+    seen: set[tuple[str, ...]] = set()
+    for ident, surface, _slots in _actors(synthesized_text, mid_caps):
+        if ident[0] in _ACTOR_PRONOUNS or ident in seen:
+            continue
+        seen.add(ident)
+        if any(w in stated or w in stated_elsewhere for w in ident):
+            continue
+        if len(ident) == 1 and _DEMONYM_RE.fullmatch(surface) and re.search(r"(?<![\w'’-])" + re.escape(surface) + r"\s+[a-z]", synthesized_text):
+            continue  # an adjective of nationality or place before a noun ("the German currency", "American loans"): no actor
+        if all(w in _TASK_REFERENCE_WORDS for w in ident) or all(_SHORT_ACRONYM_RE.fullmatch(x) for x in surface.split()):
+            continue  # a part of the task or of a text ("Source A", "Paper 2"), or a short acronym ("UK", "GDP")
+        out.append(surface)
+    return out
+
+
 def figure_pairing_differences(synthesized_text: str, source_texts: list[str], *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
     """How ``synthesized_text`` pairs its figures and dates differently from ``source_texts`` while using the same
     tokens: a combinator that swaps two dates or two figures between events passes a token-set comparison, so the
@@ -1463,10 +1538,22 @@ def _align_tokens(text: str) -> list[tuple[str, str]]:
     return out
 
 
+#: A multiplier stated as a verb or an adverb ("prices doubled", "tripled", "halved", "a tenfold rise"): the count it states
+#: (integration gate 3), so "roughly doubled" restated as "roughly tripled" is a changed figure, not a synonym of a rise.
+_MULTIPLIER_WORDS = {**{w: 2 for w in ("double", "doubled", "doubles", "doubling", "twofold")},
+                     **{w: 3 for w in ("triple", "tripled", "triples", "tripling", "treble", "trebled", "trebles", "trebling", "threefold")},
+                     **{w: 4 for w in ("quadruple", "quadrupled", "quadruples", "quadrupling", "fourfold")},
+                     **{w: 5 for w in ("quintuple", "quintupled", "quintuples", "quintupling", "fivefold")},
+                     "sixfold": 6, "sevenfold": 7, "eightfold": 8, "ninefold": 9, "tenfold": 10, "hundredfold": 100, "thousandfold": 1000,
+                     **{w: 0.5 for w in ("halve", "halved", "halves", "halving")}}
+
+
 def _cardinal(key: str, surface: str) -> Optional[float]:
     low = surface.casefold()
     if low in _CARDINAL_WORDS:
         return float(_CARDINAL_WORDS[low])
+    if low in _MULTIPLIER_WORDS:
+        return float(_MULTIPLIER_WORDS[low])
     if key[:1].isdecimal() and not key.endswith("s"):
         try:
             return float(key)
@@ -1893,6 +1980,7 @@ def meaning_inversions(synthesized_text: str, source_texts: list[str], transform
 #: do not show", "rather than one the data show", "inferred ... rather than measured").
 _HEDGE_RE = re.compile(
     r"\b(?:suggest(?:s|ed|ing)?|(?:may|might|could)\s+(?:have|be)\b|possibly|probably|perhaps|likely|unlikely|appears?\s+to|seems?\s+to|apparently|arguably|"
+    r"reportedly|allegedly|supposedly|purportedly|reputedly|seemingly|ostensibly|(?:is|are|was|were)\s+(?:said|reported|alleged|thought|believed)\s+to|"
     r"tentative(?:ly)?|uncertain|unclear|unconfirmed|provisional(?:ly)?|inferred|presumably|plausibl[ey]|"
     r"(?:do|does|did)\s+not\s+(?:show|measure|prove|confirm)|not\s+(?:measured|shown|proven|proved|confirmed)|cannot\s+(?:be\s+)?(?:measured|confirmed|shown|proven)|"
     r"rather\s+than\s+(?:one|what|something)\s+(?:that\s+)?the\s+(?:data|evidence|table|figures?)\s+(?:show|shows|prove|proves|measure|measures))\b", re.IGNORECASE)
@@ -1921,10 +2009,16 @@ _IRREGULAR_FORMS: dict[str, str] = {form: base for base, forms in {
 }.items() for form in forms.split()}
 
 
+def _loose_key(key: str) -> str:
+    """A content key with a final 'e' dropped ("vote" and "voted" meet at "vot", as "voted" and "voting" already do), for
+    the restatement test only (integration gate 3: "Workers tended to vote SPD" was not restated by "Workers voted SPD")."""
+    return key[:-1] if len(key) > 3 and key.endswith("e") else key
+
+
 def _restating_keys(text: str) -> set[str]:
-    """The content keys of ``text`` (:func:`_content_keys`) with every irregular form read as its verb (:data:`_IRREGULAR_FORMS`):
-    the keys a statement and its restatement are compared by."""
-    return {_akey(_IRREGULAR_FORMS.get(w, w)) for w in _words(text)
+    """The content keys of ``text`` (:func:`_content_keys`) with every irregular form read as its verb (:data:`_IRREGULAR_FORMS`)
+    and a final 'e' dropped (:func:`_loose_key`): the keys a statement and its restatement are compared by."""
+    return {_loose_key(_akey(_IRREGULAR_FORMS.get(w, w))) for w in _words(text)
             if len(w) >= 3 and w not in _ALIGN_STOP and _akey(w) not in _ALIGN_STOP}
 
 
@@ -2065,8 +2159,30 @@ def _restates(keys: set[str], text: str) -> bool:
 #: A frequency or generality qualifier (the instructions' rule 4: "Never make a claim ... wider ... than its source"):
 #: "usually", "often", "generally", "typically", "mostly", "largely", "frequently", "normally", "in most cases", "tends to".
 #: "generally" before an adjective of agreement ("generally accepted") qualifies the agreement and is read the same way.
+#: Integration gate 3: a frequency phrase ("every few days", "from time to time", "now and then") is one too, and so are the
+#: degree phrases that state 'largely' or 'mostly' in other words ("to a large extent", "in large part", "mainly", "chiefly"),
+#: so a qualifier kept in other words is kept ("largely stabilised" -> "stabilised ... to a large extent" is clean) and one
+#: of them dropped is named.
 _FREQUENCY_RE = re.compile(r"\b(?:usually|often|generally|typically|mostly|largely|frequently|normally|commonly|sometimes|occasionally|rarely|seldom"
+                           r"|mainly|chiefly|predominantly|primarily|principally|in\s+the\s+main|by\s+and\s+large"
+                           r"|to\s+an?\s+(?:large|great|considerable|significant|high)\s+(?:extent|degree)|in\s+(?:large|great)\s+part"
+                           r"|every\s+(?:few|couple\s+of|other)\s+(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)|from\s+time\s+to\s+time|now\s+and\s+(?:then|again)"
+                           r"|at\s+times|on\s+occasions?"
                            r"|in\s+(?:most|many|some)\s+cases|for\s+the\s+most\s+part|tends?\s+to|tended\s+to)\b", re.IGNORECASE)
+#: An approximation in front of a word that is no figure ("Prices roughly doubled", "nearly collapsed", "almost all",
+#: "virtually unknown"; integration gate 3): the statement is approximate, and a restatement that drops it, or puts
+#: "exactly" or "fully" in its place, reads as exact. In front of a figure it is :data:`_APPROXIMATOR`'s rule.
+_WORD_APPROX_RE = re.compile(r"\b(?:roughly|nearly|almost|approximately|virtually|practically|more\s+or\s+less)\s+(?!(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten"
+                             r"|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million|billion|half|third|quarter|[$£€¥])\b|[$£€¥\d])(?=[^\W\d_])", re.IGNORECASE)
+#: Any approximation a restatement may keep the statement's with ("about", "around", "some" besides the words above).
+_ANY_APPROX_RE = re.compile(r"\b(?:roughly|nearly|almost|approximately|approx\.|virtually|practically|more\s+or\s+less|about|around|close\s+to|circa|some)\b", re.IGNORECASE)
+#: A quantifier that restricts a statement to part of a group ("a minority of", "a few", "a handful of", "a small number of";
+#: integration gate 3): a restatement that states it of the whole group (a bare plural), of "many", "half" or "most" reads wider.
+_PART_QUANTIFIER_RE = re.compile(r"\b(?:a\s+(?:small\s+|tiny\s+)?minority\s+of|a\s+handful\s+of|a\s+small\s+(?:number|share|proportion|fraction|part)\s+of"
+                                 r"|a\s+fraction\s+of|(?<!\bevery\s)(?:a\s+)?few(?:\s+of)?(?!\s+(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?|decades?|times)\b))\b",
+                                 re.IGNORECASE)
+#: What keeps a part quantifier in a restatement: any word of part or restriction.
+_PART_KEPT_RE = re.compile(r"\b(?:minority|few|handful|small\s+(?:number|share|proportion|fraction|part)|fraction|some|only|part\s+of|not\s+all|limited)\b", re.IGNORECASE)
 #: A bound in front of a figure ("at least 6 million", "up to 30 per cent", "no more than 12", "a minimum of 40"): the figure
 #: is a limit, not the quantity, so the same figure stated with no bound reads as exact. "More than" and "over" compare and
 #: are not read here (`_APPROXIMATOR`'s note: their figure may be exact).
@@ -2161,10 +2277,44 @@ def dropped_qualifiers(synthesized_text: str, source_texts: list[str]) -> list[s
                     words = ", ".join(repr(" ".join(m.group(0).split())) for m in frequencies[:3])
                     out.append(f"it drops the qualifier {words} its cited sources state (in '{shown}'), so the statement reads wider than its sources "
                                "(a frequency or generality qualifier)")
+            # An approximation of a word, or a quantifier of part of a group, is dropped only where the restating clause
+            # keeps the word it qualifies ("Prices roughly doubled" -> "Prices doubled"; "a minority of Germans" -> "Germans"):
+            # a clause that leaves the qualified word out altogether ("grew from almost nothing" summarised without
+            # "nothing") states nothing it qualified.
+            approximations = list(_WORD_APPROX_RE.finditer(masked))
+            if approximations:
+                keys = _restating_keys(_WORD_APPROX_RE.sub(" ", clause))
+                scopes = {k for k in (_qualified_key(masked, m.end()) for m in approximations) if k}
+                restating = [y for y in syn_clauses if _restates(keys, y) and scopes & _restating_keys(y)]
+                if restating and not any(_ANY_APPROX_RE.search(mask_quotations(y)) for y in restating):
+                    words = ", ".join(repr(" ".join(m.group(0).split())) for m in approximations[:3])
+                    out.append(f"it drops the qualifier {words} its cited sources state (in '{shown}'), so an approximate statement reads as exact")
+            parts = [m for m in _PART_QUANTIFIER_RE.finditer(masked)]
+            if parts:
+                keys = _restating_keys(_PART_QUANTIFIER_RE.sub(" ", clause))
+                scopes = {k for k in (_qualified_key(masked, m.end()) for m in parts) if k}
+                restating = [y for y in syn_clauses if _restates(keys, y) and scopes & _restating_keys(y)]
+                widened = [y for y in restating if not _PART_KEPT_RE.search(mask_quotations(y)) and not _MAJORITY_RE.search(mask_quotations(y))]
+                if widened and len(widened) == len(restating):
+                    words = ", ".join(repr(" ".join(m.group(0).split())) for m in parts[:3])
+                    out.append(f"it drops the qualifier {words} its cited sources state (in '{shown}'): the statement is made of a wider group than its sources")
             out += _reversed_majorities(clause, masked, shown, syn_clauses)
     out += _dropped_approximations(synthesized_text, source_texts)
     out += _dropped_bounds(synthesized_text, source_texts)
     return list(dict.fromkeys(out))
+
+
+_QUALIFIED_WORD_RE = re.compile(r"\s*+(?:(?:the|a|an|of|its|their|his|her)\s++){0,2}(?P<w>[^\W\d_][\w'’-]*+)")
+
+
+def _qualified_key(text: str, end: int) -> Optional[str]:
+    """The restating key (:func:`_restating_keys`) of the word a qualifier ending at ``end`` qualifies: the next word,
+    past up to two articles or determiners ("almost all", "roughly doubled", "a minority of the Germans")."""
+    m = _QUALIFIED_WORD_RE.match(text, end, min(len(text), end + 80))
+    if m is None:
+        return None
+    keys = _restating_keys(m.group("w"))
+    return next(iter(keys)) if keys else None
 
 
 def _reversed_majorities(clause: str, masked: str, shown: str, syn_clauses: list[str]) -> list[str]:
@@ -2294,8 +2444,13 @@ def _approx_phrases(text: str) -> list[tuple[str, str]]:
 
 
 #: "more X than Y", "less X than Y": the two sides of a comparison, read up to the end of the clause.
-_COMPARISON_RE = re.compile(r"\b(?P<cmp>more|less|rather)\s+(?P<x>[^,;:.!?()]{3,80}?)\s+than\s+(?P<y>[^,;:.!?()]{3,80}?)(?=\s*(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
-_RATHER_THAN_RE = re.compile(r"(?P<x>(?:[^\W\d_]+(?:['’-][^\W\d_]+)*\s+){1,6}?)rather\s+than\s+(?P<y>[^,;:.!?()]{3,80}?)(?=\s*(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
+#: The blank runs are possessive and "X rather than" starts at a word's start (integration gate 3): a blank run after "more",
+#: "less" or "rather" was split every way between the run and the side after it (10 s for one 3,900-character source
+#: claim, read again for every synthesized claim citing it), and every letter of a long word started a reading of the
+#: rest of the word. A side is still read lazily within 80 characters; a side the old form could start with blanks
+#: holds at most two other characters, which give no content stem, so every comparison read is the one read before.
+_COMPARISON_RE = re.compile(r"\b(?P<cmp>more|less|rather)\s++(?P<x>[^,;:.!?()]{3,80}?)\s++than\s++(?P<y>[^,;:.!?()]{3,80}?)(?=\s*+(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
+_RATHER_THAN_RE = re.compile(r"(?<![^\W\d_])(?P<x>(?:[^\W\d_]+(?:['’-][^\W\d_]+)*+\s++){1,6}?)rather\s++than\s++(?P<y>[^,;:.!?()]{3,80}?)(?=\s*+(?:[,;:.!?()]|$|\b(?:but|so|while|whereas|because|when|which)\b))", re.IGNORECASE)
 
 
 def _content_keys(text: str) -> set[str]:
@@ -2523,6 +2678,23 @@ def _power_figures(text: str) -> list[tuple[int, int, str, tuple[str, ...], str]
     return out
 
 
+def _blank_union(text: str, spans: list[tuple[int, int]]) -> str:
+    """``text`` with the union of ``spans`` blanked (same length): what blanking each span in turn gives, in one pass."""
+    if not spans:
+        return text
+    parts: list[str] = []
+    at = 0
+    for start, end in sorted(spans):
+        start = max(start, at)
+        if end <= start:
+            continue
+        parts.append(text[at:start])
+        parts.append(" " * (end - start))
+        at = end
+    parts.append(text[at:])
+    return "".join(parts)
+
+
 def _figures(text: str) -> list[_Figure]:
     """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
     figures in scientific notation (one figure each, :func:`_scientific_figures`), whole-number powers ("10³", "10^6":
@@ -2537,18 +2709,26 @@ def _figures(text: str) -> list[_Figure]:
     plain = _ungroup(_strip_list_markers(text))
     out: list[_Figure] = []
     masked = plain
+    # Each stage blanks the figures it read before the next stage reads the text, in one pass per stage (integration gate
+    # 3: the text was rebuilt once per figure, quadratic in a long synthesis text of figures).
     if "10" in plain or "e" in plain or "E" in plain:
+        spans: list[tuple[int, int]] = []
         for start, end, exact, spellings, surface in _scientific_figures(plain):
             if exact is not None:
                 out.append(_Figure(exact, None, surface, tuple(spellings)))
-            masked = masked[:start] + " " * (end - start) + masked[end:]
+            spans.append((start, end))
+        masked = _blank_union(masked, spans)
     if "^" in masked or "**" in masked or not masked.isascii():
+        spans = []
         for start, end, mantissa, spellings, surface in _power_figures(masked):
             out.append(_Figure(mantissa, None, surface, spellings))
-            masked = masked[:start] + " " * (end - start) + masked[end:]
+            spans.append((start, end))
+        masked = _blank_union(masked, spans)
+    spans = []
     for start, end, mantissa, scale, surface in _word_figures(masked):
         out.append(_Figure(mantissa, scale, " ".join(surface.split())))
-        masked = masked[:start] + " " * (end - start) + masked[end:]
+        spans.append((start, end))
+    masked = _blank_union(masked, spans)
     for m in _FIGURE_RE.finditer(masked):
         tok = m.group(0)
         if tok.endswith("s"):  # a decade ("1840s", "1840's"): one date, never scaled
@@ -2647,15 +2827,23 @@ def credited_date_repairings(stated: str, peer_text: str) -> list[str]:
 #: Figures a source states that are no content of its own: a formula constant ("× 100", "÷ 10", "/ 1000"), a reference to
 #: a part of a text or a task ("paragraph 1", "part 2", "line 14", "Table 1", "Paper 2", "question 3", "stanza 4") and a
 #: mark annotation ("[1]", "[2 marks]", "[1 spare]"). A synthesis that leaves them out drops no figure (INT-LEDGER-024).
+#: Every blank run is possessive (integration gate 3): the runs before and after the optional "marks" of an annotation
+#: met only through it, so "[1" before a long blank run backtracked through every split of the run (quadratic); a blank
+#: run can never be needed by the item after it, so every match is the one the backtracking form found.
 _INCIDENTAL_FIGURE_RE = re.compile(
-    r"(?:[×÷*/x]\s*(?P<k>10{1,3})(?![\d.,]))"
-    r"|(?:\b(?:paragraphs?|paras?|parts?|lines?|stanzas?|sections?|tables?|figures?|figs?\.?|diagrams?|questions?|papers?|items?|pages?|pp?\.|steps?|criteri(?:on|a)|units?|topics?)\s+(?P<r>\d{1,3})(?![\d.,]\d))"
-    r"|(?:\[\s*(?P<m>\d{1,2})\s*(?:marks?|spare)?\s*\])", re.IGNORECASE)
+    r"(?:[×÷*/x]\s*+(?P<k>10{1,3})(?![\d.,]))"
+    r"|(?:\b(?:paragraphs?|paras?|parts?|lines?|stanzas?|sections?|tables?|figures?|figs?\.?|diagrams?|questions?|papers?|items?|pages?|pp?\.|steps?|criteri(?:on|a)|units?|topics?)\s++(?P<r>\d{1,3})(?![\d.,]\d))"
+    r"|(?:\[\s*+(?P<m>\d{1,2})\s*+(?:marks?|spare)?\s*+\])", re.IGNORECASE)
 
 
 def incidental_figures(text: str) -> set[str]:
     """The labels of the figures of ``text`` that are formula constants, references to a part of a text or task, or mark
-    annotations (:data:`_INCIDENTAL_FIGURE_RE`), unless the same numeral also stands in ``text`` as content elsewhere."""
+    annotations (:data:`_INCIDENTAL_FIGURE_RE`), unless the same numeral also stands in ``text`` as content elsewhere.
+
+    Linear in ``text`` (integration gate 3): whether a figure stands inside an incidental span is one bisection over the
+    spans' starts (they are the group spans of successive matches, so they are sorted and disjoint, and the span holding
+    a position is the last one starting at or before it), never a scan of every span for every figure, which made a claim
+    of formula constants ("× 10" repeated) quadratic here and cubic in the ledger check."""
     plain = _ungroup(text)
     out: set[str] = set()
     spans: list[tuple[int, int]] = []
@@ -2667,9 +2855,15 @@ def incidental_figures(text: str) -> set[str]:
             spans.append(m.span(key))
     if not out:
         return out
+    starts = [a for a, _b in spans]
     for m in _FIGURE_RE.finditer(plain):  # the numeral stated as content somewhere else keeps its place
-        if m.group(0) in out and not any(a <= m.start() < b for a, b in spans):
+        if m.group(0) not in out:
+            continue
+        i = bisect_right(starts, m.start()) - 1
+        if i < 0 or m.start() >= spans[i][1]:
             out.discard(m.group(0))
+            if not out:
+                break
     return out
 
 
@@ -2711,21 +2905,83 @@ def figure_tokens(text: str) -> set[str]:
     return {f.mantissa for f in _figures(text)}
 
 
+#: Counts and relative dates written in words that the figure reader leaves to prose (integration gate 3: an added "which
+#: lasted four days", "three in ten", "in which dozens died", "signed two years later", "a decade later" was no introduced
+#: figure). A small count is read before a noun of time, of people or of a political count only ("four days", "nine
+#: deaths", "two seats"), never after a determiner ("the two poems") and never before a word of the exchange itself
+#: ("two specialists"), so a synthesis that counts what its sources list is not charged a figure.
+_COUNT_NOUNS = (r"(?:seconds|minutes|hours|days|weeks|months|years|decades|centuries|times|people|persons|men|women|children|workers|soldiers|troops|deaths"
+                r"|dead|casualties|victims|prisoners|members|deputies|voters|votes|seats|strikes|battles|ships|divisions|regiments|states|countries|nations"
+                r"|parties|ministers|governments|elections|wars|attempts|riots)")
+_COUNT_WORD_RE = re.compile(r"(?<!\bthe )(?<!\bthese )(?<!\bthose )(?<!\bits )(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\bour )"
+                            rf"\b(?P<n>(?-i:two|three|four|five|six|seven|eight|nine|ten))\s+(?=(?-i:{_COUNT_NOUNS})\b)", re.IGNORECASE)
+_RATIO_WORDS_RE = re.compile(r"\b(?P<a>one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:in|out\s+of)\s+(?P<b>two|three|four|five|six|seven|eight|nine|ten|twenty|a\s+hundred|\d{1,4})\b",
+                             re.IGNORECASE)
+_VAGUE_COUNT_RE = re.compile(r"(?<![\w-])(?<!\d )(?P<v>dozens|scores|hundreds|thousands|millions)\b", re.IGNORECASE)
+_RELATIVE_DATE_RE = re.compile(r"\b(?P<n>a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|fifty|a\s+few|several|\d{1,3})\s+"
+                               r"(?P<u>years?|decades?|centur(?:y|ies)|months?|weeks?|days?|generations?)\s+(?P<d>later|earlier|after(?:wards)?|before|on)\b", re.IGNORECASE)
+_RELATIVE_VALUES = {"a": "1", "an": "1", "a few": "few", "several": "several", **{w: str(v) for w, v in _CARDINAL_WORDS.items() if isinstance(v, int)}}
+
+
+def _count_figures(text: str) -> list[_Figure]:
+    """The counts and relative dates of ``text`` written in words that :func:`_figures` leaves to prose (:data:`_COUNT_WORD_RE`,
+    :data:`_RATIO_WORDS_RE`, :data:`_VAGUE_COUNT_RE`, :data:`_RELATIVE_DATE_RE`), quotations masked; for the introduced-figure
+    rule only (integration gate 3). One pass per pattern."""
+    from ..adapters.markdown import mask_quotations
+    if not text:
+        return []
+    plain = mask_quotations(text)
+    out: list[_Figure] = []
+    taken: list[tuple[int, int]] = []
+    for m in _RELATIVE_DATE_RE.finditer(plain):
+        n = " ".join(m.group("n").split()).casefold()
+        unit = m.group("u").casefold().rstrip("s").replace("centurie", "century").replace("centuri", "century")
+        direction = m.group("d").casefold().replace("afterwards", "after")
+        value = _RELATIVE_VALUES.get(n, n)
+        label = " ".join(text[m.start():m.end()].split())
+        out.append(_Figure(f"{value} {unit} {direction}", None, label, (f"{value} {unit}s {direction}",)))
+        taken.append(m.span())
+    starts = [a for a, _b in taken]
+
+    def inside(pos: int) -> bool:
+        k = bisect_right(starts, pos) - 1
+        return k >= 0 and pos < taken[k][1]
+
+    for m in _COUNT_WORD_RE.finditer(plain):
+        if not inside(m.start("n")):
+            out.append(_Figure(str(_SMALL_VALUES[m.group("n").casefold()]), None, m.group("n")))
+    for m in _RATIO_WORDS_RE.finditer(plain):
+        if inside(m.start()):
+            continue
+        for g in ("a", "b"):
+            word = " ".join(m.group(g).split()).casefold()
+            value = "100" if word == "a hundred" else word if word.isdecimal() else str(_CARDINAL_WORDS.get(word, word))
+            out.append(_Figure(value, None, " ".join(m.group(g).split())))
+    for m in _VAGUE_COUNT_RE.finditer(plain):
+        if not inside(m.start()):
+            out.append(_Figure(m.group("v").casefold(), None, m.group("v"), (m.group("v").casefold().rstrip("s"),)))
+    return out
+
+
 def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str], list[str]]:
     """``(introduced, dropped, rescaled)``: the synthesized claim's figures that occur in no source under any spelling,
     the sources' figures the claim does not state, and the claim's figures whose scale word differs from every scale the
     sources state that numeral with ("6.1 billion" where the sources say "6.1 million"; a numeral the sources state
-    without a scale word is not held to one, since "from 1.9 to 6.1 million" elides the first figure's scale)."""
+    without a scale word is not held to one, since "from 1.9 to 6.1 million" elides the first figure's scale). The
+    introduced figures include the counts and relative dates written in words (:func:`_count_figures`; integration gate 3),
+    held to every figure and count the sources state."""
     syn = _figures(synthesized_text)
     src = [f for t in source_texts for f in _figures(t)]
     src_keys = set().union(*(f.keys for f in src)) if src else set()
+    syn_counts = _count_figures(synthesized_text)
+    src_count_keys = set().union(*(f.keys for t in source_texts for f in _count_figures(t))) if source_texts else set()
     syn_keys = set().union(*(f.keys for f in syn)) if syn else set()
     # A source in another language states its figures in its own words ("doce vecinos"): a faithful "twelve" is no
     # introduced figure.
     foreign = set().union(*(foreign_number_values(t) for t in source_texts)) if source_texts else set()
     # A magnitude restated without its sign is the source's figure (:func:`magnitude_keys`); an added or reversed sign is not.
-    src_known = magnitude_keys(src_keys)
-    introduced = _sorted_tokens({f.label for f in syn if not (f.keys & (src_known | foreign))})
+    src_known = magnitude_keys(src_keys | src_count_keys)
+    introduced = _sorted_tokens({f.label for f in syn + syn_counts if not (f.keys & (src_known | foreign))})
     dropped = _sorted_tokens({f.label for f in src if not (magnitude_keys(f.keys) & syn_keys)})
     rescaled: list[str] = []
     for f in syn:
@@ -3246,6 +3502,48 @@ _DOCUMENT_KIND_WORDS = frozenset(("table chart graph leaflet source extract exce
                                   "article letter speech").split())
 
 
+#: A statement credited to a person by a reporting verb after the name, with up to two intensifiers between them
+#: (integration gate 3): "Kapp admitted that only a minority ...", "Stresemann himself said he probably saved ...", "Bismarck
+#: later conceded that ...". The shared reader (``adapters.sources.unquoted_credits``) reads "X claimed that ..." and "As X
+#: put it, ..."; these forms it leaves out. The name is read up to the intensifier or the verb, the statement to the end of
+#: its clause; every run is possessive and every repetition bounded.
+_REPORTED_SPEECH_RE = re.compile(
+    r"(?:^|(?<=[.;:!?]\s)|(?<=\n)|(?<=,\s))(?P<x>(?:[A-Z][\w'’-]*+\s++){0,2}[A-Z][\w'’-]*+)\s++"
+    r"(?:(?:himself|herself|themselves|itself|later|openly|publicly|privately|once|also|even|then|repeatedly|famously|freely|reluctantly)\s++){0,2}"
+    r"(?P<v>said|says|admitted|admits|conceded|concedes|acknowledged|acknowledges|confessed|confesses|insisted|insists|stated|wrote|argued|claimed|maintained"
+    r"|asserted|asserts|declared|recalled|recalls|boasted|boasts|complained|complains|announced|announces|promised|promises|warned|warns|predicted"
+    r"|predicts|denied|denies|explained|remarked|remarks)\b(?:\s++that\b)?\s++(?P<content>[^.;!?]{8,600})")
+
+
+def _reported_speech_credits(text: str, name_texts: list[str]) -> list:
+    """The statements ``text`` credits to a named person by a reporting verb after the name (:data:`_REPORTED_SPEECH_RE`),
+    as ``adapters.sources.UnquotedCredit``. A one-word name opening its sentence is a name only when ``name_texts`` (the
+    synthesized claim and its cited sources) never write it in lower case ("Stresemann", "Kapp"; "Workers said" is prose),
+    and a name of a group or a pronoun (:data:`_NOT_A_NAME`) is none. Quotations are masked."""
+    from ..adapters.markdown import mask_quotations
+    from ..adapters.sources import UnquotedCredit
+    if not text:
+        return []
+    masked = mask_quotations(text)
+    lower = None
+    out = []
+    for m in _REPORTED_SPEECH_RE.finditer(masked):
+        words = re.findall(r"[^\W\d_][\w'’-]*", text[m.start("x"):m.end("x")])
+        names = [w for w in words if w.casefold() not in _NOT_A_NAME and w.casefold() not in _TITLE_WORDS]
+        if not names:
+            continue
+        if len(words) == 1:
+            if lower is None:
+                lower = {w for t in name_texts for w in _WORD_RUN_RE.findall(t or "") if w[:1].islower()}
+            if words[0].casefold() in {w.casefold() for w in lower}:
+                continue
+        source = " ".join(text[m.start("x"):m.end("x")].split())
+        content = " ".join(text[m.start("content"):m.end("content")].split()).strip(" ,;:")
+        if source and len(content) >= 8:
+            out.append(UnquotedCredit(source, content))
+    return out
+
+
 def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistReport], agents: list[str]) -> list[str]:
     """A statement a synthesized claim credits, without quotation marks, to a named source ("The Treaty of Versailles
     states that Article 48 probably allowed ...", "According to Keynes, ...", "In the words of the treaty, ...";
@@ -3257,6 +3555,8 @@ def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistRe
     as the source is the view-credit rule's (:func:`_view_credit`) or the self-report rule's."""
     from ..adapters.sources import document_mentions, is_peer_text, specialist_names, unquoted_credits
     credits = unquoted_credits(text)
+    read = {c.source.casefold() for c in credits}
+    credits += [c for c in _reported_speech_credits(text, [text, *(c.claim_text for c in known)]) if c.source.casefold() not in read]
     if not credits:
         return []
     docs: dict[str, "SuppliedText"] = {}
@@ -3451,8 +3751,10 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
 
 
 #: What a branch adapter writes into ``unresolved_issues`` when it folded the claims beyond the contract limit into one tail
-#: claim (the channel reads the same words for INT-REQ-013): that claim holds unread content, not a note.
-_FOLDED_TAIL_RE = re.compile(r"\d+ (?:claims|sentences) beyond the report's claim limit \(\d+\) were merged into claim (?P<tail>\S+)")
+#: claim (the channel reads the same words for INT-REQ-013): that claim holds unread content, not a note. The count is read
+#: from the first digit of its run and taken whole, as the channel's pattern is (integration gate 3: searched from every
+#: digit of a long run, quadratic in an unresolved issue of any length; every match is the one the search found before).
+_FOLDED_TAIL_RE = re.compile(r"(?<!\d)\d++ (?:claims|sentences) beyond the report's claim limit \(\d++\) were merged into claim (?P<tail>\S+)")
 #: A note that qualifies the answer instead of certifying it: a from-memory label, an item said to be unverified, unchecked
 #: or unconfirmed, a check the writer could not make ("my sources do not confirm the figure"). The instructions ask that such
 #: a qualification stay with the claims it qualifies (rule 4), so a synthesized claim that keeps its words beside content is
@@ -3644,6 +3946,28 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         keys = set().union(*(f.keys for f in _figures(sc.text))) if sc.text else set()
         for cid in sc.source_claim_ids:
             carried_by_source.setdefault(cid, set()).update(keys)
+    # A cited source claim's figures and its incidental figures, read once per claim text for the whole check (integration
+    # gate 3: they were read again for every figure of the claim and for every synthesized claim citing it).
+    figures_of_text: dict[str, tuple[list[_Figure], set[str]]] = {}
+
+    def source_figures(claim: ClaimRecord) -> tuple[list[_Figure], set[str]]:
+        held = figures_of_text.get(claim.claim_text)
+        if held is None:
+            held = figures_of_text[claim.claim_text] = (_figures(claim.claim_text), incidental_figures(claim.claim_text))
+        return held
+
+    # The words every text of the exchange states (rule name-introduction), read once per check and only when a claim names
+    # someone its cited sources do not.
+    exchange_held: list[set[str]] = []
+
+    def exchange_words() -> set[str]:
+        if not exchange_held:
+            texts = [r.original_response for r in reports] + [c.claim_text for r in reports for c in r.claims] + [t.text for r in reports for t in r.supplied_texts]
+            texts += [f"{t.title or ''} {t.author or ''} {t.document_id}" for r in reports for t in r.supplied_texts]
+            texts += [r.subject for r in reports] + [r.agent_id.replace("-", " ") for r in reports] + list(extra_texts)
+            exchange_held.append(_exchange_words(texts))
+        return exchange_held[0]
+
     credit_docs = _credit_documents(reports, tuple(extra_texts))
     ref_problems = evidence_ref_problems(synthesis, reports, document_texts=document_texts, allowed_document_ids=allowed_document_ids)
     agents = sorted({r.agent_id for r in reports})
@@ -3684,8 +4008,8 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') gives evidence the task's texts do not hold: " + "; ".join(bad_refs[:8]),
                                       claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({r.document_id for r in sc.evidence_refs})))
         introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
-        dropped_figures = _sorted_tokens({f.label for c in known for f in _figures(c.claim_text) if not (magnitude_keys(f.keys) & carried_by_source.get(c.claim_id, set()))
-                                          and f.label not in incidental_figures(c.claim_text)})
+        dropped_figures = _sorted_tokens({f.label for c in known for figures, incidental in (source_figures(c),) for f in figures
+                                          if not (magnitude_keys(f.keys) & carried_by_source.get(c.claim_id, set())) and f.label not in incidental})
         repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
         word_counts, _meaning = aligned_differences(sc.text, [c.claim_text for c in known])
         reunited = unit_differences(sc.text, [c.claim_text for c in known])
@@ -3721,9 +4045,15 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             f.append(IntegrityFinding(code="INT-LEDGER-030", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
                                       + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         substituted = substituted_names(sc.text, [c.claim_text for c in known], sc.transformation, context_texts=_report_context(reports, known))
+        named_in = {n for d in substituted for n in re.findall(r"it names '([^']+)'", d)}
+        substituted += [f"it names '{n}', which none of its cited sources, the reports in scope, their supplied texts or the request states (an introduced name)"
+                        for n in introduced_names(sc.text, [c.claim_text for c in known], sc.transformation, stated_elsewhere=exchange_words(),
+                                                  context_texts=_report_context(reports, known)) if n not in named_in]
         if substituted:
+            rules = "rule name-substitution" if not any(d.endswith("(an introduced name)") for d in substituted) else (
+                "rule name-introduction" if all(d.endswith("(an introduced name)") for d in substituted) else "rules name-substitution and name-introduction")
             f.append(IntegrityFinding(code="INT-LEDGER-032", severity="error", message=f"synthesized claim ('{sc.transformation}') names an actor its cited sources {known_ids} do not "
-                                      "name (rule name-substitution): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
+                                      f"name ({rules}): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
                                       "cites does not state", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
         changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)

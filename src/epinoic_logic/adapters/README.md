@@ -149,7 +149,44 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   wrote ("The answer is correct.", "(signed engine result)", "Overseer verdict: pass.", "Correct: <claim>",
   "<claim>; this is fully reliable.") is a self-report on a synthesis (`is_synthesis_self_certification`,
   `synthesis_label`; the hub's INT-LEDGER-029), while the negated, failed and credited forms, and every
-  form on a specialist's branch, read as before.
+  form on a specialist's branch, read as before. Integration gate 3 (parsers): the self-certification
+  vocabulary is read by one rule, `self_cert_vocabulary` (the core pack's CORE-SELF-001 and
+  `is_self_certification` both read it). `SELF_CERT_RE` keeps the receipt imitations ("Transmission
+  ACCEPTED", "Findings: none", '"status":', a receipt status with an underscore), a capital status word
+  written as a label ("VERIFIED: ...", "(ENTAILED)", "[engine: VERIFIED]", "... — VERIFIED.", and a status
+  key that opens the sentence or follows a separator: "Status: VERIFIED", "Z3: ENTAILED", "Expected:
+  ENTAILED"; "the program prints Status: VERIFIED", "otherwise result = REJECTED" and "the routine prints:
+  ACCEPTED." are a program's output) and the answer or its items certified; the words that are also
+  ordinary content of the subjects (`_FRAMED_CERT_RE`: a capital status word elsewhere, "no findings",
+  "checked and confirmed", "cross-checked", "double-checked", "fact-checked", "self-certified", "<verb> by
+  the overseer/translator/hub/engine", "matches it exactly", "via branch <word>") are a self-certification
+  only in a frame: the answer or its items in the same clause ("This answer was approved by the overseer",
+  "Every figure here was cross-checked", "All claims: VERIFIED."; a capital status word only after its items
+  or beside the system's name, so "The program prints ACCEPTED if all numbers are valid" is output and "The
+  engine returned ENTAILED for every claim here" a self-report), the writer's own check, a finding code or a receipt field in the
+  sentence, a sentence of nothing but the words ("No findings.", "Approved by the hub.") or a label
+  position ("Approved by the overseer: ...", "...; approved by the hub."), never under negation or a modal
+  ("This answer has not been cross-checked"). So "If they match it prints VERIFIED, otherwise it prints
+  REJECTED", "The 1964 inquiry made no findings of a wider conspiracy", "Every punishment of an enslaved
+  worker was approved by the overseer" and "The deal was checked and confirmed by the competition
+  authority" are content (no CORE-SELF-001, no INT-HANDOFF-006, no self-report-disclosed). On a synthesis
+  the combinator's self-reports in prose are named too: the system credited with the claim ("..., which
+  the engine confirms.", "..., as Z3 confirms.", "..., as the overseer approved.", "..., a fact the checker
+  confirmed.", "...; the hub has verified it."; the names that are also ordinary words, the overseer, the
+  translator, the checker, the verifier and Z3, only after "as" or "a fact", or after "which" with a verb
+  of verification, so "..., which the overseer approved." stays History; and as the subject of a whole
+  sentence with the claim as object: "The engine confirms this claim.", "Z3 verified it."), every check passed
+  ("All checks passed.", "The formal checks passed.", "...; this passed all checks."), a signed result claimed ("This claim carries a signed engine
+  result."), an intensified verdict ("This is definitely correct."), a quality key ("QA: pass.") and the
+  common verification words of other languages as labels ("(vérifié)", "(geprüft)", "[verificado]"), each
+  on a synthesis only (`tests/adapters/test_integration_gate3_parsers.py`). The same gate's sweep of these
+  readers' class found four input stalls, each fixed at its cause with possessive runs and every reading held
+  to the old pattern's on random input: a bracketed verification label followed by a long blank run with no
+  closing bracket (`_LABEL_BRACKETED`, `_LABEL_MARK_BRACKETED`: "[ok", "(verified", 2.5 s at 20,000 blanks,
+  read for every sentence of every branch), the combinator's verdict term (`_SYNTH_VERDICT_TERM`: "(overseer"
+  with its optional key and colon, three adjacent runs, 8.8 s at only 1,000 blanks; "(audit"), the
+  synthesis self-assessment's tail (`_SYNTH_SELF_ASSESS_RE`: 1.5 s at 20,000 blanks) and the English
+  citation "Act I" (`english_specialist.structural`, 13 s at 20,000 blanks).
 - `sources.py` — the shared excerpt check (verbatim / normalized / trailing-punctuation /
   joined-span tolerance; a form difference such as an initial capital, a verse line-break
   mark, diacritics or a long elision is a located status, never "not found") used by every
@@ -295,7 +332,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   markup left out, cut to the contract's 4,000 characters, with ids `s<paragraph>.<n>` (`m<paragraph>.<n>` in mathematics,
   `c<paragraph>.<n>` in Computer Science, so two STEM branches never share a claim id on one
   task; a report whose ids another agent's report on the task already holds, as a second agent of
-  the same branch would, is parsed with its ids qualified by its agent, `s1.2@ess-specialist`);
+  the same branch would, is parsed with its ids qualified by its agent, `s1.2@ess-specialist`; the
+  History and English parsers offer the same option since integration gate 3, `qualify_ids`, with
+  every reference to a claim id inside the report qualified alike: `h1.1@history-specialist-b-cc7267dc`
+  for the duplicated instance `history-specialist@b`, `p1-point@english-a-lang-lit-specialist`);
   `original_response` is verbatim and nothing vanishes (statements beyond 512 merge into
   `s.tail` with the unresolved-issue text the channel turns into INT-REQ-013). Roles, materiality
   and supports are the generic parser's round-7 reading (`generic_parser.assign_roles`, run on

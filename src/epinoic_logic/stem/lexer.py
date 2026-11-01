@@ -47,8 +47,10 @@ a gap.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Literal, NamedTuple, Optional
 
 from .limits import DEFAULT_LIMITS, StemLimits
@@ -57,7 +59,8 @@ from .numbers import (
     scan_number, superscript_int,
 )
 
-__all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "Token", "combination_at", "lex"]
+__all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "SIGN_ERROR", "Token", "combination_at",
+           "is_sign_error", "lex", "sign_outside_grammar"]
 
 LexMode = Literal["plain", "latex"]
 
@@ -167,6 +170,45 @@ _SUB_START = frozenset(SUBSCRIPT_DIGITS) | frozenset(_SUBSCRIPT_LETTERS) | froze
 _MAX_COMMAND = 24
 _MAX_SUB = 16
 _MAX_TEXT = 400
+
+
+#: integration gate 3 (rule sign-forms): the value of an ``ERROR`` token that is a mathematical sign outside the grammar
+SIGN_ERROR = "a sign outside the grammar"
+#: the words of a Unicode name that make a mathematical symbol (category Sm) a relation sign
+_RELATION_NAME_WORDS = ("EQUAL", "LESS-THAN", "GREATER-THAN", "TILDE", "APPROXIMATELY", "ASYMPTOTICALLY", "EQUIVALENT", "IDENTICAL", "PRECEDES",
+                        "SUCCEEDS", "APPROACHES", "ESTIMATES")
+#: the words that make one an operator written between or before operands
+_OPERATOR_NAME_WORDS = ("PLUS", "MINUS", "TIMES", "MULTIPLICATION", "DIVISION", "PRODUCT", "OPERATOR", "PROPORTION", "SOLIDUS", "SLASH", "ROOT")
+#: the words of the signs of set membership and inclusion, which relate no values (left as they were: unknown characters)
+_SET_NAME_WORDS = ("ELEMENT", "SUBSET", "SUPERSET", "CONTAINS", "SUBGROUP")
+
+
+@lru_cache(maxsize=2048)
+def sign_outside_grammar(ch: str) -> str:
+    """Integration gate 3 (rule sign-forms): ``"relation"`` or ``"operator"`` when ``ch`` is a mathematical symbol (Unicode category
+    Sm, not ASCII) whose name makes it a relation sign or an operator written between or before operands, else ``""``. The lexer reads
+    every sign of the grammar before it asks (``= ≈ ≤ × ÷ ± √ ∝ →`` ...), and the reading view maps the fullwidth and small forms to the
+    signs they stand for (``normalize.SIGN_FORMS``), so what is left is a sign the grammar does not read: a cross product ``⨯``, a ring
+    operator ``∘``, ``∜``, ``≪``, ``≔``, ``≟``, ``⩶``. Such a sign is an ``ERROR`` token (:data:`SIGN_ERROR`), kept inside its run
+    (``spans``), so the relation holding it is named undecided (ST-PARSE-001) instead of being cut at it into a fragment that is
+    checked ('3 ⨯ 4 = 12' read as '4 = 12', an error on correct work) or dropped with nothing named ('20/4.0 ≒ 6'); the
+    unread-relation rule names a relation sign of this kind that no run holds. The signs of sets (∈, ⊂, ⊆), arrows, ∵ and the
+    other symbols relate no values and stay unknown characters, as before."""
+    if len(ch) != 1 or ch.isascii() or unicodedata.category(ch) != "Sm":
+        return ""
+    name = unicodedata.name(ch, "")
+    if not name or any(w in name for w in _SET_NAME_WORDS):
+        return ""
+    if any(w in name for w in _RELATION_NAME_WORDS):
+        return "relation"
+    if any(w in name for w in _OPERATOR_NAME_WORDS):
+        return "operator"
+    return ""
+
+
+def is_sign_error(t: "Token") -> bool:
+    """An ``ERROR`` token of a mathematical sign outside the grammar (:func:`sign_outside_grammar`)."""
+    return t.kind == "ERROR" and isinstance(t.value, str) and t.value.startswith(SIGN_ERROR)
 
 
 def _is_latin(ch: str) -> bool:
@@ -888,6 +930,13 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 k += 1
             emit("ERROR", s[i:k], i, k, value=f"letters outside the Latin and Greek alphabets ({s[i:k][:8]!r})")
             i = k
+            continue
+        kind_of_sign = sign_outside_grammar(ch)
+        if kind_of_sign:
+            # integration gate 3 (rule sign-forms): a relation sign or an operator the grammar does not read ('⨯', '∘', '≪', '≔'): an
+            # ERROR token that its run keeps, so the relation holding it is undecided, never cut at it
+            emit("ERROR", ch, i, i + 1, value=f"{SIGN_ERROR} ({kind_of_sign} {ch!r}, {unicodedata.name(ch, '')[:60].lower()})")
+            i += 1
             continue
         emit("OTHER", ch, i, i + 1)
         i += 1

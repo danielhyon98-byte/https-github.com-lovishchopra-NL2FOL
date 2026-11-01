@@ -414,8 +414,12 @@ Above the engine, the package turns specialist reports into IR. This translation
   - **Claim ids:** the generic parser qualifies its claim ids with the agent
     (`g1.2@economics-specialist`); the STEM parsers do so (`s1.2@ess-specialist`) when the report's
     ids would be ids a report of another agent already delivered on the task holds (integration gate
-    1, `channel.bus.needs_qualified_ids`), so two agents of these branches on one task never share a
-    claim id.
+    1, `channel.bus.needs_qualified_ids`), and so do the History and English parsers (integration
+    gate 3: `h1.1@history-specialist-b-cc7267dc` for the duplicated instance `history-specialist@b`,
+    whose id is cut to a plain tag with a digest, `p1-point@english-a-lang-lit-specialist` beside an
+    English A: Literature report), with every
+    reference to a claim id inside the report qualified alike, so two agents of these branches on one
+    task never share a claim id; a report whose ids collide with none keeps them.
 - **Command line** (integration gate 1): the signing key comes from `--signing-key-file`,
   `--signing-key-hex` or the `EPINOIC_SIGNING_KEY` environment variable (one source only) and is
   at least 16 bytes, as the service requires; `--adapter` is checked against the closed allowlist

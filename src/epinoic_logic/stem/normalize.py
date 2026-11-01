@@ -19,6 +19,13 @@ so an offset in any view is the same offset in the original.
     * U+2011 NON-BREAKING HYPHEN becomes ``-``;
     * ``+/-`` written before a number (``±0.5 °C`` written ``+/-0.5 °C``, ``1620 +/- 32``) becomes ``±`` and two spaces (STEM repair 4:
       the answer's own uncertainty is read as the supplied texts' is; elsewhere, ``+/- buttons``, it stays as written);
+    * integration gate 3 (rule sign-forms): the fullwidth and small forms of the relation signs, the arithmetic operators and the
+      brackets the grammar reads (``＝ ﹦ ＜ ＞ ﹤ ﹥ ＋ ﹢ － ﹣ ＊ ﹡ ／ （ ） ［ ］ ﹙ ﹚``), TWO CONSECUTIVE EQUALS SIGNS ``⩵``, the
+      over-equal forms ``≦ ≧`` (as ``⩽ ⩾`` are read), the fraction slash ``⁄``, the ratio sign ``∶``, the tilde operator ``∼``, the
+      dingbat signs ``✕ ✖ ➕ ➖ ➗`` and the increment sign ``∆`` (U+2206, read as the Greek ``Δ`` it is drawn as) become the sign they
+      stand for, one character for one. Before, each was an unknown character: a step written with ``＝`` had no relation, no check
+      and no finding, and one written with ``＋`` or ``／`` was cut at it (``3 ＋ 4 = 7`` read as ``4 = 7``, an error on correct work).
+      Every other mathematical sign the grammar does not read is an ``ERROR`` token of the lexer (``lexer.sign_outside_grammar``);
     * ``×`` stays its own token; superscript and subscript digits and signs stay as they
       stand (nothing is expanded). Letters of other scripts are left alone, so a Cyrillic
       ``а`` that looks like a Latin ``a`` is never read as one: the lexer rejects it.
@@ -34,7 +41,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-__all__ = ["MASK_FILL", "MASK_HEAD", "blank_ranges", "masked_view", "prose_view", "reading_view"]
+__all__ = ["MASK_FILL", "MASK_HEAD", "SIGN_FORMS", "blank_ranges", "masked_view", "prose_view", "reading_view"]
 
 MASK_HEAD = "X"
 MASK_FILL = "x"
@@ -42,7 +49,12 @@ MASK_FILL = "x"
 _SPACES = {" ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ",
            " ": " ", " ": " ", " ": " ", "　": " "}
 _ZERO_WIDTH = {"​": " ", "‌": " ", "‍": " ", "⁠": " ", "﻿": " "}
-_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH
+#: integration gate 3 (rule sign-forms): the forms of a sign the grammar reads, one character for one (module docstring)
+SIGN_FORMS = {"＝": "=", "﹦": "=", "⩵": "=", "＜": "<", "＞": ">", "﹤": "<", "﹥": ">", "≦": "≤", "≧": "≥",
+              "＋": "+", "﹢": "+", "➕": "+", "－": "-", "﹣": "-", "➖": "-", "＊": "*", "﹡": "*", "✕": "×",
+              "✖": "×", "／": "/", "⁄": "/", "➗": "÷", "（": "(", "）": ")", "﹙": "(", "﹚": ")", "［": "[",
+              "］": "]", "∶": ":", "∼": "~", "∆": "Δ"}
+_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | SIGN_FORMS
 _DASHES = frozenset({"–", "‒"})
 #: characters after which '+/-' written before a number is a plus-or-minus sign (STEM repair 4)
 _PLUS_MINUS_BEFORE = frozenset(" \t\n(=:,;[")

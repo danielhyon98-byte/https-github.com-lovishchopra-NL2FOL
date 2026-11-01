@@ -40,7 +40,7 @@ from epinoic_logic.engine.results import SolverConfig
 from epinoic_logic.integrity import AgentRole, Synthesis, WorkPlan
 from epinoic_logic.translate.contracts import SuppliedText, sha256_text
 
-from ..core_hostile import HOSTILE, inputs, sweep
+from ..core_hostile import HOSTILE, SHAPES, one, sweep
 
 KEY = b"gate2-channel-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000)
@@ -297,8 +297,9 @@ def _request_parser_entries(text: str):
     yield "is_note_block", lambda: RP.is_note_block(text)
 
 
-def test_sweep_request_parser():
-    assert not sweep(_request_parser_entries)
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_request_parser(shape):
+    assert not sweep(_request_parser_entries, texts=one(shape))
 
 
 def _bus_entries(text: str):
@@ -310,8 +311,9 @@ def _bus_entries(text: str):
     yield "_find_figure", lambda: B._find_figure(text, "1990", 0)
 
 
-def test_sweep_bus_readers():
-    assert not sweep(_bus_entries)
+@pytest.mark.parametrize("shape", SHAPES)
+def test_sweep_bus_readers(shape):
+    assert not sweep(_bus_entries, texts=one(shape))
 
 
 def _channel_entries(text: str):
@@ -336,8 +338,15 @@ def _channel_entries(text: str):
     yield "relay(synthesis text)", relay_synthesis
 
 
-def test_sweep_channel_entry_points():
-    assert not sweep(_channel_entries, bound=20.0, texts=dict(HOSTILE))
+#: The shapes the whole-channel sweeps read: the standard runs, and the blank run in each state the gate-3 findings and their
+#: class sweep found (integration gate 3).
+_CHANNEL_SHAPES = tuple(HOSTILE) + tuple(f"blanks {where}" for where in ("after a postposed approximation", "after an unclosed mark", "after a comparison",
+                                                                        "after a note label", "after a ratio word"))
+
+
+@pytest.mark.parametrize("shape", _CHANNEL_SHAPES)
+def test_sweep_channel_entry_points(shape):
+    assert not sweep(_channel_entries, bound=20.0, texts=one(shape))
 
 
 def _answer_entries(text: str):
@@ -348,6 +357,7 @@ def _answer_entries(text: str):
     yield "receive(History answer)", receive
 
 
-def test_sweep_channel_response():
+@pytest.mark.parametrize("shape", _CHANNEL_SHAPES)
+def test_sweep_channel_response(shape):
     """A History answer carrying each hostile run crosses the channel (parse, packs, ledger, checks) in bounded time."""
-    assert not sweep(_answer_entries, bound=30.0, texts=dict(HOSTILE))
+    assert not sweep(_answer_entries, bound=30.0, texts=one(shape))

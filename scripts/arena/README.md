@@ -22,7 +22,8 @@ with `claim_text_sha256` binding each to the claim text it was produced for), `s
 Write translation fixtures and combinator citations with the claim ids `list_claims.py` prints: they are the ids the hub
 delivers. The reports of one group (one hub task) are delivered in `run_arena.py`'s order (name order, a peer-dependent
 task after the task it depends on), and the hub parses a STEM report whose claim ids a report of another agent delivered
-before it already holds with its ids qualified by its agent (`channel.bus.needs_qualified_ids`, integration gate 1): when
+before it already holds with its ids qualified by its agent (`channel.bus.needs_qualified_ids`, integration gate 1; a
+History or English report likewise since integration gate 3, `h1.1@<agent>`, `p1-point@<agent>`): when
 a Chemistry and a Physics specialist of one group both write `s1.2`, the Physics report, delivered second, is delivered
 as `s1.2@physics-specialist`. `list_claims.py <round>/specialists/<task>.json` therefore parses the file after every
 member of its group delivered before it (given on the command line or not, each taken as delivered), with the subject,
@@ -31,7 +32,7 @@ the files delivered before it and whether its ids are qualified, and `--json` ca
 `ids_qualified`. `--agent-view` renders the reports in the order given, each under the ids the hub delivers it.
 
 `run_arena.py` keys a recorded translation by its claim id, and a STEM claim has two forms of its id: `s1.2` and
-`s1.2@<agent>`. The genuine pass and the delivery pass deliver the group's reports on one hub task, so the second STEM
+`s1.2@<agent>` (a History or English claim likewise: `h1.1` and `h1.1@<agent>`, `p1-point` and `p1-point@<agent>`). The genuine pass and the delivery pass deliver the group's reports on one hub task, so the second STEM
 report of a group carries the qualified form; a mutation is delivered on a hub task of its own with only its peer's
 report before it (a peer-dependent task), so there the same claim carries the unqualified form unless that peer holds
 its id. A translation recorded under either form of one agent's STEM claim id serves that claim

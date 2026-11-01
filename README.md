@@ -86,7 +86,7 @@ Integrity properties the channel holds on every transmission and relay:
 - A quotation whose words occur in the supplied text but whose form differs (initial capital, a verse line break written " / ", a long elision, accents such as 'Román' for 'Roman') is a warning, never an invented quotation (INT-REQ-010).
 - A quotation credited to one source but found only in another supplied text, a peer specialist's report included, is a wrong attribution and is named with both texts (CORE-SRC-005, ES-SRC-008).
 - A synthesis carrying a value outside the synthesis contract's closed vocabularies, such as a transformation written as a description of the edit instead of one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, is REJECTED with INT-REQ-009 and INT-SYNTH-014 naming the claims, whether it arrives as JSON or as an object built around validation; it is never delivered with the ledger rules those values select skipped, and never an exception (`integrity.contracts.TRANSFORMATION_MEANINGS`).
-- A report or synthesis object carrying None in a field that has a default but is not Optional (a transformation, a certainty, a ledger) is REJECTED with INT-REQ-009 (and INT-SYNTH-014 for a closed vocabulary), never delivered with the default the recipient would read; every check runs on the payload as delivered (integration gate 2).
+- A report or synthesis object carrying None in a field that has a default but is not Optional (a transformation, a certainty, a ledger) is REJECTED with INT-REQ-009 (and INT-SYNTH-014 for a closed vocabulary), never delivered with the default the recipient would read; every check runs on the payload as delivered (integration gate 2); the payload as delivered is re-validated before any identity, party or id-reuse check reads it, so an object built around validation whose identity fields are missing, None or unhashable is REJECTED with INT-REQ-009 and nothing raises, and a subclass whose dump names another combinator is checked as delivered (INT-ENV-008, INT-HANDOFF-002; integration gate 3).
 
 ## STEM subjects: equations and prose (`src/epinoic_logic/stem/`)
 
@@ -108,7 +108,9 @@ What the STEM branches do:
   strings, and three AST scans in the tests enforce it. Claims are offset substrings of the
   answer (`s1.2`; `m1.2` in Mathematics, `c1.2` in Computer Science; when another agent's report on the task
   already holds those ids, as a second specialist of the same branch would, the ids are qualified with the agent,
-  `s1.2@ess-specialist`, so no two reports on one task share a claim id), and the router receives the answer verbatim.
+  `s1.2@ess-specialist`, so no two reports on one task share a claim id; the History and English parsers do the same
+  since integration gate 3, `p1-point@english-a-lang-lit-specialist` beside an English A: Literature report, and the
+  generic parser always qualifies), and the router receives the answer verbatim.
 - **Decide what can be decided.** Every relation the front end recognises becomes an IR 1.0
   problem the Z3 engine decides, or is named undecided with the reason, or is recorded as a
   binding, a law or a premise-free context line. Nothing recognised is dropped silently. The
@@ -456,8 +458,8 @@ and qualifies a replay that loses recorded translations (`scripts/arena/README.m
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
 so the number of transmissions never depends on what crashed. The listing that briefs the agents and the translation
 agent (`scripts/arena/list_claims.py`) prints the claim ids the hub delivers, the agent-qualified ids of a group's second
-STEM report included, and a recorded translation keyed by either form of one agent's STEM claim id is served to that
-claim and named on the record. The combinator's synthesis reaches the hub as
+STEM, History or English report of one branch included, and a recorded translation keyed by either form of one agent's
+STEM, History or English claim id is served to that claim and named on the record. The combinator's synthesis reaches the hub as
 written, its citations included, and a syntheses file outside the combinator's published contract (a control or
 bidirectional character, a blank text, a repeated citation) is a failure named with its `KIT-CB` code, as the
 deployed combinator would refuse it. A peer-dependent agent reads of

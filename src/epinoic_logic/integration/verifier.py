@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 __all__ = ["VerifierLog", "BudgetedVerifier", "PrefetchingProvider", "FixtureCorpus", "RekeyingFixtureProvider", "rekeyed_fixture",
-           "first_attempt_request", "claim_is_eligible"]
+           "first_attempt_request", "claim_is_eligible", "qualification_tag", "other_id_form", "fixture_for_claim"]
 
 
 @dataclass
@@ -240,7 +240,12 @@ class FixtureCorpus:
         ``(None, None)`` when no item has this answer. A fixture recorded under the arena's request id of its item
         (``req-<item>``, or ``req-<group>``) is served under the request id of the claim being translated
         (:class:`RekeyingFixtureProvider`; a no-op in the arena, whose claims carry that id); a fixture recorded for
-        another request is served as it is, and refused as the arena refuses it."""
+        another request is served as it is, and refused as the arena refuses it. A fixture recorded under the other form
+        of the report's own claim id (:func:`other_id_form`: the hub qualifies a report's ids with its agent when a report
+        of another agent on the task holds them, as the second of two instances of one specialist in duplicate mode does)
+        serves that claim, its problem naming the delivered id (:func:`fixture_for_claim`) and bound to the claim text by
+        the recorded id's digest, as the arena serves it (integration gate 3, handoff fixer: the second History instance's
+        qualified claims got no fixture, so a duplicate-mode turn was refused as incomplete, KIT-DL-011)."""
         item = self._index.get(answer_sha256)
         doc = self._translations.get(item) if item is not None else None
         if not doc:
@@ -254,10 +259,66 @@ class FixtureCorpus:
         ids = frozenset(doc["claims"])
 
         def fn(claim: Any, report: Any) -> Any:
-            if claim.claim_id not in ids:
+            key = claim.claim_id if claim.claim_id in ids else None
+            if key is None:
+                other = other_id_form(claim.claim_id, qualification_tag(report))
+                key = other if other is not None and other in ids else None
+            if key is None:
                 return None
-            return verify_claim(claim, report, translator, config=config, signing_key=signing_key, key_id=key_id)
+            use = translator
+            if key != claim.claim_id:
+                use = Translator(RekeyingFixtureProvider({claim.claim_id: fixture_for_claim(doc["claims"][key], key, claim.claim_id)},
+                                                         {claim.claim_id: doc["claim_text_sha256"][key]}, arena_request_id=self._arena_request_ids.get(item)))
+            return verify_claim(claim, report, use, config=config, signing_key=signing_key, key_id=key_id)
         return fn, provider
+
+
+def qualification_tag(report: Any) -> Optional[str]:
+    """The tag the hub qualifies ``report``'s claim ids with when a report of another agent on the task holds them
+    (``generic_parser.agent_claim_tag`` of its agent), or None when its branch's parser never qualifies its ids on that
+    account (only a parser offering ``accepts_qualify_ids`` is asked to: ``channel.bus.needs_qualified_ids``). The arena's
+    ``run_arena.qualification_tag``, read from the delivered report."""
+    from ..branches import default_registry
+    from ..branches.generic_parser import agent_claim_tag
+    branch, _profile = default_registry().for_subject(report.subject)
+    if getattr(branch.parser(), "accepts_qualify_ids", False) is not True:
+        return None
+    return agent_claim_tag(report.agent_id)
+
+
+def other_id_form(claim_id: Any, tag: Optional[str]) -> Optional[str]:
+    """The other form the hub's rule gives one claim id of a report whose ids it may qualify with ``tag``: 's1.2' for
+    's1.2@physics-specialist' and the reverse; None without a tag, or for an id qualified with another tag (another agent's
+    claim). The arena's ``run_arena.other_id_form``."""
+    if not tag or not isinstance(claim_id, str):
+        return None
+    suffix = "@" + tag
+    if claim_id.endswith(suffix):
+        base = claim_id[:-len(suffix)]
+        return base if base and "@" not in base else None
+    return None if "@" in claim_id else claim_id + suffix
+
+
+def fixture_for_claim(value: Any, recorded_id: str, claim_id: str) -> str:
+    """The recorded translation ``value`` (an object, or text) as served to the delivered claim ``claim_id``, the other form
+    of its recorded id: a copy whose problem names ``claim_id`` where it named ``recorded_id``, nothing else changed (data
+    only, read by the pipeline's own reader; nothing is evaluated). A text that is no JSON object, or a problem naming
+    another claim, is served as recorded, so the pipeline decides it as it would under the recorded id. The arena's
+    ``run_arena.fixture_for_claim``."""
+    from ..translate.parsing import ProviderOutputError, parse_json_object
+    if isinstance(value, str):
+        try:
+            obj = parse_json_object(value)
+        except ProviderOutputError:
+            return value
+    elif isinstance(value, dict):
+        obj = json.loads(json.dumps(value))
+    else:
+        return json.dumps(value)
+    problem = obj.get("problem")
+    if isinstance(problem, dict) and problem.get("claim_id") == recorded_id:
+        problem["claim_id"] = claim_id
+    return json.dumps(obj)
 
 
 def rekeyed_fixture(obj: Any, request_id: str, *, only_from: Optional[str] = None) -> str:

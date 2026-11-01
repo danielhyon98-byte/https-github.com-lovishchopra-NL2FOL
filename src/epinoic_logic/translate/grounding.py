@@ -310,7 +310,10 @@ def _extend_over_marks(text: str, end: int) -> int:
 
 
 #: An elision mark in brackets or parentheses, the academic form of an ellipsis: "[...]", "[…]", "[ . . . ]", "(...)".
-_BRACKETED_ELISION_RE = re.compile(r"\s*[\[(]\s*(?:(?:\.\s*){3}|…)\s*[\])]\s*")
+#: A leading blank run is read only from where the run starts (integration gate 3): from every position of a long blank
+#: run the run was read to its end again (quadratic). The leftmost match of the old pattern always started at the run's
+#: start or at the bracket itself (a run the match before it consumed), so the matches are the same.
+_BRACKETED_ELISION_RE = re.compile(r"(?:(?<!\s)\s++)?[\[(]\s*+(?:(?:\.\s*+){3}|…)\s*+[\])]\s*+")
 
 
 def unbracket_elisions(excerpt: str) -> str:

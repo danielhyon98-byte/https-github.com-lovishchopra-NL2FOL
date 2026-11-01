@@ -223,7 +223,10 @@ def _leads_with(low: str, words: tuple[str, ...]) -> bool:
 _PART_LABEL_RE = re.compile(r"(?:^|(?<=\n)|(?<=[.?!:;\]»\"'”’)])\s++|(?<=[.?!:;\]»\"'”’])(?=\())[ \t]*(?P<label>\((?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)])(?=\s)")
 #: The end of a part: its mark annotation, with any closing quotation mark of the question it belongs to ("... [3]' My
 #: answer is pasted below."); what follows is the request's own text again.
-_PART_END_RE = re.compile(r"\[\s*\d+\s*(?:marks?)?\s*\][\'’\"”»]?(?=\s+[A-Z¿¡«\"“])")
+#: Every run is possessive (integration gate 3): the blank runs before and after the optional "marks" met only through it,
+#: so a last part ending "[1" before a long blank run backtracked through every split of the run (quadratic in a request);
+#: no item after a run starts with a blank or a digit, so every match is the one the backtracking form found.
+_PART_END_RE = re.compile(r"\[\s*+\d++\s*+(?:marks?)?\s*+\][\'’\"”»]?(?=\s++[A-Z¿¡«\"“])")
 #: Sentences for items: like the parsers' cut, but a sentence may also open with an inverted question or exclamation mark,
 #: a guillemet or a figure ("¿Quién tuvo ...?").
 _ITEM_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(¿¡«“‘\d])")
@@ -358,7 +361,10 @@ def _segments(paragraph: str) -> list[tuple[str, bool]]:
 
 #: A block the writer labels as a note ("Note: ...", "NB:", "Notes -", "Note on sources:"): meta-text when its sentences are
 #: about the answer's sources, the task or the method (:data:`_META_CUE_RE`), not part of the answer.
-_NOTE_LABEL_RE = re.compile(r"^\W{0,3}(?:notes?|n\.?\s?b\.?|source\s+notes?|notes?\s+on\s+(?:sources?|method|the\s+task|figures?))\s*(?:\([^)]{0,40}\))?\s*[:\-\u2013\u2014]", re.IGNORECASE)
+#: The blank runs around the optional bracket are possessive (integration gate 3): "Note" before a long blank run in an
+#: answer backtracked through every split of the run (quadratic); neither the bracket nor the label's mark starts with a
+#: blank, so every match is the one the backtracking form found.
+_NOTE_LABEL_RE = re.compile(r"^\W{0,3}(?:notes?|n\.?\s?b\.?|source\s+notes?|notes?\s+on\s+(?:sources?|method|the\s+task|figures?))\s*+(?:\([^)]{0,40}\))?\s*+[:\-\u2013\u2014]", re.IGNORECASE)
 #: What a note says: where the answer's material came from (or did not: a library unavailable, a figure unconfirmed), a
 #: correction of the task's own statement (marks, timings, level), or what the writer did or used.
 _META_CUE_RE = re.compile(
@@ -398,14 +404,30 @@ _DIAGRAM_HEAD_RE = re.compile(r"^\W{0,3}(?:diagram|figure|graph|sketch|chart)\b[
 _DIAGRAM_LINE_RE = re.compile(r"^\s*(?:axes|axis|x-axis|y-axis|curves?|lines?|labels?|change|shift|equilibri(?:a|um)|areas?|shading|arrows?|key|title)\s*:", re.IGNORECASE)
 
 
+def blank_quotations(text: str) -> str:
+    """``text`` with every quotation span (``adapters.markdown.find_quotation_spans``, marks included) blanked, the length
+    kept, in one pass: what blanking each span in turn gave (integration gate 3: the text was rebuilt once per quotation)."""
+    from ..adapters.markdown import find_quotation_spans
+    spans = find_quotation_spans(text)
+    if not spans:
+        return text
+    parts: list[str] = []
+    at = 0
+    for start, end, _inner in sorted(spans):
+        start = max(start, at)
+        if end <= start:
+            continue
+        parts.append(text[at:start])
+        parts.append(" " * (end - start))
+        at = end
+    parts.append(text[at:])
+    return "".join(parts)
+
+
 def _is_working_sentence(sentence: str) -> bool:
     """A sentence of working: an equation or a calculation outside its quotations (a quoted equation in a prose
     sentence, 'the Economics specialist calculates "PED = −0.67"', stays prose)."""
-    from ..adapters.markdown import find_quotation_spans
-    bare = sentence
-    for start, end, _inner in reversed(find_quotation_spans(sentence)):
-        bare = bare[:start] + " " * (end - start) + bare[end:]
-    return bool(_EQUATION_RE.search(bare))
+    return bool(_EQUATION_RE.search(blank_quotations(sentence)))
 
 
 def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (), view=None) -> tuple[int, int, int]:

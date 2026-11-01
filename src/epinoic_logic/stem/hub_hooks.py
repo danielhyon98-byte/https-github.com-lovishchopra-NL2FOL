@@ -114,10 +114,12 @@ class StemHooks:
             if not claim_text or not report_text:
                 return frozenset()
             doc = self._doc(report_text, request_text, profile_key)
-            at = report_text.find(claim_text)
-            if at < 0:
+            # integration gate 3 (rule emphasis-layout): a claim whose statement holds markup ('= **6.0 m s⁻²**.') is written without it,
+            # so it is found in the answer with the markup left out (it was found nowhere, and the claim offered no word: INT-REQ-004)
+            where = doc.locate(claim_text)
+            if where is None:
                 return frozenset()
-            end = at + len(claim_text)
+            at, end = where
             sids = [st.id for st in doc.statements if st.start < end and at < st.end]
             terms: list[str] = []
             if any(r.kind in _COMPUTE_KINDS for sid in sids for r in doc.checks_for(sid)):

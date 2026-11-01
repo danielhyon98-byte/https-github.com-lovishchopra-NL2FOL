@@ -729,3 +729,14 @@ before, and compared record for record with the recorded run (its `results.json`
 subject findings, codes and status are the same: on the recorded answers the new readings add no check and change no
 outcome. Each finding's probes give the expected verdicts with clean controls (`tests/stem/test_integration_gate1_stem.py`,
 146 tests). Measured 2026-10-31. These are replays of recorded answers: no specialist was called.
+
+### 10.12 Integration gate 3, measured on the recorded round
+
+After the fixes of design section 37 the harness on a fresh copy of the recorded round 7 gives 177 of 177 functional, as
+before, and compared record for record with a run of the tree before the fixes (an export of its commit, on another fresh
+copy), every record's status, codes, findings and their messages, subject findings, formal checks, coverage, constraints,
+outcomes and summary are the same: the recorded answers hold no bold or underscored working, no middle dot between digits, no
+sign form and no tested value, so the new readings add no check and change no outcome there. Each finding's probes give the
+expected verdicts with clean controls (`tests/stem/test_integration_gate3_stem.py`, 122 tests, the transfer audit of each new reading among them), and the new readings stay
+linear on hostile input of 20,000 characters (at most 0.7 s CPU for a document and its checks; about twice the time at twice
+the length). Measured 2026-11-01. These are replays of recorded answers: no specialist was called.
